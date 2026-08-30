@@ -132,6 +132,7 @@ export {
   resolveAgentProfileEditCapabilities,
 } from "./agent-profile-edit-capabilities";
 export {
+  AGENT_PROFILE_USAGE_CHECKING_REASON_CODE,
   AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE,
   type AgentProfileUsageRecoveryAvailability,
   type AgentProfileUsageWakeability,

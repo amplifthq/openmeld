@@ -1387,39 +1387,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reason: "agent_profile_work_coordinator.changed",
       });
     }
-    if (response.pendingInboxProjections.length > 0) {
-      const profileDb = localStateDb(this.env);
-      const targetInboxDb = inboxDb(this.env);
-      if (!(profileDb && targetInboxDb)) {
-        throw new Error(
-          "runtime.transport.agent_profile_work_recovery_inbox_db_unavailable"
-        );
-      }
-      for (const projection of response.pendingInboxProjections) {
-        const profile = await readAgentProfileOrganizationContext({
-          agentProfileId: projection.targetProfileId,
-          db: profileDb,
-        });
-        if (
-          profile?.organizationId === null ||
-          profile?.ownerUserId !== parsed.data.ownerUserId ||
-          profile?.profileKind !== "agent"
-        ) {
-          continue;
-        }
-        await projectAgentProfileWorkRecoveryInboxItem({
-          db: targetInboxDb,
-          interruptedClientMessageId: projection.interruptedClientMessageId,
-          nowMs,
-          occurredAtMs: projection.recoveryAvailableAtMs,
-          organizationId: profile.organizationId,
-          ownerUserId: profile.ownerUserId,
-          profileId: projection.targetProfileId,
-          profileName: profile.profileName,
-          stage: "continue_interrupted_work",
-        });
-      }
-    }
     return runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
       changedProfileIds: response.changedProfileIds,
       status: response.status,

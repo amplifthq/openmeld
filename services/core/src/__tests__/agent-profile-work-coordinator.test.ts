@@ -264,10 +264,25 @@ describe("Agent Profile Work Coordinator", () => {
       outcome: "usage_exhausted",
       targetWakeLifecycleId: "wake-1",
     }).coordinator;
-    coordinator = markAgentProfileWorkUsageAvailable({
+    const usageRecovered = markAgentProfileWorkUsageAvailable({
       coordinator,
       nowMs: 1_700_000_000_200,
-    }).coordinator;
+    });
+    expect(usageRecovered.coordinator.recoveryGate?.status).toBe(
+      "continuation_pending"
+    );
+    coordinator = usageRecovered.coordinator;
+    const newIntentAfterRecovery = acceptAgentProfileWork({
+      coordinator,
+      item: workItem(4),
+      nowMs: 1_700_000_000_250,
+    });
+    expect(newIntentAfterRecovery).toMatchObject({
+      queuePosition: 3,
+      status: "queued",
+      waitingCount: 3,
+    });
+    coordinator = newIntentAfterRecovery.coordinator;
     coordinator = authorizeAgentProfileWorkContinuation({
       continuationClientMessageId: "client-continuation-1",
       coordinator,
@@ -283,12 +298,13 @@ describe("Agent Profile Work Coordinator", () => {
     expect(continuation).toMatchObject({
       queuePosition: 0,
       status: "start",
-      waitingCount: 2,
+      waitingCount: 3,
     });
     expect(continuation.coordinator.workItems).toEqual([
       workItem(10),
       workItem(2),
       workItem(3),
+      workItem(4),
     ]);
 
     const continued = settleAgentProfileWork({
@@ -304,9 +320,9 @@ describe("Agent Profile Work Coordinator", () => {
     expect(summarizeAgentProfileWorkCoordinator(continued.coordinator)).toEqual(
       {
         currentWork: null,
-        queuedWork: [workItem(2), workItem(3)],
+        queuedWork: [workItem(2), workItem(3), workItem(4)],
         status: "paused",
-        waitingCount: 2,
+        waitingCount: 3,
       }
     );
 
@@ -318,9 +334,9 @@ describe("Agent Profile Work Coordinator", () => {
     expect(approved.coordinator.recoveryGate).toBeNull();
     expect(summarizeAgentProfileWorkCoordinator(approved.coordinator)).toEqual({
       currentWork: workItem(2),
-      queuedWork: [workItem(3)],
+      queuedWork: [workItem(3), workItem(4)],
       status: "working",
-      waitingCount: 1,
+      waitingCount: 2,
     });
   });
 });

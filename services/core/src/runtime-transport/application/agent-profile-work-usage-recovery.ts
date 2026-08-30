@@ -18,12 +18,18 @@ export type NotifyAgentProfileWorkUsageAvailable = (input: {
   targetProfileIds: readonly string[];
 }) => Promise<void>;
 
+export type ResumeUsageExhaustedAgentProfileWork = (input: {
+  ownerUserId: string;
+  targetProfileIds: readonly string[];
+}) => Promise<void>;
+
 export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
   bindingStore: AgentProfileWorkUsageRecoveryBindingStore;
   currentReport: AcceptedRuntimeAgentControllerReport;
   notifyUsageAvailable: NotifyAgentProfileWorkUsageAvailable;
   nowMs: number;
   ownerUserId: string;
+  resumeInterruptedWork: ResumeUsageExhaustedAgentProfileWork;
 }): Promise<void> {
   const availability = resolveAgentProfileUsageRecoveryAvailability({
     nowMs: input.nowMs,
@@ -47,8 +53,10 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
     return;
   }
 
-  await input.notifyUsageAvailable({
+  const recoveryTargets = {
     ownerUserId: input.ownerUserId,
     targetProfileIds: bindings.map((binding) => binding.agentProfileId),
-  });
+  };
+  await input.notifyUsageAvailable(recoveryTargets);
+  await input.resumeInterruptedWork(recoveryTargets);
 }

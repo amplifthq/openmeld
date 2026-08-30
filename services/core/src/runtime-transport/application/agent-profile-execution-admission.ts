@@ -595,7 +595,7 @@ function resolveAgentProfileWorkRecoveryAction(
   status: AgentProfileWorkRecoveryGate["status"] | null
 ): "continue_interrupted_work" | "approve_queued_work" | null {
   switch (status) {
-    case "awaiting_owner_continuation":
+    case "continuation_pending":
     case "continuation_authorized":
       return "continue_interrupted_work";
     case "awaiting_owner_approval":
@@ -994,12 +994,6 @@ export type AgentProfileWorkCoordinatorHeadWriteResult =
     pendingPromotion?: PendingAgentProfileWorkPromotion;
   };
 
-export type AgentProfileWorkUsageRecoveryInboxProjection = {
-  interruptedClientMessageId: string;
-  recoveryAvailableAtMs: number;
-  targetProfileId: string;
-};
-
 export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input: {
   nowMs: number;
   ownerUserId: string;
@@ -1008,12 +1002,10 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
 }): Promise<
   | {
       changedProfileIds: string[];
-      pendingInboxProjections: AgentProfileWorkUsageRecoveryInboxProjection[];
       status: "updated";
     }
   | {
       changedProfileIds: [];
-      pendingInboxProjections: [];
       status: "unavailable";
     }
 > {
@@ -1026,7 +1018,6 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
   if (readyIndex.status !== "ready") {
     return {
       changedProfileIds: [],
-      pendingInboxProjections: [],
       status: "unavailable",
     };
   }
@@ -1041,13 +1032,10 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
     ) {
       return {
         changedProfileIds: [] as [],
-        pendingInboxProjections: [] as [],
         status: "unavailable" as const,
       };
     }
     const changedProfileIds: string[] = [];
-    const pendingInboxProjections: AgentProfileWorkUsageRecoveryInboxProjection[] =
-      [];
     for (const targetProfileId of targetProfileIds) {
       const storageKey = buildExecutionAdmissionStorageKey(targetProfileId);
       const rawAdmission = await transaction.get<unknown>(storageKey);
@@ -1071,55 +1059,12 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
         } satisfies AgentProfileExecutionAdmissionRecord);
         changedProfileIds.push(targetProfileId);
       }
-      const recoveryGate = result.coordinator.recoveryGate;
-      const pendingInboxProjection =
-        await readAgentProfileWorkUsageRecoveryInboxProjection({
-          gate: recoveryGate,
-          ownerUserId: input.ownerUserId,
-          storage: transaction,
-          targetProfileId,
-        });
-      if (pendingInboxProjection) {
-        pendingInboxProjections.push(pendingInboxProjection);
-      }
     }
     return {
       changedProfileIds,
-      pendingInboxProjections,
       status: "updated" as const,
     };
   });
-}
-
-async function readAgentProfileWorkUsageRecoveryInboxProjection(input: {
-  gate: AgentProfileWorkRecoveryGate | null;
-  ownerUserId: string;
-  storage: Pick<DurableObjectTransaction, "get">;
-  targetProfileId: string;
-}): Promise<AgentProfileWorkUsageRecoveryInboxProjection | null> {
-  if (input.gate?.status !== "awaiting_owner_continuation") {
-    return null;
-  }
-  const interruptedHead = await input.storage.get<unknown>(
-    buildRuntimeCoordinatorHeadLifecycleStorageKey(
-      input.gate.interruptedWork.targetWakeLifecycleId
-    )
-  );
-  if (
-    !isRuntimeCoordinatorHeadLifecycleRecord(interruptedHead) ||
-    interruptedHead.ownerUserId !== input.ownerUserId ||
-    interruptedHead.targetWakeLifecycleIdentity.targetProfileId !==
-      input.targetProfileId ||
-    !interruptedHead.targetWakeLifecycleIdentity.clientMessageId
-  ) {
-    return null;
-  }
-  return {
-    interruptedClientMessageId:
-      interruptedHead.targetWakeLifecycleIdentity.clientMessageId,
-    recoveryAvailableAtMs: input.gate.updatedAtMs,
-    targetProfileId: input.targetProfileId,
-  };
 }
 
 export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(input: {
@@ -2979,6 +2924,9 @@ function parseExecutionAdmissionRecord(
     return null;
   }
   const record = value as Partial<AgentProfileExecutionAdmissionRecord>;
+  const recoveryGate = parseAgentProfileWorkRecoveryGateOrLegacy(
+    record.recoveryGate
+  );
   if (
     (record.modelVersion !== EXECUTION_ADMISSION_MODEL_VERSION &&
       record.modelVersion !== LEGACY_EXECUTION_ADMISSION_MODEL_VERSION) ||
@@ -2994,7 +2942,7 @@ function parseExecutionAdmissionRecord(
       MAX_EXECUTION_ADMISSION_REFERENCES_PER_KIND ||
     typeof record.referencesOverflowed !== "boolean" ||
     !isExecutionTargetMutationLeaseOrNull(record.executionTargetMutation) ||
-    !isAgentProfileWorkRecoveryGateOrLegacy(record.recoveryGate) ||
+    recoveryGate === undefined ||
     !isAgentProfileWorkCoordinatorItemsOrLegacy(record.workItems)
   ) {
     return null;
@@ -3002,27 +2950,32 @@ function parseExecutionAdmissionRecord(
   return {
     ...(record as AgentProfileExecutionAdmissionRecord),
     modelVersion: EXECUTION_ADMISSION_MODEL_VERSION,
-    recoveryGate: record.recoveryGate ?? null,
+    recoveryGate,
     workItems: record.workItems ?? [],
   };
 }
 
-function isAgentProfileWorkRecoveryGateOrLegacy(
+function parseAgentProfileWorkRecoveryGateOrLegacy(
   value: unknown
-): value is AgentProfileWorkRecoveryGate | null | undefined {
+): AgentProfileWorkRecoveryGate | null | undefined {
   if (value === undefined || value === null) {
-    return true;
+    return null;
   }
   if (!value || typeof value !== "object") {
-    return false;
+    return undefined;
   }
   const gate = value as Partial<AgentProfileWorkRecoveryGate>;
+  const rawStatus = (value as { status?: unknown }).status;
+  const status =
+    rawStatus === "awaiting_owner_continuation"
+      ? "continuation_pending"
+      : rawStatus;
   const validStatus =
-    gate.status === "awaiting_usage" ||
-    gate.status === "awaiting_owner_continuation" ||
-    gate.status === "continuation_authorized" ||
-    gate.status === "continuation_running" ||
-    gate.status === "awaiting_owner_approval";
+    status === "awaiting_usage" ||
+    status === "continuation_pending" ||
+    status === "continuation_authorized" ||
+    status === "continuation_running" ||
+    status === "awaiting_owner_approval";
   const continuationClientMessageIdValid =
     gate.continuationClientMessageId === null ||
     (typeof gate.continuationClientMessageId === "string" &&
@@ -3030,15 +2983,23 @@ function isAgentProfileWorkRecoveryGateOrLegacy(
   const interruptedWorkValid = isAgentProfileWorkCoordinatorItemsOrLegacy([
     gate.interruptedWork,
   ]);
-  return (
+  if (
     validStatus &&
     continuationClientMessageIdValid &&
     interruptedWorkValid &&
     isNonnegativeInteger(gate.updatedAtMs) &&
-    (gate.status === "continuation_authorized"
+    (status === "continuation_authorized"
       ? typeof gate.continuationClientMessageId === "string"
       : gate.continuationClientMessageId === null)
-  );
+  ) {
+    return {
+      continuationClientMessageId: gate.continuationClientMessageId ?? null,
+      interruptedWork: gate.interruptedWork as AgentProfileWorkCoordinatorItem,
+      status,
+      updatedAtMs: gate.updatedAtMs as number,
+    };
+  }
+  return undefined;
 }
 
 function isAgentProfileWorkCoordinatorItemsOrLegacy(

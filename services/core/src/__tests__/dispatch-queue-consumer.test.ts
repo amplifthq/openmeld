@@ -9025,6 +9025,73 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
+  it("does not accept workstation Wake while supported Usage is unavailable", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-usage-checking-1",
+      sourceEventId: "evt-usage-checking-1",
+      targetProfileId: "agt-usage-checking-1",
+      visitedProfileIdsHash: "stable32:usage-checking-1",
+    });
+    const observedAt = new Date().toISOString();
+    const db = createOpenMeldDbWithProfileRow({
+      agentControllerRef: "builtin:codex",
+      controllerEnabled: 1,
+      openMeldServiceRuntimeId: "runtime-usage-wakeability",
+      profileKind: "agent",
+      profileStatus: "active",
+      runtimeAgentControllerInterfaceJson: JSON.stringify({
+        agentControllerRef: "builtin:codex",
+        auth: { status: "authenticated" },
+        capabilities: {
+          approvals: true,
+          cancel: true,
+          interrupt: true,
+          modelSelection: true,
+          nativeEventStream: true,
+          permissionModes: true,
+          structuredUserInput: true,
+        },
+        checkedAt: observedAt,
+        controllerId: "codex",
+        displayName: "Codex",
+        launch: {
+          argsPrefix: [],
+          commandPath: "/opt/openmeld/codex",
+          installChoiceCount: 1,
+          status: "ready",
+        },
+        message: null,
+        models: [],
+        nativeInterface: "codex-app-server",
+        schemaVersion: 1,
+        skills: [],
+        status: "ready",
+        usageLimits: [
+          {
+            key: "five_hour",
+            label: "5-hour Usage Limit",
+            observedAt,
+            resetsAt: null,
+            status: "unavailable",
+            usedPercent: null,
+          },
+        ],
+        version: "1.0.0",
+      }),
+    });
+
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(db),
+        message,
+      })
+    ).resolves.toMatchObject({
+      errorCode: "usage_checking",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      ok: false,
+    });
+  });
+
   it("retries when Core primary binding storage is unavailable", async () => {
     const authRpc = createAuthRpcWithBindingSnapshot({
       bindingState: "bound",

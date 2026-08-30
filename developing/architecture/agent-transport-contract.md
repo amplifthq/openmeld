@@ -148,6 +148,15 @@ external redrive did not complete. A repeated terminal event is idempotent and
 cannot promote a second item. Route or Service `waiting` does not release the
 Profile work slot.
 
+A structured `usage_exhausted` terminal outcome is the deliberate exception to
+ordinary promotion: the Coordinator retains the interrupted work identity and
+holds every later Wake. A fresh reliable Usage recovery automatically starts
+one deterministic retry-as-new-execution for that interrupted request. Only its
+successful terminal result opens the separate owner approval gate for queued
+work and creates the urgent Inbox/email action. Later Wakes, including new
+intent accepted after Usage recovers, remain in FIFO behind that gate. Repeated
+reports and retries must converge on the same continuation operation.
+
 Provider-native instruction delivery is an adapter optimization inside the
 local execution carrier. It must not change outbox admission,
 RuntimeCoordinator ownership or lifecycle, Binding identity, Space reply
@@ -701,9 +710,15 @@ drift.
 
 Core may project `Unavailable` before a new Wake when the exact current Agent
 Controller report contains a reliable, fresh Usage Limit that explicitly says
-Usage is exhausted. A percentage alone, low-capacity warning, elapsed reset,
-old snapshot, unsupported or unavailable Usage source, generic quota wording,
-or ordinary transient `429` does not block a Wake.
+Usage is exhausted. After structured evidence establishes that the Local Agent
+supports reliable Usage, a missing, stale, expired, unavailable, or otherwise
+unconfirmed current observation projects `Checking` and rejects new Wake
+admission. Explicitly unsupported Usage and Local Agents whose Usage reporting
+is passive or not evaluated do not use Usage as an admission condition. A
+percentage alone, low-capacity warning, generic quota wording, or ordinary
+transient `429` is never proof of exhaustion. Core derives all three outcomes
+from the already-held structured report and does not call the provider on the
+Wake hot path.
 
 After a Wake is accepted, a provider failure changes later Wake availability
 only when the result carries fresh structured hard-blocker evidence for the

@@ -306,6 +306,22 @@ describe("public agent failure reason mapping", () => {
     });
   });
 
+  it("maps pending supported Usage to a short retry action", () => {
+    expect(resolveMappedPublicAgentFailureReason("usage_checking")).toBe(
+      "OpenMeld is still checking this agent's current Usage. Wait a moment, then wake it again."
+    );
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: "usage_checking",
+        targetLabel: "Runner",
+      })
+    ).toEqual({
+      body: "OpenMeld is still checking Runner's current Usage. Wait a moment, then wake Runner again.",
+      kind: "system_retry",
+      recoveryTarget: null,
+    });
+  });
+
   it("maps Cursor's plan limit to the exact account action instead of local-agent setup", () => {
     expect(
       resolveMappedPublicAgentFailureReason(

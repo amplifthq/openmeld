@@ -18,6 +18,7 @@ describe("Agent Profile work Usage recovery", () => {
         { agentProfileId: "agt_profile_2" },
       ]);
     const notifyUsageAvailable = vi.fn().mockResolvedValue(undefined);
+    const resumeInterruptedWork = vi.fn().mockResolvedValue(undefined);
     const report = createReport("available");
 
     await notifyAgentProfileWorkUsageRecoveryAvailable({
@@ -26,6 +27,7 @@ describe("Agent Profile work Usage recovery", () => {
       notifyUsageAvailable,
       nowMs: NOW_MS,
       ownerUserId: "owner-1",
+      resumeInterruptedWork,
     });
 
     expect(listBindings).toHaveBeenCalledWith({
@@ -37,6 +39,13 @@ describe("Agent Profile work Usage recovery", () => {
       ownerUserId: "owner-1",
       targetProfileIds: ["agt_profile_1", "agt_profile_2"],
     });
+    expect(resumeInterruptedWork).toHaveBeenCalledWith({
+      ownerUserId: "owner-1",
+      targetProfileIds: ["agt_profile_1", "agt_profile_2"],
+    });
+    expect(notifyUsageAvailable.mock.invocationCallOrder[0]).toBeLessThan(
+      resumeInterruptedWork.mock.invocationCallOrder[0] ?? 0
+    );
   });
 
   it.each([
@@ -47,6 +56,7 @@ describe("Agent Profile work Usage recovery", () => {
   ] as const)("does not wake the coordinator from %s Usage evidence", async (status) => {
     const listBindings = vi.fn();
     const notifyUsageAvailable = vi.fn();
+    const resumeInterruptedWork = vi.fn();
 
     await notifyAgentProfileWorkUsageRecoveryAvailable({
       bindingStore: { listBindings },
@@ -54,14 +64,17 @@ describe("Agent Profile work Usage recovery", () => {
       notifyUsageAvailable,
       nowMs: NOW_MS,
       ownerUserId: "owner-1",
+      resumeInterruptedWork,
     });
 
     expect(listBindings).not.toHaveBeenCalled();
     expect(notifyUsageAvailable).not.toHaveBeenCalled();
+    expect(resumeInterruptedWork).not.toHaveBeenCalled();
   });
 
   it("does not call the owner shard when no Profile uses the reported controller", async () => {
     const notifyUsageAvailable = vi.fn();
+    const resumeInterruptedWork = vi.fn();
 
     await notifyAgentProfileWorkUsageRecoveryAvailable({
       bindingStore: { listBindings: vi.fn().mockResolvedValue([]) },
@@ -69,9 +82,11 @@ describe("Agent Profile work Usage recovery", () => {
       notifyUsageAvailable,
       nowMs: NOW_MS,
       ownerUserId: "owner-1",
+      resumeInterruptedWork,
     });
 
     expect(notifyUsageAvailable).not.toHaveBeenCalled();
+    expect(resumeInterruptedWork).not.toHaveBeenCalled();
   });
 });
 

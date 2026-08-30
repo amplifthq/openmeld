@@ -150,8 +150,12 @@ describe("runtime reporting Core RPC write", () => {
         changedProfileIds: [],
         status: "updated",
       });
+      const readRecovery = vi.fn().mockResolvedValue({
+        status: "not_pending",
+      });
       const ownerShard = {
         rpcMarkAgentProfileWorkUsageAvailable: markUsageAvailable,
+        rpcReadAgentProfileWorkRecovery: readRecovery,
       };
       const env = {
         ...coreEnv(harness.db),
@@ -214,6 +218,11 @@ describe("runtime reporting Core RPC write", () => {
       expect(markUsageAvailable).toHaveBeenNthCalledWith(2, {
         ownerUserId: "owner-1",
         targetProfileIds: ["agt_usage_recovery"],
+      });
+      expect(readRecovery).toHaveBeenCalledTimes(2);
+      expect(readRecovery).toHaveBeenNthCalledWith(1, {
+        ownerUserId: "owner-1",
+        targetProfileId: "agt_usage_recovery",
       });
     } finally {
       harness.close();

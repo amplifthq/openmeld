@@ -4361,7 +4361,8 @@ export async function rpcSubmitRuntimeAgentControllerReports(
   env: CoreBindings,
   input: SubmitRuntimeAgentControllerReportsInput
 ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
-  const request = requireRuntimeReportingRequest(input.context, input.deviceId);
+  const context = requireRpcContext(input.context);
+  const request = requireRuntimeReportingRequest(context, input.deviceId);
   const body = submitRuntimeAgentControllerReportsBodySchema.safeParse({
     lane: input.lane,
     reports: input.reports,
@@ -4464,6 +4465,14 @@ export async function rpcSubmitRuntimeAgentControllerReports(
         },
         nowMs: acceptedAtMs,
         ownerUserId: request.userId,
+        resumeInterruptedWork: async (recoveryInput) => {
+          await resumeUsageExhaustedAgentProfileWork({
+            context,
+            env,
+            ownerUserId: recoveryInput.ownerUserId,
+            targetProfileIds: recoveryInput.targetProfileIds,
+          });
+        },
       });
     }
 
@@ -4797,6 +4806,46 @@ async function executeAgentProfileWorkQueueApproval(input: {
         : "This recovery action is no longer needed.",
     status: approved.status === "unavailable" ? 503 : 409,
   });
+}
+
+async function resumeUsageExhaustedAgentProfileWork(input: {
+  context: CoreRpcContextInput;
+  env: CoreBindings;
+  ownerUserId: string;
+  targetProfileIds: readonly string[];
+}): Promise<void> {
+  const ownerShard = resolveRuntimeTransportOwnerShard(
+    input.env,
+    input.ownerUserId
+  );
+  let firstError: unknown = null;
+  for (const targetProfileId of input.targetProfileIds) {
+    try {
+      const recovery = await ownerShard.rpcReadAgentProfileWorkRecovery({
+        ownerUserId: input.ownerUserId,
+        targetProfileId,
+      });
+      if (
+        recovery.status !== "available" ||
+        recovery.action !== "continue_interrupted_work"
+      ) {
+        continue;
+      }
+      await executeAgentProfileWorkContinuation({
+        context: input.context,
+        env: input.env,
+        ownerShard,
+        ownerUserId: input.ownerUserId,
+        recovery,
+        targetProfileId,
+      });
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (firstError) {
+    throw firstError;
+  }
 }
 
 async function executeAgentProfileWorkContinuation(input: {

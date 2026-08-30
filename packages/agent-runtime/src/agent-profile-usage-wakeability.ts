@@ -4,6 +4,8 @@ import type { RuntimeAgentControllerReportStatus } from "./runtime-registry-cont
 
 export const AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE =
   "usage_exhausted" as const;
+export const AGENT_PROFILE_USAGE_CHECKING_REASON_CODE =
+  "usage_checking" as const;
 
 export type AgentProfileUsageWakeabilityReport = {
   expiresAtMs: number;
@@ -12,8 +14,17 @@ export type AgentProfileUsageWakeabilityReport = {
 };
 
 export type AgentProfileUsageWakeability =
-  | { blocksNewWork: true; reasonCode: "usage_exhausted" }
-  | { blocksNewWork: false; reasonCode: null };
+  | {
+      blocksNewWork: true;
+      reasonCode: "usage_exhausted";
+      status: "unavailable";
+    }
+  | {
+      blocksNewWork: true;
+      reasonCode: "usage_checking";
+      status: "checking";
+    }
+  | { blocksNewWork: false; reasonCode: null; status: "available" };
 
 export type AgentProfileUsageRecoveryAvailability = {
   available: boolean;
@@ -24,26 +35,40 @@ export function resolveAgentProfileUsageWakeability(input: {
   report?: AgentProfileUsageWakeabilityReport | null;
 }): AgentProfileUsageWakeability {
   const report = input.report;
-  if (
-    !report ||
-    report.status !== "ready" ||
-    report.expiresAtMs <= input.nowMs
-  ) {
+  if (!report) {
+    return ALLOWS_NEW_WORK;
+  }
+  const supportedUsageLimits = report.usageLimits?.filter(
+    (usageLimit) => usageLimit.status !== "unsupported"
+  );
+  if (!supportedUsageLimits?.length) {
     return ALLOWS_NEW_WORK;
   }
 
-  const usageExhausted = report.usageLimits?.some((usageLimit) =>
+  if (report.status !== "ready" || report.expiresAtMs <= input.nowMs) {
+    return CHECKING_USAGE;
+  }
+
+  const usageExhausted = supportedUsageLimits.some((usageLimit) =>
     isReliableFreshExhaustedUsage({
       nowMs: input.nowMs,
       usageLimit,
     })
   );
-  return usageExhausted
-    ? {
-        blocksNewWork: true,
-        reasonCode: AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE,
-      }
-    : ALLOWS_NEW_WORK;
+  if (usageExhausted) {
+    return {
+      blocksNewWork: true,
+      reasonCode: AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE,
+      status: "unavailable",
+    };
+  }
+  const allSupportedUsageAvailable = supportedUsageLimits.every((usageLimit) =>
+    isReliableFreshAvailableUsage({
+      nowMs: input.nowMs,
+      usageLimit,
+    })
+  );
+  return allSupportedUsageAvailable ? ALLOWS_NEW_WORK : CHECKING_USAGE;
 }
 
 export function resolveAgentProfileUsageRecoveryAvailability(input: {
@@ -51,16 +76,19 @@ export function resolveAgentProfileUsageRecoveryAvailability(input: {
   report?: AgentProfileUsageWakeabilityReport | null;
 }): AgentProfileUsageRecoveryAvailability {
   const report = input.report;
+  const supportedUsageLimits = report?.usageLimits?.filter(
+    (usageLimit) => usageLimit.status !== "unsupported"
+  );
   if (
     !report ||
     report.status !== "ready" ||
     report.expiresAtMs <= input.nowMs ||
-    !report.usageLimits?.length
+    !supportedUsageLimits?.length
   ) {
     return USAGE_RECOVERY_UNAVAILABLE;
   }
 
-  return report.usageLimits.every((usageLimit) =>
+  return supportedUsageLimits.every((usageLimit) =>
     isReliableFreshAvailableUsage({ nowMs: input.nowMs, usageLimit })
   )
     ? USAGE_RECOVERY_AVAILABLE
@@ -70,6 +98,12 @@ export function resolveAgentProfileUsageRecoveryAvailability(input: {
 const ALLOWS_NEW_WORK = {
   blocksNewWork: false,
   reasonCode: null,
+  status: "available",
+} as const;
+const CHECKING_USAGE = {
+  blocksNewWork: true,
+  reasonCode: AGENT_PROFILE_USAGE_CHECKING_REASON_CODE,
+  status: "checking",
 } as const;
 const USAGE_RECOVERY_AVAILABLE = { available: true } as const;
 const USAGE_RECOVERY_UNAVAILABLE = { available: false } as const;

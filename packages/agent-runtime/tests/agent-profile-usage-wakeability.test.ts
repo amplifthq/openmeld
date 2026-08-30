@@ -44,16 +44,18 @@ describe("resolveAgentProfileUsageWakeability", () => {
           usageLimits: [createUsageLimit("exhausted")],
         },
       })
-    ).toEqual({ blocksNewWork: true, reasonCode: "usage_exhausted" });
+    ).toEqual({
+      blocksNewWork: true,
+      reasonCode: "usage_exhausted",
+      status: "unavailable",
+    });
   });
 
   it.each([
     ["available", createUsageLimit("available")],
-    ["stale", createUsageLimit("stale")],
-    ["unavailable", createUsageLimit("unavailable")],
     ["unsupported", createUsageLimit("unsupported")],
     ["not evaluated", undefined],
-  ] as const)("does not let %s Usage reduce Wakeability", (_label, usageLimit) => {
+  ] as const)("does not let %s Usage block Wakeability", (_label, usageLimit) => {
     expect(
       resolveAgentProfileUsageWakeability({
         nowMs: NOW_MS,
@@ -63,10 +65,34 @@ describe("resolveAgentProfileUsageWakeability", () => {
           usageLimits: usageLimit ? [usageLimit] : undefined,
         },
       })
-    ).toEqual({ blocksNewWork: false, reasonCode: null });
+    ).toEqual({
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
+    });
   });
 
-  it("does not block from expired reports, stale observations, or elapsed resets", () => {
+  it.each([
+    ["stale", createUsageLimit("stale")],
+    ["unavailable", createUsageLimit("unavailable")],
+  ] as const)("keeps supported %s Usage in Checking until it can confirm capacity", (_label, usageLimit) => {
+    expect(
+      resolveAgentProfileUsageWakeability({
+        nowMs: NOW_MS,
+        report: {
+          expiresAtMs: NOW_MS + 60_000,
+          status: "ready",
+          usageLimits: [usageLimit],
+        },
+      })
+    ).toEqual({
+      blocksNewWork: true,
+      reasonCode: "usage_checking",
+      status: "checking",
+    });
+  });
+
+  it("keeps supported Usage in Checking for expired reports, stale observations, or elapsed resets", () => {
     const cases = [
       {
         expiresAtMs: NOW_MS - 1,
@@ -96,24 +122,39 @@ describe("resolveAgentProfileUsageWakeability", () => {
           nowMs: NOW_MS,
           report: { ...value, status: "ready" },
         })
-      ).toEqual({ blocksNewWork: false, reasonCode: null });
+      ).toEqual({
+        blocksNewWork: true,
+        reasonCode: "usage_checking",
+        status: "checking",
+      });
     }
   });
 
-  it("does not block from missing or non-ready reports", () => {
+  it("does not block when no report has established reliable Usage support", () => {
     expect(
       resolveAgentProfileUsageWakeability({ nowMs: NOW_MS, report: null })
-    ).toEqual({ blocksNewWork: false, reasonCode: null });
+    ).toEqual({
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
+    });
+  });
+
+  it("keeps known supported Usage in Checking while its controller report is non-ready", () => {
     expect(
       resolveAgentProfileUsageWakeability({
         nowMs: NOW_MS,
         report: {
           expiresAtMs: NOW_MS + 60_000,
           status: "unavailable",
-          usageLimits: [createUsageLimit("exhausted")],
+          usageLimits: [createUsageLimit("unavailable")],
         },
       })
-    ).toEqual({ blocksNewWork: false, reasonCode: null });
+    ).toEqual({
+      blocksNewWork: true,
+      reasonCode: "usage_checking",
+      status: "checking",
+    });
   });
 });
 
@@ -130,6 +171,22 @@ describe("resolveAgentProfileUsageRecoveryAvailability", () => {
             createUsageLimit("available", {
               observedAt: "2026-08-30T00:01:00.000Z",
             }),
+          ].map((limit, index) => ({ ...limit, key: `limit_${index}` })),
+        },
+      })
+    ).toEqual({ available: true });
+  });
+
+  it("ignores explicitly unsupported limits when supported Usage has recovered", () => {
+    expect(
+      resolveAgentProfileUsageRecoveryAvailability({
+        nowMs: NOW_MS,
+        report: {
+          expiresAtMs: NOW_MS + 60_000,
+          status: "ready",
+          usageLimits: [
+            createUsageLimit("available"),
+            createUsageLimit("unsupported"),
           ].map((limit, index) => ({ ...limit, key: `limit_${index}` })),
         },
       })

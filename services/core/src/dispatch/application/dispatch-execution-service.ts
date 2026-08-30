@@ -3149,7 +3149,9 @@ export const runDispatchExecutionPreflightGate = async (input: {
       ok: false,
       errorCode: usageWakeability.reasonCode,
       errorMessage:
-        "This Agent Profile has reached a current Usage Limit and cannot start new work.",
+        usageWakeability.status === "checking"
+          ? "OpenMeld is still checking this Agent Profile's current Usage. Wait a moment, then wake it again."
+          : "This Agent Profile has reached a current Usage Limit and cannot start new work.",
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       bindingSource: targetBindingResolution.source,
       targetOwnerUserId: targetBindingSnapshot.ownerUserId,

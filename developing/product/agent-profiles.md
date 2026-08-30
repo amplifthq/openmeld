@@ -655,21 +655,29 @@ failure deadline. A terminal current Wake promotes the next queued Wake
 immediately; an alarm repairs only a crashed or failed promotion and is not the
 normal scheduler.
 
-Usage participates in Wakeability only when current evidence is both reliable
-and fresh. Proven exhausted Usage blocks new Wake admission before the product
-promises that the Agent accepted the task. Unsupported, stale, unavailable, or
-not-yet-evaluated Usage does not block Wakeability by itself. If a running Wake
-reports a structured `usage_exhausted` outcome, that Wake ends as a visible
-failure and the Coordinator holds every queued Wake. Current supported Local
-Agents do not expose a proven idempotent operation that reopens the same
-terminal provider turn, so OpenMeld must not disguise a new turn as automatic
-same-turn recovery. After fresh reliable Usage becomes available, the Profile
-owner may explicitly continue the interrupted work as a new provider turn.
-Successful continuation still requires a separate owner approval before the
-held queue starts. A new Wake submitted after recovery is new intent, but it
-stays behind that held work instead of bypassing FIFO. A provider may gain
-automatic same-turn recovery only after its versioned capability has official
-protocol evidence and a real failure-to-recovery smoke test.
+Usage participates in Wakeability only when the Local Agent exposes structured,
+reliable Usage Limits. A Local Agent that explicitly reports Usage as
+unsupported, or that has no reliable Usage capability because reporting is
+passive or not evaluated, does not use Usage as an admission condition. Once a
+structured report establishes supported Usage, a missing, stale, expired, or
+currently unavailable observation projects `Checking` and rejects a new Wake;
+OpenMeld must not promise acceptance while the required fact is unknown. A
+fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
+admission. These decisions use the current report already held by Core and must
+not add a provider call to the Wake hot path.
+
+If a running Wake reports a structured `usage_exhausted` outcome, that Wake ends
+as a visible failure and the Coordinator holds every later Wake. When fresh
+reliable Usage becomes available, OpenMeld automatically retries the interrupted
+request as one deterministic, idempotent new execution. It does not claim that
+the terminal provider turn reopened. Only after that continuation succeeds does
+the owner receive the separate urgent Inbox and email approval for the held
+queue. Wakes submitted after recovery remain behind the held work and cannot
+bypass it. A repeated Usage report may safely repair a failed continuation
+handoff through the same deterministic operation; it must never create a second
+continuation. A provider may gain true same-turn recovery only after its
+versioned capability has official protocol evidence and a real
+failure-to-recovery smoke test.
 
 Owners may keep editing settings while work is queued or running under the
 existing capability rules. A running Wake keeps its accepted Binding and

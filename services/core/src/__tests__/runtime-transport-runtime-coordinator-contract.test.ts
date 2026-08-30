@@ -3966,7 +3966,6 @@ describe("runtime transport runtime coordinator transport contract", () => {
         profile_kind: "agent",
         profile_name: "Codex Agent",
       },
-      interactionInboxWriteFailures: 1,
     });
     configureCompatibleRoute({ socket, state });
     await acceptDefaultRuntimeCoordinatorHead(hub);
@@ -4104,7 +4103,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ownerUserId: "owner-1",
         targetProfileIds: [TARGET_AGENT_PROFILE_ID],
       })
-    ).rejects.toThrow("interaction Inbox write unavailable");
+    ).resolves.toEqual({
+      changedProfileIds: [TARGET_AGENT_PROFILE_ID],
+      status: "updated",
+    });
     await expect(
       recoveryHub.rpcMarkAgentProfileWorkUsageAvailable({
         ownerUserId: "owner-1",
@@ -4113,6 +4115,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).resolves.toEqual({
       changedProfileIds: [],
       status: "updated",
+    });
+    const admissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const legacyAdmission = storageRecords.get(admissionKey) as {
+      recoveryGate: Record<string, unknown>;
+    };
+    storageRecords.set(admissionKey, {
+      ...legacyAdmission,
+      recoveryGate: {
+        ...legacyAdmission.recoveryGate,
+        status: "awaiting_owner_continuation",
+      },
     });
     await expect(
       recoveryHub.rpcReadAgentProfileWorkRecovery({
@@ -4157,23 +4173,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         targetProfileIds: [TARGET_AGENT_PROFILE_ID],
       })
     ).resolves.toEqual({ changedProfileIds: [], status: "updated" });
-    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
-      expect.objectContaining({
-        attention: "action_required",
-        context_label: "Codex Agent",
-        importance: "urgent",
-        kind: "system_issue",
-        organization_id: "org-one",
-        recipient_user_id: "owner-1",
-        resolution_status: "open",
-        source_kind: "agent_profile_work_recovery",
-        source_target_json: JSON.stringify({
-          kind: "agent_profile",
-          profileId: TARGET_AGENT_PROFILE_ID,
-        }),
-        title: "Continue Codex Agent's interrupted work",
-      }),
-    ]);
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([]);
     await expect(
       recoveryHub.rpcAuthorizeAgentProfileWorkContinuation({
         continuationClientMessageId: "client-message-usage-continuation",

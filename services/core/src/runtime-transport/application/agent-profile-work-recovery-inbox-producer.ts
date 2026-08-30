@@ -11,9 +11,7 @@ import { truncateInboxText } from "../../inbox/application/inbox-text";
 const AGENT_PROFILE_WORK_RECOVERY_SOURCE_KIND =
   "agent_profile_work_recovery" as const;
 
-export type AgentProfileWorkRecoveryInboxStage =
-  | "continue_interrupted_work"
-  | "approve_queued_work";
+export type AgentProfileWorkRecoveryInboxStage = "approve_queued_work";
 
 type AgentProfileWorkRecoveryInboxIdentity = {
   interruptedClientMessageId: string;
@@ -102,12 +100,6 @@ function resolveRecoveryPresentation(input: {
   stage: AgentProfileWorkRecoveryInboxStage;
 }): { preview: string; title: string } {
   switch (input.stage) {
-    case "continue_interrupted_work":
-      return {
-        preview:
-          "Usage is available again. Continue the interrupted task before queued work can start.",
-        title: `Continue ${input.profileName}'s interrupted work`,
-      };
     case "approve_queued_work":
       return {
         preview:
@@ -123,7 +115,6 @@ function requireRecoveryStage(
   stage: AgentProfileWorkRecoveryInboxStage
 ): AgentProfileWorkRecoveryInboxStage {
   switch (stage) {
-    case "continue_interrupted_work":
     case "approve_queued_work":
       return stage;
     default:

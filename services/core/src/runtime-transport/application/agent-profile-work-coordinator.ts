@@ -11,7 +11,7 @@ export type AgentProfileWorkRecoveryGate = {
   interruptedWork: AgentProfileWorkCoordinatorItem;
   status:
     | "awaiting_usage"
-    | "awaiting_owner_continuation"
+    | "continuation_pending"
     | "continuation_authorized"
     | "continuation_running"
     | "awaiting_owner_approval";
@@ -194,7 +194,7 @@ export function settleAgentProfileWork(input: {
     } else if (input.outcome === "succeeded") {
       status = "awaiting_owner_approval";
     } else {
-      status = "awaiting_owner_continuation";
+      status = "continuation_pending";
     }
     return {
       coordinator: {
@@ -234,7 +234,7 @@ export function markAgentProfileWorkUsageAvailable(input: {
       ...input.coordinator,
       recoveryGate: {
         ...input.coordinator.recoveryGate,
-        status: "awaiting_owner_continuation",
+        status: "continuation_pending",
         updatedAtMs: input.nowMs,
       },
       revision: input.coordinator.revision + 1,
@@ -251,7 +251,7 @@ export function authorizeAgentProfileWorkContinuation(input: {
   const continuationClientMessageId = input.continuationClientMessageId.trim();
   if (
     !continuationClientMessageId ||
-    input.coordinator.recoveryGate?.status !== "awaiting_owner_continuation"
+    input.coordinator.recoveryGate?.status !== "continuation_pending"
   ) {
     return { coordinator: input.coordinator, changed: false };
   }
