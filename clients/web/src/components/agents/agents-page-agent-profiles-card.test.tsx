@@ -13,7 +13,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import type { ComponentProps, ReactNode } from "react";
+import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -25,6 +25,7 @@ import {
 import { resolveAgentProfileEditState } from "./agent-profile-edit-state";
 import {
 	AgentProfileEditDialog,
+	AgentProfileInlineEditor,
 	AgentProfilesCard,
 } from "./agents-page-agent-profiles-card";
 
@@ -331,6 +332,171 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.getAllByText("Approve for me").length).toBeGreaterThan(0);
 	});
 
+	it("renders one selected Agent as an inline detail workspace", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "detail" }
+		);
+
+		expect(
+			await screen.findByTestId("agent-profile-workspace-detail")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "Research Agent" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Direct Message" }).textContent
+		).toContain("Direct Message");
+		expect(
+			screen.getByRole("button", { name: "Edit Agent" }).textContent
+		).toContain("Edit Agent");
+		expect(screen.queryByRole("button", { name: "About profile" })).toBeNull();
+		expect(screen.getByText("Agent Controller Permission Mode")).toBeTruthy();
+		expect(
+			screen.getByTestId(`agent-profile-controller-avatar-${AGENT_PROFILE_ID}`)
+		).toBeTruthy();
+		expect(
+			screen
+				.getByTestId("agent-profile-workspace-detail")
+				.querySelector('[data-profile-kind="center-agent"]')
+		).toBeNull();
+	});
+
+	it("redacts owner-only diagnostics from a teammate Agent detail", async () => {
+		const baseBinding = createPrimaryBindingResponse(
+			"codex:approveForMe",
+			"builtin:codex",
+			{ modelId: "gpt-5.5", reasoningLevel: "high" }
+		).binding;
+		const primaryBinding = {
+			...baseBinding,
+			executionTarget: {
+				...baseBinding.executionTarget,
+				agentControllerConversationId: "private-native-session",
+			},
+		};
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(primaryBinding),
+			runtimeDeviceDisplayName: "Mira's MacBook Pro",
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard({}, primaryBinding, {
+			agentExecutionReadinessByProfileId: new Map([
+				[AGENT_PROFILE_ID, readiness],
+			]),
+			canManageProfile: () => false,
+			presentation: "detail",
+		});
+
+		expect(
+			await screen.findByTestId("agent-profile-workspace-detail")
+		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Direct Message" })).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Edit Agent" })).toBeNull();
+		expect(screen.queryByText("Controller conversation ID")).toBeNull();
+		expect(screen.queryByText("Computer")).toBeNull();
+		expect(screen.queryByText("Model")).toBeNull();
+		expect(screen.queryByText("Binding state")).toBeNull();
+		expect(screen.queryByText("GPT-5.5 · High")).toBeNull();
+		await waitFor(() => {
+			expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
+		});
+	});
+
+	it("keeps a readiness failure and its diagnostic visible in detail", async () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map(),
+				agentExecutionReadinessErrorByProfileId: new Map([
+					[AGENT_PROFILE_ID, "Core could not read Wake availability."],
+				]),
+			},
+			null,
+			{ presentation: "detail" }
+		);
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Core could not read Wake availability."
+		);
+		expect(screen.getByText("Unavailable")).toBeTruthy();
+	});
+
+	it("prioritizes a readiness refresh failure over cached availability", async () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						createWakeAvailabilityReadiness("available_for_wake"),
+					],
+				]),
+				agentExecutionReadinessErrorByProfileId: new Map([
+					[AGENT_PROFILE_ID, "Core could not refresh Wake availability."],
+				]),
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "detail" }
+		);
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Core could not refresh Wake availability."
+		);
+		expect(screen.getByText("Unavailable")).toBeTruthy();
+		expect(
+			document.querySelector('[data-availability-phase="available"]')
+		).toBeNull();
+	});
+
+	it("keeps the Core recovery action in the selected Agent detail", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "detail" }
+		);
+
+		const reconnectLink = await screen.findByRole("link", {
+			name: "Reconnect OpenMeld Service",
+		});
+		expect(reconnectLink.getAttribute("href")).toBe("/app/connect");
+	});
+
+	it("edits in place and Cancel restores the read-only detail without saving", async () => {
+		renderAgentProfilesCard({}, undefined, { presentation: "detail" });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
+		expect(screen.getByTestId("agent-profile-inline-editor")).toBeTruthy();
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "Unsaved Agent" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+		expect(screen.queryByTestId("agent-profile-inline-editor")).toBeNull();
+		expect(screen.getByText("Agent Controller Permission Mode")).toBeTruthy();
+		expect(renameOpenMeldProfileMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps the inline draft and visible diagnostic when saving fails", async () => {
+		renameOpenMeldProfileMock.mockRejectedValueOnce(
+			new Error("The Agent name could not be saved.")
+		);
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		renderAgentProfilesCard({}, undefined, { presentation: "detail" });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "Still in the form" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"The Agent name could not be saved."
+		);
+		expect(screen.getByTestId("agent-profile-inline-editor")).toBeTruthy();
+		expect(
+			(screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value
+		).toBe("Still in the form");
+	});
+
 	it("shows the current native Session title and links back to Agent Activity", async () => {
 		const baseBinding =
 			createPrimaryBindingResponse("codex:approveForMe").binding;
@@ -508,6 +674,52 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				queryClient,
 				storageScope: "test-scope",
 			});
+		});
+	});
+
+	it("does not substitute another Agent while the selected detail removal settles", async () => {
+		let resolveDelete!: (profile: AuthProfileView) => void;
+		deleteStartAgentProfileMock.mockImplementation(
+			() =>
+				new Promise<AuthProfileView>((resolve) => {
+					resolveDelete = resolve;
+				})
+		);
+		const selectedProfile = createAgentProfile();
+		const otherProfile = createAgentProfile({
+			openMeldProfileId: "agt-support",
+			profileHandle: "support-agent",
+			profileName: "Support Agent",
+		});
+		renderAgentProfilesCard(
+			{ agentProfiles: [selectedProfile, otherProfile] },
+			undefined,
+			{
+				focusProfileId: selectedProfile.openMeldProfileId,
+				presentation: "detail",
+			}
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+
+		await waitFor(() => {
+			expect(screen.getByText("Removing Research Agent…")).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { name: "Support Agent" })
+			).toBeNull();
+		});
+
+		resolveDelete(selectedProfile);
+		await waitFor(() => {
+			expect(toastMock.success).toHaveBeenCalledWith(
+				"Research Agent was removed from Local Agents."
+			);
 		});
 	});
 
@@ -961,6 +1173,31 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			"Failed to update Agent Profile.",
 			expect.any(Error)
 		);
+	});
+
+	it("keeps the inline draft and error after a partial save rerenders its source", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		render(<PartialSaveInlineEditorHarness />);
+
+		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+			target: { value: "Renamed Research Agent" },
+		});
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Codex collaboration mode" })
+		);
+		fireEvent.click(screen.getByRole("option", { name: "Plan" }));
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Collaboration Mode update failed"
+		);
+		expect(
+			(screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value
+		).toBe("Renamed Research Agent");
+		expect(
+			screen.getByRole("combobox", { name: "Codex collaboration mode" })
+				.textContent
+		).toContain("Plan");
 	});
 
 	it("shows the current runtime and links Agent settings back to its computer", () => {
@@ -1667,7 +1904,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
-	it("reconnects all eligible Agents after one explicit confirmation", async () => {
+	it("keeps bulk reconnect available in a selected Agent detail", async () => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		const codexProfile = createAgentProfile({
 			openMeldProfileId: "agt-codex-old-runtime",
@@ -1710,6 +1947,8 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 					[claudeProfile.openMeldProfileId, claudeReadiness],
 				]),
 				agentProfiles: [codexProfile, claudeProfile],
+				focusProfileId: codexProfile.openMeldProfileId,
+				presentation: "detail",
 			}
 		);
 
@@ -1884,6 +2123,31 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.queryByText("Checking")).toBeNull();
 	});
 
+	it("keeps self-healing readiness active without rendering controller UI", async () => {
+		const { container, queryClient } = renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map(),
+				currentLocalRuntimeReplyReadinessQuery: {
+					data: { canReplyFromThisComputer: true },
+					fetchStatus: "idle",
+				} as RecoveryController["currentLocalRuntimeReplyReadinessQuery"],
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "controller" }
+		);
+
+		expect(container.textContent).toBe("");
+		await waitFor(() => {
+			expect(refreshReadinessSharedCachesMock).toHaveBeenCalledWith({
+				agentProfileIds: [AGENT_PROFILE_ID],
+				includeLocalRuntimeCaches: false,
+				organizationId: "org-acme",
+				queryClient,
+				storageScope: "test-scope",
+			});
+		});
+	});
+
 	it("keeps a recently Available Agent visually stable during a brief connection check", async () => {
 		const availableReadiness =
 			createWakeAvailabilityReadiness("available_for_wake");
@@ -2042,6 +2306,7 @@ function renderAgentProfilesCard(
 	);
 	const rendered = render(createTree(overrides, primaryBinding));
 	return {
+		container: rendered.container,
 		queryClient,
 		rerenderAgentProfilesCard: (
 			nextOverrides: Partial<RecoveryController>,
@@ -2050,6 +2315,38 @@ function renderAgentProfilesCard(
 				| null
 		) => rendered.rerender(createTree(nextOverrides, nextPrimaryBinding)),
 	};
+}
+
+function PartialSaveInlineEditorHarness() {
+	const [profileName, setProfileName] = useState("Research Agent");
+	const primaryBinding = createPrimaryBindingResponse("codex:askForApproval")
+		.binding as GetAgentProfilePrimaryBindingResponse["binding"];
+	return (
+		<TooltipProvider>
+			<AgentProfileInlineEditor
+				controllerChangeOptions={[]}
+				editState={resolveAgentProfileEditState({
+					binding: primaryBinding,
+					modelCatalog: null,
+				})}
+				isPending={false}
+				modelCatalog={null}
+				onCancel={() => undefined}
+				onControllerChange={() => Promise.resolve()}
+				onControllerCollaborationModeUpdate={() =>
+					Promise.reject(new Error("Collaboration Mode update failed"))
+				}
+				onControllerPermissionModeUpdate={() => Promise.resolve()}
+				onModelSelectionUpdate={() => Promise.resolve()}
+				onOpenCodePermissionUpdate={() => Promise.resolve()}
+				onRenameProfile={(nextProfileName) => {
+					setProfileName(nextProfileName);
+					return Promise.resolve();
+				}}
+				profileName={profileName}
+			/>
+		</TooltipProvider>
+	);
 }
 
 function createOrganizationScope(overrides: { isPersonal?: boolean } = {}) {
