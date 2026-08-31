@@ -489,12 +489,16 @@ The system may warn about a possible semantic mismatch, but it must not silently
 convert one structured Agent relation into another. Repeating the same Agent mention in one message is not a second
 structured relation: the first occurrence owns the selected Wake or Reference,
 and later occurrences remain ordinary visible text. Web preserves the authored
-visible text. The generic CLI accepts `@Name(wake)` and `@Name(reference)` as
-authoring controls, consumes the relation suffix before publication, and posts
-the same bare `@Name` that Web shows. The structured target set retains the
-exact relation, and `--plain` remains the explicit way to publish either suffix
-literally. The Profile appears only once in the structured target set and
-therefore can be woken only once.
+visible text. The generic CLI accepts an exact current mention label or stable
+Profile ID inside `@target(wake)`, `@target(reference)`, or
+`@target(mention)`. It resolves that private selector against one current member
+snapshot, publishes `@primaryMentionLabel` without the relation suffix or raw
+machine ID, and retains the exact Profile ID and relation in the structured
+target set. A concurrent Profile rename does not create a permanent alias: a
+stale name fails closed and the sender must use the fresh label or stable ID.
+`--plain` remains the explicit way to publish the authored text literally. The
+Profile appears only once in the structured target set and therefore can be
+woken only once.
 
 Web may enrich the first visible `@Name` owned by a structured Agent Wake with
 the Agent Profile icon and stronger name emphasis. This is presentation of the

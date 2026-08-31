@@ -1269,13 +1269,15 @@ not membership, readiness, presence, or execution authority. Agent View emits
 the full validated directory through the presenter protocol; explicit `--json`
 emits the strict versioned `space.members` envelope.
 
-`space send` treats `@Name(wake)` and `@Name(reference)` as CLI authoring
-controls. After validation and target resolution, the posted message text and
-message-envelope text use the bare `@Name`, while activation and reference
-targets retain the exact relation for agents. This keeps CLI-authored messages
-visually consistent with Web without weakening structured addressing. `--plain`
-is the explicit escape hatch that publishes any relation suffix literally and
-creates no structured target.
+`space send` and Terminal interactive input treat `@target(wake)`,
+`@target(reference)`, and `@target(mention)` as CLI authoring controls. The
+target may be an exact current mention label or a stable Profile ID. Both paths
+resolve it through the same current member snapshot, post
+`@primaryMentionLabel` in message text and message-envelope text, and retain the
+exact Profile ID and relation in structured targets. Agent View reports the
+resolved ID-to-label mapping in the addressing summary. `--plain` is the
+explicit escape hatch that skips member resolution, publishes the authored text
+literally, and creates no structured target.
 
 Current CLI HTTP reads declare Space Addressing response version 1, and current
 Space WebSocket sessions declare `spaceMessageAddressing` in the hello

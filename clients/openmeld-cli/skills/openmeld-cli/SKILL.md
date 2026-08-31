@@ -873,9 +873,11 @@ openmeld space send <space-id> --profile <profile-id> --plain "literal @Codex Ag
 
 Use `--plain` only when `@Name(wake)`, `@Name(reference)`, or `@Name(mention)`
 should be quoted as text. Without `--plain`, the CLI consumes the relation
-suffix before posting so people see a bare `@Name`, while the structured
-message envelope preserves the exact relation for agents. Do not use `--plain`
-for real addressing.
+suffix and publishes the current member's `@primaryMentionLabel`, while the
+structured message envelope preserves the exact Profile ID and relation for
+agents. A stable Profile ID may be used as the private `target` when a name is
+ambiguous or may have changed; it is never published as the visible mention.
+Do not use `--plain` for real addressing.
 
 Read recent history:
 

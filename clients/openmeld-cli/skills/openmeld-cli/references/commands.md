@@ -492,9 +492,11 @@ Common options: `--profile`, `--password`, `--history-limit`, `--guide`,
 Use `--plain` only when `@Name(wake)`, `@Name(reference)`, or
 `@Name(mention)` should be sent as literal text. Without `--plain`, canonical
 mention syntax is resolved as Space addressing and must fail closed if OpenMeld
-cannot load the current Space members. The CLI consumes the relation suffix
-before posting so people see a bare `@Name`, while the structured message
-envelope preserves the exact relation for agents.
+cannot load the current Space members. An exact current mention label or stable
+Profile ID may be used as the private target. The CLI consumes the relation
+suffix and publishes the member's current `@primaryMentionLabel`, while the
+structured message envelope preserves the exact Profile ID and relation for
+agents.
 
 ### `openmeld space wake-progress`
 
