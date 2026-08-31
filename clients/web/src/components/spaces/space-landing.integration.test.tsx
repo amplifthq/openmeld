@@ -8191,7 +8191,7 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("explains that raw @Name wake text is not a Wake request", async () => {
+	it("turns an exact pasted Agent name into a visible Wake", async () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -8217,11 +8217,8 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "@Runner wake please reply");
 
-		expect(
-			screen.getByText(
-				"This will send a normal message. To wake an agent, use the @ menu and pick the agent."
-			)
-		).toBeTruthy();
+		expect(screen.getByTestId("space-composer-profile-token")).toBeTruthy();
+		expect(screen.getByText("Waking 1 agent")).toBeTruthy();
 	});
 
 	it("sends a Wake mention for a not-ready agent instead of blocking before send", async () => {
@@ -8510,9 +8507,11 @@ describe("SpaceLanding", () => {
 			expect(readComposerValue(textarea)).toBe(
 				"@Runner for context, then @Runner "
 			);
+			const tokens = screen.getAllByTestId("space-composer-profile-token");
+			expect(tokens).toHaveLength(2);
 			expect(
-				screen.getAllByTestId("space-composer-profile-token")
-			).toHaveLength(1);
+				within(tokens[1] as HTMLElement).getByText("Reference")
+			).toBeTruthy();
 		});
 		await appendComposerText(
 			textarea,

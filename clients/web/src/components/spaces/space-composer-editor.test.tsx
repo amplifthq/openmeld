@@ -238,7 +238,7 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
-	it("keeps a duplicate Agent appearance as plain text and only one Wake token", async () => {
+	it("inserts a duplicate Agent appearance as an inline Reference token", async () => {
 		const composerRef = createRef<
 			HTMLTextAreaElement | SpaceComposerEditorHandle
 		>();
@@ -279,9 +279,11 @@ describe("SpaceComposerEditor", () => {
 		fireEvent.click(duplicateRunnerOption);
 
 		await waitFor(() => {
+			const tokens = screen.getAllByTestId("space-composer-profile-token");
+			expect(tokens).toHaveLength(2);
 			expect(
-				screen.getAllByTestId("space-composer-profile-token")
-			).toHaveLength(1);
+				within(tokens[1] as HTMLElement).getByText("Reference")
+			).toBeTruthy();
 			expect(onChange).toHaveBeenLastCalledWith({
 				authoredMentions: [
 					{
@@ -291,9 +293,76 @@ describe("SpaceComposerEditor", () => {
 						start: 0,
 						text: "@Runner",
 					},
+					{
+						end: 22,
+						profileId: AGENT_PROFILE_ID,
+						relation: "reference",
+						start: 15,
+						text: "@Runner",
+					},
 				],
 				selection: expect.any(Object),
 				text: "@Runner first. @Runner ",
+			});
+		});
+	});
+
+	it("turns unambiguous pasted Space members into visible inline tokens", async () => {
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[createAgentTarget(), createHumanTarget()]}
+				ariaLabel="Message this space"
+				authoredMentions={[]}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="To wake an agent, type @, then pick the agent."
+				text=""
+			/>
+		);
+		const editor = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+
+		fireEvent.paste(editor, {
+			clipboardData: {
+				files: [],
+				getData: (type: string) =>
+					type === "text/plain" ? "Ask @Runner and tell @Felix. @Runner" : "",
+			},
+		});
+
+		await waitFor(() => {
+			expect(
+				screen.getAllByTestId("space-composer-profile-token")
+			).toHaveLength(3);
+			expect(onChange).toHaveBeenLastCalledWith({
+				authoredMentions: [
+					{
+						end: 11,
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+						start: 4,
+						text: "@Runner",
+					},
+					{
+						end: 27,
+						profileId: HUMAN_PROFILE_ID,
+						relation: "mention",
+						start: 21,
+						text: "@Felix",
+					},
+					{
+						end: 36,
+						profileId: AGENT_PROFILE_ID,
+						relation: "reference",
+						start: 29,
+						text: "@Runner",
+					},
+				],
+				selection: expect.any(Object),
+				text: "Ask @Runner and tell @Felix. @Runner",
 			});
 		});
 	});
@@ -343,6 +412,143 @@ describe("SpaceComposerEditor", () => {
 		});
 
 		expect(setData).toHaveBeenCalledWith("text/plain", "Ask @Runner now.");
+		const structuredCopy = setData.mock.calls.find(
+			([type]) => type !== "text/plain"
+		);
+		expect(structuredCopy).toBeTruthy();
+		expect(JSON.parse(String(structuredCopy?.[1]))).toEqual({
+			authoredMentions: [
+				{
+					end: 11,
+					profileId: AGENT_PROFILE_ID,
+					relation: "wake",
+					start: 4,
+					text: "@Runner",
+				},
+			],
+			text: "Ask @Runner now.",
+			version: 1,
+		});
+	});
+
+	it("preserves an internal Reference when its inline token is pasted", async () => {
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[createAgentTarget()]}
+				ariaLabel="Message this space"
+				authoredMentions={[]}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="To wake an agent, type @, then pick the agent."
+				text=""
+			/>
+		);
+		const editor = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		const clipboardPayload = JSON.stringify({
+			authoredMentions: [
+				{
+					end: 7,
+					profileId: AGENT_PROFILE_ID,
+					relation: "reference",
+					start: 0,
+					text: "@Runner",
+				},
+			],
+			text: "@Runner",
+			version: 1,
+		});
+
+		fireEvent.paste(editor, {
+			clipboardData: {
+				files: [],
+				getData: (type: string) => {
+					if (type === "text/plain") {
+						return "@Runner";
+					}
+					return type === "application/x-openmeld-space-composer+json"
+						? clipboardPayload
+						: "";
+				},
+			},
+		});
+
+		await waitFor(() => {
+			expect(onChange).toHaveBeenLastCalledWith({
+				authoredMentions: [
+					{
+						end: 7,
+						profileId: AGENT_PROFILE_ID,
+						relation: "reference",
+						start: 0,
+						text: "@Runner",
+					},
+				],
+				selection: expect.any(Object),
+				text: "@Runner",
+			});
+		});
+	});
+
+	it("keeps a pasted Agent as a Wake when it replaces that Agent's only token", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[createAgentTarget()]}
+				ariaLabel="Message this space"
+				authoredMentions={[
+					{
+						end: 7,
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+						start: 0,
+						text: "@Runner",
+					},
+				]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="To wake an agent, type @, then pick the agent."
+				text="@Runner"
+			/>
+		);
+		const editor = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		act(() => {
+			getComposerEditorHandle(composerRef).selectTextRange({
+				end: 7,
+				start: 0,
+			});
+		});
+
+		fireEvent.paste(editor, {
+			clipboardData: {
+				files: [],
+				getData: (type: string) => (type === "text/plain" ? "@Runner" : ""),
+			},
+		});
+
+		await waitFor(() => {
+			expect(onChange).toHaveBeenLastCalledWith({
+				authoredMentions: [
+					{
+						end: 7,
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+						start: 0,
+						text: "@Runner",
+					},
+				],
+				selection: expect.any(Object),
+				text: "@Runner",
+			});
+		});
 	});
 
 	it("keeps Shift+Enter in the draft and sends with Enter", () => {
@@ -464,7 +670,8 @@ describe("SpaceComposerEditor", () => {
 		fireEvent.paste(editor, {
 			clipboardData: {
 				files: [],
-				getData: () => "Hello from the browser",
+				getData: (type: string) =>
+					type === "text/plain" ? "Hello from the browser" : "",
 			},
 		});
 
