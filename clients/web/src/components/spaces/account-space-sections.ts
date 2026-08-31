@@ -6,6 +6,27 @@ import type {
 } from "#/lib/spaces/account-spaces";
 import { isWelcomingSpacePurpose } from "#/lib/spaces/welcoming-space";
 
+// A successful pin mutation can still be waiting for the Space Index projection.
+// Keep that optimistic choice on the in-memory query item until the owner read
+// converges. Non-enumerable symbols stay out of persisted query data and payloads.
+const ACCOUNT_SPACE_PIN_OVERLAY = Symbol("account-space-pin-overlay");
+const ACCOUNT_SPACE_PIN_OVERLAY_CLEARS = Symbol(
+	"account-space-pin-overlay-clears"
+);
+
+type AccountSpacePinOverlay = {
+	pinnedAt: string | null;
+	profileIds: readonly string[];
+};
+
+type AccountSpaceItemWithPinOverlay = AccountSpaceItem & {
+	[ACCOUNT_SPACE_PIN_OVERLAY]?: AccountSpacePinOverlay;
+};
+
+type AccountSpaceSectionsWithPinOverlayClears = AccountSpaceSections & {
+	[ACCOUNT_SPACE_PIN_OVERLAY_CLEARS]?: ReadonlySet<string>;
+};
+
 export type AccountSpacePresentationSections = {
 	directMessageItems: readonly AccountSpaceItem[];
 	pinnedItems: readonly AccountSpaceItem[];
@@ -130,6 +151,165 @@ export function sortAccountSpaceItemsByUnread(
 	});
 }
 
+export function applyOptimisticAccountSpacePinUpdate(
+	current: AccountSpaceSections,
+	variables: {
+		item: AccountSpaceItem;
+		pinnedAt: string | null;
+		profileIds: readonly string[];
+	}
+): AccountSpaceSections {
+	const nextItem: AccountSpaceItemWithPinOverlay = {
+		...variables.item,
+		pinnedAt: variables.pinnedAt,
+		pinnedProfileIds: variables.pinnedAt ? variables.profileIds : [],
+	};
+	Object.defineProperty(nextItem, ACCOUNT_SPACE_PIN_OVERLAY, {
+		configurable: true,
+		value: {
+			pinnedAt: variables.pinnedAt,
+			profileIds: variables.profileIds,
+		} satisfies AccountSpacePinOverlay,
+	});
+	const nextItems = [...current.pinnedItems, ...current.spaceItems].filter(
+		(item) =>
+			normalizeSpaceKey(item.spaceId) !== normalizeSpaceKey(nextItem.spaceId)
+	);
+	nextItems.push(nextItem);
+
+	return buildAccountSpacePinSections(current, nextItems);
+}
+
+export function restoreAccountSpaceItemAfterPinFailure(
+	current: AccountSpaceSections,
+	previousItem: AccountSpaceItem | null,
+	spaceId: string
+): AccountSpaceSections {
+	const spaceKey = normalizeSpaceKey(spaceId);
+	const nextItems = [...current.pinnedItems, ...current.spaceItems].filter(
+		(item) => normalizeSpaceKey(item.spaceId) !== spaceKey
+	);
+	if (previousItem) {
+		nextItems.push(previousItem);
+	}
+
+	const sections = buildAccountSpacePinSections(current, nextItems);
+	Object.defineProperty(sections, ACCOUNT_SPACE_PIN_OVERLAY_CLEARS, {
+		configurable: true,
+		value: new Set([spaceKey]),
+	});
+	return sections;
+}
+
+export function preserveOptimisticAccountSpacePinUpdates(
+	previous: unknown,
+	incoming: unknown
+): unknown {
+	if (!(isAccountSpaceSections(previous) && isAccountSpaceSections(incoming))) {
+		return incoming;
+	}
+
+	const incomingItems = [...incoming.pinnedItems, ...incoming.spaceItems];
+	if (incomingItems.some((item) => readAccountSpacePinOverlay(item) !== null)) {
+		return incoming;
+	}
+
+	const clearedSpaceKeys =
+		(incoming as AccountSpaceSectionsWithPinOverlayClears)[
+			ACCOUNT_SPACE_PIN_OVERLAY_CLEARS
+		] ?? new Set<string>();
+	let next = { ...incoming };
+	for (const previousItem of [
+		...previous.pinnedItems,
+		...previous.spaceItems,
+	]) {
+		const overlay = readAccountSpacePinOverlay(previousItem);
+		const spaceKey = normalizeSpaceKey(previousItem.spaceId);
+		if (!overlay || clearedSpaceKeys.has(spaceKey)) {
+			continue;
+		}
+		const ownerItem = findAccountSpaceItem(next, previousItem.spaceId);
+		if (!ownerItem || accountSpacePinOverlayMatches(ownerItem, overlay)) {
+			continue;
+		}
+		next = applyOptimisticAccountSpacePinUpdate(next, {
+			item: ownerItem,
+			pinnedAt: overlay.pinnedAt,
+			profileIds: overlay.profileIds,
+		});
+	}
+	return next;
+}
+
+function buildAccountSpacePinSections(
+	current: AccountSpaceSections,
+	items: readonly AccountSpaceItem[]
+): AccountSpaceSections {
+	return {
+		pinnedItems: sortAccountSpaceItems(
+			items.filter((item) => item.pinnedAt !== null)
+		),
+		recentlyDeletedItems: current.recentlyDeletedItems,
+		spaceItems: sortAccountSpaceItems(
+			items.filter((item) => item.pinnedAt === null)
+		),
+	};
+}
+
+function readAccountSpacePinOverlay(
+	item: AccountSpaceItem
+): AccountSpacePinOverlay | null {
+	return (
+		(item as AccountSpaceItemWithPinOverlay)[ACCOUNT_SPACE_PIN_OVERLAY] ?? null
+	);
+}
+
+function accountSpacePinOverlayMatches(
+	item: AccountSpaceItem,
+	overlay: AccountSpacePinOverlay
+): boolean {
+	if (item.pinnedAt !== overlay.pinnedAt) {
+		return false;
+	}
+	const ownerProfileIds = [...item.pinnedProfileIds].sort();
+	const overlayProfileIds = [
+		...(overlay.pinnedAt === null ? [] : overlay.profileIds),
+	].sort();
+	return (
+		ownerProfileIds.length === overlayProfileIds.length &&
+		ownerProfileIds.every(
+			(profileId, index) => profileId === overlayProfileIds[index]
+		)
+	);
+}
+
+function findAccountSpaceItem(
+	sections: AccountSpaceSections,
+	spaceId: string
+): AccountSpaceItem | null {
+	const spaceKey = normalizeSpaceKey(spaceId);
+	return (
+		sections.pinnedItems.find(
+			(item) => normalizeSpaceKey(item.spaceId) === spaceKey
+		) ??
+		sections.spaceItems.find(
+			(item) => normalizeSpaceKey(item.spaceId) === spaceKey
+		) ??
+		null
+	);
+}
+
+function isAccountSpaceSections(value: unknown): value is AccountSpaceSections {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"pinnedItems" in value &&
+		Array.isArray(value.pinnedItems) &&
+		"spaceItems" in value &&
+		Array.isArray(value.spaceItems)
+	);
+}
+
 function compareAccountSpaceItems(
 	left: AccountSpaceItem,
 	right: AccountSpaceItem
@@ -157,4 +337,8 @@ function compareAccountSpaceItems(
 function resolveTimestamp(value: string | null): number {
 	const timestamp = Date.parse(value ?? "");
 	return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function normalizeSpaceKey(value: string): string {
+	return value.trim().toLowerCase();
 }

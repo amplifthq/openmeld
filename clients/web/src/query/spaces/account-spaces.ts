@@ -2,6 +2,7 @@ import { ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS } from "@openmeld/schemas"
 import type { AccountSpaceActiveWakeSummaryResponse } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { preserveOptimisticAccountSpacePinUpdates } from "#/components/spaces/account-space-sections";
 import { getAccountSpaceActiveWakeSummary } from "#/lib/spaces/account-space-active-wake";
 import {
 	type AccountSpaceSections,
@@ -51,6 +52,7 @@ export function accountSpaceItemsQueryOptions(input: {
 		staleTime: 30 * 1000,
 		refetchOnMount: true,
 		refetchOnWindowFocus: "always",
+		structuralSharing: preserveOptimisticAccountSpacePinUpdates,
 	});
 }
 

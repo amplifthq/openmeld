@@ -12,7 +12,10 @@ import {
 	setAccountSpaceItemPinned,
 } from "#/lib/spaces/account-spaces";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
-import { sortAccountSpaceItems } from "./account-space-sections";
+import {
+	applyOptimisticAccountSpacePinUpdate,
+	restoreAccountSpaceItemAfterPinFailure,
+} from "./account-space-sections";
 
 const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 	pinnedItems: [],
@@ -61,7 +64,7 @@ export function useAccountSpacePinMutation(input: {
 			queryClient.setQueryData<AccountSpaceSections>(
 				accountSpacesQueryKey,
 				(current) =>
-					applyOptimisticPinnedUpdate(
+					applyOptimisticAccountSpacePinUpdate(
 						current ?? EMPTY_ACCOUNT_SPACE_SECTIONS,
 						variables
 					)
@@ -74,7 +77,7 @@ export function useAccountSpacePinMutation(input: {
 				queryClient.setQueryData<AccountSpaceSections>(
 					accountSpacesQueryKey,
 					(current) =>
-						restoreAccountSpaceItem(
+						restoreAccountSpaceItemAfterPinFailure(
 							current ?? EMPTY_ACCOUNT_SPACE_SECTIONS,
 							context.previousItem,
 							variables.item.spaceId
@@ -146,32 +149,6 @@ function resolvePinnedProfileIds(item: AccountSpaceItem): readonly string[] {
 		: [item.openProfileId];
 }
 
-function applyOptimisticPinnedUpdate(
-	current: AccountSpaceSections,
-	variables: SpacePinMutationInput
-): AccountSpaceSections {
-	const nextItem: AccountSpaceItem = {
-		...variables.item,
-		pinnedAt: variables.pinnedAt,
-		pinnedProfileIds: variables.pinnedAt ? variables.profileIds : [],
-	};
-	const nextItems = [...current.pinnedItems, ...current.spaceItems].filter(
-		(item) =>
-			normalizeSpaceKey(item.spaceId) !== normalizeSpaceKey(nextItem.spaceId)
-	);
-	nextItems.push(nextItem);
-
-	return {
-		pinnedItems: sortAccountSpaceItems(
-			nextItems.filter((item) => item.pinnedAt !== null)
-		),
-		recentlyDeletedItems: current.recentlyDeletedItems,
-		spaceItems: sortAccountSpaceItems(
-			nextItems.filter((item) => item.pinnedAt === null)
-		),
-	};
-}
-
 function findAccountSpaceItem(
 	sections: AccountSpaceSections | undefined,
 	spaceId: string
@@ -186,30 +163,6 @@ function findAccountSpaceItem(
 		) ??
 		null
 	);
-}
-
-function restoreAccountSpaceItem(
-	current: AccountSpaceSections,
-	previousItem: AccountSpaceItem | null,
-	spaceId: string
-): AccountSpaceSections {
-	const spaceKey = normalizeSpaceKey(spaceId);
-	const nextItems = [...current.pinnedItems, ...current.spaceItems].filter(
-		(item) => normalizeSpaceKey(item.spaceId) !== spaceKey
-	);
-	if (previousItem) {
-		nextItems.push(previousItem);
-	}
-
-	return {
-		pinnedItems: sortAccountSpaceItems(
-			nextItems.filter((item) => item.pinnedAt !== null)
-		),
-		recentlyDeletedItems: current.recentlyDeletedItems,
-		spaceItems: sortAccountSpaceItems(
-			nextItems.filter((item) => item.pinnedAt === null)
-		),
-	};
 }
 
 function spaceIndexOverlayApplied(

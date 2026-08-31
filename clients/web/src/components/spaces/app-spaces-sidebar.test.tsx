@@ -1900,6 +1900,7 @@ describe("AppSpacesSidebar", () => {
 	});
 
 	it("keeps the optimistic pinned state while the Space Index overlay is pending", async () => {
+		focusManager.setFocused(false);
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
 			// Expected for a pending projection in this regression test.
 		});
@@ -1945,7 +1946,12 @@ describe("AppSpacesSidebar", () => {
 					}
 				);
 			});
-			expect(listAccountSpaceItemsMock).toHaveBeenCalledTimes(1);
+
+			act(() => focusManager.setFocused(true));
+			await waitFor(() => {
+				expect(listAccountSpaceItemsMock).toHaveBeenCalledTimes(2);
+			});
+			expect(screen.getByLabelText("Unpin Alpha")).toBeTruthy();
 		} finally {
 			warnSpy.mockRestore();
 		}
