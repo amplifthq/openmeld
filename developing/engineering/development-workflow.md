@@ -119,9 +119,11 @@ environment callback, or no coordination best fits the actual work.
   next action. Ordinary evidence and status facts can be sent without Wake.
   The Center Agent can summarize or connect organization context when that adds
   value; it is not a merge authority or a required relay.
-- Treat OpenMeld friction as product evidence. Report reproducible Wake,
-  CI/CD, OpenCode Worker, CLI, or collaboration problems once through
-  [Development Infrastructure Feedback](agent-native-delivery.md#development-infrastructure-feedback).
+- Treat OpenMeld friction as product evidence. Record every firsthand problem
+  in any OpenMeld product surface, App, client, Service, runtime, integration,
+  Wake, CI/CD, OpenCode Worker, or collaboration path through
+  [Agent Experience Occurrence Feedback](agent-native-delivery.md#agent-experience-occurrence-feedback)
+  without searching for or suppressing duplicates.
   For ordinary development coordination, an authorized native fallback may
   keep delivery moving after the failure is recorded. When Wake itself is the
   product behavior under smoke, only the visible product path proves success.

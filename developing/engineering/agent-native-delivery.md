@@ -327,29 +327,60 @@ Anything not run, with reason
   immutable stages, report the failed fact accurately, and follow the scoped
   recovery contract. Never silently continue from another commit.
 
-## Development Infrastructure Feedback
+## Agent Experience Occurrence Feedback
 
 Task collaboration uses focused, agent-chosen `[OpenMeld Dev]` Spaces only when
 they help the actual work. Follow
 [OpenMeld Development Collaboration](development-workflow.md#openmeld-development-collaboration)
 for Space naming, CLI-only handoffs, optional membership and Wake, and native
-environment callbacks. The feedback Space below has a different purpose.
+environment callbacks. The occurrence log below has a different purpose.
 
-Report reusable CI/CD, Wake testing, release, or agent-worker friction to the
-non-interactive Space:
+Record every firsthand problem an Agent encounters while using or developing
+any OpenMeld product surface, App, client, Service, runtime, integration, or
+delivery path. This includes Web, Desktop, CLI, Spaces, Agents, Center Agent,
+Inbox, Projects, Documents, Agent Activity, Remote Agent, connected Apps,
+Staging, developer workflows, CI/CD, Wake testing, release, validation, and
+agent-worker behavior. Use the non-interactive Space:
 
 ```text
-OpenMeld CI/CD & Agent Workflow Feedback
-https://openmeld.ai/o/amplift/spaces/fd628798c701754227a1ffcbf273e62dbaa5daa98f61b1804425b49057967fb6
+[Agent Experience] OpenMeld CLI, Service & Workflow Feedback
+https://openmeld.ai/o/amplift/spaces/5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378
 ```
 
-Prefer `openmeld space send` with an authorized Human Profile; no Service,
-Wake, or Agent membership is required. Start with `[bug]`, `[friction]`,
-`[gap]`, `[feature]`, or `[shared-pattern]`, then state agent/model/session,
-context, what happened, impact, and evidence in a few plain sentences. Never
-include credentials or private user content. Report product-perspective Wake
-friction and CI/CD delays that block otherwise complete work even when the
-current task cannot afford to fix them.
+Use Felix's authorized Human Profile directly; no Service, Wake, history read,
+duplicate search, or Agent membership is required. Every Agent records what it
+personally encountered even when another Agent may have reported the same
+symptom. Repeated reports are frequency evidence. Recording does not authorize
+or require an immediate fix.
+
+Start with `[bug]`, `[friction]`, `[gap]`, `[feature]`, or `[shared-pattern]`.
+Identify the actual Agent, model when known, session or thread ID, UTC time,
+context, expected and observed behavior, impact, non-sensitive evidence, and
+current status. Keep the report brief and continue the main task unless the
+problem is a real blocker. Never include credentials, secrets, private
+transcripts, or unrelated user content.
+
+Use this direct command template:
+
+```bash
+openmeld space send 5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378 \
+  --profile 02325896-2cf8-4fa9-bd49-185db194dc8b \
+  --stdin --view agent <<'EOF'
+[friction] <short title>
+Reporter: <agent and model>
+Session: <session or thread ID>
+Observed: <UTC timestamp>
+Context: <command or workflow>
+Expected: <expected result>
+Observed behavior: <what happened>
+Impact: <time, tokens, correctness, or user impact>
+Evidence: <non-sensitive IDs, timings, or exact error>
+Status: recorded only; not fixed by this report
+EOF
+```
+
+The former `OpenMeld CI/CD & Agent Workflow Feedback` Space remains historical;
+use this occurrence log for new reports so Agents have one current destination.
 
 ## Change Checklist
 
