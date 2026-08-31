@@ -30,11 +30,17 @@ const OPENMELD_ENV_KEYS_TO_CLEAR = new Set([
   "OPENMELD_USER_FACING_CLI_COMMAND",
 ]);
 
-// Auth fixtures are parsed by the shared Better Auth vendor-contract schemas.
-// The session field names and serialized shapes follow the sanitized capture in
+// Auth fixtures are validated by the shared Better Auth vendor-contract schemas.
+// The HTTP server returns the unprojected fixture so its serialized shape keeps
+// the extra vendor fields from the sanitized capture in
 // services/auth/tests/better-auth-routes.test.ts; only fixture values differ.
-const FIXTURE_ACCOUNT_A_SESSION_RESPONSE =
-  betterAuthSessionSnapshotResponseSchema.parse({
+const validateCapturedFixture = (schema, fixture) => {
+  schema.parse(fixture);
+  return fixture;
+};
+const FIXTURE_ACCOUNT_A_SESSION_RESPONSE = validateCapturedFixture(
+  betterAuthSessionSnapshotResponseSchema,
+  {
     session: {
       id: "fixture-session-a",
       token: "redacted-session-token-a",
@@ -57,9 +63,11 @@ const FIXTURE_ACCOUNT_A_SESSION_RESPONSE =
       createdAt: "2026-08-31T00:00:00.000Z",
       updatedAt: "2026-08-31T00:00:00.000Z",
     },
-  });
-const FIXTURE_ACCOUNT_B_SESSION_RESPONSE =
-  betterAuthSessionSnapshotResponseSchema.parse({
+  }
+);
+const FIXTURE_ACCOUNT_B_SESSION_RESPONSE = validateCapturedFixture(
+  betterAuthSessionSnapshotResponseSchema,
+  {
     session: {
       id: "fixture-session-b",
       token: "redacted-session-token-b",
@@ -82,7 +90,8 @@ const FIXTURE_ACCOUNT_B_SESSION_RESPONSE =
       createdAt: "2026-08-31T00:00:00.000Z",
       updatedAt: "2026-08-31T00:00:00.000Z",
     },
-  });
+  }
+);
 const FIXTURE_DEVICE_TOKEN_RESPONSE =
   betterAuthDeviceAuthorizationTokenResponseSchema.parse({
     access_token: "fixture-access-token-b",
