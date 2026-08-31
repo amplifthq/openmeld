@@ -15,6 +15,26 @@ describe("parseLeadingCommandTokensFromArgv", () => {
     ).toEqual(["profile", "create"]);
   });
 
+  it("skips parent Space options before the read subcommand", () => {
+    expect(
+      parseLeadingCommandTokensFromArgv(
+        [
+          "node",
+          "openmeld",
+          "--view",
+          "agent",
+          "space",
+          "--gateway-url",
+          "http://localhost:8787",
+          "--profile=profile-explicit",
+          "status",
+          "not-a-space",
+        ],
+        2
+      )
+    ).toEqual(["space", "status"]);
+  });
+
   it("keeps a single command token when no subcommand is present", () => {
     expect(
       parseLeadingCommandTokensFromArgv(
