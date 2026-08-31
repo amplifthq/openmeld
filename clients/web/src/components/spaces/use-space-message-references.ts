@@ -18,8 +18,10 @@ export function useSpaceMessageReferences(input: {
 	organizationId: string | null;
 	organizationSlug: string | null;
 }): SpaceMessageReferencesById {
+	const attemptedDirectoryRefreshSpaceIdsRef = useRef<Set<string>>(new Set());
 	const lastDirectoryRefreshAtRef = useRef<number | null>(null);
-	const previousOrganizationIdRef = useRef(input.organizationId);
+	const accessContextKey = `${input.organizationId ?? ""}\u0000${input.accountProfileId ?? ""}`;
+	const previousAccessContextKeyRef = useRef(accessContextKey);
 	const currentSpaceId = input.currentSpace?.spaceId ?? null;
 	const currentSpaceName = input.currentSpace?.name ?? null;
 	const referencedSpaceIds = useMemo(
@@ -72,12 +74,13 @@ export function useSpaceMessageReferences(input: {
 	);
 
 	useEffect(() => {
-		if (previousOrganizationIdRef.current === input.organizationId) {
+		if (previousAccessContextKeyRef.current === accessContextKey) {
 			return;
 		}
-		previousOrganizationIdRef.current = input.organizationId;
+		previousAccessContextKeyRef.current = accessContextKey;
+		attemptedDirectoryRefreshSpaceIdsRef.current = new Set();
 		lastDirectoryRefreshAtRef.current = null;
-	}, [input.organizationId]);
+	}, [accessContextKey]);
 
 	useEffect(() => {
 		if (
@@ -89,13 +92,17 @@ export function useSpaceMessageReferences(input: {
 			return;
 		}
 
-		const hasMissingSpaceReference = referencedSpaceIds.some(
+		const missingSpaceReferenceIds = referencedSpaceIds.filter(
 			(spaceId) =>
 				spaceId !== currentSpaceId &&
 				!directorySpaceIds.has(spaceId) &&
 				!accountSpaceIds.has(spaceId)
 		);
-		if (!hasMissingSpaceReference) {
+		if (
+			!missingSpaceReferenceIds.some(
+				(spaceId) => !attemptedDirectoryRefreshSpaceIdsRef.current.has(spaceId)
+			)
+		) {
 			return;
 		}
 
@@ -108,6 +115,9 @@ export function useSpaceMessageReferences(input: {
 			return;
 		}
 		lastDirectoryRefreshAtRef.current = now;
+		for (const spaceId of missingSpaceReferenceIds) {
+			attemptedDirectoryRefreshSpaceIdsRef.current.add(spaceId);
+		}
 
 		directoryQuery.refetch({ throwOnError: true }).catch((error: unknown) => {
 			console.warn("Failed to refresh Space references.", error);

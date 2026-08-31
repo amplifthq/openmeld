@@ -185,6 +185,41 @@ describe("useSpaceMessageReferences", () => {
 		expect(listCurrentOrganizationSpacesMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("does not refresh the directory again for the same unresolved reference after polling", async () => {
+		let now = Date.parse("2026-08-31T20:00:00.000Z");
+		vi.spyOn(Date, "now").mockImplementation(() => now);
+		const queryClient = createTestQueryClient();
+		const emptyDirectory = {
+			...createDirectoryResponse(),
+			spaces: [],
+		};
+		queryClient.setQueryData(
+			organizationQueryKeys.spaces(ORGANIZATION_ID),
+			emptyDirectory
+		);
+		listCurrentOrganizationSpacesMock.mockResolvedValue(emptyDirectory);
+
+		renderReferenceHarness(
+			{ messageTexts: [`Target /spaces/${REFERENCED_SPACE_ID}`] },
+			queryClient
+		);
+		await waitFor(() => {
+			expect(listCurrentOrganizationSpacesMock).toHaveBeenCalledTimes(1);
+		});
+
+		now += 15_000;
+		await act(async () => {
+			await queryClient.refetchQueries({
+				queryKey: accountSpaceQueryKeys.items("profile-1", "account"),
+			});
+		});
+		await waitFor(() => {
+			expect(listAccountSpaceItemsMock).toHaveBeenCalledTimes(2);
+		});
+
+		expect(listCurrentOrganizationSpacesMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("performs one bounded refresh when the initial directory projection is stale", async () => {
 		const emptyDirectory = {
 			...createDirectoryResponse(),
