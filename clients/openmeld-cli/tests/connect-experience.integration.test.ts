@@ -1356,6 +1356,7 @@ describe("connect experience enhancements", () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess();
     let observedStdout = "";
+    let closeAndSettle: (() => Promise<void>) | undefined;
     const stdoutTtyDescriptor = Object.getOwnPropertyDescriptor(
       process.stdout,
       "isTTY"
@@ -1395,6 +1396,14 @@ describe("connect experience enhancements", () => {
       );
 
       await harness.waitUntilReady();
+      let streamClosed = false;
+      closeAndSettle = async () => {
+        if (!streamClosed) {
+          streamClosed = true;
+          harness.close(1006, "");
+        }
+        await connectPromise.catch(() => undefined);
+      };
       harness.emit(
         createTextSignalRawEvent({
           id: "signal-replying-start",
@@ -1415,7 +1424,7 @@ describe("connect experience enhancements", () => {
           "* 📣 system · 🤖 @hey-bot is replying..."
         );
       });
-      harness.close(1006, "");
+      await closeAndSettle();
 
       const { stdout } = await connectPromise;
       const plainStdout = stripAnsi(stdout);
@@ -1424,6 +1433,7 @@ describe("connect experience enhancements", () => {
       const normalizedStdout = stripTerminalControl(stdout);
       expect(normalizedStdout).toMatch(REPLYING_STATUS_PROMPT_GAP_REGEX);
     } finally {
+      await closeAndSettle?.();
       if (stdoutTtyDescriptor) {
         Object.defineProperty(process.stdout, "isTTY", stdoutTtyDescriptor);
       } else {
@@ -1526,6 +1536,7 @@ describe("connect experience enhancements", () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess();
     let observedStdout = "";
+    let closeAndSettle: (() => Promise<void>) | undefined;
     const stdoutTtyDescriptor = Object.getOwnPropertyDescriptor(
       process.stdout,
       "isTTY"
@@ -1575,6 +1586,14 @@ describe("connect experience enhancements", () => {
       );
 
       await harness.waitUntilReady();
+      let streamClosed = false;
+      closeAndSettle = async () => {
+        if (!streamClosed) {
+          streamClosed = true;
+          harness.close(1006, "");
+        }
+        await connectPromise.catch(() => undefined);
+      };
       harness.emit(
         createTextSignalRawEvent({
           id: "signal-replying-claude-before-send",
@@ -1604,7 +1623,7 @@ describe("connect experience enhancements", () => {
           "* 📣 system · 🤖 Sending: @dev-repro-codex what is the date"
         );
       });
-      harness.close(1006, "");
+      await closeAndSettle();
 
       const { stdout } = await connectPromise;
       const plainStdout = stripAnsi(stdout);
@@ -1615,6 +1634,7 @@ describe("connect experience enhancements", () => {
         "* 📣 system · 🤖 Sending: @dev-repro-codex what is the date"
       );
     } finally {
+      await closeAndSettle?.();
       if (stdoutTtyDescriptor) {
         Object.defineProperty(process.stdout, "isTTY", stdoutTtyDescriptor);
       } else {
@@ -1637,6 +1657,7 @@ describe("connect experience enhancements", () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess();
     let observedStdout = "";
+    let closeAndSettle: (() => Promise<void>) | undefined;
     const stdoutTtyDescriptor = Object.getOwnPropertyDescriptor(
       process.stdout,
       "isTTY"
@@ -1684,6 +1705,14 @@ describe("connect experience enhancements", () => {
       );
 
       await harness.waitUntilReady();
+      let streamClosed = false;
+      closeAndSettle = async () => {
+        if (!streamClosed) {
+          streamClosed = true;
+          harness.close(1006, "");
+        }
+        await connectPromise.catch(() => undefined);
+      };
       harness.emit(
         createTextSignalRawEvent({
           id: "signal-replying-codex-shrink",
@@ -1748,7 +1777,7 @@ describe("connect experience enhancements", () => {
         );
         expect(lastCodexIndex).toBeGreaterThan(lastClaudeIndex);
       });
-      harness.close(1006, "");
+      await closeAndSettle();
 
       const { stdout } = await connectPromise;
       const normalizedStdout = stripAnsi(stripTerminalControl(stdout));
@@ -1760,6 +1789,7 @@ describe("connect experience enhancements", () => {
       );
       expect(lastCodexIndex).toBeGreaterThan(lastClaudeIndex);
     } finally {
+      await closeAndSettle?.();
       if (stdoutTtyDescriptor) {
         Object.defineProperty(process.stdout, "isTTY", stdoutTtyDescriptor);
       } else {
