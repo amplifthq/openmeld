@@ -318,6 +318,11 @@ rate-limit signal before broad textual matches such as `usage limit` or
 `billing`; only structured or otherwise definitive hard capacity evidence may
 override that transient classification.
 
+Core also requires the exact current support-matrix version before a fresh
+Usage report may trigger automatic continuation of interrupted work. Legacy or
+mismatched reports remain compatible inventory evidence but cannot authorize
+new work under a capability contract they did not implement.
+
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards
 it with the exact Agent Profile, Binding, device, runtime lane, OpenMeld Service
@@ -421,6 +426,13 @@ Wake Stop aborts the task's lock watcher and retry boundary immediately, and
 that task must not issue another `thread/resume`. Normal execution adds no extra
 query or network round trip. No other RPC code, message, timeout, stderr,
 process presence, or Agent Activity fact may be promoted to occupancy.
+After an occupancy transition, the Service includes the current occupancy value
+on the first running keepalive, the first keepalive after a connection-generation
+change, and a low-frequency recovery keepalive. Ordinary keepalives between
+those frames omit the additive field so an older Core can still observe a
+healthy running Wake. Current Core may recover a lost transition after a
+WebSocket reconnect or Service restart without polling Codex or delaying normal
+Wake admission.
 
 If an existing controller conversation
 is missing or does not acknowledge resume within the short resume admission

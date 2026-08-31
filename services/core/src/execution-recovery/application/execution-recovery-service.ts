@@ -93,6 +93,9 @@ export function inspectExecutionRecovery(
       retryWarning
     ),
   };
+  const shouldRetryUsageWakeAsNewExecution =
+    input.terminalFailureCode === "usage_exhausted" &&
+    input.freshExecutionCapability.exactSourceWakeVerified;
 
   if (input.explicitUserStop) {
     return {
@@ -176,7 +179,8 @@ export function inspectExecutionRecovery(
     input.identity.agentControllerRef &&
     input.identity.agentControllerConversationId &&
     input.resumeCapability.exactAssociationVerified &&
-    input.resumeCapability.serviceSupportsResume
+    input.resumeCapability.serviceSupportsResume &&
+    !shouldRetryUsageWakeAsNewExecution
   ) {
     return {
       actions: {

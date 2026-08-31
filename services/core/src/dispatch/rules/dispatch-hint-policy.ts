@@ -20,6 +20,7 @@ const DISPATCH_TARGET_PROFILE_IDENTITY_NON_RETRYABLE_ERROR_CODES = [
 ] as const;
 
 const DISPATCH_HINT_ELIGIBLE_ERROR_CODES = new Set([
+  "agent_profile_work_coordinator.continuation_needs_attention",
   "agent_profile_work_coordinator.queue_full",
   "daemon.profile.offline",
   "daemon.profile.configuration_not_synced",
@@ -209,6 +210,8 @@ const resolveKnownDispatchFailureHintText = (input: {
   targetProfileLabel: string;
 }): string | null => {
   switch (input.errorCode) {
+    case "agent_profile_work_coordinator.continuation_needs_attention":
+      return `${input.targetProfileLabel}'s settings changed after this interrupted Wake was approved, so OpenMeld did not continue it. Review the interrupted Wake, then retry it or continue the queued Wakes.`;
     case "agent_profile_work_coordinator.queue_full":
       return `${input.targetProfileLabel}'s local work queue is full, so this Wake was not accepted. Wait for an earlier Wake to finish, then try again.`;
     case "daemon.profile.offline":
@@ -280,6 +283,8 @@ const resolveKnownDispatchFailureActivityText = (input: {
     input.targetProfileLabel
   );
   switch (input.errorCode) {
+    case "agent_profile_work_coordinator.continuation_needs_attention":
+      return `${activityTargetLabel} needs the interrupted Wake reviewed`;
     case "agent_profile_work_coordinator.queue_full":
       return `${activityTargetLabel}'s local work queue is full`;
     case "daemon.profile.offline":

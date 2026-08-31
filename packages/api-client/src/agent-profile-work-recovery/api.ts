@@ -9,8 +9,8 @@ import type { CreateAgentProfileWorkRecoveryApi } from "./types";
 
 const executeAgentProfileWorkRecoveryInputSchema =
   agentProfileWorkRecoveryRouteParamsSchema
-    .merge(executeAgentProfileWorkRecoveryBodySchema)
-    .extend({ requestContext: openMeldRequestContextSchema.optional() });
+    .extend({ requestContext: openMeldRequestContextSchema.optional() })
+    .and(executeAgentProfileWorkRecoveryBodySchema);
 
 export const createAgentProfileWorkRecoveryApi: CreateAgentProfileWorkRecoveryApi =
   (client) => ({
@@ -24,7 +24,15 @@ export const createAgentProfileWorkRecoveryApi: CreateAgentProfileWorkRecoveryAp
         );
       }
       return await client.requestJson({
-        body: JSON.stringify({ action: parsed.data.action }),
+        body: JSON.stringify(
+          parsed.data.action === "skip_interrupted_work"
+            ? {
+                action: parsed.data.action,
+                expectedInterruptedTargetWakeLifecycleId:
+                  parsed.data.expectedInterruptedTargetWakeLifecycleId,
+              }
+            : { action: parsed.data.action }
+        ),
         headers: { "content-type": "application/json" },
         invalidMessage: "Invalid Agent Profile work recovery response.",
         method: "POST",

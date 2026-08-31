@@ -150,7 +150,7 @@ type OccupiedCodexDispatch = {
 };
 
 type OccupiedCodexDispatchState = {
-  eventActive: boolean;
+  occupancy: AdapterAgentControllerConversationOccupancy | null;
   registration: OccupiedCodexDispatch | null;
 };
 
@@ -455,7 +455,7 @@ async function dispatchCodexWithConversationOccupancy(input: {
   waitForThreadWriterAvailability: WaitForCodexThreadWriterAvailability;
 }): Promise<AdapterDispatchResult> {
   const state: OccupiedCodexDispatchState = {
-    eventActive: false,
+    occupancy: null,
     registration: null,
   };
   try {
@@ -484,6 +484,13 @@ async function dispatchCodexWithConversationOccupancy(input: {
         }
         continue;
       }
+      if (state.occupancy) {
+        await emitCodexConversationAvailable({
+          occupancy: state.occupancy,
+          request: input.request,
+        });
+        state.occupancy = null;
+      }
       return finalizeCodexDispatchResult({ request: input.request, result });
     }
   } finally {
@@ -503,7 +510,7 @@ async function waitForOccupiedCodexConversation(input: {
   waitForThreadWriterAvailability: WaitForCodexThreadWriterAvailability;
 }): Promise<"cancelled" | "retry"> {
   const registration = ensureOccupiedCodexDispatchRegistration(input);
-  if (!input.state.eventActive) {
+  if (!input.state.occupancy) {
     await input.request.onRuntimeEvent?.({
       agentControllerConversationId:
         input.occupancy.agentControllerConversationId,
@@ -511,7 +518,7 @@ async function waitForOccupiedCodexConversation(input: {
       phase: "agent_controller_conversation_occupied",
       tsMs: Date.now(),
     });
-    input.state.eventActive = true;
+    input.state.occupancy = input.occupancy;
   }
   const waitResult = await input.waitForThreadWriterAvailability({
     env: input.request.env,
@@ -526,7 +533,7 @@ async function waitForOccupiedCodexConversation(input: {
       occupancy: input.occupancy,
       request: input.request,
     });
-    input.state.eventActive = false;
+    input.state.occupancy = null;
   }
   return registration.abortController.signal.aborted ? "cancelled" : "retry";
 }

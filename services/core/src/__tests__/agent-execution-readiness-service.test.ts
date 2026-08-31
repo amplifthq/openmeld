@@ -1,4 +1,7 @@
-import { resolveAgentWakeAvailability } from "@openmeld/agent-runtime";
+import {
+  AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  resolveAgentWakeAvailability,
+} from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceSnapshot,
@@ -1285,7 +1288,12 @@ describe("Core Agent Execution Readiness", () => {
 
     expect(readiness.agentExecutionReadiness).toMatchObject({
       displayState: "not_ready",
-      primaryAction: "fix_provider_account",
+      facts: {
+        providerAccount: {
+          provider: null,
+        },
+      },
+      primaryAction: "check_status",
       reasonCodes: expect.arrayContaining(["usage_exhausted"]),
     });
     expect(
@@ -1296,6 +1304,7 @@ describe("Core Agent Execution Readiness", () => {
         wakeRouteStatus: readiness.wakeRouteStatus,
       })
     ).toMatchObject({
+      action: "check_status",
       category: "unavailable",
       label: "Usage Limit reached",
       phase: "provider_blocked",
@@ -2044,6 +2053,8 @@ function createRuntimeReportWithUsage(
     skills: [],
     status: "ready",
     usageLimits: [usageLimit],
+    usageLimitsSupportMatrixVersion:
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
     version: "1.0.0",
   } satisfies AgentControllerInterfaceSnapshot;
   return {

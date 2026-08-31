@@ -191,6 +191,34 @@ describe("execution recovery service", () => {
     expect(projection.actions.retryAsNewExecution.enabled).toBe(false);
   });
 
+  it("keeps a reliably exhausted Usage Wake eligible for its one automatic retry when conversation resume is also available", () => {
+    const projection = inspectExecutionRecovery({
+      destination,
+      explicitUserStop: false,
+      freshExecutionCapability: { exactSourceWakeVerified: true },
+      identity: { ...identity, resultRef: null },
+      outcomeUnknown: false,
+      retainedResult: {
+        available: false,
+        recoveredPublicationId: null,
+      },
+      resumeCapability: {
+        exactAssociationVerified: true,
+        serviceSupportsResume: true,
+      },
+      terminalFailureCode: "usage_exhausted",
+      updatedAtMs: 100,
+    });
+
+    expect(projection).toMatchObject({
+      recommendedAction: "retry_as_new_execution",
+      status: "available",
+      tier: "fresh_execution",
+    });
+    expect(projection.actions.resumeControllerConversation.enabled).toBe(false);
+    expect(projection.actions.retryAsNewExecution.enabled).toBe(true);
+  });
+
   it.each(
     surfaceDestinations
   )("runs Tier 3 for $surface through one control-plane dependency with an explicit rerun warning and new identity", async (surfaceDestination) => {

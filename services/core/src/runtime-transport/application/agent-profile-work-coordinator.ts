@@ -15,6 +15,7 @@ export type AgentProfileWorkRecoveryGate = {
     | "continuation_pending"
     | "continuation_authorized"
     | "continuation_running"
+    | "continuation_needs_attention"
     | "awaiting_owner_approval";
   updatedAtMs: number;
 };
@@ -232,28 +233,6 @@ export function settleAgentProfileWork(input: {
   const queuedWork = input.coordinator.workItems.slice(1);
   const continuationRunning =
     input.coordinator.recoveryGate?.status === "continuation_running";
-  if (input.outcome === "usage_exhausted") {
-    const recoveryInterruptedWork = continuationRunning
-      ? (input.coordinator.recoveryGate?.interruptedWork ?? interruptedWork)
-      : interruptedWork;
-    return {
-      coordinator: {
-        ...input.coordinator,
-        recoveryGate: {
-          continuationClientMessageId: null,
-          interruptedWork: recoveryInterruptedWork,
-          status: "awaiting_usage",
-          updatedAtMs: input.nowMs,
-        },
-        revision: input.coordinator.revision + 1,
-        updatedAtMs: input.nowMs,
-        workItems: queuedWork,
-      },
-      promotedItem: null,
-      removed: true,
-    };
-  }
-
   if (continuationRunning) {
     const interruptedContinuationWork =
       input.coordinator.recoveryGate?.interruptedWork ?? interruptedWork;
@@ -270,9 +249,28 @@ export function settleAgentProfileWork(input: {
                 interruptedWork: interruptedContinuationWork,
                 status: awaitingOwnerApproval
                   ? "awaiting_owner_approval"
-                  : "continuation_pending",
+                  : "continuation_needs_attention",
                 updatedAtMs: input.nowMs,
               },
+        revision: input.coordinator.revision + 1,
+        updatedAtMs: input.nowMs,
+        workItems: queuedWork,
+      },
+      promotedItem: null,
+      removed: true,
+    };
+  }
+
+  if (input.outcome === "usage_exhausted") {
+    return {
+      coordinator: {
+        ...input.coordinator,
+        recoveryGate: {
+          continuationClientMessageId: null,
+          interruptedWork,
+          status: "awaiting_usage",
+          updatedAtMs: input.nowMs,
+        },
         revision: input.coordinator.revision + 1,
         updatedAtMs: input.nowMs,
         workItems: queuedWork,
@@ -303,6 +301,33 @@ export function markAgentProfileWorkUsageAvailable(input: {
       recoveryGate: {
         ...input.coordinator.recoveryGate,
         status: "continuation_pending",
+        updatedAtMs: input.nowMs,
+      },
+      revision: input.coordinator.revision + 1,
+      updatedAtMs: input.nowMs,
+    },
+  };
+}
+
+export function markAgentProfileWorkContinuationNeedsAttention(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  nowMs: number;
+}): { coordinator: AgentProfileWorkCoordinator; changed: boolean } {
+  const recoveryGate = input.coordinator.recoveryGate;
+  if (
+    !recoveryGate ||
+    (recoveryGate.status !== "continuation_pending" &&
+      recoveryGate.status !== "continuation_authorized")
+  ) {
+    return { coordinator: input.coordinator, changed: false };
+  }
+  return {
+    changed: true,
+    coordinator: {
+      ...input.coordinator,
+      recoveryGate: {
+        ...recoveryGate,
+        status: "continuation_needs_attention",
         updatedAtMs: input.nowMs,
       },
       revision: input.coordinator.revision + 1,
@@ -347,6 +372,29 @@ export function approveAgentProfileWorkQueue(input: {
   promotedItem: AgentProfileWorkCoordinatorItem | null;
 } {
   if (input.coordinator.recoveryGate?.status !== "awaiting_owner_approval") {
+    return { coordinator: input.coordinator, promotedItem: null };
+  }
+  return {
+    coordinator: {
+      ...input.coordinator,
+      recoveryGate: null,
+      revision: input.coordinator.revision + 1,
+      updatedAtMs: input.nowMs,
+    },
+    promotedItem: input.coordinator.workItems[0] ?? null,
+  };
+}
+
+export function skipAgentProfileInterruptedWork(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  nowMs: number;
+}): {
+  coordinator: AgentProfileWorkCoordinator;
+  promotedItem: AgentProfileWorkCoordinatorItem | null;
+} {
+  if (
+    input.coordinator.recoveryGate?.status !== "continuation_needs_attention"
+  ) {
     return { coordinator: input.coordinator, promotedItem: null };
   }
   return {

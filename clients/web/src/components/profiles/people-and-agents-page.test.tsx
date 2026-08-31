@@ -783,7 +783,7 @@ describe("PeopleAndAgentsPage", () => {
 		});
 	});
 
-	it("passes paused owner locations without adding recovery details", () => {
+	it("passes the exact owner recovery action into Profile Details", () => {
 		const profile = organizationDirectoryFixture.agentProfiles[0];
 		if (
 			!profile?.operationalContext ||
@@ -793,6 +793,48 @@ describe("PeopleAndAgentsPage", () => {
 		}
 		profile.operationalContext = {
 			...profile.operationalContext,
+			recoveryAction: "skip_interrupted_work",
+			recoveryTargetWakeLifecycleId: "twl_interrupted",
+			status: "paused",
+		};
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		const detailCall = [...agentProfilesCardSpy.mock.calls]
+			.reverse()
+			.find(([props]) => props.presentation === "detail")?.[0];
+		expect(
+			detailCall?.agentProfileOperationalContextByProfileId?.get(
+				"agt_11111111-1111-4111-8111-111111111111"
+			)
+		).toEqual({
+			currentWorkLocation: "Launch planning",
+			queuedWorkLocations: ["Customer follow-up"],
+			recoveryAction: { kind: "skip_interrupted_work" },
+			recoveryTargetWakeLifecycleId: "twl_interrupted",
+			status: "paused",
+			waitingCount: 1,
+		});
+	});
+
+	it("redacts recovery actions from a teammate's Agent Profile", () => {
+		const profile = organizationDirectoryFixture.agentProfiles[0];
+		if (
+			!profile?.operationalContext ||
+			profile.operationalContext.status !== "working"
+		) {
+			throw new Error("Expected the Agent workload fixture.");
+		}
+		profile.ownerUserId = "another-user";
+		profile.operationalContext = {
+			...profile.operationalContext,
+			recoveryAction: "skip_interrupted_work",
+			recoveryTargetWakeLifecycleId: "twl_private",
 			status: "paused",
 		};
 

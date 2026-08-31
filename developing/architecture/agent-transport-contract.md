@@ -158,18 +158,46 @@ Profile work slot.
 A structured `usage_exhausted` terminal outcome is the deliberate exception to
 ordinary promotion: the Coordinator retains the interrupted work identity and
 holds every later Wake. A fresh reliable Usage recovery automatically starts
-one deterministic retry-as-new-execution for that interrupted request. Its
+at most one deterministic retry-as-new-execution for that interrupted request.
+The recovery report must declare the exact current Usage support-matrix version;
+a legacy or mismatched Service report cannot authorize automatic continuation.
+Its
 successful terminal result opens the separate owner approval gate for queued
 work and creates the urgent Inbox/email action. An explicit user Stop is
 terminal: it never re-arms automatic continuation, and any later queued work
 also remains behind owner approval. If no later work exists, the Stop clears
 the recovery gate. Later Wakes, including new intent accepted after Usage
 recovers, remain in FIFO behind that gate. Repeated reports and retries must
-converge on the same continuation operation.
+converge on the same continuation operation. A transport failure or
+`outcome_unknown` while handing that deterministic operation to Space preserves
+the pending or authorized identity so the next report can confirm or retry the
+same operation. A request that definitively cannot be replayed safely, has
+incomplete source context, no longer matches the same Profile, controller,
+Binding, or configuration, or whose one continuation execution fails moves to
+`continuation_needs_attention`; it cannot re-enter automatic continuation.
+Initial authorization compares the exact interrupted run command's accepted
+Binding, controller, and configuration revision with the current canonical Core
+Binding inside the owner-shard transaction. That authorization and every
+future-work settings write are ordered by the same owner shard. If a setting
+write wins while the gate is pending or authorized, the same transaction moves
+the exact continuation to `continuation_needs_attention` and writes its Inbox
+intent before D1 settings may change. If head creation wins first, the gate is
+already running; the setting may save for later work without changing the
+current execution. Ordinary head admission keeps the established version 1
+wire shape and adds no capability probe or preflight delay. A new cloud caller
+uses a dedicated future-settings mutation RPC; an older shard that lacks it
+rejects the setting write before D1 mutation instead of accepting an unsafe
+half-rollout. Missing original accepted revision evidence remains inherently
+unsafe and moves to `continuation_needs_attention` rather than being treated as
+unchanged.
+One idempotent Inbox item links the original Wake. The owner may skip the exact
+interrupted work to resolve the gate and promote the oldest queued Wake.
 The Usage report path sends candidate Profiles in stable, schema-bounded
 owner-shard batches. Those transactions return only Profiles whose continuation
 handoff is pending or authorized; Core must not probe every Profile Binding
 with a separate recovery RPC when no recovery gate exists.
+One Profile's recovery failure is isolated and recorded; it cannot abort later
+healthy Profile reports in the same Service batch.
 
 Provider-native instruction delivery is an adapter optimization inside the
 local execution carrier. It must not change outbox admission,
@@ -348,6 +376,12 @@ Important execution rules:
   fence every later provider-admission retry for the stopped task. Missing
   provider release evidence uses bounded backoff and must not become a tight
   retry loop.
+- While a Wake remains occupied or resumes running after an occupancy
+  transition, the first running keepalive, the first keepalive on a new
+  connection generation, and a low-frequency recovery keepalive repeat the
+  current occupancy value. Ordinary keepalives between them stay compatible
+  with an older Core. A lost transition or Service reconnect therefore
+  self-heals without adding a provider query to the Wake hot path.
 - Compatibility claim endpoints may exist during migration, but they must not
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come
@@ -758,6 +792,10 @@ percentage alone, low-capacity warning, generic quota wording, or ordinary
 transient `429` is never proof of exhaustion. Core derives all three outcomes
 from the already-held structured report and does not call the provider on the
 Wake hot path.
+
+The same exact-version rule gates Usage recovery after an accepted Wake. A
+legacy report may remain compatible for ordinary execution, but its Usage fields
+cannot trigger automatic continuation under a newer Core capability matrix.
 
 After a Wake is accepted, a provider failure changes later Wake availability
 only when the result carries fresh structured hard-blocker evidence for the

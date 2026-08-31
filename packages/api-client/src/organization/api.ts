@@ -296,6 +296,8 @@ export const createOrganizationApi: CreateOrganizationApi = (
   getCurrentDirectory: async (input = {}) =>
     await client.requestJson({
       url: buildCurrentOrganizationDirectoryPath({
+        agentProfileWorkRecoveryVersion:
+          input.agentProfileWorkRecoveryVersion ?? 2,
         includeMemberLastActiveAt: input.includeMemberLastActiveAt,
       }),
       operation: "organization.directory.read",

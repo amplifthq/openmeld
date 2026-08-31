@@ -1,4 +1,5 @@
 import {
+  AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
 } from "@openmeld/agent-runtime";
@@ -166,6 +167,47 @@ describe("Agent Profile work Usage recovery", () => {
       targetProfileIds: continuationProfileIds,
     });
   });
+
+  it("isolates one rejected Profile without blocking healthy Profiles in the same report", async () => {
+    const notifyUsageAvailable = vi.fn(
+      (input: { targetProfileIds: readonly string[] }) => {
+        if (input.targetProfileIds.includes(PROFILE_1)) {
+          return Promise.reject(new Error("broken Profile state"));
+        }
+        return Promise.resolve({
+          changedProfileIds: [PROFILE_2],
+          continuationProfileIds: [PROFILE_2],
+          status: "updated" as const,
+        });
+      }
+    );
+    const resumeInterruptedWork = vi.fn().mockResolvedValue(undefined);
+
+    await notifyAgentProfileWorkUsageRecoveryAvailable({
+      bindingStore: {
+        listBindings: vi
+          .fn()
+          .mockResolvedValue([
+            { agentProfileId: PROFILE_1 },
+            { agentProfileId: PROFILE_2 },
+          ]),
+      },
+      currentReport: createReport("available"),
+      notifyUsageAvailable,
+      nowMs: NOW_MS,
+      ownerUserId: "owner-1",
+      resumeInterruptedWork,
+    });
+
+    expect(notifyUsageAvailable).toHaveBeenCalledWith({
+      ownerUserId: "owner-1",
+      targetProfileIds: [PROFILE_2],
+    });
+    expect(resumeInterruptedWork).toHaveBeenCalledWith({
+      ownerUserId: "owner-1",
+      targetProfileIds: [PROFILE_2],
+    });
+  });
 });
 
 function createProfileId(index: number): string {
@@ -224,6 +266,8 @@ function createReport(
         usedPercent: observedUsedPercent,
       },
     ],
+    usageLimitsSupportMatrixVersion:
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
     version: "1.0.0",
   } satisfies AgentControllerInterfaceSnapshot;
   const lookupInput = createRuntimeLookupInput({
