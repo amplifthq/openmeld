@@ -72,13 +72,12 @@ export function isDirectMessageItem(item: AccountSpaceItem): boolean {
 }
 
 export function isNewlyJoinedAccountSpace(item: AccountSpaceItem): boolean {
-	const lastJoinedAtMs = resolveTimestamp(item.lastJoinedAt);
-	if (lastJoinedAtMs === 0 || item.lastSeenTs === undefined) {
+	if (item.lastSeenTs === undefined) {
 		// An older persisted Web cache can omit lastSeenTs. Fail closed until the
 		// foreground refresh supplies the authoritative owner projection.
 		return false;
 	}
-	return item.lastSeenTs === null || item.lastSeenTs < lastJoinedAtMs;
+	return item.lastSeenTs === null;
 }
 
 export function prioritizeNewlyJoinedAccountSpaces(

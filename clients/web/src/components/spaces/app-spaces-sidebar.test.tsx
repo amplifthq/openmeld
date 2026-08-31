@@ -468,15 +468,42 @@ describe("AppSpacesSidebar", () => {
 		});
 	});
 
-	it("keeps a rejoined Space new through render, hover, and focus", async () => {
+	it("does not mark a previously seen Space as new when its join timestamp advances", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
 				createAccountSpaceItem({
 					lastJoinedAt: "2026-04-29T00:00:00.000Z",
 					lastSeenTs: Date.parse("2026-04-20T00:00:00.000Z"),
-					spaceId: "space-rejoined",
-					spaceName: "Rejoined",
+					spaceId: "space-seen-before",
+					spaceName: "Previously Seen",
+				}),
+			],
+		});
+
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+
+		expect(
+			await screen.findByRole("button", { name: "Previously Seen" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", {
+				name: "Previously Seen, New Space",
+			})
+		).toBeNull();
+	});
+
+	it("keeps a first unseen Space new through render, hover, and focus", async () => {
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-29T00:00:00.000Z",
+					lastSeenTs: null,
+					spaceId: "space-first-unseen",
+					spaceName: "First Unseen",
 				}),
 			],
 		});
@@ -484,17 +511,17 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const rejoined = await screen.findByRole("button", {
-			name: "Rejoined, New Space",
+		const firstUnseen = await screen.findByRole("button", {
+			name: "First Unseen, New Space",
 		});
-		fireEvent.pointerEnter(rejoined);
-		fireEvent.focus(rejoined);
+		fireEvent.pointerEnter(firstUnseen);
+		fireEvent.focus(firstUnseen);
 		view.rerender(
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
 		expect(
-			screen.getByRole("button", { name: "Rejoined, New Space" })
+			screen.getByRole("button", { name: "First Unseen, New Space" })
 		).toBeTruthy();
 	});
 
