@@ -416,7 +416,14 @@ const referenceProfileIdsInputSchema = pipe(
   array(nonEmptyStringSchema),
   maxLength(25),
   description(
-    "Every exact Human or Agent Profile ID that this Space message includes as context without assigning work. Pass an empty array only when no context-only profile is requested."
+    "Every exact Agent Profile ID that this Space message includes as context without assigning work. Pass an empty array only when no Agent Reference is requested."
+  )
+);
+const mentionProfileIdsInputSchema = pipe(
+  array(nonEmptyStringSchema),
+  maxLength(25),
+  description(
+    "Every exact Human Profile ID this Space message should notify with a Human Mention. Pass an empty array only when no person should be notified."
   )
 );
 const spaceFileIdToolInputSchema = pipe(
@@ -463,6 +470,7 @@ const postSpaceMessageToolInputSchema = object({
       maxLength(SPACE_MESSAGE_FILE_MAX_COUNT)
     )
   ),
+  mentionProfileIds: mentionProfileIdsInputSchema,
   referenceProfileIds: referenceProfileIdsInputSchema,
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
@@ -515,6 +523,7 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
     minLength(1),
     maxLength(25)
   ),
+  mentionProfileIds: mentionProfileIdsInputSchema,
   referenceProfileIds: referenceProfileIdsInputSchema,
   completionMode: picklist(CENTER_AGENT_DELEGATION_COMPLETION_MODES),
   computerFilePaths: optional(
@@ -1661,14 +1670,15 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       throw error;
     });
   };
-  const assertPublishedReferenceTargets = (assertionInput: {
+  const assertPublishedAddressingTargets = (assertionInput: {
+    mentionProfileIds: string[];
     referenceProfileIds: string[];
     response:
       | CenterAgentPostSpaceMessageResponse
       | CenterAgentWakeAgentProfilesInSpaceResponse;
   }): void => {
     try {
-      assertCenterAgentPublishedReferenceTargets(assertionInput);
+      assertCenterAgentPublishedAddressingTargets(assertionInput);
     } catch (error) {
       spaceAuthoringContractViolation =
         error instanceof Error
@@ -3056,6 +3066,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
               ? {}
               : { afterSignalId: payload.afterSignalId }),
             ...(payload.limit === undefined ? {} : { limit: payload.limit }),
+            requestedAddressingModel: "wake_reference_mention",
             ...(payload.scope === undefined ? {} : { scope: payload.scope }),
             ...(payload.sourceSignalId === undefined
               ? {}
@@ -3939,7 +3950,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_post_space_message",
       description:
-        "Post a Center Agent-authored message to a Space in the current Organization without waking other agents. This is an ordinary external write. Use this for one-time checklists, tasks, updates, notes, and other conversation content, including content requested immediately after creating a Space. To share files, first create or update them with the Space Files tools, then pass their exact canonical fileId, revision, name, mimeType, and sizeBytes in files. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference does not assign work or require a reply.",
+        "Post a Center Agent-authored message to a Space in the current Organization without waking other agents. This is an ordinary external write. Use this for one-time checklists, tasks, updates, notes, and other conversation content, including content requested immediately after creating a Space. To share files, first create or update them with the Space Files tools, then pass their exact canonical fileId, revision, name, mimeType, and sizeBytes in files. Always pass mentionProfileIds with every exact Human Profile ID that should receive Inbox and browser attention, or []; always pass referenceProfileIds with every exact Agent Profile ID that is context only, or []. Human Mention notifies a person without creating Agent work. Agent Reference supplies context without assigning work.",
       input: postSpaceMessageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(postSpaceMessageToolInputSchema, payload);
@@ -3959,7 +3970,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             ...toolContext,
           })
         );
-        assertPublishedReferenceTargets({
+        assertPublishedAddressingTargets({
+          mentionProfileIds: request.mentionProfileIds,
           referenceProfileIds: request.referenceProfileIds,
           response,
         });
@@ -3969,7 +3981,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_wake_agent_profiles_in_space",
       description:
-        "Wake one or more OpenMeld Agent Profiles in a Space by posting a Center Agent-authored Space message with activation targets. This starts real work and is an ordinary external write. The text must be a self-contained delegation brief for nontrivial work: goal; verified facts and source references; current product and execution environment; authority and safety constraints; unresolved questions; exact completion criteria; and every available evidence selector such as a trace ID, URL, path, version, or timestamp. Clearly separate facts from hypotheses, omit secrets and unrelated private transcript, and never assume the child can see this conversation. First decide that another Agent adds meaningful evidence or capability; never wake one merely to demonstrate delegation. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference never creates child work. A profile cannot be both a Wake or fallback target and a Reference target. Always choose completionMode explicitly from the user's requested result ownership and continuation barrier. Use child_reports_directly when children publish their own final result and the Center Agent should not continue. Use resume_parent_when_all_terminal to synthesize every result, resume_parent_when_first_success to continue after the first success, resume_parent_on_failure to continue after the first authoritative failure, or resume_parent_on_each_terminal for one continuation per child completion. During a Routine, resume_parent_when_all_terminal is the only supported resume mode and may resume the Center Agent only once. Set fallbackAgentProfileId only when exactly one primary Agent should be tried first; the fallback is not woken unless that primary authoritatively fails. When Computer files are necessary, pass computerFilePaths to copy up to three bounded text files into this Wake as an explicit one-time snapshot; the Local Agent never receives filesystem access or live sync. A pending publicationStatus means Core durably queued the same Wake for event-driven retry; do not call this tool again or report failure.",
+        "Wake one or more OpenMeld Agent Profiles in a Space by posting a Center Agent-authored Space message with activation targets. This starts real work and is an ordinary external write. The text must be a self-contained delegation brief for nontrivial work: goal; verified facts and source references; current product and execution environment; authority and safety constraints; unresolved questions; exact completion criteria; and every available evidence selector such as a trace ID, URL, path, version, or timestamp. Clearly separate facts from hypotheses, omit secrets and unrelated private transcript, and never assume the child can see this conversation. First decide that another Agent adds meaningful evidence or capability; never wake one merely to demonstrate delegation. Always pass mentionProfileIds with every exact Human Profile ID that should receive Inbox and browser attention, or []; always pass referenceProfileIds with every exact Agent Profile ID that is context only, or []. Human Mention never creates Agent work, and Agent Reference never creates child work. A profile cannot appear in more than one addressing relation. Always choose completionMode explicitly from the user's requested result ownership and continuation barrier. Use child_reports_directly when children publish their own final result and the Center Agent should not continue. Use resume_parent_when_all_terminal to synthesize every result, resume_parent_when_first_success to continue after the first success, resume_parent_on_failure to continue after the first authoritative failure, or resume_parent_on_each_terminal for one continuation per child completion. During a Routine, resume_parent_when_all_terminal is the only supported resume mode and may resume the Center Agent only once. Set fallbackAgentProfileId only when exactly one primary Agent should be tried first; the fallback is not woken unless that primary authoritatively fails. When Computer files are necessary, pass computerFilePaths to copy up to three bounded text files into this Wake as an explicit one-time snapshot; the Local Agent never receives filesystem access or live sync. A pending publicationStatus means Core durably queued the same Wake for event-driven retry; do not call this tool again or report failure.",
       endsTurnAfter: (result, toolInput) => {
         const parsedResult =
           centerAgentWakeAgentProfilesInSpaceResponseSchema.safeParse(result);
@@ -4028,7 +4040,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(
               ...toolContext,
             })
           );
-        assertPublishedReferenceTargets({
+        assertPublishedAddressingTargets({
+          mentionProfileIds: spaceWakeInput.mentionProfileIds,
           referenceProfileIds: spaceWakeInput.referenceProfileIds,
           response,
         });
@@ -5233,7 +5246,8 @@ function toolDefinition(
   return definition;
 }
 
-function assertCenterAgentPublishedReferenceTargets(input: {
+function assertCenterAgentPublishedAddressingTargets(input: {
+  mentionProfileIds: string[];
   referenceProfileIds: string[];
   response:
     | CenterAgentPostSpaceMessageResponse
@@ -5242,10 +5256,34 @@ function assertCenterAgentPublishedReferenceTargets(input: {
   if (!("signal" in input.response)) {
     return;
   }
-  const expectedProfileIds = [...new Set(input.referenceProfileIds)].sort();
-  const actualProfileIds = [
-    ...(input.response.signal.data.messageEnvelope?.referenceTargets ?? []),
-  ].sort();
+  assertPublishedTargetSet({
+    actualProfileIds: [
+      ...(input.response.signal.data.messageEnvelope?.mentionTargets ?? []),
+    ],
+    code: "remote_agent.mention_publication_mismatch",
+    expectedProfileIds: input.mentionProfileIds,
+    relation: "Human Mention",
+  });
+  assertPublishedTargetSet({
+    actualProfileIds: [
+      ...(input.response.signal.data.messageEnvelope?.referenceTargets ?? []),
+    ],
+    code: "remote_agent.reference_publication_mismatch",
+    expectedProfileIds: input.referenceProfileIds,
+    relation: "Reference",
+  });
+}
+
+function assertPublishedTargetSet(input: {
+  actualProfileIds: string[];
+  code:
+    | "remote_agent.mention_publication_mismatch"
+    | "remote_agent.reference_publication_mismatch";
+  expectedProfileIds: string[];
+  relation: "Human Mention" | "Reference";
+}): void {
+  const expectedProfileIds = [...new Set(input.expectedProfileIds)].sort();
+  const actualProfileIds = [...input.actualProfileIds].sort();
   if (
     actualProfileIds.length === expectedProfileIds.length &&
     actualProfileIds.every(
@@ -5256,10 +5294,10 @@ function assertCenterAgentPublishedReferenceTargets(input: {
   }
   throw Object.assign(
     new Error(
-      "OpenMeld published a Space message without the requested Reference targets. Do not retry this publication; update OpenMeld Core before trying again."
+      `OpenMeld published a Space message without the requested ${input.relation} targets. Do not retry this publication; update OpenMeld Core before trying again.`
     ),
     {
-      code: "remote_agent.reference_publication_mismatch",
+      code: input.code,
       retryable: false,
     }
   );
@@ -5272,11 +5310,20 @@ async function requireCenterAgentSpaceAuthoringContract(input: {
   const response = await callCoreRpc(
     input.coreWorker,
     "centerAgentReadSpaceAuthoringContract",
-    { context: input.context },
+    {
+      context: input.context,
+      requestedAddressingModel: "wake_reference_mention" as const,
+    },
     (coreWorker, payload) =>
       coreWorker.centerAgentReadSpaceAuthoringContract?.(payload)
   );
-  centerAgentSpaceAuthoringContractResponseSchema.parse(response);
+  const contract =
+    centerAgentSpaceAuthoringContractResponseSchema.parse(response);
+  if (contract.addressingModel !== "wake_reference_mention") {
+    throw new Error(
+      "OpenMeld Core does not support Human Mention Space authoring yet. Update OpenMeld Core before trying again."
+    );
+  }
 }
 
 function assertCenterAgentWakeCompletionContract(input: {

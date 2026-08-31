@@ -182,6 +182,7 @@ describe("protocol schemas", () => {
       profile: { profileId: `  ${SECOND_AGENT_PROFILE_ID} ` },
       capabilities: {
         liveSignalHistory: true,
+        spaceMessageAddressing: true,
       },
     });
     expect(result.success).toBe(true);
@@ -191,6 +192,7 @@ describe("protocol schemas", () => {
     expect(result.data.profile.profileId).toBe(SECOND_AGENT_PROFILE_ID);
     expect(result.data.profile.kind).toBe("agent");
     expect(result.data.capabilities?.liveSignalHistory).toBe(true);
+    expect(result.data.capabilities?.spaceMessageAddressing).toBe(true);
   });
 
   it("parses signal.text and trims text", () => {

@@ -298,11 +298,13 @@ describe("Center Agent HTTP schemas", () => {
   it("requires exact anchors for progressive Space context reads", () => {
     expect(
       centerAgentReadSpaceContextBodySchema.parse({
+        requestedAddressingModel: "wake_reference_mention",
         scope: "source",
         sourceSignalId: "signal-1",
         spaceId: "space-1",
       })
     ).toEqual({
+      requestedAddressingModel: "wake_reference_mention",
       scope: "source",
       sourceSignalId: "signal-1",
       spaceId: "space-1",

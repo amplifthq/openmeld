@@ -20,6 +20,7 @@ import {
   createSpaceSendInputConflictGuideError,
   createSpaceSendInputEmptyGuideError,
   createSpaceSendInputFileReadFailedGuideError,
+  createSpaceSendInputRequiredGuideError,
   createSpaceSubcommandTargetGuideError,
   createSpaceTargetGuideError,
   createSpaceUpdatesGuideError,
@@ -405,6 +406,7 @@ describe("dual view guide catalog", () => {
   });
 
   it("keeps send input recovery commands explicit in agent guides", () => {
+    const requiredGuideError = createSpaceSendInputRequiredGuideError();
     const conflictGuideError = createSpaceSendInputConflictGuideError();
     expect(conflictGuideError.message).toContain(
       'openmeld space send --profile <profile-id> <space-id> "hello"'
@@ -412,6 +414,11 @@ describe("dual view guide catalog", () => {
     expect(conflictGuideError.message).toContain(
       "openmeld space send --profile <profile-id> <space-id> --stdin"
     );
+    for (const guideError of [requiredGuideError, conflictGuideError]) {
+      expect(guideError.message).toContain(
+        "@Name(wake), @Name(reference), or @Name(mention)"
+      );
+    }
 
     const fileReadGuideError = createSpaceSendInputFileReadFailedGuideError(
       "/tmp/message.txt",

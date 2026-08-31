@@ -1,3 +1,4 @@
+import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
 import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 import { parseAnonymousSpaceReadRoute } from "../src/lib/anonymous-space-read-routes";
@@ -228,7 +229,8 @@ describe("public space boundary", () => {
         limit: 20,
         spaceId,
         threadId: "thread-1",
-      })
+      }),
+      OPENMELD_SPACE_ADDRESSING_VERSION
     );
   });
 
@@ -366,7 +368,8 @@ describe("public space boundary", () => {
             password: "view-password",
           },
         }),
-      })
+      }),
+      OPENMELD_SPACE_ADDRESSING_VERSION
     );
 
     const postResponse = await app.fetch(
@@ -448,7 +451,8 @@ describe("public space boundary", () => {
         spaceAccess: expect.objectContaining({
           actor: expect.objectContaining({ kind: "authenticated" }),
         }),
-      })
+      }),
+      OPENMELD_SPACE_ADDRESSING_VERSION
     );
   });
 

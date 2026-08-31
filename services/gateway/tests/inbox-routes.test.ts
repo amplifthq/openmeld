@@ -55,6 +55,20 @@ const AGENT_PROFILE_CREATION_REQUEST_ITEM = {
   },
 };
 
+const HUMAN_MENTION_ITEM = {
+  ...ITEM,
+  attention: "update" as const,
+  id: "inbox-item-human-mention",
+  kind: "space_mention" as const,
+  resolutionStatus: "not_applicable" as const,
+  sourceTarget: {
+    kind: "space" as const,
+    signalId: "signal-human-mention",
+    spaceId: "space-1",
+  },
+  title: "Alex mentioned you in Launch Room",
+};
+
 describe("Inbox routes", () => {
   it("forwards the complete member Inbox surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
@@ -245,6 +259,67 @@ describe("Inbox routes", () => {
         ...MESSAGE_CHANNEL_ITEM,
         readAt: "2026-08-04T01:01:00.000Z",
       },
+    });
+  });
+
+  it("keeps Human Mention readable across old and current Inbox clients", async () => {
+    const { coreRpc, env } = makeEnv();
+    const oldCoreItem = {
+      ...HUMAN_MENTION_ITEM,
+      kind: "space_reference" as const,
+    };
+    coreRpc.listInboxItems.mockResolvedValue({
+      items: [oldCoreItem as unknown as typeof ITEM],
+      nextCursor: null,
+      organizationId: "org-1",
+    });
+    coreRpc.getInboxItem.mockResolvedValue({
+      item: HUMAN_MENTION_ITEM as unknown as typeof ITEM,
+    });
+    coreRpc.markInboxItemRead.mockResolvedValue({
+      item: {
+        ...HUMAN_MENTION_ITEM,
+        readAt: "2026-08-04T01:01:00.000Z",
+      } as never,
+    });
+
+    const currentHeaders = {
+      "x-openmeld-inbox-item-kind-version": "1",
+      "x-openmeld-inbox-source-target-version": "4",
+    };
+    const currentListResponse = await app.fetch(
+      new Request("http://local/v1/inbox?limit=25", {
+        headers: currentHeaders,
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const staleItemResponse = await app.fetch(
+      new Request("http://local/v1/inbox/items/inbox-item-human-mention"),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const staleReadResponse = await app.fetch(
+      jsonRequest(
+        "http://local/v1/inbox/items/inbox-item-human-mention/read",
+        "PATCH",
+        { read: true }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(currentListResponse.status).toBe(200);
+    await expect(currentListResponse.json()).resolves.toMatchObject({
+      items: [{ kind: "space_mention" }],
+    });
+    expect(staleItemResponse.status).toBe(200);
+    await expect(staleItemResponse.json()).resolves.toMatchObject({
+      item: { kind: "space_reference" },
+    });
+    expect(staleReadResponse.status).toBe(200);
+    await expect(staleReadResponse.json()).resolves.toMatchObject({
+      item: { kind: "space_reference" },
     });
   });
 

@@ -131,6 +131,7 @@ describe("dispatch publication policy", () => {
     }
     expect(plan.messageEnvelope).toEqual({
       activationTargets: [],
+      mentionTargets: [],
       referenceTargets: [],
       text: "hello world",
     });

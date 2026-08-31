@@ -64,7 +64,7 @@ describe("Remote Agent Code Mode", () => {
     expect(tool.description).not.toContain("declare const codemode");
   });
 
-  it("exposes structured Space Reference input in the generated Code Mode catalog", async () => {
+  it("exposes structured Space addressing input in the generated Code Mode catalog", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const definitions = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {},
@@ -106,9 +106,16 @@ describe("Remote Agent Code Mode", () => {
           enum: [...CENTER_AGENT_DELEGATION_COMPLETION_MODES],
           type: "string",
         },
+        mentionProfileIds: {
+          description:
+            "Every exact Human Profile ID this Space message should notify with a Human Mention. Pass an empty array only when no person should be notified.",
+          items: { type: "string" },
+          maxItems: 25,
+          type: "array",
+        },
         referenceProfileIds: {
           description:
-            "Every exact Human or Agent Profile ID that this Space message includes as context without assigning work. Pass an empty array only when no context-only profile is requested.",
+            "Every exact Agent Profile ID that this Space message includes as context without assigning work. Pass an empty array only when no Agent Reference is requested.",
           items: { type: "string" },
           maxItems: 25,
           type: "array",
@@ -116,6 +123,7 @@ describe("Remote Agent Code Mode", () => {
       },
       required: [
         "agentProfileIds",
+        "mentionProfileIds",
         "referenceProfileIds",
         "completionMode",
         "spaceId",
@@ -130,7 +138,8 @@ describe("Remote Agent Code Mode", () => {
       wakeInputSchema.validate({
         agentProfileIds: [AGENT_PROFILE_ID],
         completionMode: "child_reports_directly",
-        referenceProfileIds: [HUMAN_PROFILE_ID],
+        mentionProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Please review this.",
       })
@@ -139,13 +148,15 @@ describe("Remote Agent Code Mode", () => {
       value: {
         agentProfileIds: [AGENT_PROFILE_ID],
         completionMode: "child_reports_directly",
-        referenceProfileIds: [HUMAN_PROFILE_ID],
+        mentionProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [],
       },
     });
     expect(
       wakeInputSchema.validate({
         agentProfileIds: [],
         completionMode: "child_reports_directly",
+        mentionProfileIds: [],
         referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Please review this.",

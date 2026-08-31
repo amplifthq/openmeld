@@ -42,7 +42,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
     input.activeMemberRecords,
     actorProfileId
   );
-  const referencedProfileIds = resolveReferencedProfileIds(signal);
+  const mentionedProfileIds = resolveMentionedProfileIds(signal);
   const spaceLabel = truncateInboxText(
     normalizeText(input.spaceName) ?? DEFAULT_SPACE_LABEL,
     INBOX_CONTEXT_LABEL_MAX_CHARS
@@ -56,7 +56,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   const explicitlyTargetedRecipientUserIds =
     resolveExplicitlyTargetedRecipientUserIds({
       activeMemberRecords: input.activeMemberRecords,
-      referencedProfileIds,
+      mentionedProfileIds,
       threadRootAuthorUserId: input.threadRootAuthorUserId ?? null,
     });
   const audience = resolveAudience({
@@ -80,12 +80,12 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   const candidates: InboxSourceCandidate[] = [];
 
   for (const [recipientUserId, recipientMembers] of memberRecordsByUserId) {
-    const isReference = recipientMembers.some((member) =>
-      referencedProfileIds.has(member.profileId)
+    const isMention = recipientMembers.some((member) =>
+      mentionedProfileIds.has(member.profileId)
     );
-    const kind = isReference ? "space_reference" : audience.kind;
+    const kind = isMention ? "space_mention" : audience.kind;
     const isThreadRootAuthor =
-      !isReference &&
+      !isMention &&
       normalizeText(input.threadRootAuthorUserId) === recipientUserId;
     candidates.push(
       inboxSourceCandidateSchema.parse({
@@ -112,7 +112,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
         },
         title: buildTitle({
           actorName,
-          isReference,
+          isMention,
           isTerminalWakeFailure,
           isThreadRootAuthor,
           kind,
@@ -197,11 +197,11 @@ function resolveHumanAuthorUserId(
   return normalizeText(author?.ownerUserIdSnapshot);
 }
 
-function resolveReferencedProfileIds(signal: SignalEnvelope): Set<string> {
+function resolveMentionedProfileIds(signal: SignalEnvelope): Set<string> {
   if (signal.type !== "signal.text") {
     return new Set();
   }
-  return new Set(signal.data.messageEnvelope?.referenceTargets ?? []);
+  return new Set(signal.data.messageEnvelope?.mentionTargets ?? []);
 }
 
 function resolveAudience(input: {
@@ -273,7 +273,7 @@ function resolveAudience(input: {
 
 function resolveExplicitlyTargetedRecipientUserIds(input: {
   activeMemberRecords: readonly SpaceMemberRecord[];
-  referencedProfileIds: ReadonlySet<string>;
+  mentionedProfileIds: ReadonlySet<string>;
   threadRootAuthorUserId: string | null;
 }): Set<string> {
   const recipientUserIds = new Set<string>();
@@ -287,7 +287,7 @@ function resolveExplicitlyTargetedRecipientUserIds(input: {
       member.status === "active" &&
       member.profileKindSnapshot === "human" &&
       ownerUserId &&
-      input.referencedProfileIds.has(member.profileId)
+      input.mentionedProfileIds.has(member.profileId)
     ) {
       recipientUserIds.add(ownerUserId);
     }
@@ -297,15 +297,15 @@ function resolveExplicitlyTargetedRecipientUserIds(input: {
 
 function buildTitle(input: {
   actorName: string;
-  isReference: boolean;
+  isMention: boolean;
   isTerminalWakeFailure: boolean;
   isThreadRootAuthor: boolean;
   kind: InboxSourceCandidate["kind"];
   spaceLabel: string;
 }): string {
-  if (input.isReference) {
+  if (input.isMention) {
     return truncateInboxText(
-      `${input.actorName} referenced you in ${input.spaceLabel}`,
+      `${input.actorName} mentioned you in ${input.spaceLabel}`,
       INBOX_TITLE_MAX_CHARS
     );
   }

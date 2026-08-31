@@ -3805,6 +3805,7 @@ function normalizeResolvedPostMessageAction(input: {
         failureReason,
         inputKind: "direct_payload",
         memberDirectoryLoaded: input.sendTargetReference.status === "loaded",
+        mentionTargetsCount: action.messageEnvelope.mentionTargets?.length ?? 0,
         referenceTargetsCount: action.messageEnvelope.referenceTargets.length,
         replyToSignalIdResolved: Boolean(
           action.messageEnvelope.replyToSignalId

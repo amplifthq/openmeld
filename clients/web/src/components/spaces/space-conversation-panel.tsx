@@ -126,9 +126,11 @@ import {
 import { SpaceComposerAddressingChips } from "./space-composer-addressing";
 import {
 	resolveSpaceAgentDirectConversationComposerHint,
+	resolveSpaceComposerAccessibleName,
+	resolveSpaceComposerPlaceholder,
 	resolveSpaceComposerWakeTextHint,
-	SPACE_WAKE_COMPOSER_HINT,
 	type SpaceAgentDirectConversationComposerHintKind,
+	type SpaceComposerPlaceholderContext,
 } from "./space-composer-copy";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import { resolveLocalDateKey } from "./space-conversation-date";
@@ -247,6 +249,7 @@ type SpaceConversationPanelProps = {
 	initialFocusThreadRootSignalId?: string;
 	agentDirectConversationKind?: SpaceAgentDirectConversationComposerHintKind | null;
 	isCenterAgentDirectMessage: boolean;
+	isDirectMessage: boolean;
 	isPersonalContext?: boolean;
 	isAgentRecoveryPending: (profileId: string) => boolean;
 	isLoadingEarlierHistory: boolean;
@@ -281,6 +284,7 @@ type SpaceConversationPanelProps = {
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	onMentionItemHover: (index: number) => void;
 	onMentionItemSelect: (index: number, relation?: MessageMentionType) => void;
+	onMentionButtonClick: () => void;
 	onMentionRelationChange?: (
 		profileId: string,
 		relation: MessageMentionType
@@ -401,6 +405,23 @@ function shouldRenderSpaceComposer(input: {
 		input.activeView === "messages" &&
 		(!input.isReadOnly || input.showComposerWhenReadOnly)
 	);
+}
+
+function resolveConversationComposerContext(input: {
+	agentDirectConversationKind?: SpaceAgentDirectConversationComposerHintKind | null;
+	isCenterAgentDirectMessage: boolean;
+	isDirectMessage: boolean;
+}): SpaceComposerPlaceholderContext {
+	if (input.isCenterAgentDirectMessage) {
+		return "center_agent_direct_message";
+	}
+	if (input.agentDirectConversationKind) {
+		return "agent_direct_message";
+	}
+	if (input.isDirectMessage) {
+		return "human_direct_message";
+	}
+	return "space";
 }
 
 export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
@@ -595,11 +616,19 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		() => buildThreadPreviewByThreadId(input.threadPreviews),
 		[input.threadPreviews]
 	);
-	const composerPlaceholder = resolveComposerPlaceholder({
+	const composerContext = resolveConversationComposerContext(input);
+	const composerTargetName = resolveDirectMessageTargetName(input);
+	const composerAccessibleName = resolveSpaceComposerAccessibleName({
+		context: composerContext,
+		targetName: composerTargetName,
+	});
+	const composerPlaceholder = resolveSpaceComposerPlaceholder({
 		canSendMessage,
+		context: composerContext,
 		readOnlyPlaceholder: isReadOnly
 			? input.readOnlyComposerPlaceholder
 			: undefined,
+		targetName: composerTargetName,
 	});
 	const sendButtonLabel = resolveSendButtonLabel(input.isSendingMessage);
 	const wakeTextHint = input.agentDirectConversationKind
@@ -1074,6 +1103,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 					{input.pendingActionSurface}
 					<SpaceComposerSection
 						canSendMessage={canSendMessage}
+						composerAccessibleName={composerAccessibleName}
 						composerPlaceholder={composerPlaceholder}
 						composerSendBlocked={composerSendBlocked}
 						handleComposerKeyDown={handleComposerKeyDown}
@@ -1392,6 +1422,7 @@ function SpaceConversationTopOverlay(input: {
 
 function SpaceComposerSection(input: {
 	canSendMessage: boolean;
+	composerAccessibleName: string;
 	composerSendBlocked: boolean;
 	composerPlaceholder: string;
 	handleComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -1425,7 +1456,7 @@ function SpaceComposerSection(input: {
 		? resolveSpaceAgentDirectConversationComposerHint(
 				panel.agentDirectConversationKind
 			)
-		: SPACE_WAKE_COMPOSER_HINT;
+		: null;
 	const composerHint =
 		fileHint ??
 		panel.composerAddressingSummary ??
@@ -1495,7 +1526,7 @@ function SpaceComposerSection(input: {
 							onRemove={panel.onRemoveComposerFile}
 						/>
 						<PromptInputTextarea
-							aria-label="Message this space"
+							aria-label={input.composerAccessibleName}
 							autoComplete="off"
 							className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
 							name="space-message"
@@ -1535,6 +1566,18 @@ function SpaceComposerSection(input: {
 									disabled={fileActionsDisabled}
 									limitReached={panel.composerFileLimitReached}
 								/>
+								{panel.isCenterAgentDirectMessage ? null : (
+									<Button
+										aria-label="Mention a member"
+										className="size-8 text-base"
+										onClick={panel.onMentionButtonClick}
+										size="icon-sm"
+										type="button"
+										variant="ghost"
+									>
+										<span aria-hidden="true">@</span>
+									</Button>
+								)}
 								<p
 									aria-live="polite"
 									className={cn(
@@ -3299,18 +3342,34 @@ function renderComposerBlockedWakeRecoveryAction(input: {
 	);
 }
 
-function resolveComposerPlaceholder(input: {
-	canSendMessage: boolean;
-	readOnlyPlaceholder?: string;
-}): string {
-	if (input.readOnlyPlaceholder) {
-		return input.readOnlyPlaceholder;
+function resolveDirectMessageTargetName(
+	input: Pick<
+		SpaceConversationPanelProps,
+		| "agentDirectConversationKind"
+		| "isCenterAgentDirectMessage"
+		| "isDirectMessage"
+		| "membersSnapshot"
+		| "selfProfileId"
+	>
+): string | null {
+	if (input.isCenterAgentDirectMessage) {
+		return "Center Agent";
 	}
-	if (!input.canSendMessage) {
-		return "Posting is unavailable in this space right now";
+	if (input.agentDirectConversationKind) {
+		return (
+			input.membersSnapshot?.agents.find((member) => member.status === "active")
+				?.profileName ?? null
+		);
 	}
-
-	return "Message this space…";
+	if (!input.isDirectMessage) {
+		return null;
+	}
+	return (
+		input.membersSnapshot?.humans.find(
+			(member) =>
+				member.status === "active" && member.profileId !== input.selfProfileId
+		)?.profileName ?? null
+	);
 }
 
 function resolveSendButtonLabel(isSendingMessage: boolean): string {

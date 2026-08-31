@@ -7,7 +7,10 @@ import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
 } from "../space/application/space-inbox-projection-outbox-service";
-import type { SpaceInboxProjectionOutboxRecord } from "../space/infrastructure/sql/space-inbox-projection-outbox-repo";
+import {
+  listDueSpaceInboxProjectionOutboxRecords,
+  type SpaceInboxProjectionOutboxRecord,
+} from "../space/infrastructure/sql/space-inbox-projection-outbox-repo";
 import type { SpaceMemberRecord } from "../space/infrastructure/sql/space-member-repo";
 import { Space } from "../space/transport/do/space";
 
@@ -42,6 +45,41 @@ const publishTextSignal = (
 ).publishTextSignal;
 
 describe("Space Inbox projection", () => {
+  it("decodes a persisted rollout-only Human Reference before retrying the outbox", () => {
+    const legacyCandidate = {
+      ...candidate("user-1"),
+      kind: "space_reference",
+    };
+    const sql = {
+      exec() {
+        return {
+          toArray: () => [
+            {
+              attempt_count: 0,
+              candidates_json: JSON.stringify([legacyCandidate]),
+              completed_at_ms: null,
+              created_at_ms: 1000,
+              last_error_code: null,
+              next_retry_at_ms: null,
+              projection_id: "signal-1",
+              signal_id: "signal-1",
+              space_id: "space-1",
+              status: "pending",
+              updated_at_ms: 1000,
+            },
+          ],
+        };
+      },
+    } as unknown as SqlStorage;
+
+    expect(
+      listDueSpaceInboxProjectionOutboxRecords(sql, {
+        limit: 10,
+        nowMs: 2000,
+      })[0]?.candidates[0]?.kind
+    ).toBe("space_mention");
+  });
+
   it("truncates Inbox copy without splitting a surrogate pair", () => {
     const truncated = truncateInboxText("aa😀tail", 4);
 
@@ -49,12 +87,12 @@ describe("Space Inbox projection", () => {
     expect(truncated.length).toBeLessThanOrEqual(4);
   });
 
-  it("projects exact thread targets, reference priority, and active human visibility without notifying the author", () => {
+  it("projects exact thread targets, Human Mention priority, and active human visibility without notifying the author", () => {
     const signal = textSignal({
       authorKind: "human",
       authorName: "Alex Author",
       authorProfileId: "profile-author",
-      referenceTargets: ["profile-referenced"],
+      mentionTargets: ["profile-referenced"],
       text: "Please review the updated launch notes.",
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
@@ -85,7 +123,7 @@ describe("Space Inbox projection", () => {
     expect(record?.candidates).toHaveLength(2);
     expect(record?.candidates).toEqual([
       expect.objectContaining({
-        kind: "space_reference",
+        kind: "space_mention",
         recipientUserId: "user-referenced",
         sourceKey: "signal-1",
         sourceTarget: {
@@ -94,7 +132,7 @@ describe("Space Inbox projection", () => {
           spaceId: "space-1",
           threadRootSignalId: "signal-root",
         },
-        title: "Alex Author referenced you in Launch Room",
+        title: "Alex Author mentioned you in Launch Room",
       }),
       expect.objectContaining({
         kind: "space_message",
@@ -147,7 +185,7 @@ describe("Space Inbox projection", () => {
     ]);
   });
 
-  it("delivers an agent reply to the requester, structured references, and thread target without broadcasting", () => {
+  it("delivers an agent reply to the requester, Human Mentions, and thread target without broadcasting", () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
         member("profile-requester", "user-requester", "human"),
@@ -163,7 +201,7 @@ describe("Space Inbox projection", () => {
         authorName: "Center Agent",
         authorProfileId: "profile-agent",
         purpose: AGENT_REPLY_FINAL_PURPOSE,
-        referenceTargets: ["profile-referenced"],
+        mentionTargets: ["profile-referenced"],
         text: "I updated the plan for Bob.",
       }),
       signalContext: {
@@ -184,7 +222,7 @@ describe("Space Inbox projection", () => {
         recipientUserId: "user-requester",
       }),
       expect.objectContaining({
-        kind: "space_reference",
+        kind: "space_mention",
         recipientUserId: "user-referenced",
       }),
       expect.objectContaining({
@@ -830,6 +868,7 @@ function textSignal(input: {
   authorName: string;
   authorProfileId: string;
   purpose?: string;
+  mentionTargets?: string[];
   referenceTargets?: string[];
   text: string;
 }): SignalEnvelope {
@@ -838,6 +877,7 @@ function textSignal(input: {
       ...(input.purpose ? { meta: { purpose: input.purpose } } : {}),
       messageEnvelope: {
         activationTargets: [],
+        mentionTargets: input.mentionTargets ?? [],
         referenceTargets: input.referenceTargets ?? [],
         text: input.text,
       },

@@ -280,6 +280,7 @@ describe("space-mesh", () => {
       type: "post_message",
       messageEnvelope: {
         activationTargets: [],
+        mentionTargets: [],
         referenceTargets: [],
         text: "synced in public",
       },

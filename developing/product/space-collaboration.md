@@ -448,17 +448,19 @@ model belongs in the shared contract layer.
 
 Space Message Addressing is the product model for targeting a Space message.
 
-It has two relations:
+It has three relations:
 
-| Relation  | Target support                 | Creates executable work |
-| --------- | ------------------------------ | ----------------------- |
-| Wake      | Agent Profile only             | Yes                     |
-| Reference | Human Profile or Agent Profile | No                      |
+| Relation      | Target support     | Creates executable work |
+| ------------- | ------------------ | ----------------------- |
+| Wake          | Agent Profile only | Yes                     |
+| Reference     | Agent Profile only | No                      |
+| Human Mention | Human Profile only | No                      |
 
 Wake asks an Agent Profile to do work.
 
-Reference includes a Human or Agent Profile as message context without
-assigning work or requiring a reply.
+Reference includes an Agent Profile as message context without assigning work.
+Human Mention directs a person's attention to the message without creating
+Agent work or requiring a reply.
 
 Every mention is not a Wake. A user can talk about or reference an Agent
 Profile without asking it to execute work.
@@ -469,7 +471,7 @@ executable relation inside Space Message Addressing.
 Reference is collaboration context only. If a message only references an Agent
 Profile, the user should not expect local work or an agent reply.
 
-Every newly authored Wake or Reference target must be an active member of the
+Every newly authored Wake, Reference, or Human Mention target must be an active member of the
 current Space at the Space write boundary. A removed member or a Profile that
 belongs only to the Organization cannot be used as a current addressing target,
 because the resulting message could not resolve that target from Space truth.
@@ -478,13 +480,13 @@ target remains readable through the compatibility projection even if its
 membership later changes.
 
 Composer authoring keeps these relations explicit without imposing a required
-confirmation step after every `@` selection. Agent Profiles default to Wake,
-Human Profiles default to Reference, and the same picker exposes every other
-allowed relation. Wake is represented by `@`, and Reference by a distinct
-link-style symbol. A persistent per-target semantic control shows and edits the
-chosen relation before send. The system may warn about a possible semantic
-mismatch, but it must not silently convert one structured relation into
-another. Repeating the same Agent mention in one message is not a second
+confirmation step after every `@` selection. Agent Profiles default to Wake and
+may be changed to Reference. Human Profiles always create Human Mention, so Web
+shows a fixed `@Name` mark instead of a meaningless Wake/Reference selector.
+The bottom summary counts only Agent relations (`Waking N agents` and
+`Referencing N agents`); Human Mentions stay visible in the message itself.
+The system may warn about a possible semantic mismatch, but it must not silently
+convert one structured Agent relation into another. Repeating the same Agent mention in one message is not a second
 structured relation: the first occurrence owns the selected Wake or Reference,
 and later occurrences remain ordinary visible text. The exact text is
 preserved, while the Agent appears only once in the structured target set and
@@ -929,11 +931,12 @@ Use scoped owner documents for details:
 - A Space is the collaboration room and visible outcome surface.
 - The Space guide is the durable room-rules source; Entry Brief and Board are
   read projections, not parallel truth.
-- Wake and Reference are the only current Space addressing relations.
+- Wake, Reference, and Human Mention are the current Space addressing relations.
 - Wake is the only addressing relation that creates executable work.
 - Agent-to-agent delivery must use Wake or Reply + Wake.
 - Every mention is not a Wake.
-- Reference provides context only and never creates execution.
+- Reference provides Agent context only and never creates execution.
+- Human Mention directs a person's attention and never creates Agent execution.
 - Declared child completion uses Core-owned exact-task coordination and never
   depends on the child mentioning its parent.
 - Thread placement is conversation placement, not execution truth.

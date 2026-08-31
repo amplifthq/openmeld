@@ -2683,7 +2683,13 @@ spaceActionCmd
   )
   .option(
     "--reference <target>",
-    "Reference a Human or Agent Profile",
+    "Reference an Agent Profile",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
+    "--mention <target>",
+    "Mention a Human Profile",
     collectRepeatedOptionValue,
     []
   )
@@ -2699,6 +2705,7 @@ spaceActionCmd
       messageFilePath:
         typeof opts.messageFile === "string" ? opts.messageFile : undefined,
       messageParts: Array.isArray(messageParts) ? messageParts : [],
+      mentionTargets: Array.isArray(opts.mention) ? opts.mention : [],
       wakeTargets: Array.isArray(opts.wake) ? opts.wake : [],
       referenceTargets: Array.isArray(opts.reference) ? opts.reference : [],
     });
@@ -3476,7 +3483,7 @@ withSpaceProfileOption(
     .option("--text-file <path>", "Read message text from a UTF-8 file")
     .option(
       "--plain",
-      "Send text literally without resolving @Name(wake) or @Name(reference) mentions",
+      "Send text literally without resolving @Name(wake), @Name(reference), or @Name(mention) addressing",
       false
     )
     .option(
@@ -4129,7 +4136,7 @@ program
   .option("--text-file <path>", "Read message text from a UTF-8 file")
   .option(
     "--plain",
-    "Send text literally without resolving @Name(wake) or @Name(reference) mentions",
+    "Send text literally without resolving @Name(wake), @Name(reference), or @Name(mention) addressing",
     false
   )
   .option("--password <value>", "Space password for protected access")

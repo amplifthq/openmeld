@@ -51,7 +51,7 @@ command printed in the current Wake dispatch prompt. Only if every Space Action
 CLI command fails, preserve the command error and stop. Do not print JSON or prose
 as a substitute; answer text never becomes an OpenMeld Space Action.
 
-`--wake` is only for waking another available Agent Profile. `--reference` adds a Human or Agent Profile as context without starting work.
+`--wake` is only for waking another available Agent Profile. `--reference` adds an Agent Profile as context without starting work. `--mention` notifies a Human Profile without entering Agent execution.
 
 Keep each final action aligned to the source message it answers. If the user
 asks you to deliver work to another Agent Profile, use `wake` or `reply --wake`;
@@ -418,6 +418,7 @@ openmeld space send <space-id> --profile <profile-id> --plain "literal @Agent(wa
 <DISPATCH_ACTION_CLI> space action wake "@Agent Name" "summary and request"
 <DISPATCH_ACTION_CLI> space action reply --wake "@Agent Name" "message"
 <DISPATCH_ACTION_CLI> space action reply --reference "@Agent Name" "message"
+<DISPATCH_ACTION_CLI> space action reply --mention "@Person Name" "message"
 <DISPATCH_ACTION_CLI> space action status done "short completion update"
 <DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
 <DISPATCH_ACTION_CLI> space action targets
@@ -488,8 +489,9 @@ Common options: `--profile`, `--password`, `--history-limit`, `--guide`,
 `--join`, `--no-join`, `--member`, `--agent-profile`, `--human-profile`,
 `--all`, `--plain`.
 
-Use `--plain` only when `@Name(wake)` or `@Name(reference)` should be sent as
-literal text. Without `--plain`, canonical mention syntax is
+Use `--plain` only when `@Name(wake)`, `@Name(reference)`, or
+`@Name(mention)` should be sent as literal text. Without `--plain`, canonical
+mention syntax is
 resolved as Space addressing and must fail closed if OpenMeld cannot load the current
 Space members.
 

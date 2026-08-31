@@ -126,10 +126,15 @@ test("OpenClaw Space reply uses the dispatch-owned CLI without shell approval", 
           (tool) => tool.name === "openmeld_space_reply"
         );
         assert.ok(replyTool);
+        assert.deepEqual(replyTool.parameters.properties.mentionTargets, {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+        });
         const message =
           'First line\nLiteral \\n stays literal.\n`code` "$HOME" $(whoami) 😀';
         const toolResult = await replyTool.execute("call-1", {
           message,
+          mentionTargets: ["@Felix"],
           referenceTargets: ["@Reviewer"],
           wakeTargets: ["@Builder"],
         });
@@ -148,6 +153,8 @@ test("OpenClaw Space reply uses the dispatch-owned CLI without shell approval", 
       "@Builder",
       "--reference",
       "@Reviewer",
+      "--mention",
+      "@Felix",
     ]);
     assert.equal(captured.input, result.message);
     assert.equal(

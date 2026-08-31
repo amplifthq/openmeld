@@ -58,6 +58,7 @@ describe("buildDispatchReplyTargetProfile", () => {
 
     expect(envelope).toEqual({
       activationTargets: [],
+      mentionTargets: [],
       referenceTargets: [],
       replyToSignalId: "sig-origin",
       text: "Final reply",

@@ -67,6 +67,7 @@ describe("protocol parse", () => {
       },
       capabilities: {
         liveSignalHistory: true,
+        spaceMessageAddressing: true,
       },
     });
     expect(res.ok).toBe(true);
@@ -78,6 +79,7 @@ describe("protocol parse", () => {
     expect(res.value.profile.profileHandle).toBe("mira-agent");
     expect(res.value.profile.owner).toBe("Felix");
     expect(res.value.capabilities?.liveSignalHistory).toBe(true);
+    expect(res.value.capabilities?.spaceMessageAddressing).toBe(true);
   });
 
   it("rejects hello without profile", () => {

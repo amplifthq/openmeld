@@ -494,6 +494,7 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentPostSpaceMessage?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceAuthoringContract?(input: {
     context: OpenMeldRequestContext;
+    requestedAddressingModel?: "wake_reference_mention";
   }): Promise<CenterAgentSpaceAuthoringContractResponse>;
   centerAgentReadDispatchHistory?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;

@@ -14,7 +14,7 @@ import {
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
   runtimeTransportSubmitTaskResultRequestSchema,
-  toLegacySpaceAddressingWireValue,
+  toCompatibleSpaceAddressingRequestWireValue,
 } from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
@@ -647,7 +647,7 @@ function sendDaemonFrame(
 ): void {
   inputSocket.send(
     JSON.stringify(
-      toLegacySpaceAddressingWireValue({
+      toCompatibleSpaceAddressingRequestWireValue({
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
         code: input.code,
         payload: input.payload,

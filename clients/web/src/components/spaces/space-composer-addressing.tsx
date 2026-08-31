@@ -15,6 +15,20 @@ export function SpaceComposerAddressingChips(input: {
 		<fieldset className="flex flex-wrap items-center gap-1.5 px-1 pb-2">
 			<legend className="sr-only">Message addressing</legend>
 			{input.targets.map((target) => {
+				if (target.relation === "mention") {
+					return (
+						<div
+							className="inline-flex h-7 items-center gap-1.5 border border-border bg-muted/50 px-2 text-xs"
+							key={target.profileId}
+							title={`Mentioning ${target.profileName}`}
+						>
+							<SpaceMentionRelationSymbol relation={target.relation} />
+							<span className="max-w-32 truncate font-medium">
+								{target.profileName}
+							</span>
+						</div>
+					);
+				}
 				const choices = listSpaceMentionRelationChoices({
 					allowedRelations: target.allowedRelations,
 					primaryMentionLabel: target.profileName,
@@ -57,6 +71,13 @@ export function SpaceMentionRelationSymbol(input: {
 	relation: MessageMentionType;
 }) {
 	if (input.relation === "wake") {
+		return (
+			<span aria-hidden="true" className="font-bold">
+				@
+			</span>
+		);
+	}
+	if (input.relation === "mention") {
 		return (
 			<span aria-hidden="true" className="font-bold">
 				@

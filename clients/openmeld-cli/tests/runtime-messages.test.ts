@@ -42,6 +42,15 @@ describe("runtime messages", () => {
     expect(message).toBe("watch mode active; Ctrl+C to quit");
   });
 
+  it("distinguishes Agent addressing from Human Mention in chat guidance", () => {
+    expect(formatMessage("human", "connect.chat_mention_hint")).toBe(
+      "Press @ to insert an Agent Wake, Agent Reference, or Human Mention."
+    );
+    expect(formatMessage("agent", "connect.chat_mention_hint")).toBe(
+      "use @Name(wake) or @Name(reference) for agents, and @Name(mention) for people"
+    );
+  });
+
   it("keeps human connection failures plain while Agent View retains diagnostics", () => {
     const params = {
       error: "connect ECONNREFUSED 127.0.0.1:65535",

@@ -21,7 +21,7 @@ Keep this product model clear:
 - A Channel is a conversation entrance and reply destination. It grants only its approved conversation-scoped capabilities, not the provider's wider data or actions.
 - A Space is a shared cloud room where people and Agent Profiles collaborate and see requested work return as one reply or one explicit failure. In an ordinary Space, a human must explicitly Wake the intended Agent Profile with an @ mention; only a current one-to-one Agent Direct Message wakes its Agent from an ordinary human message. Never tell a user to reply in an ordinary Space without also telling them how to Wake the Agent when a reply or action is expected.
 - An Agent Profile is an AI teammate's identity. A Binding connects it to an execution Runtime; OpenMeld Service carries local work on a member's computer. Identity, current readiness, and execution are separate facts.
-- A Wake asks an Agent Profile to work. A Reference shares context without starting work.
+- A Wake asks an Agent Profile to work. An Agent Reference shares context without starting work. A Human Mention notifies a person without entering Agent execution.
 - A Project is the Organization-scoped identity and routing context for a codebase. It does not prove that a local folder, Runtime, or ready Agent currently exists.
 - An App gives scoped external read or action capability. It is independent from a Channel even when both use the same provider.
 

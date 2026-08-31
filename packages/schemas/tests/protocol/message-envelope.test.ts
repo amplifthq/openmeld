@@ -24,6 +24,7 @@ describe("message envelope substrate", () => {
       })
     ).toEqual({
       activationTargets: [],
+      mentionTargets: [],
       referenceTargets: [],
       text: "hello from phase 2a",
     });
@@ -32,7 +33,8 @@ describe("message envelope substrate", () => {
   it("accepts the canonical message envelope shape", () => {
     const parsed = messageEnvelopeSchema.safeParse({
       activationTargets: [AGENT_PROFILE_ID],
-      referenceTargets: [HUMAN_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+      mentionTargets: [HUMAN_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+      referenceTargets: [],
       replyToSignalId: " evt-123 ",
       text: "  Rollout update is ready. ",
     });
@@ -44,7 +46,8 @@ describe("message envelope substrate", () => {
 
     expect(parsed.data).toEqual({
       activationTargets: [AGENT_PROFILE_ID],
-      referenceTargets: [HUMAN_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+      mentionTargets: [HUMAN_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+      referenceTargets: [],
       replyToSignalId: "evt-123",
       text: "Rollout update is ready.",
     });
@@ -62,6 +65,7 @@ describe("message envelope substrate", () => {
       })
     ).toEqual({
       activationTargets: [],
+      mentionTargets: [],
       referenceTargets: [],
       navigationAction: {
         label: "Open this Project",

@@ -45,8 +45,9 @@ const MEMBER_DIRECTORY = {
       preferredLookupToken: "mira",
       profileIdShort: "11111111",
       allowedRelations: {
+        mention: true,
         wake: false,
-        reference: true,
+        reference: false,
       },
       ownerUserId: "user-1",
       ownerName: "Mira",
@@ -68,6 +69,7 @@ const MEMBER_DIRECTORY = {
       preferredLookupToken: "build agent",
       profileIdShort: "agt_22222",
       allowedRelations: {
+        mention: false,
         wake: true,
         reference: true,
       },

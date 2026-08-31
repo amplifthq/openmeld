@@ -1,3 +1,4 @@
+import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
 import { buildProfileDisplay } from "@openmeld/protocol";
 import {
   catchupResponseSchema,
@@ -22,6 +23,7 @@ import {
   readSpacePasswordHeader,
   respondBadRequest,
   respondPublicBadRequest,
+  supportsCurrentSpaceAddressing,
 } from "./rpc-http.helpers";
 import {
   parsePostSignalBody,
@@ -267,7 +269,10 @@ const registerGetSignalsRoute = (app: Hono<HonoBindings>): void => {
       method: "GET",
       includeLegacySpaceAddressingWireFields: true,
       execute: async () => {
-        return await c.var.coreRpc.listSignals(rpcInput);
+        return await c.var.coreRpc.listSignals(
+          rpcInput,
+          OPENMELD_SPACE_ADDRESSING_VERSION
+        );
       },
       responseSchema: catchupResponseSchema,
     });
@@ -379,7 +384,10 @@ export function registerSignalsRoutes(app: Hono<HonoBindings>): void {
               password,
               profile,
               spaceId,
-            })
+            }),
+            supportsCurrentSpaceAddressing(c.req.raw.headers)
+              ? OPENMELD_SPACE_ADDRESSING_VERSION
+              : undefined
           );
         } catch (error) {
           emitGatewaySignalPostRuntimeEvidence({

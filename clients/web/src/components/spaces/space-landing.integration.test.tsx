@@ -851,7 +851,7 @@ describe("SpaceLanding", () => {
 				?.textContent
 		).toContain("Working in the same conversation");
 		const textarea = screen.getByRole("textbox", {
-			name: "Message this space",
+			name: "Message Center Agent",
 		});
 		setComposerValue(textarea, "Continue from the compact conversation.");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -1000,8 +1000,11 @@ describe("SpaceLanding", () => {
 			)
 		).toBeTruthy();
 		expect(
-			screen.getByText("To wake an agent, type @, then pick the agent.")
-		).toBeTruthy();
+			screen.getByRole("textbox", { name: "Message this space" })
+		).toHaveProperty(
+			"placeholder",
+			"To wake an agent, type @, then pick the agent."
+		);
 		expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
 		expect(
 			screen.queryByRole("button", { name: "View All Members" })
@@ -8345,6 +8348,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				messageEnvelope: {
 					activationTargets: ["agt_22222222-2222-2222-2222-222222222222"],
+					mentionTargets: [],
 					referenceTargets: [],
 					text: "@Runner(wake) please reply",
 				},
@@ -8417,7 +8421,7 @@ describe("SpaceLanding", () => {
 		expect(within(nextTargetList).getByText("Mira")).toBeTruthy();
 	});
 
-	it("inserts a bare Reference mention when a human is selected", async () => {
+	it("inserts a bare Human Mention when a human is selected", async () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -8522,6 +8526,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				messageEnvelope: {
 					activationTargets: [],
+					mentionTargets: [],
 					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
 					text: "@Runner for context",
 				},
@@ -8587,6 +8592,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				messageEnvelope: {
 					activationTargets: [],
+					mentionTargets: [],
 					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
 					text: "@Runner for context, then @Runner again",
 				},
@@ -8649,6 +8655,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				messageEnvelope: {
 					activationTargets: [],
+					mentionTargets: [],
 					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
 					text: "@Runner  then @Runner",
 				},
@@ -8723,9 +8730,7 @@ describe("SpaceLanding", () => {
 			).getByRole("option", { name: REVIEWER_OPTION_NAME })
 		);
 
-		expect(
-			await screen.findByText("Waking 2 agents · Referencing 0")
-		).toBeTruthy();
+		expect(await screen.findByText("Waking 2 agents")).toBeTruthy();
 
 		setComposerValue(textarea, "@Runner @Reviewer please compare");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -8733,6 +8738,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				messageEnvelope: {
 					activationTargets: [DEFAULT_AGENT_PROFILE_ID, reviewerProfileId],
+					mentionTargets: [],
 					referenceTargets: [],
 					text: "@Runner @Reviewer please compare",
 				},
@@ -12836,7 +12842,7 @@ describe("SpaceLanding", () => {
 		expect(
 			(
 				screen.getByRole("textbox", {
-					name: "Message this space",
+					name: "Message Center Agent",
 				}) as HTMLTextAreaElement
 			).value
 		).toBe(starterPrompt);
@@ -13009,7 +13015,7 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding();
 
 		const textarea = screen.getByRole("textbox", {
-			name: "Message this space",
+			name: "Message Runner",
 		});
 		setComposerValue(textarea, "DM hello");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -13641,6 +13647,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				messageEnvelope: {
 					activationTargets: ["agt_33333333-3333-3333-3333-333333333333"],
+					mentionTargets: [],
 					referenceTargets: [],
 					text: "@Watcher hello there",
 				},
