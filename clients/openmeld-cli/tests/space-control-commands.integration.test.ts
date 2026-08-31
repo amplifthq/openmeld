@@ -945,6 +945,14 @@ describe("space control commands", () => {
               liveHumanCount: 0,
               liveAgentCount: 0,
             },
+            latestVisibleUpdate: {
+              signalId: "sig-status-long",
+              signalType: "signal.text",
+              createdAt: "2026-03-21T00:02:30.000Z",
+              actorProfileId: HUMAN_PROFILE_ID,
+              actorName: "Mira",
+              previewText: `${"a".repeat(238)}😀tail-that-must-not-leak`,
+            },
           })
         );
       });
