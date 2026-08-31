@@ -360,13 +360,11 @@ describe("command entry CLI wiring", () => {
     });
   });
 
-  it("maps space members argv to runSpaceMembers", async () => {
+  it("parses a Space URL before running members and keeps explicit --profile authoritative", async () => {
     await runCli([
       "space",
-      "--gateway-url",
-      "https://gateway.example.test",
       "members",
-      "space-alpha",
+      "https://openmeld.ai/o/example/spaces/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?profileId=url-profile",
       "--profile",
       "agt-reader",
       "--password",
@@ -376,14 +374,38 @@ describe("command entry CLI wiring", () => {
 
     expect(runMocks.runSpaceMembers).toHaveBeenCalledOnce();
     expect(runMocks.runSpaceMembers).toHaveBeenCalledWith({
-      baseUrl: "https://gateway.example.test",
+      baseUrl: "https://gateway.openmeld.ai",
       entryChecksHandled: true,
       json: true,
       password: "space-secret",
       profile: "agt-reader",
-      space: "space-alpha",
+      space: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       view: "agent",
     });
+    expect(runCommandWithEntryChecksMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        gatewayUrl: "https://gateway.openmeld.ai",
+        profile: "agt-reader",
+      })
+    );
+  });
+
+  it("uses a Space URL profileId when --profile is absent", async () => {
+    await runCli([
+      "space",
+      "members",
+      "https://openmeld.ai/o/example/spaces/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?profileId=url-profile",
+    ]);
+
+    expect(runMocks.runSpaceMembers).toHaveBeenCalledOnce();
+    expect(runMocks.runSpaceMembers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: "https://gateway.openmeld.ai",
+        profile: "url-profile",
+        space:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      })
+    );
   });
 
   it("maps space list --organization argv to the Organization directory runner", async () => {

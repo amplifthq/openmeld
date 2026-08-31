@@ -340,6 +340,7 @@ import {
 } from "./space/organization-space-command";
 import { getRemovedCcCliInputMessage } from "./space/removed-addressing";
 import { runSpaceResult } from "./space/result-command";
+import { resolveSpaceReadCommandTarget } from "./space/space-target";
 import { runSpaceStatus } from "./space/status-command";
 import { runSpaceThread } from "./space/thread";
 import { runSpaceUpdates } from "./space/updates-command";
@@ -3534,7 +3535,7 @@ withSpaceProfileOption(
   spaceCmd
     .command("history")
     .description("Read recent or anchored space history.")
-    .argument("[space]", "Space ID (64-character hex)")
+    .argument("[space]", "Space URL or 64-character Space ID")
     .option("--limit <n>", "Max items (default: 20)")
     .option(
       "--after-signal <signal-id>",
@@ -3589,6 +3590,11 @@ withSpaceProfileOption(
       "missing required 'space' argument for openmeld space history"
     );
   }
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: spaceValue,
+  });
 
   const limit = parseNonNegativeIntegerOption(opts.limit, "limit");
   const beforeCount = parseNonNegativeIntegerOption(opts.before, "before");
@@ -3600,13 +3606,13 @@ withSpaceProfileOption(
   await runCommandWithEntryChecks({
     routeTokens: ["space", "history"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceHistory({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: spaceValue,
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         password: cliOptions.password,
         limit: limit ?? 20,
         brief: Boolean(opts.brief),
@@ -3705,26 +3711,30 @@ const spaceBoardCmd = withSpaceProfileOption(
   spaceCmd
     .command("board")
     .description("Read the current Space Board.")
-    .argument("<space>", "Space ID (64-character hex)")
+    .argument("<space>", "Space URL or 64-character Space ID")
     .option("--json", "Print canonical JSON", false)
     .option("--password <value>", "Space password for protected access")
 );
 
 spaceBoardCmd.action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
-  const spaceValue = String(space).trim();
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space).trim(),
+  });
 
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "board"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceBoard({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: spaceValue,
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         password: cliOptions.password,
         json: Boolean(opts.json),
         view,
@@ -3738,22 +3748,27 @@ withSpaceProfileOption(
   spaceCmd
     .command("members")
     .description("List the people and agents in a Space.")
-    .argument("<space>", "Space ID (64-character hex)")
+    .argument("<space>", "Space URL or 64-character Space ID")
     .option("--json", "Print the versioned machine-readable envelope", false)
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space).trim(),
+  });
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "members"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceMembers({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: String(space).trim(),
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         password: cliOptions.password,
         json: cliOptions.json === true,
         view,
@@ -3901,7 +3916,7 @@ withSpaceProfileOption(
     .description(
       "Read Organization visibility, link access, and current Space status."
     )
-    .argument("[space]", "Space ID (64-character hex)")
+    .argument("[space]", "Space URL or 64-character Space ID")
     .option("--json", "Print canonical JSON", false)
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
@@ -3911,18 +3926,23 @@ withSpaceProfileOption(
   if (!spaceValue && outputView === "agent") {
     throw createSpaceTargetGuideError("status");
   }
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: spaceValue,
+  });
 
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "status"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceStatus({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: spaceValue,
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         password: cliOptions.password,
         json: Boolean(opts.json),
         view,
