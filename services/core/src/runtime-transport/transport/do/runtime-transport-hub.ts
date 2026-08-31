@@ -293,12 +293,15 @@ import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   approveRuntimeCoordinatorAgentProfileWorkQueue,
   authorizeRuntimeCoordinatorAgentProfileWorkContinuation,
+  completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxProjection,
+  markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy,
   markRuntimeCoordinatorAgentProfileWorkUsageAvailable,
   readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
   readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
+  retireRuntimeCoordinatorAgentProfileHeadHistoryReference,
   writeRuntimeCoordinatorHeadLifecycleWithAdmission,
 } from "../../application/agent-profile-execution-admission";
 import {
@@ -313,8 +316,9 @@ import {
   resolveAgentProfileWorkRecoveryInboxItem,
 } from "../../application/agent-profile-work-recovery-inbox-producer";
 import {
-  clearAgentProfileWorkRecoveryInboxProjectionIntent,
-  readAgentProfileWorkRecoveryInboxProjectionIntent,
+  type AgentProfileWorkRecoveryInboxProjectionIntent,
+  readNextAgentProfileWorkRecoveryInboxProjectionAlarmAtMs,
+  readPendingAgentProfileWorkRecoveryInboxProjectionIntents,
 } from "../../application/agent-profile-work-recovery-inbox-projection";
 import {
   publishAgentReadinessInvalidationToSpaces,
@@ -609,6 +613,7 @@ const createWebSocketPair = (): AcceptableWebSocketPair => {
 const RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_MAX_WORK_UNITS = 25;
 const RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_MAX_RUN_MS = 5000;
 const RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_CONTINUATION_DELAY_MS = 1000;
+const AGENT_PROFILE_WORK_RECOVERY_INBOX_HOUSEKEEPING_BATCH_SIZE = 8;
 const AGENT_PROFILE_WORK_COORDINATOR_PROMOTION_REDRIVE_REASON =
   "agent_profile_work_coordinator_promotion" as const;
 const RUNTIME_COORDINATOR_INTERACTION_INBOX_REPAIR_STORAGE_PREFIX =
@@ -674,6 +679,7 @@ export function resolveLocalAgentControlResponseTimeoutMs(
 
 type RuntimeTransportHubHousekeepingAlarmPhase =
   | "local_agent_stream_closure_retry"
+  | "runtime_coordinator_agent_profile_work_recovery_inbox"
   | "runtime_coordinator_agent_profile_work_promotion"
   | "runtime_coordinator_agent_profile_execution_index"
   | "runtime_coordinator_finalization_retry"
@@ -1186,6 +1192,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       await this.runHousekeepingAlarmPhase(
         run,
+        "runtime_coordinator_agent_profile_work_recovery_inbox",
+        () => this.processAgentProfileWorkRecoveryInboxAlarm(run)
+      );
+      await this.runHousekeepingAlarmPhase(
+        run,
         "runtime_coordinator_watchdog",
         () => this.processRuntimeCoordinatorWatchdogAlarm(nowMs, run)
       );
@@ -1309,9 +1320,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
     }
-    await this.tryApplyAgentProfileWorkRecoveryInboxProjection(
-      parsed.data.targetProfileId
-    );
     return runtimeTransportAgentProfileExecutionStateResponseSchema.parse(
       response
     );
@@ -1347,11 +1355,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
     }
-    await Promise.all(
-      parsed.data.targetProfileIds.map((targetProfileId) =>
-        this.tryApplyAgentProfileWorkRecoveryInboxProjection(targetProfileId)
-      )
-    );
     return runtimeTransportAgentProfileOperationalContextsResponseSchema.parse(
       response
     );
@@ -1365,7 +1368,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input
       );
     if (!parsed.success) {
-      return { changedProfileIds: [], status: "unavailable" };
+      return {
+        changedProfileIds: [],
+        continuationProfileIds: [],
+        status: "unavailable",
+      };
     }
     const nowMs = Date.now();
     const response = await markRuntimeCoordinatorAgentProfileWorkUsageAvailable(
@@ -1385,41 +1392,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reason: "agent_profile_work_coordinator.changed",
       });
     }
-    if (response.pendingInboxProjections.length > 0) {
-      const profileDb = localStateDb(this.env);
-      const targetInboxDb = inboxDb(this.env);
-      if (!(profileDb && targetInboxDb)) {
-        throw new Error(
-          "runtime.transport.agent_profile_work_recovery_inbox_db_unavailable"
-        );
-      }
-      for (const projection of response.pendingInboxProjections) {
-        const profile = await readAgentProfileOrganizationContext({
-          agentProfileId: projection.targetProfileId,
-          db: profileDb,
-        });
-        if (
-          profile?.organizationId === null ||
-          profile?.ownerUserId !== parsed.data.ownerUserId ||
-          profile?.profileKind !== "agent"
-        ) {
-          continue;
-        }
-        await projectAgentProfileWorkRecoveryInboxItem({
-          db: targetInboxDb,
-          interruptedClientMessageId: projection.interruptedClientMessageId,
-          nowMs,
-          occurredAtMs: projection.recoveryAvailableAtMs,
-          organizationId: profile.organizationId,
-          ownerUserId: profile.ownerUserId,
-          profileId: projection.targetProfileId,
-          profileName: profile.profileName,
-          stage: "continue_interrupted_work",
-        });
-      }
-    }
     return runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
       changedProfileIds: response.changedProfileIds,
+      continuationProfileIds: response.continuationProfileIds,
       status: response.status,
     });
   }
@@ -1505,9 +1480,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         profileIds: [parsed.data.targetProfileId],
         reason: "agent_profile_work_coordinator.changed",
       });
-      await this.tryApplyAgentProfileWorkRecoveryInboxProjection(
-        parsed.data.targetProfileId
-      );
+      this.scheduledHousekeepingAlarmAtMs = undefined;
     }
     if (response.pendingPromotion) {
       await this.requestSpaceDispatchOutboxRedriveForPromotion(
@@ -7298,6 +7271,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
+    await this.syncAgentProfileWorkControllerConversationOccupancy({
+      request: parsed.data,
+      tokenValidationContext,
+    });
     if (!pending && commandState) {
       await this.writeRuntimeCoordinatorRunCommandState(
         buildRuntimeCoordinatorRunCommandStateFromLifecycle({
@@ -7398,6 +7375,42 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       profileIds: [input.tokenValidationContext.executionScope.targetProfileId],
       reason: "matching_execution_running",
     });
+  }
+
+  private async syncAgentProfileWorkControllerConversationOccupancy(input: {
+    request: RuntimeTransportDispatchLifecycleRequest;
+    tokenValidationContext: RuntimeCoordinatorTokenValidationContext;
+  }): Promise<void> {
+    const occupancy =
+      input.request.agentControllerConversationOccupancy ?? null;
+    if (!occupancy) {
+      return;
+    }
+    try {
+      await markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy(
+        {
+          dispatchId: input.request.dispatchId,
+          nowMs: Date.now(),
+          state: occupancy.state,
+          storage: this.ctx.storage,
+          targetProfileId:
+            input.tokenValidationContext.executionScope.targetProfileId,
+        }
+      );
+    } catch (error) {
+      console.warn(
+        "[core.runtime_transport.agent_controller_conversation_occupancy_sync_failed]",
+        {
+          dispatchId: input.request.dispatchId,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          runtimeCoordinatorExecutionId:
+            input.tokenValidationContext.runtimeCoordinatorExecutionId,
+          state: occupancy.state,
+          targetProfileId:
+            input.tokenValidationContext.executionScope.targetProfileId,
+        }
+      );
+    }
   }
 
   private async readRuntimeCoordinatorRunCommandStateForLifecycle(input: {
@@ -8074,9 +8087,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       writeRuntimeCoordinatorExecutionEventFromParts({
         db,
         eventType,
-        idempotencyKey: `lifecycle:${request.dispatchId}:${request.attemptId}:${request.phase}`,
+        idempotencyKey: `lifecycle:${request.dispatchId}:${request.attemptId}:${request.phase}:${request.agentControllerConversationOccupancy?.state ?? "progress"}`,
         observedAtMs: nowMs,
         payload: {
+          agentControllerConversationOccupancy:
+            request.agentControllerConversationOccupancy ?? null,
           lifecycleAtMs: request.lifecycleAtMs,
           localQueue: request.localQueue ?? null,
           phase: request.phase,
@@ -9990,9 +10005,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
     if (authority.terminalOutcome) {
-      await this.tryApplyAgentProfileWorkRecoveryInboxProjection(
-        authority.executionScope.targetProfileId
-      );
+      this.scheduledHousekeepingAlarmAtMs = undefined;
     }
     if (pendingPromotion) {
       await this.requestSpaceDispatchOutboxRedriveForPromotion(
@@ -10002,17 +10015,31 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
   }
 
-  private async tryApplyAgentProfileWorkRecoveryInboxProjection(
-    targetProfileId: string
+  private async processAgentProfileWorkRecoveryInboxAlarm(
+    run: RuntimeTransportHubHousekeepingAlarmRun
   ): Promise<void> {
-    try {
-      const intent = await readAgentProfileWorkRecoveryInboxProjectionIntent(
+    const intents =
+      await readPendingAgentProfileWorkRecoveryInboxProjectionIntents(
         this.ctx.storage,
-        targetProfileId
+        AGENT_PROFILE_WORK_RECOVERY_INBOX_HOUSEKEEPING_BATCH_SIZE
       );
-      if (!intent) {
+    for (const intent of intents) {
+      if (
+        !this.reserveHousekeepingAlarmWorkUnit(
+          run,
+          "runtime_coordinator_agent_profile_work_recovery_inbox"
+        )
+      ) {
         return;
       }
+      await this.tryApplyAgentProfileWorkRecoveryInboxProjection(intent);
+    }
+  }
+
+  private async tryApplyAgentProfileWorkRecoveryInboxProjection(
+    intent: AgentProfileWorkRecoveryInboxProjectionIntent
+  ): Promise<void> {
+    try {
       const profileDb = localStateDb(this.env);
       const targetInboxDb = inboxDb(this.env);
       if (!(profileDb && targetInboxDb)) {
@@ -10068,16 +10095,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           stage: "approve_queued_work",
         });
       }
-      await clearAgentProfileWorkRecoveryInboxProjectionIntent(
-        this.ctx.storage,
-        intent
-      );
+      const completed =
+        await completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxProjection(
+          {
+            intent,
+            nowMs: intent.updatedAtMs,
+            record: interruptedHead,
+            storage: this.ctx.storage,
+          }
+        );
+      if (!completed) {
+        throw new Error(
+          "runtime_coordinator.agent_profile_work_recovery_inbox_projection_state_changed"
+        );
+      }
     } catch (error) {
       console.warn(
         "[core.runtime_transport.agent_profile_work_recovery_inbox_projection_deferred]",
         {
           error: error instanceof Error ? error.message : String(error),
-          targetProfileId,
+          targetProfileId: intent.targetProfileId,
         }
       );
     }
@@ -11831,9 +11868,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       writeRuntimeCoordinatorExecutionEventFromParts({
         db,
         eventType,
-        idempotencyKey: `lifecycle:${input.request.dispatchId}:${input.request.attemptId}:${input.request.phase}`,
+        idempotencyKey: `lifecycle:${input.request.dispatchId}:${input.request.attemptId}:${input.request.phase}:${input.request.agentControllerConversationOccupancy?.state ?? "progress"}`,
         observedAtMs: nowMs,
         payload: {
+          agentControllerConversationOccupancy:
+            input.request.agentControllerConversationOccupancy ?? null,
           lifecycleAtMs: input.request.lifecycleAtMs,
           localQueue: input.request.localQueue ?? null,
           phase: input.request.phase,
@@ -13890,6 +13929,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         record: input.record,
       });
     if (publication.ok) {
+      await retireRuntimeCoordinatorAgentProfileHeadHistoryReference({
+        record: input.record,
+        storage: this.ctx.storage,
+      });
       return publication;
     }
 
@@ -16482,30 +16525,37 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async syncHousekeepingAlarm(): Promise<void> {
+    const nowMs = Date.now();
     const retryAlarmAtMs = minNullableTimestamp(
       await this.resolveNextRuntimeCoordinatorFinalizationRetryAlarmAtMs(),
       await this.resolveNextLocalAgentStreamClosureRetryAlarmAtMs()
     );
     const coordinatorAlarmAtMs = minNullableTimestamp(
-      minNullableTimestamp(
-        minNullableTimestamp(
-          await this.resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(),
-          await readNextPendingAgentProfileWorkPromotionAlarmAtMs(
-            this.ctx.storage
-          )
-        ),
-        await readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs(
-          this.ctx.storage,
-          Date.now()
-        )
+      await readNextAgentProfileWorkRecoveryInboxProjectionAlarmAtMs(
+        this.ctx.storage,
+        nowMs
       ),
       minNullableTimestamp(
-        await this.resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMs(),
         minNullableTimestamp(
-          await this.resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs(),
           minNullableTimestamp(
-            await this.resolveNextRuntimeCoordinatorHeadFailurePublicationRetryAlarmAtMs(),
-            await this.resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMs()
+            await this.resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(),
+            await readNextPendingAgentProfileWorkPromotionAlarmAtMs(
+              this.ctx.storage
+            )
+          ),
+          await readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs(
+            this.ctx.storage,
+            nowMs
+          )
+        ),
+        minNullableTimestamp(
+          await this.resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMs(),
+          minNullableTimestamp(
+            await this.resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs(),
+            minNullableTimestamp(
+              await this.resolveNextRuntimeCoordinatorHeadFailurePublicationRetryAlarmAtMs(),
+              await this.resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMs()
+            )
           )
         )
       )
@@ -16525,7 +16575,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
     const scheduledAlarmAtMs = await this.readScheduledHousekeepingAlarmAtMs();
     const nextMutation = reconcileRuntimeTransportAlarmAtMs({
-      nowMs: Date.now(),
+      nowMs,
       nextRequiredAlarmAtMs: nextAlarmAtMs,
       scheduledAlarmAtMs,
     });

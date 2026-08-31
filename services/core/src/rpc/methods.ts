@@ -251,6 +251,7 @@ import {
   respondToSpaceAgentInteractionInputSchema,
   revokeAgentProfileBindingForOrganizationResponseSchema,
   runtimeReportingRouteParamsSchema,
+  runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
   SPACE_FILE_MAX_SIZE_BYTES,
   saveOrganizationWakeAccessChoiceBodySchema,
@@ -678,6 +679,7 @@ import type {
 import {
   buildDirectMessagePairKey,
   createAuthenticatedSpaceAccessContext,
+  createDispatchContinuationSpaceAccessContext,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
   getSpaceAccessRequestId,
@@ -4361,7 +4363,8 @@ export async function rpcSubmitRuntimeAgentControllerReports(
   env: CoreBindings,
   input: SubmitRuntimeAgentControllerReportsInput
 ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
-  const request = requireRuntimeReportingRequest(input.context, input.deviceId);
+  const context = requireRpcContext(input.context);
+  const request = requireRuntimeReportingRequest(context, input.deviceId);
   const body = submitRuntimeAgentControllerReportsBodySchema.safeParse({
     lane: input.lane,
     reports: input.reports,
@@ -4453,17 +4456,24 @@ export async function rpcSubmitRuntimeAgentControllerReports(
             ),
         },
         currentReport: result.currentReport,
-        notifyUsageAvailable: async (recoveryInput) => {
+        notifyUsageAvailable: async (recoveryInput) =>
           await resolveRuntimeTransportOwnerShard(
             env,
             recoveryInput.ownerUserId
           ).rpcMarkAgentProfileWorkUsageAvailable({
             ownerUserId: recoveryInput.ownerUserId,
             targetProfileIds: [...recoveryInput.targetProfileIds],
-          });
-        },
+          }),
         nowMs: acceptedAtMs,
         ownerUserId: request.userId,
+        resumeInterruptedWork: async (recoveryInput) => {
+          await resumeUsageExhaustedAgentProfileWork({
+            context,
+            env,
+            ownerUserId: recoveryInput.ownerUserId,
+            targetProfileIds: recoveryInput.targetProfileIds,
+          });
+        },
       });
     }
 
@@ -4730,10 +4740,13 @@ export async function rpcExecuteAgentProfileWorkRecovery(
   });
 
   const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
-  const recovery = await ownerShard.rpcReadAgentProfileWorkRecovery({
-    ownerUserId: request.owner.id,
-    targetProfileId: request.agentProfileId,
-  });
+  const recovery =
+    runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
+      await ownerShard.rpcReadAgentProfileWorkRecovery({
+        ownerUserId: request.owner.id,
+        targetProfileId: request.agentProfileId,
+      })
+    );
   if (recovery.status === "unavailable") {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.temporarily_unavailable",
@@ -4759,7 +4772,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       targetProfileId: request.agentProfileId,
     });
   } else {
-    await executeAgentProfileWorkContinuation({
+    const continuation = await executeAgentProfileWorkContinuation({
       context: request.context,
       env,
       ownerShard,
@@ -4767,6 +4780,13 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       recovery,
       targetProfileId: request.agentProfileId,
     });
+    if (continuation === "deferred") {
+      throw createCoreRpcHttpError({
+        code: "agent_profile_work_recovery.temporarily_unavailable",
+        reason: "OpenMeld is checking this Agent’s paused work. Try again.",
+        status: 503,
+      });
+    }
   }
   return executeAgentProfileWorkRecoveryResponseSchema.parse({
     action: recovery.action,
@@ -4799,6 +4819,49 @@ async function executeAgentProfileWorkQueueApproval(input: {
   });
 }
 
+async function resumeUsageExhaustedAgentProfileWork(input: {
+  context: CoreRpcContextInput;
+  env: CoreBindings;
+  ownerUserId: string;
+  targetProfileIds: readonly string[];
+}): Promise<void> {
+  const ownerShard = resolveRuntimeTransportOwnerShard(
+    input.env,
+    input.ownerUserId
+  );
+  let firstError: unknown = null;
+  for (const targetProfileId of input.targetProfileIds) {
+    try {
+      const recovery =
+        runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
+          await ownerShard.rpcReadAgentProfileWorkRecovery({
+            ownerUserId: input.ownerUserId,
+            targetProfileId,
+          })
+        );
+      if (
+        recovery.status !== "available" ||
+        recovery.action !== "continue_interrupted_work"
+      ) {
+        continue;
+      }
+      await executeAgentProfileWorkContinuation({
+        context: input.context,
+        env: input.env,
+        ownerShard,
+        ownerUserId: input.ownerUserId,
+        recovery,
+        targetProfileId,
+      });
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (firstError) {
+    throw firstError;
+  }
+}
+
 async function executeAgentProfileWorkContinuation(input: {
   context: CoreRpcContextInput;
   env: CoreBindings;
@@ -4809,14 +4872,25 @@ async function executeAgentProfileWorkContinuation(input: {
     { status: "available" }
   >;
   targetProfileId: string;
-}): Promise<void> {
+}): Promise<"deferred" | "started"> {
+  if (!input.recovery.interruptedSourceSignalId) {
+    return "deferred";
+  }
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
     input.env,
     input.recovery.spaceId
   );
+  const spaceAccess = createDispatchContinuationSpaceAccessContext({
+    dispatchId: input.recovery.interruptedDispatchId,
+    requestContext: input.context,
+    sourceSignalId: input.recovery.interruptedSourceSignalId,
+    spaceId,
+    targetProfileId: input.targetProfileId,
+  });
   const inspected = await stub.rpcInspectExecutionRecovery({
     context: input.context,
     dispatchId: input.recovery.interruptedDispatchId,
+    spaceAccess,
     spaceId,
   });
   const projection = inspected.recovery;
@@ -4880,6 +4954,7 @@ async function executeAgentProfileWorkContinuation(input: {
   const executed = await stub.rpcExecuteExecutionRecovery({
     body: command,
     context: input.context,
+    spaceAccess,
     spaceId,
   });
   if (
@@ -4893,6 +4968,7 @@ async function executeAgentProfileWorkContinuation(input: {
       status: 503,
     });
   }
+  return "started";
 }
 
 async function buildAgentProfileWorkRecoveryOperationId(input: {

@@ -944,6 +944,107 @@ describe("wake trace waterfall projection", () => {
     });
   });
 
+  it("projects an occupied Agent Controller conversation as nonterminal running work", () => {
+    const baseTrace = buildRepliedTrace();
+    const trace = {
+      ...baseTrace,
+      dispatch: {
+        ...baseTrace.dispatch,
+        status: "dispatching",
+      },
+      latestAttempt: baseTrace.latestAttempt
+        ? {
+            ...baseTrace.latestAttempt,
+            status: "waiting_result",
+            finishedAt: null,
+          }
+        : null,
+      result: null,
+      resultInbox: null,
+      replySignal: null,
+      finalVisibleMessage: null,
+      runtimeCoordinatorExecution: {
+        runtimeCoordinatorExecutionId: "rce-dispatch-conversation-occupied",
+        modelVersion: "openmeld.runtime_coordinator.execution.v1",
+        spaceId: "space-1",
+        dispatchId: "dispatch-1",
+        targetProfileId: "agent-1",
+        sourceClientMessageId: CLIENT_MESSAGE_ID,
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority",
+          value: "runtime-rc-1",
+        },
+        bindingId: "binding-rc-1",
+        agentControllerRef: "builtin:codex",
+        status: "running",
+        terminalOutcome: null,
+        createdAtMs: Date.parse(ISO),
+        updatedAtMs: Date.parse(ISO),
+        legacyPointers: {
+          attemptId: "attempt-1",
+          claimLeaseId: null,
+          daemonSessionId: "daemon-session-1",
+          connectionGeneration: 1,
+          leaseEpoch: 1,
+        },
+        factSource: "runtime_coordinator_projection",
+      },
+      runtimeCoordinatorEvents: [
+        {
+          eventId: "event-conversation-occupied",
+          eventType: "lifecycle_running",
+          factSource: "runtime_coordinator_projection",
+          idempotencyKey: "lifecycle:dispatch-1:attempt-1:running:occupied",
+          observedAtMs: Date.parse(ISO),
+          payloadJson: JSON.stringify({
+            agentControllerConversationOccupancy: {
+              agentControllerConversationId: "thread-1",
+              contractVersion: 1,
+              state: "occupied",
+            },
+            lifecycleAtMs: Date.parse(ISO),
+            phase: "running",
+          }),
+          reasonCode: null,
+          runtimeCoordinatorExecutionId: "rce-dispatch-conversation-occupied",
+          statusAfter: "running",
+        },
+      ],
+    } satisfies SpaceDispatchTraceSnapshot;
+    const response = projectWakeTraceWaterfall({
+      agentLocalOriginFactsViewer: OWNER_VIEWER,
+      clientMessageId: CLIENT_MESSAGE_ID,
+      lookup: emptyLookup(),
+      lookupError: null,
+      outboxRecords: [outboxRecord()],
+      sourceSignal: {
+        factSource: "space_signal_by_client_message_id",
+        signalId: "sig-source-1",
+        observedAtMs: Date.parse(ISO),
+        targetProfileIds: ["agent-1"],
+      },
+      spaceId: "space-1",
+      targetLabelByProfileId: new Map([["agent-1", "Ada"]]),
+      targetProfileId: null,
+      tracesByDispatchId: new Map([
+        [
+          "dispatch-1",
+          {
+            correlation: null,
+            query: { spaceId: "space-1", dispatchId: "dispatch-1" },
+            trace,
+          } as unknown as SpaceDispatchTraceResponse,
+        ],
+      ]),
+    });
+
+    expect(response.items[0]?.summary).toEqual({
+      status: "running",
+      terminalStep: null,
+      reasonCode: "runtime.agent_controller_conversation.occupied",
+    });
+  });
+
   it("does not show RuntimeCoordinator retryable failure as normal running work", () => {
     const baseTrace = buildRetryableTrace();
     const trace = {

@@ -2,10 +2,11 @@ const AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MODEL_VERSION =
   "openmeld.runtime_coordinator.agent_profile_work_recovery_inbox_projection.v1" as const;
 const AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_STORAGE_KEY_PREFIX =
   "runtime-coordinator:agent-profile-work-recovery-inbox-projection:v1:";
+const AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_RETRY_DELAY_MS = 1000;
 
-type AgentProfileWorkRecoveryInboxProjectionStorage = Pick<
+type AgentProfileWorkRecoveryInboxProjectionReadStorage = Pick<
   DurableObjectStorage,
-  "get" | "transaction"
+  "list"
 >;
 
 export type AgentProfileWorkRecoveryInboxProjectionIntent = {
@@ -42,45 +43,46 @@ export function buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
   )}`;
 }
 
-export async function readAgentProfileWorkRecoveryInboxProjectionIntent(
-  storage: Pick<DurableObjectStorage, "get">,
-  targetProfileId: string
-): Promise<AgentProfileWorkRecoveryInboxProjectionIntent | null> {
-  const raw = await storage.get<unknown>(
-    buildAgentProfileWorkRecoveryInboxProjectionStorageKey(targetProfileId)
-  );
-  if (raw === undefined) {
-    return null;
-  }
-  const parsed = parseAgentProfileWorkRecoveryInboxProjectionIntent(raw);
-  if (!parsed || parsed.targetProfileId !== targetProfileId) {
-    throw new Error(
-      "runtime_coordinator.agent_profile_work_recovery_inbox_projection_invalid"
-    );
-  }
-  return parsed;
-}
-
-export async function clearAgentProfileWorkRecoveryInboxProjectionIntent(
-  storage: AgentProfileWorkRecoveryInboxProjectionStorage,
-  expected: AgentProfileWorkRecoveryInboxProjectionIntent
-): Promise<boolean> {
-  const storageKey = buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
-    expected.targetProfileId
-  );
-  return await storage.transaction(async (transaction) => {
-    const current = parseAgentProfileWorkRecoveryInboxProjectionIntent(
-      await transaction.get<unknown>(storageKey)
-    );
-    if (!(current && sameProjectionIntent(current, expected))) {
-      return false;
-    }
-    await transaction.delete(storageKey);
-    return true;
+export async function readPendingAgentProfileWorkRecoveryInboxProjectionIntents(
+  storage: AgentProfileWorkRecoveryInboxProjectionReadStorage,
+  limit: number
+): Promise<AgentProfileWorkRecoveryInboxProjectionIntent[]> {
+  const stored = await storage.list<unknown>({
+    limit,
+    prefix: AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_STORAGE_KEY_PREFIX,
   });
+  const intents: AgentProfileWorkRecoveryInboxProjectionIntent[] = [];
+  for (const [storageKey, raw] of stored) {
+    const intent = parseAgentProfileWorkRecoveryInboxProjectionIntent(raw);
+    if (
+      !intent ||
+      buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+        intent.targetProfileId
+      ) !== storageKey
+    ) {
+      throw new Error(
+        "runtime_coordinator.agent_profile_work_recovery_inbox_projection_invalid"
+      );
+    }
+    intents.push(intent);
+  }
+  return intents;
 }
 
-function parseAgentProfileWorkRecoveryInboxProjectionIntent(
+export async function readNextAgentProfileWorkRecoveryInboxProjectionAlarmAtMs(
+  storage: Pick<DurableObjectStorage, "list">,
+  nowMs: number
+): Promise<number | null> {
+  const stored = await storage.list<unknown>({
+    limit: 1,
+    prefix: AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_STORAGE_KEY_PREFIX,
+  });
+  return stored.size > 0
+    ? nowMs + AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_RETRY_DELAY_MS
+    : null;
+}
+
+export function parseAgentProfileWorkRecoveryInboxProjectionIntent(
   value: unknown
 ): AgentProfileWorkRecoveryInboxProjectionIntent | null {
   if (!value || typeof value !== "object") {
@@ -104,7 +106,7 @@ function parseAgentProfileWorkRecoveryInboxProjectionIntent(
   return intent as AgentProfileWorkRecoveryInboxProjectionIntent;
 }
 
-function sameProjectionIntent(
+export function sameAgentProfileWorkRecoveryInboxProjectionIntent(
   left: AgentProfileWorkRecoveryInboxProjectionIntent,
   right: AgentProfileWorkRecoveryInboxProjectionIntent
 ): boolean {

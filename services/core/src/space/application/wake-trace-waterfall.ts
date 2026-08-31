@@ -1790,6 +1790,23 @@ function resolveDispatchOrAttemptRunningReasonCode(
 function resolveRuntimeCoordinatorLocalQueueReasonCode(
   trace: SpaceDispatchTraceSnapshot | null
 ): string | null {
+  const occupancyEvent = trace?.runtimeCoordinatorEvents
+    .filter(
+      (event) =>
+        event.eventType === "lifecycle_accepted_local" ||
+        event.eventType === "lifecycle_running"
+    )
+    .map((event) =>
+      readPayloadObject(
+        parseRuntimeCoordinatorEventPayload(event),
+        "agentControllerConversationOccupancy"
+      )
+    )
+    .filter((occupancy) => occupancy !== null)
+    .at(-1);
+  if (readPayloadString(occupancyEvent ?? null, "state") === "occupied") {
+    return "runtime.agent_controller_conversation.occupied";
+  }
   if (trace?.runtimeCoordinatorExecution?.status !== "accepted_local") {
     return null;
   }

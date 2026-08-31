@@ -141,6 +141,9 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
+      // Older owner shards omit this during a rolling Core deployment. Current
+      // writers always include it; callers must defer side effects until it exists.
+      interruptedSourceSignalId: z.string().trim().min(1).max(512).optional(),
       spaceId: z.string().trim().min(1).max(512),
       status: z.literal("available"),
     }),
@@ -207,20 +210,32 @@ const runtimeTransportAgentProfileWorkRecoveryTargetSchema = z.strictObject({
   targetProfileId: agentProfileIdSchema,
 });
 
+export const MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS = 100;
+
 export const runtimeTransportAgentProfileWorkUsageAvailableRequestSchema =
   z.strictObject({
     ownerUserId: z.string().trim().min(1).max(256),
-    targetProfileIds: z.array(agentProfileIdSchema).min(1).max(100),
+    targetProfileIds: z
+      .array(agentProfileIdSchema)
+      .min(1)
+      .max(MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS),
   });
 
 export const runtimeTransportAgentProfileWorkUsageAvailableResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
-      changedProfileIds: z.array(agentProfileIdSchema).max(100),
+      changedProfileIds: z
+        .array(agentProfileIdSchema)
+        .max(MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS),
+      continuationProfileIds: z
+        .array(agentProfileIdSchema)
+        .max(MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS)
+        .default([]),
       status: z.literal("updated"),
     }),
     z.strictObject({
       changedProfileIds: z.tuple([]),
+      continuationProfileIds: z.tuple([]).default([]),
       status: z.literal("unavailable"),
     }),
   ]);
@@ -1699,6 +1714,13 @@ export const runtimeTransportDispatchLifecyclePhaseSchema = z.enum([
   "completed_local",
 ]);
 
+export const runtimeTransportAgentControllerConversationOccupancySchema =
+  z.strictObject({
+    agentControllerConversationId: z.string().trim().min(1),
+    contractVersion: z.literal(1),
+    state: z.enum(["available", "occupied"]),
+  });
+
 export const runtimeTransportDispatchLocalQueueWaitReasonSchema = z.enum([
   "global_concurrency",
   "local_execution_lane_concurrency",
@@ -1729,6 +1751,8 @@ export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
   leaseEpoch: z.number().int().positive(),
   phase: runtimeTransportDispatchLifecyclePhaseSchema,
   lifecycleAtMs: z.number().int().nonnegative(),
+  agentControllerConversationOccupancy:
+    runtimeTransportAgentControllerConversationOccupancySchema.optional(),
   localQueue: runtimeTransportDispatchLocalQueueDiagnosticsSchema.optional(),
 });
 

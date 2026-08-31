@@ -501,6 +501,20 @@ function createCheckingWakeAvailability(input: {
   wakeRouteStatus: WakeRouteStatus;
   readiness: AgentExecutionStatusProjection;
 }): AgentWakeAvailability {
+  if (hasReasonCode(input.readiness, "usage_checking")) {
+    return createAvailability(input.readiness, {
+      badgeLabel: "Checking",
+      category: "checking",
+      isRefreshing: true,
+      label: "Checking Usage",
+      phase: "checking_status",
+      reasonCode: "usage_checking",
+      status: "checking_connection",
+      summary: "Checking this agent's current Usage.",
+      tooltip: "Checking Usage",
+    });
+  }
+
   if (hasReasonCode(input.readiness, "local_service.reconnecting")) {
     return createReconnectingOpenMeldServiceAvailability(input.readiness);
   }
@@ -1132,6 +1146,7 @@ function isPublicUnavailableReasonCode(reasonCode: string): boolean {
   }
 
   return (
+    reasonCode === "usage_exhausted" ||
     reasonCode === "profile.unbound" ||
     reasonCode === "profile.inactive" ||
     reasonCode === "route.unavailable" ||
@@ -1196,6 +1211,7 @@ function isTransientRouteReason(reasonCode: string): boolean {
 
 function isTransientCheckingReasonCode(reasonCode: string): boolean {
   return (
+    reasonCode === "usage_checking" ||
     reasonCode === "agent_execution.route_missing" ||
     reasonCode === "local_service.reconnecting" ||
     reasonCode === "route.not_registered"

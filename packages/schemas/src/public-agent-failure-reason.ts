@@ -618,6 +618,15 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
+        `OpenMeld is still checking ${targetName}'s current Usage. Wait a moment, then wake ${targetName} again.`,
+      kind: "system_retry",
+      mappedReasonBody:
+        "OpenMeld is still checking this agent's current Usage. Wait a moment, then wake it again.",
+      patterns: ["=usage_checking"],
+      recoveryTarget: null,
+    },
+    {
+      body: (targetName) =>
         `${targetName}'s model provider account does not have enough credits for this Wake. Add credits or update billing directly with the provider, then wake the agent again.`,
       kind: "system_retry",
       mappedReasonBody:

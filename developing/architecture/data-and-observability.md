@@ -81,8 +81,28 @@ D1 may project `profile_queue_waiting`, queue counts, and correlation ids for
 queries and diagnostics. Those rows never promote work, reconstruct a Wake
 payload, or decide execution. Durable evidence useful for one collaboration's
 audit or trace follows the existing retention policy. Current coordinator
-snapshots and resolved recovery markers are removed when they no longer own
-active work; cleanup stays bounded and outside the Wake hot path.
+snapshots, inactive admission rows, and execution head references are removed
+when they no longer own active work, recovery, promotion, or pending
+publication. Final publication records may keep their exact lifecycle record
+for idempotent replay, but they are removed from the historical lifecycle
+index. A completed execution head may be deleted only after its deterministic
+terminal execution-token authority can reject the same head and dispatch on
+replay; the D1 Dispatch Ledger remains audit evidence, never replay authority.
+D1 retains the existing 30-day Wake evidence used for audit and trace.
+Forward cleanup uses exact keys in the terminal transaction; old inactive rows
+are removed only by the existing 128-row index-repair pages. Neither path scans
+the owner shard or adds work to new-Wake admission.
+
+Queued-work recovery Inbox projection uses a current intent in the same owner
+shard. Creating or replacing the intent schedules the shared Durable Object
+alarm. Housekeeping reads at most eight pending intents per run; Profile state
+and Operational Context reads never fan out into Inbox writes. After the
+idempotent D1 Inbox write succeeds, one Durable Object transaction verifies the
+same intent, interrupted head, and admission state. Resolving an item deletes
+the intent and retires the exact current head and lifecycle-index reference in
+that transaction. Any D1 or Durable Object failure leaves the intent available
+for the next alarm retry. This uses no cron, owner-shard scan, or Wake hot-path
+work.
 
 The long-term data domains are:
 

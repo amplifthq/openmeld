@@ -140,6 +140,13 @@ outbox retains the complete payload while the head lifecycle is `queued`.
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
 
+User-facing Wake progress may project explicit Profile FIFO `queued` copy only
+from the Coordinator-owned head lifecycle `queued` state. Space outbox status,
+Dispatch lookup status, and RuntimeCoordinator `created` or `delivery_pending`
+remain neutral pre-delivery progress. They must not infer that another Wake
+owns the Profile work slot, and the D1 `profile_queue_waiting` projection must
+not become a second presentation authority.
+
 When the current Wake becomes terminal, the same owner-shard transaction
 releases it, selects the next queued head, and records the minimum pending
 promotion marker. The normal path requests exact Space redrive immediately
@@ -147,6 +154,22 @@ after that transaction. The existing alarm retries only a promotion whose
 external redrive did not complete. A repeated terminal event is idempotent and
 cannot promote a second item. Route or Service `waiting` does not release the
 Profile work slot.
+
+A structured `usage_exhausted` terminal outcome is the deliberate exception to
+ordinary promotion: the Coordinator retains the interrupted work identity and
+holds every later Wake. A fresh reliable Usage recovery automatically starts
+one deterministic retry-as-new-execution for that interrupted request. Its
+successful terminal result opens the separate owner approval gate for queued
+work and creates the urgent Inbox/email action. An explicit user Stop is
+terminal: it never re-arms automatic continuation, and any later queued work
+also remains behind owner approval. If no later work exists, the Stop clears
+the recovery gate. Later Wakes, including new intent accepted after Usage
+recovers, remain in FIFO behind that gate. Repeated reports and retries must
+converge on the same continuation operation.
+The Usage report path sends candidate Profiles in stable, schema-bounded
+owner-shard batches. Those transactions return only Profiles whose continuation
+handoff is pending or authorized; Core must not probe every Profile Binding
+with a separate recovery RPC when no recovery gate exists.
 
 Provider-native instruction delivery is an adapter optimization inside the
 local execution carrier. It must not change outbox admission,
@@ -314,6 +337,17 @@ Important execution rules:
   computer. If the runtime has not started yet, the local service must attach
   queue diagnostics so Trace can explain whether the task is waiting for the
   same local execution lane, global local capacity, or runtime startup.
+- A provider's versioned Agent Controller conversation occupancy contract may
+  keep the current Wake at the Profile FIFO head after local execution starts.
+  A structured occupied admission is non-terminal: the Service reports it as
+  lifecycle evidence, waits for the official release signal, and retries the
+  same provider admission. It must not submit a result, promote the next Wake,
+  infer occupancy from Agent Activity, or classify generic transport failures
+  as busy. A recovery alarm may retry after a missed signal, but it is not the
+  normal availability loop. Wake Stop must cancel this wait immediately and
+  fence every later provider-admission retry for the stopped task. Missing
+  provider release evidence uses bounded backoff and must not become a tight
+  retry loop.
 - Compatibility claim endpoints may exist during migration, but they must not
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come
@@ -341,7 +375,14 @@ Important execution rules:
   external HTTP boundaries, not a substitute for structured Space access. Losing
   a `dispatch_continuation` actor turns a narrowly authorized Wake continuation
   into an ordinary authenticated request and breaks authorization, trace, and
-  stopped-outcome diagnostics.
+  stopped-outcome diagnostics. Automatic recovery must rebuild that actor from
+  the Coordinator's exact interrupted dispatch, source Signal, Space, and target
+  Profile identity. After Space verifies the trace, the replayed Wake preserves
+  the source Signal's author; the Agent owner's Human context is never presented
+  as the original message author. During a rolling Core deployment, an older
+  owner shard may temporarily omit the source Signal identity. A newer caller
+  must defer before any Space side effect and retry the same deterministic
+  continuation only after the complete identity is available.
 
 ### Local Agent Human Interaction
 
@@ -631,6 +672,10 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   indexes. Collection and page-apply failures share the same fail-closed,
   backoff-based state machine. Reference overflow is explicit and bounded, and
   the ready-state hot path never scans total account history.
+- Removing a visibly settled execution head does not release duplicate
+  protection. The deterministic terminal execution-token authority rejects an
+  exact head and dispatch replay before admission; D1 history may explain the
+  old Wake but cannot authorize or reject execution.
 - Consumers use the response inside one operation and must not persist it.
 - Device-scoped derivations (daemon route catalog, projected controllers,
   local service demand) must consume this projection instead of rebuilding the
@@ -697,9 +742,22 @@ drift.
 
 Core may project `Unavailable` before a new Wake when the exact current Agent
 Controller report contains a reliable, fresh Usage Limit that explicitly says
-Usage is exhausted. A percentage alone, low-capacity warning, elapsed reset,
-old snapshot, unsupported or unavailable Usage source, generic quota wording,
-or ordinary transient `429` does not block a Wake.
+Usage is exhausted. When the shared versioned Local Agent capability matrix
+declares native Usage support, a missing, stale, expired, unavailable, or
+otherwise unconfirmed current observation projects `Checking` and rejects new
+Wake admission. Core and the Local Service must consume that same matrix.
+Explicitly unsupported Usage and Local Agents whose Usage reporting is passive
+or not evaluated do not use Usage as an admission condition. An ACI report
+declares the matrix it implements through
+`usageLimitsSupportMatrixVersion`. If that optional field is absent, Core
+treats the report as a legacy contract and does not make Usage an admission
+condition merely because Core's newer matrix now marks the controller native.
+Once a report declares the current matrix version, missing or unconfirmed Usage
+fails closed as `Checking`. A
+percentage alone, low-capacity warning, generic quota wording, or ordinary
+transient `429` is never proof of exhaustion. Core derives all three outcomes
+from the already-held structured report and does not call the provider on the
+Wake hot path.
 
 After a Wake is accepted, a provider failure changes later Wake availability
 only when the result carries fresh structured hard-blocker evidence for the

@@ -291,19 +291,32 @@ capacity between accounts. A provider that has never returned usable evidence
 is `unavailable`. A controller with no supported native source is explicitly
 `unsupported`. The Service does not decide Agent Profile Wakeability, Binding,
 Wake admission, RuntimeCoordinator, routing, or agent selection from these
-states. Core may use only a reliable, fresh, explicitly exhausted Usage Limit
-as one input to its final Wakeability decision. Available, stale, unavailable,
-unsupported, unknown, low-capacity, or elapsed-reset evidence does not block a
-Wake. A separate structured provider-access evidence field may be emitted only
-after an ordinary Wake is accepted and returns a definitive account
-blocker: organization access disabled, subscription access unavailable, or
-exhausted hard quota/credit capacity. Authentication failure remains ACI
-authentication evidence. A generic quota percentage, low-capacity warning,
-ordinary `429`, or temporary provider failure must not create provider-access
-evidence or make a later Wake unavailable. Classifiers evaluate an explicit
-transient `429` or rate-limit signal before broad textual matches such as
-`usage limit` or `billing`; only structured or otherwise definitive hard
-capacity evidence may override that transient classification.
+states. Core applies the shared versioned capability matrix to the report it
+already holds; it never calls the provider on the Wake hot path. The Service
+stamps each current ACI report with `usageLimitsSupportMatrixVersion`; this
+explicitly tells Core that missing or unconfirmed native Usage evidence must
+fail closed. A legacy Service report without that optional declaration remains
+valid during mixed-version rollout and does not acquire a new Usage admission
+condition solely from a newer Core matrix. When retrying against an older Core
+contract, the Service omits both the Usage projection and its support-matrix
+declaration. For a
+controller whose matrix entry declares native Usage support, a reliable fresh
+`available` observation permits Usage admission, a reliable fresh explicitly
+`exhausted` observation blocks the Wake as `Unavailable`, and missing, stale,
+expired, unavailable, or otherwise unconfirmed evidence blocks new Wake
+admission as `Checking`. A controller that explicitly reports Usage as
+`unsupported`, or whose matrix entry is passive, unsupported, or not evaluated,
+does not use Usage as a Wakeability condition. A separate structured
+provider-access evidence field may be emitted only after an ordinary Wake is
+accepted and returns a definitive account blocker: organization access
+disabled, subscription access unavailable, or exhausted hard quota/credit
+capacity. Authentication failure remains ACI authentication evidence. A
+generic quota percentage, low-capacity warning, ordinary `429`, or temporary
+provider failure must not create provider-access evidence or independently
+prove exhaustion. Classifiers evaluate an explicit transient `429` or
+rate-limit signal before broad textual matches such as `usage limit` or
+`billing`; only structured or otherwise definitive hard capacity evidence may
+override that transient classification.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards
@@ -395,7 +408,21 @@ because the Service needs the controller conversation identity, model, and
 instruction source rather than a duplicate copy of provider history. Passive
 provider-conversation proof must use the same metadata-only boundary: it must
 not set approval, sandbox, model, collaboration-mode, or other turn policy on
-the canonical controller conversation. If an existing controller conversation
+the canonical controller conversation. Codex's official cross-process thread
+writer lock makes `thread/resume` the atomic occupancy admission boundary. The
+exact App Server `-32600` response `thread <id> already has an active writer`
+for that resume is structured Agent Controller conversation occupancy, not a
+Wake failure. OpenMeld keeps the task at the Profile FIFO head, observes the
+official lock release, and retries that same metadata-only resume immediately.
+A low-frequency recovery retry handles a missed filesystem event or abrupt
+writer exit. If the exact lock is unexpectedly not visible after Codex reports
+writer occupancy, the retry uses a short bounded backoff instead of spinning.
+Wake Stop aborts the task's lock watcher and retry boundary immediately, and
+that task must not issue another `thread/resume`. Normal execution adds no extra
+query or network round trip. No other RPC code, message, timeout, stderr,
+process presence, or Agent Activity fact may be promoted to occupancy.
+
+If an existing controller conversation
 is missing or does not acknowledge resume within the short resume admission
 window, the adapter starts one fresh thread and delivers the complete current
 instruction plan exactly once. The resulting context delta replaces the
@@ -422,6 +449,24 @@ OpenMeld must not automatically resubmit `turn/start` after an acknowledgement
 timeout: the controller may already have accepted the turn, so resubmission
 could duplicate user work. Once a turn is accepted, no fixed total wall-clock
 timeout applies to the healthy running execution.
+
+The version 1 Local Agent capability matrix currently marks only Codex App
+Server as `official_atomic_admission_and_release_signal`. Claude Code, Cursor,
+Grok Build, OpenCode, and OpenClaw remain explicitly unsupported because the
+interfaces OpenMeld consumes do not yet provide an official, deterministic
+cross-process occupancy fact and release signal. Unsupported means OpenMeld
+does not invent a preflight; each adapter continues to use its real provider
+submission contract, and an outcome-ambiguous submission fails closed through
+the existing execution reconciliation path.
+
+Deploy the Core lifecycle receiver before publishing the matching local
+component. An older Service sends no occupancy evidence to a newer Core. If a
+newer Service briefly reaches an older Core, that Core may reject the one
+additive occupancy lifecycle frame, but the Service continues ordinary running
+keepalives, retains the same Wake locally, and retries only the provider's
+official admission. The mixed-version window therefore loses the new trace
+detail without failing the Wake or promoting later work; no local-component
+contract floor bump is required.
 
 Controller context fullness, token usage, cache state, or compaction must never
 decide whether required instructions are present. These are diagnostic and

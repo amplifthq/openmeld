@@ -89,6 +89,35 @@ describe("Wake progress projection", () => {
     ).toBe(true);
   });
 
+  it("keeps ordinary dispatch delivery progress neutral without Profile FIFO evidence", () => {
+    const items = applyWakeProgressSignals({
+      currentItems: [],
+      signals: [
+        createTextSignal({
+          id: "sig-dispatching",
+          ts: 30,
+          text: "legacy text ignored",
+          meta: {
+            dispatchId: "dispatch-1",
+            purpose: DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
+            sourceClientMessageId: "client-message-1",
+            sourceEventId: "sig-source-1",
+            targetMentionLabel: "Codex",
+            targetProfileId: TARGET_PROFILE_ID,
+            transient: true,
+          },
+        }),
+      ],
+    });
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        phase: "request_sent",
+        message: "Wake request sent to @Codex.",
+      }),
+    ]);
+  });
+
   it("projects Wake progress from local send through final reply cleanup", () => {
     let items = mergeWakeProgressItems({
       currentItems: [],
@@ -147,8 +176,8 @@ describe("Wake progress projection", () => {
     });
     expect(items[0]).toMatchObject({
       dispatchId: "dispatch-1",
-      phase: "queued",
-      message: "Starting Wake for @Codex...",
+      phase: "request_sent",
+      message: "Wake request sent to @Codex.",
     });
 
     items = applyWakeProgressSignals({

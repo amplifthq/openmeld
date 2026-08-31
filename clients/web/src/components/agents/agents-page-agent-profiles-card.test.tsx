@@ -1618,6 +1618,16 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				"Controller changes are unavailable while this Agent is working because reconnecting would interrupt the current Wake."
 			)
 		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Model, reasoning effort, collaboration mode, and OpenCode permission changes apply to the next Wake."
+			)
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"A saved Permission Mode applies to the next Wake. The current Wake keeps its existing mode."
+			)
+		).toBeTruthy();
 	});
 
 	it("does not submit a stale Controller draft after the Agent starts working", () => {

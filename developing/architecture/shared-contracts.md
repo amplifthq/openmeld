@@ -5022,6 +5022,16 @@ fails repair explicitly; the shell must not relabel it as the canonical
 conversation. OpenClaw remains provider-managed and outside this contract until
 its repair semantics receive a separate audit.
 
+Agent Controller conversation occupancy is a separate versioned adapter and
+daemon-lifecycle contract. Version 1 carries only the exact controller
+conversation id and `occupied` or `available`; provider adapters may produce
+`occupied` only from an official atomic admission result. Core records that
+evidence against the current Profile FIFO head, while the local Service retains
+and retries the same Wake. The original provider error remains adapter
+diagnostics and does not itself drive state. Unknown providers, generic
+transport failures, Agent Activity, and process presence cannot populate this
+contract.
+
 `agentControllerCollaborationMode` is independent shared Binding metadata.
 The initial values are `codex:default` and `codex:plan`; non-Codex Bindings
 must reject them. The field moves through the shared Binding schema, API

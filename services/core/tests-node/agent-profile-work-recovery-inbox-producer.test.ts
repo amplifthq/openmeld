@@ -14,88 +14,6 @@ const RECOVERY_SOURCE_KEY_PATTERN =
   /^agent_profile_work_recovery_[a-f0-9]{64}$/u;
 
 describe("Agent Profile work recovery Inbox producer", () => {
-  it("projects one urgent owner action when Usage is available again", async () => {
-    const harness = createInboxHarness();
-    try {
-      const input = {
-        db: harness.db,
-        interruptedClientMessageId: "message_private_task_one",
-        nowMs: 2200,
-        occurredAtMs: 2100,
-        organizationId: "org_one",
-        ownerUserId: "user_owner",
-        profileId: "profile_one",
-        profileName: "Release Reviewer",
-        stage: "continue_interrupted_work" as const,
-      };
-
-      await projectAgentProfileWorkRecoveryInboxItem(input);
-      await projectAgentProfileWorkRecoveryInboxItem({ ...input, nowMs: 2300 });
-
-      const inbox = createInboxService({ db: harness.db });
-      await expect(
-        inbox.list({
-          organizationId: "org_one",
-          recipientUserId: "user_owner",
-          view: "needs_action",
-        })
-      ).resolves.toMatchObject({
-        items: [
-          {
-            attention: "action_required",
-            contextLabel: "Release Reviewer",
-            importance: "urgent",
-            kind: "system_issue",
-            organizationId: "org_one",
-            preview:
-              "Usage is available again. Continue the interrupted task before queued work can start.",
-            recipientUserId: "user_owner",
-            resolutionStatus: "open",
-            sourceTarget: {
-              kind: "agent_profile",
-              profileId: "profile_one",
-            },
-            title: "Continue Release Reviewer's interrupted work",
-          },
-        ],
-      });
-      await expect(
-        inbox.summary({
-          organizationId: "org_one",
-          recipientUserId: "user_other",
-        })
-      ).resolves.toEqual({
-        organizationId: "org_one",
-        totalUnreadCount: 0,
-        unresolvedActionCount: 0,
-      });
-
-      expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM inbox_items",
-        })?.count
-      ).toBe(1);
-      expect(
-        harness.queryFirst<{ count: number }>({
-          sql: "SELECT count(*) AS count FROM inbox_email_deliveries",
-        })?.count
-      ).toBe(1);
-      const stored = harness.queryFirst<{
-        source_key: string;
-        source_kind: string;
-      }>({
-        sql: "SELECT source_key, source_kind FROM inbox_items",
-      });
-      expect(stored).toEqual({
-        source_key: await buildAgentProfileWorkRecoveryInboxSourceKey(input),
-        source_kind: "agent_profile_work_recovery",
-      });
-      expect(stored?.source_key).not.toContain("message_private_task_one");
-    } finally {
-      harness.close();
-    }
-  });
-
   it("projects a separate queue approval action without exposing work details", async () => {
     const harness = createInboxHarness();
     try {
@@ -144,7 +62,7 @@ describe("Agent Profile work recovery Inbox producer", () => {
     }
   });
 
-  it("resolves only the exact recovery stage and suppresses its pending email", async () => {
+  it("resolves the exact queue approval and suppresses its pending email", async () => {
     const harness = createInboxHarness();
     try {
       const source = {
@@ -154,13 +72,6 @@ describe("Agent Profile work recovery Inbox producer", () => {
         profileId: "profile_one",
         profileName: "Release Reviewer",
       };
-      await projectAgentProfileWorkRecoveryInboxItem({
-        ...source,
-        db: harness.db,
-        nowMs: 2200,
-        occurredAtMs: 2100,
-        stage: "continue_interrupted_work",
-      });
       await projectAgentProfileWorkRecoveryInboxItem({
         ...source,
         db: harness.db,
@@ -176,7 +87,7 @@ describe("Agent Profile work recovery Inbox producer", () => {
           organizationId: source.organizationId,
           profileId: source.profileId,
           resolvedAtMs: 4000,
-          stage: "continue_interrupted_work",
+          stage: "approve_queued_work",
         })
       ).resolves.toBe(1);
       await expect(
@@ -186,33 +97,15 @@ describe("Agent Profile work recovery Inbox producer", () => {
           organizationId: source.organizationId,
           profileId: source.profileId,
           resolvedAtMs: 4100,
-          stage: "continue_interrupted_work",
+          stage: "approve_queued_work",
         })
       ).resolves.toBe(0);
 
       expect(
-        harness.queryAll<{
-          resolution_status: string;
-          stage: string;
-        }>({
-          sql: `
-            SELECT
-              resolution_status,
-              CASE
-                WHEN title LIKE 'Continue %' THEN 'continue_interrupted_work'
-                ELSE 'approve_queued_work'
-              END AS stage
-            FROM inbox_items
-            ORDER BY stage
-          `,
+        harness.queryAll<{ resolution_status: string }>({
+          sql: "SELECT resolution_status FROM inbox_items",
         })
-      ).toEqual([
-        { resolution_status: "open", stage: "approve_queued_work" },
-        {
-          resolution_status: "resolved",
-          stage: "continue_interrupted_work",
-        },
-      ]);
+      ).toEqual([{ resolution_status: "resolved" }]);
       expect(
         harness.queryAll<{ state: string }>({
           sql: `
@@ -222,7 +115,7 @@ describe("Agent Profile work recovery Inbox producer", () => {
             ORDER BY item.title
           `,
         })
-      ).toEqual([{ state: "suppressed" }, { state: "pending" }]);
+      ).toEqual([{ state: "suppressed" }]);
     } finally {
       harness.close();
     }
@@ -240,7 +133,7 @@ describe("Agent Profile work recovery Inbox producer", () => {
         ownerUserId: "user_owner",
         profileId: "profile_one",
         profileName: "Release Reviewer",
-        stage: "continue_interrupted_work",
+        stage: "approve_queued_work",
       });
       const inbox = createInboxService({ db: harness.db, nowMs: () => 3000 });
 
@@ -282,27 +175,21 @@ describe("Agent Profile work recovery Inbox producer", () => {
     }
   });
 
-  it("builds stable, stage-specific source keys without raw work identity", async () => {
+  it("builds a stable source key without raw work identity", async () => {
     const source = {
       interruptedClientMessageId: "message_private_task_one",
       profileId: "profile_one",
     };
     const first = await buildAgentProfileWorkRecoveryInboxSourceKey({
       ...source,
-      stage: "continue_interrupted_work",
+      stage: "approve_queued_work",
     });
-    await expect(
-      buildAgentProfileWorkRecoveryInboxSourceKey({
-        ...source,
-        stage: "continue_interrupted_work",
-      })
-    ).resolves.toBe(first);
     await expect(
       buildAgentProfileWorkRecoveryInboxSourceKey({
         ...source,
         stage: "approve_queued_work",
       })
-    ).resolves.not.toBe(first);
+    ).resolves.toBe(first);
     expect(first).toMatch(RECOVERY_SOURCE_KEY_PATTERN);
     expect(first).not.toContain(source.profileId);
     expect(first).not.toContain(source.interruptedClientMessageId);

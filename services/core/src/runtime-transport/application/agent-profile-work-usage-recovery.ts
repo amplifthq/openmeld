@@ -1,4 +1,8 @@
 import { resolveAgentProfileUsageRecoveryAvailability } from "@openmeld/agent-runtime";
+import {
+  MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
+  runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
+} from "@openmeld/schemas";
 import type { AcceptedRuntimeAgentControllerReport } from "../../runtime-registry/application/runtime-agent-controller-report-service";
 
 type AgentProfileWorkUsageRecoveryBinding = {
@@ -16,6 +20,11 @@ export type AgentProfileWorkUsageRecoveryBindingStore = {
 export type NotifyAgentProfileWorkUsageAvailable = (input: {
   ownerUserId: string;
   targetProfileIds: readonly string[];
+}) => Promise<unknown>;
+
+export type ResumeUsageExhaustedAgentProfileWork = (input: {
+  ownerUserId: string;
+  targetProfileIds: readonly string[];
 }) => Promise<void>;
 
 export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
@@ -24,8 +33,10 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
   notifyUsageAvailable: NotifyAgentProfileWorkUsageAvailable;
   nowMs: number;
   ownerUserId: string;
+  resumeInterruptedWork: ResumeUsageExhaustedAgentProfileWork;
 }): Promise<void> {
   const availability = resolveAgentProfileUsageRecoveryAvailability({
+    agentControllerRef: input.currentReport.agentControllerRef,
     nowMs: input.nowMs,
     report: {
       expiresAtMs: input.currentReport.expiresAtMs,
@@ -47,8 +58,31 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
     return;
   }
 
-  await input.notifyUsageAvailable({
+  const targetProfileIds = bindings.map((binding) => binding.agentProfileId);
+  const continuationProfileIds: string[] = [];
+  for (
+    let offset = 0;
+    offset < targetProfileIds.length;
+    offset += MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS
+  ) {
+    const marked =
+      runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse(
+        await input.notifyUsageAvailable({
+          ownerUserId: input.ownerUserId,
+          targetProfileIds: targetProfileIds.slice(
+            offset,
+            offset +
+              MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS
+          ),
+        })
+      );
+    continuationProfileIds.push(...marked.continuationProfileIds);
+  }
+  if (continuationProfileIds.length === 0) {
+    return;
+  }
+  await input.resumeInterruptedWork({
     ownerUserId: input.ownerUserId,
-    targetProfileIds: bindings.map((binding) => binding.agentProfileId),
+    targetProfileIds: continuationProfileIds,
   });
 }

@@ -186,6 +186,7 @@ import {
   buildWakeProgressMessage,
   clearWakeProgressItemsForSignal,
   createAuthenticatedSpaceAccessContext,
+  createDispatchContinuationSpaceAccessContext,
   createWakeProgressItem,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
@@ -813,6 +814,51 @@ function requireRpcAuthorProfile(context?: CoreRpcContextInput): Profile {
   }
 
   return toProtocolProfile(context);
+}
+
+function buildVerifiedRecoverySourceAuthorContext(input: {
+  continuationContext?: CoreRpcContextInput;
+  dispatchId: string;
+  sourceProfile: Profile;
+}): CoreRpcContextInput {
+  const sourceProfile = input.sourceProfile;
+  return {
+    ...(input.continuationContext?.activeOrganizationId
+      ? {
+          activeOrganizationId: input.continuationContext.activeOrganizationId,
+        }
+      : {}),
+    ...(sourceProfile.kind === "agent" &&
+    sourceProfile.agentControllerConversationId
+      ? {
+          agentControllerConversationId:
+            sourceProfile.agentControllerConversationId,
+        }
+      : {}),
+    actorContext: {
+      requestId: `execution-recovery-replay:${input.dispatchId}`,
+      openMeldProfileId: sourceProfile.profileId,
+      profileKind: sourceProfile.kind,
+      ...(sourceProfile.profileHandle
+        ? { profileHandle: sourceProfile.profileHandle }
+        : {}),
+      ...(sourceProfile.profileName
+        ? { profileName: sourceProfile.profileName }
+        : {}),
+      ...(sourceProfile.avatarUrl
+        ? { avatarUrl: sourceProfile.avatarUrl }
+        : {}),
+      ...(sourceProfile.kind === "agent" && sourceProfile.owner
+        ? { ownerUserId: sourceProfile.owner }
+        : {}),
+      ...(sourceProfile.kind === "agent" && sourceProfile.ownerName
+        ? { ownerName: sourceProfile.ownerName }
+        : {}),
+      ...(sourceProfile.kind === "agent" && sourceProfile.agentControllerRef
+        ? { agentControllerRef: sourceProfile.agentControllerRef }
+        : {}),
+    },
+  };
 }
 
 function resolveRpcInputSpacePassword(input: {
@@ -5265,20 +5311,38 @@ export class Space extends DurableObject<CoreBindings> {
     const thread = placement
       ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
       : null;
+    const continuationContext = input.spaceAccess
+      ? (getSpaceAccessRequestContext(input.spaceAccess) ?? input.context)
+      : input.context;
+    const verifiedReplayAccess = createDispatchContinuationSpaceAccessContext({
+      attemptId: input.projection.identity.attemptId,
+      dispatchId: trace.dispatch.dispatchId,
+      password: input.spaceAccess
+        ? getSpaceAccessPassword(input.spaceAccess)
+        : input.password,
+      requestContext: buildVerifiedRecoverySourceAuthorContext({
+        continuationContext,
+        dispatchId: trace.dispatch.dispatchId,
+        sourceProfile: sourceSignal.profile,
+      }),
+      sourceSignalId: sourceSignal.id,
+      spaceId: this.spaceId,
+      targetProfileId,
+    });
     await input.markEffectStarted();
     await this.rpcPostSignalOnceByClientMessageId({
       authoringPolicy: "user_authored",
       clientMessageId: newClientMessageId,
-      context: input.context,
+      context: continuationContext,
       messageEnvelope: {
         activationTargets: [targetProfileId],
         referenceTargets: [],
         text: sourceSignal.data.text,
       },
       meta: { clientMessageId: newClientMessageId },
-      password: input.password,
+      password: getSpaceAccessPassword(verifiedReplayAccess),
       profile: sourceSignal.profile,
-      spaceAccess: input.spaceAccess,
+      spaceAccess: verifiedReplayAccess,
       spaceId: this.spaceId,
       text: sourceSignal.data.text,
       ...(thread
@@ -15737,7 +15801,7 @@ export class Space extends DurableObject<CoreBindings> {
     outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate;
     targetLabel: string;
   }): Promise<{
-    errorCode: string;
+    errorCode: string | null;
     message: string;
     phase: WakeProgressPhase;
     terminal: boolean;
@@ -15785,14 +15849,26 @@ export class Space extends DurableObject<CoreBindings> {
       });
     if (
       headLifecycleTrace?.ok !== true ||
-      headLifecycleTrace.readStatus !== "found" ||
-      !headLifecycleTrace.lifecycle.waitingBoundary
+      headLifecycleTrace.readStatus !== "found"
     ) {
       return null;
     }
 
-    const waitingBoundary = headLifecycleTrace.lifecycle.waitingBoundary;
+    const lifecycle = headLifecycleTrace.lifecycle;
     const targetLabel = formatWakeProgressTargetLabel(input.targetLabel);
+    if (lifecycle.status === "queued") {
+      return {
+        errorCode: null,
+        message: buildWakeProgressMessage({ phase: "queued", targetLabel }),
+        phase: "queued",
+        terminal: false,
+        updatedAtMs: lifecycle.updatedAtMs,
+      };
+    }
+    const waitingBoundary = lifecycle.waitingBoundary;
+    if (!waitingBoundary) {
+      return null;
+    }
     const isPastSoftWait = Date.now() >= waitingBoundary.softDeadlineAtMs;
     return {
       errorCode: waitingBoundary.reasonCode,
@@ -15802,7 +15878,7 @@ export class Space extends DurableObject<CoreBindings> {
       phase: "retrying",
       terminal: false,
       updatedAtMs: Math.max(
-        headLifecycleTrace.lifecycle.updatedAtMs,
+        lifecycle.updatedAtMs,
         waitingBoundary.observedAtMs
       ),
     };
@@ -17240,7 +17316,7 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
   targetLabel: string;
   trace: SpaceDispatchTraceSnapshot | null;
 }): {
-  errorCode: string;
+  errorCode: string | null;
   message: string;
   phase: WakeProgressPhase;
   terminal: boolean;
@@ -17263,6 +17339,17 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
   }
   if (headLifecycle.readStatus !== "found") {
     return null;
+  }
+  if (headLifecycle.status === "queued") {
+    return {
+      errorCode: null,
+      message: buildWakeProgressMessage({
+        phase: "queued",
+        targetLabel,
+      }),
+      phase: "queued",
+      terminal: false,
+    };
   }
   if (
     headLifecycle.status === "stopped_before_execution" ||
@@ -17371,9 +17458,9 @@ function resolveWakeProgressPhaseFromDispatchEvidence(input: {
     case "dispatching":
       return "connecting";
     case "queued":
-      return "queued";
+      return "request_sent";
     default:
-      return "queued";
+      return "request_sent";
   }
 }
 
@@ -17402,7 +17489,7 @@ function resolveWakeProgressPhaseFromOutboxEvidence(input: {
   if (input.nativeDeliveryEvidence) {
     return input.nativeDeliveryEvidence.phase;
   }
-  return "queued";
+  return "request_sent";
 }
 
 function buildDispatchTargetKey(input: {
@@ -17418,7 +17505,7 @@ function resolveWakeProgressPhaseFromRuntimeCoordinatorStatus(
   switch (status) {
     case "created":
     case "delivery_pending":
-      return "queued";
+      return "request_sent";
     case "cancellation_requested":
       return "running";
     case "delivery_accepted":

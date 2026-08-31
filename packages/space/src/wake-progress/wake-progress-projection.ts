@@ -82,7 +82,7 @@ export function buildWakeProgressMessage(input: {
     case "request_sent":
       return `Wake request sent to ${targetLabel}.`;
     case "queued":
-      return `Starting Wake for ${targetLabel}...`;
+      return `Wake for ${targetLabel} is queued.`;
     case "connecting":
       return `Connecting to ${targetLabel} ${runtimeLocation}...`;
     case "running":
@@ -373,7 +373,7 @@ function resolveWakeProgressPhaseFromPurpose(
 ): WakeProgressPhase | null {
   switch (purpose) {
     case DISPATCH_ACTIVITY_DISPATCHING_PURPOSE:
-      return "queued";
+      return "request_sent";
     case DISPATCH_ACTIVITY_RETRYING_PURPOSE:
       return "retrying";
     case DISPATCH_ACTIVITY_FAILED_PURPOSE:

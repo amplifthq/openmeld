@@ -353,6 +353,13 @@ preference. The member's next reply in the same Space resolves all open Center
 Agent response requests for that member and Space; reading or Dismissing alone
 does not resolve them.
 
+When a running Agent Profile Wake ends because structured Usage is exhausted,
+restored Usage automatically retries only that interrupted request. This retry
+does not create an Inbox action. After the retry succeeds, later queued Wakes
+remain held behind one separate owner approval item. That item is action
+required and urgent, so it may use urgent email; approving it resumes FIFO from
+the oldest held Wake. Reading or Dismissing it does not approve queued work.
+
 ## Delivery channels and preferences
 
 The in-product Inbox is always available and cannot be disabled. Phase 1 has

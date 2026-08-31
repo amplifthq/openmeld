@@ -8,16 +8,23 @@ import type { AcceptedRuntimeAgentControllerReport } from "../runtime-registry/a
 import { notifyAgentProfileWorkUsageRecoveryAvailable } from "../runtime-transport/application/agent-profile-work-usage-recovery";
 
 const NOW_MS = Date.parse("2026-08-30T00:10:00.000Z");
+const PROFILE_1 = "agt_11111111-1111-4111-8111-111111111111";
+const PROFILE_2 = "agt_22222222-2222-4222-8222-222222222222";
 
 describe("Agent Profile work Usage recovery", () => {
   it("notifies the owner shard only for Profiles on the exact reported Runtime and Agent Controller", async () => {
     const listBindings = vi
       .fn()
       .mockResolvedValue([
-        { agentProfileId: "agt_profile_1" },
-        { agentProfileId: "agt_profile_2" },
+        { agentProfileId: PROFILE_1 },
+        { agentProfileId: PROFILE_2 },
       ]);
-    const notifyUsageAvailable = vi.fn().mockResolvedValue(undefined);
+    const notifyUsageAvailable = vi.fn().mockResolvedValue({
+      changedProfileIds: [PROFILE_2],
+      continuationProfileIds: [PROFILE_2],
+      status: "updated",
+    });
+    const resumeInterruptedWork = vi.fn().mockResolvedValue(undefined);
     const report = createReport("available");
 
     await notifyAgentProfileWorkUsageRecoveryAvailable({
@@ -26,6 +33,7 @@ describe("Agent Profile work Usage recovery", () => {
       notifyUsageAvailable,
       nowMs: NOW_MS,
       ownerUserId: "owner-1",
+      resumeInterruptedWork,
     });
 
     expect(listBindings).toHaveBeenCalledWith({
@@ -35,8 +43,15 @@ describe("Agent Profile work Usage recovery", () => {
     });
     expect(notifyUsageAvailable).toHaveBeenCalledWith({
       ownerUserId: "owner-1",
-      targetProfileIds: ["agt_profile_1", "agt_profile_2"],
+      targetProfileIds: [PROFILE_1, PROFILE_2],
     });
+    expect(resumeInterruptedWork).toHaveBeenCalledWith({
+      ownerUserId: "owner-1",
+      targetProfileIds: [PROFILE_2],
+    });
+    expect(notifyUsageAvailable.mock.invocationCallOrder[0]).toBeLessThan(
+      resumeInterruptedWork.mock.invocationCallOrder[0] ?? 0
+    );
   });
 
   it.each([
@@ -47,6 +62,7 @@ describe("Agent Profile work Usage recovery", () => {
   ] as const)("does not wake the coordinator from %s Usage evidence", async (status) => {
     const listBindings = vi.fn();
     const notifyUsageAvailable = vi.fn();
+    const resumeInterruptedWork = vi.fn();
 
     await notifyAgentProfileWorkUsageRecoveryAvailable({
       bindingStore: { listBindings },
@@ -54,14 +70,17 @@ describe("Agent Profile work Usage recovery", () => {
       notifyUsageAvailable,
       nowMs: NOW_MS,
       ownerUserId: "owner-1",
+      resumeInterruptedWork,
     });
 
     expect(listBindings).not.toHaveBeenCalled();
     expect(notifyUsageAvailable).not.toHaveBeenCalled();
+    expect(resumeInterruptedWork).not.toHaveBeenCalled();
   });
 
   it("does not call the owner shard when no Profile uses the reported controller", async () => {
     const notifyUsageAvailable = vi.fn();
+    const resumeInterruptedWork = vi.fn();
 
     await notifyAgentProfileWorkUsageRecoveryAvailable({
       bindingStore: { listBindings: vi.fn().mockResolvedValue([]) },
@@ -69,11 +88,90 @@ describe("Agent Profile work Usage recovery", () => {
       notifyUsageAvailable,
       nowMs: NOW_MS,
       ownerUserId: "owner-1",
+      resumeInterruptedWork,
     });
 
     expect(notifyUsageAvailable).not.toHaveBeenCalled();
+    expect(resumeInterruptedWork).not.toHaveBeenCalled();
+  });
+
+  it("accepts an old owner shard response without continuation Profile ids", async () => {
+    const resumeInterruptedWork = vi.fn();
+
+    await notifyAgentProfileWorkUsageRecoveryAvailable({
+      bindingStore: {
+        listBindings: vi
+          .fn()
+          .mockResolvedValue([{ agentProfileId: PROFILE_1 }]),
+      },
+      currentReport: createReport("available"),
+      notifyUsageAvailable: vi.fn().mockResolvedValue({
+        changedProfileIds: [PROFILE_1],
+        status: "updated",
+      }),
+      nowMs: NOW_MS,
+      ownerUserId: "owner-1",
+      resumeInterruptedWork,
+    });
+
+    expect(resumeInterruptedWork).not.toHaveBeenCalled();
+  });
+
+  it("notifies more than 100 matching Profiles in stable contract-sized batches", async () => {
+    const profileIds = Array.from({ length: 101 }, (_, index) =>
+      createProfileId(index + 1)
+    );
+    const continuationProfileIds = [profileIds[99], profileIds[100]];
+    const notifyUsageAvailable = vi.fn(
+      async (input: {
+        ownerUserId: string;
+        targetProfileIds: readonly string[];
+      }) => ({
+        changedProfileIds: [],
+        continuationProfileIds: input.targetProfileIds.filter((profileId) =>
+          continuationProfileIds.includes(profileId)
+        ),
+        status: "updated" as const,
+      })
+    );
+    const resumeInterruptedWork = vi.fn().mockResolvedValue(undefined);
+
+    await notifyAgentProfileWorkUsageRecoveryAvailable({
+      bindingStore: {
+        listBindings: vi
+          .fn()
+          .mockResolvedValue(
+            profileIds.map((agentProfileId) => ({ agentProfileId }))
+          ),
+      },
+      currentReport: createReport("available"),
+      notifyUsageAvailable,
+      nowMs: NOW_MS,
+      ownerUserId: "owner-1",
+      resumeInterruptedWork,
+    });
+
+    expect(notifyUsageAvailable).toHaveBeenCalledTimes(2);
+    expect(notifyUsageAvailable).toHaveBeenNthCalledWith(1, {
+      ownerUserId: "owner-1",
+      targetProfileIds: profileIds.slice(0, 100),
+    });
+    expect(notifyUsageAvailable).toHaveBeenNthCalledWith(2, {
+      ownerUserId: "owner-1",
+      targetProfileIds: profileIds.slice(100),
+    });
+    expect(resumeInterruptedWork).toHaveBeenCalledOnce();
+    expect(resumeInterruptedWork).toHaveBeenCalledWith({
+      ownerUserId: "owner-1",
+      targetProfileIds: continuationProfileIds,
+    });
   });
 });
+
+function createProfileId(index: number): string {
+  const suffix = index.toString(16).padStart(12, "0");
+  return `agt_00000000-0000-4000-8000-${suffix}`;
+}
 
 function createReport(
   usageStatus:

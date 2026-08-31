@@ -29,6 +29,10 @@ import {
   resolveInstalledOpenCodeLaunchCandidates,
   verifyOpenCodeLaunchContract,
 } from "@openmeld/adapter-opencode";
+import {
+  type AgentControllerUsageLimitSupport,
+  resolveAgentControllerUsageLimitSupport,
+} from "@openmeld/agent-runtime";
 import type {
   AgentControllerInterfaceCapabilities,
   AgentControllerInterfaceNativeInterface,
@@ -85,17 +89,20 @@ export type BuiltinAgentControllerDefinition = {
   adapterId: string;
   agentId: string;
   capabilities: AgentControllerInterfaceCapabilities;
+  conversationOccupancy: BuiltinAgentControllerConversationOccupancySupport;
   installResolver: BuiltinControllerInstallResolver;
   nativeInterface: AgentControllerInterfaceNativeInterface;
   usageLimitSupport: BuiltinAgentControllerUsageLimitSupport;
   versionMaintenance?: BuiltinAgentControllerVersionMaintenanceDefinition;
 };
 
+export type BuiltinAgentControllerConversationOccupancySupport = {
+  contractVersion: 1;
+  mode: "official_atomic_admission_and_release_signal" | "unsupported";
+};
+
 export type BuiltinAgentControllerUsageLimitSupport =
-  | "native"
-  | "not_evaluated"
-  | "passive"
-  | "unsupported";
+  AgentControllerUsageLimitSupport;
 
 export const EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES = {
   approvals: false,
@@ -120,13 +127,16 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: true,
       structuredUserInput: false,
     },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       resolveInstalledLaunchCandidates:
         resolveInstalledClaudeCodeLaunchCandidates,
       verifyLaunchContract: verifyClaudeCodeLaunchContract,
     },
     nativeInterface: "claude-agent-sdk",
-    usageLimitSupport: "passive",
+    usageLimitSupport: resolveAgentControllerUsageLimitSupport(
+      "builtin:claude-code"
+    ),
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "claude-code" },
       npmPackageName: "@anthropic-ai/claude-code",
@@ -151,12 +161,16 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: true,
       structuredUserInput: false,
     },
+    conversationOccupancy: {
+      contractVersion: 1,
+      mode: "official_atomic_admission_and_release_signal",
+    },
     installResolver: {
       resolveInstalledLaunchCandidates: resolveInstalledCodexLaunchCandidates,
       verifyLaunchContract: verifyCodexLaunchContract,
     },
     nativeInterface: "codex-app-server",
-    usageLimitSupport: "native",
+    usageLimitSupport: resolveAgentControllerUsageLimitSupport("builtin:codex"),
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "codex" },
       hostApplicationPath: isCodexHostApplicationCommandPath,
@@ -167,13 +181,15 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     adapterId: "openclaw",
     agentId: "openclaw",
     capabilities: EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       resolveInstalledLaunchCandidates:
         resolveInstalledOpenClawLaunchCandidates,
       verifyLaunchContract: verifyOpenClawLaunchContract,
     },
     nativeInterface: "local-cli",
-    usageLimitSupport: "not_evaluated",
+    usageLimitSupport:
+      resolveAgentControllerUsageLimitSupport("builtin:openclaw"),
   },
   {
     adapterId: "cursor",
@@ -187,13 +203,15 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: true,
       structuredUserInput: false,
     },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       refreshPersistedLaunchContract: refreshCursorPersistedLaunchContract,
       resolveInstalledLaunchCandidates: resolveInstalledCursorLaunchCandidates,
       verifyLaunchContract: verifyCursorLaunchContract,
     },
     nativeInterface: "acp",
-    usageLimitSupport: "unsupported",
+    usageLimitSupport:
+      resolveAgentControllerUsageLimitSupport("builtin:cursor"),
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "cursor-cli" },
       officialChannels: [
@@ -217,13 +235,15 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: true,
       structuredUserInput: true,
     },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       resolveInstalledLaunchCandidates:
         resolveInstalledGrokBuildLaunchCandidates,
       verifyLaunchContract: verifyGrokBuildLaunchContract,
     },
     nativeInterface: "acp",
-    usageLimitSupport: "native",
+    usageLimitSupport:
+      resolveAgentControllerUsageLimitSupport("builtin:grok-build"),
     versionMaintenance: {
       officialChannels: [
         {
@@ -249,13 +269,15 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       permissionModes: false,
       structuredUserInput: false,
     },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
       resolveInstalledLaunchCandidates:
         resolveInstalledOpenCodeLaunchCandidates,
       verifyLaunchContract: verifyOpenCodeLaunchContract,
     },
     nativeInterface: "local-cli",
-    usageLimitSupport: "unsupported",
+    usageLimitSupport:
+      resolveAgentControllerUsageLimitSupport("builtin:opencode"),
     versionMaintenance: {
       homebrewPackage: { kind: "formula", name: "opencode" },
       npmPackageName: "opencode-ai",

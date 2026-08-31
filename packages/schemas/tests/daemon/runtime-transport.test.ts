@@ -17,6 +17,7 @@ import {
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
+  runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   runtimeTransportAgentProfileWorkUsageAvailableRequestSchema,
   runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
   runtimeTransportCapabilitiesSchema,
@@ -1064,9 +1065,41 @@ describe("runtime transport schema", () => {
     expect(
       runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
         changedProfileIds: [firstProfileId],
+        continuationProfileIds: [firstProfileId, secondProfileId],
         status: "updated",
       })
-    ).toEqual({ changedProfileIds: [firstProfileId], status: "updated" });
+    ).toEqual({
+      changedProfileIds: [firstProfileId],
+      continuationProfileIds: [firstProfileId, secondProfileId],
+      status: "updated",
+    });
+    expect(
+      runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse({
+        changedProfileIds: [],
+        status: "updated",
+      })
+    ).toEqual({
+      changedProfileIds: [],
+      continuationProfileIds: [],
+      status: "updated",
+    });
+    expect(
+      runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse({
+        action: "continue_interrupted_work",
+        authorizedContinuationClientMessageId: null,
+        interruptedClientMessageId: "client-interrupted",
+        interruptedDispatchId: "dispatch-interrupted",
+        spaceId: "space-interrupted",
+        status: "available",
+      })
+    ).toEqual({
+      action: "continue_interrupted_work",
+      authorizedContinuationClientMessageId: null,
+      interruptedClientMessageId: "client-interrupted",
+      interruptedDispatchId: "dispatch-interrupted",
+      spaceId: "space-interrupted",
+      status: "available",
+    });
     expect(
       runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.parse({
         continuationClientMessageId: "client-continuation-1",
@@ -1765,6 +1798,41 @@ describe("runtime transport schema", () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  it("accepts only versioned Agent Controller conversation occupancy on lifecycle evidence", () => {
+    const base = {
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      runtimeCoordinatorExecutionId: "rce-space-1-dispatch-1-agent-1",
+      executionTokenEcho: createExecutionTokenEcho(),
+      dispatchId: "dispatch-1",
+      attemptId: "attempt-1",
+      daemonSessionId: "session-1",
+      connectionGeneration: 1,
+      leaseEpoch: 2,
+      phase: "running",
+      lifecycleAtMs: 1_700_000_000_000,
+    } as const;
+    expect(
+      runtimeTransportDispatchLifecycleRequestSchema.safeParse({
+        ...base,
+        agentControllerConversationOccupancy: {
+          agentControllerConversationId: "thread-1",
+          contractVersion: 1,
+          state: "occupied",
+        },
+      }).success
+    ).toBe(true);
+    expect(
+      runtimeTransportDispatchLifecycleRequestSchema.safeParse({
+        ...base,
+        agentControllerConversationOccupancy: {
+          agentControllerConversationId: "thread-1",
+          contractVersion: 2,
+          state: "occupied",
+        },
+      }).success
+    ).toBe(false);
   });
 
   it("accepts dispatch preview end request with target profile name", () => {

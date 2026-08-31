@@ -472,6 +472,31 @@ test("adapter-core dispatch failure preserves provider account evidence", async 
   });
 });
 
+test("adapter-core dispatch failure preserves structured Agent Controller conversation occupancy", async () => {
+  const core = await import("../dist/index.js");
+  const error = Object.assign(new Error("provider admission rejected"), {
+    agentControllerConversationOccupancy: {
+      agentControllerConversationId: "thread-123",
+      contractVersion: 1,
+      state: "occupied",
+    },
+    code: "agent_controller.conversation_occupied",
+    errorType: "adapter",
+  });
+
+  assert.deepEqual(core.toAdapterDispatchFailure(error, "adapter"), {
+    agentControllerConversationOccupancy: {
+      agentControllerConversationId: "thread-123",
+      contractVersion: 1,
+      state: "occupied",
+    },
+    errorCode: "agent_controller.conversation_occupied",
+    errorMessage: "provider admission rejected",
+    errorType: "adapter",
+    status: "failed",
+  });
+});
+
 test("adapter-core preserves an explicit Usage exhaustion classification", async () => {
   const core = await import("../dist/index.js");
   const error = Object.assign(new Error("OpenCode Usage exhausted"), {

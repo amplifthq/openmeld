@@ -8,7 +8,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +20,8 @@ import {
   updateAuthSessionActiveOrganization,
 } from "../src/config/auth-session";
 import { withTempHome } from "./helpers/fs";
+
+const BEARER_PREFIX_PATTERN = /^Bearer /u;
 
 describe("auth session transition integrity", () => {
   afterEach(() => {
@@ -240,10 +242,258 @@ describe("auth session transition integrity", () => {
     });
   });
 
-  it("keeps a remotely validated candidate usable while Setup owns the transition", async () => {
-    await withTempHome(async () => {
+  it("keeps a rotated candidate usable for later Service reads and commit", async () => {
+    await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
-      const server = createServer((_request, response) => {
+      let originalCandidateValidationCount = 0;
+      const server = createServer((request, response) => {
+        const authorization = request.headers.authorization;
+        if (authorization === "Bearer candidate-token") {
+          originalCandidateValidationCount += 1;
+          if (originalCandidateValidationCount > 1) {
+            response.writeHead(401).end();
+            return;
+          }
+        } else if (authorization !== "Bearer candidate-token-refreshed") {
+          response.writeHead(401).end();
+          return;
+        }
+        response.writeHead(200, {
+          "content-type": "application/json",
+          ...(authorization === "Bearer candidate-token"
+            ? { "set-auth-token": "candidate-token-refreshed" }
+            : {}),
+        });
+        response.end(
+          JSON.stringify({
+            session: {
+              expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              id: "candidate-session",
+            },
+            user: { id: "candidate-owner" },
+          })
+        );
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      try {
+        const address = server.address();
+        if (!(address && typeof address === "object")) {
+          throw new Error("candidate auth fixture did not bind a local port");
+        }
+        const authBaseUrl = `http://127.0.0.1:${String(address.port)}`;
+        await setAuthSession({
+          accessToken: "previous-token",
+          authBaseUrl,
+          clientId: "openmeld-cli",
+          user: { id: "previous-owner" },
+        });
+        const transition = await beginAuthSessionTransition({
+          accessToken: "candidate-token",
+          authBaseUrl,
+          clientId: "openmeld-cli",
+          user: { id: "candidate-owner" },
+        });
+
+        await expect(
+          spawnCandidateServiceAuthSessionRead({ validateRemote: true }).result
+        ).resolves.toMatchObject({
+          accessToken: "candidate-token-refreshed",
+          status: "success",
+          state: "valid",
+          userId: "candidate-owner",
+        });
+        await expect(
+          spawnCandidateServiceAuthSessionRead({ validateRemote: true }).result
+        ).resolves.toMatchObject({
+          accessToken: "candidate-token-refreshed",
+          status: "success",
+          state: "valid",
+          userId: "candidate-owner",
+        });
+
+        await transition.commit();
+
+        await expect(
+          spawnOrdinaryAuthSessionRead().result
+        ).resolves.toMatchObject({
+          accessToken: "candidate-token-refreshed",
+          status: "success",
+          state: "valid",
+          userId: "candidate-owner",
+        });
+        await expect(readStoredTokenInventory(home)).resolves.toEqual([
+          "candidate-token-refreshed",
+        ]);
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    });
+  });
+
+  it("serializes overlapping candidate Service token rotations", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      let pendingOriginalTokenResponse: ((accessToken: string) => void) | null =
+        null;
+      let originalTokenFallback: NodeJS.Timeout | null = null;
+      let currentAccessToken = "candidate-token";
+      const respondWithSession = (
+        response: ServerResponse,
+        accessToken: string,
+        nextAccessToken?: string
+      ) => {
+        currentAccessToken = nextAccessToken ?? accessToken;
+        response.writeHead(200, {
+          "content-type": "application/json",
+          ...(nextAccessToken ? { "set-auth-token": nextAccessToken } : {}),
+        });
+        response.end(
+          JSON.stringify({
+            session: {
+              expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              id: "candidate-session",
+            },
+            user: { id: "candidate-owner" },
+          })
+        );
+      };
+      const server = createServer((request, response) => {
+        const accessToken = request.headers.authorization?.replace(
+          BEARER_PREFIX_PATTERN,
+          ""
+        );
+        if (accessToken === "candidate-token") {
+          if (!pendingOriginalTokenResponse) {
+            pendingOriginalTokenResponse = (nextAccessToken) =>
+              respondWithSession(response, "candidate-token", nextAccessToken);
+            originalTokenFallback = setTimeout(() => {
+              pendingOriginalTokenResponse?.("candidate-token-1");
+              pendingOriginalTokenResponse = null;
+            }, 200);
+            return;
+          }
+          const respondToFirstRequest = pendingOriginalTokenResponse;
+          pendingOriginalTokenResponse = null;
+          if (originalTokenFallback) {
+            clearTimeout(originalTokenFallback);
+            originalTokenFallback = null;
+          }
+          respondToFirstRequest("candidate-token-1");
+          setTimeout(() => {
+            respondWithSession(
+              response,
+              "candidate-token",
+              "candidate-token-2"
+            );
+          }, 1000);
+          return;
+        }
+        if (
+          accessToken === "candidate-token-1" &&
+          currentAccessToken === "candidate-token-1"
+        ) {
+          respondWithSession(
+            response,
+            "candidate-token-1",
+            "candidate-token-2"
+          );
+          return;
+        }
+        if (accessToken === currentAccessToken) {
+          respondWithSession(response, currentAccessToken);
+          return;
+        }
+        response.writeHead(401).end();
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      try {
+        const address = server.address();
+        if (!(address && typeof address === "object")) {
+          throw new Error("candidate auth fixture did not bind a local port");
+        }
+        const authBaseUrl = `http://127.0.0.1:${String(address.port)}`;
+        await setAuthSession({
+          accessToken: "previous-token",
+          authBaseUrl,
+          clientId: "openmeld-cli",
+          user: { id: "previous-owner" },
+        });
+        const transition = await beginAuthSessionTransition({
+          accessToken: "candidate-token",
+          authBaseUrl,
+          clientId: "openmeld-cli",
+          user: { id: "candidate-owner" },
+        });
+
+        const first = spawnCandidateServiceAuthSessionRead({
+          validateRemote: true,
+        });
+        const second = spawnCandidateServiceAuthSessionRead({
+          validateRemote: true,
+        });
+        await expect(
+          Promise.all([first.result, second.result])
+        ).resolves.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              status: "success",
+              userId: "candidate-owner",
+            }),
+            expect.objectContaining({
+              status: "success",
+              userId: "candidate-owner",
+            }),
+          ])
+        );
+        await expect(
+          spawnCandidateServiceAuthSessionRead({ validateRemote: true }).result
+        ).resolves.toMatchObject({
+          accessToken: "candidate-token-2",
+          state: "valid",
+          status: "success",
+          userId: "candidate-owner",
+        });
+
+        await transition.commit();
+
+        await expect(
+          spawnOrdinaryAuthSessionRead().result
+        ).resolves.toMatchObject({
+          accessToken: "candidate-token-2",
+          state: "valid",
+          status: "success",
+          userId: "candidate-owner",
+        });
+        await expect(readStoredTokenInventory(home)).resolves.toEqual([
+          "candidate-token-2",
+        ]);
+      } finally {
+        if (originalTokenFallback) {
+          clearTimeout(originalTokenFallback);
+        }
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    });
+  });
+
+  it("restores the previous owner when a rotated candidate commit cannot finish its journal write", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      const server = createServer((request, response) => {
+        if (request.headers.authorization !== "Bearer candidate-token") {
+          response.writeHead(401).end();
+          return;
+        }
         response.writeHead(200, {
           "content-type": "application/json",
           "set-auth-token": "candidate-token-refreshed",
@@ -274,7 +524,69 @@ describe("auth session transition integrity", () => {
           clientId: "openmeld-cli",
           user: { id: "previous-owner" },
         });
-        await beginAuthSessionTransition({
+
+        await expect(
+          spawnRotatedCandidateCommitFailureRollback({ authBaseUrl }).result
+        ).resolves.toMatchObject({
+          commitErrorMessage: "fixture rejects committed journal write",
+          rollbackStatus: "success",
+          state: "valid",
+          status: "success",
+          userId: "previous-owner",
+        });
+        await expect(readStoredTokenInventory(home)).resolves.toEqual([
+          "previous-token",
+        ]);
+        await expect(authSessionTransitionJournalExists(home)).resolves.toBe(
+          false
+        );
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    });
+  });
+
+  it("restores the previous owner and removes every rotated candidate token on rollback", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      const server = createServer((request, response) => {
+        if (request.headers.authorization !== "Bearer candidate-token") {
+          response.writeHead(401).end();
+          return;
+        }
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "set-auth-token": "candidate-token-refreshed",
+        });
+        response.end(
+          JSON.stringify({
+            session: {
+              expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              id: "candidate-session",
+            },
+            user: { id: "candidate-owner" },
+          })
+        );
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      try {
+        const address = server.address();
+        if (!(address && typeof address === "object")) {
+          throw new Error("candidate auth fixture did not bind a local port");
+        }
+        const authBaseUrl = `http://127.0.0.1:${String(address.port)}`;
+        await setAuthSession({
+          accessToken: "previous-token",
+          authBaseUrl,
+          clientId: "openmeld-cli",
+          user: { id: "previous-owner" },
+        });
+        const transition = await beginAuthSessionTransition({
           accessToken: "candidate-token",
           authBaseUrl,
           clientId: "openmeld-cli",
@@ -284,9 +596,25 @@ describe("auth session transition integrity", () => {
         await expect(
           spawnCandidateServiceAuthSessionRead({ validateRemote: true }).result
         ).resolves.toMatchObject({
+          accessToken: "candidate-token-refreshed",
           status: "success",
+          state: "valid",
           userId: "candidate-owner",
         });
+
+        await transition.rollback();
+
+        await expect(
+          spawnOrdinaryAuthSessionRead().result
+        ).resolves.toMatchObject({
+          accessToken: "previous-token",
+          status: "success",
+          state: "valid",
+          userId: "previous-owner",
+        });
+        await expect(readStoredTokenInventory(home)).resolves.toEqual([
+          "previous-token",
+        ]);
       } finally {
         await new Promise<void>((resolve, reject) => {
           server.close((error) => (error ? reject(error) : resolve()));
@@ -668,8 +996,10 @@ async function readStoredTokenInventory(home: string): Promise<string[]> {
 }
 
 type RacingAuthSessionTransitionResult = {
+  accessToken?: string;
   errorMessage?: string;
   errorName?: string;
+  state?: string;
   status: "error" | "success";
   userId: string;
 };
@@ -1110,7 +1440,9 @@ function spawnAuthSessionRead(
     try {
       const auth = await getAuthSessionState({ validateRemote: ${String(input.validateRemote === true)} });
       process.stdout.write(JSON.stringify({
+        accessToken: auth.session?.accessToken ?? "",
         status: "success",
+        state: auth.state,
         userId: auth.session?.user?.id ?? "",
       }));
     } catch (error) {
@@ -1223,6 +1555,75 @@ function spawnPausedOwnedCommit(input: { barrierDirectory: string }): {
         errorMessage: error instanceof Error ? error.message : String(error),
       }));
     }
+  `;
+  return spawnAuthSessionFixture({ script, tsxLoaderPath });
+}
+
+function spawnRotatedCandidateCommitFailureRollback(input: {
+  authBaseUrl: string;
+}): {
+  child: ChildProcessWithoutNullStreams;
+  result: Promise<RacingAuthSessionTransitionResult>;
+} {
+  const { authSessionModuleUrl, tsxLoaderPath } = resolveAuthSessionFixture();
+  const script = `
+    import fs from "node:fs";
+    import { syncBuiltinESMExports } from "node:module";
+
+    const {
+      beginAuthSessionTransition,
+      getAuthSessionState,
+    } = await import(${JSON.stringify(authSessionModuleUrl)});
+    const transition = await beginAuthSessionTransition({
+      accessToken: "candidate-token",
+      authBaseUrl: ${JSON.stringify(input.authBaseUrl)},
+      clientId: "openmeld-cli",
+      user: { id: "candidate-owner" },
+    });
+    await getAuthSessionState({ validateRemote: true });
+
+    const originalRename = fs.promises.rename.bind(fs.promises);
+    let rejectCommittedJournalWrite = true;
+    fs.promises.rename = async (...args) => {
+      const target = String(args[1]);
+      if (
+        rejectCommittedJournalWrite &&
+        target.endsWith("/auth/session-transition.json")
+      ) {
+        rejectCommittedJournalWrite = false;
+        throw new Error("fixture rejects committed journal write");
+      }
+      return await originalRename(...args);
+    };
+    syncBuiltinESMExports();
+
+    let commitErrorMessage = "";
+    try {
+      await transition.commit();
+    } catch (error) {
+      commitErrorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      fs.promises.rename = originalRename;
+      syncBuiltinESMExports();
+    }
+
+    let rollbackStatus = "success";
+    let rollbackErrorMessage = "";
+    try {
+      await transition.rollback();
+    } catch (error) {
+      rollbackStatus = "error";
+      rollbackErrorMessage = error instanceof Error ? error.message : String(error);
+    }
+    const auth = await getAuthSessionState({ validateRemote: false });
+    process.stdout.write(JSON.stringify({
+      commitErrorMessage,
+      rollbackErrorMessage,
+      rollbackStatus,
+      status: "success",
+      state: auth.state,
+      userId: auth.session?.user?.id ?? "",
+    }));
   `;
   return spawnAuthSessionFixture({ script, tsxLoaderPath });
 }
