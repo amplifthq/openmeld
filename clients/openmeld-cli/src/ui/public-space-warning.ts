@@ -10,12 +10,6 @@ type PublicSpaceConfirmPromptConfig = {
   vertical: boolean;
 };
 
-export type PublicSpacePasswordPromptConfig = {
-  message: string;
-  setPasswordLabel: string;
-  skipPasswordLabel: string;
-};
-
 export type PublicSpaceExposure = "anyone_can_join" | "anyone_can_view";
 
 export function resolvePublicSpaceExposure(
@@ -84,34 +78,17 @@ export function buildPublicSpaceBringAgentsConfirmPromptConfig(input: {
   };
 }
 
-export function buildPublicSpacePasswordPromptConfig(input: {
-  minimumLength: number;
-}): PublicSpacePasswordPromptConfig {
-  return {
-    message: buildPublicSpacePromptCardMessage({
-      lines: [
-        "Without a password, anyone with this Space link can read what is shared here and join.",
-        "With a password, only people who have it can open and join the Space.",
-        `Passwords must be at least ${input.minimumLength} characters.`,
-      ],
-      question: "Require a password to open and join?",
-    }),
-    setPasswordLabel: "Yes, require a password to open and join",
-    skipPasswordLabel: "No, anyone with the link can join",
-  };
-}
-
 function buildPublicSpacePromptMessage(
   question: string,
   exposure: PublicSpaceExposure
 ): string {
-  return buildPublicSpacePromptCardMessage({
+  return buildSpaceAccessPromptCardMessage({
     lines: buildPublicSpaceWarningLines(exposure),
     question,
   });
 }
 
-function buildPublicSpacePromptCardMessage(input: {
+export function buildSpaceAccessPromptCardMessage(input: {
   lines: string[];
   question: string;
 }): string {

@@ -347,13 +347,15 @@ async function promptSpaceMenuGuide(): Promise<
   };
 }
 
-async function promptSpaceMenuCreatePassword(): Promise<
+async function promptSpaceMenuCreatePassword(
+  visibility: SpaceMenuCreateVisibility
+): Promise<
   | { status: "submitted"; value: string | undefined }
   | { status: "back" }
   | { status: "cancelled" }
 > {
   for (;;) {
-    const promptConfig = buildCreateSpacePasswordPromptConfig();
+    const promptConfig = buildCreateSpacePasswordPromptConfig(visibility);
     const action = await select({
       message: promptConfig.message,
       options: [
@@ -541,7 +543,7 @@ async function promptSpaceMenuCreateOptions(input: {
   | { status: "cancelled" }
 > {
   for (;;) {
-    const password = await promptSpaceMenuCreatePassword();
+    const password = await promptSpaceMenuCreatePassword(input.visibility);
     if (password.status === "cancelled") {
       return cancelSpaceMenuFlow();
     }

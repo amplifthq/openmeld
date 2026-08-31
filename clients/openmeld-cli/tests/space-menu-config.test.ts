@@ -14,6 +14,7 @@ const runSpaceLeaveMock = vi.hoisted(() => vi.fn());
 const runSpacePasswordMock = vi.hoisted(() => vi.fn());
 const promptTextEntryMock = vi.hoisted(() => vi.fn());
 const promptAndConfirmSpacePasswordMock = vi.hoisted(() => vi.fn());
+const buildCreateSpacePasswordPromptConfigMock = vi.hoisted(() => vi.fn());
 
 const VALID_AUTH_STATE = {
   state: "valid" as const,
@@ -62,11 +63,8 @@ vi.mock("../src/config/auth-session", async () => {
 
 vi.mock("../src/space/command", () => {
   return {
-    buildCreateSpacePasswordPromptConfig: vi.fn(() => ({
-      message: "Require a password to open and join?",
-      setPasswordLabel: "Yes, require a password to open and join",
-      skipPasswordLabel: "No, anyone with the link can join",
-    })),
+    buildCreateSpacePasswordPromptConfig: (...args: unknown[]) =>
+      buildCreateSpacePasswordPromptConfigMock(...args),
     promptAndConfirmSpacePassword: (...args: unknown[]) =>
       promptAndConfirmSpacePasswordMock(...args),
     runSpaceJoin: (...args: unknown[]) => runSpaceJoinMock(...args),
@@ -89,6 +87,16 @@ vi.mock("../src/ui/text-entry", () => {
 describe("space menu config password", () => {
   beforeEach(() => {
     getAuthSessionStateMock.mockReset().mockResolvedValue(VALID_AUTH_STATE);
+    buildCreateSpacePasswordPromptConfigMock
+      .mockReset()
+      .mockImplementation((visibility: "public" | "private") => ({
+        message: "Require a password to open and join?",
+        setPasswordLabel: "Yes, require a password to open and join",
+        skipPasswordLabel:
+          visibility === "public"
+            ? "No, anyone with the link can join"
+            : "No, keep access members-only",
+      }));
   });
 
   afterEach(() => {
@@ -108,6 +116,7 @@ describe("space menu config password", () => {
     runSpacePasswordMock.mockReset();
     promptTextEntryMock.mockReset();
     promptAndConfirmSpacePasswordMock.mockReset();
+    buildCreateSpacePasswordPromptConfigMock.mockReset();
   });
 
   it("shows add-members entry and routes to add-members flow", async () => {
@@ -453,6 +462,9 @@ describe("space menu config password", () => {
       view: "human",
       entryChecksHandled: true,
     });
+    expect(buildCreateSpacePasswordPromptConfigMock).toHaveBeenCalledWith(
+      "private"
+    );
   });
 
   it("returns to the top-level menu when create returns back", async () => {

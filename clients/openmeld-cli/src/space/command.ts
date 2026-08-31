@@ -128,11 +128,12 @@ import { resolveServiceParticipationReadiness } from "../system/service-particip
 import { createDelayedSpinner } from "../ui/delayed-spinner";
 import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
-import {
-  buildPublicSpacePasswordPromptConfig,
-  type PublicSpacePasswordPromptConfig,
-} from "../ui/public-space-warning";
 import { promptSearchMultiselect } from "../ui/search-select";
+import {
+  buildSpaceCreatePasswordPromptConfig,
+  resolveSpaceCreatePasswordlessAccessText,
+  type SpaceCreatePasswordPromptConfig,
+} from "../ui/space-create-password-prompt";
 import { promptTextEntry } from "../ui/text-entry";
 import {
   resolveSpaceAddMembersProgressPhase,
@@ -955,6 +956,7 @@ async function resolveSpaceCreateInput(input: {
   const password = await resolveCreateSpacePasswordInput({
     providedPassword: input.providedPassword,
     interactive: input.interactive,
+    visibility,
   });
   if (password === null) {
     return { status: "cancelled" };
@@ -1636,6 +1638,7 @@ function resolveCreateSpaceVisibilityInput(input: {
 async function resolveCreateSpacePasswordInput(input: {
   providedPassword?: string;
   interactive: boolean;
+  visibility: SpaceCreateVisibility;
 }): Promise<string | undefined | null> {
   if (typeof input.providedPassword === "string") {
     return normalizeSpacePasswordText(input.providedPassword);
@@ -1645,7 +1648,7 @@ async function resolveCreateSpacePasswordInput(input: {
   }
 
   const shouldSetPassword = await confirm({
-    message: buildCreateSpacePasswordPromptMessage(),
+    message: buildCreateSpacePasswordPromptMessage(input.visibility),
     initialValue: false,
   });
   if (isCancel(shouldSetPassword)) {
@@ -1694,7 +1697,10 @@ async function promptInteractiveSpaceCreateFlow(input: {
       break;
     }
 
-    const result = await promptInteractiveSpaceCreateFlowStep(step);
+    const result = await promptInteractiveSpaceCreateFlowStep({
+      state,
+      step,
+    });
     const navigation = resolveSpaceCreateFlowStepNavigation({
       stepIndex,
       result,
@@ -1789,9 +1795,11 @@ type SpaceCreateFlowStepPromptResult =
   | { status: "back" }
   | { status: "cancelled" };
 
-async function promptInteractiveSpaceCreateFlowStep(
-  step: SpaceCreateFlowStep
-): Promise<SpaceCreateFlowStepPromptResult> {
+async function promptInteractiveSpaceCreateFlowStep(input: {
+  state: Partial<SpaceCreateFlowValues>;
+  step: SpaceCreateFlowStep;
+}): Promise<SpaceCreateFlowStepPromptResult> {
+  const { step } = input;
   if (step === "name") {
     const result = await promptRequiredInteractiveSpaceName();
     return result.status === "submitted"
@@ -1811,7 +1819,14 @@ async function promptInteractiveSpaceCreateFlowStep(
       : result;
   }
   if (step === "password") {
-    const result = await promptInteractiveSpaceCreatePassword();
+    if (!input.state.visibility) {
+      throw new Error(
+        "Space create password prompt requires a selected visibility."
+      );
+    }
+    const result = await promptInteractiveSpaceCreatePassword(
+      input.state.visibility
+    );
     return result.status === "submitted"
       ? { status: "submitted", step, value: result.value }
       : result;
@@ -1981,13 +1996,15 @@ function promptInteractiveSpaceGuide(): Promise<
   });
 }
 
-async function promptInteractiveSpaceCreatePassword(): Promise<
+async function promptInteractiveSpaceCreatePassword(
+  visibility: SpaceCreateVisibility
+): Promise<
   | { status: "submitted"; value: string | undefined }
   | { status: "back" }
   | { status: "cancelled" }
 > {
   for (;;) {
-    const promptConfig = buildCreateSpacePasswordPromptConfig();
+    const promptConfig = buildCreateSpacePasswordPromptConfig(visibility);
     const action = await select({
       message: promptConfig.message,
       options: [
@@ -2088,7 +2105,6 @@ function emitSpaceCreatePasswordOptionalHint(input: {
     code: "space.create.password.optional_hint",
     text: buildSpaceCreatePasswordOptionalHintText(input.visibility),
     data: {
-      accessMode: input.visibility === "public" ? "public" : "members_only",
       optional: true,
       requirements: {
         minLength: SPACE_PASSWORD_MIN_LENGTH,
@@ -2108,23 +2124,24 @@ function emitSpaceCreatePasswordOptionalHint(input: {
 function buildSpaceCreatePasswordOptionalHintText(
   visibility: SpaceCreateVisibility
 ): string {
-  const accessExplanation =
-    visibility === "public"
-      ? "Without one, anyone with the Space link can open and join."
-      : "Without one, link access stays members-only. Only current members can open the Space, and new participants must be added explicitly.";
   return (
-    `Password is optional. ${accessExplanation} To require a password to open and join, use --password <value>. Password rule: ` +
+    `Password is optional. ${resolveSpaceCreatePasswordlessAccessText(visibility)} To require a password to open and join, use --password <value>. Password rule: ` +
     buildSpacePasswordRequirementsText()
   );
 }
 
-export function buildCreateSpacePasswordPromptMessage(): string {
-  return buildCreateSpacePasswordPromptConfig().message;
+export function buildCreateSpacePasswordPromptMessage(
+  visibility: SpaceCreateVisibility
+): string {
+  return buildCreateSpacePasswordPromptConfig(visibility).message;
 }
 
-export function buildCreateSpacePasswordPromptConfig(): PublicSpacePasswordPromptConfig {
-  return buildPublicSpacePasswordPromptConfig({
+export function buildCreateSpacePasswordPromptConfig(
+  visibility: SpaceCreateVisibility
+): SpaceCreatePasswordPromptConfig {
+  return buildSpaceCreatePasswordPromptConfig({
     minimumLength: SPACE_PASSWORD_MIN_LENGTH,
+    visibility,
   });
 }
 
