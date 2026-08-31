@@ -426,9 +426,13 @@ Rendering, refreshing, hovering, focusing, and prefetching a row do not clear
 this state. It clears only after the member opens the Space, status and
 membership have both loaded successfully, Core confirms that the current
 Profile is active, and the existing Profile Space history writer records
-`lastSeenTs`. The next Account Space Index read then restores explicit pin order
-or the normal unread-first and recency order. Web does not create a second local
-read-position, membership, or Inbox source for this presentation.
+`lastSeenTs` together with that active membership's `addedAt` as
+`lastJoinedAt`. Carrying the current membership timestamp avoids inventing a
+later join time when the history row is first created and keeps a rejoin
+distinct from an earlier visit. The next Account Space Index read then restores
+explicit pin order or the normal unread-first and recency order. Web does not
+create a second local read-position, membership, or Inbox source for this
+presentation.
 The Direct Messages secondary sidebar consumes the same Core-owned grouped
 summary and shows the indicator on the exact unread conversation row. It does
 not derive unread state from route activity or a browser-only counter.

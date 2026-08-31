@@ -1938,6 +1938,7 @@ describe("SpaceLanding", () => {
 	});
 
 	it("repairs account Space history after Core confirms the current profile is an active member", async () => {
+		const currentMembershipJoinedAt = "2026-04-12T09:30:00.000Z";
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
 		useQueryClientMock.mockReturnValue({
 			invalidateQueries: invalidateQueriesMock,
@@ -1950,7 +1951,9 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot(),
+				data: createMembersSnapshot({
+					defaultHumanAddedAt: currentMembershipJoinedAt,
+				}),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -1966,6 +1969,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(upsertProfileSpaceHistoryMock).toHaveBeenCalledWith({
 				data: {
+					lastJoinedAt: currentMembershipJoinedAt,
 					lastSeenTs: expect.any(Number),
 					items: [{ profileId: DEFAULT_SPACE_PROFILE_ID }],
 					spaceId: "space-123",
@@ -17395,6 +17399,7 @@ function createMembersSnapshot(input?: {
 	defaultAgentOwnerUserId?: string | null;
 	defaultAgentProfileName?: string;
 	defaultAgentRuntimeDeviceDisplayName?: string | null;
+	defaultHumanAddedAt?: string;
 	defaultHumanOwnerName?: string | null;
 	defaultHumanOwnerUserId?: string | null;
 	wakeRouteEvidence?: ReturnType<typeof createDaemonRouteObservationSummary>;
@@ -17462,7 +17467,7 @@ function createMembersSnapshot(input?: {
 				status: "active",
 				memberSource: "space_creator",
 				memberSourceLabel: "Creator",
-				addedAt: "2026-04-11T00:00:00.000Z",
+				addedAt: input?.defaultHumanAddedAt ?? "2026-04-11T00:00:00.000Z",
 				removedAt: null,
 				createdAt: "2026-04-11T00:00:00.000Z",
 				updatedAt: "2026-04-11T00:00:00.000Z",
