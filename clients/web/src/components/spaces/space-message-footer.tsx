@@ -18,10 +18,10 @@ import {
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowBendUpLeftIcon,
-	AtIcon,
 	ChatCircleIcon,
 	CopyIcon,
 	DotsThreeIcon,
+	TargetIcon,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
@@ -214,10 +214,10 @@ function MessageAddressingPopover(input: {
 					className={cn(FOOTER_BUTTON_CLASS_NAME, input.className)}
 					render={<Button size="icon-sm" type="button" variant="ghost" />}
 				>
-					<AtIcon aria-hidden="true" />
+					<TargetIcon aria-hidden="true" />
 				</PopoverTrigger>
 			</MessageActionTooltip>
-			<PopoverContent align="start" className="w-64" sideOffset={6}>
+			<PopoverContent align="start" className="w-64 rounded-md" sideOffset={6}>
 				<PopoverTitle>Message addressing</PopoverTitle>
 				<MessageAddressingTargetList targets={input.targets} />
 			</PopoverContent>
@@ -264,7 +264,7 @@ function MessageFooterMoreMenu(input: {
 					{input.addressingTargets.length > 0 ? (
 						<DropdownMenuSub>
 							<DropdownMenuSubTrigger>
-								<AtIcon aria-hidden="true" />
+								<TargetIcon aria-hidden="true" />
 								Message addressing
 							</DropdownMenuSubTrigger>
 							<DropdownMenuSubContent className="w-64">

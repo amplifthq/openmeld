@@ -13,12 +13,12 @@ import {
 
 vi.mock("@phosphor-icons/react", () => ({
 	ArrowBendUpLeftIcon: () => <span />,
-	AtIcon: () => <span />,
 	CaretRightIcon: () => <span />,
 	ChatCircleIcon: () => <span />,
 	CopyIcon: () => <span />,
 	DotsThreeIcon: () => <span />,
 	InfoIcon: () => <span data-testid="details-info" />,
+	TargetIcon: () => <span data-testid="addressing-target" />,
 	WarningCircleIcon: () => <span data-testid="details-warning" />,
 }));
 
@@ -116,7 +116,11 @@ describe("SpaceMessageFooter", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Message addressing" }));
 
-		expect(screen.getByText("Message addressing")).toBeTruthy();
+		const addressingPopover = screen
+			.getByText("Message addressing")
+			.closest('[data-slot="popover-content"]');
+		expect(addressingPopover?.className).toContain("rounded-md");
+		expect(screen.getByTestId("addressing-target")).toBeTruthy();
 		expect(screen.getByText("Woke")).toBeTruthy();
 		expect(screen.getByText("Review Codex")).toBeTruthy();
 	});
