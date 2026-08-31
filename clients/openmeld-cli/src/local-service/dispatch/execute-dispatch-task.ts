@@ -233,6 +233,7 @@ export const resolveStructuredActionRequirementFailure =
 const CLI_SPACE_ACTION_RECORD_POLL_INTERVAL_MS = 25;
 const CLI_SPACE_ACTION_RECORD_RUNTIME_COMPLETION_GRACE_MS = 1500;
 const CLI_SPACE_ACTION_PROVIDER_CONVERSATION_GRACE_MS = 1500;
+const AGENT_CONTROLLER_OCCUPANCY_KEEPALIVE_REASSERT_INTERVALS = 4;
 
 // OPENMELD_SERVICE_THIN_CORE: temporary dispatch execution shell.
 // Keep new local-service execution helpers outside this file. This file still
@@ -5395,11 +5396,29 @@ function startDispatchLifecycleKeepalive(input: {
   runtimeCoordinatorExecutionId: string | null;
   taskId: string;
 }): () => void {
+  let intervalCount = 0;
+  let lastOccupancyConnectionGeneration: number | null = null;
   const intervalId = setInterval(() => {
     try {
+      const currentConnectionGeneration = resolveCurrentConnectionGeneration({
+        currentSocketRef: input.currentSocketRef,
+        fallbackConnectionGeneration: input.connectionGeneration,
+      });
+      const shouldReassertOccupancy = Boolean(
+        input.agentControllerConversationOccupancy &&
+          (intervalCount %
+            AGENT_CONTROLLER_OCCUPANCY_KEEPALIVE_REASSERT_INTERVALS ===
+            0 ||
+            lastOccupancyConnectionGeneration !== currentConnectionGeneration)
+      );
+      intervalCount += 1;
+      if (shouldReassertOccupancy) {
+        lastOccupancyConnectionGeneration = currentConnectionGeneration;
+      }
       sendCurrentDispatchLifecycleFrame({
-        agentControllerConversationOccupancy:
-          input.agentControllerConversationOccupancy ?? null,
+        agentControllerConversationOccupancy: shouldReassertOccupancy
+          ? (input.agentControllerConversationOccupancy ?? null)
+          : null,
         attemptId: input.attemptId,
         connectionGeneration: input.connectionGeneration,
         currentSocketRef: input.currentSocketRef,

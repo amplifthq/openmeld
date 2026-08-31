@@ -394,7 +394,10 @@ describe("Agent Profile Work Coordinator", () => {
     });
   });
 
-  it("moves a failed automatic continuation to Needs attention without retrying it", () => {
+  it.each([
+    "failed",
+    "usage_exhausted",
+  ] as const)("moves a %s automatic continuation to Needs attention without retrying it", (continuationOutcome) => {
     let coordinator = acceptAgentProfileWork({
       coordinator: createAgentProfileWorkCoordinator({
         nowMs: 1_700_000_000_000,
@@ -428,7 +431,7 @@ describe("Agent Profile Work Coordinator", () => {
     const failedContinuation = settleAgentProfileWork({
       coordinator,
       nowMs: 1_700_000_000_500,
-      outcome: "failed",
+      outcome: continuationOutcome,
       targetWakeLifecycleId: "wake-10",
     });
 

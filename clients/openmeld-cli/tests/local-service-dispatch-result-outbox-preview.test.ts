@@ -564,7 +564,9 @@ describe("dispatch result outbox around preview teardown", () => {
     await withTempHome(async () => {
       vi.spyOn(globalThis, "setInterval").mockImplementation((handler) => {
         if (typeof handler === "function") {
-          handler();
+          for (let index = 0; index < 5; index += 1) {
+            handler();
+          }
         }
         return 1 as never;
       });
@@ -656,6 +658,16 @@ describe("dispatch result outbox around preview teardown", () => {
         {
           agentControllerConversationId: "thread-occupied",
           contractVersion: 1,
+          state: "occupied",
+        },
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          state: "available",
+        },
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
           state: "available",
         },
         {
@@ -664,6 +676,16 @@ describe("dispatch result outbox around preview teardown", () => {
           state: "available",
         },
       ]);
+      expect(
+        settlementSocket.send.mock.calls
+          .map(([rawFrame]) => JSON.parse(String(rawFrame)))
+          .filter(
+            (frame) =>
+              frame.code === "daemon.dispatch.lifecycle" &&
+              frame.payload.phase === "running" &&
+              !frame.payload.agentControllerConversationOccupancy
+          ).length
+      ).toBeGreaterThanOrEqual(6);
     });
   });
 

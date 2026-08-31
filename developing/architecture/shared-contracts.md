@@ -5030,9 +5030,11 @@ evidence against the current Profile FIFO head, while the local Service retains
 and retries the same Wake. The original provider error remains adapter
 diagnostics and does not itself drive state. Unknown providers, generic
 transport failures, Agent Activity, and process presence cannot populate this
-contract. After a transition, ordinary running keepalives repeat the current
-occupancy value so Core can recover a missed frame without a second provider
-query.
+contract. After a transition, the first running keepalive, the first keepalive
+on a new connection generation, and a low-frequency recovery keepalive repeat
+the current occupancy value so Core can recover a missed frame without a second
+provider query. Intermediate keepalives omit the additive field for older-Core
+compatibility.
 
 The Agent Profile work-recovery contract exposes only idempotent owner actions
 that change current coordinator state. `skip_interrupted_work` resolves an exact

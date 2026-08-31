@@ -108,8 +108,9 @@ owner-shard scan, or Wake hot-path work.
 
 Conversation occupancy in D1 is a compact current-state projection keyed by the
 exact execution and state, not an append-only event history. Repeated
-keepalives upsert the current `occupied` or `available` value so reconnect can
-self-heal while retaining only the evidence needed for trace and reconciliation.
+recovery keepalives upsert the current `occupied` or `available` value so
+reconnect can self-heal while retaining only the evidence needed for trace and
+reconciliation.
 
 The long-term data domains are:
 

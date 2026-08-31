@@ -233,28 +233,6 @@ export function settleAgentProfileWork(input: {
   const queuedWork = input.coordinator.workItems.slice(1);
   const continuationRunning =
     input.coordinator.recoveryGate?.status === "continuation_running";
-  if (input.outcome === "usage_exhausted") {
-    const recoveryInterruptedWork = continuationRunning
-      ? (input.coordinator.recoveryGate?.interruptedWork ?? interruptedWork)
-      : interruptedWork;
-    return {
-      coordinator: {
-        ...input.coordinator,
-        recoveryGate: {
-          continuationClientMessageId: null,
-          interruptedWork: recoveryInterruptedWork,
-          status: "awaiting_usage",
-          updatedAtMs: input.nowMs,
-        },
-        revision: input.coordinator.revision + 1,
-        updatedAtMs: input.nowMs,
-        workItems: queuedWork,
-      },
-      promotedItem: null,
-      removed: true,
-    };
-  }
-
   if (continuationRunning) {
     const interruptedContinuationWork =
       input.coordinator.recoveryGate?.interruptedWork ?? interruptedWork;
@@ -274,6 +252,25 @@ export function settleAgentProfileWork(input: {
                   : "continuation_needs_attention",
                 updatedAtMs: input.nowMs,
               },
+        revision: input.coordinator.revision + 1,
+        updatedAtMs: input.nowMs,
+        workItems: queuedWork,
+      },
+      promotedItem: null,
+      removed: true,
+    };
+  }
+
+  if (input.outcome === "usage_exhausted") {
+    return {
+      coordinator: {
+        ...input.coordinator,
+        recoveryGate: {
+          continuationClientMessageId: null,
+          interruptedWork,
+          status: "awaiting_usage",
+          updatedAtMs: input.nowMs,
+        },
         revision: input.coordinator.revision + 1,
         updatedAtMs: input.nowMs,
         workItems: queuedWork,

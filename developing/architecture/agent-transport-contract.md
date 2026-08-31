@@ -359,10 +359,11 @@ Important execution rules:
   provider release evidence uses bounded backoff and must not become a tight
   retry loop.
 - While a Wake remains occupied or resumes running after an occupancy
-  transition, every ordinary running keepalive repeats the current occupancy
-  value. Core upserts that current value against the exact execution instead of
-  keeping an append-only busy history. A lost transition or Service reconnect
-  therefore self-heals without adding a provider query to the Wake hot path.
+  transition, the first running keepalive, the first keepalive on a new
+  connection generation, and a low-frequency recovery keepalive repeat the
+  current occupancy value. Ordinary keepalives between them stay compatible
+  with an older Core. A lost transition or Service reconnect therefore
+  self-heals without adding a provider query to the Wake hot path.
 - Compatibility claim endpoints may exist during migration, but they must not
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come

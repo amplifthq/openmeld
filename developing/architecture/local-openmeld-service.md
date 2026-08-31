@@ -427,8 +427,10 @@ that task must not issue another `thread/resume`. Normal execution adds no extra
 query or network round trip. No other RPC code, message, timeout, stderr,
 process presence, or Agent Activity fact may be promoted to occupancy.
 After an occupancy transition, the Service includes the current occupancy value
-on every ordinary running keepalive until the provider admits the turn or the
-Wake becomes terminal. Core may therefore recover a lost transition after a
+on the first running keepalive, the first keepalive after a connection-generation
+change, and a low-frequency recovery keepalive. Ordinary keepalives between
+those frames omit the additive field so an older Core can still observe a
+healthy running Wake. Current Core may recover a lost transition after a
 WebSocket reconnect or Service restart without polling Codex or delaying normal
 Wake admission.
 
