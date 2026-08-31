@@ -1452,6 +1452,7 @@ describe("connect experience enhancements", () => {
 
   it("renders each replying agent on its own status line instead of collapsing to (+n)", async () => {
     const harness = createMessageStreamHarness();
+    const promptObserver = createConnectPromptObserver("- Codex (agent): ");
     mockConnectFetchSuccess();
     const stdoutTtyDescriptor = Object.getOwnPropertyDescriptor(
       process.stdout,
@@ -1464,25 +1465,29 @@ describe("connect experience enhancements", () => {
 
     try {
       const selfProfileId = "11111111-0000-0000-0000-000000000016";
-      const connectPromise = withCapturedStdio(async () => {
-        await withTempHome(async () => {
-          await runConnect({
-            profile: "codex--multi-replying-status",
-            openMeldProfile: createOpenMeldProfileInput({
-              openMeldProfileId: selfProfileId,
-              profileName: "Codex",
-              profileKind: "agent",
-            }),
-            baseUrl: "https://example.com",
-            space: "ops-room",
-            stdio: true,
-            output: "text",
-            view: "human",
+      const connectPromise = withCapturedStdio(
+        async () => {
+          await withTempHome(async () => {
+            await runConnect({
+              profile: "codex--multi-replying-status",
+              openMeldProfile: createOpenMeldProfileInput({
+                openMeldProfileId: selfProfileId,
+                profileName: "Codex",
+                profileKind: "agent",
+              }),
+              baseUrl: "https://example.com",
+              space: "ops-room",
+              stdio: true,
+              output: "text",
+              view: "human",
+            });
           });
-        });
-      });
+        },
+        { onStdout: promptObserver.observe }
+      );
 
       await harness.waitUntilReady();
+      await promptObserver.waitUntilReady();
       harness.emit(
         createTextSignalRawEvent({
           id: "signal-replying-codex",
