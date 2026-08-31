@@ -15,6 +15,7 @@ import {
 import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	isEditorReadyToFocus,
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
 } from "./space-composer-editor";
@@ -654,6 +655,27 @@ describe("SpaceComposerEditor", () => {
 				screen.getByRole("textbox", { name: "Message this space" })
 			);
 		});
+	});
+
+	it("retries focus when Slate operations are empty but the DOM range is not ready", () => {
+		const selection = {
+			anchor: { offset: 14, path: [0, 0] },
+			focus: { offset: 14, path: [0, 0] },
+		};
+		const toDOMRange = vi.fn(() => {
+			throw new Error(
+				'Cannot resolve a DOM node from Slate node: {"text":"Restored draft"}'
+			);
+		});
+
+		expect(
+			isEditorReadyToFocus({
+				api: { toDOMRange } as never,
+				operations: [],
+				selection,
+			})
+		).toBe(false);
+		expect(toDOMRange).toHaveBeenCalledWith(selection);
 	});
 
 	it("accepts plain browser text input through the contenteditable surface", async () => {

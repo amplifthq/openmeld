@@ -216,10 +216,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			if (!(isMountedRef.current && pendingFocusRef.current)) {
 				return;
 			}
-			if (
-				editor.operations.length > 0 ||
-				(editor.selection && !editor.api.toDOMRange(editor.selection))
-			) {
+			if (!isEditorReadyToFocus(editor)) {
 				focusAnimationFrameRef.current =
 					window.requestAnimationFrame(flushPendingFocus);
 				return;
@@ -228,10 +225,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			editor.tf.focus();
 		};
 		const focusWhenReady = () => {
-			if (
-				editor.operations.length > 0 ||
-				(editor.selection && !editor.api.toDOMRange(editor.selection))
-			) {
+			if (!isEditorReadyToFocus(editor)) {
 				pendingFocusRef.current = true;
 				if (focusAnimationFrameRef.current === null) {
 					focusAnimationFrameRef.current =
@@ -336,6 +330,22 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			</Plate>
 		</SpaceComposerEditorContext.Provider>
 	);
+}
+
+export function isEditorReadyToFocus(
+	editor: Pick<PlateEditor, "api" | "operations" | "selection">
+): boolean {
+	if (editor.operations.length > 0) {
+		return false;
+	}
+	if (!editor.selection) {
+		return true;
+	}
+	try {
+		return Boolean(editor.api.toDOMRange(editor.selection));
+	} catch {
+		return false;
+	}
 }
 
 function focusEditorAtSelection(
