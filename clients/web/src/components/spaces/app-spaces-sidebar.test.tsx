@@ -1667,6 +1667,20 @@ describe("AppSpacesSidebar", () => {
 			pinnedItems: [],
 			spaceItems: [
 				createAccountSpaceItem({
+					joinedProfiles: [
+						{
+							lastJoinedAt: "2026-04-29T00:00:00.000Z",
+							pinnedAt: null,
+							profileId: "agent-1",
+							profileName: "Codex",
+						},
+						{
+							lastJoinedAt: "2026-04-28T00:00:00.000Z",
+							pinnedAt: null,
+							profileId: "human-1",
+							profileName: "Mira",
+						},
+					],
 					openProfileId: "agent-1",
 					openProfileName: "Codex",
 					spaceId: "space-alpha",
@@ -1683,6 +1697,41 @@ describe("AppSpacesSidebar", () => {
 
 		expect(navigateMock).toHaveBeenCalledWith({
 			to: "/o/acme/spaces/space-alpha?profileId=human-1",
+		});
+	});
+
+	it("opens a new Space with the joined account profile from the index", async () => {
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					joinedProfiles: [
+						{
+							lastJoinedAt: "2026-04-29T00:00:00.000Z",
+							pinnedAt: null,
+							profileId: "agent-1",
+							profileName: "Codex",
+						},
+					],
+					lastSeenTs: null,
+					openProfileId: "agent-1",
+					openProfileName: "Codex",
+					spaceId: "space-alpha",
+					spaceName: "Alpha",
+				}),
+			],
+		});
+
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Alpha, New Space" })
+		);
+
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/o/acme/spaces/space-alpha?profileId=agent-1",
 		});
 	});
 

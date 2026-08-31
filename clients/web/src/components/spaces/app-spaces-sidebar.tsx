@@ -60,6 +60,7 @@ import {
 	isNewlyJoinedAccountSpace,
 	prioritizeNewlyJoinedAccountSpaces,
 	resolveAccountSpaceTrailingStatus,
+	resolveAccountSpaceViewerProfileId,
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
@@ -241,7 +242,12 @@ export function AppSpacesSidebar(input: {
 	const resolveSpaceRoutePath = (item: AccountSpaceItem) =>
 		buildOrganizationSpacePath({
 			orgSlug,
-			search: { profileId: input.currentProfileId },
+			search: {
+				profileId: resolveAccountSpaceViewerProfileId({
+					currentProfileId: input.currentProfileId,
+					item,
+				}),
+			},
 			spaceId: item.spaceId,
 		});
 	const openSpace = (routePath: string) => {
@@ -259,6 +265,7 @@ export function AppSpacesSidebar(input: {
 	}) => (
 		<SidebarSpacesList
 			activeWakeSummaryBySpaceId={activeWakeSummaryBySpaceId}
+			currentProfileId={input.currentProfileId}
 			currentSpaceId={input.currentSpaceId}
 			isError={listInput.isError ?? false}
 			isPending={listInput.isPending ?? false}
@@ -273,7 +280,6 @@ export function AppSpacesSidebar(input: {
 				});
 			}}
 			onTogglePinned={pinMutation.toggle}
-			openMeldProfileId={input.currentProfileId}
 			prefetchSpaceConversation={prefetchSpaceConversation}
 			resolveRoutePath={resolveSpaceRoutePath}
 			routeIntentPrefetch={routeIntentPrefetch}
@@ -400,7 +406,7 @@ function SidebarSpacesList(input: {
 	resolveRoutePath: (item: AccountSpaceItem) => string;
 	routeIntentPrefetch: RouteIntentPrefetchController;
 	unreadBySpaceId: SpaceUnreadById;
-	openMeldProfileId: string;
+	currentProfileId: string;
 }) {
 	if (input.isPending) {
 		return (
@@ -451,6 +457,10 @@ function SidebarSpacesList(input: {
 			{input.items.map((item, index) => {
 				const isActive = item.spaceId === input.currentSpaceId;
 				const unread = input.unreadBySpaceId.get(item.spaceId);
+				const viewerProfileId = resolveAccountSpaceViewerProfileId({
+					currentProfileId: input.currentProfileId,
+					item,
+				});
 				return (
 					<SpaceSidebarMenuItem
 						activeWakeSummary={input.activeWakeSummaryBySpaceId.get(
@@ -464,7 +474,7 @@ function SidebarSpacesList(input: {
 						lastJoinedAtFormatter={input.lastJoinedAtFormatter}
 						onOpenSpace={input.onOpenSpace}
 						onTogglePinned={input.onTogglePinned}
-						openMeldProfileId={input.openMeldProfileId}
+						openMeldProfileId={viewerProfileId}
 						prefetchSpaceConversation={input.prefetchSpaceConversation}
 						routeIntentPrefetch={input.routeIntentPrefetch}
 						routePath={input.resolveRoutePath(item)}

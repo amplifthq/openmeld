@@ -105,6 +105,17 @@ export function isNewlyJoinedAccountSpace(item: AccountSpaceItem): boolean {
 	return item.lastSeenTs === null;
 }
 
+export function resolveAccountSpaceViewerProfileId(input: {
+	currentProfileId: string;
+	item: AccountSpaceItem;
+}): string {
+	return input.item.joinedProfiles.some(
+		(profile) => profile.profileId === input.currentProfileId
+	)
+		? input.currentProfileId
+		: input.item.openProfileId;
+}
+
 export function prioritizeNewlyJoinedAccountSpaces(
 	items: readonly AccountSpaceItem[]
 ): AccountSpaceItem[] {
