@@ -1,7 +1,7 @@
 import type { OrganizationSpaceDirectoryWithMemberCountsResponse } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { useRef } from "react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
@@ -103,6 +103,7 @@ describe("useSpaceMessageReferences", () => {
 	});
 
 	it("keeps a cached account Space name when its refresh fails", async () => {
+		const onCommit = vi.fn();
 		listCurrentOrganizationSpacesMock.mockResolvedValue({
 			...createDirectoryResponse(),
 			spaces: [],
@@ -120,7 +121,10 @@ describe("useSpaceMessageReferences", () => {
 		const queryClient = createTestQueryClient();
 
 		renderReferenceHarness(
-			{ messageTexts: [`Target /spaces/${REFERENCED_SPACE_ID}`] },
+			{
+				messageTexts: [`Target /spaces/${REFERENCED_SPACE_ID}`],
+				onCommit,
+			},
 			queryClient
 		);
 		await waitFor(() => {
@@ -128,9 +132,7 @@ describe("useSpaceMessageReferences", () => {
 				"Launch Planning"
 			);
 		});
-		const renderCountBeforeRefresh = Number(
-			screen.getByTestId("reference-render-count").textContent
-		);
+		const commitCountBeforeRefresh = onCommit.mock.calls.length;
 
 		await act(async () => {
 			await queryClient.refetchQueries({
@@ -143,9 +145,9 @@ describe("useSpaceMessageReferences", () => {
 			)?.status
 		).toBe("error");
 		await waitFor(() => {
-			expect(
-				Number(screen.getByTestId("reference-render-count").textContent)
-			).toBeGreaterThan(renderCountBeforeRefresh);
+			expect(onCommit.mock.calls.length).toBeGreaterThan(
+				commitCountBeforeRefresh
+			);
 		});
 		expect(screen.getByTestId(REFERENCED_SPACE_ID).textContent).toBe(
 			"Launch Planning"
@@ -255,10 +257,12 @@ describe("useSpaceMessageReferences", () => {
 function ReferenceHarness(input: {
 	accountProfileId: string | null;
 	messageTexts: readonly string[];
+	onCommit?: () => void;
 	organizationId: string | null;
 }) {
-	const renderCountRef = useRef(0);
-	renderCountRef.current += 1;
+	useEffect(() => {
+		input.onCommit?.();
+	});
 	const references = useSpaceMessageReferences({
 		accountProfileId: input.accountProfileId,
 		currentSpace: { name: "Current Space", spaceId: CURRENT_SPACE_ID },
@@ -269,9 +273,6 @@ function ReferenceHarness(input: {
 
 	return (
 		<>
-			<output data-testid="reference-render-count">
-				{renderCountRef.current}
-			</output>
 			{[...references.values()].map((reference) => (
 				<output
 					data-href={reference.href}
@@ -289,6 +290,7 @@ function renderReferenceHarness(
 	input: {
 		accountProfileId?: string | null;
 		messageTexts: readonly string[];
+		onCommit?: () => void;
 		organizationId?: string | null;
 	},
 	queryClient = createTestQueryClient()
@@ -302,6 +304,7 @@ function renderReferenceHarness(
 			<ReferenceHarness
 				accountProfileId={accountProfileId}
 				messageTexts={messageTexts}
+				onCommit={input.onCommit}
 				organizationId={organizationId}
 			/>
 		</QueryClientProvider>
