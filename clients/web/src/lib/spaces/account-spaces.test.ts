@@ -63,6 +63,7 @@ describe("listAccountSpaceItems", () => {
 			spaceItems: [
 				createIndexItem({
 					directMessageConvertedAt: "2026-04-15T00:00:00.000Z",
+					lastSeenTs: 1_765_843_200_000,
 					spaceId: "space-b",
 					spaceName: "Beta",
 					spacePurpose: OPENMELD_WELCOMING_SPACE_PURPOSE,
@@ -96,6 +97,7 @@ describe("listAccountSpaceItems", () => {
 						},
 					],
 					lastJoinedAt: "2026-04-12T00:00:00.000Z",
+					lastSeenTs: null,
 					openProfileId: "human-default",
 					openProfileName: "Mira",
 					organizationId: "org-acme",
@@ -123,6 +125,7 @@ describe("listAccountSpaceItems", () => {
 						},
 					],
 					lastJoinedAt: "2026-04-12T00:00:00.000Z",
+					lastSeenTs: 1_765_843_200_000,
 					openProfileId: "human-default",
 					openProfileName: "Mira",
 					organizationId: "org-acme",

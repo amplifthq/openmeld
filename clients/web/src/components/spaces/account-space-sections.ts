@@ -71,6 +71,35 @@ export function isDirectMessageItem(item: AccountSpaceItem): boolean {
 	});
 }
 
+export function isNewlyJoinedAccountSpace(item: AccountSpaceItem): boolean {
+	const lastJoinedAtMs = resolveTimestamp(item.lastJoinedAt);
+	if (lastJoinedAtMs === 0 || item.lastSeenTs === undefined) {
+		// An older persisted Web cache can omit lastSeenTs. Fail closed until the
+		// foreground refresh supplies the authoritative owner projection.
+		return false;
+	}
+	return item.lastSeenTs === null || item.lastSeenTs < lastJoinedAtMs;
+}
+
+export function prioritizeNewlyJoinedAccountSpaces(
+	items: readonly AccountSpaceItem[]
+): AccountSpaceItem[] {
+	return [...items].sort((left, right) => {
+		const leftIsNew = isNewlyJoinedAccountSpace(left);
+		const rightIsNew = isNewlyJoinedAccountSpace(right);
+		if (leftIsNew !== rightIsNew) {
+			return leftIsNew ? -1 : 1;
+		}
+		if (leftIsNew && rightIsNew) {
+			return (
+				resolveTimestamp(right.lastJoinedAt) -
+				resolveTimestamp(left.lastJoinedAt)
+			);
+		}
+		return 0;
+	});
+}
+
 export function sortAccountSpaceItems(
 	items: readonly AccountSpaceItem[]
 ): AccountSpaceItem[] {

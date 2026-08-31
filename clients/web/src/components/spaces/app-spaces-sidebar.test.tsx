@@ -4,8 +4,13 @@ import {
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 } from "@openmeld/space";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	focusManager,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
+import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -189,6 +194,7 @@ describe("AppSpacesSidebar", () => {
 
 	afterEach(() => {
 		cleanup();
+		focusManager.setFocused(undefined);
 	});
 
 	it("moves unpinned Spaces with unread messages first and shows a static accessible indicator", async () => {
@@ -270,6 +276,269 @@ describe("AppSpacesSidebar", () => {
 		expect(alpha.compareDocumentPosition(beta)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
+	});
+
+	it("puts newly joined regular Spaces first and keeps unread visible", async () => {
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-28T00:00:00.000Z",
+					lastSeenTs: Date.parse("2026-04-30T00:00:00.000Z"),
+					spaceId: "space-existing",
+					spaceName: "Existing",
+				}),
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-29T00:00:00.000Z",
+					lastSeenTs: null,
+					spaceId: "space-new",
+					spaceName: "Launch Room",
+				}),
+			],
+		});
+		getCurrentSpaceInboxSummaryMock.mockResolvedValue({
+			organizationId: "org-acme",
+			spaces: [
+				{
+					latestUnreadOccurredAtMs: 5000,
+					spaceId: "space-existing",
+					unreadCount: 2,
+				},
+				{
+					latestUnreadOccurredAtMs: 1000,
+					spaceId: "space-new",
+					unreadCount: 1,
+				},
+			],
+		});
+
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+
+		const newSpace = await screen.findByRole("button", {
+			name: "Launch Room, New Space, unread messages",
+		});
+		const existingSpace = screen.getByRole("button", {
+			name: "Existing, unread messages",
+		});
+		expect(newSpace.compareDocumentPosition(existingSpace)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(newSpace.classList.contains("font-semibold")).toBe(true);
+		expect(newSpace.classList.contains("text-primary")).toBe(true);
+		expect(
+			newSpace.querySelector('[data-space-unread-indicator="true"]')
+		).toBeTruthy();
+	});
+
+	it("temporarily puts a newly joined pinned Space before explicit pin order", async () => {
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-20T00:00:00.000Z",
+					lastSeenTs: Date.parse("2026-04-30T00:00:00.000Z"),
+					pinnedAt: "2026-04-29T03:00:00.000Z",
+					spaceId: "space-pinned-first",
+					spaceName: "Pinned First",
+				}),
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-29T00:00:00.000Z",
+					lastSeenTs: null,
+					pinnedAt: "2026-04-29T01:00:00.000Z",
+					spaceId: "space-pinned-new",
+					spaceName: "Pinned New",
+				}),
+			],
+			spaceItems: [],
+		});
+
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+
+		const pinnedNew = await screen.findByRole("button", {
+			name: "Pinned New, New Space",
+		});
+		const pinnedFirst = screen.getByRole("button", { name: "Pinned First" });
+		expect(pinnedNew.compareDocumentPosition(pinnedFirst)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+	});
+
+	it("restores pin and unread ordering after the existing open owner records lastSeenTs", async () => {
+		const initialSections = {
+			pinnedItems: [
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-20T00:00:00.000Z",
+					pinnedAt: "2026-04-29T03:00:00.000Z",
+					spaceId: "space-pinned-first",
+					spaceName: "Pinned First",
+				}),
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-29T00:00:00.000Z",
+					lastSeenTs: null,
+					pinnedAt: "2026-04-29T01:00:00.000Z",
+					spaceId: "space-pinned-new",
+					spaceName: "Pinned New",
+				}),
+			],
+			spaceItems: [
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-29T00:00:00.000Z",
+					lastSeenTs: null,
+					spaceId: "space-regular-new",
+					spaceName: "Regular New",
+				}),
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-20T00:00:00.000Z",
+					spaceId: "space-regular-unread",
+					spaceName: "Regular Unread",
+				}),
+			],
+		};
+		listAccountSpaceItemsMock.mockResolvedValue(initialSections);
+		getCurrentSpaceInboxSummaryMock.mockResolvedValue({
+			organizationId: "org-acme",
+			spaces: [
+				{
+					latestUnreadOccurredAtMs: 5000,
+					spaceId: "space-regular-unread",
+					unreadCount: 1,
+				},
+			],
+		});
+		const queryClient = createSidebarQueryClient();
+
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />,
+			queryClient
+		);
+		const pinnedNew = await screen.findByRole("button", {
+			name: "Pinned New, New Space",
+		});
+		const pinnedFirst = screen.getByRole("button", { name: "Pinned First" });
+		const regularNew = screen.getByRole("button", {
+			name: "Regular New, New Space",
+		});
+		const regularUnread = screen.getByRole("button", {
+			name: "Regular Unread, unread messages",
+		});
+		expect(pinnedNew.compareDocumentPosition(pinnedFirst)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(regularNew.compareDocumentPosition(regularUnread)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+
+		const seenAt = Date.parse("2026-04-30T00:00:00.000Z");
+		act(() => {
+			queryClient.setQueryData(
+				accountSpaceQueryKeys.items("human-1", "account"),
+				{
+					pinnedItems: initialSections.pinnedItems.map((item) => ({
+						...item,
+						lastSeenTs: seenAt,
+					})),
+					spaceItems: initialSections.spaceItems.map((item) => ({
+						...item,
+						lastSeenTs: seenAt,
+					})),
+				}
+			);
+		});
+
+		await waitFor(() => {
+			expect(
+				screen
+					.getByRole("button", { name: "Pinned First" })
+					.compareDocumentPosition(
+						screen.getByRole("button", { name: "Pinned New" })
+					)
+			).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+			expect(
+				screen
+					.getByRole("button", {
+						name: "Regular Unread, unread messages",
+					})
+					.compareDocumentPosition(
+						screen.getByRole("button", { name: "Regular New" })
+					)
+			).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		});
+	});
+
+	it("keeps a rejoined Space new through render, hover, and focus", async () => {
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					lastJoinedAt: "2026-04-29T00:00:00.000Z",
+					lastSeenTs: Date.parse("2026-04-20T00:00:00.000Z"),
+					spaceId: "space-rejoined",
+					spaceName: "Rejoined",
+				}),
+			],
+		});
+		const view = renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+
+		const rejoined = await screen.findByRole("button", {
+			name: "Rejoined, New Space",
+		});
+		fireEvent.pointerEnter(rejoined);
+		fireEvent.focus(rejoined);
+		view.rerender(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+
+		expect(
+			screen.getByRole("button", { name: "Rejoined, New Space" })
+		).toBeTruthy();
+	});
+
+	it("shows a newly joined Space as soon as the window regains focus", async () => {
+		focusManager.setFocused(false);
+		listAccountSpaceItemsMock
+			.mockResolvedValueOnce({
+				pinnedItems: [],
+				spaceItems: [
+					createAccountSpaceItem({
+						spaceId: "space-existing",
+						spaceName: "Existing",
+					}),
+				],
+			})
+			.mockResolvedValue({
+				pinnedItems: [],
+				spaceItems: [
+					createAccountSpaceItem({
+						spaceId: "space-existing",
+						spaceName: "Existing",
+					}),
+					createAccountSpaceItem({
+						lastJoinedAt: "2026-04-29T00:00:00.000Z",
+						lastSeenTs: null,
+						spaceId: "space-new-on-focus",
+						spaceName: "Focus Room",
+					}),
+				],
+			});
+
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+		await screen.findByRole("button", { name: "Existing" });
+		expect(screen.queryByText("Focus Room")).toBeNull();
+
+		act(() => focusManager.setFocused(true));
+
+		expect(
+			await screen.findByRole("button", {
+				name: "Focus Room, New Space",
+			})
+		).toBeTruthy();
 	});
 
 	it("does not render the pinned section when no spaces are pinned", async () => {
@@ -1707,6 +1976,8 @@ function createAccountSpaceItem(input: {
 		profileId: string;
 		profileName: string;
 	}>;
+	lastJoinedAt?: string;
+	lastSeenTs?: number | null;
 	openProfileId?: string;
 	openProfileName?: string;
 	organizationId?: string;
@@ -1719,16 +1990,21 @@ function createAccountSpaceItem(input: {
 	const pinnedAt = input.pinnedAt ?? null;
 	const openProfileId = input.openProfileId ?? "human-1";
 	const openProfileName = input.openProfileName ?? "Mira";
+	const lastJoinedAt = input.lastJoinedAt ?? "2026-04-29T00:00:00.000Z";
 	return {
 		joinedProfiles: input.joinedProfiles ?? [
 			{
-				lastJoinedAt: "2026-04-29T00:00:00.000Z",
+				lastJoinedAt,
 				pinnedAt,
 				profileId: openProfileId,
 				profileName: openProfileName,
 			},
 		],
-		lastJoinedAt: "2026-04-29T00:00:00.000Z",
+		lastJoinedAt,
+		lastSeenTs:
+			input.lastSeenTs === undefined
+				? Date.parse("2026-04-30T00:00:00.000Z")
+				: input.lastSeenTs,
 		openProfileId,
 		openProfileName,
 		organizationId: input.organizationId ?? "org-acme",

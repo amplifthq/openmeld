@@ -57,6 +57,8 @@ import {
 	spaceWakeProgressPresentationQueryOptions,
 } from "#/query/spaces/active-wake-progress";
 import {
+	isNewlyJoinedAccountSpace,
+	prioritizeNewlyJoinedAccountSpaces,
 	resolveAccountSpaceTrailingStatus,
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
@@ -224,11 +226,18 @@ export function AppSpacesSidebar(input: {
 		currentProfileId: input.currentProfileId,
 	});
 	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
-	const sidebarSections = selectAccountSpaceSections({
+	const selectedSections = selectAccountSpaceSections({
 		currentOrganizationId,
 		sections,
 		unreadBySpaceId,
 	});
+	const sidebarSections = {
+		...selectedSections,
+		pinnedItems: prioritizeNewlyJoinedAccountSpaces(
+			selectedSections.pinnedItems
+		),
+		spaceItems: prioritizeNewlyJoinedAccountSpaces(selectedSections.spaceItems),
+	};
 	const resolveSpaceRoutePath = (item: AccountSpaceItem) =>
 		buildOrganizationSpacePath({
 			orgSlug,
@@ -491,19 +500,18 @@ function SpaceSidebarMenuItem(input: {
 		? `Unpin ${input.item.spaceName}`
 		: `Pin ${input.item.spaceName}`;
 	const hasUnread = input.unreadCount > 0;
+	const isNewSpace = isNewlyJoinedAccountSpace(input.item);
 	const trailingStatus = resolveAccountSpaceTrailingStatus({
 		hasActiveWake,
 		hasUnread,
 		isPinned,
 	});
-	const openLabelStatuses = [
-		hasUnread ? "unread messages" : null,
-		hasActiveWake ? "agent working" : null,
-	].filter(Boolean);
-	const openLabel =
-		openLabelStatuses.length > 0
-			? `${input.item.spaceName}, ${openLabelStatuses.join(", ")}`
-			: input.item.spaceName;
+	const openLabel = buildSpaceSidebarOpenLabel({
+		hasActiveWake,
+		hasUnread,
+		isNewSpace,
+		spaceName: input.item.spaceName,
+	});
 	const prefetchConversationData = () =>
 		input.prefetchSpaceConversation({
 			spaceId: input.item.spaceId,
@@ -530,10 +538,10 @@ function SpaceSidebarMenuItem(input: {
 						render={
 							<button
 								aria-label={openLabel}
-								className={cn(
-									"flex min-w-0 flex-1 items-center gap-2 px-1 py-1.5 text-left outline-none",
-									hasUnread ? "font-semibold text-sidebar-foreground" : null
-								)}
+								className={resolveSpaceSidebarOpenButtonClassName({
+									hasUnread,
+									isNewSpace,
+								})}
 								onClick={() => input.onOpenSpace(input.routePath)}
 								onFocus={
 									input.isActive
@@ -675,6 +683,33 @@ function SpaceSidebarMenuItem(input: {
 				) : null}
 			</div>
 		</FluidNavMenuItem>
+	);
+}
+
+function buildSpaceSidebarOpenLabel(input: {
+	hasActiveWake: boolean;
+	hasUnread: boolean;
+	isNewSpace: boolean;
+	spaceName: string;
+}): string {
+	const statuses = [
+		input.isNewSpace ? "New Space" : null,
+		input.hasUnread ? "unread messages" : null,
+		input.hasActiveWake ? "agent working" : null,
+	].filter(Boolean);
+	return statuses.length > 0
+		? `${input.spaceName}, ${statuses.join(", ")}`
+		: input.spaceName;
+}
+
+function resolveSpaceSidebarOpenButtonClassName(input: {
+	hasUnread: boolean;
+	isNewSpace: boolean;
+}): string {
+	return cn(
+		"flex min-w-0 flex-1 items-center gap-2 px-1 py-1.5 text-left outline-none",
+		input.hasUnread ? "font-semibold text-sidebar-foreground" : null,
+		input.isNewSpace ? "font-semibold text-primary" : null
 	);
 }
 

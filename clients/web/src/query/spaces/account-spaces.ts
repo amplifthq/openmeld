@@ -10,6 +10,7 @@ import {
 import { baseQueryOptions } from "#/query/query-config";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
+export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 15_000;
 
 type AccountSpaceActiveWakePresentationSnapshot = {
 	browserRequestStartedAtMonotonicMs: number | null;
@@ -45,9 +46,11 @@ export function accountSpaceItemsQueryOptions(input: {
 		enabled: input.enabled,
 		gcTime: baseQueryOptions.gcTime,
 		retry: baseQueryOptions.retry,
+		refetchInterval: ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS,
+		refetchIntervalInBackground: false,
 		staleTime: 30 * 1000,
 		refetchOnMount: true,
-		refetchOnWindowFocus: false,
+		refetchOnWindowFocus: "always",
 	});
 }
 
