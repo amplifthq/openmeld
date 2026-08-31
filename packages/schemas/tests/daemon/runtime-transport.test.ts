@@ -1089,6 +1089,7 @@ describe("runtime transport schema", () => {
         authorizedContinuationClientMessageId: null,
         interruptedClientMessageId: "client-interrupted",
         interruptedDispatchId: "dispatch-interrupted",
+        interruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
         spaceId: "space-interrupted",
         status: "available",
       })
@@ -1097,18 +1098,29 @@ describe("runtime transport schema", () => {
       authorizedContinuationClientMessageId: null,
       interruptedClientMessageId: "client-interrupted",
       interruptedDispatchId: "dispatch-interrupted",
+      interruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
       spaceId: "space-interrupted",
       status: "available",
     });
     expect(
       runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.parse({
         continuationClientMessageId: "client-continuation-1",
+        currentAgentControllerRef: "builtin:codex",
+        currentBindingId: "binding-1",
+        currentConfigurationRevision: 2,
+        expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
         ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
         targetProfileId: firstProfileId,
       })
     ).toEqual({
       continuationClientMessageId: "client-continuation-1",
+      currentAgentControllerRef: "builtin:codex",
+      currentBindingId: "binding-1",
+      currentConfigurationRevision: 2,
+      expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
       ownerUserId: "owner-1",
+      requireAcceptedExecutionTargetRevision: true,
       targetProfileId: firstProfileId,
     });
     expect(
