@@ -20,6 +20,7 @@ type RunConnectInput = Parameters<typeof runConnectCommand>[0];
 const ANSI_ESCAPE_PATTERN = "\\x1B\\[[0-9;]*m";
 const ANSI_ESCAPE_STRIP_REGEX = new RegExp(ANSI_ESCAPE_PATTERN, "g");
 const ANSI_ESCAPE_MATCH_REGEX = new RegExp(ANSI_ESCAPE_PATTERN);
+const CANONICAL_RELATION_SUFFIX_REGEX = /\((mention|reference|wake)\)/u;
 const LONG_SPACE_ID =
   "ab1c3286d92926cc07e70b4023d24a359387d250f670619af138c3a767f92efd";
 const READY_DAEMON_ROUTE_OBSERVATION = {
@@ -2437,7 +2438,7 @@ describe("connect experience enhancements", () => {
     }
   });
 
-  it("publishes human interactive canonical mentions as bare mentions", async () => {
+  it("publishes human interactive profile-id addressing with canonical labels", async () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess({
       membersSnapshot: createTypedCanonicalMembersSnapshot(),
@@ -2462,9 +2463,11 @@ describe("connect experience enhancements", () => {
     process.env[INTERACTIVE_SPACE_SHELL_ENV_NAME] = "legacy";
 
     try {
-      const canonicalInputText =
-        "@Budget Analyst(wake) Please propose the rollout plan.";
-      const publishedText = "@Budget Analyst Please propose the rollout plan.";
+      const humanTargetProfileId = "22222222-0000-4000-8000-000000000008";
+      const agentTargetProfileId = "agt_11111111-2222-4333-8444-555555555555";
+      const canonicalInputText = `@${humanTargetProfileId}(mention) Please coordinate with @${agentTargetProfileId}(wake).`;
+      const publishedText =
+        "@Avery Stone Please coordinate with @Budget Analyst.";
       const connectPromise = withCapturedStdio(async () => {
         await withTempHome(async () => {
           await runConnect({
@@ -2497,6 +2500,7 @@ describe("connect experience enhancements", () => {
         data?: {
           messageEnvelope?: {
             activationTargets?: string[];
+            mentionTargets?: string[];
             referenceTargets?: string[];
             text?: string;
           };
@@ -2511,10 +2515,16 @@ describe("connect experience enhancements", () => {
       expect(submittedSignal.data?.text).toBe(publishedText);
       expect(submittedSignal.data?.meta?.clientMessageId?.trim()).toBeTruthy();
       expect(submittedSignal.data?.messageEnvelope).toMatchObject({
-        activationTargets: ["agt_11111111-2222-4333-8444-555555555555"],
+        activationTargets: [agentTargetProfileId],
+        mentionTargets: [humanTargetProfileId],
         referenceTargets: [],
         text: publishedText,
       });
+      expect(submittedSignal.data?.text).not.toContain(humanTargetProfileId);
+      expect(submittedSignal.data?.text).not.toContain(agentTargetProfileId);
+      expect(submittedSignal.data?.text).not.toMatch(
+        CANONICAL_RELATION_SUFFIX_REGEX
+      );
       expect(stripAnsi(stderr)).not.toContain("Rejected:");
     } finally {
       if (stdoutTtyDescriptor) {
@@ -4770,6 +4780,31 @@ function createTypedCanonicalMembersSnapshot() {
         removalReason: null,
         firstEnteredAt: "2026-04-01T00:00:00.000Z",
         lastEnteredAt: "2026-04-01T00:00:00.000Z",
+        lastSeenAt: "2026-04-01T00:00:00.000Z",
+        lastSeenLabel: "Seen just now",
+        liveNow: false,
+        ownerUserId: null,
+        ownerName: null,
+      }),
+      createSpaceMemberHumanSnapshot({
+        profileId: "22222222-0000-4000-8000-000000000008",
+        profileName: "Avery Stone",
+        mentionAlias: null,
+        status: "active" as const,
+        memberSource: "added_by_member" as const,
+        memberSourceLabel: "Added by Felix",
+        addedAt: "2026-04-01T00:00:00.000Z",
+        removedAt: null,
+        createdAt: "2026-04-01T00:00:00.000Z",
+        updatedAt: "2026-04-01T00:00:00.000Z",
+        addedByProfileId: "11111111-0000-0000-0000-000000000008",
+        addedByOwnerUserId: null,
+        addedByDisplayName: "Felix",
+        removedByProfileId: null,
+        removedByOwnerUserId: null,
+        removalReason: null,
+        firstEnteredAt: null,
+        lastEnteredAt: null,
         lastSeenAt: "2026-04-01T00:00:00.000Z",
         lastSeenLabel: "Seen just now",
         liveNow: false,

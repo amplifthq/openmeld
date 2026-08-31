@@ -13,6 +13,8 @@ import {
 } from "./helpers/fs";
 import { createTestOpenMeldProfile } from "./helpers/openmeld-profile-fixture";
 
+const CANONICAL_RELATION_SUFFIX_REGEX = /\((mention|reference|wake)\)/u;
+
 function createPostSignalResponse(text = "hello"): Response {
   return new Response(
     JSON.stringify({
@@ -365,7 +367,7 @@ describe("space send OpenMeld profile identity", () => {
           }),
           baseUrl: "https://gateway.openmeld.invalid",
           space: "demo",
-          text: "@Budget Analyst(wake) Please review the rollout plan with @Jordan(reference).",
+          text: "@Budget Analyst(wake) Please review the rollout plan with @Jordan(mention).",
           view: "human",
         });
       });
@@ -378,13 +380,119 @@ describe("space send OpenMeld profile identity", () => {
         },
         messageEnvelope: {
           activationTargets: ["agt_11111111-2222-4333-8444-555555555555"],
-          referenceTargets: ["bbbbbbbb-1111-2222-3333-000000000000"],
+          mentionTargets: ["bbbbbbbb-1111-2222-3333-000000000000"],
+          referenceTargets: [],
           text: "@Budget Analyst Please review the rollout plan with @Jordan.",
         },
       });
       expect(
         parsePostSignalBody(fetchMock).meta?.clientMessageId?.trim()
       ).toBeTruthy();
+    });
+  });
+
+  it("publishes profile-id addressing with canonical member labels", async () => {
+    await withTempHome(async () => {
+      const humanTargetProfileId = "bbbbbbbb-1111-4222-8333-000000000000";
+      const agentTargetProfileId = "agt_11111111-2222-4333-8444-555555555555";
+      const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const method = String(init?.method ?? "GET").toUpperCase();
+
+        if (method === "GET" && url.pathname.endsWith("/members")) {
+          return Promise.resolve(
+            createMembersResponse({
+              humans: [
+                createHumanMember({
+                  profileId: "aaaaaaaa-1111-4222-8333-000000000000",
+                  profileName: "Mira",
+                }),
+                createHumanMember({
+                  mentionAlias: "Alex, Design",
+                  profileId: humanTargetProfileId,
+                  profileName: "Alex Kim",
+                }),
+                createHumanMember({
+                  mentionAlias: "Alex, Finance",
+                  profileId: "cccccccc-1111-4222-8333-000000000000",
+                  profileName: "Alex Kim",
+                }),
+              ],
+              agents: [
+                createAgentMember({
+                  mentionAlias: "Review Agent — East",
+                  profileId: agentTargetProfileId,
+                  profileName: "Review Agent",
+                  wakeabilityStatus: "ready",
+                }),
+                createAgentMember({
+                  mentionAlias: "Review Agent — West",
+                  profileId: "agt_22222222-2222-4333-8444-555555555555",
+                  profileName: "Review Agent",
+                  wakeabilityStatus: "ready",
+                }),
+              ],
+            })
+          );
+        }
+
+        if (method === "POST" && url.pathname.endsWith("/signals")) {
+          return Promise.resolve(createPostSignalResponse());
+        }
+
+        throw new Error(`unexpected fetch call: ${method} ${url.toString()}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runSend({
+          openMeldProfile: createOpenMeldProfileInput({
+            openMeldProfileId: "aaaaaaaa-1111-4222-8333-000000000000",
+            profileName: "Mira",
+            profileKind: "human",
+          }),
+          baseUrl: "https://gateway.openmeld.invalid",
+          space: "demo",
+          text: `@${humanTargetProfileId}(mention), pair with @${agentTargetProfileId}(wake).`,
+          view: "agent",
+        });
+      });
+
+      const publishedBody = parsePostSignalBody(fetchMock);
+      const publishedText = "@Alex, Design, pair with @Review Agent — East.";
+      expect(publishedBody).toMatchObject({
+        messageEnvelope: {
+          activationTargets: [agentTargetProfileId],
+          mentionTargets: [humanTargetProfileId],
+          referenceTargets: [],
+          text: publishedText,
+        },
+        text: publishedText,
+      });
+      expect(publishedBody.text).not.toContain(humanTargetProfileId);
+      expect(publishedBody.text).not.toContain(agentTargetProfileId);
+      expect(publishedBody.text).not.toMatch(CANONICAL_RELATION_SUFFIX_REGEX);
+      expect(findLineEnvelope(stdout, "space.send.addressing_summary")).toEqual(
+        expect.objectContaining({
+          data: {
+            mentionTargetCount: 1,
+            referenceTargetCount: 0,
+            targets: [
+              {
+                primaryMentionLabel: "Alex, Design",
+                profileId: humanTargetProfileId,
+                relation: "mention",
+              },
+              {
+                primaryMentionLabel: "Review Agent — East",
+                profileId: agentTargetProfileId,
+                relation: "wake",
+              },
+            ],
+            wakeTargetCount: 1,
+          },
+        })
+      );
     });
   });
 
@@ -445,7 +553,7 @@ describe("space send OpenMeld profile identity", () => {
     });
   });
 
-  it("sends canonical-looking mention text literally when plainText is enabled", async () => {
+  it("sends profile-id mention text literally when plainText is enabled", async () => {
     await withTempHome(async () => {
       const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
         const url = new URL(String(input));
@@ -459,6 +567,8 @@ describe("space send OpenMeld profile identity", () => {
       });
       vi.stubGlobal("fetch", fetchMock);
 
+      const literalText =
+        "Debug note: @bbbbbbbb-1111-4222-8333-000000000000(mention) and @agt_11111111-2222-4333-8444-555555555555(wake) were shown as text.";
       const { stdout } = await withCapturedStdio(async () => {
         await runSend({
           openMeldProfile: createOpenMeldProfileInput({
@@ -469,14 +579,14 @@ describe("space send OpenMeld profile identity", () => {
           baseUrl: "https://gateway.openmeld.invalid",
           space: "demo",
           plainText: true,
-          text: "Debug note: @Budget Analyst(wake) was shown as text.",
+          text: literalText,
           view: "agent",
         });
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(parsePostSignalBody(fetchMock)).toMatchObject({
-        text: "Debug note: @Budget Analyst(wake) was shown as text.",
+        text: literalText,
       });
       expect(parsePostSignalBody(fetchMock)).not.toHaveProperty(
         "messageEnvelope"
@@ -659,20 +769,21 @@ describe("space send OpenMeld profile identity", () => {
       });
 
       expect(parsePostSignalBody(fetchMock)).toMatchObject({
+        text: "@Felix Please take a look.",
         messageEnvelope: {
           activationTargets: [],
           mentionTargets: [humanProfileId],
           referenceTargets: [],
-          text: "@Felix(mention) Please take a look.",
+          text: "@Felix Please take a look.",
         },
       });
       expect(findLineEnvelope(stdout, "space.send.addressing_summary")).toEqual(
         expect.objectContaining({
-          data: {
+          data: expect.objectContaining({
             mentionTargetCount: 1,
             referenceTargetCount: 0,
             wakeTargetCount: 0,
-          },
+          }),
           text: "Space Message Addressing: wake=0, reference=0, mention=1.",
         })
       );
@@ -1282,7 +1393,11 @@ function createGatewayFailureResponse(input: {
   );
 }
 
-function createHumanMember(input: { profileId: string; profileName: string }) {
+function createHumanMember(input: {
+  mentionAlias?: string;
+  profileId: string;
+  profileName: string;
+}) {
   return createSpaceMemberHumanSnapshot({
     addedAt: "2026-04-01T00:00:00.000Z",
     createdAt: "2026-04-01T00:00:00.000Z",
@@ -1293,6 +1408,7 @@ function createHumanMember(input: { profileId: string; profileName: string }) {
     liveNow: false,
     ownerName: null,
     ownerUserId: null,
+    mentionAlias: input.mentionAlias ?? null,
     profileId: input.profileId,
     profileName: input.profileName,
     updatedAt: "2026-04-01T00:00:00.000Z",
@@ -1300,6 +1416,7 @@ function createHumanMember(input: { profileId: string; profileName: string }) {
 }
 
 function createAgentMember(input: {
+  mentionAlias?: string;
   profileId: string;
   profileName: string;
   wakeabilityStatus: "ready" | "blocked";
@@ -1316,6 +1433,7 @@ function createAgentMember(input: {
     lastSeenLabel: "Seen just now",
     liveNow: false,
     memberSourceLabel: "Added by Mira",
+    mentionAlias: input.mentionAlias ?? null,
     ownerName: null,
     ownerUserId: null,
     profileId: input.profileId,
@@ -1335,6 +1453,7 @@ function parsePostSignalBody(fetchMock: ReturnType<typeof vi.fn>): {
   };
   messageEnvelope?: {
     activationTargets?: string[];
+    mentionTargets?: string[];
     referenceTargets?: string[];
     text?: string;
   };
@@ -1349,6 +1468,7 @@ function parsePostSignalBody(fetchMock: ReturnType<typeof vi.fn>): {
     };
     messageEnvelope?: {
       activationTargets?: string[];
+      mentionTargets?: string[];
       referenceTargets?: string[];
       text?: string;
     };

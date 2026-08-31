@@ -2,6 +2,7 @@ import { collectCanonicalMentionTextFragments } from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import {
   assertValidSpaceCanonicalMentionSyntax,
+  createSpaceTargetCatalog,
   type PreparedSpaceComposerSubmission,
   prepareSpaceComposerSubmission,
   type SpaceComposerReplyTarget,
@@ -15,6 +16,13 @@ export type PreparedCliSpaceComposerSubmission = {
   outboundReplyTo?: SpaceComposerReplyTarget;
   outboundText: string;
   preparedSubmission: PreparedSpaceComposerSubmission;
+  resolvedAddressingTargets: readonly CliSpaceAddressingTarget[];
+};
+
+export type CliSpaceAddressingTarget = {
+  primaryMentionLabel: string;
+  profileId: string;
+  relation: PreparedSpaceComposerSubmission["canonicalMentionsInTextOrder"][number]["type"];
 };
 
 export async function prepareCliSpaceComposerSubmission(input: {
@@ -51,7 +59,11 @@ export async function prepareCliSpaceComposerSubmission(input: {
     snapshot: membersSnapshot,
     text: input.text,
   });
-  const outboundText = resolvePublishedMessageText(preparedSubmission.text);
+  const publishedMessage = resolvePublishedMessage({
+    membersSnapshot,
+    preparedSubmission,
+  });
+  const outboundText = publishedMessage.text;
   const outboundMessageEnvelope = preparedSubmission.messageEnvelope
     ? {
         ...preparedSubmission.messageEnvelope,
@@ -66,10 +78,18 @@ export async function prepareCliSpaceComposerSubmission(input: {
       : {}),
     outboundText,
     preparedSubmission,
+    resolvedAddressingTargets: publishedMessage.resolvedAddressingTargets,
   };
 }
 
-function resolvePublishedMessageText(text: string): string {
+function resolvePublishedMessage(input: {
+  membersSnapshot: SpaceMembersSnapshot | null;
+  preparedSubmission: PreparedSpaceComposerSubmission;
+}): {
+  resolvedAddressingTargets: readonly CliSpaceAddressingTarget[];
+  text: string;
+} {
+  const text = input.preparedSubmission.text;
   const canonicalMentions = collectCanonicalMentionTextFragments(text).flatMap(
     (fragment) =>
       fragment.parsedLiteral
@@ -77,17 +97,47 @@ function resolvePublishedMessageText(text: string): string {
         : []
   );
   if (canonicalMentions.length === 0) {
-    return text;
+    return { resolvedAddressingTargets: [], text };
+  }
+  if (!input.membersSnapshot) {
+    throw new Error(
+      "Space message addressing invariant failed: resolved mentions require the current members snapshot."
+    );
   }
 
+  const targetCatalog = createSpaceTargetCatalog(input.membersSnapshot);
   let cursor = 0;
   const parts: string[] = [];
   for (const mention of canonicalMentions) {
+    const target = targetCatalog.byExactMentionLabel.get(
+      mention.parsedLiteral.name
+    );
+    if (!target) {
+      throw new Error(
+        `Space message addressing invariant failed: resolved target ${mention.parsedLiteral.name} is not in the current members snapshot.`
+      );
+    }
     parts.push(text.slice(cursor, mention.start));
-    parts.push(`@${mention.parsedLiteral.name}`);
+    parts.push(`@${target.primaryMentionLabel}`);
     cursor = mention.end;
   }
   parts.push(text.slice(cursor));
 
-  return parts.join("");
+  return {
+    resolvedAddressingTargets:
+      input.preparedSubmission.canonicalMentionsInTextOrder.map((mention) => {
+        const target = targetCatalog.byProfileId.get(mention.profileId);
+        if (!target) {
+          throw new Error(
+            `Space message addressing invariant failed: resolved profile ${mention.profileId} is not in the current members snapshot.`
+          );
+        }
+        return {
+          primaryMentionLabel: target.primaryMentionLabel,
+          profileId: target.profileId,
+          relation: mention.type,
+        };
+      }),
+    text: parts.join(""),
+  };
 }
