@@ -1,5 +1,4 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
-import type { MessageMentionType } from "@openmeld/schemas";
 import type {
 	ModelCatalog,
 	SpaceMembersSnapshot,
@@ -29,7 +28,6 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
 	Fragment,
-	type KeyboardEvent,
 	memo,
 	type ReactNode,
 	type Ref,
@@ -45,13 +43,13 @@ import {
 	PromptInput,
 	PromptInputAction,
 	PromptInputActions,
-	PromptInputTextarea,
 } from "#/components/ibelick/prompt-input";
 import {
 	SpaceComposerFileMenu,
 	SpaceComposerFileTray,
 	useSpaceComposerFileInput,
 } from "#/components/spaces/space-composer-attachments";
+import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import { buildCenterAgentOptimisticReplyItem } from "#/lib/spaces/center-agent-optimistic-reply";
 import {
@@ -123,15 +121,18 @@ import {
 	buildSpaceMemberDirectoryEntryByProfileId,
 	buildWakeStopTargetLabelsByProfileId,
 } from "./space-collaboration-profile";
-import { SpaceComposerAddressingChips } from "./space-composer-addressing";
 import {
-	resolveSpaceAgentDirectConversationComposerHint,
 	resolveSpaceComposerAccessibleName,
 	resolveSpaceComposerPlaceholder,
 	resolveSpaceComposerWakeTextHint,
 	type SpaceAgentDirectConversationComposerHintKind,
 	type SpaceComposerPlaceholderContext,
 } from "./space-composer-copy";
+import {
+	SpaceComposerEditor,
+	type SpaceComposerEditorChange,
+	type SpaceComposerInputRef,
+} from "./space-composer-editor";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import { resolveLocalDateKey } from "./space-conversation-date";
 import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
@@ -140,7 +141,6 @@ import { buildSpaceConversationScrollRestorationId } from "./space-conversation-
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
 import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
-import { SpaceMentionPopover } from "./space-mention-popover";
 import {
 	MessageActionTooltip,
 	MessageDetailsActionButton,
@@ -198,8 +198,7 @@ import {
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
 import type {
 	SpaceComposerAddressingTarget,
-	SpaceComposerSelection,
-	SpaceMentionPopoverState,
+	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
 import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
 
@@ -217,9 +216,10 @@ type SpaceConversationPanelProps = {
 	composerFileLimitReached: boolean;
 	composerAddressingSummary?: string | null;
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
+	composerAuthoredMentions?: readonly ComposerDraftAuthoredMention[];
+	composerMentionPickerItems?: readonly SpaceMentionPickerItem[];
 	composerBlockedWakeProfileId: string | null;
 	composerHasAuthoredMentions?: boolean;
-	composerSelection: SpaceComposerSelection;
 	composerReplyToSignalId: string | null;
 	composerText: string;
 	profileControl?: ReactNode;
@@ -256,16 +256,11 @@ type SpaceConversationPanelProps = {
 	isDiagnosticReportPending: (signalId: string) => boolean;
 	isDiagnosticReportSent: (signalId: string) => boolean;
 	isSendingMessage: boolean;
-	mentionPopoverState: SpaceMentionPopoverState;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
-	onComposerChange: (value: string, selection: SpaceComposerSelection) => void;
+	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onClearComposerReplyTo: () => void;
-	onComposerKeyDown: (
-		event: KeyboardEvent<HTMLTextAreaElement>
-	) => Promise<void>;
-	onComposerSelectionChange: (selection: SpaceComposerSelection) => void;
 	onLoadEarlierHistory: () => Promise<void>;
 	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
 	onJumpToDate?: (date: Date) => Promise<string | null>;
@@ -282,14 +277,7 @@ type SpaceConversationPanelProps = {
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
-	onMentionItemHover: (index: number) => void;
-	onMentionItemSelect: (index: number, relation?: MessageMentionType) => void;
 	onMentionButtonClick: () => void;
-	onMentionRelationChange?: (
-		profileId: string,
-		relation: MessageMentionType
-	) => void;
-	onMentionPopoverClose: () => void;
 	onSend: () => Promise<void>;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onSpaceViewChange: (view: SpaceView) => void;
@@ -309,7 +297,7 @@ type SpaceConversationPanelProps = {
 	spaceId?: string;
 	spaceViewIdPrefix: string;
 	spaceReferencesById?: SpaceMessageReferencesById;
-	textareaRef: { current: HTMLTextAreaElement | null };
+	textareaRef: SpaceComposerInputRef;
 	threads: readonly SpaceThread[];
 	threadsErrorMessage?: string | null;
 	threadsIsLoading?: boolean;
@@ -942,11 +930,6 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			console.error("Failed to send a space message from composer.", error);
 		});
 	};
-	const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-		input.onComposerKeyDown(event).catch((error) => {
-			console.error("Failed to handle space composer keyboard input.", error);
-		});
-	};
 	useEffect(() => {
 		const conversationScrollElement = conversationScrollRef.current;
 		if (
@@ -1106,7 +1089,6 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 						composerAccessibleName={composerAccessibleName}
 						composerPlaceholder={composerPlaceholder}
 						composerSendBlocked={composerSendBlocked}
-						handleComposerKeyDown={handleComposerKeyDown}
 						input={input}
 						sendButtonLabel={sendButtonLabel}
 						submitComposer={submitComposer}
@@ -1425,7 +1407,6 @@ function SpaceComposerSection(input: {
 	composerAccessibleName: string;
 	composerSendBlocked: boolean;
 	composerPlaceholder: string;
-	handleComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
 	input: SpaceConversationPanelProps;
 	sendButtonLabel: string;
 	submitComposer: () => void;
@@ -1452,16 +1433,8 @@ function SpaceComposerSection(input: {
 		fileLimitReached: panel.composerFileLimitReached,
 		fileUploadInProgress,
 	});
-	const defaultComposerHint = panel.agentDirectConversationKind
-		? resolveSpaceAgentDirectConversationComposerHint(
-				panel.agentDirectConversationKind
-			)
-		: null;
 	const composerHint =
-		fileHint ??
-		panel.composerAddressingSummary ??
-		input.wakeTextHint ??
-		defaultComposerHint;
+		fileHint ?? panel.composerAddressingSummary ?? input.wakeTextHint;
 	const composerHintClassName = input.wakeTextHint
 		? "text-foreground"
 		: "text-muted-foreground";
@@ -1478,16 +1451,6 @@ function SpaceComposerSection(input: {
 							Drop files to add them
 						</div>
 					) : null}
-					<SpaceMentionPopover
-						centerAgentProfileId={panel.centerAgentProfileId}
-						composerSelection={panel.composerSelection}
-						composerText={panel.composerText}
-						onHoverItem={panel.onMentionItemHover}
-						onRequestClose={panel.onMentionPopoverClose}
-						onSelectItem={panel.onMentionItemSelect}
-						state={panel.mentionPopoverState}
-						textareaRef={panel.textareaRef}
-					/>
 					{panel.composerReplyToSignalId ? (
 						<div
 							className="mb-2 flex items-center justify-between gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
@@ -1525,48 +1488,33 @@ function SpaceComposerSection(input: {
 							files={panel.composerFiles}
 							onRemove={panel.onRemoveComposerFile}
 						/>
-						<PromptInputTextarea
-							aria-label={input.composerAccessibleName}
-							autoComplete="off"
-							className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
-							name="space-message"
-							onChange={(event) => {
-								panel.onComposerChange(event.target.value, {
-									end: event.target.selectionEnd,
-									start: event.target.selectionStart,
-								});
+						<SpaceComposerEditor
+							addressingTargets={panel.composerAddressingTargets ?? []}
+							ariaLabel={input.composerAccessibleName}
+							authoredMentions={panel.composerAuthoredMentions ?? []}
+							composerRef={panel.textareaRef}
+							mentionPickerItems={panel.composerMentionPickerItems ?? []}
+							onChange={(change) => {
+								panel.onComposerEditorChange(change);
 							}}
 							onDragEnter={handleDragOver}
 							onDragLeave={handleDragLeave}
 							onDragOver={handleDragOver}
 							onDrop={handleDrop}
-							onKeyDown={input.handleComposerKeyDown}
 							onPaste={handlePaste}
-							onSelect={(event) => {
-								panel.onComposerSelectionChange({
-									end: event.currentTarget.selectionEnd,
-									start: event.currentTarget.selectionStart,
-								});
-							}}
+							onSend={input.submitComposer}
 							placeholder={input.composerPlaceholder}
-							ref={(element) => {
-								panel.textareaRef.current = element;
-							}}
-						/>
-						<SpaceComposerAddressingChips
-							onRelationChange={
-								panel.onMentionRelationChange ?? NOOP_MENTION_RELATION_CHANGE
-							}
-							targets={panel.composerAddressingTargets ?? []}
+							text={panel.composerText}
 						/>
 						<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
-							<div className="flex min-w-0 flex-1 items-center gap-2">
+							<div className="flex min-w-0 flex-1 items-center gap-1">
 								<SpaceComposerFileMenu
 									addFiles={addFiles}
 									disabled={fileActionsDisabled}
 									limitReached={panel.composerFileLimitReached}
 								/>
-								{panel.isCenterAgentDirectMessage ? null : (
+								{panel.isCenterAgentDirectMessage ||
+								panel.agentDirectConversationKind ? null : (
 									<Button
 										aria-label="Mention a member"
 										className="size-8 text-base"
@@ -1578,15 +1526,17 @@ function SpaceComposerSection(input: {
 										<span aria-hidden="true">@</span>
 									</Button>
 								)}
-								<p
-									aria-live="polite"
-									className={cn(
-										"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
-										composerHintClassName
-									)}
-								>
-									{composerHint}
-								</p>
+								{composerHint ? (
+									<p
+										aria-live="polite"
+										className={cn(
+											"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
+											composerHintClassName
+										)}
+									>
+										{composerHint}
+									</p>
+								) : null}
 							</div>
 							<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
 								{panel.profileControl}
@@ -3216,7 +3166,6 @@ function SystemEventRow(input: {
 }
 
 const EMPTY_ANCHORED_OUTCOME_NOTICES: readonly SpaceTimelineItem[] = [];
-const NOOP_MENTION_RELATION_CHANGE = () => undefined;
 const UNAVAILABLE_SPACE_WAKE_STOP_REQUEST: SpaceWakeStopRequestHandler = () =>
 	Promise.reject(new Error("Space Wake Stop is unavailable."));
 

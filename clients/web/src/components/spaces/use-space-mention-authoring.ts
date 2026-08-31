@@ -1,21 +1,12 @@
-import {
-	collectCanonicalMentionTextFragments,
-	formatCanonicalMentionLiteral,
-	type MessageMentionType,
-} from "@openmeld/schemas";
+import type { MessageMentionType } from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import {
 	buildRecentMentionRankByProfileId,
 	buildSpaceMemberDirectory,
 	buildSpaceMentionProfileIndex,
-	closeMentionPickerState,
 	createSpaceTargetCatalog,
-	extractMentionAuthoringPrefix,
 	isSpaceComposerSubmissionError,
-	isTargetPickerState,
 	listSpaceMentionSuggestions,
-	type MentionPickerState,
-	openTargetPickerState,
 	type PreparedSpaceComposerSubmission,
 	prepareSpaceComposerSubmission,
 	prepareSpaceFileOnlySubmission,
@@ -27,7 +18,7 @@ import {
 	type SpaceSendTargetAllowedRelations,
 	type SpaceSendTargetWakeAvailability,
 } from "@openmeld/space";
-import type { Dispatch, KeyboardEvent, SetStateAction } from "react";
+import type { KeyboardEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
@@ -40,9 +31,27 @@ import {
 	readSpaceRecentMentionProfileIds,
 	writeSpaceRecentMentionProfileIds,
 } from "#/lib/spaces/recent-mention-storage";
+import type {
+	SpaceComposerEditorChange,
+	SpaceComposerInputRef,
+} from "./space-composer-editor";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 
 const AUTHORED_MENTION_CONTINUATION_PATTERN = /[('’A-Za-z0-9_-]/u;
+
+async function onComposerKeyDown(
+	event: KeyboardEvent<HTMLTextAreaElement>,
+	onSend: () => Promise<void>
+): Promise<void> {
+	if (event.nativeEvent.isComposing) {
+		return;
+	}
+	if (!shouldSendFromComposerKeyDown(event)) {
+		return;
+	}
+	event.preventDefault();
+	await onSend();
+}
 
 export type SpaceComposerSelection = {
 	end: number;
@@ -54,32 +63,6 @@ export type SpaceMentionPickerItem = {
 	kind: "target";
 	suggestion: SpaceMentionSuggestion;
 };
-
-export type SpaceMentionPopoverState =
-	| {
-			kind: "closed";
-	  }
-	| {
-			kind: "empty";
-			query: string;
-			message: string;
-	  }
-	| {
-			kind: "loading";
-			query: string;
-			message: string;
-	  }
-	| {
-			query: string;
-			message: string;
-			kind: "unavailable";
-	  }
-	| {
-			highlightedIndex: number;
-			items: readonly SpaceMentionPickerItem[];
-			kind: "target_picker";
-			query: string;
-	  };
 
 export type SpaceReplyToSignalInput = {
 	signalId: string;
@@ -116,7 +99,7 @@ export function useSpaceMentionAuthoring(input: {
 	spaceId: string;
 	snapshot: SpaceMembersSnapshot | null;
 }) {
-	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const textareaRef: SpaceComposerInputRef = useRef(null);
 	const pendingSelectionRef = useRef<SpaceComposerSelection | null>(null);
 	const composerDraft = useComposerDraft({
 		initialDraft: input.initialComposerDraft,
@@ -144,17 +127,6 @@ export function useSpaceMentionAuthoring(input: {
 	const [recentMentionProfileIds, setRecentMentionProfileIds] = useState<
 		string[]
 	>([]);
-	const [mentionPickerState, setMentionPickerState] =
-		useState<MentionPickerState>(closeMentionPickerState);
-	const [highlightedIndex, setHighlightedIndex] = useState(-1);
-	const [activePrefixRange, setActivePrefixRange] = useState<{
-		end: number;
-		start: number;
-		text: string;
-	} | null>(null);
-	const [dismissedMentionStarts, setDismissedMentionStarts] = useState<
-		number[]
-	>([]);
 	const addressingMentions = useMemo(
 		() =>
 			resolveSpaceComposerAddressingMentions({
@@ -175,6 +147,17 @@ export function useSpaceMentionAuthoring(input: {
 				snapshot: input.snapshot,
 			}),
 		[addressingMentions, input.snapshot]
+	);
+	const mentionPickerItems = useMemo(
+		() =>
+			input.snapshot
+				? buildSpaceMentionTargetItems({
+						query: "",
+						recentProfileIds: recentMentionProfileIds,
+						snapshot: input.snapshot,
+					})
+				: [],
+		[input.snapshot, recentMentionProfileIds]
 	);
 
 	useEffect(() => {
@@ -212,10 +195,6 @@ export function useSpaceMentionAuthoring(input: {
 			end: nextComposerText.length,
 			start: nextComposerText.length,
 		});
-		setMentionPickerState(closeMentionPickerState());
-		setHighlightedIndex(-1);
-		setActivePrefixRange(null);
-		setDismissedMentionStarts([]);
 	}, [composerDraft.storageKey]);
 
 	useEffect(() => {
@@ -265,204 +244,31 @@ export function useSpaceMentionAuthoring(input: {
 			return;
 		}
 
-		const textarea = textareaRef.current;
-		if (!textarea) {
+		const composerInput = textareaRef.current;
+		if (!composerInput) {
 			return;
 		}
 
 		pendingSelectionRef.current = null;
-		textarea.focus();
-		textarea.setSelectionRange(pendingSelection.start, pendingSelection.end);
+		if ("selectTextRange" in composerInput) {
+			composerInput.selectTextRange(pendingSelection);
+			return;
+		}
+		composerInput.focus();
+		composerInput.setSelectionRange(
+			pendingSelection.start,
+			pendingSelection.end
+		);
 	});
-
-	useEffect(() => {
-		if (composerSelection.start !== composerSelection.end) {
-			setActivePrefixRange(null);
-			setMentionPickerState(closeMentionPickerState());
-			return;
-		}
-
-		const textBeforeCursor = composerText.slice(0, composerSelection.start);
-		const prefix = extractMentionAuthoringPrefix(textBeforeCursor);
-		if (!prefix) {
-			setActivePrefixRange(null);
-			setMentionPickerState(closeMentionPickerState());
-			return;
-		}
-
-		const prefixRange = {
-			end: composerSelection.start,
-			start: composerSelection.start - prefix.length,
-			text: prefix,
-		};
-		if (
-			isMentionAuthoringPrefixOwnedByAuthoredMention({
-				mentions: authoredMentions,
-				prefixRange,
-			})
-		) {
-			setActivePrefixRange(null);
-			setMentionPickerState(closeMentionPickerState());
-			return;
-		}
-
-		setActivePrefixRange(prefixRange);
-		if (dismissedMentionStarts.includes(prefixRange.start)) {
-			setMentionPickerState(closeMentionPickerState());
-			return;
-		}
-
-		setMentionPickerState((currentState) => {
-			return openTargetPickerState({
-				query: prefix,
-				selectedProfileId:
-					getSelectedProfileIdFromMentionPickerState(currentState),
-			});
-		});
-	}, [
-		authoredMentions,
-		composerSelection,
-		composerText,
-		dismissedMentionStarts,
-	]);
-
-	const mentionPopoverState = useMemo<SpaceMentionPopoverState>(() => {
-		if (mentionPickerState.kind === "closed") {
-			return { kind: "closed" };
-		}
-
-		if (!input.snapshot) {
-			if (input.isMembersLoading) {
-				return {
-					kind: "loading",
-					message: "Loading current space members…",
-					query: mentionPickerState.query,
-				};
-			}
-
-			return {
-				kind: "unavailable",
-				message: input.membersErrorMessage ?? SPACE_MEMBERS_LOAD_ERROR_MESSAGE,
-				query: mentionPickerState.query,
-			};
-		}
-
-		if (!isTargetPickerState(mentionPickerState)) {
-			return { kind: "closed" };
-		}
-
-		const targetItems = buildSpaceMentionTargetItems({
-			query: mentionPickerState.query,
-			recentProfileIds: recentMentionProfileIds,
-			snapshot: input.snapshot,
-		});
-		if (targetItems.length === 0) {
-			return {
-				kind: "empty",
-				message: "No matching members in this space.",
-				query: mentionPickerState.query,
-			};
-		}
-
-		const fallbackIndex =
-			mentionPickerState.selectedProfileId === null
-				? 0
-				: Math.max(
-						0,
-						targetItems.findIndex(
-							(item) =>
-								item.suggestion.profileId ===
-								mentionPickerState.selectedProfileId
-						)
-					);
-
-		return {
-			highlightedIndex: clampHighlightedIndex({
-				fallbackIndex,
-				highlightedIndex,
-				itemCount: targetItems.length,
-			}),
-			items: targetItems,
-			kind: "target_picker",
-			query: mentionPickerState.query,
-		};
-	}, [
-		highlightedIndex,
-		input.isMembersLoading,
-		input.membersErrorMessage,
-		input.snapshot,
-		mentionPickerState,
-		recentMentionProfileIds,
-	]);
-
-	useEffect(() => {
-		if (mentionPopoverState.kind === "target_picker") {
-			setHighlightedIndex(mentionPopoverState.highlightedIndex);
-			return;
-		}
-
-		setHighlightedIndex(-1);
-	}, [mentionPopoverState]);
-
-	const closeMentionPopover = () => {
-		if (activePrefixRange) {
-			setDismissedMentionStarts((currentStarts) =>
-				currentStarts.includes(activePrefixRange.start)
-					? currentStarts
-					: [...currentStarts, activePrefixRange.start]
-			);
-		}
-		setMentionPickerState(closeMentionPickerState());
-		setHighlightedIndex(-1);
-	};
-
-	const onMentionItemSelect = (
-		index: number,
-		relation?: MessageMentionType
-	) => {
-		selectMentionItem(index, relation);
-	};
-
-	const onMentionPopoverClose = () => {
-		closeMentionPopover();
-	};
-
-	const onComposerKeyDown = async (
-		event: KeyboardEvent<HTMLTextAreaElement>,
-		onSend: () => Promise<void>
-	) => {
-		if (event.nativeEvent.isComposing) {
-			return;
-		}
-
-		if (
-			handleMentionPickerKeyboardInput({
-				event,
-				highlightedIndex,
-				mentionPopoverState,
-				onClose: closeMentionPopover,
-				onMoveHighlight: setHighlightedIndex,
-				onSelectItem: selectMentionItem,
-			})
-		) {
-			return;
-		}
-
-		if (!shouldSendFromComposerKeyDown(event)) {
-			return;
-		}
-
-		event.preventDefault();
-		await onSend();
-	};
 
 	return {
 		addressingSummary,
 		addressingTargets,
+		authoredMentions,
 		composerSelection,
 		hasAuthoredMentions: authoredMentions.length > 0,
 		composerText,
-		mentionPopoverState,
+		mentionPickerItems,
 		replyTo,
 		onComposerChange: (value: string, selection: SpaceComposerSelection) => {
 			composerDraft.setContent((currentDraft) => ({
@@ -474,19 +280,27 @@ export function useSpaceMentionAuthoring(input: {
 				}),
 				text: value,
 			}));
-			setDismissedMentionStarts((currentStarts) =>
-				reconcileDismissedMentionStarts({
-					starts: currentStarts,
-					nextText: value,
-					previousText: composerText,
-				})
-			);
 			setComposerSelection(selection);
+		},
+		onComposerEditorChange: (change: SpaceComposerEditorChange) => {
+			composerDraft.setContent((currentDraft) => ({
+				...currentDraft,
+				authoredMentions: change.authoredMentions,
+				text: change.text,
+			}));
+			setComposerSelection(change.selection);
 		},
 		onComposerSelectionChange: (selection: SpaceComposerSelection) => {
 			setComposerSelection(selection);
 		},
 		onMentionButtonClick: () => {
+			if (
+				textareaRef.current &&
+				"insertMentionTrigger" in textareaRef.current
+			) {
+				textareaRef.current.insertMentionTrigger();
+				return;
+			}
 			const nextText = `${composerText.slice(0, composerSelection.start)}@${composerText.slice(composerSelection.end)}`;
 			const nextCaretPosition = composerSelection.start + 1;
 			composerDraft.setContent((currentDraft) => ({
@@ -498,15 +312,6 @@ export function useSpaceMentionAuthoring(input: {
 				}),
 				text: nextText,
 			}));
-			setDismissedMentionStarts((currentStarts) =>
-				reconcileDismissedMentionStarts({
-					starts: currentStarts.filter(
-						(start) => start !== composerSelection.start
-					),
-					nextText,
-					previousText: composerText,
-				})
-			);
 			setComposerSelection({
 				end: nextCaretPosition,
 				start: nextCaretPosition,
@@ -515,37 +320,7 @@ export function useSpaceMentionAuthoring(input: {
 				end: nextCaretPosition,
 				start: nextCaretPosition,
 			};
-			setHighlightedIndex(-1);
 		},
-		onMentionItemHover: (index: number) => {
-			setHighlightedIndex(index);
-		},
-		onMentionItemSelect,
-		onMentionRelationChange: (
-			profileId: string,
-			relation: MessageMentionType
-		) => {
-			const snapshot = input.snapshot;
-			if (!snapshot) {
-				return;
-			}
-			const target =
-				createSpaceTargetCatalog(snapshot).byProfileId.get(profileId);
-			if (!target?.allowedRelations[relation]) {
-				return;
-			}
-			composerDraft.setContent((currentDraft) => ({
-				...currentDraft,
-				...applySpaceComposerRelationChange({
-					authoredMentions: currentDraft.authoredMentions,
-					profileId,
-					relation,
-					snapshot,
-					text: currentDraft.text,
-				}),
-			}));
-		},
-		onMentionPopoverClose,
 		onClearReplyTo: () => {
 			composerDraft.setContent((currentDraft) => ({
 				...currentDraft,
@@ -588,10 +363,6 @@ export function useSpaceMentionAuthoring(input: {
 				end: nextText.length,
 				start: nextText.length,
 			};
-			setMentionPickerState(closeMentionPickerState());
-			setHighlightedIndex(-1);
-			setActivePrefixRange(null);
-			setDismissedMentionStarts([]);
 		},
 		prepareSubmission: (missingSnapshotMessage: string) =>
 			prepareSpaceComposerSubmission({
@@ -638,10 +409,6 @@ export function useSpaceMentionAuthoring(input: {
 				end: nextCaretPosition,
 				start: nextCaretPosition,
 			});
-			setMentionPickerState(closeMentionPickerState());
-			setHighlightedIndex(-1);
-			setActivePrefixRange(null);
-			setDismissedMentionStarts([]);
 			pendingSelectionRef.current = {
 				end: nextCaretPosition,
 				start: nextCaretPosition,
@@ -682,188 +449,7 @@ export function useSpaceMentionAuthoring(input: {
 	function resetComposerState() {
 		composerDraft.setContent(EMPTY_COMPOSER_DRAFT_CONTENT);
 		setComposerSelection({ end: 0, start: 0 });
-		setMentionPickerState(closeMentionPickerState());
-		setHighlightedIndex(-1);
-		setActivePrefixRange(null);
-		setDismissedMentionStarts([]);
 	}
-
-	function selectMentionItem(index: number, relation?: MessageMentionType) {
-		if (mentionPopoverState.kind !== "target_picker") {
-			return;
-		}
-
-		const selectedItem = mentionPopoverState.items[index];
-		if (!selectedItem) {
-			return;
-		}
-
-		if (!activePrefixRange) {
-			return;
-		}
-
-		const selectedRelation =
-			relation ??
-			resolveDefaultSpaceComposerMentionRelation(selectedItem.suggestion);
-		if (
-			!(
-				selectedRelation &&
-				selectedItem.suggestion.allowedRelations[selectedRelation]
-			)
-		) {
-			return;
-		}
-
-		const mentionText = `@${selectedItem.suggestion.primaryMentionLabel}`;
-		const nextText = `${composerText.slice(0, activePrefixRange.start)}${mentionText} ${composerText.slice(activePrefixRange.end)}`;
-		const nextCaretPosition = activePrefixRange.start + mentionText.length + 1;
-
-		pendingSelectionRef.current = {
-			end: nextCaretPosition,
-			start: nextCaretPosition,
-		};
-		composerDraft.setContent((currentDraft) => {
-			const retainedMentions = reconcileTrackedAuthoredMentions({
-				mentions: currentDraft.authoredMentions,
-				nextText,
-				previousText: currentDraft.text,
-			});
-			const retainedMentionForProfile = retainedMentions.find(
-				(mention) => mention.profileId === selectedItem.suggestion.profileId
-			);
-			const selectedMentionOwnsRelation =
-				!retainedMentionForProfile ||
-				activePrefixRange.start < retainedMentionForProfile.start;
-			const mentionInputs = retainedMentions.flatMap((mention) => {
-				if (
-					selectedMentionOwnsRelation &&
-					mention.profileId === selectedItem.suggestion.profileId
-				) {
-					return [];
-				}
-				return [toAuthoredMentionInput(mention)];
-			});
-			if (selectedMentionOwnsRelation) {
-				mentionInputs.push({
-					profileId: selectedItem.suggestion.profileId,
-					relation: selectedRelation,
-					start: activePrefixRange.start,
-					text: mentionText,
-				});
-			}
-			mentionInputs.sort(
-				(left, right) =>
-					(left.start ?? Number.MAX_SAFE_INTEGER) -
-					(right.start ?? Number.MAX_SAFE_INTEGER)
-			);
-			return {
-				...currentDraft,
-				authoredMentions: trackAuthoredMentionsInText({
-					mentions: mentionInputs,
-					text: nextText,
-				}),
-				text: nextText,
-			};
-		});
-		setDismissedMentionStarts((currentStarts) =>
-			reconcileDismissedMentionStarts({
-				starts: currentStarts,
-				nextText,
-				previousText: composerText,
-			})
-		);
-		setComposerSelection({
-			end: nextCaretPosition,
-			start: nextCaretPosition,
-		});
-		setMentionPickerState(closeMentionPickerState());
-		setHighlightedIndex(-1);
-		setActivePrefixRange(null);
-	}
-}
-
-function applySpaceComposerRelationChange(input: {
-	authoredMentions: readonly TrackedComposerAuthoredMention[];
-	profileId: string;
-	relation: MessageMentionType;
-	snapshot: SpaceMembersSnapshot;
-	text: string;
-}): {
-	authoredMentions: TrackedComposerAuthoredMention[];
-	text: string;
-} {
-	const catalog = createSpaceTargetCatalog(input.snapshot);
-	const canonicalOwners = collectCanonicalMentionTextFragments(
-		input.text
-	).flatMap((fragment, sequence) => {
-		const parsedLiteral = fragment.parsedLiteral;
-		if (!parsedLiteral) {
-			return [];
-		}
-		const target = catalog.byExactMentionLabel.get(parsedLiteral.name);
-		if (target?.profileId !== input.profileId) {
-			return [];
-		}
-		return [
-			{
-				end: fragment.end,
-				kind: "canonical" as const,
-				name: parsedLiteral.name,
-				sequence,
-				start: fragment.start,
-			},
-		];
-	});
-	const authoredOwners = input.authoredMentions.flatMap((mention, sequence) =>
-		mention.profileId === input.profileId
-			? [
-					{
-						kind: "authored" as const,
-						mention,
-						sequence,
-						start: mention.start,
-					},
-				]
-			: []
-	);
-	const owner = [...canonicalOwners, ...authoredOwners].sort(
-		(left, right) =>
-			left.start - right.start ||
-			(left.kind === "canonical" ? 0 : 1) -
-				(right.kind === "canonical" ? 0 : 1) ||
-			left.sequence - right.sequence
-	)[0];
-	if (!owner) {
-		return {
-			authoredMentions: [...input.authoredMentions],
-			text: input.text,
-		};
-	}
-
-	if (owner.kind === "authored") {
-		return {
-			authoredMentions: input.authoredMentions.map((mention) =>
-				mention === owner.mention
-					? { ...mention, relation: input.relation }
-					: mention
-			),
-			text: input.text,
-		};
-	}
-
-	const canonicalText = formatCanonicalMentionLiteral({
-		name: owner.name,
-		type: input.relation,
-	});
-	const nextText = `${input.text.slice(0, owner.start)}${canonicalText}${input.text.slice(owner.end)}`;
-	return {
-		authoredMentions: reconcileTrackedAuthoredMentions({
-			mentions: input.authoredMentions,
-			nextText,
-			previousText: input.text,
-		}),
-		text: nextText,
-	};
 }
 
 export function buildSpaceMentionTargetItems(input: {
@@ -1109,17 +695,6 @@ function toAuthoredMentionInput(
 	};
 }
 
-function isMentionAuthoringPrefixOwnedByAuthoredMention(input: {
-	mentions: readonly TrackedComposerAuthoredMention[];
-	prefixRange: { end: number; start: number };
-}): boolean {
-	return input.mentions.some(
-		(mention) =>
-			input.prefixRange.start === mention.start &&
-			input.prefixRange.end >= mention.start
-	);
-}
-
 function trackAuthoredMentionsInText(input: {
 	mentions: readonly SpaceComposerAuthoredMentionInTextOrder[];
 	text: string;
@@ -1186,34 +761,6 @@ function reconcileTrackedAuthoredMentions(input: {
 
 			return isTrackedAuthoredMentionValid(input.nextText, mention);
 		});
-}
-
-function reconcileDismissedMentionStarts(input: {
-	starts: readonly number[];
-	nextText: string;
-	previousText: string;
-}): number[] {
-	const edit = resolveSingleTextEdit({
-		nextText: input.nextText,
-		previousText: input.previousText,
-	});
-
-	return input.starts
-		.map((start): number | null => {
-			if (start < edit.previousStart) {
-				return start;
-			}
-
-			if (start >= edit.previousEnd) {
-				return start + edit.delta;
-			}
-
-			return null;
-		})
-		.filter(
-			(start): start is number =>
-				start !== null && input.nextText[start] === "@"
-		);
 }
 
 function resolveSingleTextEdit(input: {
@@ -1288,41 +835,6 @@ function buildMemberDirectoryOrderRankByProfileId(
 	);
 }
 
-function clampHighlightedIndex(input: {
-	fallbackIndex: number;
-	highlightedIndex: number;
-	itemCount: number;
-}) {
-	if (input.itemCount <= 0) {
-		return -1;
-	}
-
-	if (input.highlightedIndex >= 0 && input.highlightedIndex < input.itemCount) {
-		return input.highlightedIndex;
-	}
-
-	return Math.min(Math.max(input.fallbackIndex, 0), input.itemCount - 1);
-}
-
-function moveHighlightedIndex(input: {
-	direction: -1 | 1;
-	highlightedIndex: number;
-	itemCount: number;
-}) {
-	if (input.itemCount <= 0) {
-		return -1;
-	}
-
-	if (input.highlightedIndex < 0 || input.highlightedIndex >= input.itemCount) {
-		return input.direction === 1 ? 0 : input.itemCount - 1;
-	}
-
-	return (
-		(input.highlightedIndex + input.direction + input.itemCount) %
-		input.itemCount
-	);
-}
-
 function resolveReplyComposerText(input: {
 	currentText: string;
 	wakeMentionText: string | null;
@@ -1360,58 +872,6 @@ function resolveReplyWakeMention(input: {
 		relation: "wake",
 		text: `@${target.primaryMentionLabel}`,
 	};
-}
-
-function getSelectedProfileIdFromMentionPickerState(
-	state: MentionPickerState
-): string | null {
-	if (isTargetPickerState(state)) {
-		return state.selectedProfileId;
-	}
-
-	return null;
-}
-
-function handleMentionPickerKeyboardInput(input: {
-	event: KeyboardEvent<HTMLTextAreaElement>;
-	highlightedIndex: number;
-	mentionPopoverState: SpaceMentionPopoverState;
-	onClose: () => void;
-	onMoveHighlight: Dispatch<SetStateAction<number>>;
-	onSelectItem: (index: number) => void;
-}): boolean {
-	if (input.mentionPopoverState.kind !== "target_picker") {
-		return false;
-	}
-
-	const openMentionPopoverState = input.mentionPopoverState;
-
-	if (input.event.key === "ArrowDown" || input.event.key === "ArrowUp") {
-		input.event.preventDefault();
-		input.onMoveHighlight((current) =>
-			moveHighlightedIndex({
-				direction: input.event.key === "ArrowDown" ? 1 : -1,
-				highlightedIndex:
-					current >= 0 ? current : openMentionPopoverState.highlightedIndex,
-				itemCount: openMentionPopoverState.items.length,
-			})
-		);
-		return true;
-	}
-
-	if (input.event.key === "Enter") {
-		input.event.preventDefault();
-		input.onSelectItem(input.highlightedIndex);
-		return true;
-	}
-
-	if (input.event.key === "Escape") {
-		input.event.preventDefault();
-		input.onClose();
-		return true;
-	}
-
-	return false;
 }
 
 function shouldSendFromComposerKeyDown(

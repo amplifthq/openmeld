@@ -853,7 +853,7 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message Center Agent",
 		});
-		setComposerValue(textarea, "Continue from the compact conversation.");
+		await setComposerValue(textarea, "Continue from the compact conversation.");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -1000,11 +1000,10 @@ describe("SpaceLanding", () => {
 			)
 		).toBeTruthy();
 		expect(
-			screen.getByRole("textbox", { name: "Message this space" })
-		).toHaveProperty(
-			"placeholder",
-			"To wake an agent, type @, then pick the agent."
-		);
+			screen
+				.getByRole("textbox", { name: "Message this space" })
+				.getAttribute("aria-placeholder")
+		).toBe("To wake an agent, type @, then pick the agent.");
 		expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
 		expect(
 			screen.queryByRole("button", { name: "View All Members" })
@@ -1766,7 +1765,7 @@ describe("SpaceLanding", () => {
 		});
 		expect((loadingComposer as HTMLTextAreaElement).disabled).toBe(false);
 		loadingComposer.focus();
-		setComposerValue(loadingComposer, "Draft from the first frame");
+		await setComposerValue(loadingComposer, "Draft from the first frame");
 		expect(
 			(
 				screen.getByRole("button", {
@@ -1802,8 +1801,10 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			const confirmedComposer = screen.getByRole("textbox", {
 				name: "Message this space",
-			}) as HTMLTextAreaElement;
-			expect(confirmedComposer.value).toBe("Draft from the first frame");
+			});
+			expect(readComposerValue(confirmedComposer)).toBe(
+				"Draft from the first frame"
+			);
 			expect(document.activeElement).toBe(confirmedComposer);
 		});
 		expect(
@@ -1815,7 +1816,7 @@ describe("SpaceLanding", () => {
 		).toBe(false);
 	});
 
-	it("keeps restored conversation authoring available while current access is confirming", () => {
+	it("keeps restored conversation authoring available while current access is confirming", async () => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
@@ -1860,16 +1861,12 @@ describe("SpaceLanding", () => {
 		const composer = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		expect(composer).toHaveProperty("disabled", false);
-		expect(
-			screen.getByPlaceholderText(
-				"Write a message while OpenMeld checks access…"
-			)
-		).toBeTruthy();
-		setComposerValue(composer, "Draft while access is checked");
-		expect((composer as HTMLTextAreaElement).value).toBe(
-			"Draft while access is checked"
+		expect(composer.getAttribute("contenteditable")).toBe("true");
+		expect(composer.getAttribute("aria-placeholder")).toBe(
+			"Write a message while OpenMeld checks access…"
 		);
+		await setComposerValue(composer, "Draft while access is checked");
+		expect(readComposerValue(composer)).toBe("Draft while access is checked");
 		expect(
 			(
 				screen.getByRole("button", {
@@ -8084,33 +8081,16 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		const textarea = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
-		setComposerValue(textarea, "@");
-
-		const targetList = await screen.findByRole("listbox", {
-			name: "Mention target options",
-		});
-		const mentionPopover = targetList.closest(
-			'[data-testid="space-mention-popover"]'
-		);
-		expect(mentionPopover?.className).toContain("z-50");
-		expect(mentionPopover?.className).toContain(
-			"max-h-[min(28rem,calc(100dvh-2rem))]"
-		);
-		expect(mentionPopover?.className).toContain("overflow-hidden");
+		const targetList = await openComposerMemberPicker();
+		expect(targetList.className).toContain("z-500");
+		expect(targetList.className).toContain("max-h-[288px]");
 		expect(targetList.className).toContain("overflow-y-auto");
-		expect(targetList.className).toContain("overscroll-contain");
 		expect(within(targetList).getByText("Agents")).toBeTruthy();
 		expect(within(targetList).getByText("Humans")).toBeTruthy();
 		expect(within(targetList).getByText("Runner")).toBeTruthy();
 		expect(within(targetList).getByText("Watcher")).toBeTruthy();
 		expect(within(targetList).getByText("Manual Agent")).toBeTruthy();
 		expect(within(targetList).getByText("Mira")).toBeTruthy();
-		expect(
-			targetList.querySelector('[data-profile-kind="human"]')
-		).toBeTruthy();
 		expect(
 			within(targetList).getAllByTestId("local-agent-logo-codex").length
 		).toBeGreaterThan(0);
@@ -8119,12 +8099,14 @@ describe("SpaceLanding", () => {
 				"space-agent-profile-fallback-icon-agt_44444444-4444-4444-4444-444444444444"
 			)
 		).toBeTruthy();
-
-		setComposerValue(textarea, "@watch");
+		fireEvent.change(
+			screen.getByRole("combobox", { name: "Find a member to mention" }),
+			{ target: { value: "watch" } }
+		);
 
 		await waitFor(() => {
 			const filteredTargetList = screen.getByRole("listbox", {
-				name: "Mention target options",
+				name: "Member options",
 			});
 			expect(within(filteredTargetList).getByText("Watcher")).toBeTruthy();
 			expect(within(filteredTargetList).queryByText("Runner")).toBeNull();
@@ -8132,7 +8114,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("keeps a dismissed no-match mention query closed while the user continues typing", async () => {
+	it("shows a clear no-match state and lets the user keep searching", async () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -8153,25 +8135,18 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		const textarea = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
-		setComposerValue(textarea, "@missing");
-		await screen.findByText("No matches");
+		await openComposerMemberPicker("missing");
+		await screen.findByText("No matching members");
 
-		fireEvent.pointerDown(document.body);
-		fireEvent.click(document.body);
+		fireEvent.change(
+			screen.getByRole("combobox", { name: "Find a member to mention" }),
+			{ target: { value: "Mir" } }
+		);
 		await waitFor(() => {
-			expect(screen.queryByText("No matches")).toBeNull();
+			expect(screen.queryByText("No matching members")).toBeNull();
 		});
-
-		setComposerValue(textarea, "@missing keeps writing");
-		await flushReactEffects();
-		expect(screen.queryByText("No matches")).toBeNull();
-
-		setComposerValue(textarea, "@missing keeps writing @Mir");
-		const nextTargetList = await screen.findByRole("listbox", {
-			name: "Mention target options",
+		const nextTargetList = screen.getByRole("listbox", {
+			name: "Member options",
 		});
 		expect(within(nextTargetList).getByText("Mira")).toBeTruthy();
 	});
@@ -8207,23 +8182,8 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		const textarea = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
-		setComposerValue(textarea, "@");
-
-		const targetList = await screen.findByRole("listbox", {
-			name: "Mention target options",
-		});
-		const mentionPopover = targetList.closest(
-			'[data-testid="space-mention-popover"]'
-		);
-		expect(mentionPopover?.className).toContain(
-			"max-h-[min(28rem,calc(100dvh-2rem))]"
-		);
-		expect(mentionPopover?.className).toContain("overflow-hidden");
-		expect(targetList.className).toContain("min-h-0");
-		expect(targetList.className).toContain("flex-1");
+		const targetList = await openComposerMemberPicker();
+		expect(targetList.className).toContain("max-h-[288px]");
 		expect(targetList.className).toContain("overflow-y-auto");
 		expect(within(targetList).getByText("Scroll Agent 18")).toBeTruthy();
 		expect(within(targetList).getAllByRole("option").length).toBeGreaterThan(
@@ -8231,7 +8191,7 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("explains that raw @Name wake text is not a Wake request", () => {
+	it("explains that raw @Name wake text is not a Wake request", async () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -8255,21 +8215,13 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@Runner wake please reply");
+		await setComposerValue(textarea, "@Runner wake please reply");
 
 		expect(
 			screen.getByText(
 				"This will send a normal message. To wake an agent, use the @ menu and pick the agent."
 			)
 		).toBeTruthy();
-
-		setComposerValue(textarea, "@Runner(wake) please reply");
-
-		expect(
-			screen.queryByText(
-				"This will send a normal message. To wake an agent, use the @ menu and pick the agent."
-			)
-		).toBeNull();
 	});
 
 	it("sends a Wake mention for a not-ready agent instead of blocking before send", async () => {
@@ -8341,7 +8293,7 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@Runner(wake) please reply");
+		await setComposerValue(textarea, "@Runner(wake) please reply");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -8391,34 +8343,22 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@");
-
-		const targetList = await screen.findByRole("listbox", {
-			name: "Mention target options",
-		});
-		fireEvent.mouseDown(
-			within(targetList).getByRole("option", { name: RUNNER_OPTION_NAME })
-		);
+		await insertComposerMember(RUNNER_OPTION_NAME);
 
 		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe("@Runner ");
+			expect(readComposerValue(textarea)).toBe("@Runner ");
 		});
-		await flushReactEffects();
 		expect(
-			screen.queryByRole("listbox", { name: "Mention target options" })
+			screen.queryByRole("listbox", { name: "Member options" })
 		).toBeNull();
-		expect(screen.queryByText("No matches")).toBeNull();
-
-		setComposerValue(textarea, "@Runner ffffff");
-		await flushReactEffects();
-		expect(screen.queryByText("No matches")).toBeNull();
-		expect(screen.queryByText("No matching members in this space.")).toBeNull();
-
-		setComposerValue(textarea, "@Runner ffffff @Mir");
-		const nextTargetList = await screen.findByRole("listbox", {
-			name: "Mention target options",
-		});
-		expect(within(nextTargetList).getByText("Mira")).toBeTruthy();
+		expect(
+			screen.getByRole("combobox", {
+				name: "Change relation for Runner",
+			})
+		).toHaveProperty("value", "wake");
+		expect(screen.getAllByTestId("space-composer-profile-token")).toHaveLength(
+			1
+		);
 	});
 
 	it("inserts a bare Human Mention when a human is selected", async () => {
@@ -8445,20 +8385,13 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@Mir");
-
-		const targetList = await screen.findByRole("listbox", {
-			name: "Mention target options",
-		});
-		fireEvent.mouseDown(
-			within(targetList).getByRole("option", { name: MIRA_OPTION_NAME })
-		);
+		await insertComposerMember(MIRA_OPTION_NAME, "Mir");
 
 		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe("@Mira ");
+			expect(readComposerValue(textarea)).toBe("@Mira ");
 		});
 		expect(
-			screen.queryByRole("listbox", { name: "Mention relation options" })
+			screen.queryByRole("combobox", { name: "Change relation for Mira" })
 		).toBeNull();
 	});
 
@@ -8495,18 +8428,10 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@");
-		await screen.findByRole("listbox", {
-			name: "Mention target options",
-		});
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Reference Runner",
-			})
-		);
+		await insertComposerMember(RUNNER_OPTION_NAME);
 
 		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe("@Runner ");
+			expect(readComposerValue(textarea)).toBe("@Runner ");
 		});
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
@@ -8514,12 +8439,11 @@ describe("SpaceLanding", () => {
 		if (!(relationControl instanceof HTMLSelectElement)) {
 			throw new Error("Expected the Runner relation control to be a select");
 		}
-		expect(relationControl.value).toBe("reference");
-		fireEvent.change(relationControl, { target: { value: "wake" } });
-		expect(relationControl.value).toBe("wake");
 		fireEvent.change(relationControl, { target: { value: "reference" } });
-		expect(relationControl.value).toBe("reference");
-		setComposerValue(textarea, "@Runner for context");
+		await waitFor(() => {
+			expect(relationControl.value).toBe("reference");
+		});
+		await appendComposerText(textarea, "for context", "@Runner for context");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -8569,23 +8493,32 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@");
-		await screen.findByRole("listbox", { name: "Mention target options" });
-		fireEvent.click(screen.getByRole("button", { name: "Reference Runner" }));
-		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe("@Runner ");
-		});
-
-		setComposerValue(textarea, "@Runner for context, then @Run");
-		fireEvent.mouseDown(
-			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		await insertComposerMember(RUNNER_OPTION_NAME);
+		fireEvent.change(
+			screen.getByRole("combobox", {
+				name: "Change relation for Runner",
+			}),
+			{ target: { value: "reference" } }
 		);
+		await appendComposerText(
+			textarea,
+			"for context, then ",
+			"@Runner for context, then "
+		);
+		await insertComposerMember(RUNNER_OPTION_NAME, "Run");
 		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe(
+			expect(readComposerValue(textarea)).toBe(
 				"@Runner for context, then @Runner "
 			);
+			expect(
+				screen.getAllByTestId("space-composer-profile-token")
+			).toHaveLength(1);
 		});
-		setComposerValue(textarea, "@Runner for context, then @Runner again");
+		await appendComposerText(
+			textarea,
+			"again",
+			"@Runner for context, then @Runner again"
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -8599,69 +8532,6 @@ describe("SpaceLanding", () => {
 				meta: { clientMessageId: expect.any(String) },
 				spaceId: "space-123",
 				text: "@Runner for context, then @Runner again",
-				timeoutMs: 30_000,
-			});
-		});
-	});
-
-	it("uses a newly inserted earlier mention as the structured relation", async () => {
-		const postNormalMessageMock = vi.fn().mockResolvedValue(
-			createTextSignal({
-				id: "sig-earlier-runner-reference",
-				text: "@Runner  then @Runner ",
-			})
-		);
-		createWebSpaceApiMock.mockReturnValue({
-			postNormalMessage: postNormalMessageMock,
-		});
-		mockSpaceQueries({
-			status: createQueryResult({
-				isSuccess: true,
-				data: createSpaceStatus(),
-			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot(),
-			}),
-			history: createQueryResult({
-				isSuccess: true,
-				data: { envelopes: [], nextCursor: null },
-			}),
-		});
-
-		renderSpaceLanding();
-		const textarea = screen.getByRole("textbox", {
-			name: "Message this space",
-		});
-		setComposerValue(textarea, "Then @Run");
-		fireEvent.mouseDown(
-			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
-		);
-		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe("Then @Runner ");
-		});
-
-		setComposerValue(textarea, "@Run then @Runner ", 4);
-		await screen.findByRole("listbox", { name: "Mention target options" });
-		fireEvent.click(screen.getByRole("button", { name: "Reference Runner" }));
-		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe(
-				"@Runner  then @Runner "
-			);
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-
-		await waitFor(() => {
-			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				messageEnvelope: {
-					activationTargets: [],
-					mentionTargets: [],
-					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
-					text: "@Runner  then @Runner",
-				},
-				meta: { clientMessageId: expect.any(String) },
-				spaceId: "space-123",
-				text: "@Runner  then @Runner",
 				timeoutMs: 30_000,
 			});
 		});
@@ -8709,30 +8579,20 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@");
-		fireEvent.mouseDown(
-			within(
-				await screen.findByRole("listbox", {
-					name: "Mention target options",
-				})
-			).getByRole("option", { name: RUNNER_OPTION_NAME })
-		);
+		await insertComposerMember(RUNNER_OPTION_NAME);
 		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe("@Runner ");
+			expect(readComposerValue(textarea)).toBe("@Runner ");
 		});
 
-		setComposerValue(textarea, "@Runner @Rev");
-		fireEvent.mouseDown(
-			within(
-				await screen.findByRole("listbox", {
-					name: "Mention target options",
-				})
-			).getByRole("option", { name: REVIEWER_OPTION_NAME })
-		);
+		await insertComposerMember(REVIEWER_OPTION_NAME, "Rev");
 
 		expect(await screen.findByText("Waking 2 agents")).toBeTruthy();
 
-		setComposerValue(textarea, "@Runner @Reviewer please compare");
+		await appendComposerText(
+			textarea,
+			"please compare",
+			"@Runner @Reviewer please compare"
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
@@ -11847,11 +11707,7 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		fireEvent.change(textarea, {
-			target: {
-				value: "First hello",
-			},
-		});
+		await setComposerValue(textarea, "First hello");
 		fireEvent.keyDown(textarea, { key: "Enter" });
 
 		await waitFor(() => {
@@ -11870,7 +11726,7 @@ describe("SpaceLanding", () => {
 			expect(membersRefetchMock).toHaveBeenCalledTimes(1);
 			expect(statusRefetchMock).toHaveBeenCalledTimes(1);
 			expect(screen.getAllByText("First hello").length).toBeGreaterThan(0);
-			expect((textarea as HTMLTextAreaElement).value).toBe("");
+			expect(readComposerValue(textarea)).toBe("");
 		});
 		expect(
 			queryClient
@@ -11918,13 +11774,13 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "Optimistic hello");
+		await setComposerValue(textarea, "Optimistic hello");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalled();
 		});
-		expect((textarea as HTMLTextAreaElement).value).toBe("");
+		expect(readComposerValue(textarea)).toBe("");
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
 		});
@@ -12025,7 +11881,7 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "Photos from the picnic");
+		await setComposerValue(textarea, "Photos from the picnic");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -12275,7 +12131,7 @@ describe("SpaceLanding", () => {
 		await screen.findByText("The Space does not belong to this Organization.");
 		await screen.findByText("Ready");
 		expect(screen.getByText("Request ID: request-upload-403")).toBeTruthy();
-		setComposerValue(
+		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
 			"Text can still be sent"
 		);
@@ -12377,7 +12233,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(screen.getAllByText("Ready")).toHaveLength(2);
 		});
-		setComposerValue(
+		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
 			"Text can still be sent"
 		);
@@ -12470,7 +12326,7 @@ describe("SpaceLanding", () => {
 			},
 		});
 		await screen.findByText("Ready");
-		setComposerValue(
+		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
 			"Send this with the file"
 		);
@@ -12536,14 +12392,15 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@Run");
-		fireEvent.mouseDown(
-			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
-		);
+		await insertComposerMember(RUNNER_OPTION_NAME, "Run");
 		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe("@Runner ");
+			expect(readComposerValue(textarea)).toBe("@Runner ");
 		});
-		setComposerValue(textarea, "@Runner review these notes");
+		await appendComposerText(
+			textarea,
+			"review these notes",
+			"@Runner review these notes"
+		);
 
 		Object.assign(membersResult, {
 			data: undefined,
@@ -12566,9 +12423,7 @@ describe("SpaceLanding", () => {
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
 		expect(screen.getByText("Ready")).toBeTruthy();
 		expect(screen.getByText("1 file ready to send")).toBeTruthy();
-		expect((textarea as HTMLTextAreaElement).value).toBe(
-			"@Runner review these notes"
-		);
+		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
 	});
 
 	it("keeps a file-only Composer open when its staged file cannot be published", async () => {
@@ -12840,11 +12695,11 @@ describe("SpaceLanding", () => {
 			await screen.findByText("The starter message could not be sent.")
 		).toBeTruthy();
 		expect(
-			(
+			readComposerValue(
 				screen.getByRole("textbox", {
 					name: "Message Center Agent",
-				}) as HTMLTextAreaElement
-			).value
+				})
+			)
 		).toBe(starterPrompt);
 		expect(
 			screen.queryByRole("group", { name: "Suggested starting points" })
@@ -12969,11 +12824,11 @@ describe("SpaceLanding", () => {
 			await screen.findByText("The message could not be sent.")
 		).toBeTruthy();
 		expect(
-			(
+			readComposerValue(
 				screen.getByRole("textbox", {
 					name: "Message this space",
-				}) as HTMLTextAreaElement
-			).value
+				})
+			)
 		).toBe("Keep this draft");
 		expect(onConsumed).toHaveBeenCalledTimes(1);
 	});
@@ -13017,7 +12872,7 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message Runner",
 		});
-		setComposerValue(textarea, "DM hello");
+		await setComposerValue(textarea, "DM hello");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -13090,13 +12945,13 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "Message that fails");
+		await setComposerValue(textarea, "Message that fails");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalled();
 		});
-		expect((textarea as HTMLTextAreaElement).value).toBe("");
+		expect(readComposerValue(textarea)).toBe("");
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
 		});
@@ -13114,7 +12969,7 @@ describe("SpaceLanding", () => {
 				within(conversationLog).queryByText("Message that fails")
 			).toBeNull();
 		});
-		expect((textarea as HTMLTextAreaElement).value).toBe("Message that fails");
+		expect(readComposerValue(textarea)).toBe("Message that fails");
 		expect(screen.getByText("send failed")).toBeTruthy();
 	});
 
@@ -13151,15 +13006,15 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "First message");
+		await setComposerValue(textarea, "First message");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
 		});
-		expect((textarea as HTMLTextAreaElement).disabled).toBe(false);
-		setComposerValue(textarea, "My next message");
-		expect((textarea as HTMLTextAreaElement).value).toBe("My next message");
+		expect(textarea.getAttribute("contenteditable")).toBe("true");
+		await setComposerValue(textarea, "My next message");
+		expect(readComposerValue(textarea)).toBe("My next message");
 		expect(
 			(screen.getByRole("button", { name: "Sending…" }) as HTMLButtonElement)
 				.disabled
@@ -13180,8 +13035,8 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
 		});
-		expect((textarea as HTMLTextAreaElement).value).toBe("My next message");
-		expect((textarea as HTMLTextAreaElement).disabled).toBe(false);
+		expect(readComposerValue(textarea)).toBe("My next message");
+		expect(textarea.getAttribute("contenteditable")).toBe("true");
 	});
 
 	it("preserves both the failed submission and a next draft written during sending", async () => {
@@ -13215,12 +13070,12 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "Message that fails");
+		await setComposerValue(textarea, "Message that fails");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
 		});
-		setComposerValue(textarea, "Do not overwrite this next draft");
+		await setComposerValue(textarea, "Do not overwrite this next draft");
 
 		await act(async () => {
 			rejectPost?.(new Error("send failed"));
@@ -13230,7 +13085,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(screen.getByText("Message not sent")).toBeTruthy();
 		});
-		expect((textarea as HTMLTextAreaElement).value).toBe(
+		expect(readComposerValue(textarea)).toBe(
 			"Do not overwrite this next draft"
 		);
 		expect(screen.getByText("Message that fails")).toBeTruthy();
@@ -13297,7 +13152,7 @@ describe("SpaceLanding", () => {
 			name: "Message this space",
 		});
 		const sendButton = screen.getByRole("button", { name: "Send message" });
-		setComposerValue(textarea, "Message that times out");
+		await setComposerValue(textarea, "Message that times out");
 		fireEvent.click(sendButton);
 
 		await waitFor(() => {
@@ -13307,7 +13162,7 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock).toHaveBeenCalledWith(
 			expect.objectContaining({ timeoutMs: 30_000 })
 		);
-		expect((textarea as HTMLTextAreaElement).value).toBe("");
+		expect(readComposerValue(textarea)).toBe("");
 		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
@@ -13332,7 +13187,7 @@ describe("SpaceLanding", () => {
 			expect(
 				within(conversationLog).getByText("Message that times out")
 			).toBeTruthy();
-			expect((textarea as HTMLTextAreaElement).value).toBe("");
+			expect(readComposerValue(textarea)).toBe("");
 			expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 			expect(
 				screen.getByText(
@@ -13401,7 +13256,7 @@ describe("SpaceLanding", () => {
 				);
 			});
 
-		setComposerValue(textarea, "@Runner(wake) please reply");
+		await setComposerValue(textarea, "@Runner(wake) please reply");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -13458,11 +13313,7 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		fireEvent.change(textarea, {
-			target: {
-				value: "zhong",
-			},
-		});
+		await setComposerValue(textarea, "zhong");
 		fireEvent.keyDown(textarea, { isComposing: true, key: "Enter" });
 
 		await act(async () => {
@@ -13470,7 +13321,7 @@ describe("SpaceLanding", () => {
 		});
 
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
-		expect((textarea as HTMLTextAreaElement).value).toBe("zhong");
+		expect(readComposerValue(textarea)).toBe("zhong");
 	});
 
 	it("sends plain text without a message envelope", async () => {
@@ -13508,7 +13359,8 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "Plain text message");
+		await setComposerValue(textarea, "Plain text message");
+		expect(readComposerValue(textarea)).toBe("Plain text message");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -13557,7 +13409,7 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@unknown-token stays plain text");
+		await setComposerValue(textarea, "@unknown-token stays plain text");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -13633,14 +13485,11 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		setComposerValue(textarea, "@watch");
-		fireEvent.mouseDown(
-			await screen.findByRole("option", { name: WATCHER_OPTION_NAME })
-		);
+		await insertComposerMember(WATCHER_OPTION_NAME, "watch");
 		await waitFor(() => {
-			expect((textarea as HTMLTextAreaElement).value).toBe("@Watcher ");
+			expect(readComposerValue(textarea)).toBe("@Watcher ");
 		});
-		setComposerValue(textarea, "@Watcher hello there");
+		await appendComposerText(textarea, "hello there", "@Watcher hello there");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
@@ -13702,10 +13551,7 @@ describe("SpaceLanding", () => {
 			targetProfileIds: ["agt_33333333-3333-3333-3333-333333333333"],
 		});
 
-		setComposerValue(textarea, "@");
-		const targetList = await screen.findByRole("listbox", {
-			name: "Mention target options",
-		});
+		const targetList = await openComposerMemberPicker();
 		const options = within(targetList).getAllByRole("option");
 		expect(options[0]?.textContent).toContain("Watcher");
 		expect(options[1]?.textContent).toContain("Runner");
@@ -13999,7 +13845,7 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("prefills a Wake mention when replying directly to an agent message", () => {
+	it("prefills a Wake mention when replying directly to an agent message", async () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -14047,8 +13893,15 @@ describe("SpaceLanding", () => {
 		).toContain("rounded-md");
 		const composer = screen.getByRole("textbox", {
 			name: "Message this space",
-		}) as HTMLTextAreaElement;
-		expect(composer.value).toBe("@Runner ");
+		});
+		await waitFor(() => {
+			expect(readComposerValue(composer)).toBe("@Runner ");
+			expect(
+				screen.getByRole("combobox", {
+					name: "Change relation for Runner",
+				})
+			).toBeTruthy();
+		});
 	});
 
 	it("adds tooltips to the main message action buttons", () => {
@@ -15342,7 +15195,7 @@ describe("SpaceLanding", () => {
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		setComposerValue(threadComposer, "Optimistic thread reply");
+		await setComposerValue(threadComposer, "Optimistic thread reply");
 		fireEvent.click(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		);
@@ -15350,17 +15203,15 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postThreadSignalMock).toHaveBeenCalled();
 		});
-		expect((threadComposer as HTMLTextAreaElement).value).toBe("");
+		expect(readComposerValue(threadComposer)).toBe("");
 		expect(
 			within(threadPanel).getByText("Optimistic thread reply", {
 				selector: "p",
 			})
 		).toBeTruthy();
-		expect((threadComposer as HTMLTextAreaElement).disabled).toBe(false);
-		setComposerValue(threadComposer, "Next thread reply");
-		expect((threadComposer as HTMLTextAreaElement).value).toBe(
-			"Next thread reply"
-		);
+		expect(threadComposer.getAttribute("contenteditable")).toBe("true");
+		await setComposerValue(threadComposer, "Next thread reply");
+		expect(readComposerValue(threadComposer)).toBe("Next thread reply");
 		expect(
 			(
 				within(threadPanel).getByRole("button", {
@@ -15494,7 +15345,7 @@ describe("SpaceLanding", () => {
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		setComposerValue(threadComposer, "Thread text can still be sent");
+		await setComposerValue(threadComposer, "Thread text can still be sent");
 		expect(
 			within(threadPanel).getByText(
 				"1 file couldn't be uploaded and won't be sent."
@@ -15604,14 +15455,15 @@ describe("SpaceLanding", () => {
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		setComposerValue(threadComposer, "@Run");
-		fireEvent.mouseDown(
-			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
-		);
+		await insertComposerMember(RUNNER_OPTION_NAME, "Run", threadPanel);
 		await waitFor(() => {
-			expect((threadComposer as HTMLTextAreaElement).value).toBe("@Runner ");
+			expect(readComposerValue(threadComposer)).toBe("@Runner ");
 		});
-		setComposerValue(threadComposer, "@Runner review these thread notes");
+		await appendComposerText(
+			threadComposer,
+			"review these thread notes",
+			"@Runner review these thread notes"
+		);
 
 		Object.assign(membersResult, {
 			data: undefined,
@@ -15638,11 +15490,11 @@ describe("SpaceLanding", () => {
 		expect(within(threadPanel).getByText("Ready")).toBeTruthy();
 		expect(within(threadPanel).getByText("1 file ready to send")).toBeTruthy();
 		expect(
-			(
+			readComposerValue(
 				within(threadPanel).getByRole("textbox", {
 					name: "Reply in thread",
-				}) as HTMLTextAreaElement
-			).value
+				})
+			)
 		).toBe("@Runner review these thread notes");
 	});
 
@@ -15762,7 +15614,7 @@ describe("SpaceLanding", () => {
 		const sendButton = within(threadPanel).getByRole("button", {
 			name: "Send reply",
 		});
-		setComposerValue(threadComposer, "Thread reply that times out");
+		await setComposerValue(threadComposer, "Thread reply that times out");
 		fireEvent.click(sendButton);
 
 		await waitFor(() => {
@@ -15772,7 +15624,7 @@ describe("SpaceLanding", () => {
 		expect(postThreadSignalMock).toHaveBeenCalledWith(
 			expect.objectContaining({ timeoutMs: 30_000 })
 		);
-		expect((threadComposer as HTMLTextAreaElement).value).toBe("");
+		expect(readComposerValue(threadComposer)).toBe("");
 		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 		expect(
 			within(threadPanel).getByText("Thread reply that times out", {
@@ -15798,7 +15650,7 @@ describe("SpaceLanding", () => {
 					selector: "p",
 				})
 			).toBeTruthy();
-			expect((threadComposer as HTMLTextAreaElement).value).toBe("");
+			expect(readComposerValue(threadComposer)).toBe("");
 			expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 			expect(
 				within(threadPanel).getByText(
@@ -15925,7 +15777,7 @@ describe("SpaceLanding", () => {
 		const threadComposer = screen.getByRole("textbox", {
 			name: "Reply in thread",
 		});
-		setComposerValue(threadComposer, "@runner(wake) keep going");
+		await setComposerValue(threadComposer, "@runner(wake) keep going");
 		fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
 
 		await waitFor(() => {
@@ -16084,7 +15936,7 @@ describe("SpaceLanding", () => {
 				);
 			});
 
-		setComposerValue(threadComposer, "@runner(wake) keep going");
+		await setComposerValue(threadComposer, "@runner(wake) keep going");
 		fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
 
 		await waitFor(() => {
@@ -16093,7 +15945,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(consoleErrorSpy).toHaveBeenCalled();
 		});
-		expect((threadComposer as HTMLTextAreaElement).value).toBe("");
+		expect(readComposerValue(threadComposer)).toBe("");
 		expect(screen.queryByText("The quota has been exceeded.")).toBeNull();
 
 		storageSetItemSpy.mockRestore();
@@ -16719,22 +16571,125 @@ function mockSpaceQueries(input: {
 	);
 }
 
-function setComposerValue(
-	textarea: HTMLElement,
+async function setComposerValue(
+	composerElement: HTMLElement,
 	value: string,
 	selectionStart = value.length,
 	selectionEnd = selectionStart
 ) {
-	const composer = textarea as HTMLTextAreaElement;
-	fireEvent.change(composer, {
-		target: {
-			selectionEnd,
-			selectionStart,
-			value,
+	if (composerElement instanceof HTMLTextAreaElement) {
+		fireEvent.change(composerElement, {
+			target: {
+				selectionEnd,
+				selectionStart,
+				value,
+			},
+		});
+		composerElement.setSelectionRange(selectionStart, selectionEnd);
+		fireEvent.select(composerElement);
+		return;
+	}
+
+	if (selectionStart !== value.length || selectionEnd !== selectionStart) {
+		throw new Error(
+			"Structured Composer tests must select inline content through the visible editor controls."
+		);
+	}
+	fireEvent.focus(composerElement);
+	const range = document.createRange();
+	range.selectNodeContents(composerElement);
+	const selection = window.getSelection();
+	selection?.removeAllRanges();
+	selection?.addRange(range);
+	document.dispatchEvent(new Event("selectionchange"));
+	fireEvent.paste(composerElement, {
+		clipboardData: {
+			files: [],
+			getData: () => value,
+			items: [],
 		},
 	});
-	composer.setSelectionRange(selectionStart, selectionEnd);
-	fireEvent.select(composer);
+	await waitFor(() => {
+		expect(readComposerValue(composerElement)).toBe(value);
+	});
+	await flushReactEffects();
+}
+
+async function openComposerMemberPicker(
+	filter = "",
+	scope?: HTMLElement
+): Promise<HTMLElement> {
+	const surface = scope ? within(scope) : screen;
+	fireEvent.click(surface.getByRole("button", { name: "Mention a member" }));
+	const search = await screen.findByRole("combobox", {
+		name: "Find a member to mention",
+	});
+	if (filter) {
+		fireEvent.change(search, { target: { value: filter } });
+	}
+	return await screen.findByRole("listbox", { name: "Member options" });
+}
+
+async function insertComposerMember(
+	optionName: RegExp,
+	filter = "",
+	scope?: HTMLElement
+): Promise<void> {
+	await openComposerMemberPicker(filter, scope);
+	const option = within(
+		screen.getByRole("listbox", { name: "Member options" })
+	).getByRole("option", { name: optionName });
+	fireEvent.mouseDown(option);
+	fireEvent.click(option);
+	await waitFor(() => {
+		expect(
+			screen.queryByRole("combobox", { name: "Find a member to mention" })
+		).toBeNull();
+	});
+}
+
+async function appendComposerText(
+	composerElement: HTMLElement,
+	text: string,
+	expectedValue: string
+): Promise<void> {
+	fireEvent.paste(composerElement, {
+		clipboardData: {
+			files: [],
+			getData: () => text,
+			items: [],
+		},
+	});
+	await waitFor(() => {
+		expect(readComposerValue(composerElement)).toBe(expectedValue);
+	});
+}
+
+function readComposerValue(composerElement: HTMLElement): string {
+	if (composerElement instanceof HTMLTextAreaElement) {
+		return composerElement.value;
+	}
+
+	const clone = composerElement.cloneNode(true) as HTMLElement;
+	for (const node of clone.querySelectorAll("[data-slate-placeholder]")) {
+		node.remove();
+	}
+	for (const node of clone.querySelectorAll("[data-slate-zero-width]")) {
+		node.textContent = "";
+	}
+	for (const node of clone.querySelectorAll<HTMLElement>(
+		"[data-mention-text]"
+	)) {
+		node.replaceWith(node.dataset.mentionText ?? "");
+	}
+	for (const node of clone.querySelectorAll<HTMLInputElement>(
+		'input[role="combobox"]'
+	)) {
+		node.replaceWith(node.value);
+	}
+	return Array.from(clone.children)
+		.map((block) => block.textContent ?? "")
+		.join("\n");
 }
 
 function createSpaceBootstrapQueryResult(input: {

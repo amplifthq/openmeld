@@ -2,8 +2,6 @@ export const SPACE_WAKE_COMPOSER_HINT =
 	"To wake an agent, type @, then pick the agent.";
 export const SPACE_COMPOSER_ACCESSIBLE_NAME = "Message this space";
 export type SpaceAgentDirectConversationComposerHintKind = "direct_message";
-export const SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT =
-	"In this DM, @ is optional. Sending wakes the agent.";
 
 export type SpaceComposerPlaceholderContext =
 	| "space"
@@ -76,14 +74,4 @@ export function resolveSpaceComposerWakeTextHint(
 		return null;
 	}
 	return rawWakeTextPattern.test(text) ? RAW_WAKE_TEXT_HINT : null;
-}
-
-export function resolveSpaceAgentDirectConversationComposerHint(
-	kind: SpaceAgentDirectConversationComposerHintKind
-): string {
-	if (kind === "direct_message") {
-		return SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT;
-	}
-	const exhaustive: never = kind;
-	return exhaustive;
 }
