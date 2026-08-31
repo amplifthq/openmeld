@@ -141,6 +141,9 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		authoredMentions: readonly ComposerDraftAuthoredMention[];
 		text: string;
 	} | null>(null);
+	const focusAnimationFrameRef = useRef<number | null>(null);
+	const isMountedRef = useRef(false);
+	const pendingFocusRef = useRef(false);
 	const lastExternalValueRef = useRef({
 		authoredMentions: input.authoredMentions,
 		text: input.text,
@@ -152,6 +155,18 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		}),
 		[input.addressingTargets, input.mentionPickerItems]
 	);
+
+	useLayoutEffect(() => {
+		isMountedRef.current = true;
+		return () => {
+			isMountedRef.current = false;
+			pendingFocusRef.current = false;
+			if (focusAnimationFrameRef.current !== null) {
+				window.cancelAnimationFrame(focusAnimationFrameRef.current);
+				focusAnimationFrameRef.current = null;
+			}
+		};
+	}, []);
 
 	useLayoutEffect(() => {
 		const lastExternalValue = lastExternalValueRef.current;
@@ -192,13 +207,47 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		if (!input.composerRef) {
 			return;
 		}
+		// Slate retries focus with its own timer while operations are pending. An
+		// externally restored draft can finish those operations before React has
+		// registered the replacement text nodes, so wait for both facts here and
+		// cancel the frame when this editor unmounts.
+		const flushPendingFocus = () => {
+			focusAnimationFrameRef.current = null;
+			if (!(isMountedRef.current && pendingFocusRef.current)) {
+				return;
+			}
+			if (
+				editor.operations.length > 0 ||
+				(editor.selection && !editor.api.toDOMRange(editor.selection))
+			) {
+				focusAnimationFrameRef.current =
+					window.requestAnimationFrame(flushPendingFocus);
+				return;
+			}
+			pendingFocusRef.current = false;
+			editor.tf.focus();
+		};
+		const focusWhenReady = () => {
+			if (
+				editor.operations.length > 0 ||
+				(editor.selection && !editor.api.toDOMRange(editor.selection))
+			) {
+				pendingFocusRef.current = true;
+				if (focusAnimationFrameRef.current === null) {
+					focusAnimationFrameRef.current =
+						window.requestAnimationFrame(flushPendingFocus);
+				}
+				return;
+			}
+			editor.tf.focus();
+		};
 
 		input.composerRef.current = {
 			focus: () => {
-				focusEditorAtSelection(editor);
+				focusEditorAtSelection(editor, focusWhenReady);
 			},
 			insertMentionTrigger: () => {
-				focusEditorAtSelection(editor);
+				focusEditorAtSelection(editor, focusWhenReady);
 				editor.tf.insertText("@");
 			},
 			selectTextRange: (selection) => {
@@ -207,7 +256,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 					anchor: resolvePointAtTextOffset(value, selection.start),
 					focus: resolvePointAtTextOffset(value, selection.end),
 				});
-				editor.tf.focus();
+				focusWhenReady();
 			},
 		};
 
@@ -289,9 +338,12 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 	);
 }
 
-function focusEditorAtSelection(editor: PlateEditor): void {
+function focusEditorAtSelection(
+	editor: PlateEditor,
+	focus: () => void = () => editor.tf.focus()
+): void {
 	const shouldSelectEnd = !editor.selection;
-	editor.tf.focus();
+	focus();
 	if (shouldSelectEnd) {
 		const end = editor.api.end([]);
 		if (end) {

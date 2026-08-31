@@ -12,7 +12,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { createRef } from "react";
+import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	SpaceComposerEditor,
@@ -644,6 +644,18 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
+	it("focuses a restored external draft after its Slate nodes reach the DOM", async () => {
+		const view = render(<RestoredDraftHarness text="" />);
+
+		view.rerender(<RestoredDraftHarness text="Restored draft" />);
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(
+				screen.getByRole("textbox", { name: "Message this space" })
+			);
+		});
+	});
+
 	it("accepts plain browser text input through the contenteditable surface", async () => {
 		const onChange = vi.fn();
 		render(
@@ -684,6 +696,32 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 });
+
+function RestoredDraftHarness(input: { text: string }) {
+	const composerRef = useRef<SpaceComposerEditorHandle>(null);
+	useLayoutEffect(() => {
+		if (input.text) {
+			composerRef.current?.selectTextRange({
+				end: input.text.length,
+				start: input.text.length,
+			});
+		}
+	}, [input.text]);
+
+	return (
+		<SpaceComposerEditor
+			addressingTargets={[]}
+			ariaLabel="Message this space"
+			authoredMentions={[]}
+			composerRef={composerRef}
+			mentionPickerItems={[]}
+			onChange={vi.fn()}
+			onSend={vi.fn()}
+			placeholder="To wake an agent, type @, then pick the agent."
+			text={input.text}
+		/>
+	);
+}
 
 function createAgentTarget(): SpaceComposerAddressingTarget {
 	return {

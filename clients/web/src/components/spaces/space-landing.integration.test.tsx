@@ -3292,9 +3292,7 @@ describe("SpaceLanding", () => {
 				timeoutMs: 15_000,
 			});
 		});
-		const sourceMessage = screen
-			.getByText("@MYCC-Invoko(wake) status check")
-			.closest("[data-signal-id]");
+		const sourceMessage = document.querySelector('[data-signal-id="sig-user"]');
 		expect(sourceMessage).not.toBeNull();
 		// MessageHoverActions (the Message-details button) and
 		// SpaceMessageWakeThinkingIndicator both render as siblings of the
@@ -13507,10 +13505,20 @@ describe("SpaceLanding", () => {
 				timeoutMs: 30_000,
 			});
 		});
-		expect(await screen.findByText("@Watcher hello there")).toBeTruthy();
-		const sourceMessage = screen
-			.getByText("@Watcher hello there")
-			.closest("[data-signal-id]");
+		await waitFor(() => {
+			const publishedMessage = document.querySelector(
+				'[data-signal-id="sig-mention"]'
+			);
+			expect(publishedMessage?.textContent).toContain("hello there");
+			expect(
+				publishedMessage?.querySelector(
+					'[data-slot="space-message-agent-mention"]'
+				)?.textContent
+			).toContain("Watcher");
+		});
+		const sourceMessage = document.querySelector(
+			'[data-signal-id="sig-mention"]'
+		);
 		expect(sourceMessage).not.toBeNull();
 		// SpaceMessageWakeThinkingIndicator renders as a sibling of the
 		// message Bubble under the shared data-message-row-id row, not as a
@@ -14463,7 +14471,7 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 	});
 
-	it("does not turn an automatic recovery inspection failure into a user error", async () => {
+	it("does not turn a Message details recovery inspection failure into a user error", async () => {
 		const inspectExecutionRecovery = vi
 			.fn()
 			.mockRejectedValue(new Error("recovery capability mismatch"));
@@ -14527,6 +14535,21 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
+		const sourceMessage = document.querySelector(
+			'[data-signal-id="sig-recovery-source"]'
+		);
+		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
+		if (!sourceRow) {
+			throw new Error("Expected the failed Wake source message row.");
+		}
+		fireEvent.click(
+			within(sourceRow as HTMLElement).getByRole("button", {
+				name: "Message details",
+			})
+		);
+		expect(
+			await screen.findByRole("dialog", { name: "Message details" })
+		).toBeTruthy();
 		await waitFor(() =>
 			expect(inspectExecutionRecovery).toHaveBeenCalledOnce()
 		);
@@ -14915,8 +14938,25 @@ describe("SpaceLanding", () => {
 			})[0] as HTMLElement
 		);
 		const threadPanel = screen.getByLabelText("Thread");
+		const threadSourceMessage = threadPanel.querySelector(
+			'[data-signal-id="sig-thread-wake-source"]'
+		);
+		const threadSourceRow = threadSourceMessage?.closest(
+			"[data-message-row-id]"
+		);
+		if (!threadSourceRow) {
+			throw new Error("Expected the failed Wake source row in the thread.");
+		}
 		fireEvent.click(
-			await within(threadPanel).findByRole("button", {
+			within(threadSourceRow as HTMLElement).getByRole("button", {
+				name: "Message details",
+			})
+		);
+		const messageDetailsDialog = await screen.findByRole("dialog", {
+			name: "Message details",
+		});
+		fireEvent.click(
+			await within(messageDetailsDialog).findByRole("button", {
 				name: "Retry as new execution",
 			})
 		);
