@@ -1787,13 +1787,14 @@ function SpaceLandingConversation({
 			className="min-w-0"
 			composerAddressingSummary={controller.composerAddressingSummary}
 			composerAddressingTargets={controller.composerAddressingTargets}
+			composerAuthoredMentions={controller.composerAuthoredMentions}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
 			composerFileLimitReached={controller.composerFileLimitReached}
 			composerFiles={controller.composerFiles}
 			composerHasAuthoredMentions={controller.composerHasAuthoredMentions}
+			composerMentionPickerItems={controller.composerMentionPickerItems}
 			composerReplyToSignalId={controller.composerReplyToSignalId}
-			composerSelection={controller.composerSelection}
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
 			editableAgentProfileIds={editableAgentProfileIds}
@@ -1830,24 +1831,17 @@ function SpaceLandingConversation({
 			isPersonalContext={input.isPersonalContext === true}
 			isSendingMessage={controller.isSendingMessage}
 			membersSnapshot={controller.membersSnapshot}
-			mentionPopoverState={controller.mentionPopoverState}
 			modelCatalog={modelCatalog}
 			onAddComposerFiles={controller.onAddComposerFiles}
 			onAgentInteractionResponse={controller.onAgentInteractionResponse}
 			onAgentRecoveryAction={handleAgentRecoveryAction}
 			onClearComposerReplyTo={controller.onClearComposerReplyTo}
-			onComposerChange={controller.onComposerChange}
-			onComposerKeyDown={controller.onComposerKeyDown}
-			onComposerSelectionChange={controller.onComposerSelectionChange}
+			onComposerEditorChange={controller.onComposerEditorChange}
 			onCreateThread={controller.onCreateThread}
 			onEditAgentProfile={onEditAgentProfile}
 			onJumpToDate={controller.onJumpToDate}
 			onLoadEarlierHistory={controller.onLoadEarlierHistory}
 			onMentionButtonClick={controller.onMentionButtonClick}
-			onMentionItemHover={controller.onMentionItemHover}
-			onMentionItemSelect={controller.onMentionItemSelect}
-			onMentionPopoverClose={controller.onMentionPopoverClose}
-			onMentionRelationChange={controller.onMentionRelationChange}
 			onOpenSpaceFile={openSpaceFile}
 			onOpenThread={controller.onOpenThread}
 			onRecoverExecution={controller.onRecoverExecution}
@@ -2003,6 +1997,7 @@ function SpaceLandingSecondaryPanels({
 				centerAgentProfileId={centerAgentState.centerAgentProfileId}
 				composerAddressingSummary={controller.threadComposerAddressingSummary}
 				composerAddressingTargets={controller.threadComposerAddressingTargets}
+				composerAuthoredMentions={controller.threadComposerAuthoredMentions}
 				composerBlockedWakeProfileId={
 					controller.threadComposerBlockedWakeProfileId
 				}
@@ -2012,7 +2007,7 @@ function SpaceLandingSecondaryPanels({
 				composerHasAuthoredMentions={
 					controller.threadComposerHasAuthoredMentions
 				}
-				composerSelection={controller.threadComposerSelection}
+				composerMentionPickerItems={controller.threadComposerMentionPickerItems}
 				composerText={controller.threadComposerText}
 				editableAgentProfileIds={editableAgentProfileIds}
 				ephemeralActivityItems={controller.threadEphemeralActivityItems}
@@ -2026,20 +2021,13 @@ function SpaceLandingSecondaryPanels({
 				isPersonalContext={input.isPersonalContext === true}
 				isSendingMessage={controller.isSendingThreadMessage}
 				membersSnapshot={controller.membersSnapshot}
-				mentionPopoverState={controller.threadMentionPopoverState}
 				onAddComposerFiles={controller.onAddThreadComposerFiles}
 				onAgentInteractionResponse={controller.onAgentInteractionResponse}
 				onAgentRecoveryAction={handleAgentRecoveryAction}
 				onClose={controller.onCloseThread}
-				onComposerChange={controller.onThreadComposerChange}
-				onComposerKeyDown={controller.onThreadComposerKeyDown}
-				onComposerSelectionChange={controller.onThreadComposerSelectionChange}
+				onComposerEditorChange={controller.onThreadComposerEditorChange}
 				onEditAgentProfile={onEditAgentProfile}
 				onMentionButtonClick={controller.onThreadMentionButtonClick}
-				onMentionItemHover={controller.onThreadMentionItemHover}
-				onMentionItemSelect={controller.onThreadMentionItemSelect}
-				onMentionPopoverClose={controller.onThreadMentionPopoverClose}
-				onMentionRelationChange={controller.onThreadMentionRelationChange}
 				onOpenSpaceFile={(fileId, revision) => {
 					controller.onCloseThread();
 					openSpaceFile(fileId, revision);

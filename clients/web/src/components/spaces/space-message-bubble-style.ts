@@ -27,24 +27,12 @@ export function resolveSpaceMessageRowLayoutClassName(input: {
 // messages, so hovering one message never highlights its neighbors.
 export const SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS =
 	"rounded-md transition-colors hover:bg-muted/35 focus-within:bg-muted/35";
-// MessageScrollerItem carries content-visibility:auto for scroll perf, which
-// forces paint containment and clips MessageHoverActions' `-top-6` escape
-// for every grouped row after a run's first message (only the first has a
-// header tall enough to absorb it). Reserve the height inside the item's
-// own box instead of above it, and cancel the shift with an equal negative
-// margin so the row's visual position doesn't move. That reserved padding
-// now geometrically overlaps the previous row, so the item becomes a
-// click-through shell (pointer-events-none); pair with pointer-events-auto
-// on Message to keep the row's own content interactive.
-export const SPACE_MESSAGE_ROW_HOVER_SAFE_ZONE_CLASS =
-	"pointer-events-none pt-8 -mt-8";
-
 export function resolveSpaceMessageBubblePresentationClass(input: {
 	isHighlighted?: boolean;
 	isSelf?: boolean;
 }): string {
 	if (input.isHighlighted) {
-		return "rounded-md border border-ring/40 bg-ring/10 ring-1 ring-ring/50";
+		return "rounded-md border border-transparent bg-muted/50";
 	}
 	if (input.isSelf) {
 		return "rounded-md border border-transparent bg-muted/35";
@@ -65,20 +53,4 @@ export function resolveSpaceMessageContentLayoutClassName(input: {
 	isSelf: boolean;
 }): string | undefined {
 	return input.isSelf ? "items-start text-start" : undefined;
-}
-
-export function resolveSpaceMessageActionPlacementClassName(input: {
-	isSelf: boolean;
-}): string {
-	return input.isSelf ? "-left-1" : "-right-1";
-}
-
-export function resolveSpaceMessageActionButtonClassName(input: {
-	isHighlighted?: boolean;
-}): string {
-	if (input.isHighlighted) {
-		return "border-0 border-transparent bg-ring/10 shadow-none hover:bg-ring/10 focus-visible:border-0 dark:bg-ring/10 dark:hover:bg-ring/10";
-	}
-
-	return "border-0 border-transparent bg-background/95 shadow-none hover:bg-muted focus-visible:border-0 dark:bg-background/95 dark:hover:bg-muted";
 }

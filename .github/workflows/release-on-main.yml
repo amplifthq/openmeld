@@ -73,6 +73,36 @@ jobs:
             exit 1
           fi
 
+      - name: Checkout release source for fleet-order admission
+        if: inputs.scope == 'cloud' || inputs.scope == 'full'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          path: release-source
+          persist-credentials: false
+          ref: ${{ inputs.release_sha }}
+
+      - name: Setup fleet-order planner
+        if: inputs.scope == 'cloud' || inputs.scope == 'full'
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          control_directory: release-control
+          working_directory: release-source
+
+      - name: Admit the hosted fleet deployment order before Production mutation
+        if: inputs.scope == 'cloud' || inputs.scope == 'full'
+        shell: bash
+        env:
+          RELEASE_SCOPE: ${{ inputs.scope }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        working-directory: release-source
+        run: |
+          node ../release-control/scripts/release/hosted-fleet-plan-admission.mjs \
+            --release-source "$PWD" \
+            --release-sha "$RELEASE_SHA" \
+            --scope "$RELEASE_SCOPE"
+
   database:
     name: Release Production Database
     needs: validate_release_source

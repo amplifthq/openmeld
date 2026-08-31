@@ -358,7 +358,7 @@ export function SpaceExecutionRecoveryButton(input: {
 			cancelled = true;
 		};
 	}, [recoveryDispatchId, recoveryResultRef, recoveryTargetProfileId]);
-	if (inspectionFailed || (resolution && resolution.action === null)) {
+	if (inspectionFailed || resolution === null || resolution.action === null) {
 		return null;
 	}
 	const recover = async () => {
@@ -392,6 +392,9 @@ export function SpaceExecutionRecoveryButton(input: {
 		isPending,
 		resolution,
 	});
+	if (recoveryLabel === null) {
+		return null;
+	}
 	const recoveryWarning =
 		resolution?.action === "retry_as_new_execution"
 			? (resolution.warning ??
@@ -420,7 +423,7 @@ export function SpaceExecutionRecoveryButton(input: {
 				aria-describedby={recoveryWarning ? warningId : undefined}
 				aria-live="polite"
 				className={input.className}
-				disabled={isPending || resolution === null}
+				disabled={isPending}
 				onClick={() => {
 					recover().catch((error) => {
 						console.error("Unexpected result recovery failure.", error);
@@ -452,7 +455,7 @@ function resolveSpaceExecutionRecoveryButtonLabel(input: {
 	didFail: boolean;
 	isPending: boolean;
 	resolution: SpaceExecutionRecoveryResolution | null;
-}): string {
+}): string | null {
 	if (input.isPending) {
 		if (input.resolution?.action === "resume_controller_conversation") {
 			return "Recovering reply...";
@@ -467,5 +470,5 @@ function resolveSpaceExecutionRecoveryButtonLabel(input: {
 	if (input.resolution?.action === "resume_controller_conversation") {
 		return "Recover reply";
 	}
-	return input.resolution?.label ?? "Checking recovery...";
+	return input.resolution?.label ?? null;
 }

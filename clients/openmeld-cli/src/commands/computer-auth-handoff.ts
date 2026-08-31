@@ -1,4 +1,3 @@
-import { confirm, isCancel } from "@clack/prompts";
 import {
   AuthSessionChangedBeforeTransitionError,
   AuthSessionRecoveryInProgressError,
@@ -11,6 +10,7 @@ import { resolveBaseUrl } from "../config/base-url";
 import type { Presenter } from "../runtime/presenter/index";
 import type { RuntimeContext } from "../runtime/types";
 import { runDaemonServiceParticipationGate } from "../system/local-service-participation-gate";
+import { promptConfirm } from "../ui/confirm";
 import {
   emitUnusedSetupSessionCleanupWarning,
   formatComputerAuthCleanupFailureSuffix,
@@ -305,11 +305,13 @@ async function confirmComputerAccountSwitch(input: {
     );
   }
 
-  const confirmed = await confirm({
+  const decision = await promptConfirm({
+    activeLabel: "Switch account",
+    inactiveLabel: "Keep current account",
     initialValue: false,
     message: `Switch this computer from ${currentAccount} to ${nextAccount}?`,
   });
-  if (isCancel(confirmed) || !confirmed) {
+  if (decision !== "confirmed") {
     input.presenter.line({
       code: "setup.account_switch.cancelled",
       text: "Account switch canceled. The current Computer connection was not changed.",

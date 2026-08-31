@@ -9,6 +9,24 @@ manual, implementation guide, migration plan, or debugging runbook.
 For the documentation system itself, read `developing/README.md`.
 For stable repository vocabulary, read `developing/glossary.md`.
 
+## Engineering Judgment
+
+For implementation, diagnosis, review, or planning that requires engineering
+judgment, use the public
+[Practical Engineering](https://github.com/lumpinif/practical-engineering)
+skill (`practical-engineering`). Use it to keep scope outcome-first, choose the
+smallest coherent root-cause correction, match validation effort to real risk,
+and stop when the requested result is honestly proven.
+
+If the skill is not installed and its public source cannot be reached, do not
+block the task on setup. Apply those four principles directly from this router
+and continue with the smallest evidence-backed path to the requested outcome.
+
+This skill is decision guidance, not extra ceremony. It does not replace
+explicit user instructions, OpenMeld owner documents, production guardrails,
+or delivery and release rules. Skip it for factual answers and purely
+mechanical edits.
+
 ## Production Guardrails
 
 - Workstation Wakes follow RuntimeCoordinator; Remote Agent native
@@ -87,6 +105,24 @@ Use these owner documents:
 | Code style, lint, and formatting standards (Ultracite/Biome) | `developing/engineering/code-standards.md` |
 | Repo-specific anti-patterns for tests, mocks, status logic, timeouts, keepalive | `developing/engineering/anti-patterns.md` |
 | Blessed example files to copy for routes, services, DO alarms, CLI commands, queries, mocks, logging | `developing/engineering/exemplars.md` |
+
+## Practical Engineering
+
+Optimize for the requested outcome and its real user effect before theoretical
+completeness.
+
+- Understand the intended outcome, current behavior, and non-goals before
+  expanding scope. Diagnose through observed behavior, ownership, and control
+  flow; search hits are starting points, not root-cause proof.
+- Prefer the smallest coherent root-cause correction over added wrappers,
+  fallbacks, states, or parallel behavior. Preserve compatibility only for
+  supported users and contracts.
+- Match effort and validation to likelihood, impact, reversibility, and
+  evidence. Keep common, harmful, irreversible, security-, privacy-, and
+  data-sensitive paths rigorous; usually defer speculative, rare, reversible,
+  or cleanup-only concerns.
+- Stop when the requested outcome is proven. State non-blocking follow-ups
+  briefly without turning them into required work.
 
 ## Core Invariants
 
@@ -180,6 +216,21 @@ change must leave those signals cleaner and less ambiguous.
 - Before requesting final validation, merging, or releasing, follow the complete
   lifecycle in `developing/engineering/agent-native-delivery.md`. Do not infer a
   second delivery process from workflow YAML, tool output, or old task history.
+- When an Agent personally encounters a problem in any OpenMeld product
+  surface, App, client, Service, runtime, integration, developer workflow,
+  CI/CD, release, or validation path, record that occurrence through
+  [Agent Experience Occurrence Feedback](developing/engineering/agent-native-delivery.md#agent-experience-occurrence-feedback).
+  Use the authorized Felix Human Profile path, identify the actual
+  Agent/model/session and context, and continue the main task unless the issue
+  is a real blocker. Do not search for duplicates; recording is evidence
+  capture, not authorization to fix.
+- Use focused checks while implementation or blocker-capable review can still
+  change the code. Treat broad affected, integration, release-ready, and Final
+  Candidate runs as closeout evidence after the practical scope is stable, not
+  as an iteration loop. A late cleanup-only suggestion such as a rename,
+  preferred abstraction, or theoretical edge case does not block delivery
+  unless it materially protects users, security, data, a supported compatibility
+  path, or the task's required product outcome.
 - Before declaring a user-, operator-, integrator-, or contributor-visible
   change done, decide whether it needs an OpenMeld Changelog entry and, when it
   does, follow `.agents/skills/openmeld-changelog/SKILL.md`.

@@ -1049,6 +1049,13 @@ session before changing local auth. A cross-account switch requires explicit
 interactive confirmation. That confirmation is bound to the stable identity of
 the exact committed session the user reviewed and is compared again inside the
 auth mutation lock; a changed session fails closed and requires fresh review.
+The Web bootstrap arrives through a shell pipe and may reopen the controlling
+terminal for the managed CLI. Any prompt reachable from that bootstrap must use
+the CLI's binary-safe interactive prompt primitive, which reads the reopened
+terminal synchronously in the compiled binary. It must not bypass that owner
+with an asynchronous third-party prompt. If no controlling terminal is usable,
+setup must not render a prompt; it fails before mutation and tells the user to
+rerun the setup command in an interactive Terminal.
 Until commit, ordinary CLI processes continue to see the previous committed
 session while only the transition owner and candidate OpenMeld Service can use
 the candidate. The local session switch is committed only after Prepare
@@ -1268,6 +1275,16 @@ canonical forms are `@Name(wake)` and `@Name(reference)`; a person's form is
 not membership, readiness, presence, or execution authority. Agent View emits
 the full validated directory through the presenter protocol; explicit `--json`
 emits the strict versioned `space.members` envelope.
+
+`space send` and Terminal interactive input treat `@target(wake)`,
+`@target(reference)`, and `@target(mention)` as CLI authoring controls. The
+target may be an exact current mention label or a stable Profile ID. Both paths
+resolve it through the same current member snapshot, post
+`@primaryMentionLabel` in message text and message-envelope text, and retain the
+exact Profile ID and relation in structured targets. Agent View reports the
+resolved ID-to-label mapping in the addressing summary. `--plain` is the
+explicit escape hatch that skips member resolution, publishes the authored text
+literally, and creates no structured target.
 
 Current CLI HTTP reads declare Space Addressing response version 1, and current
 Space WebSocket sessions declare `spaceMessageAddressing` in the hello

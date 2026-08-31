@@ -2760,6 +2760,19 @@ Reduced-motion preferences disable smooth following. The summary does not
 create an empty message bubble before text arrives in ordinary Spaces or
 threads.
 
+Space messages and Thread messages do not render a separate `woke Agent Name`
+receipt. The visible `@Name` in the message body is sufficient for people;
+Graph and the structured message envelope retain the exact Wake or Reference
+relation for agents and diagnostics. Message details remains the drill-in for
+complete execution and failure context.
+
+In the full message body on the main timeline and in the Thread panel, the
+first visible mention owned by each structured Agent Wake renders as one compact
+inline identity: `@`, the Agent's 14-pixel Profile icon, and its bold canonical
+name, without inserted spacing. Web derives this presentation only from the
+structured Wake target and resolved Profile presentation. It does not decorate
+ordinary mention-like text, code, links, or quoted reply previews.
+
 For a durable final reply, Web prefers the complete
 `signal.text.data.meta.agentWorkSummary` projection. It reads the legacy
 `agentActivity` field only when the complete field is absent, so cached older
@@ -2772,12 +2785,12 @@ inner failure, and their lifecycle or error never appear. A final collapsed
 summary names one failed admitted step directly, or shows a failure count with
 a details cue when several steps failed. Runtime permission denials remain
 explicit Wake outcomes with the shared Agent Profile permission recovery across
-Codex, Claude Code, Grok Build, Cursor, OpenCode, and future controllers. A work row must
-not infer permission guidance from a generic command-tool error, and Web never
-changes permissions automatically. Because every message in a one-to-one Center
-Agent Direct Message implicitly wakes the Center Agent, its source message omits
-the redundant `woke Center Agent` receipt. The Direct Message may derive one
-optimistic reply shell from the active Wake presentation immediately after the
+Codex, Claude Code, Grok Build, Cursor, OpenCode, and future controllers. A work
+row must not infer permission guidance from a generic command-tool error, and
+Web never changes permissions automatically. Because every message in a
+one-to-one Center Agent Direct Message implicitly wakes the Center Agent, the
+Direct Message may derive one optimistic reply shell from the active Wake
+presentation immediately after the
 user sends. The shell shows only the already-known Center Agent identity and one
 compact animated status row. That row uses the existing `Agent is working`
 presentation continuously from local submission through queueing, connecting,
@@ -2847,10 +2860,14 @@ unless the Space collaboration owner defines a different product rule.
 `terminal_failure` and `wake_stopped` notices use the same compact outcome-row
 presentation in the main timeline and thread panel. When `replyTo` is present,
 the row is anchored under its source message; otherwise it stays at its own
-timeline position. Web renders Core's `text` directly, uses `reasonCode` only
-through the shared recovery mapping, and uses `failureStage` only to distinguish
-execution failure from OpenMeld publication failure. Read-only viewers must
-still see the outcome.
+timeline position. An anchored `terminal_failure` row shows only
+`{Agent name} couldn’t reply`, falling back to `Agent couldn’t reply` when the
+target name is unavailable. The complete Core failure text remains in Message
+details instead of expanding the source message bubble. Unanchored outcomes and
+`wake_stopped` rows continue to render Core's `text` directly. Web uses
+`reasonCode` only through the shared recovery mapping and uses `failureStage`
+only to distinguish execution failure from OpenMeld publication failure.
+Read-only viewers must still see the outcome.
 
 A persisted terminal system failure is visible in that outcome row without
 hover and remains visible when the timeline is loaded again after refresh. Its

@@ -201,20 +201,6 @@ html[data-space-self-message-alignment="left"]
   justify-content: flex-start;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
-  [data-slot="message-hover-actions"][data-space-message-actions-offset="outside"] {
-  right: -0.25rem;
-  left: auto;
-}
-
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
-  [data-slot="message-hover-actions"][data-space-message-actions-offset="inside"] {
-  right: 0.75rem;
-  left: auto;
-}
-
 [data-space-self-message="true"]
   [data-slot="reply-preview"][data-align="end"] {
   align-items: flex-start;

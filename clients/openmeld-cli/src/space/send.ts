@@ -17,7 +17,10 @@ import { createPresenter } from "../runtime/presenter/index";
 import { rethrowCanonicalMentionSnapshotLoadFailure } from "./canonical-mention-preflight";
 import { createCliSpaceApi } from "./cli-space-api";
 import { assertFullSignalIdArgument } from "./command-context";
-import { prepareCliSpaceComposerSubmission } from "./composer-submission-adapter";
+import {
+  type CliSpaceAddressingTarget,
+  prepareCliSpaceComposerSubmission,
+} from "./composer-submission-adapter";
 import {
   prepareRequestedSpaceSendFiles,
   uploadPreparedSpaceFiles,
@@ -99,9 +102,13 @@ export async function runSend(input: {
       : "Preparing message text and canonical Space mentions.",
     spaceId: space,
   });
-  const { outboundMessageEnvelope, outboundText } =
+  const { outboundMessageEnvelope, outboundText, resolvedAddressingTargets } =
     text.value.length === 0
-      ? { outboundMessageEnvelope: undefined, outboundText: "" }
+      ? {
+          outboundMessageEnvelope: undefined,
+          outboundText: "",
+          resolvedAddressingTargets: [],
+        }
       : await resolveOutboundSubmission({
           openMeldProfile,
           password: input.password,
@@ -115,6 +122,7 @@ export async function runSend(input: {
   emitSendAddressingSummary({
     outboundMessageEnvelope,
     presenter,
+    resolvedAddressingTargets,
     resolvedView: runtime.resolvedView,
   });
 
@@ -266,11 +274,13 @@ async function resolveOutboundSubmission(input: {
     ReturnType<typeof prepareCliSpaceComposerSubmission>
   >["outboundMessageEnvelope"];
   outboundText: string;
+  resolvedAddressingTargets: readonly CliSpaceAddressingTarget[];
 }> {
   if (input.plainText) {
     return {
       bareMentionDiagnostics: [],
       outboundText: input.text,
+      resolvedAddressingTargets: [],
     };
   }
 
@@ -326,6 +336,7 @@ async function resolveOutboundSubmission(input: {
     bareMentionDiagnostics,
     outboundMessageEnvelope: preparedSubmission.outboundMessageEnvelope,
     outboundText: preparedSubmission.outboundText,
+    resolvedAddressingTargets: preparedSubmission.resolvedAddressingTargets,
   };
 }
 
@@ -425,6 +436,7 @@ function emitSendAddressingSummary(input: {
       >["outboundMessageEnvelope"]
     | undefined;
   presenter: ReturnType<typeof createPresenter>;
+  resolvedAddressingTargets: readonly CliSpaceAddressingTarget[];
   resolvedView: "human" | "agent";
 }): void {
   if (input.resolvedView !== "agent") {
@@ -440,6 +452,9 @@ function emitSendAddressingSummary(input: {
     data: {
       mentionTargetCount: mentionCount,
       referenceTargetCount: referenceCount,
+      ...(input.resolvedAddressingTargets.length > 0
+        ? { targets: input.resolvedAddressingTargets }
+        : {}),
       wakeTargetCount: wakeCount,
     },
   });

@@ -28,7 +28,6 @@ import {
 } from "#/lib/spaces/timeline";
 import { notifyResizeObservers } from "#/test-support/dom-observers.setup";
 import {
-	SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT,
 	SPACE_COMPOSER_ACCESSIBLE_NAME,
 	SPACE_WAKE_COMPOSER_HINT,
 } from "./space-composer-copy";
@@ -49,24 +48,6 @@ const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
 const CONNECT_MY_COMPUTER_BUTTON_NAME_PATTERN = /Connect my computer/;
 const MESSAGES_FROM_DATE_MARKER_NAME_PATTERN = /Messages from/;
 const OPEN_DATE_NAVIGATION_NAME_PATTERN = /Open date navigation for/;
-
-function createRetainedResultRecoveryHandler() {
-	return vi.fn<SpaceExecutionRecoveryHandler>(async (attempt) =>
-		attempt.action === null
-			? {
-					action: "recover_result",
-					label: "Recover result",
-					status: "available",
-					warning: null,
-				}
-			: {
-					action: null,
-					label: null,
-					status: "in_progress",
-					warning: null,
-				}
-	);
-}
 
 // The Message Details dialog fetches through `useQuery`. Every test in this
 // file except the ones that open that dialog only checks for the trigger
@@ -186,11 +167,9 @@ describe("SpaceConversationPanel", () => {
 			screen.getByRole("log", { name: "Conversation history" })
 		).toBeTruthy();
 		expect(
-			(
-				screen.getByRole("textbox", {
-					name: SPACE_COMPOSER_ACCESSIBLE_NAME,
-				}) as HTMLTextAreaElement
-			).value
+			screen.getByRole("textbox", {
+				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+			}).textContent
 		).toBe("Draft the follow-up.");
 		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
@@ -210,11 +189,9 @@ describe("SpaceConversationPanel", () => {
 			screen.getByRole("log", { name: "Conversation history" })
 		).toBeTruthy();
 		expect(
-			(
-				screen.getByRole("textbox", {
-					name: SPACE_COMPOSER_ACCESSIBLE_NAME,
-				}) as HTMLTextAreaElement
-			).value
+			screen.getByRole("textbox", {
+				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+			}).textContent
 		).toBe("Draft the follow-up.");
 	});
 
@@ -1143,12 +1120,12 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
-	it("shows a multi-target Wake receipt from member names in the read-only main timeline", () => {
+	it("renders structured Wake targets as inline Agent identities in the read-only main timeline", () => {
 		const membersSnapshot = createWakeReceiptMembersSnapshot();
 		const wakeItem = createStructuredWakeTimelineItem({
 			activationTargets: [TARGET_PROFILE_ID, SECOND_TARGET_PROFILE_ID],
 			membersSnapshot,
-			text: "Coordinate the release.",
+			text: "@Codex 5.6 Sol coordinate with @Claude Opus 4.8.",
 		});
 
 		renderSpaceConversationPanel({
@@ -1157,13 +1134,14 @@ describe("SpaceConversationPanel", () => {
 			timelineItems: [wakeItem],
 		});
 
-		const receipt = screen.getByTestId("space-message-wake-receipt");
-		expect(receipt.textContent).toBe("→ woke Codex 5.6 Sol, Claude Opus 4.8");
-		expect(receipt.className).toContain("text-muted-foreground");
-		const bubbleContent = receipt.closest("[data-slot='bubble-content']");
-		expect(bubbleContent).not.toBeNull();
+		expect(screen.queryByTestId("space-message-wake-receipt")).toBeNull();
+		expect(screen.getByText("Codex 5.6 Sol").tagName).toBe("STRONG");
+		expect(screen.getByText("Claude Opus 4.8").tagName).toBe("STRONG");
 		expect(
-			within(bubbleContent as HTMLElement).getByText("Coordinate the release.")
+			screen.getByTestId(`space-profile-icon-${TARGET_PROFILE_ID}`)
+		).toBeTruthy();
+		expect(
+			screen.getByTestId(`space-profile-icon-${SECOND_TARGET_PROFILE_ID}`)
 		).toBeTruthy();
 		expect(screen.queryByRole("textbox")).toBeNull();
 	});
@@ -1227,7 +1205,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("omits the Wake receipt for ordinary messages and falls back to a missing target profile ID", () => {
+	it("keeps Wake metadata out of ordinary and structured messages", () => {
 		const missingTargetProfileId = "agt_99999999-9999-4999-8999-999999999999";
 		const ordinaryItem = createTimelineItem({
 			id: "sig-ordinary",
@@ -1252,9 +1230,8 @@ describe("SpaceConversationPanel", () => {
 				"space-message-wake-receipt"
 			)
 		).toBeNull();
-		expect(screen.getByTestId("space-message-wake-receipt").textContent).toBe(
-			`→ woke ${missingTargetProfileId}`
-		);
+		expect(screen.queryByTestId("space-message-wake-receipt")).toBeNull();
+		expect(screen.getByText("Please investigate.")).toBeTruthy();
 	});
 
 	it("stops advancing the unread watermark while the Graph is open", () => {
@@ -1685,7 +1662,7 @@ describe("SpaceConversationPanel", () => {
 		expect(selfScrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
 	});
 
-	it("matches hover action backgrounds to the message bubble without borders", () => {
+	it("renders stable message footers below bubbles without absolute overlays", () => {
 		renderSpaceConversationPanel({
 			readOnly: false,
 			timelineItems: [
@@ -1704,166 +1681,50 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		const agentBubble = screen
-			.getByText("Agent reply")
-			.closest("[data-signal-id]");
-		const selfBubble = screen
-			.getByText("Self message")
-			.closest("[data-signal-id]");
-		const agentBubbleRoot = agentBubble?.closest("[data-slot='bubble']");
-		const selfBubbleRoot = selfBubble?.closest("[data-slot='bubble']");
-		const agentRow = agentBubble?.closest(
-			"[data-message-row-id='signal-agent']"
-		);
-		const selfRow = selfBubble?.closest("[data-message-row-id='signal-self']");
-		const expectedMessageActionButtonPresentation = {
-			hasBackground: true,
-			hasBorder: false,
-			hasBorderBorder: false,
-			hasBorderZero: true,
-		};
-		expect(agentBubble).not.toBeNull();
-		expect(selfBubble).not.toBeNull();
-		expect(agentRow).not.toBeNull();
-		expect(selfRow).not.toBeNull();
+		for (const [messageText, expectedAlignment] of [
+			["Agent reply", "justify-start"],
+			["Self message", "justify-end"],
+		] as const) {
+			const message = screen.getByText(messageText).closest("[data-signal-id]");
+			const row = message?.closest("[data-message-row-id]");
+			const bubble = message?.closest("[data-slot='bubble']");
+			const footer = row?.querySelector('[data-slot="message-footer"]');
+			const actions = footer?.querySelector(
+				'[data-slot="message-footer-primary-actions"]'
+			);
 
-		fireEvent.mouseEnter(agentRow as HTMLElement);
-		const agentReplyButton = within(agentRow as HTMLElement).getByRole(
-			"button",
-			{
-				name: "Reply",
-			}
-		);
-		const agentThreadButton = within(agentRow as HTMLElement).getByRole(
-			"button",
-			{
-				name: "Reply in thread",
-			}
-		);
-		const agentDetailsButton = within(agentRow as HTMLElement).getByRole(
-			"button",
-			{
-				name: "Message details",
-			}
-		);
+			expect(row).not.toBeNull();
+			expect(footer).not.toBeNull();
+			expect(row?.contains(footer ?? null)).toBe(true);
+			expect(bubble?.contains(footer ?? null)).toBe(false);
+			expect(footer?.className).toContain("min-h-7");
+			expect(footer?.className).toContain(expectedAlignment);
+			expect(actions?.className).toContain("opacity-0");
+			expect(actions?.className).toContain(
+				"group-hover/message-row:opacity-100"
+			);
+			expect(actions?.className).toContain(
+				"group-focus-within/message-row:opacity-100"
+			);
+			expect(
+				row?.querySelector("[data-slot='message-hover-actions']")
+			).toBeNull();
 
-		expect(agentBubbleRoot?.contains(agentReplyButton)).toBe(true);
-		expect(agentBubbleRoot?.contains(agentThreadButton)).toBe(true);
-		expect(agentBubbleRoot?.contains(agentDetailsButton)).toBe(true);
-		expect(agentRow?.className).toContain("w-full");
-		expect(
-			agentDetailsButton
-				.closest("[data-message-action-slot]")
-				?.getAttribute("data-message-action-slot")
-		).toBe("hover");
-		// The action slot must gate only on the per-message row group, never on
-		// the run-wide "/message" group, or hovering one message in a run would
-		// surface every message's action buttons at once.
-		expect(
-			agentDetailsButton.closest("[data-message-action-slot]")?.className
-		).not.toContain("group-hover/message:opacity-100");
-		expect(
-			agentDetailsButton.closest("[data-message-action-slot]")?.className
-		).not.toContain("group-focus-within/message:opacity-100");
-		expect(
-			agentDetailsButton.closest("[data-message-action-slot]")?.className
-		).toContain("group-hover/message-row:opacity-100");
-		expect(
-			agentDetailsButton.closest("[data-message-action-slot]")?.className
-		).toContain("group-focus-within/message-row:opacity-100");
-		expect(
-			agentDetailsButton.closest("[data-message-action-slot]")?.className
-		).not.toContain("blur-[3px]");
-		expect(
-			agentDetailsButton.closest("[data-message-action-slot]")?.className
-		).not.toContain("blur-0");
-		expect(
-			agentDetailsButton.closest("[data-message-action-slot]")?.parentElement
-				?.className
-		).toContain("-top-6");
-		expect(
-			agentDetailsButton.closest("[data-message-action-slot]")?.parentElement
-				?.className
-		).toContain("-right-1");
-		expect(
-			readMessageActionButtonPresentation({
-				backgroundClass: "bg-background/95",
-				button: agentReplyButton,
-			})
-		).toEqual(expectedMessageActionButtonPresentation);
-		expect(
-			readMessageActionButtonPresentation({
-				backgroundClass: "bg-background/95",
-				button: agentThreadButton,
-			})
-		).toEqual(expectedMessageActionButtonPresentation);
-		expect(
-			readMessageActionButtonPresentation({
-				backgroundClass: "bg-background/95",
-				button: agentDetailsButton,
-			})
-		).toEqual(expectedMessageActionButtonPresentation);
-
-		fireEvent.mouseEnter(selfRow as HTMLElement);
-		const selfReplyButton = within(selfRow as HTMLElement).getByRole("button", {
-			name: "Reply",
-		});
-		const selfThreadButton = within(selfRow as HTMLElement).getByRole(
-			"button",
-			{
-				name: "Reply in thread",
+			for (const button of within(footer as HTMLElement).getAllByRole(
+				"button"
+			)) {
+				expect(button.className).toContain("size-7");
+				expect(button.className).toContain("border-0");
+				expect(button.className).toContain("bg-transparent");
 			}
-		);
-		const selfDetailsButton = within(selfRow as HTMLElement).getByRole(
-			"button",
-			{
-				name: "Message details",
-			}
-		);
-
-		expect(selfBubbleRoot?.contains(selfReplyButton)).toBe(true);
-		expect(selfBubbleRoot?.contains(selfThreadButton)).toBe(true);
-		expect(selfBubbleRoot?.contains(selfDetailsButton)).toBe(true);
-		expect(selfRow?.className).toContain("w-full");
-		expect(
-			readMessageActionButtonPresentation({
-				backgroundClass: "bg-background/95",
-				button: selfReplyButton,
-			})
-		).toEqual(expectedMessageActionButtonPresentation);
-		expect(
-			readMessageActionButtonPresentation({
-				backgroundClass: "bg-background/95",
-				button: selfThreadButton,
-			})
-		).toEqual(expectedMessageActionButtonPresentation);
-		expect(
-			readMessageActionButtonPresentation({
-				backgroundClass: "bg-background/95",
-				button: selfDetailsButton,
-			})
-		).toEqual(expectedMessageActionButtonPresentation);
-		expect(
-			selfDetailsButton.closest("[data-message-action-slot]")?.parentElement
-				?.className
-		).toContain("-left-1");
-		expect(
-			selfDetailsButton.closest("[data-message-action-slot]")?.parentElement
-				?.className
-		).not.toContain("-right-1");
-		expect(
-			selfDetailsButton
-				.closest("[data-message-action-slot]")
-				?.parentElement?.getAttribute("data-space-message-actions-offset")
-		).toBe("outside");
+		}
 	});
 
-	it("shows each grouped run message's own timestamp inside its hover actions, except the run's first message", () => {
+	it("shows every grouped message's own timestamp in its reserved footer", () => {
 		const firstCreatedAtMs = Date.UTC(2026, 4, 27, 10, 0, 0);
 		const secondCreatedAtMs = Date.UTC(2026, 4, 27, 10, 3, 0);
 		const firstTimeText = formatTestTime(firstCreatedAtMs);
 		const secondTimeText = formatTestTime(secondCreatedAtMs);
-		expect(firstTimeText).not.toBe(secondTimeText);
 
 		renderSpaceConversationPanel({
 			readOnly: false,
@@ -1881,41 +1742,17 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		const firstRow = screen
-			.getByText("First message in the run")
-			.closest("[data-message-row-id='signal-run-first']");
-		const secondRow = screen
-			.getByText("Second message in the run")
-			.closest("[data-message-row-id='signal-run-second']");
-
-		expect(firstRow).not.toBeNull();
-		expect(secondRow).not.toBeNull();
-
-		// The run's first message already has its time shown in the run header,
-		// so its hover overlay must not repeat that timestamp. Scope the check to
-		// `[data-message-action-slot]` elements so a header timestamp (a sibling
-		// of the row, not a descendant) can never be mistaken for a hover slot.
-		fireEvent.mouseEnter(firstRow as HTMLElement);
-		const firstRowActionSlots = (firstRow as HTMLElement).querySelectorAll(
-			"[data-message-action-slot]"
-		);
-		expect(firstRowActionSlots.length).toBeGreaterThan(0);
-		for (const slot of Array.from(firstRowActionSlots)) {
-			expect(slot.textContent).not.toContain(firstTimeText);
+		for (const [messageText, timestamp] of [
+			["First message in the run", firstTimeText],
+			["Second message in the run", secondTimeText],
+		] as const) {
+			const row = screen
+				.getByText(messageText)
+				.closest("[data-message-row-id]");
+			const time = within(row as HTMLElement).getByText(timestamp);
+			expect(time.closest('[data-slot="message-footer"]')).not.toBeNull();
 		}
-
-		fireEvent.mouseEnter(secondRow as HTMLElement);
-		const secondRowTimestamp = within(secondRow as HTMLElement).getByText(
-			secondTimeText
-		);
-		expect(
-			secondRowTimestamp.closest("[data-message-action-slot]")
-		).not.toBeNull();
-		expect(
-			within(secondRow as HTMLElement).queryByText(firstTimeText)
-		).toBeNull();
 	});
-
 	it("removes external gaps between consecutive bubbles in the same run", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
@@ -2062,11 +1899,17 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByRole("textbox", {
-				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
-			})
-		).toHaveProperty("placeholder", SPACE_WAKE_COMPOSER_HINT);
-		fireEvent.click(screen.getByRole("button", { name: "Mention a member" }));
+			screen
+				.getByRole("textbox", {
+					name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+				})
+				.getAttribute("aria-placeholder")
+		).toBe(SPACE_WAKE_COMPOSER_HINT);
+		const mentionButton = screen.getByRole("button", {
+			name: "Mention a member",
+		});
+		expect(mentionButton.parentElement?.className).toContain("gap-1");
+		fireEvent.click(mentionButton);
 		expect(onMentionButtonClick).toHaveBeenCalledOnce();
 	});
 
@@ -2087,14 +1930,16 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByRole("textbox", { name: "Message Codex" })
-		).toHaveProperty("placeholder", "Message Codex…");
+			screen
+				.getByRole("textbox", { name: "Message Codex" })
+				.getAttribute("aria-placeholder")
+		).toBe("Message Codex…");
 		expect(
-			screen.getByRole("button", { name: "Mention a member" })
-		).toBeTruthy();
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
 		expect(
-			screen.getByText(SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT)
-		).toBeTruthy();
+			screen.queryByText("In this DM, @ is optional. Sending wakes the agent.")
+		).toBeNull();
 	});
 
 	it("uses the Human name as the Human-only DM placeholder", () => {
@@ -2118,8 +1963,10 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByRole("textbox", { name: "Message Felix" })
-		).toHaveProperty("placeholder", "Message Felix…");
+			screen
+				.getByRole("textbox", { name: "Message Felix" })
+				.getAttribute("aria-placeholder")
+		).toBe("Message Felix…");
 	});
 
 	it("uses dedicated Center Agent copy and hides the redundant @ button", () => {
@@ -2132,10 +1979,12 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByRole("textbox", {
-				name: "Message Center Agent",
-			})
-		).toHaveProperty("placeholder", "Tell Center Agent what you need…");
+			screen
+				.getByRole("textbox", {
+					name: "Message Center Agent",
+				})
+				.getAttribute("aria-placeholder")
+		).toBe("Tell Center Agent what you need…");
 		expect(
 			screen.queryByRole("button", { name: "Mention a member" })
 		).toBeNull();
@@ -2144,6 +1993,15 @@ describe("SpaceConversationPanel", () => {
 	it("renders Human Mention as a fixed @ mark without an Agent relation selector", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
+			composerAuthoredMentions: [
+				{
+					end: 6,
+					profileId: "22222222-2222-4222-8222-222222222222",
+					relation: "mention",
+					start: 0,
+					text: "@Felix",
+				},
+			],
 			composerAddressingTargets: [
 				{
 					allowedRelations: {
@@ -2161,12 +2019,12 @@ describe("SpaceConversationPanel", () => {
 					},
 				},
 			],
+			composerText: "@Felix",
 			readOnly: false,
 		});
 
-		expect(screen.getByTitle("Mentioning Felix").textContent).toContain(
-			"@Felix"
-		);
+		const token = screen.getByTestId("space-composer-profile-token");
+		expect(within(token).getByText("Felix")).toBeTruthy();
 		expect(
 			screen.queryByRole("combobox", { name: "Change relation for Felix" })
 		).toBeNull();
@@ -3496,9 +3354,13 @@ describe("SpaceConversationPanel", () => {
 		expect(marker?.className).not.toContain("text-destructive");
 	});
 
-	it("projects an anchored terminal_failure notice under its source message instead of dropping it", () => {
+	it("moves an anchored failure into the source message footer and keeps full details behind Details", () => {
+		const detailedFailure =
+			"OpenMeld could not reach Codex 5.6 Sol on this computer for this Wake. Reconnect OpenMeld Service, then try again.";
 		renderSpaceConversationPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
 			readOnly: false,
+			spaceId: "space-123",
 			timelineItems: [
 				createTimelineItem({
 					id: "sig-wake",
@@ -3513,8 +3375,9 @@ describe("SpaceConversationPanel", () => {
 					id: "sig-failure",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
+					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
 					systemNoticeType: "terminal_failure",
-					text: "Runner could not reply.",
+					text: detailedFailure,
 				}),
 			],
 		});
@@ -3523,22 +3386,51 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		expect(sourceMessage).not.toBeNull();
+		const footer = sourceMessage?.querySelector(
+			"[data-slot='message-footer']"
+		) as HTMLElement;
 		expect(
-			within(sourceMessage as HTMLElement).getByText("Runner could not reply.")
+			within(footer).getByText("Codex 5.6 Sol couldn’t reply")
 		).toBeTruthy();
-		const outcomeRow = within(sourceMessage as HTMLElement).getByTestId(
-			"space-outcome-row"
-		);
 		expect(
-			within(outcomeRow).getByRole("button", { name: "Open message details" })
+			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
+		).toBeNull();
+		expect(
+			within(sourceMessage as HTMLElement).queryByTestId("space-outcome-row")
+		).toBeNull();
+		const details = within(footer).getByRole("button", {
+			name: "Message details",
+		});
+		expect(details.className).toContain("text-destructive");
+		fireEvent.click(details);
+		expect(
+			screen.getByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
+		expect(screen.getByText(detailedFailure)).toBeTruthy();
 	});
 
-	it("retries one eligible terminal failure directly from its anchored outcome row", async () => {
-		const onRetryWakeTarget = vi.fn().mockResolvedValue(undefined);
+	it("offers recovery only inside Message details for an anchored failure", async () => {
+		const onRecoverExecution = vi.fn<SpaceExecutionRecoveryHandler>(
+			async (attempt) =>
+				attempt.action === null
+					? {
+							action: "retry_as_new_execution",
+							label: "Retry as new execution",
+							status: "available",
+							warning:
+								"This starts a new execution and may run the task and its side effects again.",
+						}
+					: {
+							action: null,
+							label: null,
+							status: "in_progress",
+							warning: null,
+						}
+		);
 		renderSpaceConversationPanel({
-			onRetryWakeTarget,
+			onRecoverExecution,
 			readOnly: false,
+			spaceId: "space-123",
 			timelineItems: [
 				createTimelineItem({
 					id: "sig-wake",
@@ -3546,214 +3438,40 @@ describe("SpaceConversationPanel", () => {
 					wakeTargetProfileIds: [TARGET_PROFILE_ID],
 				}),
 				createTimelineItem({
-					actorName: "OpenMeld",
 					actorProfileId: "system",
 					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
 					id: "sig-failure",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
+					systemNoticeDispatchId: "dispatch-1",
 					systemNoticeFailureStage: "execution",
-					systemNoticeReasonCode: "remote_agent.tool_result_too_large",
 					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
 					systemNoticeType: "terminal_failure",
-					text: "Center Agent tried to process too much data at once.",
+					text: "Center Agent could not complete this Wake.",
 				}),
 			],
 		});
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "Retry as new execution" })
-		);
-
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		const retry = await screen.findByRole("button", {
+			name: "Retry as new execution",
+		});
+		fireEvent.click(retry);
 		await waitFor(() => {
-			expect(onRetryWakeTarget).toHaveBeenCalledWith({
-				clientMessageId: expect.any(String),
-				sourceText: "@Center Agent(wake) review the pull request",
+			expect(onRecoverExecution).toHaveBeenCalledWith({
+				action: "retry_as_new_execution",
+				dispatchId: "dispatch-1",
+				operationId: expect.any(String),
+				resultRef: null,
 				targetProfileId: TARGET_PROFILE_ID,
 			});
 		});
 	});
 
-	it("does not offer Retry when the failed Wake source contains attachments", () => {
-		renderSpaceConversationPanel({
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
-			readOnly: false,
-			timelineItems: [
-				createTimelineItem({
-					attachments: [
-						{
-							fileName: "context.png",
-							height: 600,
-							id: "attachment-context",
-							localPreviewUrl: null,
-							mimeType: "image/png",
-							sizeBytes: 2048,
-							width: 800,
-						},
-					],
-					id: "sig-wake",
-					text: "@Center Agent(wake) review this screenshot",
-					wakeTargetProfileIds: [TARGET_PROFILE_ID],
-				}),
-				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
-					id: "sig-failure",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
-					systemNoticeType: "terminal_failure",
-					text: "Center Agent could not complete this Wake.",
-				}),
-			],
-		});
-
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
-	});
-
-	it("does not offer Retry when only one target of a multi-target Wake failed", () => {
-		renderSpaceConversationPanel({
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
-			readOnly: false,
-			timelineItems: [
-				createTimelineItem({
-					id: "sig-wake",
-					text: "@Center Agent(wake) @Runner(wake) review the release",
-					wakeTargetProfileIds: [TARGET_PROFILE_ID, SECOND_TARGET_PROFILE_ID],
-				}),
-				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
-					id: "sig-failure",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
-					systemNoticeType: "terminal_failure",
-					text: "Center Agent could not complete this Wake.",
-				}),
-			],
-		});
-
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
-	});
-
-	it("does not offer Retry when the failure target does not match the original Wake target", () => {
-		renderSpaceConversationPanel({
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
-			readOnly: false,
-			timelineItems: [
-				createTimelineItem({
-					id: "sig-wake",
-					text: "@Center Agent(wake) review the release",
-					wakeTargetProfileIds: [TARGET_PROFILE_ID],
-				}),
-				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
-					id: "sig-failure",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: SECOND_TARGET_PROFILE_ID,
-					systemNoticeType: "terminal_failure",
-					text: "Runner could not complete this Wake.",
-				}),
-			],
-		});
-
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
-	});
-
-	it("renders the anchored outcome row inside the source message's bubble content so it inherits the card's hover/rounded/padding treatment", () => {
-		renderSpaceConversationPanel({
-			readOnly: false,
-			timelineItems: [
-				createTimelineItem({
-					id: "sig-wake",
-					text: "@Runner(wake) please investigate",
-				}),
-				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
-					id: "sig-failure",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeType: "terminal_failure",
-					text: "Runner could not reply.",
-				}),
-			],
-		});
-
-		const outcomeRow = screen.getByTestId("space-outcome-row");
-		const bubbleContent = outcomeRow.closest("[data-slot='bubble-content']");
-		expect(bubbleContent).not.toBeNull();
-		expect(
-			within(bubbleContent as HTMLElement).getByText(
-				"@Runner(wake) please investigate"
-			)
-		).toBeTruthy();
-	});
-
-	it("opens the source message's own details -- not the notice's -- from an anchored outcome row's Message details action", () => {
-		const onReportMessage = vi.fn().mockResolvedValue(undefined);
-		renderSpaceConversationPanel({
-			onReportMessage,
-			readOnly: false,
-			spaceId: "space-123",
-			timelineItems: [
-				createTimelineItem({
-					id: "sig-wake",
-					text: "@Runner(wake) please investigate",
-				}),
-				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
-					id: "sig-failure",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeType: "terminal_failure",
-					text: "Runner could not reply.",
-				}),
-			],
-		});
-
-		const outcomeRow = screen.getByTestId("space-outcome-row");
-		fireEvent.click(
-			within(outcomeRow).getByRole("button", { name: "Open message details" })
-		);
-
-		fireEvent.click(screen.getByRole("button", { name: "Send report" }));
-
-		expect(onReportMessage).toHaveBeenCalledOnce();
-		expect(onReportMessage.mock.calls[0]?.[0]?.id).toBe("sig-wake");
-	});
-
-	it("keeps terminal failures for multiple targets in exact independent outcome rows", () => {
+	it("summarizes multiple anchored failures in one stable footer", () => {
 		renderSpaceConversationPanel({
 			membersSnapshot: createWakeReceiptMembersSnapshot(),
 			readOnly: false,
@@ -3763,60 +3481,41 @@ describe("SpaceConversationPanel", () => {
 					text: "@Codex(wake) @Claude(wake) please investigate",
 				}),
 				createTimelineItem({
-					actorName: "OpenMeld",
 					actorProfileId: "system",
 					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
 					id: "sig-failure-codex",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
 					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
 					systemNoticeType: "terminal_failure",
-					text: "OpenMeld could not wake Codex 5.6 Sol. Check the agent connection, then wake the agent again.",
+					text: "Codex could not reply.",
 				}),
 				createTimelineItem({
-					actorName: "OpenMeld",
 					actorProfileId: "system",
 					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
 					id: "sig-failure-claude",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
 					systemNoticeTargetProfileId: SECOND_TARGET_PROFILE_ID,
 					systemNoticeType: "terminal_failure",
-					text: "OpenMeld could not wake Claude Opus 4.8. Check the agent connection, then wake the agent again.",
+					text: "Claude could not reply.",
 				}),
 			],
 		});
 
-		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(2);
-		expect(
-			screen.getByText(
-				"OpenMeld could not wake Codex 5.6 Sol. Check the agent connection, then wake the agent again."
-			)
-		).toBeTruthy();
-		expect(
-			screen.getByText(
-				"OpenMeld could not wake Claude Opus 4.8. Check the agent connection, then wake the agent again."
-			)
-		).toBeTruthy();
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
+		expect(screen.getByText("2 agents couldn’t reply")).toBeTruthy();
+		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
+		expect(screen.queryByText("Codex 5.6 Sol couldn’t reply")).toBeNull();
+		expect(screen.queryByText("Claude Opus 4.8 couldn’t reply")).toBeNull();
 	});
 
-	it("correlates a late-result recovery notice to only its exact failed target in a mixed multi-target Wake", async () => {
-		const onRecoverExecution = createRetainedResultRecoveryHandler();
+	it("keeps a stopped target as a muted outcome while a failed target uses the footer", () => {
 		renderSpaceConversationPanel({
-			onRecoverExecution,
 			readOnly: false,
 			timelineItems: [
 				createTimelineItem({
 					id: "sig-wake",
 					text: "@Codex(wake) @Claude(wake) please investigate",
-					wakeTargetProfileIds: [TARGET_PROFILE_ID, SECOND_TARGET_PROFILE_ID],
 				}),
 				createTimelineItem({
 					actorProfileId: "system",
@@ -3824,23 +3523,9 @@ describe("SpaceConversationPanel", () => {
 					id: "sig-failure-codex",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
-					systemNoticeDispatchId: "dispatch-codex",
-					systemNoticeReasonCode: "runtime.progress_stale",
 					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
 					systemNoticeType: "terminal_failure",
-					text: "Codex stopped making progress.",
-				}),
-				createTimelineItem({
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					id: "sig-recovery-codex",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeDispatchId: "dispatch-codex",
-					systemNoticeResultRef: "dispatch-codex::result-1",
-					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
-					systemNoticeType: "execution_recovery_available",
-					text: "A completed result is ready to recover.",
+					text: "Codex could not reply.",
 				}),
 				createTimelineItem({
 					actorProfileId: "system",
@@ -3848,7 +3533,6 @@ describe("SpaceConversationPanel", () => {
 					id: "sig-stopped-claude",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
-					systemNoticeDispatchId: "dispatch-claude",
 					systemNoticeTargetProfileId: SECOND_TARGET_PROFILE_ID,
 					systemNoticeType: "wake_stopped",
 					text: "Claude was stopped by the user.",
@@ -3856,233 +3540,12 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(2);
-		expect(screen.getByText("Codex stopped making progress.")).toBeTruthy();
+		expect(screen.getByText("Agent couldn’t reply")).toBeTruthy();
 		expect(screen.getByText("Claude was stopped by the user.")).toBeTruthy();
-		expect(
-			await screen.findAllByRole("button", { name: "Recover result" })
-		).toHaveLength(1);
+		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(1);
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
-		expect(onRecoverExecution).toHaveBeenCalledOnce();
-		expect(onRecoverExecution).toHaveBeenCalledWith({
-			action: null,
-			dispatchId: "dispatch-codex",
-			operationId: null,
-			resultRef: "dispatch-codex::result-1",
-			targetProfileId: TARGET_PROFILE_ID,
-		});
-	});
-
-	it("renders one shared recovery CTA while details are open and fences rapid activation to one operation", async () => {
-		const execution = createVoidDeferred();
-		const onRecoverExecution = vi.fn<SpaceExecutionRecoveryHandler>(
-			async (attempt) => {
-				if (attempt.action === null) {
-					return {
-						action: "recover_result",
-						label: "Recover result",
-						status: "available",
-						warning: null,
-					};
-				}
-				await execution.promise;
-				return {
-					action: null,
-					label: null,
-					status: "recovered",
-					warning: null,
-				};
-			}
-		);
-		renderSpaceConversationPanel({
-			onRecoverExecution,
-			readOnly: false,
-			spaceId: "space-123",
-			timelineItems: [
-				createTimelineItem({
-					id: "sig-wake",
-					text: "@Codex(wake) please investigate",
-					wakeTargetProfileIds: [TARGET_PROFILE_ID],
-				}),
-				createTimelineItem({
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					id: "sig-failure-codex",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeDispatchId: "dispatch-codex",
-					systemNoticeReasonCode: "runtime.progress_stale",
-					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
-					systemNoticeType: "terminal_failure",
-					text: "Codex stopped making progress.",
-				}),
-				createTimelineItem({
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					id: "sig-recovery-codex",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeDispatchId: "dispatch-codex",
-					systemNoticeResultRef: "dispatch-codex::result-1",
-					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
-					systemNoticeType: "execution_recovery_available",
-					text: "A completed result is ready to recover.",
-				}),
-			],
-		});
-
-		await screen.findByRole("button", { name: "Recover result" });
-		fireEvent.click(
-			within(screen.getByTestId("space-outcome-row")).getByRole("button", {
-				name: "Open message details",
-			})
-		);
-		await screen.findByRole("dialog", { name: "Message details" });
-		expect(
-			await screen.findAllByRole("button", { name: "Recover result" })
-		).toHaveLength(1);
-		fireEvent.keyDown(document, { key: "Escape" });
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Message details" })
-			).toBeNull();
-		});
-		expect(
-			await screen.findAllByRole("button", { name: "Recover result" })
-		).toHaveLength(1);
-		fireEvent.click(
-			within(screen.getByTestId("space-outcome-row")).getByRole("button", {
-				name: "Open message details",
-			})
-		);
-		await screen.findByRole("dialog", { name: "Message details" });
-		expect(
-			await screen.findAllByRole("button", { name: "Recover result" })
-		).toHaveLength(1);
-
-		const recoverButton = screen.getByRole("button", {
-			name: "Recover result",
-		});
-		fireEvent.touchStart(recoverButton, {
-			changedTouches: [{ clientX: 10, clientY: 10 }],
-			touches: [{ clientX: 10, clientY: 10 }],
-		});
-		fireEvent.click(recoverButton);
-		fireEvent.click(recoverButton);
-
-		const actionCalls = onRecoverExecution.mock.calls.filter(
-			([attempt]) => attempt.action === "recover_result"
-		);
-		expect(actionCalls).toHaveLength(1);
-		expect(actionCalls[0]?.[0].operationId).toBe(
-			`space-execution-recovery:dispatch-codex:${TARGET_PROFILE_ID}:recover_result`
-		);
-
-		execution.resolve();
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("dialog", { name: "Message details" })
-			).toBeNull();
-		});
-	});
-
-	it("does not offer inline Retry when one Wake has outcome rows with different tones", () => {
-		renderSpaceConversationPanel({
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
-			readOnly: false,
-			timelineItems: [
-				createTimelineItem({
-					id: "sig-wake",
-					text: "@Codex(wake) @Claude(wake) please investigate",
-				}),
-				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
-					id: "sig-execution-failure",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
-					systemNoticeType: "terminal_failure",
-					text: "Codex could not finish this request.",
-				}),
-				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
-					id: "sig-publication-failure",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "publication",
-					systemNoticeTargetProfileId: SECOND_TARGET_PROFILE_ID,
-					systemNoticeType: "terminal_failure",
-					text: "Claude finished, but OpenMeld could not publish the reply.",
-				}),
-			],
-		});
-
-		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(2);
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
-	});
-
-	it("keeps an unknown target failure independent instead of merging away exact identity", () => {
-		renderSpaceConversationPanel({
-			membersSnapshot: createWakeReceiptMembersSnapshot(),
-			readOnly: false,
-			timelineItems: [
-				createTimelineItem({
-					id: "sig-wake",
-					text: "@Codex(wake) @Unknown(wake) please investigate",
-				}),
-				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
-					id: "sig-failure-codex",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeTargetProfileId: TARGET_PROFILE_ID,
-					systemNoticeType: "terminal_failure",
-					text: "OpenMeld could not wake Codex 5.6 Sol. Check the agent connection, then wake the agent again.",
-				}),
-				createTimelineItem({
-					actorName: "OpenMeld",
-					actorProfileId: "system",
-					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
-					createdAtMs: Date.UTC(2026, 4, 27, 10, 1),
-					id: "sig-failure-unknown",
-					replyToSignalId: "sig-wake",
-					signalType: "signal.system_notice",
-					systemNoticeTargetProfileId: "agt_not-in-members-snapshot",
-					systemNoticeType: "terminal_failure",
-					text: "OpenMeld could not wake Unknown. Check the agent connection, then wake the agent again.",
-				}),
-			],
-		});
-
-		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(2);
-		expect(
-			screen.getByText(
-				"OpenMeld could not wake Codex 5.6 Sol. Check the agent connection, then wake the agent again."
-			)
-		).toBeTruthy();
-		expect(
-			screen.getByText(
-				"OpenMeld could not wake Unknown. Check the agent connection, then wake the agent again."
-			)
-		).toBeTruthy();
 	});
 
 	it("merges wake_stopped notices for multiple targets into a single muted-tone row", () => {
@@ -4130,7 +3593,7 @@ describe("SpaceConversationPanel", () => {
 		expect(marker?.className).not.toContain("text-destructive");
 	});
 
-	it("right-aligns an anchored outcome row under the current user's own message, matching that message's bubble", () => {
+	it("aligns a failed message footer with the current user's own message", () => {
 		renderSpaceConversationPanel({
 			readOnly: false,
 			selfProfileId: "human-profile-1",
@@ -4141,10 +3604,8 @@ describe("SpaceConversationPanel", () => {
 					text: "@Runner(wake) please investigate",
 				}),
 				createTimelineItem({
-					actorName: "OpenMeld",
 					actorProfileId: "system",
 					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
 					id: "sig-failure",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
@@ -4154,13 +3615,16 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		const outcomeRow = screen.getByTestId("space-outcome-row");
-		expect(outcomeRow.className).toContain("justify-end");
-		expect(outcomeRow.className).not.toContain("justify-start");
-		expect(outcomeRow.getAttribute("data-align")).toBe("end");
+		const row = screen
+			.getByText("@Runner(wake) please investigate")
+			.closest("[data-message-row-id='sig-wake']");
+		const footer = row?.querySelector("[data-slot='message-footer']");
+		expect(footer?.className).toContain("justify-end");
+		expect(footer?.className).not.toContain("justify-start");
+		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});
 
-	it("left-aligns an anchored outcome row under another member's message, matching that message's bubble", () => {
+	it("aligns a failed message footer with another member's message", () => {
 		renderSpaceConversationPanel({
 			readOnly: false,
 			selfProfileId: "human-profile-1",
@@ -4172,10 +3636,8 @@ describe("SpaceConversationPanel", () => {
 					text: "@Runner(wake) please investigate",
 				}),
 				createTimelineItem({
-					actorName: "OpenMeld",
 					actorProfileId: "system",
 					actorProfileKind: "system",
-					actorProfileName: "OpenMeld",
 					id: "sig-failure",
 					replyToSignalId: "sig-wake",
 					signalType: "signal.system_notice",
@@ -4185,13 +3647,18 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		const outcomeRow = screen.getByTestId("space-outcome-row");
-		expect(outcomeRow.className).toContain("justify-start");
-		expect(outcomeRow.className).not.toContain("justify-end");
-		expect(outcomeRow.getAttribute("data-align")).toBe("start");
+		const row = screen
+			.getByText("@Runner(wake) please investigate")
+			.closest("[data-message-row-id='sig-wake']");
+		const footer = row?.querySelector("[data-slot='message-footer']");
+		expect(footer?.className).toContain("justify-start");
+		expect(footer?.className).not.toContain("justify-end");
+		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});
 
 	it("keeps system notice icons aligned with the notice text", () => {
+		const noticeText =
+			"CLI constraints and the supplemental feedback draft are ready. Reply “Confirm supplemental feedback”; after it is sent, the Amplift organization can see the complete result.";
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -4202,7 +3669,7 @@ describe("SpaceConversationPanel", () => {
 					id: "signal-system-notice",
 					signalType: "signal.system_notice",
 					systemNoticeType: "policy_blocked",
-					text: "Wake was blocked by policy for Center Agent.",
+					text: noticeText,
 				}),
 			],
 		});
@@ -4219,9 +3686,20 @@ describe("SpaceConversationPanel", () => {
 		expect(marker?.className).toContain("gap-2");
 		expect(marker?.className).toContain("before:bg-border");
 		expect(marker?.className).toContain("after:bg-border");
-		expect(marker?.className).not.toContain("items-start");
-		expect(markerIcon?.parentElement).toBe(marker);
+		expect(marker?.className).toContain("before:min-w-6");
+		expect(marker?.className).toContain("after:min-w-6");
+		expect(markerIcon?.className).toContain("mt-1");
+		expect(markerIcon?.parentElement?.className).toContain("items-start");
 		expect(markerContent?.parentElement).toBe(marker);
+		expect(markerContent?.className).toContain("max-w-[min(80%,44rem)]");
+		expect(markerContent?.className).toContain("text-left");
+		expect(markerContent?.className).not.toContain("line-clamp-2");
+		expect(markerContent?.textContent).toContain(noticeText);
+		const viewport = screen.getByRole("log", {
+			name: "Conversation history",
+		});
+		expect(viewport.className).toContain("outline-none");
+		expect(viewport.className).not.toContain("ring-");
 	});
 
 	it("renders a durable conversation compaction separator without an active status", () => {
@@ -4283,7 +3761,11 @@ describe("SpaceConversationPanel", () => {
 		expect(profileHeader.className).toContain("touch-manipulation");
 		expect(profileHeader.className).toContain("max-lg:min-h-11");
 		expect(profileHeader.textContent).toContain("Felix");
-		expect(profileHeader.textContent).toContain(expectedTime);
+		expect(profileHeader.textContent).not.toContain(expectedTime);
+		const messageRow = screen
+			.getByText("Message from Felix")
+			.closest("[data-message-row-id]");
+		expect(messageRow?.querySelector("time")?.textContent).toBe(expectedTime);
 		expect(
 			profileHeader.contains(
 				screen.getByTestId(`space-human-profile-avatar-${profileId}`)
@@ -4758,7 +4240,6 @@ function createSpaceConversationPanelProps(
 		composerBlockedWakeProfileId: null,
 		composerErrorMessage: null,
 		composerReplyToSignalId: null,
-		composerSelection: { end: 0, start: 0 },
 		composerText: "",
 		currentOwnerUserId: null,
 		emptyStateDescription: null,
@@ -4778,20 +4259,14 @@ function createSpaceConversationPanelProps(
 		isLoadingEarlierHistory: false,
 		isSendingMessage: false,
 		membersSnapshot: null,
-		mentionPopoverState: { kind: "closed" },
 		modelCatalog: null,
 		onAgentRecoveryAction: async () => undefined,
 		onAddComposerFiles: async () => undefined,
 		onClearComposerReplyTo: () => undefined,
-		onComposerChange: () => undefined,
-		onComposerKeyDown: async () => undefined,
-		onComposerSelectionChange: () => undefined,
+		onComposerEditorChange: () => undefined,
 		onCreateThread: async () => undefined,
 		onLoadEarlierHistory: async () => undefined,
-		onMentionItemHover: () => undefined,
-		onMentionItemSelect: () => undefined,
 		onMentionButtonClick: () => undefined,
-		onMentionPopoverClose: () => undefined,
 		onOpenThread: () => undefined,
 		onOpenSpaceFile: () => undefined,
 		onReplyToMessage: () => undefined,
@@ -5118,25 +4593,6 @@ function notApplicableFact(): GetSpaceMessageDetailsResponse["agentContext"]["pr
 	};
 }
 
-function createVoidDeferred(): {
-	promise: Promise<void>;
-	resolve: () => void;
-} {
-	let resolvePromise: (() => void) | undefined;
-	const promise = new Promise<void>((resolve) => {
-		resolvePromise = resolve;
-	});
-	return {
-		promise,
-		resolve: () => {
-			if (!resolvePromise) {
-				throw new Error("deferred promise resolver is unavailable");
-			}
-			resolvePromise();
-		},
-	};
-}
-
 function createMatchMediaMock(matches = false): typeof window.matchMedia {
 	return vi.fn().mockImplementation((query: string) => ({
 		addEventListener: vi.fn(),
@@ -5148,18 +4604,6 @@ function createMatchMediaMock(matches = false): typeof window.matchMedia {
 		removeEventListener: vi.fn(),
 		removeListener: vi.fn(),
 	}));
-}
-
-function readMessageActionButtonPresentation(input: {
-	backgroundClass: string;
-	button: HTMLElement;
-}) {
-	return {
-		hasBackground: input.button.classList.contains(input.backgroundClass),
-		hasBorder: input.button.classList.contains("border"),
-		hasBorderBorder: input.button.classList.contains("border-border"),
-		hasBorderZero: input.button.classList.contains("border-0"),
-	};
 }
 
 function formatTestTime(createdAtMs: number): string {

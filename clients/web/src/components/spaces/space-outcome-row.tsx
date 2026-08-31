@@ -235,21 +235,25 @@ export function groupAnchoredOutcomeNotices(
 	return groups;
 }
 
-// A single notice keeps the backend's own per-target sentence verbatim (it
-// already names the one target and the one fix). Multiple notices need a
-// client-composed summary instead of concatenating N backend sentences --
-// each may cite a different reason and a different fix, and mashing those
-// together would assert one fix that doesn't apply to every target. The
-// per-target reasons stay available (each still gets its own line in Message
-// details); this row is only ever the "something needs your attention, open
-// details" pointer. `resolveTargetLabel` is a callback rather than a fixed
-// map type because the two callers resolve a target's display name from
-// different data (a member directory vs. a Wake Stop target-label map).
+// A terminal failure inside a message bubble is only a pointer to Message
+// details. Keep it calm and consistent: name the Agent that could not reply,
+// but leave the actual reason, recovery guidance, and diagnostics in Message
+// details. Wake stops are not failures, so their existing outcome copy remains
+// visible. `resolveTargetLabel` is a callback because the main conversation and
+// Thread callers resolve member names from different projections.
 export function resolveGroupedOutcomeRowText(input: {
 	notices: readonly SpaceTimelineItem[];
 	resolveTargetLabel: (targetProfileId: string) => string | null;
 	tone: SpaceOutcomeRowTone;
 }): string {
+	if (input.tone !== "muted") {
+		const targetProfileId = input.notices[0]?.systemNoticeTargetProfileId;
+		const targetLabel = targetProfileId
+			? input.resolveTargetLabel(targetProfileId)
+			: null;
+		return `${targetLabel ?? "Agent"} couldn’t reply`;
+	}
+
 	if (input.notices.length === 1) {
 		return input.notices[0]?.text ?? "";
 	}
@@ -263,25 +267,19 @@ export function resolveGroupedOutcomeRowText(input: {
 		if (!targetLabel) {
 			return resolveGroupedOutcomeRowFallbackText({
 				targetCount: input.notices.length,
-				tone: input.tone,
 			});
 		}
 		targetLabels.push(targetLabel);
 	}
 
 	const joinedTargetLabels = joinLabelsWithAnd(targetLabels);
-	return input.tone === "muted"
-		? `Wake was stopped for ${joinedTargetLabels}.`
-		: `OpenMeld could not wake ${joinedTargetLabels}. Open message details for what happened with each.`;
+	return `Wake was stopped for ${joinedTargetLabels}.`;
 }
 
 function resolveGroupedOutcomeRowFallbackText(input: {
 	targetCount: number;
-	tone: SpaceOutcomeRowTone;
 }): string {
-	return input.tone === "muted"
-		? `Wake was stopped for ${input.targetCount} agents.`
-		: `OpenMeld could not wake ${input.targetCount} agents for this message.`;
+	return `Wake was stopped for ${input.targetCount} agents.`;
 }
 
 function joinLabelsWithAnd(labels: readonly string[]): string {

@@ -8,23 +8,6 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { InfoIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { ReactElement } from "react";
 
-export function MessageHoverActionSlot(input: {
-	children: ReactElement;
-	className?: string;
-}) {
-	return (
-		<div
-			className={cn(
-				"pointer-events-none opacity-0 transition-opacity duration-150 ease-out group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 motion-reduce:transition-none",
-				input.className
-			)}
-			data-message-action-slot="hover"
-		>
-			{input.children}
-		</div>
-	);
-}
-
 export function MessageActionTooltip(input: {
 	children: ReactElement;
 	label: string;
@@ -48,10 +31,10 @@ export function MessageDetailsActionButton(input: {
 				aria-label="Message details"
 				className={cn(
 					"size-8 shadow-sm",
+					input.buttonClassName,
 					resolveMessageDetailsButtonClassName({
 						hasWakeProblem: input.hasWakeProblem,
-					}),
-					input.buttonClassName
+					})
 				)}
 				onClick={input.onClick}
 				size="icon-sm"
@@ -75,5 +58,5 @@ function resolveMessageDetailsButtonClassName(input: {
 		return "border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive";
 	}
 
-	return "border-border bg-background/95";
+	return "border-0 bg-transparent shadow-none hover:bg-muted";
 }

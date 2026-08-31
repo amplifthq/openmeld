@@ -1,4 +1,5 @@
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -22,6 +23,44 @@ afterEach(() => {
 });
 
 describe("SpaceExecutionRecoveryButton", () => {
+	it.each([
+		{ name: "message details", presentation: undefined },
+		{ name: "message row", presentation: "compact" as const },
+	])("keeps recovery inspection out of $name until a real action is available", async ({
+		presentation,
+	}) => {
+		let resolveInspection:
+			| ((value: Awaited<ReturnType<SpaceExecutionRecoveryHandler>>) => void)
+			| undefined;
+		const inspect = vi.fn<SpaceExecutionRecoveryHandler>(
+			async () =>
+				await new Promise((resolve) => {
+					resolveInspection = resolve;
+				})
+		);
+
+		render(
+			<SpaceExecutionRecoveryButton
+				onRecoverExecution={inspect}
+				presentation={presentation}
+				request={recoveryRequest}
+			/>
+		);
+
+		expect(screen.queryByRole("button")).toBeNull();
+
+		act(() => {
+			resolveInspection?.({
+				action: "recover_result",
+				label: "Recover result",
+				status: "available",
+				warning: null,
+			});
+		});
+
+		await screen.findByRole("button", { name: "Recover result" });
+	});
+
 	it("keeps an automatic inspection failure out of the user's way", async () => {
 		const error = new Error("recovery inspection failed");
 		const inspect = vi

@@ -18,6 +18,8 @@ import {
 const SHOW_FULL_MESSAGE_PATTERN = /show full message/i;
 const INTERNAL_ACTION_CATALOG_PATTERN = /action catalog/i;
 const REFERENCED_SPACE_ID = "a".repeat(64);
+const WAKE_TARGET_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
+const WAKE_TARGET_PROFILE_NAME = "Production Smoke Codex — Aug 28";
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -99,6 +101,53 @@ describe("SpaceMessageBody", () => {
 		expect(screen.queryByRole("link", { name: "Docs" })).toBeNull();
 	});
 
+	it("renders a structured Wake target as an inline Agent identity", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `@${WAKE_TARGET_PROFILE_NAME} hi`,
+					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
+				}}
+				profilePresentationsById={createWakeTargetProfilePresentations()}
+			/>
+		);
+
+		const mention = view.container.querySelector(
+			'[data-slot="space-message-agent-mention"]'
+		);
+
+		expect(mention?.childNodes.item(0).textContent).toBe("@");
+		expect(mention?.childNodes.item(2).textContent).toBe(
+			WAKE_TARGET_PROFILE_NAME
+		);
+		expect(
+			screen.getByTestId(`space-profile-icon-${WAKE_TARGET_PROFILE_ID}`)
+		).toBeTruthy();
+		expect(screen.getByText(WAKE_TARGET_PROFILE_NAME).tagName).toBe("STRONG");
+		expect(mention?.nextSibling?.textContent).toBe(" hi");
+	});
+
+	it("keeps an ordinary unstructured @Agent name as plain text", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `@${WAKE_TARGET_PROFILE_NAME} hi`,
+					wakeTargetProfileIds: [],
+				}}
+				profilePresentationsById={createWakeTargetProfilePresentations()}
+			/>
+		);
+
+		expect(
+			view.container.querySelector('[data-slot="space-message-agent-mention"]')
+		).toBeNull();
+		expect(screen.getByText(`@${WAKE_TARGET_PROFILE_NAME} hi`).tagName).toBe(
+			"P"
+		);
+	});
+
 	it("renders Markdown for ordinary Agent-authored Space messages", () => {
 		const view = render(
 			<SpaceMessageBody
@@ -116,6 +165,59 @@ describe("SpaceMessageBody", () => {
 		expect(screen.getByText("Accepted").tagName).toBe("STRONG");
 		expect(screen.getByText("Run the smoke test").tagName).toBe("LI");
 		expect(view.container.querySelector(".typeset-chat")).toBeTruthy();
+	});
+
+	it("renders a structured Wake target without breaking Agent Markdown", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					actorProfileKind: "agent",
+					isAgentFinalReply: false,
+					text: `**Review:** @${WAKE_TARGET_PROFILE_NAME} please inspect this.`,
+					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
+				}}
+				profilePresentationsById={createWakeTargetProfilePresentations()}
+			/>
+		);
+
+		expect(screen.getByText("Review:").tagName).toBe("STRONG");
+		expect(screen.getByText(WAKE_TARGET_PROFILE_NAME).tagName).toBe("STRONG");
+		expect(
+			screen.getByTestId(`space-profile-icon-${WAKE_TARGET_PROFILE_ID}`)
+		).toBeTruthy();
+	});
+
+	it("keeps structured Agent names inside Markdown code and links unchanged", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					actorProfileKind: "agent",
+					isAgentFinalReply: false,
+					text: [
+						`\`@${WAKE_TARGET_PROFILE_NAME}\``,
+						`[docs for @${WAKE_TARGET_PROFILE_NAME}](https://example.com/docs)`,
+						`\`\`\`text\n@${WAKE_TARGET_PROFILE_NAME}\n\`\`\``,
+						`@${WAKE_TARGET_PROFILE_NAME} please inspect this.`,
+					].join("\n\n"),
+					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
+				}}
+				profilePresentationsById={createWakeTargetProfilePresentations()}
+			/>
+		);
+
+		expect(
+			view.container.querySelectorAll(
+				'[data-slot="space-message-agent-mention"]'
+			)
+		).toHaveLength(1);
+		expect(
+			screen
+				.getByRole("link", {
+					name: `docs for @${WAKE_TARGET_PROFILE_NAME}`,
+				})
+				.getAttribute("href")
+		).toBe("https://example.com/docs");
+		expect(screen.getAllByText(`@${WAKE_TARGET_PROFILE_NAME}`)).toHaveLength(2);
 	});
 
 	it("renders an accessible Space reference in a human-authored message", () => {
@@ -928,5 +1030,21 @@ function createResolvedSpaceReferences(
 ) {
 	return new Map([
 		[REFERENCED_SPACE_ID, { name, spaceId: REFERENCED_SPACE_ID }] as const,
+	]);
+}
+
+function createWakeTargetProfilePresentations() {
+	return new Map([
+		[
+			WAKE_TARGET_PROFILE_ID,
+			{
+				agentControllerRef: "builtin:codex",
+				avatarImageUrl: null,
+				isCenterAgent: false,
+				profileId: WAKE_TARGET_PROFILE_ID,
+				profileKind: "agent" as const,
+				profileName: WAKE_TARGET_PROFILE_NAME,
+			},
+		] as const,
 	]);
 }
