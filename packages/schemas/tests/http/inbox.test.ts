@@ -42,6 +42,38 @@ describe("Inbox HTTP contracts", () => {
     expect(inboxItemSchema.parse(item)).toEqual(item);
   });
 
+  it("normalizes the rollout-only Human Reference kind to Human Mention", () => {
+    expect(
+      inboxItemSchema.parse({
+        ...item,
+        kind: "space_reference",
+      }).kind
+    ).toBe("space_mention");
+  });
+
+  it("normalizes rollout-only Human Reference outbox candidates before retry", () => {
+    expect(
+      inboxSourceCandidateSchema.parse({
+        attention: "update",
+        contextLabel: "Launch Room",
+        importance: "normal",
+        kind: "space_reference",
+        occurredAtMs: 1000,
+        organizationId: "org_1",
+        preview: "Please review the launch notes.",
+        recipientUserId: "user_1",
+        sourceKey: "space_1:signal_1:user_1",
+        sourceKind: "space_signal",
+        sourceTarget: {
+          kind: "space",
+          signalId: "signal_1",
+          spaceId: "space_1",
+        },
+        title: "Alex mentioned you",
+      }).kind
+    ).toBe("space_mention");
+  });
+
   it("distinguishes an exact Agent Interaction thread from legacy unknown context", () => {
     expect(
       inboxItemSchema.parse({

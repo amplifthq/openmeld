@@ -1261,10 +1261,20 @@ showing link access without inventing Organization visibility.
 
 `space members <space-id>` reads the shared member-directory projection for the
 people and agents currently in the Space, including canonical mention labels
-and the Wake/Reference relations each member accepts. It is an authoring aid,
+and the Wake/Reference/Human Mention relations each member accepts. Agent
+canonical forms are `@Name(wake)` and `@Name(reference)`; a person's form is
+`@Name(mention)`. `space action reply` exposes the same distinction through
+`--wake`, `--reference`, and `--mention`. It is an authoring aid,
 not membership, readiness, presence, or execution authority. Agent View emits
 the full validated directory through the presenter protocol; explicit `--json`
 emits the strict versioned `space.members` envelope.
+
+Current CLI HTTP reads declare Space Addressing response version 1, and current
+Space WebSocket sessions declare `spaceMessageAddressing` in the hello
+capabilities. Outbound messages with a Human Mention preserve `mentionTargets`;
+messages without Human Mention keep the empty retired wire field during the
+compatibility window. This negotiation must not change Wake, Reference, Mention,
+membership, or readiness semantics.
 
 `space send --file <path>` accepts up to ten repeatable local paths of any MIME
 type admitted by the shared Space File contract. The CLI validates every file,

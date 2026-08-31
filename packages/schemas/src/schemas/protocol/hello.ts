@@ -3,6 +3,7 @@ import { profileSchema } from "./profile";
 
 export const helloCapabilitiesSchema = z.object({
   liveSignalHistory: z.boolean().optional(),
+  spaceMessageAddressing: z.boolean().optional(),
 });
 
 export const helloSchema = z.object({

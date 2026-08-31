@@ -801,7 +801,7 @@ export function createSpaceSendInputRequiredGuideError() {
       notes: [
         "Prefer --stdin/--text-file for multiline or shell-sensitive message text.",
         "Use repeatable --file options to share up to 10 Space Files with or without message text.",
-        "Use --plain only when @Name(wake) or @Name(reference) should be sent as literal text.",
+        "Use --plain only when @Name(wake), @Name(reference), or @Name(mention) should be sent as literal text.",
       ],
     },
   });
@@ -827,7 +827,7 @@ export function createSpaceSendInputConflictGuideError() {
       notes: [
         "Do not combine positional text with --stdin or --text-file.",
         "A --file attachment may be combined with any one message text source.",
-        "Use --plain only when @Name(wake) or @Name(reference) should be sent as literal text.",
+        "Use --plain only when @Name(wake), @Name(reference), or @Name(mention) should be sent as literal text.",
       ],
     },
   });

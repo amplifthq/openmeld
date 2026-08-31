@@ -1,5 +1,7 @@
 import {
+  OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
   OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_ITEM_KIND_VERSION,
   OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION,
   OPENMELD_INBOX_SOURCE_TARGET_VERSION,
 } from "@openmeld/gateway-contract";
@@ -7,16 +9,19 @@ import {
   centerAgentInboxSummaryResponseSchema,
   dismissInboxItemResponseSchema,
   getInboxItemResponseSchema,
+  getInboxItemWireResponseSchema,
   inboxItemRouteParamsSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryResponseSchema,
   listInboxItemsQuerySchema,
   listInboxItemsResponseSchema,
+  listInboxItemsWireResponseSchema,
   markAllInboxItemsReadResponseSchema,
   markCenterAgentInboxReadThroughBodySchema,
   markCenterAgentInboxReadThroughResponseSchema,
   markInboxItemReadBodySchema,
   markInboxItemReadResponseSchema,
+  markInboxItemReadWireResponseSchema,
   markSpaceInboxReadThroughBodySchema,
   markSpaceInboxReadThroughResponseSchema,
   spaceInboxSummaryResponseSchema,
@@ -138,10 +143,11 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       resolveSuccessPayload: (result) =>
         resolveInboxListResponse({
+          itemKindVersion: resolveInboxItemKindVersion(c),
           result,
           sourceTargetVersion: resolveInboxSourceTargetVersion(c),
         }),
-      responseSchema: listInboxItemsResponseSchema,
+      responseSchema: listInboxItemsWireResponseSchema,
       route: INBOX_ROUTE,
     });
   });
@@ -179,11 +185,12 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       resolveSuccessPayload: (result) =>
         resolveInboxItemResponse({
+          itemKindVersion: resolveInboxItemKindVersion(c),
           result,
           schema: getInboxItemResponseSchema,
           sourceTargetVersion: resolveInboxSourceTargetVersion(c),
         }),
-      responseSchema: getInboxItemResponseSchema,
+      responseSchema: getInboxItemWireResponseSchema,
       route: INBOX_ITEM_ROUTE,
     });
   });
@@ -241,11 +248,12 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       method: "PATCH",
       resolveSuccessPayload: (result) =>
         resolveInboxItemResponse({
+          itemKindVersion: resolveInboxItemKindVersion(c),
           result,
           schema: markInboxItemReadResponseSchema,
           sourceTargetVersion: resolveInboxSourceTargetVersion(c),
         }),
-      responseSchema: markInboxItemReadResponseSchema,
+      responseSchema: markInboxItemReadWireResponseSchema,
       route: INBOX_ITEM_READ_ROUTE,
     });
   });
@@ -301,17 +309,25 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
 }
 
 function resolveInboxListResponse(input: {
+  itemKindVersion: InboxItemKindClientVersion;
   result: unknown;
   sourceTargetVersion: InboxSourceTargetClientVersion;
-}): z.infer<typeof listInboxItemsResponseSchema> {
+}): z.infer<typeof listInboxItemsWireResponseSchema> {
   const response = listInboxItemsResponseSchema.parse(input.result);
-  if (input.sourceTargetVersion === "current") {
+  if (
+    input.itemKindVersion === "current" &&
+    input.sourceTargetVersion === "current"
+  ) {
     return response;
   }
   return {
     ...response,
     items: response.items.map((item) =>
-      projectInboxSourceTargetForClient(item, input.sourceTargetVersion)
+      projectInboxItemForClient({
+        item,
+        itemKindVersion: input.itemKindVersion,
+        sourceTargetVersion: input.sourceTargetVersion,
+      })
     ),
   };
 }
@@ -319,34 +335,51 @@ function resolveInboxListResponse(input: {
 type InboxItemResponse = z.infer<typeof getInboxItemResponseSchema>;
 
 function resolveInboxItemResponse(input: {
+  itemKindVersion: InboxItemKindClientVersion;
   result: unknown;
   schema: { parse: (value: unknown) => InboxItemResponse };
   sourceTargetVersion: InboxSourceTargetClientVersion;
-}): InboxItemResponse {
+}): z.infer<typeof getInboxItemWireResponseSchema> {
   const response = input.schema.parse(input.result);
-  if (input.sourceTargetVersion === "current") {
+  if (
+    input.itemKindVersion === "current" &&
+    input.sourceTargetVersion === "current"
+  ) {
     return response;
   }
   return {
     ...response,
-    item: projectInboxSourceTargetForClient(
-      response.item,
-      input.sourceTargetVersion
-    ),
+    item: projectInboxItemForClient({
+      item: response.item,
+      itemKindVersion: input.itemKindVersion,
+      sourceTargetVersion: input.sourceTargetVersion,
+    }),
   };
 }
 
 type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
+type InboxItemKindClientVersion = "current" | "legacy";
 type InboxSourceTargetClientVersion = "current" | "legacy" | "thread_unaware";
 
-function projectInboxSourceTargetForClient(
-  item: InboxItem,
-  clientVersion: InboxSourceTargetClientVersion
-): z.infer<typeof listInboxItemsResponseSchema>["items"][number] {
-  if (clientVersion === "current") {
-    return item;
+function projectInboxItemForClient(input: {
+  item: InboxItem;
+  itemKindVersion: InboxItemKindClientVersion;
+  sourceTargetVersion: InboxSourceTargetClientVersion;
+}): z.infer<typeof listInboxItemsWireResponseSchema>["items"][number] {
+  if (
+    input.itemKindVersion === "current" &&
+    input.sourceTargetVersion === "current"
+  ) {
+    return input.item;
   }
-  let sourceTarget: InboxItem["sourceTarget"] = item.sourceTarget;
+  let kind: "space_reference" | InboxItem["kind"] = input.item.kind;
+  if (kind === "space_mention" && input.itemKindVersion === "legacy") {
+    kind = "space_reference";
+  }
+  if (input.sourceTargetVersion === "current") {
+    return kind === input.item.kind ? input.item : { ...input.item, kind };
+  }
+  let sourceTarget: InboxItem["sourceTarget"] = input.item.sourceTarget;
   if (
     sourceTarget.kind === "agent_interaction" &&
     sourceTarget.threadRootSignalId !== undefined
@@ -356,18 +389,32 @@ function projectInboxSourceTargetForClient(
     sourceTarget = threadUnawareTarget;
   }
   if (
-    clientVersion === "legacy" &&
+    input.sourceTargetVersion === "legacy" &&
     (sourceTarget.kind === "message_channel" ||
       sourceTarget.kind === "agent_profile_creation_request")
   ) {
     sourceTarget = { kind: "center_agent" };
   }
-  return sourceTarget === item.sourceTarget
-    ? item
-    : {
-        ...item,
-        sourceTarget,
-      };
+  if (kind === input.item.kind && sourceTarget === input.item.sourceTarget) {
+    return input.item;
+  }
+  return {
+    ...input.item,
+    kind,
+    sourceTarget,
+  };
+}
+
+function resolveInboxItemKindVersion(
+  c: Context<HonoBindings>
+): InboxItemKindClientVersion {
+  if (
+    c.req.header(OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION) ===
+    OPENMELD_INBOX_ITEM_KIND_VERSION
+  ) {
+    return "current";
+  }
+  return "legacy";
 }
 
 function resolveInboxSourceTargetVersion(

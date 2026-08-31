@@ -155,6 +155,7 @@ describe("space mention suggestions", () => {
         allowedRelations: {
           wake: true,
           reference: true,
+          mention: false,
         },
         description: "codex · by Felix",
       })
@@ -294,6 +295,7 @@ describe("space mention suggestions", () => {
         allowedRelations: {
           wake: true,
           reference: true,
+          mention: false,
         },
         primaryMentionLabel: "Ops Bot",
         wakeAvailability: {
@@ -343,7 +345,7 @@ describe("space mention suggestions", () => {
         primaryMentionLabel: human.primaryMentionLabel,
         wakeAvailability: human.wakeAvailability,
       }).map((choice) => choice.label)
-    ).toEqual(["Reference"]);
+    ).toEqual(["Mention"]);
     expect(
       listSpaceMentionRelationChoices({
         allowedRelations: agent.allowedRelations,

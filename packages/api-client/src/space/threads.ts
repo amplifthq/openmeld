@@ -8,7 +8,7 @@ import {
   listSpaceThreadsResponseSchema,
   postSpaceThreadSignalBodySchema,
   postSpaceThreadSignalResponseSchema,
-  toLegacySpaceAddressingWireValue,
+  toCompatibleSpaceAddressingRequestWireValue,
 } from "@openmeld/schemas";
 import type {
   CreateSpaceThreadBody,
@@ -21,6 +21,7 @@ import type {
   PostSpaceThreadSignalResponse,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceAddressingHeaders } from "./addressing-contract";
 import {
   buildSpaceThreadEventsPath,
   buildSpaceThreadPath,
@@ -47,7 +48,7 @@ export async function createSpaceThread(
     url: buildSpaceThreadsPath(input.spaceId),
     operation: "space.thread.create",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: currentSpaceAddressingHeaders("application/json"),
     body: JSON.stringify(parsedBody.data),
     requestContext: input.requestContext,
     signal: input.signal,
@@ -68,6 +69,7 @@ export async function listSpaceThreads(
     url: buildSpaceThreadsPath(input.spaceId),
     operation: "space.thread.list",
     method: "GET",
+    headers: currentSpaceAddressingHeaders(),
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,
@@ -87,6 +89,7 @@ export async function getSpaceThread(
     url: buildSpaceThreadPath(input.spaceId, input.threadId),
     operation: "space.thread.get",
     method: "GET",
+    headers: currentSpaceAddressingHeaders(),
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,
@@ -106,6 +109,7 @@ export async function listSpaceThreadEvents(
     url: buildSpaceThreadEventsPath(input.spaceId, input.threadId),
     operation: "space.thread.events",
     method: "GET",
+    headers: currentSpaceAddressingHeaders(),
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,
@@ -149,6 +153,7 @@ export async function listSpaceThreadSignals(
     ),
     operation: "space.thread.signals",
     method: "GET",
+    headers: currentSpaceAddressingHeaders(),
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,
@@ -177,8 +182,10 @@ export async function postSpaceThreadSignal(
     url: buildSpaceThreadSignalsPath(input.spaceId, input.threadId),
     operation: "space.thread.send",
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(toLegacySpaceAddressingWireValue(parsedBody.data)),
+    headers: currentSpaceAddressingHeaders("application/json"),
+    body: JSON.stringify(
+      toCompatibleSpaceAddressingRequestWireValue(parsedBody.data)
+    ),
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,

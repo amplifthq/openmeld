@@ -87,7 +87,7 @@ describe("space composer submission", () => {
           },
           {
             profileId: HUMAN_ANALYST_ID,
-            relation: "reference",
+            relation: "mention",
             text: "@Alice",
           },
         ],
@@ -104,17 +104,53 @@ describe("space composer submission", () => {
         },
         {
           profileId: HUMAN_ANALYST_ID,
-          relation: "reference",
+          relation: "mention",
           text: "@Alice",
         },
       ],
       messageEnvelope: {
         activationTargets: [AGENT_BUDGET_ID],
-        referenceTargets: [HUMAN_ANALYST_ID],
+        referenceTargets: [],
+        mentionTargets: [HUMAN_ANALYST_ID],
         text: "@Budget Analyst please review this with @Alice.",
       },
       text: "@Budget Analyst please review this with @Alice.",
       hasStructuredTargets: true,
+    });
+  });
+
+  it("preserves repeated Human Mention text while notifying the person only once", () => {
+    const text = "@Alice please review this, and thank you again @Alice.";
+
+    expect(
+      prepareSpaceComposerSubmission({
+        authoredMentionsInTextOrder: [
+          {
+            profileId: HUMAN_ANALYST_ID,
+            relation: "mention",
+            text: "@Alice",
+          },
+          {
+            profileId: HUMAN_ANALYST_ID,
+            relation: "mention",
+            text: "@Alice",
+          },
+        ],
+        missingSnapshotMessage: "missing snapshot",
+        text,
+        snapshot: createSnapshot(),
+      })
+    ).toMatchObject({
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [],
+        mentionTargets: [HUMAN_ANALYST_ID],
+        text,
+      },
+      resolvedStructuredTargets: {
+        profileIdsInTextOrder: [HUMAN_ANALYST_ID],
+      },
+      text,
     });
   });
 
@@ -171,25 +207,26 @@ describe("space composer submission", () => {
         missingSnapshotMessage: "missing snapshot",
         text: [
           "  @Budget Analyst(wake) Please propose the rollout plan.",
-          "@Legal(reference) Please keep visibility on this thread.",
-          "@Alice(reference) I agree with the risk framing.  ",
+          "@Legal(mention) Please keep visibility on this thread.",
+          "@Alice(mention) I agree with the risk framing.  ",
         ].join("\n"),
         snapshot: createSnapshot(),
       })
     ).toMatchObject({
       messageEnvelope: {
         activationTargets: [AGENT_BUDGET_ID],
-        referenceTargets: [HUMAN_LEGAL_ID, HUMAN_ANALYST_ID],
+        referenceTargets: [],
+        mentionTargets: [HUMAN_LEGAL_ID, HUMAN_ANALYST_ID],
         text: [
           "@Budget Analyst(wake) Please propose the rollout plan.",
-          "@Legal(reference) Please keep visibility on this thread.",
-          "@Alice(reference) I agree with the risk framing.",
+          "@Legal(mention) Please keep visibility on this thread.",
+          "@Alice(mention) I agree with the risk framing.",
         ].join("\n"),
       },
       text: [
         "@Budget Analyst(wake) Please propose the rollout plan.",
-        "@Legal(reference) Please keep visibility on this thread.",
-        "@Alice(reference) I agree with the risk framing.",
+        "@Legal(mention) Please keep visibility on this thread.",
+        "@Alice(mention) I agree with the risk framing.",
       ].join("\n"),
       hasStructuredTargets: true,
     });

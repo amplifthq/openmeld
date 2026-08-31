@@ -46,10 +46,6 @@ import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpaceThreadPanel } from "#/components/spaces/space-thread-panel";
 import type { SpaceView } from "#/components/spaces/space-view";
 import { SpaceViewTabs } from "#/components/spaces/space-view-tabs";
-import type {
-	SpaceComposerSelection,
-	SpaceMentionPopoverState,
-} from "#/components/spaces/use-space-mention-authoring";
 import { useSpaceMessageReferences } from "#/components/spaces/use-space-message-references";
 import { getSession } from "#/lib/auth-session";
 import { recordProfileSpaceHistory } from "#/lib/onboarding/record-profile-space-history";
@@ -74,8 +70,6 @@ const EMPTY_THREAD_PREVIEWS: readonly SpaceThreadPreview[] = [];
 const EMPTY_AGENT_RECOVERY_PLANS = new Map<string, never>();
 const EMPTY_EPHEMERAL_ACTIVITY_ITEMS: readonly never[] = [];
 const EMPTY_WAKE_FAILURE_TARGET_CONTEXTS = new Map<string, never>();
-const EMPTY_COMPOSER_SELECTION: SpaceComposerSelection = { end: 0, start: 0 };
-const CLOSED_MENTION_POPOVER: SpaceMentionPopoverState = { kind: "closed" };
 type PublicSpaceMemberProfile =
 	SpaceViewerMembershipResponse["activeMemberProfiles"][number];
 
@@ -405,7 +399,6 @@ export function PublicSpacePage(input: {
 						composerFileLimitReached={false}
 						composerFiles={[]}
 						composerReplyToSignalId={null}
-						composerSelection={EMPTY_COMPOSER_SELECTION}
 						composerText=""
 						currentOwnerUserId={null}
 						emptyStateDescription={null}
@@ -429,22 +422,18 @@ export function PublicSpacePage(input: {
 						isCreatingThread={false}
 						isDiagnosticReportPending={() => false}
 						isDiagnosticReportSent={() => false}
+						isDirectMessage={false}
 						isLoadingEarlierHistory={false}
 						isSendingMessage={false}
 						membersSnapshot={null}
-						mentionPopoverState={CLOSED_MENTION_POPOVER}
 						modelCatalog={null}
 						onAddComposerFiles={noopPromise}
 						onAgentRecoveryAction={noopPromise}
 						onClearComposerReplyTo={() => undefined}
-						onComposerChange={() => undefined}
-						onComposerKeyDown={noopPromise}
-						onComposerSelectionChange={() => undefined}
+						onComposerEditorChange={() => undefined}
 						onCreateThread={noopPromise}
 						onLoadEarlierHistory={noopPromise}
-						onMentionItemHover={() => undefined}
-						onMentionItemSelect={() => undefined}
-						onMentionPopoverClose={() => undefined}
+						onMentionButtonClick={() => undefined}
 						onOpenSpaceFile={openSpaceFile}
 						onOpenThread={setSelectedThreadId}
 						onRemoveComposerFile={() => undefined}
@@ -478,7 +467,6 @@ export function PublicSpacePage(input: {
 						composerErrorMessage={null}
 						composerFileLimitReached={false}
 						composerFiles={[]}
-						composerSelection={EMPTY_COMPOSER_SELECTION}
 						composerText=""
 						ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
 						isAgentRecoveryPending={() => false}
@@ -486,16 +474,11 @@ export function PublicSpacePage(input: {
 						isDiagnosticReportSent={() => false}
 						isSendingMessage={false}
 						membersSnapshot={null}
-						mentionPopoverState={CLOSED_MENTION_POPOVER}
 						onAddComposerFiles={noopPromise}
 						onAgentRecoveryAction={noopPromise}
 						onClose={() => setSelectedThreadId(null)}
-						onComposerChange={() => undefined}
-						onComposerKeyDown={noopPromise}
-						onComposerSelectionChange={() => undefined}
-						onMentionItemHover={() => undefined}
-						onMentionItemSelect={() => undefined}
-						onMentionPopoverClose={() => undefined}
+						onComposerEditorChange={() => undefined}
+						onMentionButtonClick={() => undefined}
 						onOpenSpaceFile={openSpaceFile}
 						onRemoveComposerFile={() => undefined}
 						onReportMessage={noopPromise}

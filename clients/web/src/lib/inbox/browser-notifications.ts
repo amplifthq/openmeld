@@ -158,7 +158,7 @@ export function isInboxBrowserNotificationEligible(item: InboxItem): boolean {
 }
 
 /**
- * Update-class items that still directly concern the member: being referenced,
+ * Update-class items that still directly concern the member: being mentioned,
  * replies addressed to them, their own Wake outcomes, and Center Agent Task
  * endings. The Task producer only emits an item for needs_attention or a
  * terminal status (succeeded/failed/stopped), never for intermediate progress,
@@ -167,7 +167,7 @@ export function isInboxBrowserNotificationEligible(item: InboxItem): boolean {
  */
 function isDirectlyAddressedInboxUpdate(kind: InboxItem["kind"]): boolean {
 	return (
-		kind === "space_reference" ||
+		kind === "space_mention" ||
 		kind === "agent_reply" ||
 		kind === "wake_outcome" ||
 		kind === "center_agent_task"

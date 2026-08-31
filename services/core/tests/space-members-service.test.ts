@@ -698,8 +698,9 @@ describe("space-members-service", () => {
           profileKind: "human",
           displayName: "Felix",
           allowedRelations: {
+            mention: true,
             wake: false,
-            reference: true,
+            reference: false,
           },
         }),
         expect.objectContaining({
@@ -708,6 +709,7 @@ describe("space-members-service", () => {
           displayName: "Felix's Codex",
           mentionAlias: "codex",
           allowedRelations: {
+            mention: false,
             wake: true,
             reference: true,
           },

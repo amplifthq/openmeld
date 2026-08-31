@@ -15,10 +15,12 @@ describe("space message addressing contract", () => {
     expect(SPACE_MESSAGE_ADDRESSING_RELATION_VALUES).toEqual([
       "wake",
       "reference",
+      "mention",
     ]);
     expect(SPACE_MESSAGE_ADDRESSING_TARGET_FIELD_VALUES).toEqual([
       "activationTargets",
       "referenceTargets",
+      "mentionTargets",
     ]);
     expect(resolveSpaceMessageAddressingTargetField("wake")).toBe(
       "activationTargets"
@@ -26,9 +28,12 @@ describe("space message addressing contract", () => {
     expect(resolveSpaceMessageAddressingTargetField("reference")).toBe(
       "referenceTargets"
     );
+    expect(resolveSpaceMessageAddressingTargetField("mention")).toBe(
+      "mentionTargets"
+    );
   });
 
-  it("keeps Wake limited to Agent Profile targets while Reference supports human or agent targets", () => {
+  it("keeps Agent Wake and Reference separate from Human Mention", () => {
     expect(SPACE_MESSAGE_ADDRESSING_TARGET_KIND_VALUES).toEqual([
       "human_profile",
       "agent_profile",
@@ -37,13 +42,15 @@ describe("space message addressing contract", () => {
       getSpaceMessageAddressingRelationSupportForTargetKind("human_profile")
     ).toEqual({
       wake: false,
-      reference: true,
+      reference: false,
+      mention: true,
     });
     expect(
       getSpaceMessageAddressingRelationSupportForTargetKind("agent_profile")
     ).toEqual({
       wake: true,
       reference: true,
+      mention: false,
     });
   });
 
@@ -53,7 +60,7 @@ describe("space message addressing contract", () => {
     );
     expect(
       spaceMessageAddressingRelationSchema.safeParse("mention").success
-    ).toBe(false);
+    ).toBe(true);
     expect(
       spaceMessageAddressingTargetKindSchema.safeParse("agent_profile").success
     ).toBe(true);
@@ -78,6 +85,12 @@ describe("space message addressing contract", () => {
     expect(
       isSpaceMessageAddressingRelationSupportedForTargetKind({
         relation: "reference",
+        targetKind: "human_profile",
+      })
+    ).toBe(false);
+    expect(
+      isSpaceMessageAddressingRelationSupportedForTargetKind({
+        relation: "mention",
         targetKind: "human_profile",
       })
     ).toBe(true);

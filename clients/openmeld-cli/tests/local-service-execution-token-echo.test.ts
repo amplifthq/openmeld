@@ -133,4 +133,47 @@ describe("local service execution token echo", () => {
         .ccTargets
     ).toEqual([]);
   });
+
+  it("preserves Human Mention targets on dispatch result frames", () => {
+    const send = vi.fn();
+    const socket = { send } as never;
+    const humanProfileId = "11111111-1111-4111-8111-111111111111";
+
+    sendDispatchResultFrame({
+      attemptId: "attempt-1",
+      connectionGeneration: 1,
+      daemonSessionId: "session-1",
+      dispatchId: "dispatch-1",
+      executionIdentityEcho: resultIdentityEcho,
+      executionTokenEcho,
+      leaseEpoch: 2,
+      payload: {
+        agentId: "agent-1",
+        agentControllerConversationId: "ctx-1",
+        attemptId: "attempt-1",
+        deduped: false,
+        output: "ok",
+        spaceAction: {
+          type: "post_message",
+          messageEnvelope: {
+            activationTargets: [],
+            mentionTargets: [humanProfileId],
+            referenceTargets: [],
+            text: "Please take a look.",
+          },
+        },
+        sourceEventId: "signal-1",
+        status: "success",
+        taskId: "task-1",
+      },
+      runtimeCoordinatorExecutionId: "rce-space-1-dispatch-1-agent-1",
+      socket,
+    });
+
+    const frame = JSON.parse(String(send.mock.calls[0]?.[0]));
+    expect(
+      frame.payload.taskResult.payload.spaceAction.messageEnvelope
+        .mentionTargets
+    ).toEqual([humanProfileId]);
+  });
 });

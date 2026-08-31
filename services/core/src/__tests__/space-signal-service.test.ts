@@ -4147,6 +4147,42 @@ describe("space signal service", () => {
     expect(publishTextSignal).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { supportsSpaceMessageAddressing: false },
+    { supportsSpaceMessageAddressing: true },
+  ])("preserves WebSocket addressing capability in the publish context", async ({
+    supportsSpaceMessageAddressing,
+  }) => {
+    const webSocket = {
+      send: vi.fn(),
+    } as unknown as WebSocket;
+    const buildTextSignal = vi.fn(() => createSignal());
+    const publishTextSignal = vi.fn(async () => undefined);
+
+    await handleWebSocketTextSignal({
+      webSocket,
+      session: {
+        helloAccepted: true,
+        supportsLiveSignalHistory: false,
+        supportsSpaceMessageAddressing,
+      },
+      profile: createSignal().profile,
+      payload: {
+        type: "signal.text",
+        data: { text: "Please review" },
+      },
+      buildTextSignal,
+      publishTextSignal,
+    });
+
+    expect(publishTextSignal).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        supportsCurrentSpaceAddressing: supportsSpaceMessageAddressing,
+      })
+    );
+  });
+
   it("rejects WebSocket Wake posts without publishing or broadcasting", async () => {
     const webSocket = {
       send: vi.fn(),
@@ -4156,7 +4192,11 @@ describe("space signal service", () => {
 
     await handleWebSocketTextSignal({
       webSocket,
-      session: { helloAccepted: true, supportsLiveSignalHistory: false },
+      session: {
+        helloAccepted: true,
+        supportsLiveSignalHistory: false,
+        supportsSpaceMessageAddressing: false,
+      },
       profile: createSignal().profile,
       payload: {
         type: "signal.text",
@@ -4188,7 +4228,11 @@ describe("space signal service", () => {
 
     await handleWebSocketTextSignal({
       webSocket,
-      session: { helloAccepted: true, supportsLiveSignalHistory: false },
+      session: {
+        helloAccepted: true,
+        supportsLiveSignalHistory: false,
+        supportsSpaceMessageAddressing: false,
+      },
       profile: createSignal().profile,
       payload: {
         type: "signal.text",
@@ -4237,7 +4281,11 @@ describe("space signal service", () => {
 
     await handleWebSocketTextSignal({
       webSocket,
-      session: { helloAccepted: true, supportsLiveSignalHistory: false },
+      session: {
+        helloAccepted: true,
+        supportsLiveSignalHistory: false,
+        supportsSpaceMessageAddressing: false,
+      },
       profile: createSignal().profile,
       payload: {
         type: "signal.text",

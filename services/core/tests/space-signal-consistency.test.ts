@@ -4058,13 +4058,14 @@ describe("space signal consistency matrix", () => {
       {
         authoringPolicy: "user_authored",
         spacePassword: "secret-123",
+        supportsCurrentSpaceAddressing: false,
       }
     );
     expect(webSocket.send).not.toHaveBeenCalled();
     expect(webSocket.close).not.toHaveBeenCalled();
   });
 
-  it("keeps websocket signal context limited to authoring policy without protected-space password", async () => {
+  it("keeps websocket signal context free of a password when the Space is not protected", async () => {
     const publishTextSignalSpy = vi.fn();
     const webSocket = {
       close: vi.fn(),
@@ -4109,6 +4110,7 @@ describe("space signal consistency matrix", () => {
       }),
       {
         authoringPolicy: "user_authored",
+        supportsCurrentSpaceAddressing: false,
       }
     );
   });

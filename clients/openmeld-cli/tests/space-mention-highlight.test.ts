@@ -39,14 +39,14 @@ describe("space mention highlight", () => {
     );
 
     const highlighted = highlightSpaceMentions({
-      text: `hello @felix-in-space(reference), ping @${AGENT_OPS_BOT_PROFILE_ID}(wake) and @ops-bot(wake)!`,
+      text: `hello @felix-in-space(mention), ping @${AGENT_OPS_BOT_PROFILE_ID}(wake) and @ops-bot(wake)!`,
       index,
       render: (mentionText, profileIdentity) =>
         `[${mentionText}|${profileIdentity.openMeldProfileId}]`,
     });
 
     expect(highlighted).toBe(
-      `hello [@felix-in-space(reference)|${HUMAN_FELIX_PROFILE_ID}], ping [@${AGENT_OPS_BOT_PROFILE_ID}(wake)|${AGENT_OPS_BOT_PROFILE_ID}] and [@ops-bot(wake)|${AGENT_OPS_BOT_PROFILE_ID}]!`
+      `hello [@felix-in-space(mention)|${HUMAN_FELIX_PROFILE_ID}], ping [@${AGENT_OPS_BOT_PROFILE_ID}(wake)|${AGENT_OPS_BOT_PROFILE_ID}] and [@ops-bot(wake)|${AGENT_OPS_BOT_PROFILE_ID}]!`
     );
   });
 
@@ -91,13 +91,13 @@ describe("space mention highlight", () => {
     );
 
     const highlighted = highlightSpaceMentions({
-      text: "@shared-name(reference) is ambiguous, @shared-namehello(reference) is partial",
+      text: "@shared-name(mention) is ambiguous, @shared-namehello(mention) is partial",
       index,
       render: (mentionText) => `[${mentionText}]`,
     });
 
     expect(highlighted).toBe(
-      "@shared-name(reference) is ambiguous, @shared-namehello(reference) is partial"
+      "@shared-name(mention) is ambiguous, @shared-namehello(mention) is partial"
     );
   });
 
@@ -114,13 +114,13 @@ describe("space mention highlight", () => {
     );
 
     const highlighted = highlightSpaceMentions({
-      text: "hello @felix-in-space(reference)",
+      text: "hello @felix-in-space(mention)",
       index,
       render: (mentionText, profileIdentity) =>
         `[${mentionText}|${profileIdentity.openMeldProfileId}]`,
     });
 
-    expect(highlighted).toBe("hello @felix-in-space(reference)");
+    expect(highlighted).toBe("hello @felix-in-space(mention)");
   });
 
   it("highlights spaced profile names only through exact canonical syntax", () => {
@@ -136,14 +136,14 @@ describe("space mention highlight", () => {
     );
 
     const highlighted = highlightSpaceMentions({
-      text: "hello @OpenMeld Dev Local Test(reference)",
+      text: "hello @OpenMeld Dev Local Test(mention)",
       index,
       render: (mentionText, profileIdentity) =>
         `[${mentionText}|${profileIdentity.openMeldProfileId}]`,
     });
 
     expect(highlighted).toBe(
-      `hello [@OpenMeld Dev Local Test(reference)|${HUMAN_FELIX_PROFILE_ID}]`
+      `hello [@OpenMeld Dev Local Test(mention)|${HUMAN_FELIX_PROFILE_ID}]`
     );
   });
 });

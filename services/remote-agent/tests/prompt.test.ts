@@ -409,21 +409,21 @@ describe("remote agent system prompt", () => {
     );
   });
 
-  it("requires structured Reference targets instead of text-only addressing", () => {
+  it("requires structured Human Mention and Agent Reference targets", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "pass every exact Human or Agent Profile ID that is context only"
+      "pass every exact Human Profile ID that should receive Inbox and browser attention"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Never express Reference only as @Name(reference) text"
+      "pass every exact Agent Profile ID that is context only"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "A Reference target never becomes a child task"
+      "Human Mention never enters Agent execution"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Always include mentionProfileIds"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "Always include referenceProfileIds"
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "pass [] only after deciding that the message has no context-only profiles"
     );
   });
 

@@ -35,7 +35,7 @@ export const inboxResolutionStatusSchema = z.enum([
 ]);
 export const inboxItemKindSchema = z.enum([
   "space_message",
-  "space_reference",
+  "space_mention",
   "agent_reply",
   "agent_interaction",
   "wake_outcome",
@@ -44,6 +44,10 @@ export const inboxItemKindSchema = z.enum([
   "document_review",
   "organization_request",
   "system_issue",
+]);
+const inboxItemWireKindSchema = z.union([
+  inboxItemKindSchema,
+  z.literal("space_reference"),
 ]);
 
 export const inboxSourceKindSchema = z.enum([
@@ -144,14 +148,14 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export const inboxItemSchema = z
+export const inboxItemWireSchema = z
   .strictObject({
     attention: inboxAttentionSchema,
     contextLabel: contextLabelSchema.nullable(),
     createdAt: isoDateTimeSchema,
     id: identifierSchema,
     importance: inboxImportanceSchema,
-    kind: inboxItemKindSchema,
+    kind: inboxItemWireKindSchema,
     occurredAt: isoDateTimeSchema,
     organizationId: identifierSchema,
     preview: previewSchema,
@@ -177,6 +181,11 @@ export const inboxItemSchema = z
     }
   });
 
+export const inboxItemSchema = inboxItemWireSchema.transform((item) => ({
+  ...item,
+  kind: normalizeInboxItemWireKind(item.kind),
+}));
+
 export const listInboxItemsQuerySchema = z.strictObject({
   cursor: z.string().trim().min(1).max(1024).optional(),
   limit: z.coerce.number().int().min(1).max(INBOX_LIST_MAX_LIMIT).optional(),
@@ -185,6 +194,12 @@ export const listInboxItemsQuerySchema = z.strictObject({
 
 export const listInboxItemsResponseSchema = z.strictObject({
   items: z.array(inboxItemSchema),
+  nextCursor: z.string().min(1).max(1024).nullable(),
+  organizationId: identifierSchema,
+});
+
+export const listInboxItemsWireResponseSchema = z.strictObject({
+  items: z.array(inboxItemWireSchema),
   nextCursor: z.string().min(1).max(1024).nullable(),
   organizationId: identifierSchema,
 });
@@ -253,6 +268,10 @@ export const getInboxItemResponseSchema = z.strictObject({
   item: inboxItemSchema,
 });
 
+export const getInboxItemWireResponseSchema = z.strictObject({
+  item: inboxItemWireSchema,
+});
+
 export const dismissInboxItemResponseSchema = z.strictObject({
   dismissedItemId: identifierSchema,
 });
@@ -265,15 +284,19 @@ export const markInboxItemReadResponseSchema = z.strictObject({
   item: inboxItemSchema,
 });
 
+export const markInboxItemReadWireResponseSchema = z.strictObject({
+  item: inboxItemWireSchema,
+});
+
 export const markAllInboxItemsReadResponseSchema = z.strictObject({
   markedReadCount: z.number().int().nonnegative(),
 });
 
-export const inboxSourceCandidateSchema = z.strictObject({
+const inboxSourceCandidateWireSchema = z.strictObject({
   attention: inboxAttentionSchema,
   contextLabel: contextLabelSchema.nullable(),
   importance: inboxImportanceSchema,
-  kind: inboxItemKindSchema,
+  kind: inboxItemWireKindSchema,
   occurredAtMs: timestampMsSchema,
   organizationId: identifierSchema,
   preview: previewSchema,
@@ -283,6 +306,18 @@ export const inboxSourceCandidateSchema = z.strictObject({
   sourceTarget: inboxSourceTargetSchema,
   title: titleSchema,
 });
+
+export const inboxSourceCandidateSchema =
+  inboxSourceCandidateWireSchema.transform((candidate) => ({
+    ...candidate,
+    kind: normalizeInboxItemWireKind(candidate.kind),
+  }));
+
+function normalizeInboxItemWireKind(
+  kind: typeof inboxItemWireKindSchema._output
+): typeof inboxItemKindSchema._output {
+  return kind === "space_reference" ? "space_mention" : kind;
+}
 
 export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
   context: openMeldRequestContextSchema,

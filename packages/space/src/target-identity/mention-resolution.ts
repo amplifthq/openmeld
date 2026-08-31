@@ -106,7 +106,7 @@ export function listRecentMentionProfileIdsFromText(input: {
   return recentProfileIds;
 }
 
-const CANONICAL_MENTION_RELATIONS = ["wake", "reference"] as const;
+const CANONICAL_MENTION_RELATIONS = ["wake", "reference", "mention"] as const;
 
 function buildMentionRelationKey(
   mentionLabel: string,

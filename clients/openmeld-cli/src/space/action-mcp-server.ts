@@ -33,9 +33,10 @@ export function createSpaceActionMcpServer(): McpServer {
     {
       title: "Reply in the current OpenMeld Space",
       description:
-        "Record the exact final public reply for the active OpenMeld Wake. Use real newline characters for paragraph breaks. Optionally wake or reference current Space targets by mention label or profile ID.",
+        "Record the exact final public reply for the active OpenMeld Wake. Use real newline characters for paragraph breaks. Optionally wake or reference an Agent, or mention a person, by mention label or profile ID.",
       inputSchema: {
         message: z.string().min(1),
+        mentionTargets: z.array(z.string().min(1)).optional(),
         referenceTargets: z.array(z.string().min(1)).optional(),
         wakeTargets: z.array(z.string().min(1)).optional(),
       },
@@ -46,9 +47,10 @@ export function createSpaceActionMcpServer(): McpServer {
         readOnlyHint: false,
       },
     },
-    async ({ message, referenceTargets, wakeTargets }) =>
+    async ({ mentionTargets, message, referenceTargets, wakeTargets }) =>
       executeSpaceAction(() =>
         recordDispatchSpaceReply({
+          mentionTargets,
           referenceTargets,
           text: message,
           wakeTargets,

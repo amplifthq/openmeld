@@ -72,9 +72,37 @@ describe("OpenMeld Space Action command", () => {
       type: "post_message",
       messageEnvelope: {
         activationTargets: [AGENT_PROFILE_ID],
+        mentionTargets: [],
         referenceTargets: [],
         replyToSignalId: "sig-reply",
         text: "Please review this.",
+      },
+    });
+  });
+
+  it("records reply --mention as a Human Mention without waking the person", async () => {
+    const humanProfileId = "11111111-1111-4111-8111-111111111111";
+    const context = createTestContext([
+      createProjectionEntry({
+        profileId: humanProfileId,
+        profileKind: "human",
+        primaryMentionLabel: "Mira",
+      }),
+    ]);
+
+    await runSpaceActionReply({
+      mentionTargets: ["@Mira"],
+      messageParts: ["Please", "take", "a", "look."],
+    });
+
+    const record = readLoadedActionRecord(context);
+    expect(record.action).toMatchObject({
+      type: "post_message",
+      messageEnvelope: {
+        activationTargets: [],
+        mentionTargets: [humanProfileId],
+        referenceTargets: [],
+        text: "Please take a look.",
       },
     });
   });
@@ -329,7 +357,8 @@ describe("OpenMeld Space Action command", () => {
       createProjectionEntry({
         allowedRelations: {
           wake: false,
-          reference: true,
+          reference: false,
+          mention: true,
         },
         profileId: HUMAN_PROFILE_ID,
         profileKind: "human",
@@ -654,8 +683,8 @@ function createProjectionEntry(input: {
     allowedRelations:
       input.allowedRelations ??
       (input.profileKind === "agent"
-        ? { wake: true, reference: true }
-        : { wake: false, reference: true }),
+        ? { wake: true, reference: true, mention: false }
+        : { wake: false, reference: false, mention: true }),
     agentCard: null,
     displayName: input.primaryMentionLabel,
     labelSource: "profile_name",

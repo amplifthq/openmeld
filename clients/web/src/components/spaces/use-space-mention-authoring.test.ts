@@ -3,7 +3,7 @@ import {
 	createSpaceMemberHumanSnapshot,
 	createSpaceMembersSnapshot,
 } from "@openmeld/schemas/testing";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	buildSpaceComposerAddressingSummary,
@@ -131,16 +131,19 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		const firstComposer = renderHook(() => useSpaceMentionAuthoring(input));
 
 		act(() => {
-			firstComposer.result.current.onComposerChange("@Run", {
-				end: 4,
-				start: 4,
+			firstComposer.result.current.onComposerEditorChange({
+				authoredMentions: [
+					{
+						end: 7,
+						profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+						relation: "wake",
+						start: 0,
+						text: "@Runner",
+					},
+				],
+				selection: { end: 8, start: 8 },
+				text: "@Runner ",
 			});
-		});
-		expect(firstComposer.result.current.mentionPopoverState.kind).toBe(
-			"target_picker"
-		);
-		act(() => {
-			firstComposer.result.current.onMentionItemSelect(0, "wake");
 		});
 		act(() => {
 			firstComposer.result.current.onReplyToSignal({ signalId: "signal-1" });
@@ -161,8 +164,99 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		]);
 	});
 
-	it("rewrites the owning canonical mention when its relation changes", () => {
-		const runnerProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+	it("migrates a restored Human Reference into a Human Mention", async () => {
+		const humanProfileId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const composer = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: {
+					kind: "space",
+					ownerAccountId: "account-1",
+					profileId: "human-1",
+					spaceId: "space-1",
+				},
+				initialComposerDraft: {
+					authoredMentions: [
+						{
+							end: 6,
+							profileId: humanProfileId,
+							relation: "reference",
+							start: 0,
+							text: "@Felix",
+						},
+					],
+					replyToSignalId: null,
+					text: "@Felix please review this.",
+					updatedAtMs: 1,
+					version: 2,
+				},
+				isMembersLoading: false,
+				membersErrorMessage: null,
+				openMeldProfileId: "human-1",
+				snapshot: createSpaceMembersSnapshot({
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							profileId: humanProfileId,
+							profileName: "Felix",
+						}),
+					],
+				}),
+				spaceId: "space-1",
+			})
+		);
+
+		await waitFor(() => {
+			expect(composer.result.current.addressingTargets).toEqual([
+				expect.objectContaining({
+					profileId: humanProfileId,
+					relation: "mention",
+				}),
+			]);
+		});
+		expect(
+			composer.result.current.prepareSubmission("Members are required.")
+				.messageEnvelope
+		).toMatchObject({
+			mentionTargets: [humanProfileId],
+			referenceTargets: [],
+		});
+	});
+
+	it("inserts @ at the current selection for the cold-loading textarea", () => {
+		const composer = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: {
+					kind: "space",
+					ownerAccountId: "account-1",
+					profileId: "human-1",
+					spaceId: "space-1",
+				},
+				isMembersLoading: false,
+				membersErrorMessage: null,
+				openMeldProfileId: "human-1",
+				snapshot: createMentionOrderingSnapshot(),
+				spaceId: "space-1",
+			})
+		);
+
+		act(() => {
+			composer.result.current.onComposerChange("Hello teammate", {
+				end: 14,
+				start: 6,
+			});
+		});
+		act(() => {
+			composer.result.current.onMentionButtonClick();
+		});
+
+		expect(composer.result.current.composerText).toBe("Hello @");
+		expect(composer.result.current.composerSelection).toEqual({
+			end: 7,
+			start: 7,
+		});
+	});
+
+	it("authors a Human Mention without creating Agent addressing copy", () => {
+		const humanProfileId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const composer = renderHook(() =>
 			useSpaceMentionAuthoring({
 				composerDraftScope: {
@@ -175,11 +269,10 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 				membersErrorMessage: null,
 				openMeldProfileId: "human-1",
 				snapshot: createSpaceMembersSnapshot({
-					agents: [
-						createSpaceMemberAgentSnapshot({
-							agentWakeAvailability: { status: "available_for_wake" },
-							profileId: runnerProfileId,
-							profileName: "Runner",
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							profileId: humanProfileId,
+							profileName: "Felix",
 						}),
 					],
 				}),
@@ -187,43 +280,37 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 			})
 		);
 
-		const textWithDuplicate = "@Runner(wake) Review this plan with @Run";
 		act(() => {
-			composer.result.current.onComposerChange(textWithDuplicate, {
-				end: textWithDuplicate.length,
-				start: textWithDuplicate.length,
+			composer.result.current.onComposerEditorChange({
+				authoredMentions: [
+					{
+						end: 6,
+						profileId: humanProfileId,
+						relation: "mention",
+						start: 0,
+						text: "@Felix",
+					},
+				],
+				selection: { end: 7, start: 7 },
+				text: "@Felix ",
 			});
 		});
-		expect(composer.result.current.mentionPopoverState.kind).toBe(
-			"target_picker"
-		);
-		act(() => {
-			composer.result.current.onMentionItemSelect(0, "reference");
-		});
+
 		expect(composer.result.current.addressingTargets).toEqual([
 			expect.objectContaining({
-				profileId: runnerProfileId,
-				relation: "wake",
+				profileId: humanProfileId,
+				relation: "mention",
 			}),
 		]);
-
-		act(() => {
-			composer.result.current.onMentionRelationChange(
-				runnerProfileId,
-				"reference"
-			);
-		});
-
-		expect(composer.result.current.composerText).toBe(
-			"@Runner(reference) Review this plan with @Runner "
-		);
+		expect(composer.result.current.addressingSummary).toBeNull();
 		expect(
 			composer.result.current.prepareSubmission("Members are required.")
 				.messageEnvelope
 		).toEqual({
 			activationTargets: [],
-			referenceTargets: [runnerProfileId],
-			text: "@Runner(reference) Review this plan with @Runner",
+			mentionTargets: [humanProfileId],
+			referenceTargets: [],
+			text: "@Felix",
 		});
 	});
 });
@@ -277,7 +364,7 @@ describe("buildSpaceMentionTargetItems", () => {
 });
 
 describe("buildSpaceComposerAddressingSummary", () => {
-	it("stays quiet for a single structured target", () => {
+	it("states the Agent action for a single structured target", () => {
 		expect(
 			buildSpaceComposerAddressingSummary([
 				{
@@ -286,7 +373,7 @@ describe("buildSpaceComposerAddressingSummary", () => {
 					text: "@Runner",
 				},
 			])
-		).toBeNull();
+		).toBe("Waking 1 agent");
 	});
 
 	it("summarizes multiple structured relations without changing them", () => {
@@ -303,12 +390,12 @@ describe("buildSpaceComposerAddressingSummary", () => {
 					text: "@Reviewer",
 				},
 				{
-					profileId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+					profileId: "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc",
 					relation: "reference",
 					text: "@Mira",
 				},
 			])
-		).toBe("Waking 2 agents · Referencing 1");
+		).toBe("Waking 2 agents · Referencing 1 agent");
 	});
 
 	it("does not expose a CC relation in the multi-target summary", () => {
@@ -320,12 +407,12 @@ describe("buildSpaceComposerAddressingSummary", () => {
 					text: "@Runner",
 				},
 				{
-					profileId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+					profileId: "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc",
 					relation: "reference",
 					text: "@Mira",
 				},
 			])
-		).toBe("Waking 1 agent · Referencing 1");
+		).toBe("Waking 1 agent · Referencing 1 agent");
 	});
 
 	it("counts each profile once and uses its first authored relation", () => {
@@ -347,7 +434,19 @@ describe("buildSpaceComposerAddressingSummary", () => {
 					text: "@Reviewer",
 				},
 			])
-		).toBe("Waking 2 agents · Referencing 0");
+		).toBe("Waking 2 agents");
+	});
+
+	it("omits Human Mentions from the Agent-only summary", () => {
+		expect(
+			buildSpaceComposerAddressingSummary([
+				{
+					profileId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+					relation: "mention",
+					text: "@Felix",
+				},
+			])
+		).toBeNull();
 	});
 });
 

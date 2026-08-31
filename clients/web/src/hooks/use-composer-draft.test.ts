@@ -203,4 +203,77 @@ describe("useComposerDraft", () => {
 		);
 		consoleWarn.mockRestore();
 	});
+
+	it("keeps Human Mention drafts outside the legacy v1 storage key", () => {
+		const scope = {
+			kind: "space" as const,
+			ownerAccountId: "account-1",
+			profileId: "human-1",
+			spaceId: "space-1",
+		};
+		const record = createComposerDraftRecord(
+			{
+				authoredMentions: [
+					{
+						end: 4,
+						profileId: "human-2",
+						relation: "mention",
+						start: 0,
+						text: "@Ava",
+					},
+				],
+				replyToSignalId: null,
+				text: "@Ava please review",
+			},
+			100
+		);
+
+		expect(writeComposerDraft(scope, record)).toBe(true);
+		const currentStorageKey = buildComposerDraftStorageKey(scope);
+		const legacyStorageKey = currentStorageKey.replace(":v2:", ":v1:");
+		expect(currentStorageKey).toContain(":v2:");
+		expect(window.localStorage.getItem(legacyStorageKey)).toBeNull();
+		expect(readComposerDraft(scope)).toMatchObject({
+			authoredMentions: [{ relation: "mention" }],
+			version: 2,
+		});
+	});
+
+	it("migrates an existing v1 draft into the current storage format", () => {
+		const scope = {
+			kind: "space" as const,
+			ownerAccountId: "account-1",
+			profileId: "human-1",
+			spaceId: "space-1",
+		};
+		const currentStorageKey = buildComposerDraftStorageKey(scope);
+		const identity = currentStorageKey.slice(currentStorageKey.indexOf("["));
+		const legacyStorageKey = `openmeld.composer-draft:v1:${identity}`;
+		window.localStorage.setItem(
+			legacyStorageKey,
+			JSON.stringify({
+				authoredMentions: [
+					{
+						end: 4,
+						profileId: "human-2",
+						relation: "reference",
+						start: 0,
+						text: "@Ava",
+					},
+				],
+				replyToSignalId: null,
+				text: "@Ava please review",
+				updatedAtMs: 100,
+				version: 1,
+			})
+		);
+
+		expect(readComposerDraft(scope)).toMatchObject({
+			authoredMentions: [{ relation: "reference" }],
+			version: 2,
+		});
+		expect(
+			JSON.parse(window.localStorage.getItem(currentStorageKey) ?? "null")
+		).toMatchObject({ version: 2 });
+	});
 });

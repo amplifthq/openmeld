@@ -11,26 +11,30 @@ const HUMAN_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 
 describe("CC removal compatibility", () => {
-  it("exposes only Wake and Reference in the current addressing contract", () => {
+  it("exposes Wake, Reference, and Human Mention in the current addressing contract", () => {
     expect(SPACE_MESSAGE_ADDRESSING_RELATION_VALUES).toEqual([
       "wake",
       "reference",
+      "mention",
     ]);
     expect(MESSAGE_ENVELOPE_TARGET_FIELD_VALUES).toEqual([
       "activationTargets",
       "referenceTargets",
+      "mentionTargets",
     ]);
     expect(
       getSpaceMessageAddressingRelationSupportForTargetKind("human_profile")
     ).toEqual({
       wake: false,
-      reference: true,
+      reference: false,
+      mention: true,
     });
     expect(
       getSpaceMessageAddressingRelationSupportForTargetKind("agent_profile")
     ).toEqual({
       wake: true,
       reference: true,
+      mention: false,
     });
   });
 
@@ -44,6 +48,7 @@ describe("CC removal compatibility", () => {
 
     expect(normalized).toEqual({
       activationTargets: [AGENT_PROFILE_ID],
+      mentionTargets: [],
       referenceTargets: [HUMAN_PROFILE_ID],
       text: "Historical message",
     });

@@ -33,6 +33,7 @@ describe("space live stream server helpers", () => {
 				},
 				capabilities: {
 					liveSignalHistory: true,
+					spaceMessageAddressing: true,
 				},
 			})
 		);
@@ -59,6 +60,7 @@ describe("space live stream server helpers", () => {
 				},
 				capabilities: {
 					liveSignalHistory: true,
+					spaceMessageAddressing: true,
 				},
 			})
 		);
@@ -299,6 +301,7 @@ describe("space live stream server helpers", () => {
 				},
 				capabilities: {
 					liveSignalHistory: true,
+					spaceMessageAddressing: true,
 				},
 			})
 		);
