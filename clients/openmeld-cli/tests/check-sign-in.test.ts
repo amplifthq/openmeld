@@ -1,3 +1,4 @@
+import { resolveProfileResponseSchema } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthSessionStateMock = vi.hoisted(() => vi.fn());
@@ -135,22 +136,27 @@ describe("sign-in command entry check", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        Response.json({
-          ok: true,
-          profile: {
-            createdAt: "2026-08-25T00:00:00.000Z",
-            createdByUserId: "user-1",
-            lastUsedAt: null,
-            openMeldProfileId: "human-profile-1",
-            ownerUserId: "user-1",
-            profileHandle: "mira",
-            profileKind: "human",
-            profileName: "Mira",
-            source: "web_create",
-            status: "active",
-            updatedAt: "2026-08-25T00:00:00.000Z",
-          },
-        })
+        Response.json(
+          resolveProfileResponseSchema.parse({
+            ok: true,
+            profile: {
+              createdAt: "2026-08-25T00:00:00.000Z",
+              createdByUserId: "user-1",
+              creatorProfileId: null,
+              isDefault: true,
+              lastUsedAt: null,
+              managedRole: null,
+              openMeldProfileId: "human-profile-1",
+              ownerUserId: "user-1",
+              profileHandle: "mira",
+              profileKind: "human",
+              profileName: "Mira",
+              source: "web_create",
+              status: "active",
+              updatedAt: "2026-08-25T00:00:00.000Z",
+            },
+          })
+        )
       )
     );
 

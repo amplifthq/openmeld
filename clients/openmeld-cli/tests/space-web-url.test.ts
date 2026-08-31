@@ -50,6 +50,14 @@ describe("Space web URLs", () => {
     ).toBe("http://localhost:8080");
   });
 
+  it("maps the IPv6 loopback Web origin to the local gateway", () => {
+    expect(
+      resolveSpaceWebGatewayOrigin(
+        new URL("http://[::1]:3000/o/acme/spaces/space-123")
+      )
+    ).toBe("http://[::1]:8080");
+  });
+
   it("rejects a copied Space URL from an untrusted origin", () => {
     expect(() =>
       resolveSpaceWebGatewayOrigin(
