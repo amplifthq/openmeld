@@ -11,6 +11,7 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
 import { SpaceMemberRow } from "./space-member-row";
 import type { SpaceWakeStatusTransientState } from "./space-wake-status-refresh";
 
@@ -364,7 +365,9 @@ describe("SpaceMemberRow", () => {
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Codex · gpt-5.3-codex-spark · high")).toBeTruthy();
 		expect(dialog.getAllByText("Felix")).toHaveLength(2);
-		expect(dialog.getByText("Seen 16d ago")).toBeTruthy();
+		expect(dialog.getByText("Last activity in this Space")).toBeTruthy();
+		expect(dialog.getByText("16d ago")).toBeTruthy();
+		expect(dialog.queryByText("Seen 16d ago")).toBeNull();
 		expect(
 			dialog.getByText("Connect OpenMeld Service before this agent can reply.")
 		).toBeTruthy();
@@ -698,6 +701,34 @@ describe("SpaceMemberRow", () => {
 		expect(liveStatus.className).toContain("text-emerald-");
 		expect(liveStatus.className).not.toContain("border");
 		expect(liveStatus.className).not.toContain("bg-");
+	});
+
+	it("distinguishes Space activity from Organization activity for the same Human", () => {
+		const organizationActivity = resolveDirectoryHumanProfileActivityLabel({
+			lastActiveAt: "2026-08-31T13:20:00.000Z",
+			nowMs: Date.parse("2026-08-31T14:00:00.000Z"),
+			profileStatus: "active",
+		});
+
+		renderSpaceMemberRow({
+			currentProfileId: "human-current",
+			entry: buildHumanEntry({
+				lastSeenLabel: "Seen 8h ago",
+				liveNow: false,
+				presenceLabel: "Seen 8h ago",
+				presenceStatus: null,
+			}),
+		});
+
+		expect(organizationActivity).toBe("40 minutes ago");
+		expect(screen.getByText("Active here 8h ago")).toBeTruthy();
+		const spaceActivity = screen.getByLabelText(
+			"Active here 8h ago. Last activity in this Space"
+		);
+		expect(spaceActivity.getAttribute("title")).toBe(
+			"Last activity in this Space"
+		);
+		expect(screen.queryByText("Seen 8h ago")).toBeNull();
 	});
 
 	it("does not label an agent profile as you", () => {

@@ -5,6 +5,7 @@ export {
   buildProfileDetailsSnapshotFromHumanProfile,
   buildProfileDetailsSnapshotFromSpaceMember,
   formatProfileKind,
+  formatSpaceMemberActivityLabel,
   type HumanProfileDetailsInput,
   type ProfileDetailsSpaceMemberInput,
 } from "./profile-details";

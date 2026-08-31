@@ -20,3 +20,7 @@ stable Profile ID without exposing that machine ID or a relation suffix in the
 public message. Structured Agent Wakes are easier to scan on Web with a compact
 Agent icon and bold name directly in the message, and their targets remain
 available from the message's Addressing action.
+
+Space members now show `Active here` with an explanation that the time reflects
+activity in this Space, so it is not confused with Organization activity in
+People.
