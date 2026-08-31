@@ -102,6 +102,40 @@ describe("api-client Agent Profile work recovery API", () => {
     );
   });
 
+  it("posts queued-work approval through the composed strict input contract", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          action: "approve_queued_work",
+          status: "accepted",
+        })
+      )
+    );
+    const api = createAgentProfileWorkRecoveryApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.execute({
+        action: "approve_queued_work",
+        agentProfileId: AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({
+      action: "approve_queued_work",
+      status: "accepted",
+    });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({
+          body: JSON.stringify({ action: "approve_queued_work" }),
+        }),
+      })
+    );
+  });
+
   it("rejects Skip without the interrupted Wake identity before making a request", async () => {
     const transport = vi.fn();
     const api = createAgentProfileWorkRecoveryApi(
