@@ -15,6 +15,7 @@ import {
   runtimeTransportAgentProfileOperationalContextSchema,
   runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema,
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
+  runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
@@ -249,6 +250,15 @@ describe("runtime transport schema", () => {
         request
       )
     ).toEqual(request);
+    expect(
+      runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.parse({
+        ...request,
+        mutationKind: "future_work_settings",
+      })
+    ).toEqual({
+      ...request,
+      mutationKind: "future_work_settings",
+    });
     expect(
       runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.parse(
         {
@@ -972,6 +982,32 @@ describe("runtime transport schema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("accepts an exact execution target revision on RuntimeCoordinator head admission", () => {
+    const identity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-1",
+      dispatchId: "dispatch-1",
+      sourceSignalId: "signal-1",
+      spaceId: "space-1",
+      targetProfileId: "agent-1",
+    });
+
+    const parsed =
+      runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema.safeParse({
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        dispatchId: "dispatch-1",
+        executionTargetRevision: {
+          agentControllerRef: "builtin:codex",
+          bindingId: "binding-1",
+          configurationRevision: 3,
+        },
+        idempotencyKey: "signal-1::agent-1",
+        ownerUserId: "owner-1",
+        targetWakeLifecycleIdentity: identity,
+      });
+
+    expect(parsed.success).toBe(true);
+  });
+
   it("accepts RuntimeCoordinator head dedupe responses with a linked execution", () => {
     const parsed =
       runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema.safeParse({
@@ -1103,6 +1139,23 @@ describe("runtime transport schema", () => {
       status: "available",
     });
     expect(
+      runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse({
+        action: "continue_interrupted_work",
+        authorizedContinuationClientMessageId: null,
+        interruptedClientMessageId: "client-interrupted",
+        interruptedDispatchId: "dispatch-interrupted",
+        spaceId: "space-interrupted",
+        status: "available",
+      })
+    ).toEqual({
+      action: "continue_interrupted_work",
+      authorizedContinuationClientMessageId: null,
+      interruptedClientMessageId: "client-interrupted",
+      interruptedDispatchId: "dispatch-interrupted",
+      spaceId: "space-interrupted",
+      status: "available",
+    });
+    expect(
       runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.parse({
         continuationClientMessageId: "client-continuation-1",
         currentAgentControllerRef: "builtin:codex",
@@ -1125,9 +1178,23 @@ describe("runtime transport schema", () => {
     });
     expect(
       runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
-        { status: "authorized" }
+        { status: "needs_attention" }
       )
-    ).toEqual({ status: "authorized" });
+    ).toEqual({ status: "needs_attention" });
+    expect(
+      runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema.parse(
+        {
+          expectedInterruptedTargetWakeLifecycleId:
+            "wake-lifecycle-interrupted",
+          ownerUserId: "owner-1",
+          targetProfileId: firstProfileId,
+        }
+      )
+    ).toEqual({
+      expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
+      ownerUserId: "owner-1",
+      targetProfileId: firstProfileId,
+    });
     expect(
       runtimeTransportAgentProfileWorkQueueApproveRequestSchema.parse({
         ownerUserId: "owner-1",

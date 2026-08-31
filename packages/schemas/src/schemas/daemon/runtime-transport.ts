@@ -140,9 +140,15 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
-      interruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
-      // Older owner shards omit this during a rolling Core deployment. Current
-      // writers always include it; callers must defer side effects until it exists.
+      // Older owner shards omit these exact-source fields during a rolling Core
+      // deployment. Current writers always include both; callers must defer side
+      // effects until both exist.
+      interruptedTargetWakeLifecycleId: z
+        .string()
+        .trim()
+        .min(1)
+        .max(512)
+        .optional(),
       interruptedSourceSignalId: z.string().trim().min(1).max(512).optional(),
       spaceId: z.string().trim().min(1).max(512),
       status: z.literal("available"),
@@ -258,11 +264,18 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
 
 export const runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema =
   z.strictObject({
-    status: z.enum(["authorized", "not_pending", "unavailable"]),
+    status: z.enum([
+      "authorized",
+      "needs_attention",
+      "not_pending",
+      "unavailable",
+    ]),
   });
 
 export const runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema =
-  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
 
 export const runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema =
   z.strictObject({
@@ -289,6 +302,9 @@ export const runtimeTransportAgentProfileWorkSkipResponseSchema =
 
 export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
   z.strictObject({
+    mutationKind: z
+      .enum(["execution_target", "future_work_settings"])
+      .optional(),
     operationId: z.string().trim().min(1).max(256),
     ownerUserId: z.string().trim().min(1).max(256),
     targetProfileId: agentProfileIdSchema,
@@ -1280,6 +1296,13 @@ export const runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema =
       .string()
       .min(1)
       .max(MAX_PROFILE_NAME_LENGTH)
+      .optional(),
+    executionTargetRevision: z
+      .strictObject({
+        agentControllerRef: agentControllerRefSchema,
+        bindingId: z.string().min(1),
+        configurationRevision: z.number().int().positive(),
+      })
       .optional(),
     targetWakeLifecycleIdentity: targetWakeLifecycleIdentitySchema,
   });

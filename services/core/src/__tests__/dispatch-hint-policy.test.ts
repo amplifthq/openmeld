@@ -104,6 +104,18 @@ describe("resolveDispatchFailureHintText", () => {
     ).toContain("could not resolve its local agent connection");
   });
 
+  it("explains why an approved interrupted Wake now needs review", () => {
+    expect(
+      resolveDispatchFailureHintText({
+        errorCode:
+          "agent_profile_work_coordinator.continuation_needs_attention",
+        targetProfileLabel: 'Agent "ops-bot"',
+      })
+    ).toBe(
+      'Agent "ops-bot"\'s settings changed after this interrupted Wake was approved, so OpenMeld did not continue it. Review the interrupted Wake, then retry it or continue the queued Wakes.'
+    );
+  });
+
   it("explains Phase 1 local-agent interactions instead of treating them as reply authorization failures", () => {
     expect(
       resolveDispatchFailureHintText({

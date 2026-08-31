@@ -193,7 +193,10 @@ describe("runtime transport split clients call fallback behavior", () => {
     };
 
     await expect(
-      acquireRuntimeTransportAgentProfileExecutionTargetMutation(request)
+      acquireRuntimeTransportAgentProfileExecutionTargetMutation({
+        ...request,
+        mutationKind: "future_work_settings",
+      })
     ).resolves.toMatchObject({
       operationId: "mutation-1",
       status: "acquired",
@@ -202,6 +205,12 @@ describe("runtime transport split clients call fallback behavior", () => {
       releaseRuntimeTransportAgentProfileExecutionTargetMutation(request)
     ).resolves.toEqual({ status: "released" });
     expect(acquire).toHaveBeenCalledOnce();
+    expect(acquire).toHaveBeenCalledWith({
+      mutationKind: "future_work_settings",
+      operationId: "mutation-1",
+      ownerUserId: "owner-1",
+      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+    });
     expect(release).toHaveBeenCalledOnce();
   });
 

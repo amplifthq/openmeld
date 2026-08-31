@@ -5052,6 +5052,21 @@ in the same transaction. Missing or mismatched accepted revision evidence is
 unsafe. An unsafe request or failed automatic continuation stays behind one
 current Needs-attention projection instead of entering another retry loop.
 
+RuntimeCoordinator head admission carries an additive optional
+`executionTargetRevision` with the current canonical `bindingId`,
+`agentControllerRef`, and `configurationRevision`. It is required before an
+authorized automatic continuation can execute. The owner shard compares it
+with the interrupted run command and creates the head in the same transaction;
+the cloud Binding and controller-setting write paths use the same execution
+target mutation lease. The request's additive `mutationKind` distinguishes a
+real execution-target replacement, which remains blocked by active work, from
+`future_work_settings`, which may save while the running Wake keeps its frozen
+accepted revision. A mismatch atomically records the single
+Needs-attention gate and Inbox intent without creating executable work. The
+field remains optional only for rolling schema compatibility: an older caller
+that omits it receives retryable waiting, never optimistic execution. Rollback
+removes the Core producer before removing the additive schema field.
+
 The owner-only Organization directory projection may add the interrupted
 target-Wake lifecycle id beside a paused recovery action. Web accepts the field
 additively, requires it before sending `skip_interrupted_work`, and asks the user

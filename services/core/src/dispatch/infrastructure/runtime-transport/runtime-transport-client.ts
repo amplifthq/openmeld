@@ -149,6 +149,7 @@ export const cancelRuntimeTransportDeletedAgentProfileWakes = async (input: {
 export const acquireRuntimeTransportAgentProfileExecutionTargetMutation =
   async (input: {
     env: CoreBindings;
+    mutationKind?: "execution_target" | "future_work_settings";
     operationId: string;
     ownerUserId: string;
     targetProfileId: string;
@@ -156,6 +157,7 @@ export const acquireRuntimeTransportAgentProfileExecutionTargetMutation =
     const parsedRequest =
       runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
         {
+          ...(input.mutationKind ? { mutationKind: input.mutationKind } : {}),
           operationId: input.operationId,
           ownerUserId: input.ownerUserId,
           targetProfileId: input.targetProfileId,

@@ -8,6 +8,7 @@ import type {
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportAgentProfileOperationalContextsResponse,
   RuntimeTransportAgentProfileWorkRecoveryReadResponse,
+  RuntimeTransportRuntimeCoordinatorHeadAcceptRequest,
 } from "@openmeld/schemas/types";
 import {
   type AgentProfileWorkCoordinator,
@@ -94,6 +95,10 @@ type ExecutionTargetMutationLease = {
   operationId: string;
   startedAtMs: number;
 };
+
+type ExecutionTargetRevision = NonNullable<
+  RuntimeTransportRuntimeCoordinatorHeadAcceptRequest["executionTargetRevision"]
+>;
 
 type AgentProfileExecutionAdmissionRecord = {
   activeExecutionIds: string[];
@@ -641,6 +646,7 @@ function assertNeverRecoveryGateStatus(value: never): never {
 }
 
 export async function acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation(input: {
+  mutationKind?: "execution_target" | "future_work_settings";
   nowMs: number;
   operationId: string;
   ownerUserId: string;
@@ -680,7 +686,11 @@ export async function acquireRuntimeCoordinatorAgentProfileExecutionTargetMutati
 
   const executionState =
     await readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission(input);
-  if (executionState.status === "active") {
+  if (
+    input.mutationKind !== "future_work_settings" &&
+    executionState.status === "active" &&
+    (!existing || admissionBlocksExecutionTargetMutation(existing))
+  ) {
     return {
       reasonCode: "runtime_coordinator.agent_profile_execution_active",
       status: "blocked",
@@ -718,7 +728,10 @@ export async function acquireRuntimeCoordinatorAgentProfileExecutionTargetMutati
       return prepared.response;
     }
     const admission = prepared.admission;
-    if (admissionHasActiveReferences(admission)) {
+    if (
+      input.mutationKind !== "future_work_settings" &&
+      admissionBlocksExecutionTargetMutation(admission)
+    ) {
       return {
         reasonCode: "runtime_coordinator.agent_profile_execution_active",
         status: "blocked" as const,
@@ -1011,6 +1024,8 @@ type AgentProfileWorkCoordinatorHeadWriteBaseResult =
       waitingCount: number;
     }
   | { status: "execution_target_mutation_in_progress" }
+  | { status: "continuation_needs_attention" }
+  | { status: "continuation_target_revision_unavailable" }
   | {
       effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
       status: "existing";
@@ -1160,7 +1175,9 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
   targetProfileId: string;
-}): Promise<{ status: "authorized" | "not_pending" | "unavailable" }> {
+}): Promise<{
+  status: "authorized" | "needs_attention" | "not_pending" | "unavailable";
+}> {
   const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
   const readyIndex = await ensureExecutionIndexReady({
     nowMs: input.nowMs,
@@ -1230,7 +1247,7 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
         }),
         transaction.setAlarm(input.nowMs),
       ]);
-      return { status: "not_pending" as const };
+      return { status: "needs_attention" as const };
     }
     const result = authorizeAgentProfileWorkContinuation({
       continuationClientMessageId: input.continuationClientMessageId,
@@ -1310,6 +1327,7 @@ async function acceptedRecoveryExecutionTargetMatchesCurrent(input: {
 }
 
 export async function markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
   nowMs: number;
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
@@ -1338,7 +1356,12 @@ export async function markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAtt
     const admission = parseExecutionAdmissionRecord(
       await transaction.get<unknown>(storageKey)
     );
-    if (!admission || admission.targetProfileId !== input.targetProfileId) {
+    if (
+      !admission ||
+      admission.targetProfileId !== input.targetProfileId ||
+      admission.recoveryGate?.interruptedWork.targetWakeLifecycleId !==
+        input.expectedInterruptedTargetWakeLifecycleId
+    ) {
       return { status: "not_pending" as const };
     }
     const marked = markAgentProfileWorkContinuationNeedsAttention({
@@ -1582,6 +1605,7 @@ export async function skipRuntimeCoordinatorAgentProfileInterruptedWork(input: {
 
 export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
   blockForExecutionTargetMutation: boolean;
+  executionTargetRevision?: ExecutionTargetRevision;
   nowMs: number;
   record: RuntimeCoordinatorHeadLifecycleRecord;
   storage: ExecutionAdmissionStorage;
@@ -1614,6 +1638,18 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
       admission.executionTargetMutation.expiresAtMs > input.nowMs
     ) {
       return { status: "execution_target_mutation_in_progress" as const };
+    }
+
+    const continuationFence = await fenceAuthorizedContinuationExecutionTarget({
+      admission,
+      admissionKey: prepared.admissionKey,
+      executionTargetRevision: input.executionTargetRevision,
+      nowMs: input.nowMs,
+      record: input.record,
+      transaction,
+    });
+    if (continuationFence) {
+      return continuationFence;
     }
 
     const workPlan = planAgentProfileWorkAcceptance({
@@ -1665,6 +1701,83 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
       ? { ...result, pendingPromotion: terminalTransition.pendingPromotion }
       : result;
   });
+}
+
+async function fenceAuthorizedContinuationExecutionTarget(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  admissionKey: string;
+  executionTargetRevision?: ExecutionTargetRevision;
+  nowMs: number;
+  record: RuntimeCoordinatorHeadLifecycleRecord;
+  transaction: DurableObjectTransaction;
+}): Promise<
+  | { status: "continuation_needs_attention" }
+  | { status: "continuation_target_revision_unavailable" }
+  | null
+> {
+  const recoveryGate = input.admission.recoveryGate;
+  if (
+    recoveryGate?.status === "continuation_needs_attention" &&
+    recoveryGate.continuationClientMessageId ===
+      input.record.targetWakeLifecycleIdentity.clientMessageId
+  ) {
+    return { status: "continuation_needs_attention" };
+  }
+  if (
+    recoveryGate?.status !== "continuation_authorized" ||
+    recoveryGate.continuationClientMessageId !==
+      input.record.targetWakeLifecycleIdentity.clientMessageId
+  ) {
+    return null;
+  }
+  if (!input.executionTargetRevision) {
+    return { status: "continuation_target_revision_unavailable" };
+  }
+  const executionTargetMatches =
+    await acceptedRecoveryExecutionTargetMatchesCurrent({
+      admission: input.admission,
+      currentAgentControllerRef:
+        input.executionTargetRevision.agentControllerRef,
+      currentBindingId: input.executionTargetRevision.bindingId,
+      currentConfigurationRevision:
+        input.executionTargetRevision.configurationRevision,
+      ownerUserId: input.record.ownerUserId,
+      storage: input.transaction,
+    });
+  if (executionTargetMatches) {
+    return null;
+  }
+  const marked = markAgentProfileWorkContinuationNeedsAttention({
+    coordinator: projectAgentProfileWorkCoordinator(input.admission),
+    nowMs: input.nowMs,
+  });
+  const nextRecoveryGate = marked.coordinator.recoveryGate;
+  if (!(marked.changed && nextRecoveryGate)) {
+    return { status: "continuation_needs_attention" };
+  }
+  await Promise.all([
+    input.transaction.put(input.admissionKey, {
+      ...input.admission,
+      recoveryGate: nextRecoveryGate,
+      revision: marked.coordinator.revision,
+      updatedAtMs: marked.coordinator.updatedAtMs,
+    } satisfies AgentProfileExecutionAdmissionRecord),
+    writeAgentProfileWorkRecoveryInboxProjectionIntent({
+      intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
+        desiredStatus: "open",
+        occurredAtMs: input.nowMs,
+        stage: "review_interrupted_work",
+        targetProfileId:
+          input.record.targetWakeLifecycleIdentity.targetProfileId,
+        targetWakeLifecycleId:
+          nextRecoveryGate.interruptedWork.targetWakeLifecycleId,
+        updatedAtMs: input.nowMs,
+      }),
+      storage: input.transaction,
+    }),
+    input.transaction.setAlarm(input.nowMs),
+  ]);
+  return { status: "continuation_needs_attention" };
 }
 
 async function persistHeadLifecycleAdmissionTransition(input: {
@@ -3443,7 +3556,8 @@ function parseAgentProfileWorkRecoveryGateOrLegacy(
     isNonnegativeInteger(gate.updatedAtMs) &&
     (status === "continuation_authorized"
       ? typeof gate.continuationClientMessageId === "string"
-      : gate.continuationClientMessageId === null)
+      : status === "continuation_needs_attention" ||
+        gate.continuationClientMessageId === null)
   ) {
     return {
       continuationClientMessageId: gate.continuationClientMessageId ?? null,
@@ -3710,6 +3824,17 @@ function admissionHasActiveReferences(
     admission.workItems.length > 0 ||
     admission.activeExecutionIds.length > 0 ||
     admission.activeHeadLifecycleIds.length > 0
+  );
+}
+
+function admissionBlocksExecutionTargetMutation(
+  admission: AgentProfileExecutionAdmissionRecord
+): boolean {
+  return (
+    admission.referencesOverflowed ||
+    admission.activeExecutionIds.length > 0 ||
+    admission.activeHeadLifecycleIds.length > 0 ||
+    admission.recoveryGate?.status === "continuation_running"
   );
 }
 

@@ -175,11 +175,18 @@ same operation. A request that definitively cannot be replayed safely, has
 incomplete source context, no longer matches the same Profile, controller,
 Binding, or configuration, or whose one continuation execution fails moves to
 `continuation_needs_attention`; it cannot re-enter automatic continuation.
-Authorization compares the exact interrupted run command's accepted Binding,
-controller, and configuration revision with the current canonical Core Binding
-inside the owner-shard transaction. Missing accepted revision evidence from an
-older Service fails safe to `continuation_needs_attention`; it is not treated as
-unchanged configuration.
+Initial authorization compares the exact interrupted run command's accepted
+Binding, controller, and configuration revision with the current canonical Core
+Binding inside the owner-shard transaction. Actual RuntimeCoordinator head
+admission repeats that comparison atomically with head creation. The head
+request carries the canonical `bindingId`, `agentControllerRef`, and
+`configurationRevision`; cloud-owned execution-target mutations use the same
+owner-shard lease. A mismatched tuple moves the exact continuation to
+`continuation_needs_attention` without creating a head or work item. A rolling
+caller that omits the tuple receives retryable waiting and cannot execute. This
+is distinct from an interrupted run command whose original accepted revision
+evidence is missing: that request is inherently unsafe and moves to
+`continuation_needs_attention` rather than being treated as unchanged.
 One idempotent Inbox item links the original Wake. The owner may skip the exact
 interrupted work to resolve the gate and promote the oldest queued Wake.
 The Usage report path sends candidate Profiles in stable, schema-bounded

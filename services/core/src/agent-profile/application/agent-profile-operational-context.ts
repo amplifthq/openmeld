@@ -8,7 +8,7 @@ type OrganizationDirectoryAgentProfileOperationalContext = NonNullable<
 >;
 
 export function projectOrganizationDirectoryAgentProfileOperationalContext(input: {
-  exposeSkipInterruptedWork?: boolean;
+  exposeRecoveryVersion2?: boolean;
   exposeWorkReferences: boolean;
   operationalContext: RuntimeTransportAgentProfileOperationalContext;
   spaceNamesById: ReadonlyMap<string, string>;
@@ -36,10 +36,11 @@ export function projectOrganizationDirectoryAgentProfileOperationalContext(input
     ...(input.operationalContext.status === "paused" &&
     input.operationalContext.recoveryAction &&
     (input.operationalContext.recoveryAction !== "skip_interrupted_work" ||
-      input.exposeSkipInterruptedWork === true)
+      input.exposeRecoveryVersion2 === true)
       ? {
           recoveryAction: input.operationalContext.recoveryAction,
-          ...(input.operationalContext.recoveryTargetWakeLifecycleId
+          ...(input.exposeRecoveryVersion2 === true &&
+          input.operationalContext.recoveryTargetWakeLifecycleId
             ? {
                 recoveryTargetWakeLifecycleId:
                   input.operationalContext.recoveryTargetWakeLifecycleId,

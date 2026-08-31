@@ -724,6 +724,15 @@ configuration revision. Saved model, reasoning, controller, and launch-only
 permission changes apply to future work. A native live permission update is
 shown as applied only after the provider acknowledges it.
 
+An approved Usage continuation rechecks its exact Binding, controller, and
+configuration revision when it actually reaches the Profile work slot, not
+only when Usage first recovers. That head admission and every cloud-owned
+execution-target setting change share one owner-shard mutation boundary. If the
+continuation wins first, the setting change waits until the head is established;
+if the setting change wins first, the continuation moves to `Needs attention`
+without executing. A rolling caller that cannot provide the current canonical
+revision waits and retries instead of guessing.
+
 ## Agent Profile Operational Context
 
 Agent Profile Operational Context is the read projection that composes Agent

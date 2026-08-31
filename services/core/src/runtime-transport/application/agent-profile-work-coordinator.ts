@@ -327,7 +327,6 @@ export function markAgentProfileWorkContinuationNeedsAttention(input: {
       ...input.coordinator,
       recoveryGate: {
         ...recoveryGate,
-        continuationClientMessageId: null,
         status: "continuation_needs_attention",
         updatedAtMs: input.nowMs,
       },

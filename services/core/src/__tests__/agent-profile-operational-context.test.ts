@@ -16,6 +16,7 @@ const workingContext = {
 const pausedContext = {
   ...workingContext,
   recoveryAction: "continue_interrupted_work" as const,
+  recoveryTargetWakeLifecycleId: "twl_interrupted",
   status: "paused" as const,
 };
 
@@ -95,6 +96,30 @@ describe("Agent Profile Operational Context directory projection", () => {
     });
   });
 
+  it("keeps every version 2 recovery field away from older strict Web readers", () => {
+    const common = {
+      exposeWorkReferences: true,
+      operationalContext: pausedContext,
+      spaceNamesById: new Map<string, string>(),
+    };
+
+    expect(
+      projectOrganizationDirectoryAgentProfileOperationalContext(common)
+    ).toMatchObject({ recoveryAction: "continue_interrupted_work" });
+    expect(
+      projectOrganizationDirectoryAgentProfileOperationalContext(common)
+    ).not.toHaveProperty("recoveryTargetWakeLifecycleId");
+    expect(
+      projectOrganizationDirectoryAgentProfileOperationalContext({
+        ...common,
+        exposeRecoveryVersion2: true,
+      })
+    ).toMatchObject({
+      recoveryAction: "continue_interrupted_work",
+      recoveryTargetWakeLifecycleId: "twl_interrupted",
+    });
+  });
+
   it("only projects Skip after the directory caller opts into its contract", () => {
     const common = {
       exposeWorkReferences: true,
@@ -108,7 +133,7 @@ describe("Agent Profile Operational Context directory projection", () => {
     expect(
       projectOrganizationDirectoryAgentProfileOperationalContext({
         ...common,
-        exposeSkipInterruptedWork: true,
+        exposeRecoveryVersion2: true,
       })
     ).toMatchObject({
       recoveryAction: "skip_interrupted_work",

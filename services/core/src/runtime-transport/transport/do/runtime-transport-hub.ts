@@ -297,6 +297,7 @@ import { emitCoreFinalVisibleOutcomeRuntimeEvidence } from "../../../shared/obse
 import { readAcceptedDispatchFinalizationFact } from "../../../space/infrastructure/d1/accepted-dispatch-finalization-repo";
 import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../../space-index/space-index-repository";
 import {
+  type AgentProfileWorkCoordinatorHeadWriteResult,
   acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   approveRuntimeCoordinatorAgentProfileWorkQueue,
@@ -1119,6 +1120,153 @@ const resolveRuntimeCoordinatorFinalVisibleReasonCode = (input: {
   return input.outcome.publishState;
 };
 
+function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
+  admission: AgentProfileWorkCoordinatorHeadWriteResult;
+  request: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest;
+}): RuntimeTransportRuntimeCoordinatorHeadAcceptResponse {
+  const identity = input.request.targetWakeLifecycleIdentity;
+  switch (input.admission.status) {
+    case "continuation_needs_attention":
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode:
+          "agent_profile_work_coordinator.continuation_needs_attention",
+        status: "conflict",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
+    case "continuation_target_revision_unavailable":
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode:
+          "agent_profile_work_coordinator.continuation_target_revision_unavailable",
+        status: "retry_later",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
+    case "execution_target_mutation_in_progress":
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+        status: "retry_later",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
+    case "legacy_execution_active":
+    case "written":
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode: "runtime_coordinator.agent_profile_execution_active",
+        status: "retry_later",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
+    case "queue_full":
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode: "agent_profile_work_coordinator.queue_full",
+        status: "queue_full",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        waitingCount: 50,
+      };
+    case "conflict":
+      return {
+        ok: false,
+        primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
+        reasonCode: "runtime_coordinator.head_authority_conflict",
+        status: "conflict",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
+    case "queued":
+      return {
+        action: "wait_in_queue",
+        ok: true,
+        primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
+        queuePosition: input.admission.queuePosition,
+        reasonCode: "agent_profile_work_coordinator.queued",
+        runtimeCoordinatorExecutionId: null,
+        status: "queued",
+        targetWakeLifecycleId:
+          input.admission.effectiveRecord.targetWakeLifecycleId,
+        waitingCount: input.admission.waitingCount,
+      };
+    case "started":
+      return {
+        action: "create_execution",
+        ok: true,
+        primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
+        reasonCode: "runtime_coordinator.head_accepted",
+        runtimeCoordinatorExecutionId: null,
+        status: "accepted",
+        targetWakeLifecycleId:
+          input.admission.effectiveRecord.targetWakeLifecycleId,
+      };
+    case "existing":
+      return resolveExistingRuntimeCoordinatorHeadAdmissionResponse({
+        existing: input.admission.effectiveRecord,
+        request: input.request,
+      });
+    default:
+      throw new Error("Unsupported RuntimeCoordinator head admission status");
+  }
+}
+
+function resolveExistingRuntimeCoordinatorHeadAdmissionResponse(input: {
+  existing: RuntimeCoordinatorHeadLifecycleRecord;
+  request: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest;
+}): RuntimeTransportRuntimeCoordinatorHeadAcceptResponse {
+  const { existing } = input;
+  if (existing.status === "stopped_before_execution") {
+    return {
+      action: "skip_duplicate",
+      ok: true,
+      primaryDispatchId: existing.primaryDispatchId,
+      reasonCode: "runtime_coordinator.pre_agent_stop_already_recorded",
+      runtimeCoordinatorExecutionId: null,
+      status: "stopped_before_execution",
+      targetWakeLifecycleId: existing.targetWakeLifecycleId,
+    };
+  }
+  if (existing.status === "publication_intent_ready") {
+    return {
+      action: "skip_duplicate",
+      ok: true,
+      primaryDispatchId: existing.primaryDispatchId,
+      reasonCode: "runtime_coordinator.head_publication_intent_already_ready",
+      runtimeCoordinatorExecutionId: null,
+      status: "publication_intent_ready",
+      targetWakeLifecycleId: existing.targetWakeLifecycleId,
+    };
+  }
+  const isPrimaryDispatch =
+    existing.primaryDispatchId === input.request.dispatchId;
+  let reasonCode = resolveRuntimeCoordinatorHeadDuplicateReasonCode(
+    existing.status
+  );
+  if (isPrimaryDispatch) {
+    reasonCode =
+      existing.status === "execution_linked"
+        ? "runtime_coordinator.head_execution_already_linked"
+        : "runtime_coordinator.head_primary_reaccepted";
+  }
+  return {
+    action:
+      existing.status === "execution_linked" || !isPrimaryDispatch
+        ? "skip_duplicate"
+        : "create_execution",
+    ok: true,
+    primaryDispatchId: existing.primaryDispatchId,
+    reasonCode,
+    runtimeCoordinatorExecutionId: existing.runtimeCoordinatorExecutionId,
+    status:
+      existing.status === "execution_linked"
+        ? "execution_linked"
+        : "already_accepted",
+    targetWakeLifecycleId: existing.targetWakeLifecycleId,
+  };
+}
+
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
   private readonly currentDeviceOperationWaiters = new Map<
@@ -1461,11 +1609,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (response.status === "unavailable") {
       this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
     }
-    if (response.status === "authorized") {
+    if (
+      response.status === "authorized" ||
+      response.status === "needs_attention"
+    ) {
       this.publishAgentReadinessInvalidated({
         profileIds: [parsed.data.targetProfileId],
         reason: "agent_profile_work_coordinator.changed",
       });
+      if (response.status === "needs_attention") {
+        this.scheduledHousekeepingAlarmAtMs = undefined;
+      }
     }
     return runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
       response
@@ -1484,6 +1638,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     const response =
       await markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention({
+        expectedInterruptedTargetWakeLifecycleId:
+          parsed.data.expectedInterruptedTargetWakeLifecycleId,
         nowMs: Date.now(),
         ownerUserId: parsed.data.ownerUserId,
         storage: this.ctx.storage,
@@ -1628,6 +1784,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     const response =
       await acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation({
+        ...(parsed.data.mutationKind
+          ? { mutationKind: parsed.data.mutationKind }
+          : {}),
         nowMs: Date.now(),
         operationId: parsed.data.operationId,
         ownerUserId: parsed.data.ownerUserId,
@@ -10658,124 +10817,30 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     };
     const admission = await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
       blockForExecutionTargetMutation: true,
+      ...(request.executionTargetRevision
+        ? { executionTargetRevision: request.executionTargetRevision }
+        : {}),
       nowMs,
       record: nextRecord,
       storage: this.ctx.storage,
     });
-    if (admission.status === "queued" || admission.status === "started") {
+    if (
+      admission.status === "queued" ||
+      admission.status === "started" ||
+      admission.status === "continuation_needs_attention"
+    ) {
       this.publishAgentReadinessInvalidated({
         profileIds: [identity.targetProfileId],
         reason: "agent_profile_work_coordinator.changed",
       });
     }
-    if (
-      admission.status === "execution_target_mutation_in_progress" ||
-      admission.status === "legacy_execution_active" ||
-      admission.status === "written"
-    ) {
-      return {
-        ok: false,
-        primaryDispatchId: null,
-        reasonCode:
-          admission.status === "execution_target_mutation_in_progress"
-            ? "runtime_coordinator.execution_target_mutation_in_progress"
-            : "runtime_coordinator.agent_profile_execution_active",
-        status: "retry_later",
-        targetWakeLifecycleId: identity.targetWakeLifecycleId,
-      };
+    if (admission.status === "continuation_needs_attention") {
+      this.scheduledHousekeepingAlarmAtMs = nowMs;
     }
-    if (admission.status === "queue_full") {
-      return {
-        ok: false,
-        primaryDispatchId: null,
-        reasonCode: "agent_profile_work_coordinator.queue_full",
-        status: "queue_full",
-        targetWakeLifecycleId: identity.targetWakeLifecycleId,
-        waitingCount: 50,
-      };
-    }
-    if (admission.status === "conflict") {
-      return {
-        ok: false,
-        primaryDispatchId: admission.effectiveRecord.primaryDispatchId,
-        reasonCode: "runtime_coordinator.head_authority_conflict",
-        status: "conflict",
-        targetWakeLifecycleId: identity.targetWakeLifecycleId,
-      };
-    }
-    if (admission.status === "queued") {
-      return {
-        action: "wait_in_queue",
-        ok: true,
-        primaryDispatchId: admission.effectiveRecord.primaryDispatchId,
-        queuePosition: admission.queuePosition,
-        reasonCode: "agent_profile_work_coordinator.queued",
-        runtimeCoordinatorExecutionId: null,
-        status: "queued",
-        targetWakeLifecycleId: admission.effectiveRecord.targetWakeLifecycleId,
-        waitingCount: admission.waitingCount,
-      };
-    }
-    if (admission.status === "started") {
-      return {
-        action: "create_execution",
-        ok: true,
-        primaryDispatchId: admission.effectiveRecord.primaryDispatchId,
-        reasonCode: "runtime_coordinator.head_accepted",
-        runtimeCoordinatorExecutionId: null,
-        status: "accepted",
-        targetWakeLifecycleId: admission.effectiveRecord.targetWakeLifecycleId,
-      };
-    }
-
-    const existing = admission.effectiveRecord;
-    if (existing.status === "stopped_before_execution") {
-      return {
-        action: "skip_duplicate",
-        ok: true,
-        primaryDispatchId: existing.primaryDispatchId,
-        reasonCode: "runtime_coordinator.pre_agent_stop_already_recorded",
-        runtimeCoordinatorExecutionId: null,
-        status: "stopped_before_execution",
-        targetWakeLifecycleId: existing.targetWakeLifecycleId,
-      };
-    }
-    if (existing.status === "publication_intent_ready") {
-      return {
-        action: "skip_duplicate",
-        ok: true,
-        primaryDispatchId: existing.primaryDispatchId,
-        reasonCode: "runtime_coordinator.head_publication_intent_already_ready",
-        runtimeCoordinatorExecutionId: null,
-        status: "publication_intent_ready",
-        targetWakeLifecycleId: existing.targetWakeLifecycleId,
-      };
-    }
-    const isPrimaryDispatch = existing.primaryDispatchId === request.dispatchId;
-    let reasonCode = resolveRuntimeCoordinatorHeadDuplicateReasonCode(
-      existing.status
-    );
-    if (isPrimaryDispatch) {
-      reasonCode =
-        existing.status === "execution_linked"
-          ? "runtime_coordinator.head_execution_already_linked"
-          : "runtime_coordinator.head_primary_reaccepted";
-    }
-    return {
-      action:
-        existing.status === "execution_linked" || !isPrimaryDispatch
-          ? "skip_duplicate"
-          : "create_execution",
-      ok: true,
-      primaryDispatchId: existing.primaryDispatchId,
-      reasonCode,
-      runtimeCoordinatorExecutionId: existing.runtimeCoordinatorExecutionId,
-      status:
-        existing.status === "execution_linked"
-          ? "execution_linked"
-          : "already_accepted",
-      targetWakeLifecycleId: existing.targetWakeLifecycleId,
-    };
+    return resolveRuntimeCoordinatorHeadAdmissionResponse({
+      admission,
+      request,
+    });
   }
 
   private async recordRuntimeCoordinatorHeadNoExecution(

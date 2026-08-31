@@ -1821,30 +1821,35 @@ function coreEnv(
         status: input?.agentProfileExecutionState ?? ("inactive" as const),
       });
     }),
-    rpcAcquireAgentProfileControllerMutation: vi.fn(() => {
-      let status = input?.controllerMutationAcquireStatus ?? "acquired";
-      if (!input?.controllerMutationAcquireStatus) {
-        if (input?.agentProfileExecutionState === "active") {
-          status = "blocked";
-        } else if (input?.agentProfileExecutionState === "unavailable") {
-          status = "unavailable";
+    rpcAcquireAgentProfileControllerMutation: vi.fn(
+      (request: { mutationKind?: string }) => {
+        let status = input?.controllerMutationAcquireStatus ?? "acquired";
+        if (!input?.controllerMutationAcquireStatus) {
+          if (
+            input?.agentProfileExecutionState === "active" &&
+            request.mutationKind !== "future_work_settings"
+          ) {
+            status = "blocked";
+          } else if (input?.agentProfileExecutionState === "unavailable") {
+            status = "unavailable";
+          }
         }
-      }
-      if (status === "acquired") {
+        if (status === "acquired") {
+          return Promise.resolve({
+            expiresAtMs: Date.now() + 300_000,
+            operationId: "controller-mutation-test",
+            status,
+          });
+        }
         return Promise.resolve({
-          expiresAtMs: Date.now() + 300_000,
-          operationId: "controller-mutation-test",
+          reasonCode:
+            status === "blocked"
+              ? "runtime_coordinator.agent_profile_execution_active"
+              : "runtime_coordinator.execution_state_unavailable",
           status,
         });
       }
-      return Promise.resolve({
-        reasonCode:
-          status === "blocked"
-            ? "runtime_coordinator.agent_profile_execution_active"
-            : "runtime_coordinator.execution_state_unavailable",
-        status,
-      });
-    }),
+    ),
     rpcReleaseAgentProfileControllerMutation: vi.fn(() =>
       Promise.resolve({ status: "released" as const })
     ),
