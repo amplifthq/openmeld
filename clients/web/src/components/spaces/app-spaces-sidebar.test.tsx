@@ -568,6 +568,46 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 	});
 
+	it("keeps cached Spaces visible when a foreground refresh fails", async () => {
+		focusManager.setFocused(false);
+		listAccountSpaceItemsMock
+			.mockResolvedValueOnce({
+				pinnedItems: [],
+				spaceItems: [
+					createAccountSpaceItem({
+						spaceId: "space-existing",
+						spaceName: "Existing",
+					}),
+				],
+			})
+			.mockRejectedValueOnce(
+				Object.assign(new Error("temporary refresh failure"), {
+					code: "gateway.invalid_response",
+				})
+			);
+		const queryClient = createSidebarQueryClient();
+
+		renderSidebar(
+			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />,
+			queryClient
+		);
+		await screen.findByRole("button", { name: "Existing" });
+
+		act(() => focusManager.setFocused(true));
+		await waitFor(() => {
+			expect(
+				queryClient.getQueryState(
+					accountSpaceQueryKeys.items("human-1", "account")
+				)?.status
+			).toBe("error");
+		});
+
+		expect(screen.getByRole("button", { name: "Existing" })).toBeTruthy();
+		expect(
+			screen.queryByText("OpenMeld could not load your spaces.")
+		).toBeNull();
+	});
+
 	it("does not render the pinned section when no spaces are pinned", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],

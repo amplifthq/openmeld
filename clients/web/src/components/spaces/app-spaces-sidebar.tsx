@@ -308,7 +308,7 @@ export function AppSpacesSidebar(input: {
 	sidebarGroups.push({
 		ariaLabel: "Workspace Spaces",
 		content: renderSpacesList({
-			isError: spacesQuery.isError,
+			isError: spacesQuery.isError && spacesQuery.data === undefined,
 			isPending: spacesQuery.isPending,
 			items: sidebarSections.spaceItems,
 			navigationLabel: "Spaces",
