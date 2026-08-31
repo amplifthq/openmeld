@@ -50,6 +50,10 @@ import {
 	type SpaceComposerProfileElement,
 	serializeSpaceComposerEditorValue,
 } from "./space-composer-editor-model";
+import {
+	getEditorFocusReadiness,
+	SPACE_COMPOSER_FOCUS_RETRY_FRAMES,
+} from "./space-composer-focus";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import type {
 	SpaceComposerAddressingTarget,
@@ -141,6 +145,10 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		authoredMentions: readonly ComposerDraftAuthoredMention[];
 		text: string;
 	} | null>(null);
+	const focusAnimationFrameRef = useRef<number | null>(null);
+	const focusRetryFramesRemainingRef = useRef(0);
+	const isMountedRef = useRef(false);
+	const pendingFocusRef = useRef(false);
 	const lastExternalValueRef = useRef({
 		authoredMentions: input.authoredMentions,
 		text: input.text,
@@ -152,6 +160,19 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		}),
 		[input.addressingTargets, input.mentionPickerItems]
 	);
+
+	useLayoutEffect(() => {
+		isMountedRef.current = true;
+		return () => {
+			isMountedRef.current = false;
+			pendingFocusRef.current = false;
+			focusRetryFramesRemainingRef.current = 0;
+			if (focusAnimationFrameRef.current !== null) {
+				window.cancelAnimationFrame(focusAnimationFrameRef.current);
+				focusAnimationFrameRef.current = null;
+			}
+		};
+	}, []);
 
 	useLayoutEffect(() => {
 		const lastExternalValue = lastExternalValueRef.current;
@@ -192,13 +213,59 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		if (!input.composerRef) {
 			return;
 		}
+		// Slate retries focus with its own timer while operations are pending. An
+		// externally restored draft can finish those operations before React has
+		// registered the replacement text nodes, so wait for both facts here and
+		// cancel the frame when this editor unmounts.
+		const flushPendingFocus = () => {
+			focusAnimationFrameRef.current = null;
+			if (!(isMountedRef.current && pendingFocusRef.current)) {
+				return;
+			}
+			const readiness = getEditorFocusReadiness(
+				editor,
+				focusRetryFramesRemainingRef.current
+			);
+			if (readiness === "retry") {
+				focusRetryFramesRemainingRef.current -= 1;
+				focusAnimationFrameRef.current =
+					window.requestAnimationFrame(flushPendingFocus);
+				return;
+			}
+			pendingFocusRef.current = false;
+			focusRetryFramesRemainingRef.current = 0;
+			if (readiness === "focus") {
+				editor.tf.focus();
+			}
+		};
+		const focusWhenReady = () => {
+			const readiness = getEditorFocusReadiness(
+				editor,
+				SPACE_COMPOSER_FOCUS_RETRY_FRAMES
+			);
+			if (readiness === "retry") {
+				pendingFocusRef.current = true;
+				focusRetryFramesRemainingRef.current =
+					SPACE_COMPOSER_FOCUS_RETRY_FRAMES - 1;
+				if (focusAnimationFrameRef.current === null) {
+					focusAnimationFrameRef.current =
+						window.requestAnimationFrame(flushPendingFocus);
+				}
+				return;
+			}
+			pendingFocusRef.current = false;
+			focusRetryFramesRemainingRef.current = 0;
+			if (readiness === "focus") {
+				editor.tf.focus();
+			}
+		};
 
 		input.composerRef.current = {
 			focus: () => {
-				focusEditorAtSelection(editor);
+				focusEditorAtSelection(editor, focusWhenReady);
 			},
 			insertMentionTrigger: () => {
-				focusEditorAtSelection(editor);
+				focusEditorAtSelection(editor, focusWhenReady);
 				editor.tf.insertText("@");
 			},
 			selectTextRange: (selection) => {
@@ -207,7 +274,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 					anchor: resolvePointAtTextOffset(value, selection.start),
 					focus: resolvePointAtTextOffset(value, selection.end),
 				});
-				editor.tf.focus();
+				focusWhenReady();
 			},
 		};
 
@@ -289,9 +356,12 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 	);
 }
 
-function focusEditorAtSelection(editor: PlateEditor): void {
+function focusEditorAtSelection(
+	editor: PlateEditor,
+	focus: () => void = () => editor.tf.focus()
+): void {
 	const shouldSelectEnd = !editor.selection;
-	editor.tf.focus();
+	focus();
 	if (shouldSelectEnd) {
 		const end = editor.api.end([]);
 		if (end) {
