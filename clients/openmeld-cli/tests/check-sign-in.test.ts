@@ -23,11 +23,16 @@ vi.mock("../src/commands/auth", () => ({
 import { runSignInCheck } from "../src/command-entry-checks/check-sign-in";
 import { resetCurrentCommandCheckState } from "../src/command-entry-checks/current-command-check-state";
 import type { CommandEntryContext } from "../src/command-entry-checks/types";
+import {
+  resetOpenMeldProfilesSessionCacheForTests,
+  resolveOpenMeldProfileByIdOrName,
+} from "../src/config/openmeld-profiles-api";
 
 describe("sign-in command entry check", () => {
   beforeEach(() => {
     getAuthSessionStateMock.mockReset();
     resetCurrentCommandCheckState();
+    resetOpenMeldProfilesSessionCacheForTests();
   });
 
   it("reports a retryable credential-read failure for Space file downloads", async () => {
@@ -110,6 +115,66 @@ describe("sign-in command entry check", () => {
     expect(data).not.toHaveBeenCalled();
   });
 
+  it("reuses a Space read's remotely validated session for explicit Profile resolution", async () => {
+    const session = {
+      v: 1 as const,
+      accessToken: "token-123",
+      tokenType: "Bearer",
+      authBaseUrl: "https://auth.testing.example",
+      clientId: "openmeld-cli",
+      createdAt: "2026-08-25T00:00:00.000Z",
+      user: {
+        id: "user-1",
+        email: "felix@example.com",
+      },
+    };
+    getAuthSessionStateMock.mockResolvedValue({
+      state: "valid",
+      session,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          ok: true,
+          profile: {
+            createdAt: "2026-08-25T00:00:00.000Z",
+            createdByUserId: "user-1",
+            lastUsedAt: null,
+            openMeldProfileId: "human-profile-1",
+            ownerUserId: "user-1",
+            profileHandle: "mira",
+            profileKind: "human",
+            profileName: "Mira",
+            source: "web_create",
+            status: "active",
+            updatedAt: "2026-08-25T00:00:00.000Z",
+          },
+        })
+      )
+    );
+
+    await expect(
+      runSignInCheck({
+        context: createAgentContext(vi.fn(), "space.status"),
+        requirement: {
+          mode: "required",
+          stage: "before-entry",
+        },
+      })
+    ).resolves.toEqual({ status: "continue" });
+    await expect(
+      resolveOpenMeldProfileByIdOrName({
+        profileIdentifier: "human-profile-1",
+      })
+    ).resolves.toMatchObject({ openMeldProfileId: "human-profile-1" });
+
+    expect(getAuthSessionStateMock.mock.calls).toEqual([
+      [{ validateRemote: true }],
+      [{ validateRemote: false }],
+    ]);
+  });
+
   it("keeps the credential-read cause structured under --json", async () => {
     getAuthSessionStateMock.mockResolvedValue({
       state: "invalid",
@@ -140,10 +205,11 @@ describe("sign-in command entry check", () => {
 });
 
 function createAgentContext(
-  data: ReturnType<typeof vi.fn>
+  data: ReturnType<typeof vi.fn>,
+  entryName: CommandEntryContext["entryName"] = "space.files.download"
 ): CommandEntryContext {
   return {
-    entryName: "space.files.download",
+    entryName,
     argv: ["node", "openmeld", "space", "files", "download"],
     runtime: {
       viewMode: "agent",
