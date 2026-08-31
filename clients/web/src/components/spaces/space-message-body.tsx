@@ -32,6 +32,14 @@ import {
 	type CenterAgentComputerSetupContext,
 	type ComputerSetupTarget,
 } from "./center-agent-computer-setup-card";
+import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
+import {
+	buildSpaceMessageAgentMentionProfiles,
+	createSpaceMessageAgentMentionRemarkPlugin,
+	EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES,
+	renderSpaceMessageAgentMentionInternalLink,
+	SpaceMessageAgentMentionText,
+} from "./space-message-agent-mention";
 import { SpaceMessageCenterAgentTaskReferences } from "./space-message-center-agent-task-references";
 import {
 	createSpaceMessageReferenceRemarkPlugin,
@@ -63,12 +71,20 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		Partial<
 			Pick<
 				SpaceTimelineItem,
-				"actorProfileKind" | "attachments" | "files" | "spaceId"
+				| "actorProfileKind"
+				| "attachments"
+				| "files"
+				| "spaceId"
+				| "wakeTargetProfileIds"
 			>
 		>;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	openMeldProfileId?: string;
 	orgSlug?: string;
+	profilePresentationsById?: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	spaceReferencesById?: SpaceMessageReferencesById;
 }) {
 	const [isExpanded, setIsExpanded] = useState(false);
@@ -99,21 +115,48 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 			: textProjection.visibleText;
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
-	const additionalRemarkPlugins = useMemo(
+	const agentMentionProfilesById = useMemo(
 		() =>
-			spaceReferencesById.size > 0
-				? [createSpaceMessageReferenceRemarkPlugin(spaceReferencesById)]
-				: undefined,
-		[spaceReferencesById]
+			buildSpaceMessageAgentMentionProfiles({
+				profilePresentationsById:
+					input.profilePresentationsById ??
+					EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES,
+				wakeTargetProfileIds: input.item.wakeTargetProfileIds ?? [],
+			}),
+		[input.item.wakeTargetProfileIds, input.profilePresentationsById]
 	);
+	const additionalRemarkPlugins = useMemo(() => {
+		const plugins: NonNullable<
+			ComponentProps<typeof MessageResponse>["additionalRemarkPlugins"]
+		> = [];
+		if (agentMentionProfilesById.size > 0) {
+			plugins.push(
+				createSpaceMessageAgentMentionRemarkPlugin(agentMentionProfilesById)
+			);
+		}
+		if (spaceReferencesById.size > 0) {
+			plugins.push(
+				createSpaceMessageReferenceRemarkPlugin(spaceReferencesById)
+			);
+		}
+		return plugins.length > 0 ? plugins : undefined;
+	}, [agentMentionProfilesById, spaceReferencesById]);
 	const renderInternalLink = useCallback(
-		({ children, href }: { children: ReactNode; href: string }) =>
-			renderSpaceMessageInternalLink({
+		({ children, href }: { children: ReactNode; href: string }) => {
+			const agentMention = renderSpaceMessageAgentMentionInternalLink({
+				href,
+				profilesById: agentMentionProfilesById,
+			});
+			if (agentMention) {
+				return agentMention;
+			}
+			return renderSpaceMessageInternalLink({
 				children,
 				href,
 				referencesById: spaceReferencesById,
-			}),
-		[spaceReferencesById]
+			});
+		},
+		[agentMentionProfilesById, spaceReferencesById]
 	);
 	const shouldRenderMarkdown =
 		input.item.actorProfileKind === "agent" ||
@@ -144,6 +187,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 	const centerAgentTaskReferences = input.item.centerAgentTaskReferences ?? [];
 	const body = renderSpaceMessageTextContent({
 		additionalRemarkPlugins,
+		agentMentionProfilesById,
 		className,
 		isStreaming,
 		referencesById: spaceReferencesById,
@@ -212,6 +256,10 @@ function renderSpaceMessageTextContent(input: {
 	additionalRemarkPlugins: ComponentProps<
 		typeof MessageResponse
 	>["additionalRemarkPlugins"];
+	agentMentionProfilesById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	className: string;
 	isStreaming: boolean;
 	referencesById: SpaceMessageReferencesById;
@@ -238,8 +286,14 @@ function renderSpaceMessageTextContent(input: {
 	}
 	return (
 		<p className={cn("whitespace-pre-wrap", input.className)}>
-			<SpaceMessageReferenceText
-				referencesById={input.referencesById}
+			<SpaceMessageAgentMentionText
+				profilesById={input.agentMentionProfilesById}
+				renderText={(text) => (
+					<SpaceMessageReferenceText
+						referencesById={input.referencesById}
+						text={text}
+					/>
+				)}
 				text={input.renderedText}
 			/>
 		</p>

@@ -7,6 +7,8 @@ import { defaultRemarkPlugins, Streamdown } from "streamdown";
 
 const ALLOWED_MARKDOWN_PROTOCOLS = new Set(["https:", "mailto:"]);
 const ALLOWED_INTERNAL_SPACE_PATH_PATTERN = /^\/spaces\/[0-9a-f]{64}$/;
+const ALLOWED_INTERNAL_AGENT_MENTION_PATH_PATTERN =
+	/^\/__openmeld\/message-agent-mentions\/[^/?#]+$/;
 const MESSAGE_RESPONSE_STYLE = { overflowWrap: "anywhere" } as const;
 const STREAMDOWN_ANIMATION = { animation: "blurIn" } as const;
 const STREAMDOWN_DISALLOWED_ELEMENTS = ["img"];
@@ -119,7 +121,7 @@ function SafeMarkdownLink(
 	} & ExtraProps
 ) {
 	const { children, href, node: _node, renderInternalLink, ...rest } = props;
-	if (href && isAllowedInternalSpacePath(href)) {
+	if (href && isAllowedInternalMessagePath(href)) {
 		return renderInternalLink?.({ children, href }) ?? <>{children}</>;
 	}
 	if (!(href && isAllowedMarkdownUrl(href))) {
@@ -180,13 +182,16 @@ function removeRawHtmlNodes(node: MarkdownAstNode) {
 }
 
 function transformSafeMarkdownUrl(url: string) {
-	return isAllowedMarkdownUrl(url) || isAllowedInternalSpacePath(url)
+	return isAllowedMarkdownUrl(url) || isAllowedInternalMessagePath(url)
 		? url
 		: "";
 }
 
-function isAllowedInternalSpacePath(url: string): boolean {
-	return ALLOWED_INTERNAL_SPACE_PATH_PATTERN.test(url);
+function isAllowedInternalMessagePath(url: string): boolean {
+	return (
+		ALLOWED_INTERNAL_SPACE_PATH_PATTERN.test(url) ||
+		ALLOWED_INTERNAL_AGENT_MENTION_PATH_PATTERN.test(url)
+	);
 }
 
 function isAllowedMarkdownUrl(url: string): boolean {

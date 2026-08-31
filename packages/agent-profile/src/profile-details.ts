@@ -53,6 +53,7 @@ const PROFILE_DETAILS_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
   year: "numeric",
 });
+const SPACE_MEMBER_LAST_SEEN_PREFIX = /^Seen\s+/u;
 
 export function buildProfileDetailsSnapshotFromHumanProfile(
   input: HumanProfileDetailsInput
@@ -217,9 +218,9 @@ export function buildProfileDetailsSnapshotFromSpaceMember(input: {
         }),
         textRow({
           id: "last_seen",
-          label: "Last seen",
+          label: "Last activity in this Space",
           source: "space_membership",
-          value: input.entry.lastSeenLabel,
+          value: resolveSpaceMemberActivityTime(input.entry.lastSeenLabel),
         }),
       ]),
       buildConnectionSection({
@@ -250,6 +251,23 @@ export function buildProfileDetailsSnapshotFromSpaceMember(input: {
 
 export function formatProfileKind(profileKind: "agent" | "human"): string {
   return profileKind === "agent" ? "Agent Profile" : "Human Profile";
+}
+
+export function formatSpaceMemberActivityLabel(
+  lastSeenLabel: string | null | undefined
+): string | null {
+  const activityTime = resolveSpaceMemberActivityTime(lastSeenLabel);
+  return activityTime ? `Active here ${activityTime}` : null;
+}
+
+function resolveSpaceMemberActivityTime(
+  lastSeenLabel: string | null | undefined
+): string | null {
+  const normalized = normalizeDetailsValue(lastSeenLabel, {});
+  if (!normalized) {
+    return null;
+  }
+  return normalized.replace(SPACE_MEMBER_LAST_SEEN_PREFIX, "").trim() || null;
 }
 
 function buildConnectionSection(input: {

@@ -14,7 +14,6 @@ import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	ArrowBendUpLeftIcon,
 	ArrowUpIcon,
 	CaretDoubleDownIcon,
 	ChatCircleIcon,
@@ -120,6 +119,7 @@ import {
 	buildSpaceCollaborationProfilePresentations,
 	buildSpaceMemberDirectoryEntryByProfileId,
 	buildWakeStopTargetLabelsByProfileId,
+	type SpaceCollaborationProfilePresentation,
 } from "./space-collaboration-profile";
 import {
 	resolveSpaceComposerAccessibleName,
@@ -141,26 +141,24 @@ import { buildSpaceConversationScrollRestorationId } from "./space-conversation-
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
 import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
-import {
-	MessageActionTooltip,
-	MessageDetailsActionButton,
-	MessageHoverActionSlot,
-} from "./space-message-actions";
 import { SpaceMessageBody } from "./space-message-body";
 import {
-	resolveSpaceMessageActionButtonClassName,
-	resolveSpaceMessageActionPlacementClassName,
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageContentPaddingClassName,
 	resolveSpaceMessageRowLayoutClassName,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
-	SPACE_MESSAGE_ROW_HOVER_SAFE_ZONE_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "./space-message-bubble-style";
+import { copySpaceTimelineItemWithFeedback } from "./space-message-copy";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
+import {
+	resolveSpaceMessageFooterAddressingTargets,
+	resolveSpaceMessageFooterFailureSummary,
+	SpaceMessageFooter,
+} from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
@@ -175,7 +173,6 @@ import {
 	resolveSpaceMessageStateTuningVisibility,
 	useSpaceMessageStateTuningPreviewItems,
 } from "./space-message-state-tuning-preview";
-import { SpaceMessageWakeReceipt } from "./space-message-wake-receipt";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -793,6 +790,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		orgSlug: input.orgSlug,
 		prepareSetupHref: input.prepareSetupHref,
 		profileEntriesById,
+		profilePresentationsById,
 		readOnly: isReadOnly,
 		showCenterAgentStarterActions:
 			messageStateTuningVisibility.showCenterAgentStarterActions,
@@ -1655,6 +1653,10 @@ function renderConversationBody(input: {
 	orgSlug?: string;
 	prepareSetupHref?: string;
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	readOnly: boolean;
 	showCenterAgentStarterActions: boolean;
 	showStarterComputerSetup: boolean;
@@ -1876,6 +1878,7 @@ function renderConversationBody(input: {
 							input.profileEntriesById.get(entry.run.speaker.profileId) ?? null
 						}
 						profileEntriesById={input.profileEntriesById}
+						profilePresentationsById={input.profilePresentationsById}
 						readOnly={input.readOnly}
 						registerMessageElement={input.registerMessageElement}
 						run={entry.run}
@@ -2062,6 +2065,10 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 	prepareSetupHref?: string;
 	profileDetailsEntry: SpaceMemberDirectoryEntry | null;
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
 	readOnly: boolean;
 	registerMessageElement: (
 		signalId: string,
@@ -2094,14 +2101,10 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		runtimeDeviceDisplayName: input.run.speaker.runtimeDeviceDisplayName,
 	});
 	const messageAlign = resolveSpaceMessageDirectionalAlign(input.run.isSelf);
-	const actionPlacementClassName = resolveSpaceMessageActionPlacementClassName({
-		isSelf: input.run.isSelf,
-	});
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: input.run.isSelf });
 	const messageContentPaddingClassName =
 		resolveSpaceMessageContentPaddingClassName({ isSelf: input.run.isSelf });
-	const runCreatedAtMs = input.run.items.at(0)?.createdAtMs ?? null;
 	const isCenterAgentRun = resolveIsCenterAgentConversationRun({
 		centerAgentProfileId: input.centerAgentProfileId,
 		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
@@ -2136,14 +2139,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 			<span className="min-w-0 break-words font-bold text-foreground text-sm">
 				{input.run.speaker.displayName}
 			</span>
-			{runCreatedAtMs === null ? null : (
-				<>
-					<span className="shrink-0 text-muted-foreground">·</span>
-					<span className="shrink-0 text-muted-foreground">
-						{TIMELINE_TIME_FORMATTER.format(runCreatedAtMs)}
-					</span>
-				</>
-			)}
 			{agentControlLabel ? (
 				<>
 					<span className="shrink-0 text-muted-foreground">·</span>
@@ -2158,6 +2153,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 	return (
 		<>
 			{input.run.items.map((item, index) => {
+				const anchoredOutcomeNotices =
+					input.anchoredOutcomeNoticesBySourceSignalId.get(item.id) ??
+					EMPTY_ANCHORED_OUTCOME_NOTICES;
 				const wakePresentationItem = resolveSpaceMessageWakePresentationItem({
 					item,
 					timelineItems: input.timelineItems,
@@ -2223,9 +2221,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 						isHighlighted,
 						isSelf: input.run.isSelf,
 					});
-				const actionButtonClassName = resolveSpaceMessageActionButtonClassName({
-					isHighlighted,
-				});
 				const showProgressInAnswerArea =
 					shouldShowSpaceMessageProgressInAnswerArea(item);
 				const messageBubbleVisibilityClassName =
@@ -2264,11 +2259,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 				const isLastGroupedRow = index === input.run.items.length - 1;
 
 				return (
-					<MessageScrollerItem
-						className={resolveSpaceMessageScrollerItemClassName(isGroupedRow)}
-						key={item.id}
-						messageId={item.id}
-					>
+					<MessageScrollerItem key={item.id} messageId={item.id}>
 						<Message
 							align={messageAlign}
 							className={resolveSpaceMessageRunLayoutClassName({
@@ -2320,23 +2311,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 											align={messageAlign}
 											className={messageBubbleVisibilityClassName}
 										>
-											{canUseMessageActions ? (
-												<MessageHoverActions
-													actionButtonClassName={actionButtonClassName}
-													hasWakeProblem={hasWakeProblem}
-													isCreatingThread={input.isCreatingThread}
-													item={item}
-													onCreateThread={input.onCreateThread}
-													onOpenMessageDetails={input.onOpenMessageDetails}
-													onOpenThread={input.onOpenThread}
-													onReplyToMessage={input.onReplyToMessage}
-													placementClassName={actionPlacementClassName}
-													showTimestamp={index !== 0}
-													thread={
-														input.threadsByRootSignalId.get(item.id) ?? null
-													}
-												/>
-											) : null}
 											<BubbleContent
 												className={cn(
 													"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
@@ -2373,6 +2347,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													onOpenSpaceFile={input.onOpenSpaceFile}
 													openMeldProfileId={input.selfProfileId}
 													orgSlug={input.orgSlug}
+													profilePresentationsById={
+														input.profilePresentationsById
+													}
 													spaceReferencesById={input.spaceReferencesById}
 												/>
 												<SpaceMessageInteractionSource
@@ -2415,18 +2392,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													align={messageAlign}
 													item={item}
 												/>
-												{shouldShowConversationWakeReceipt({
-													isCenterAgentDirectMessage:
-														input.isCenterAgentDirectMessage,
-													isCenterAgentOptimisticReplySource,
-												}) ? (
-													<SpaceMessageWakeReceipt
-														targetLabelsByProfileId={
-															input.wakeStopTargetLabelsByProfileId
-														}
-														targetProfileIds={item.wakeTargetProfileIds}
-													/>
-												) : null}
 												<ThreadPreview
 													membersSnapshot={input.membersSnapshot}
 													onOpenThread={input.onOpenThread}
@@ -2443,10 +2408,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 												/>
 												{renderAnchoredSpaceOutcomeRows({
 													align: messageAlign,
-													notices:
-														input.anchoredOutcomeNoticesBySourceSignalId.get(
-															item.id
-														) ?? EMPTY_ANCHORED_OUTCOME_NOTICES,
+													notices: anchoredOutcomeNotices,
 													onOpenMessageDetails: input.onOpenMessageDetails,
 													onRecoverExecution: input.onRecoverExecution,
 													onRetryWakeTarget: input.onRetryWakeTarget,
@@ -2457,6 +2419,24 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 												})}
 											</BubbleContent>
 										</Bubble>
+										{renderConversationMessageFooter({
+											anchoredOutcomeNotices,
+											canUseMessageActions,
+											hasWakeProblem,
+											isCreatingThread: input.isCreatingThread,
+											item,
+											messageAlign,
+											messageDetailsItem,
+											onCreateThread: input.onCreateThread,
+											onOpenMessageDetails: input.onOpenMessageDetails,
+											onOpenThread: input.onOpenThread,
+											onReplyToMessage: input.onReplyToMessage,
+											orgSlug: input.orgSlug,
+											profileEntriesById: input.profileEntriesById,
+											profilePresentationsById: input.profilePresentationsById,
+											selfProfileId: input.selfProfileId,
+											threadsByRootSignalId: input.threadsByRootSignalId,
+										})}
 										{rowProgressStatus}
 									</div>
 								</BubbleGroup>
@@ -2479,22 +2459,12 @@ function useLatestCallback<Arguments extends unknown[], Result>(
 	return useCallback((...args: Arguments) => callbackRef.current(...args), []);
 }
 
-function resolveSpaceMessageScrollerItemClassName(
-	isGroupedRow: boolean
-): string | undefined {
-	return isGroupedRow ? SPACE_MESSAGE_ROW_HOVER_SAFE_ZONE_CLASS : undefined;
-}
-
 function resolveSpaceMessageRunLayoutClassName(input: {
 	isFirstInGroup: boolean;
 	isGroupedRow: boolean;
 	isLastInGroup: boolean;
 }): string {
-	return cn(
-		resolveSpaceMessageRowLayoutClassName(input),
-		"px-0",
-		input.isGroupedRow && "pointer-events-auto"
-	);
+	return cn(resolveSpaceMessageRowLayoutClassName(input), "px-0");
 }
 
 function canUseTimelineItemActions(input: {
@@ -2631,15 +2601,6 @@ function resolveIsCenterAgentConversationRun(input: {
 	);
 }
 
-function shouldShowConversationWakeReceipt(input: {
-	isCenterAgentDirectMessage: boolean;
-	isCenterAgentOptimisticReplySource: boolean;
-}): boolean {
-	return !(
-		input.isCenterAgentDirectMessage || input.isCenterAgentOptimisticReplySource
-	);
-}
-
 function renderSpaceMessageProgressAt(input: {
 	placement: "answer" | "row";
 	showProgressInAnswerArea: boolean;
@@ -2714,91 +2675,106 @@ function renderDurableAgentActivity(input: {
 	);
 }
 
-function MessageHoverActions(input: {
-	actionButtonClassName: string;
+function resolveConversationMessageFooterThreadAction(input: {
+	isCreatingThread: boolean;
+	item: SpaceTimelineItem;
+	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
+	onOpenThread: (threadId: string) => void;
+	thread: SpaceThread | null;
+}) {
+	return {
+		disabled: input.isCreatingThread,
+		label: input.thread ? "Open thread" : "Reply in thread",
+		onSelect: () => {
+			if (input.thread) {
+				input.onOpenThread(input.thread.threadId);
+				return;
+			}
+			input.onCreateThread({ rootSignalId: input.item.id }).catch((error) => {
+				console.error("Failed to open a thread from the message.", error);
+			});
+		},
+	};
+}
+
+function renderConversationMessageFooter(input: {
+	anchoredOutcomeNotices: readonly SpaceTimelineItem[];
+	canUseMessageActions: boolean;
 	hasWakeProblem: boolean;
 	isCreatingThread: boolean;
 	item: SpaceTimelineItem;
+	messageAlign: "end" | "start";
+	messageDetailsItem: SpaceTimelineItem | null;
 	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenThread: (threadId: string) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
-	placementClassName: string;
-	showTimestamp: boolean;
-	thread: SpaceThread | null;
+	orgSlug?: string;
+	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
+	selfProfileId: string;
+	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
 }) {
 	if (input.item.transientActivityPurpose !== null) {
 		return null;
 	}
+	const failureSummary = resolveSpaceMessageFooterFailureSummary({
+		notices: input.anchoredOutcomeNotices,
+		resolveTargetLabel: (targetProfileId) =>
+			input.profileEntriesById.get(targetProfileId)?.profileName ?? null,
+	});
+	const canUseCollaborationActions =
+		input.canUseMessageActions && input.item.signalType === "signal.text";
+	const addressingTargets = resolveSpaceMessageFooterAddressingTargets({
+		item: input.item,
+		profilePresentationsById: input.profilePresentationsById,
+	});
+	const messageDetailsItem = input.messageDetailsItem;
 
-	const canReplyOrThread = input.item.signalType === "signal.text";
-	const threadLabel = input.thread ? "Open thread" : "Reply in thread";
-	const openThread = () => {
-		if (input.thread) {
-			input.onOpenThread(input.thread.threadId);
-			return;
-		}
-		input.onCreateThread({ rootSignalId: input.item.id }).catch((error) => {
-			console.error("Failed to open a thread from the message.", error);
-		});
-	};
 	return (
-		<div
-			className={cn(
-				"pointer-events-none absolute -top-6 z-20 flex items-center gap-1",
-				input.placementClassName
-			)}
-			data-slot="message-hover-actions"
-			data-space-message-actions-offset="outside"
-		>
-			{input.showTimestamp ? (
-				<MessageHoverActionSlot>
-					<span className="pointer-events-none text-muted-foreground text-xs">
-						{TIMELINE_TIME_FORMATTER.format(input.item.createdAtMs)}
-					</span>
-				</MessageHoverActionSlot>
-			) : null}
-			{canReplyOrThread ? (
-				<MessageHoverActionSlot>
-					<MessageActionTooltip label="Reply">
-						<Button
-							aria-label="Reply"
-							className={cn("size-8", input.actionButtonClassName)}
-							onClick={() => input.onReplyToMessage(input.item)}
-							size="icon-sm"
-							type="button"
-							variant="ghost"
-						>
-							<ArrowBendUpLeftIcon aria-hidden="true" />
-						</Button>
-					</MessageActionTooltip>
-				</MessageHoverActionSlot>
-			) : null}
-			{canReplyOrThread ? (
-				<MessageHoverActionSlot>
-					<MessageActionTooltip label={threadLabel}>
-						<Button
-							aria-label={threadLabel}
-							className={cn("size-8", input.actionButtonClassName)}
-							disabled={input.isCreatingThread}
-							onClick={openThread}
-							size="icon-sm"
-							type="button"
-							variant="ghost"
-						>
-							<ChatCircleIcon aria-hidden="true" />
-						</Button>
-					</MessageActionTooltip>
-				</MessageHoverActionSlot>
-			) : null}
-			<MessageHoverActionSlot>
-				<MessageDetailsActionButton
-					buttonClassName={input.actionButtonClassName}
-					hasWakeProblem={input.hasWakeProblem}
-					onClick={() => input.onOpenMessageDetails(input.item)}
-				/>
-			</MessageHoverActionSlot>
-		</div>
+		<SpaceMessageFooter
+			addressingTargets={addressingTargets}
+			align={input.messageAlign}
+			details={
+				messageDetailsItem
+					? {
+							hasProblem: input.hasWakeProblem || failureSummary !== null,
+							onSelect: () => input.onOpenMessageDetails(messageDetailsItem),
+						}
+					: undefined
+			}
+			failureSummary={failureSummary}
+			onCopy={() =>
+				copySpaceTimelineItemWithFeedback({
+					item: input.item,
+					openMeldProfileId: input.selfProfileId,
+					organizationSlug: input.orgSlug,
+				})
+			}
+			reply={
+				canUseCollaborationActions
+					? {
+							label: "Reply",
+							onSelect: () => input.onReplyToMessage(input.item),
+						}
+					: undefined
+			}
+			thread={
+				canUseCollaborationActions
+					? resolveConversationMessageFooterThreadAction({
+							isCreatingThread: input.isCreatingThread,
+							item: input.item,
+							onCreateThread: input.onCreateThread,
+							onOpenThread: input.onOpenThread,
+							thread: input.threadsByRootSignalId.get(input.item.id) ?? null,
+						})
+					: undefined
+			}
+			timestamp={TIMELINE_TIME_FORMATTER.format(input.item.createdAtMs)}
+		/>
 	);
 }
 
@@ -2941,10 +2917,12 @@ function ThreadPreview(input: {
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
 
 	return (
-		<div className="flex min-w-0 flex-col gap-2 overflow-hidden border-border border-t pt-2">
+		<div className="flex w-full min-w-0 max-w-full flex-col gap-2 overflow-hidden border-border border-t pt-2">
 			{previewItems.length > 0 ? (
-				<fieldset className="flex min-w-0 flex-col gap-1.5 overflow-hidden">
-					<legend className="sr-only">Thread preview</legend>
+				<section
+					aria-label="Thread preview"
+					className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden pe-2"
+				>
 					{previewItems.map((item) => (
 						<div
 							className="flex min-w-0 items-start gap-2 overflow-hidden"
@@ -2961,7 +2939,7 @@ function ThreadPreview(input: {
 							</span>
 						</div>
 					))}
-				</fieldset>
+				</section>
 			) : null}
 			<button
 				aria-label={
@@ -3076,7 +3054,7 @@ function SystemEventRow(input: {
 		return (
 			<div
 				className={cn(
-					"flex w-full justify-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[highlighted=true]:rounded-md data-[highlighted=true]:bg-ring/10 data-[highlighted=true]:ring-1 data-[highlighted=true]:ring-ring/50 motion-reduce:transition-none",
+					"flex w-full justify-start transition-colors focus-visible:outline-none data-[highlighted=true]:rounded-md data-[highlighted=true]:bg-muted/50 motion-reduce:transition-none",
 					SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 					"px-0"
 				)}
@@ -3108,20 +3086,22 @@ function SystemEventRow(input: {
 
 	const StatusIcon = InfoIcon;
 	const markerClassName =
-		"max-w-full items-center gap-2 px-3 py-2 text-center text-muted-foreground text-xs leading-6";
+		"max-w-full items-center gap-2 px-3 py-2 text-muted-foreground text-xs leading-6 before:min-w-6 after:min-w-6";
 	const markerContent = (
-		<>
-			<MarkerIcon>
-				<StatusIcon aria-hidden="true" className="text-muted-foreground" />
-			</MarkerIcon>
-			<MarkerContent className="line-clamp-2 max-w-full break-words text-muted-foreground">
-				<span className="font-bold text-muted-foreground">
-					{input.item.actorName}
+		<MarkerContent className="min-w-0 max-w-[min(80%,44rem)] whitespace-normal break-words text-left text-muted-foreground">
+			<span className="flex min-w-0 items-start gap-2">
+				<MarkerIcon className="mt-1 shrink-0">
+					<StatusIcon aria-hidden="true" className="text-muted-foreground" />
+				</MarkerIcon>
+				<span className="min-w-0">
+					<span className="font-bold text-muted-foreground">
+						{input.item.actorName}
+					</span>
+					<span className="mx-2 text-muted-foreground/60">·</span>
+					<span>{input.item.text}</span>
 				</span>
-				<span className="mx-2 text-muted-foreground/60">·</span>
-				<span>{input.item.text}</span>
-			</MarkerContent>
-		</>
+			</span>
+		</MarkerContent>
 	);
 
 	return (
@@ -3145,7 +3125,7 @@ function SystemEventRow(input: {
 					aria-label="Message details"
 					className={cn(
 						markerClassName,
-						"cursor-pointer appearance-none border-0 bg-transparent text-inherit focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-4"
+						"cursor-pointer appearance-none border-0 bg-transparent text-inherit focus-visible:rounded-md focus-visible:bg-muted/40 focus-visible:outline-none"
 					)}
 					data-highlighted={
 						input.highlightedSignalId === input.item.id ? "true" : undefined
@@ -3198,7 +3178,14 @@ function renderAnchoredSpaceOutcomeRows(input: {
 		return null;
 	}
 
-	const outcomeNotices = input.notices.filter(isSpaceOutcomeNoticeItem);
+	const outcomeNotices = input.notices.filter(
+		(notice) =>
+			isSpaceOutcomeNoticeItem(notice) &&
+			notice.systemNoticeType !== "terminal_failure"
+	);
+	if (outcomeNotices.length === 0) {
+		return null;
+	}
 	const groups = groupAnchoredOutcomeNotices(outcomeNotices);
 
 	return (

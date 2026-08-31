@@ -30,7 +30,7 @@ const bubbleVariants = cva(
 					"border-none *:data-[slot=bubble-content]:rounded-md *:data-[slot=bubble-content]:bg-transparent *:data-[slot=bubble-content]:p-0",
 				space: "*:data-[slot=bubble-content]:text-card-foreground",
 				spaceHighlighted:
-					"*:data-[slot=bubble-content]:border-ring/40 *:data-[slot=bubble-content]:bg-ring/10 *:data-[slot=bubble-content]:ring-1 *:data-[slot=bubble-content]:ring-ring/50",
+					"*:data-[slot=bubble-content]:border-transparent *:data-[slot=bubble-content]:bg-muted/50",
 			},
 		},
 	}
