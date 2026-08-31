@@ -16,10 +16,15 @@ export function resolveWakeProgressThinkingStep(
 		case "sending":
 			return createStartingWakeStep();
 		case "request_sent":
-		case "queued":
 		case "connecting":
 		case "retrying":
 			return createDispatchingWakeStep("active");
+		case "queued":
+			return {
+				description: "This Wake will start when the Agent is available.",
+				label: "Wake is queued",
+				status: "active",
+			};
 		case "running":
 			return {
 				description: "The agent has the Wake.",

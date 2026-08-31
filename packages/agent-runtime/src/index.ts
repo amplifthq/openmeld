@@ -49,6 +49,11 @@ export {
   runtimeAgentControllerRefMatchesAdapterSnapshot,
 } from "./agent-controller-ref";
 export {
+  AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  type AgentControllerUsageLimitSupport,
+  resolveAgentControllerUsageLimitSupport,
+} from "./agent-controller-usage-limit-support";
+export {
   DUPLICATE_REPLY_CONVERSATION_CONTEXT,
   DUPLICATE_REPLY_CONVERSATION_REASON,
   DUPLICATE_REPLY_CONVERSATION_TOOLTIP,
@@ -114,6 +119,12 @@ export {
   resolveAgentProfileBindingTruthWriteBoundary,
 } from "./agent-profile-binding";
 export {
+  AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION,
+  type AgentProfileEditApplicationTiming,
+  type AgentProfileRuntimeEditField,
+  resolveAgentProfileEditApplicationTiming,
+} from "./agent-profile-edit-application";
+export {
   type AgentProfileCollaborationModeEditCapability,
   type AgentProfileControllerChangeEditCapability,
   type AgentProfileEditCapabilities,
@@ -126,6 +137,7 @@ export {
   resolveAgentProfileEditCapabilities,
 } from "./agent-profile-edit-capabilities";
 export {
+  AGENT_PROFILE_USAGE_CHECKING_REASON_CODE,
   AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE,
   type AgentProfileUsageRecoveryAvailability,
   type AgentProfileUsageWakeability,

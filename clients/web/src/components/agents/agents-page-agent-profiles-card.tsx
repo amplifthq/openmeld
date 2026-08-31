@@ -10,6 +10,7 @@ import {
 	getAgentControllerPermissionModeDisplayMetadata,
 	parseAgentControllerRef,
 	resolveAgentControllerPermissionModeForController,
+	resolveAgentProfileEditApplicationTiming,
 	resolveAgentProfileEditCapabilities,
 	resolveAgentWakeAvailabilityDisplayCategory,
 	resolveNativeAgentControllerCollaborationModeForController,
@@ -20,6 +21,7 @@ import type {
 	AgentProfileBindingOpenCodePermission,
 	AgentWakeAvailability,
 	AuthProfileView,
+	ExecuteAgentProfileWorkRecoveryBody,
 	GetAgentExecutionReadinessResponse,
 	GetAgentProfilePrimaryBindingResponse,
 	LocalRuntimeComputer,
@@ -206,6 +208,9 @@ import {
 } from "./agents-page-formatters";
 import { useAgentWakeAvailabilityDisplayDebounce } from "./use-agent-wake-availability-display-debounce";
 
+const AGENT_PROFILE_CHANGE_TIMING_SUMMARY =
+	"Saved changes are used for future Wakes. Some controllers can also apply Permission Mode changes to a Wake already in progress; the field explains when.";
+
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 type DeviceAgentCatalog = LocalRuntimeExecutionTarget["localAgentCatalog"];
 type DeviceAgentCatalogEntry = DeviceAgentCatalog["entries"][number];
@@ -221,6 +226,43 @@ function resolveProfileDetailsViewerScope(
 	canManage: boolean
 ): ProfileDetailsViewerScope {
 	return canManage ? "owner_self" : "observer";
+}
+
+function formatAgentProfileWorkRecoverySuccess(
+	recoveryAction: ProfileDetailsRecoveryAction,
+	profileName: string
+): string {
+	switch (recoveryAction.kind) {
+		case "continue_interrupted_work":
+			return `Continuing ${profileName}'s interrupted work.`;
+		case "approve_queued_work":
+			return `Starting ${profileName}'s queued work.`;
+		case "skip_interrupted_work":
+			return `Skipped ${profileName}'s interrupted work.`;
+		default:
+			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
+	}
+}
+
+function formatAgentProfileWorkRecoveryFailureAction(
+	recoveryAction: ProfileDetailsRecoveryAction
+): string {
+	switch (recoveryAction.kind) {
+		case "continue_interrupted_work":
+			return "continue the interrupted work";
+		case "approve_queued_work":
+			return "start the queued work";
+		case "skip_interrupted_work":
+			return "skip the interrupted work";
+		default:
+			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
+	}
+}
+
+function assertNeverProfileDetailsRecoveryActionKind(value: never): never {
+	throw new Error(
+		`Unsupported Agent Profile recovery action: ${String(value)}`
+	);
 }
 
 export type {
@@ -1341,12 +1383,27 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		profile: AuthProfileView,
 		recoveryAction: ProfileDetailsRecoveryAction
 	) => {
+		let recoveryRequest: ExecuteAgentProfileWorkRecoveryBody;
+		if (recoveryAction.kind === "skip_interrupted_work") {
+			const expectedInterruptedTargetWakeLifecycleId =
+				recoveryAction.expectedInterruptedTargetWakeLifecycleId;
+			if (!expectedInterruptedTargetWakeLifecycleId) {
+				toast.error("Refresh this page before skipping the interrupted work.");
+				return;
+			}
+			recoveryRequest = {
+				action: recoveryAction.kind,
+				expectedInterruptedTargetWakeLifecycleId,
+			};
+		} else {
+			recoveryRequest = { action: recoveryAction.kind };
+		}
 		setPendingRecoveryActionProfileId(profile.openMeldProfileId);
 		try {
 			await executeAgentProfileWorkRecovery({
-				action: recoveryAction.kind,
 				agentProfileId: profile.openMeldProfileId,
 				organizationId: currentOrganization.id,
+				...recoveryRequest,
 			});
 			try {
 				await Promise.all([
@@ -1368,20 +1425,19 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				return;
 			}
 			toast.success(
-				recoveryAction.kind === "continue_interrupted_work"
-					? `Continuing ${profile.profileName}'s interrupted work.`
-					: `Starting ${profile.profileName}'s queued work.`
+				formatAgentProfileWorkRecoverySuccess(
+					recoveryAction,
+					profile.profileName
+				)
 			);
 		} catch (error) {
 			console.error("Failed to recover Agent Profile work.", error);
 			toast.error(
 				formatMutationError(
 					error,
-					`OpenMeld could not ${
-						recoveryAction.kind === "continue_interrupted_work"
-							? "continue the interrupted work"
-							: "start the queued work"
-					} for ${profile.profileName}.`
+					`OpenMeld could not ${formatAgentProfileWorkRecoveryFailureAction(
+						recoveryAction
+					)} for ${profile.profileName}.`
 				)
 			);
 		} finally {
@@ -3591,9 +3647,7 @@ function AgentProfileInlineEditorContent(
 							}
 						/>
 						<TooltipContent className="max-w-80" side="top">
-							Runtime setting changes apply to new work after the local OpenMeld
-							Service syncs. Work already running continues with the settings it
-							started with.
+							{AGENT_PROFILE_CHANGE_TIMING_SUMMARY}
 						</TooltipContent>
 					</Tooltip>
 				</div>
@@ -3819,9 +3873,7 @@ function AgentProfileEditDialogContent(
 								}
 							/>
 							<TooltipContent className="max-w-80" side="top">
-								Runtime setting changes apply to new work after the local
-								OpenMeld Service syncs. Work already running continues with the
-								settings it started with.
+								{AGENT_PROFILE_CHANGE_TIMING_SUMMARY}
 							</TooltipContent>
 						</Tooltip>
 					</DialogTitle>
@@ -3990,10 +4042,16 @@ function AgentProfileEditDialogFields(input: {
 						options={input.controllerChangeOptions}
 					/>
 					{input.controllerChangeEligibilityStatus === "blocked" ? (
-						<p className="text-muted-foreground text-xs leading-5">
-							Controller changes are unavailable while this Agent is working
-							because reconnecting would interrupt the current Wake.
-						</p>
+						<div className="grid gap-1 text-muted-foreground text-xs leading-5">
+							<p>
+								Controller changes are unavailable while this Agent is working
+								because reconnecting would interrupt the current Wake.
+							</p>
+							<p>
+								Model, reasoning effort, collaboration mode, and OpenCode
+								permission changes apply to the next Wake.
+							</p>
+						</div>
 					) : null}
 					{input.controllerChangeEligibilityStatus === "unavailable" ? (
 						<p className="text-muted-foreground text-xs leading-5">
@@ -4024,6 +4082,9 @@ function AgentProfileEditDialogFields(input: {
 						disabled={input.disabled}
 						draftKey={input.draftKey}
 						focusRef={input.permissionControlRef}
+						isAgentWorking={
+							input.controllerChangeEligibilityStatus === "blocked"
+						}
 						onDraftChange={input.onDraftChange}
 						selectedPolicy={input.dialogState.selectedPolicy}
 					/>
@@ -4577,6 +4638,7 @@ function AgentProfilePermissionModeEditSection(input: {
 	confirmationId: string;
 	controllerPermissionMode: AgentProfileControllerPermissionModeEditState | null;
 	disabled: boolean;
+	isAgentWorking: boolean;
 	draftKey: string;
 	focusRef: Ref<HTMLButtonElement>;
 	onDraftChange: (draft: AgentProfileEditDraft) => void;
@@ -4607,6 +4669,10 @@ function AgentProfilePermissionModeEditSection(input: {
 		input.selectedPolicy,
 		{ agentControllerRef: input.controllerPermissionMode.agentControllerRef }
 	);
+	const applicationTiming = resolveAgentProfileEditApplicationTiming({
+		agentControllerRef: input.controllerPermissionMode.agentControllerRef,
+		field: "permission_mode",
+	});
 	const requiresConfirmation = selectedMetadata.requiresExplicitConfirmation;
 	return (
 		<div
@@ -4662,6 +4728,13 @@ function AgentProfilePermissionModeEditSection(input: {
 			>
 				{selectedMetadata.description}
 			</p>
+			{input.isAgentWorking ? (
+				<p className="text-muted-foreground text-xs leading-5">
+					{applicationTiming === "applies_now"
+						? "This controller can apply a saved Permission Mode to later tool requests in the current Wake. If the current session cannot accept it, the next Wake uses it."
+						: "A saved Permission Mode applies to the next Wake. The current Wake keeps its existing mode."}
+				</p>
+			) : null}
 			{requiresConfirmation ? (
 				<label
 					className="flex items-start gap-2 text-destructive text-xs leading-5"

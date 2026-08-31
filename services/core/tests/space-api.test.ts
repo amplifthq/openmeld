@@ -4,6 +4,7 @@ import {
   applyOpenMeldRequestContextHeaders,
   OPENMELD_EXPECTED_FORWARDED_BY,
   OPENMELD_HEADER_SPACE_PASSWORD,
+  OPENMELD_SPACE_ADDRESSING_VERSION,
 } from "@openmeld/gateway-contract";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -4336,8 +4337,29 @@ describe("OpenMeld Core", () => {
     expect(list.signals).toEqual([]);
   });
 
-  it("accepts Reference targets that are active Space members", async () => {
+  it("accepts Reference targets that are active Agent Space members", async () => {
     const spaceId = await createSpace();
+    const agentProfileId = "agt_44444444-4444-4444-8444-444444444444";
+    const addResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: agentProfileId,
+              profileName: "Reference Boundary Agent",
+              profileKind: "agent",
+              ownerUserId: "owner-reference-boundary-agent",
+              ownerName: "Reference Boundary Owner",
+              agentControllerRef: "builtin:codex",
+            },
+          ],
+        }),
+      }
+    );
+    expect(addResponse.status).toBe(200);
     const clientMessageId = `reference-active-member-${randomUUID()}`;
 
     const postResponse = await fetchWithOpenMeldAuth(
@@ -4355,11 +4377,11 @@ describe("OpenMeld Core", () => {
           },
           type: "signal.text",
           data: {
-            text: "@Test User(reference) for context",
+            text: "@Reference Boundary Agent(reference) for context",
             messageEnvelope: {
-              text: "@Test User(reference) for context",
+              text: "@Reference Boundary Agent(reference) for context",
               activationTargets: [],
-              referenceTargets: [DEFAULT_HUMAN_PROFILE_ID],
+              referenceTargets: [agentProfileId],
             },
             meta: { clientMessageId },
           },
@@ -4372,7 +4394,7 @@ describe("OpenMeld Core", () => {
       data: {
         messageEnvelope: {
           activationTargets: [],
-          referenceTargets: [DEFAULT_HUMAN_PROFILE_ID],
+          referenceTargets: [agentProfileId],
         },
         meta: { clientMessageId },
       },
@@ -4425,6 +4447,300 @@ describe("OpenMeld Core", () => {
     expect(listResponse.status).toBe(200);
     const list = (await listResponse.json()) as { signals?: unknown[] };
     expect(list.signals).toEqual([]);
+  });
+
+  it("rejects active Agent profiles used as Human Mention targets", async () => {
+    const spaceId = await createSpace();
+    const agentProfileId = "agt_55555555-5555-4555-8555-555555555555";
+    const addResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: agentProfileId,
+              profileName: "Mention Boundary Agent",
+              profileKind: "agent",
+              ownerUserId: "owner-mention-boundary-agent",
+              ownerName: "Mention Boundary Owner",
+              agentControllerRef: "builtin:codex",
+            },
+          ],
+        }),
+      }
+    );
+    expect(addResponse.status).toBe(200);
+
+    const clientMessageId = `mention-agent-target-${randomUUID()}`;
+    const postResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileName: "Test User",
+          },
+          type: "signal.text",
+          data: {
+            text: "@Mention Boundary Agent please review",
+            messageEnvelope: {
+              text: "@Mention Boundary Agent please review",
+              activationTargets: [],
+              referenceTargets: [],
+              mentionTargets: [agentProfileId],
+            },
+            meta: { clientMessageId },
+          },
+        }),
+      }
+    );
+
+    expect(postResponse.status).toBe(422);
+    await expect(postResponse.json()).resolves.toEqual({
+      ok: false,
+      code: "space.addressing.target_invalid",
+      message: `OpenMeld could not mention ${agentProfileId} because Human Mention only supports people. The message was not sent. Choose a person or use Wake or Reference for an agent.`,
+      targetProfileId: agentProfileId,
+    });
+
+    const listResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`
+    );
+    expect(listResponse.status).toBe(200);
+    const list = (await listResponse.json()) as { signals?: unknown[] };
+    expect(list.signals).toEqual([]);
+  });
+
+  it("rejects active Human profiles used as Agent Reference targets", async () => {
+    const spaceId = await createSpace();
+    const humanProfileId = DEFAULT_HUMAN_PROFILE_ID;
+
+    const clientMessageId = `reference-human-target-${randomUUID()}`;
+    const postResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-openmeld-space-addressing-version": "1",
+        },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileName: "Test User",
+          },
+          type: "signal.text",
+          data: {
+            text: "@Reference Boundary Human please review",
+            messageEnvelope: {
+              text: "@Reference Boundary Human please review",
+              activationTargets: [],
+              referenceTargets: [humanProfileId],
+              mentionTargets: [],
+            },
+            meta: { clientMessageId },
+          },
+        }),
+      }
+    );
+
+    expect(postResponse.status).toBe(422);
+    await expect(postResponse.json()).resolves.toEqual({
+      ok: false,
+      code: "space.addressing.target_invalid",
+      message: `OpenMeld could not reference ${humanProfileId} because Agent Reference only supports agents. The message was not sent. Choose an agent or mention a person.`,
+      targetProfileId: humanProfileId,
+    });
+
+    const listResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`
+    );
+    expect(listResponse.status).toBe(200);
+    const list = (await listResponse.json()) as { signals?: unknown[] };
+    expect(list.signals).toEqual([]);
+  });
+
+  it("translates legacy Human Reference targets into Human Mentions", async () => {
+    const spaceId = await createSpace();
+    const addResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: SECOND_HUMAN_PROFILE_ID,
+              profileName: "Legacy Mention Target",
+              profileKind: "human",
+              ownerUserId: "owner-legacy-mention-target",
+              ownerName: "Legacy Mention Target",
+              agentControllerRef: null,
+            },
+          ],
+        }),
+      }
+    );
+    expect(addResponse.status).toBe(200);
+
+    const text = "@Legacy Mention Target please review";
+    const clientMessageId = `legacy-human-reference-${randomUUID()}`;
+    const postResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileName: "Test User",
+          },
+          type: "signal.text",
+          data: {
+            text,
+            messageEnvelope: {
+              text,
+              activationTargets: [],
+              referenceTargets: [SECOND_HUMAN_PROFILE_ID],
+            },
+            meta: { clientMessageId },
+          },
+        }),
+      }
+    );
+    const postResponseBody = await postResponse.clone().text();
+    expect(postResponse.status, postResponseBody).toBe(200);
+
+    const historyResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`,
+      { headers: { "x-openmeld-space-addressing-version": "1" } }
+    );
+    expect(historyResponse.status).toBe(200);
+    const history = (await historyResponse.json()) as {
+      signals?: Array<{
+        data?: {
+          text?: string;
+          messageEnvelope?: {
+            mentionTargets?: string[];
+            referenceTargets?: string[];
+          };
+        };
+      }>;
+    };
+    const persisted = history.signals?.find(
+      (signal) => signal.data?.text === text
+    );
+    expect(persisted?.data?.messageEnvelope).toMatchObject({
+      mentionTargets: [SECOND_HUMAN_PROFILE_ID],
+      referenceTargets: [],
+    });
+  });
+
+  it("translates legacy Human References in Thread replies", async () => {
+    const spaceId = await createSpace();
+    const addResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: SECOND_HUMAN_PROFILE_ID,
+              profileName: "Legacy Thread Mention Target",
+              profileKind: "human",
+              ownerUserId: "owner-legacy-thread-mention-target",
+              ownerName: "Legacy Thread Mention Target",
+              agentControllerRef: null,
+            },
+          ],
+        }),
+      }
+    );
+    expect(addResponse.status).toBe(200);
+
+    const rootResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          type: "signal.text",
+          data: { text: "Thread root" },
+        }),
+      }
+    );
+    expect(rootResponse.status).toBe(200);
+    const rootSignal = parseEnvelope(await rootResponse.json());
+    if (!rootSignal) {
+      throw new Error("Expected a thread root signal");
+    }
+
+    const createThreadResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/threads`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientMutationId: `create-thread-${randomUUID()}`,
+          rootSignalId: rootSignal.id,
+        }),
+      }
+    );
+    expect(createThreadResponse.status).toBe(200);
+    const createdThread = (await createThreadResponse.json()) as {
+      thread: { threadId: string };
+    };
+
+    const text = "@Legacy Thread Mention Target please review";
+    const replyResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/threads/${createdThread.thread.threadId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientMessageId: `legacy-thread-human-reference-${randomUUID()}`,
+          messageEnvelope: {
+            activationTargets: [],
+            referenceTargets: [SECOND_HUMAN_PROFILE_ID],
+            text,
+          },
+          text,
+        }),
+      }
+    );
+    expect(replyResponse.status, await replyResponse.clone().text()).toBe(200);
+
+    const historyResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/threads/${createdThread.thread.threadId}/signals`,
+      { headers: { "x-openmeld-space-addressing-version": "1" } }
+    );
+    expect(historyResponse.status).toBe(200);
+    const history = (await historyResponse.json()) as {
+      signals: Array<{
+        data?: {
+          messageEnvelope?: {
+            mentionTargets?: string[];
+            referenceTargets?: string[];
+          };
+          text?: string;
+        };
+      }>;
+    };
+    const persisted = history.signals.find(
+      (signal) => signal.data?.text === text
+    );
+    expect(persisted?.data?.messageEnvelope).toMatchObject({
+      mentionTargets: [SECOND_HUMAN_PROFILE_ID],
+      referenceTargets: [],
+    });
   });
 
   it("rejects Reference targets after their Space membership is removed", async () => {
@@ -5855,6 +6171,94 @@ describe("OpenMeld Core", () => {
     observer.close(1000, "done");
   });
 
+  it("preserves Human Mention across current live and history transports", async () => {
+    const spaceId = await createSpace();
+    const observerProfile = {
+      kind: "human",
+      profileId: "mention-observer",
+      profileName: "Mention Observer",
+    };
+    const observerProfileId = toCanonicalOpenMeldProfileId(
+      observerProfile.profileId,
+      "human"
+    );
+    const observer = await openPendingSpaceSocket(spaceId, observerProfile);
+    const helloAck = waitForJsonMessage(
+      observer,
+      (data) => data.type === "system.hello.ack"
+    );
+    observer.send(
+      JSON.stringify({
+        type: "hello",
+        profile: observerProfile,
+        capabilities: { spaceMessageAddressing: true },
+      })
+    );
+    await helloAck;
+
+    const text = "@Mention Observer please review";
+    const liveMention = waitForJsonMessage(
+      observer,
+      (data) =>
+        data.type === "signal.text" &&
+        (data.data as { text?: string }).text === text
+    );
+    const postResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-openmeld-space-addressing-version": "1",
+        },
+        body: JSON.stringify({
+          type: "signal.text",
+          data: {
+            text,
+            messageEnvelope: {
+              text,
+              activationTargets: [],
+              referenceTargets: [],
+              mentionTargets: [observerProfileId],
+            },
+          },
+        }),
+      }
+    );
+    expect(postResponse.status).toBe(200);
+
+    const liveMessage = await liveMention;
+    expect(
+      (
+        liveMessage.data as {
+          messageEnvelope?: { mentionTargets?: string[] };
+        }
+      ).messageEnvelope?.mentionTargets
+    ).toEqual([observerProfileId]);
+
+    const historyResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?afterTs=0&limit=100`,
+      { headers: { "x-openmeld-space-addressing-version": "1" } }
+    );
+    expect(historyResponse.status).toBe(200);
+    const history = (await historyResponse.json()) as {
+      signals?: Array<{
+        data?: {
+          text?: string;
+          messageEnvelope?: { mentionTargets?: string[] };
+        };
+      }>;
+    };
+    const persisted = history.signals?.find(
+      (signal) => signal.data?.text === text
+    );
+    expect(persisted?.data?.messageEnvelope?.mentionTargets).toEqual([
+      observerProfileId,
+    ]);
+
+    observer.close(1000, "done");
+  });
+
   it("does not let an ordinary user forge durable Center Agent Task references", async () => {
     const spaceId = await createSpace();
     const text = "I created a Task that does not exist.";
@@ -6488,6 +6892,194 @@ describe("OpenMeld Core", () => {
       ccTargets: [],
       referenceTargets: [],
       text: "RPC dispatch result.",
+    });
+  });
+
+  it("translates legacy Human References through WorkerEntrypoint RPC", async () => {
+    const spaceId = await createSpace();
+    const addResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: SECOND_HUMAN_PROFILE_ID,
+              profileName: "Legacy RPC Mention Target",
+              profileKind: "human",
+              ownerUserId: "owner-legacy-rpc-mention-target",
+              ownerName: "Legacy RPC Mention Target",
+              agentControllerRef: null,
+            },
+          ],
+        }),
+      }
+    );
+    expect(addResponse.status).toBe(200);
+
+    const rpcContext = createRpcContext({
+      requestId: "legacy-human-reference-rpc",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Test User",
+      ownerUserId: "owner-test-default",
+    });
+    const rpc = SELF as unknown as {
+      listSignals: (
+        input: { context: typeof rpcContext; spaceId: string },
+        spaceAddressingVersion?: string
+      ) => Promise<{ signals: SignalEnvelope[] }>;
+      postSignal: (
+        input: {
+          authoringPolicy: "user_authored";
+          context: typeof rpcContext;
+          messageEnvelope: {
+            activationTargets: string[];
+            referenceTargets: string[];
+            text: string;
+          };
+          profile: {
+            kind: "human";
+            profileId: string;
+            profileName: string;
+          };
+          spaceId: string;
+          text: string;
+        },
+        spaceAddressingVersion?: string
+      ) => Promise<SignalEnvelope>;
+    };
+
+    const text = "@Legacy RPC Mention Target please review";
+    await rpc.postSignal({
+      authoringPolicy: "user_authored",
+      context: rpcContext,
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [SECOND_HUMAN_PROFILE_ID],
+        text,
+      },
+      profile: {
+        kind: "human",
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+        profileName: "Test User",
+      },
+      spaceId,
+      text,
+    });
+
+    const currentHistory = await rpc.listSignals(
+      { context: rpcContext, spaceId },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
+    const persisted = currentHistory.signals.find(
+      (signal) => signal.type === "signal.text" && signal.data.text === text
+    );
+    expect(
+      persisted?.type === "signal.text"
+        ? persisted.data.messageEnvelope
+        : undefined
+    ).toMatchObject({
+      mentionTargets: [SECOND_HUMAN_PROFILE_ID],
+      referenceTargets: [],
+    });
+  });
+
+  it("translates legacy Human References from OpenMeld Service replies", async () => {
+    const spaceId = await createSpace();
+    const agentProfileId = `agt_${randomUUID()}`;
+    const addResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: SECOND_HUMAN_PROFILE_ID,
+              profileName: "Legacy Service Mention Target",
+              profileKind: "human",
+              ownerUserId: "owner-legacy-service-mention-target",
+              ownerName: "Legacy Service Mention Target",
+              agentControllerRef: null,
+            },
+            {
+              profileId: agentProfileId,
+              profileName: "Legacy Service Agent",
+              profileKind: "agent",
+              ownerUserId: "owner-legacy-service-agent",
+              ownerName: "Legacy Service Owner",
+              agentControllerRef: "builtin:codex",
+            },
+          ],
+        }),
+      }
+    );
+    expect(addResponse.status).toBe(200);
+
+    const rpcContext = createRpcContext({
+      requestId: "legacy-service-human-reference-rpc",
+      profileId: agentProfileId,
+      profileKind: "agent",
+      profileName: "Legacy Service Agent",
+      ownerUserId: "owner-legacy-service-agent",
+    });
+    const rpc = SELF as unknown as {
+      listSignals: (
+        input: { context: typeof rpcContext; spaceId: string },
+        spaceAddressingVersion?: string
+      ) => Promise<{ signals: SignalEnvelope[] }>;
+      postSignal: (input: {
+        authoringPolicy: "system_emitted";
+        context: typeof rpcContext;
+        messageEnvelope: {
+          activationTargets: string[];
+          referenceTargets: string[];
+          text: string;
+        };
+        profile: {
+          kind: "agent";
+          profileId: string;
+          profileName: string;
+        };
+        spaceId: string;
+        text: string;
+      }) => Promise<SignalEnvelope>;
+    };
+
+    const text = "@Legacy Service Mention Target please review";
+    await rpc.postSignal({
+      authoringPolicy: "system_emitted",
+      context: rpcContext,
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [SECOND_HUMAN_PROFILE_ID],
+        text,
+      },
+      profile: {
+        kind: "agent",
+        profileId: agentProfileId,
+        profileName: "Legacy Service Agent",
+      },
+      spaceId,
+      text,
+    });
+
+    const currentHistory = await rpc.listSignals(
+      { context: rpcContext, spaceId },
+      OPENMELD_SPACE_ADDRESSING_VERSION
+    );
+    const persisted = currentHistory.signals.find(
+      (signal) => signal.type === "signal.text" && signal.data.text === text
+    );
+    expect(
+      persisted?.type === "signal.text"
+        ? persisted.data.messageEnvelope
+        : undefined
+    ).toMatchObject({
+      mentionTargets: [SECOND_HUMAN_PROFILE_ID],
+      referenceTargets: [],
     });
   });
 
@@ -7872,6 +8464,7 @@ describe("OpenMeld Core", () => {
   });
 
   it("returns an accepted idempotent Reference after later membership removal", async () => {
+    const referenceAgentProfileId = "agt_22222222-2222-4222-8222-222222222222";
     const spaceId = await createSpace({
       name: `rpc-idempotent-reference-${Date.now()}`,
     });
@@ -7883,12 +8476,12 @@ describe("OpenMeld Core", () => {
         body: JSON.stringify({
           members: [
             {
-              profileId: SECOND_HUMAN_PROFILE_ID,
+              profileId: referenceAgentProfileId,
               profileName: "Reference Target",
-              profileKind: "human",
-              ownerUserId: null,
-              ownerName: null,
-              agentControllerRef: null,
+              profileKind: "agent",
+              ownerUserId: "owner-idempotent-reference-agent",
+              ownerName: "Reference Agent Owner",
+              agentControllerRef: "builtin:codex",
             },
           ],
         }),
@@ -7928,7 +8521,7 @@ describe("OpenMeld Core", () => {
       context: rpcContext,
       messageEnvelope: {
         activationTargets: [],
-        referenceTargets: [SECOND_HUMAN_PROFILE_ID],
+        referenceTargets: [referenceAgentProfileId],
         text: "@Reference Target(reference) keep this context",
       },
       meta: { clientMessageId },
@@ -7948,7 +8541,7 @@ describe("OpenMeld Core", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          memberProfileIds: [SECOND_HUMAN_PROFILE_ID],
+          memberProfileIds: [referenceAgentProfileId],
         }),
       }
     );
@@ -7971,7 +8564,7 @@ describe("OpenMeld Core", () => {
         id: accepted.id,
         data: expect.objectContaining({
           messageEnvelope: expect.objectContaining({
-            referenceTargets: [SECOND_HUMAN_PROFILE_ID],
+            referenceTargets: [referenceAgentProfileId],
           }),
         }),
       })

@@ -49,10 +49,10 @@ const snapshot = {
 } as unknown as SpaceMembersSnapshot;
 
 describe("current Space addressing without CC", () => {
-  it("offers only Wake and Reference for agents and only Reference for humans", () => {
+  it("offers Wake and Reference for agents and Mention for humans", () => {
     expect(
       listSpaceMentionRelationChoices({
-        allowedRelations: { wake: true, reference: true },
+        allowedRelations: { wake: true, reference: true, mention: false },
         primaryMentionLabel: "Reviewer",
         wakeAvailability: {
           status: "ready",
@@ -64,7 +64,7 @@ describe("current Space addressing without CC", () => {
 
     expect(
       listSpaceMentionRelationChoices({
-        allowedRelations: { wake: false, reference: true },
+        allowedRelations: { wake: false, reference: false, mention: true },
         primaryMentionLabel: "Mira",
         wakeAvailability: {
           status: "unsupported",
@@ -72,7 +72,7 @@ describe("current Space addressing without CC", () => {
           reasonText: null,
         },
       }).map((choice) => choice.label)
-    ).toEqual(["Reference"]);
+    ).toEqual(["Mention"]);
   });
 
   it("rejects removed canonical CC syntax with actionable guidance", () => {

@@ -1,9 +1,6 @@
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
-import {
-	type MessageMentionType,
-	normalizeSpacePasswordText,
-} from "@openmeld/schemas";
+import { normalizeSpacePasswordText } from "@openmeld/schemas";
 import type {
 	DaemonServiceLane,
 	ExecutionRecoveryProjection,
@@ -119,6 +116,10 @@ import {
 	invalidateSpaceWakeStopQueries,
 	postWebSpaceWakeStop,
 } from "#/query/spaces/wake-stop";
+import type {
+	SpaceComposerEditorChange,
+	SpaceComposerInputRef,
+} from "./space-composer-editor";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import { usePublishSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import type {
@@ -163,7 +164,7 @@ import { useSpaceLandingFeed } from "./use-space-landing-feed";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceComposerSelection,
-	SpaceMentionPopoverState,
+	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
 import { useSpaceMentionAuthoring } from "./use-space-mention-authoring";
 import { useSpaceThreadPanelSelection } from "./use-space-thread-panel-selection";
@@ -934,7 +935,7 @@ export type SpaceLandingController =
 				event: KeyboardEvent<HTMLTextAreaElement>
 			) => Promise<void>;
 			onComposerSelectionChange: (selection: SpaceComposerSelection) => void;
-			textareaRef: { current: HTMLTextAreaElement | null };
+			textareaRef: SpaceComposerInputRef;
 	  }
 	| {
 			inlineErrorMessage: string | null;
@@ -957,12 +958,13 @@ export type SpaceLandingController =
 			agentStreams: readonly SpaceConversationVisibleStreamProjection[];
 			composerAddressingSummary: string | null;
 			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
+			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
+			composerMentionPickerItems: readonly SpaceMentionPickerItem[];
 			composerFiles: readonly SpaceComposerFile[];
 			composerFileLimitReached: boolean;
 			composerBlockedWakeProfileId: string | null;
 			composerErrorMessage: string | null;
 			composerHasAuthoredMentions: boolean;
-			composerSelection: SpaceComposerSelection;
 			composerReplyToSignalId: string | null;
 			composerText: string;
 			ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
@@ -991,21 +993,13 @@ export type SpaceLandingController =
 			liveErrorMessage: string | null;
 			liveState: SpaceLiveState;
 			onReconnectLiveUpdates: () => void;
-			mentionPopoverState: SpaceMentionPopoverState;
 			membersError: StructuredApiClientFailure | null;
 			membersSnapshot: SpaceMembersSnapshot | null;
 			mode: "ready";
-			onComposerChange: (
-				value: string,
-				selection: SpaceComposerSelection
-			) => void;
+			onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onClearComposerReplyTo: () => void;
 			onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveComposerFile: (localId: string) => void;
-			onComposerKeyDown: (
-				event: KeyboardEvent<HTMLTextAreaElement>
-			) => Promise<void>;
-			onComposerSelectionChange: (selection: SpaceComposerSelection) => void;
 			onConversationViewingLatestChange: (isViewingLatest: boolean) => void;
 			onJumpToDate: (date: Date) => Promise<string | null>;
 			onLoadEarlierHistory: () => Promise<void>;
@@ -1013,16 +1007,7 @@ export type SpaceLandingController =
 			onLeaveSpace: () => Promise<void>;
 			onCloseThread: () => void;
 			onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
-			onMentionItemHover: (index: number) => void;
-			onMentionItemSelect: (
-				index: number,
-				relation?: MessageMentionType
-			) => void;
-			onMentionRelationChange: (
-				profileId: string,
-				relation: MessageMentionType
-			) => void;
-			onMentionPopoverClose: () => void;
+			onMentionButtonClick: () => void;
 			onOpenThread: (threadId: string) => void;
 			onRefresh: () => Promise<void>;
 			onRefreshMembers: () => Promise<void>;
@@ -1033,26 +1018,8 @@ export type SpaceLandingController =
 				password?: string;
 			}) => Promise<void>;
 			onUpdateSpaceName: (name: string) => Promise<void>;
-			onThreadComposerChange: (
-				value: string,
-				selection: SpaceComposerSelection
-			) => void;
-			onThreadComposerKeyDown: (
-				event: KeyboardEvent<HTMLTextAreaElement>
-			) => Promise<void>;
-			onThreadComposerSelectionChange: (
-				selection: SpaceComposerSelection
-			) => void;
-			onThreadMentionItemHover: (index: number) => void;
-			onThreadMentionItemSelect: (
-				index: number,
-				relation?: MessageMentionType
-			) => void;
-			onThreadMentionRelationChange: (
-				profileId: string,
-				relation: MessageMentionType
-			) => void;
-			onThreadMentionPopoverClose: () => void;
+			onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => void;
+			onThreadMentionButtonClick: () => void;
 			onThreadSend: () => Promise<void>;
 			onThreadSendText: (text: string) => Promise<void>;
 			onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
@@ -1085,15 +1052,15 @@ export type SpaceLandingController =
 			threadComposerBlockedWakeProfileId: string | null;
 			threadComposerAddressingSummary: string | null;
 			threadComposerAddressingTargets: readonly SpaceComposerAddressingTarget[];
+			threadComposerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
+			threadComposerMentionPickerItems: readonly SpaceMentionPickerItem[];
 			threadComposerErrorMessage: string | null;
 			threadComposerHasAuthoredMentions: boolean;
-			threadComposerSelection: SpaceComposerSelection;
 			threadComposerText: string;
 			threadComposerFiles: readonly SpaceComposerFile[];
 			threadComposerFileLimitReached: boolean;
 			threadFilePreviewUrlsById: ReadonlyMap<string, string>;
 			threadEphemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-			threadMentionPopoverState: SpaceMentionPopoverState;
 			threads: readonly SpaceThread[];
 			threadPreviews: readonly SpaceThreadPreview[];
 			threadSignals: readonly SignalEnvelope[];
@@ -1103,8 +1070,8 @@ export type SpaceLandingController =
 			threadSignalsIsLoading: boolean;
 			isCreatingThread: boolean;
 			isSendingThreadMessage: boolean;
-			threadTextareaRef: { current: HTMLTextAreaElement | null };
-			textareaRef: { current: HTMLTextAreaElement | null };
+			threadTextareaRef: SpaceComposerInputRef;
+			textareaRef: SpaceComposerInputRef;
 			timelineItems: readonly SpaceTimelineItem[];
 			firstUnreadSignalId: string | null;
 			unreadCount: number;
@@ -2036,11 +2003,12 @@ export function useSpaceLandingController(input: {
 		agentStreams: agentStreamProjections,
 		composerAddressingSummary: mentionAuthoring.addressingSummary,
 		composerAddressingTargets: mentionAuthoring.addressingTargets,
+		composerAuthoredMentions: mentionAuthoring.authoredMentions,
+		composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
 		composerFiles: composerFilesController.files,
 		composerFileLimitReached: composerFilesController.isAtLimit,
 		composerErrorMessage,
 		composerBlockedWakeProfileId,
-		composerSelection: mentionAuthoring.composerSelection,
 		composerHasAuthoredMentions: mentionAuthoring.hasAuthoredMentions,
 		composerReplyToSignalId: mentionAuthoring.replyTo?.signalId ?? null,
 		composerText: mentionAuthoring.composerText,
@@ -2070,21 +2038,16 @@ export function useSpaceLandingController(input: {
 		liveErrorMessage,
 		liveState,
 		onReconnectLiveUpdates: reconnectNow,
-		mentionPopoverState: mentionAuthoring.mentionPopoverState,
 		membersError,
 		membersSnapshot,
 		mode: "ready",
-		onComposerChange: (value, selection) => {
-			mentionAuthoring.onComposerChange(value, selection);
+		onComposerEditorChange: (change) => {
+			mentionAuthoring.onComposerEditorChange(change);
 			setComposerErrorMessage(null);
 			setComposerBlockedWakeProfileId(null);
 		},
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
-		onComposerKeyDown: async (event) => {
-			await mentionAuthoring.onComposerKeyDown(event, sendMessage);
-		},
-		onComposerSelectionChange: mentionAuthoring.onComposerSelectionChange,
 		onRemoveComposerFile: composerFilesController.removeFile,
 		onConversationViewingLatestChange: setIsConversationViewingLatest,
 		onCloseThread: threadController.onCloseThread,
@@ -2093,10 +2056,7 @@ export function useSpaceLandingController(input: {
 		onJumpToDate: handleJumpToDate,
 		onLoadEarlierHistory: handleLoadEarlierHistory,
 		onLeaveSpace: handleLeaveSpace,
-		onMentionItemHover: mentionAuthoring.onMentionItemHover,
-		onMentionItemSelect: mentionAuthoring.onMentionItemSelect,
-		onMentionRelationChange: mentionAuthoring.onMentionRelationChange,
-		onMentionPopoverClose: mentionAuthoring.onMentionPopoverClose,
+		onMentionButtonClick: mentionAuthoring.onMentionButtonClick,
 		onOpenThread: threadController.onOpenThread,
 		onRefresh: async () => {
 			await refreshLanding({
@@ -2123,15 +2083,8 @@ export function useSpaceLandingController(input: {
 		},
 		onSetAccessMode: handleSetAccessMode,
 		onUpdateSpaceName: handleUpdateSpaceName,
-		onThreadComposerChange: threadController.onThreadComposerChange,
-		onThreadComposerKeyDown: threadController.onThreadComposerKeyDown,
-		onThreadComposerSelectionChange:
-			threadController.onThreadComposerSelectionChange,
-		onThreadMentionItemHover: threadController.onThreadMentionItemHover,
-		onThreadMentionItemSelect: threadController.onThreadMentionItemSelect,
-		onThreadMentionRelationChange:
-			threadController.onThreadMentionRelationChange,
-		onThreadMentionPopoverClose: threadController.onThreadMentionPopoverClose,
+		onThreadComposerEditorChange: threadController.onThreadComposerEditorChange,
+		onThreadMentionButtonClick: threadController.onThreadMentionButtonClick,
 		onThreadSend: threadController.onThreadSend,
 		onThreadSendText: threadController.onThreadSendText,
 		onAddThreadComposerFiles: threadController.onAddThreadComposerFiles,
@@ -2160,17 +2113,19 @@ export function useSpaceLandingController(input: {
 			threadController.threadComposerAddressingSummary,
 		threadComposerAddressingTargets:
 			threadController.threadComposerAddressingTargets,
+		threadComposerAuthoredMentions:
+			threadController.threadComposerAuthoredMentions,
+		threadComposerMentionPickerItems:
+			threadController.threadComposerMentionPickerItems,
 		threadComposerErrorMessage: threadController.threadComposerErrorMessage,
 		threadComposerHasAuthoredMentions:
 			threadController.threadComposerHasAuthoredMentions,
-		threadComposerSelection: threadController.threadComposerSelection,
 		threadComposerText: threadController.threadComposerText,
 		threadComposerFiles: threadController.threadComposerFiles,
 		threadComposerFileLimitReached:
 			threadController.threadComposerFileLimitReached,
 		threadFilePreviewUrlsById: threadController.threadFilePreviewUrlsById,
 		threadEphemeralActivityItems: threadController.threadEphemeralActivityItems,
-		threadMentionPopoverState: threadController.threadMentionPopoverState,
 		threads: threadController.threads,
 		threadPreviews: threadController.threadPreviews,
 		threadSignals: threadController.threadSignals,
@@ -3022,24 +2977,12 @@ function useSpaceThreadController(input: {
 		onCreateThread: createThread,
 		onOpenThread: openThread,
 		onRetryWakeTarget: retryWakeTarget,
-		onThreadComposerChange: (
-			value: string,
-			selection: SpaceComposerSelection
-		) => {
-			mentionAuthoring.onComposerChange(value, selection);
+		onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => {
+			mentionAuthoring.onComposerEditorChange(change);
 			setComposerErrorMessage(null);
 			setComposerBlockedWakeProfileId(null);
 		},
-		onThreadComposerKeyDown: async (
-			event: KeyboardEvent<HTMLTextAreaElement>
-		) => {
-			await mentionAuthoring.onComposerKeyDown(event, sendMessage);
-		},
-		onThreadComposerSelectionChange: mentionAuthoring.onComposerSelectionChange,
-		onThreadMentionItemHover: mentionAuthoring.onMentionItemHover,
-		onThreadMentionItemSelect: mentionAuthoring.onMentionItemSelect,
-		onThreadMentionRelationChange: mentionAuthoring.onMentionRelationChange,
-		onThreadMentionPopoverClose: mentionAuthoring.onMentionPopoverClose,
+		onThreadMentionButtonClick: mentionAuthoring.onMentionButtonClick,
 		onThreadSend: sendMessage,
 		onThreadSendText: sendTextMessage,
 		onAddThreadComposerFiles: composerFilesController.addFiles,
@@ -3047,15 +2990,15 @@ function useSpaceThreadController(input: {
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
 		threadComposerAddressingSummary: mentionAuthoring.addressingSummary,
 		threadComposerAddressingTargets: mentionAuthoring.addressingTargets,
+		threadComposerAuthoredMentions: mentionAuthoring.authoredMentions,
+		threadComposerMentionPickerItems: mentionAuthoring.mentionPickerItems,
 		threadComposerErrorMessage: composerErrorMessage,
-		threadComposerSelection: mentionAuthoring.composerSelection,
 		threadComposerHasAuthoredMentions: mentionAuthoring.hasAuthoredMentions,
 		threadComposerText: mentionAuthoring.composerText,
 		threadComposerFiles: composerFilesController.files,
 		threadComposerFileLimitReached: composerFilesController.isAtLimit,
 		threadFilePreviewUrlsById,
 		threadEphemeralActivityItems: wakeProgressItems,
-		threadMentionPopoverState: mentionAuthoring.mentionPopoverState,
 		threadPreviews,
 		threadSignals,
 		threadSignalsError: threadSignalsQuery.error,

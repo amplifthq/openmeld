@@ -501,6 +501,20 @@ function createCheckingWakeAvailability(input: {
   wakeRouteStatus: WakeRouteStatus;
   readiness: AgentExecutionStatusProjection;
 }): AgentWakeAvailability {
+  if (hasReasonCode(input.readiness, "usage_checking")) {
+    return createAvailability(input.readiness, {
+      badgeLabel: "Checking",
+      category: "checking",
+      isRefreshing: true,
+      label: "Checking Usage",
+      phase: "checking_status",
+      reasonCode: "usage_checking",
+      status: "checking_connection",
+      summary: "Checking this agent's current Usage.",
+      tooltip: "Checking Usage",
+    });
+  }
+
   if (hasReasonCode(input.readiness, "local_service.reconnecting")) {
     return createReconnectingOpenMeldServiceAvailability(input.readiness);
   }
@@ -747,16 +761,26 @@ function createUnavailableWakeAvailability(
     );
   }
 
-  if (readiness.primaryAction === "fix_provider_account") {
-    const usageExhausted = hasReasonCode(readiness, "usage_exhausted");
+  if (hasReasonCode(readiness, "usage_exhausted")) {
     return createAvailability(readiness, {
       ...unavailableWakeAvailabilityFallbackCopy,
       category: "unavailable",
       isRefreshing: false,
-      label: usageExhausted ? "Usage Limit reached" : "Provider access needed",
+      label: "Usage Limit reached",
+      phase: "provider_blocked",
+      reasonCode: "usage_exhausted",
+      status: "unavailable_for_wake",
+    });
+  }
+
+  if (readiness.primaryAction === "fix_provider_account") {
+    return createAvailability(readiness, {
+      ...unavailableWakeAvailabilityFallbackCopy,
+      category: "unavailable",
+      isRefreshing: false,
+      label: "Provider access needed",
       phase: "provider_blocked",
       reasonCode: pickReasonCode(readiness, [
-        "usage_exhausted",
         "provider_account.capacity_exhausted",
         "provider_account.subscription_access_unavailable",
         "provider_account.organization_access_disabled",
@@ -1132,6 +1156,7 @@ function isPublicUnavailableReasonCode(reasonCode: string): boolean {
   }
 
   return (
+    reasonCode === "usage_exhausted" ||
     reasonCode === "profile.unbound" ||
     reasonCode === "profile.inactive" ||
     reasonCode === "route.unavailable" ||
@@ -1196,6 +1221,7 @@ function isTransientRouteReason(reasonCode: string): boolean {
 
 function isTransientCheckingReasonCode(reasonCode: string): boolean {
   return (
+    reasonCode === "usage_checking" ||
     reasonCode === "agent_execution.route_missing" ||
     reasonCode === "local_service.reconnecting" ||
     reasonCode === "route.not_registered"

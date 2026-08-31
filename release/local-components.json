@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-30T08:28:15.087Z",
+  "updatedAt": "2026-08-31T10:15:51.617Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.135",
+      "packageVersion": "0.3.136",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and cloud responses remain compatible; 0.3.135 only adds richer Work Coordinator and Wakeability output."
+      "reason": "Existing CLI setup and Wake commands remain compatible while Agent Profile Work Recovery V2 stays unavailable until update."
     },
     "service": {
-      "bundleHash": "5a5dc457dcea272f4a4af07056b0cb59b3119d631d011227c6a6f8c31cb26aef",
-      "bundleVersion": "0.3.135",
+      "bundleHash": "89d822e43910e2ba961f064f6d0538c2e87d748abeca4f656f222023d6aa5aa0",
+      "bundleVersion": "0.3.136",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services keep current Wake behavior; 0.3.135 uses backward-compatible coordination and error fields understood by current cloud."
+      "reason": "Existing Services continue ordinary setup and Wake, and cannot trigger Agent Profile Work Recovery V2 without the current Usage support-matrix version."
     },
     "skills": {
       "bundleHash": "302eb02cf945624527f272c4f2c0e812d414ab39a878ec58ef53ca832a44e056",

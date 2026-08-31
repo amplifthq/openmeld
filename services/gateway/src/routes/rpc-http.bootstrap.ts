@@ -1,3 +1,4 @@
+import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
 import {
   listSignalsQuerySchema,
   readListSignalsQueryRawValues,
@@ -91,7 +92,10 @@ export function registerBootstrapRoute(app: Hono<HonoBindings>): void {
       spaceId,
       includeLegacySpaceAddressingWireFields: true,
       execute: async () =>
-        await c.var.coreRpc.getSpaceBootstrapWithTiming(rpcInput),
+        await c.var.coreRpc.getSpaceBootstrapWithTiming(
+          rpcInput,
+          OPENMELD_SPACE_ADDRESSING_VERSION
+        ),
       onValidatedSuccess: ({ result, status }) => {
         emitBootstrapServerTimingEvidence({
           env: c.env,

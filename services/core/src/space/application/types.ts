@@ -34,6 +34,7 @@ export type SignalPublishContext = {
   finalOutcomeAuthority?: FinalOutcomeWriteAuthority;
   sourceDispatchChainContext?: SourceDispatchChainContext;
   spacePassword?: string;
+  supportsCurrentSpaceAddressing?: boolean;
   threadContext?: SpaceThreadContext;
   threadPlacement?: SpaceThreadSignalPlacementKind;
 };

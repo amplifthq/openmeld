@@ -215,6 +215,7 @@ export function buildCanonicalDispatchReplyMessageEnvelope(input: {
   return {
     activationTargets: [...(input.messageEnvelope?.activationTargets ?? [])],
     referenceTargets: [...(input.messageEnvelope?.referenceTargets ?? [])],
+    mentionTargets: [...(input.messageEnvelope?.mentionTargets ?? [])],
     ...(resolvedReplyToSignalId
       ? { replyToSignalId: resolvedReplyToSignalId }
       : {}),

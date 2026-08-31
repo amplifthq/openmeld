@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION } from "@openmeld/agent-runtime";
 import { MAX_TEXT_LENGTH } from "@openmeld/protocol";
 import {
   buildRuntimeCoordinatorExecutionId,
@@ -143,6 +144,50 @@ const createMockD1RunResult = () => ({
     size_after: 0,
   },
 });
+
+const buildAvailableCodexInterfaceJson = (nowMs: number): string => {
+  const observedAt = new Date(nowMs).toISOString();
+  return JSON.stringify({
+    agentControllerRef: "builtin:codex",
+    auth: { status: "authenticated" },
+    capabilities: {
+      approvals: true,
+      cancel: true,
+      interrupt: true,
+      modelSelection: true,
+      nativeEventStream: true,
+      permissionModes: true,
+      structuredUserInput: true,
+    },
+    checkedAt: observedAt,
+    controllerId: "codex",
+    displayName: "Codex",
+    launch: {
+      argsPrefix: [],
+      commandPath: "/opt/openmeld/codex",
+      installChoiceCount: 1,
+      status: "ready",
+    },
+    message: null,
+    models: [],
+    nativeInterface: "codex-app-server",
+    schemaVersion: 1,
+    skills: [],
+    status: "ready",
+    usageLimitsSupportMatrixVersion: 1,
+    usageLimits: [
+      {
+        key: "five_hour",
+        label: "5-hour Usage Limit",
+        observedAt,
+        resetsAt: new Date(nowMs + 60 * 60_000).toISOString(),
+        status: "available",
+        usedPercent: 42,
+      },
+    ],
+    version: "1.0.0",
+  });
+};
 
 const TEST_REPLY_TO_SNAPSHOT: OpenMeldDaemonDispatchQueueMessage["replyToSnapshot"] =
   {
@@ -838,14 +883,20 @@ describe("handleDispatchQueueBatch", () => {
         "openmelddaemon_runtime_agent_controller_reports"
       )
     ) {
-      if (typeof input.row?.runtimeAgentControllerInterfaceJson !== "string") {
+      if (
+        !input.row ||
+        input.row.runtimeAgentControllerInterfaceJson === null
+      ) {
         return null;
       }
       const nowMs = Date.now();
+      const agentControllerInterfaceJson =
+        typeof input.row.runtimeAgentControllerInterfaceJson === "string"
+          ? input.row.runtimeAgentControllerInterfaceJson
+          : buildAvailableCodexInterfaceJson(nowMs);
       return {
         accepted_at_ms: nowMs,
-        agent_controller_interface_json:
-          input.row.runtimeAgentControllerInterfaceJson,
+        agent_controller_interface_json: agentControllerInterfaceJson,
         agent_controller_ref: "builtin:codex",
         expires_at_ms: nowMs + 60_000,
         observed_at_ms: nowMs,
@@ -1212,6 +1263,15 @@ describe("handleDispatchQueueBatch", () => {
     expect(
       runtimeCoordinatorClient.deliverRuntimeTransportDispatch
     ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        head: expect.not.objectContaining({
+          executionTargetRevision: expect.anything(),
+        }),
+      })
+    );
     expect(markDispatchStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
@@ -1306,6 +1366,54 @@ describe("handleDispatchQueueBatch", () => {
         data: expect.objectContaining({
           reasonCode: "agent_profile_work_coordinator.queue_full",
           text: expect.stringContaining("queue is full"),
+        }),
+      })
+    );
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(message.retry).not.toHaveBeenCalled();
+  });
+
+  it("publishes an execution-target mismatch as one visible Needs attention failure", async () => {
+    const message = createDispatchQueueMessage({
+      dispatchId: "dispatch-continuation-needs-attention-1",
+      sourceEventId: "evt-continuation-needs-attention-1",
+      targetProfileId: "agt-continuation-needs-attention-1",
+      targetProfileNameSnapshot: "Codex",
+      visitedProfileIdsHash: "hash-continuation-needs-attention-1",
+    });
+    const body = message.body as OpenMeldDaemonDispatchQueueMessage;
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockResolvedValueOnce({
+      ok: false,
+      primaryDispatchId: null,
+      reasonCode: "agent_profile_work_coordinator.continuation_needs_attention",
+      status: "conflict",
+      targetWakeLifecycleId:
+        "twl_v1|7:space-1|34:evt-continuation-needs-attention-1|52:agt_continuation_needs_attention_1",
+    });
+
+    await runDispatchQueueMessage(message);
+
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
+        errorCode:
+          "agent_profile_work_coordinator.continuation_needs_attention",
+        idempotencyKey: body.idempotencyKey,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      })
+    );
+    expect(rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reasonCode:
+            "agent_profile_work_coordinator.continuation_needs_attention",
+          text: expect.stringContaining("settings changed"),
         }),
       })
     );
@@ -8999,6 +9107,8 @@ describe("handleDispatchQueueBatch", () => {
         schemaVersion: 1,
         skills: [],
         status: "ready",
+        usageLimitsSupportMatrixVersion:
+          AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         usageLimits: [
           {
             key: "five_hour",
@@ -9023,6 +9133,135 @@ describe("handleDispatchQueueBatch", () => {
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       ok: false,
     });
+  });
+
+  it("does not accept workstation Wake while supported Usage is unavailable", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-usage-checking-1",
+      sourceEventId: "evt-usage-checking-1",
+      targetProfileId: "agt-usage-checking-1",
+      visitedProfileIdsHash: "stable32:usage-checking-1",
+    });
+    const observedAt = new Date().toISOString();
+    const db = createOpenMeldDbWithProfileRow({
+      agentControllerRef: "builtin:codex",
+      controllerEnabled: 1,
+      openMeldServiceRuntimeId: "runtime-usage-wakeability",
+      profileKind: "agent",
+      profileStatus: "active",
+      runtimeAgentControllerInterfaceJson: JSON.stringify({
+        agentControllerRef: "builtin:codex",
+        auth: { status: "authenticated" },
+        capabilities: {
+          approvals: true,
+          cancel: true,
+          interrupt: true,
+          modelSelection: true,
+          nativeEventStream: true,
+          permissionModes: true,
+          structuredUserInput: true,
+        },
+        checkedAt: observedAt,
+        controllerId: "codex",
+        displayName: "Codex",
+        launch: {
+          argsPrefix: [],
+          commandPath: "/opt/openmeld/codex",
+          installChoiceCount: 1,
+          status: "ready",
+        },
+        message: null,
+        models: [],
+        nativeInterface: "codex-app-server",
+        schemaVersion: 1,
+        skills: [],
+        status: "ready",
+        usageLimitsSupportMatrixVersion:
+          AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+        usageLimits: [
+          {
+            key: "five_hour",
+            label: "5-hour Usage Limit",
+            observedAt,
+            resetsAt: null,
+            status: "unavailable",
+            usedPercent: null,
+          },
+        ],
+        version: "1.0.0",
+      }),
+    });
+
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(db),
+        message,
+      })
+    ).resolves.toMatchObject({
+      errorCode: "usage_checking",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      ok: false,
+    });
+  });
+
+  it("does not accept workstation Wake before a native Usage provider has reported", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-usage-report-missing-1",
+      sourceEventId: "evt-usage-report-missing-1",
+      targetProfileId: "agt-usage-report-missing-1",
+      visitedProfileIdsHash: "stable32:usage-report-missing-1",
+    });
+    const db = createOpenMeldDbWithProfileRow({
+      agentControllerRef: "builtin:codex",
+      controllerEnabled: 1,
+      openMeldServiceRuntimeId: "runtime-usage-wakeability",
+      profileKind: "agent",
+      profileStatus: "active",
+      runtimeAgentControllerInterfaceJson: null,
+    });
+
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(db),
+        message,
+      })
+    ).resolves.toMatchObject({
+      errorCode: "usage_checking",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      ok: false,
+    });
+  });
+
+  it("accepts workstation Wake from a legacy native controller report without a Usage support contract", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-legacy-usage-contract-1",
+      sourceEventId: "evt-legacy-usage-contract-1",
+      targetProfileId: "agt-legacy-usage-contract-1",
+      visitedProfileIdsHash: "stable32:legacy-usage-contract-1",
+    });
+    const currentSnapshot = JSON.parse(
+      buildAvailableCodexInterfaceJson(Date.now())
+    ) as Record<string, unknown>;
+    const {
+      usageLimits: _usageLimits,
+      usageLimitsSupportMatrixVersion: _usageLimitsSupportMatrixVersion,
+      ...legacySnapshot
+    } = currentSnapshot;
+    const db = createOpenMeldDbWithProfileRow({
+      agentControllerRef: "builtin:codex",
+      controllerEnabled: 1,
+      openMeldServiceRuntimeId: "runtime-usage-wakeability",
+      profileKind: "agent",
+      profileStatus: "active",
+      runtimeAgentControllerInterfaceJson: JSON.stringify(legacySnapshot),
+    });
+
+    const preflight = await runDispatchExecutionPreflightGate({
+      env: makeEnvWithBindings(db),
+      message,
+    });
+
+    expect(preflight).not.toMatchObject({ errorCode: "usage_checking" });
   });
 
   it("retries when Core primary binding storage is unavailable", async () => {

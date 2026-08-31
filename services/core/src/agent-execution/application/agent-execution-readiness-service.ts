@@ -15,6 +15,7 @@ import {
   type PrepareReadinessSummary,
   parseAgentControllerRef,
   resolveAgentExecutionStatus,
+  resolveAgentProfileUsageWakeability,
   resolvePrepareReadinessFromAgentControllerReports,
   type WakeRouteLane,
   type WakeRouteStatus,
@@ -1113,7 +1114,7 @@ async function resolveAgentRuntimeReadiness(input: {
         source: "runtime_registry_authority",
       }),
     });
-    return resolvePrepareReadinessFromAgentControllerReports({
+    const readiness = resolvePrepareReadinessFromAgentControllerReports({
       agentControllerRefsToEvaluate: [executionTarget.agentControllerRef],
       currentReports: currentReports.map((report) => ({
         agentControllerRef: report.agentControllerRef,
@@ -1124,6 +1125,43 @@ async function resolveAgentRuntimeReadiness(input: {
       })),
       nowMs: parseGeneratedAtMs(input.generatedAt),
     }).summary;
+    const currentReport = currentReports.find(
+      (report) =>
+        report.agentControllerRef === executionTarget.agentControllerRef
+    );
+    const usageWakeability = resolveAgentProfileUsageWakeability({
+      agentControllerRef: executionTarget.agentControllerRef,
+      nowMs: parseGeneratedAtMs(input.generatedAt),
+      report: currentReport
+        ? {
+            expiresAtMs: currentReport.expiresAtMs,
+            status: currentReport.status,
+            usageLimits: currentReport.agentControllerInterface?.usageLimits,
+            usageLimitsSupportMatrixVersion:
+              currentReport.agentControllerInterface
+                ?.usageLimitsSupportMatrixVersion,
+          }
+        : null,
+    });
+    if (usageWakeability.status === "available") {
+      return readiness;
+    }
+    if (usageWakeability.status === "checking" && !readiness.ready) {
+      return readiness;
+    }
+    let displayState = readiness.displayState;
+    if (usageWakeability.status === "unavailable") {
+      displayState = "unavailable";
+    } else if (readiness.ready) {
+      displayState = "unknown";
+    }
+    return {
+      displayState,
+      ready: false,
+      reasonCodes: [
+        ...new Set([...readiness.reasonCodes, usageWakeability.reasonCode]),
+      ],
+    };
   } catch {
     return {
       displayState: "unavailable",

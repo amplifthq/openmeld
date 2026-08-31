@@ -1713,6 +1713,16 @@ and other members see the same compact workload copy, for example
 the owner may see the current Space and queued task references, while another
 member sees only neutral working and queue-count facts. Neither view infers work
 from Agent Activity, browser timers, or message age.
+If interrupted work needs attention, only the owner sees **Skip interrupted
+work** in this Activity section. The action resolves the exact current recovery
+gate and lets the oldest queued Wake continue; repeating it is harmless. Web
+sends the projected interrupted-Wake identity with the action. If an older
+projection omitted that identity, Web asks the owner to refresh instead of
+sending an unfenced Skip. Web advertises directory work-recovery contract
+version 2; Core omits Skip from callers that do not advertise that receiver
+capability, including already-loaded older Web builds.
+Non-owners see the same neutral workload summary without the interrupted source
+or recovery action.
 **Direct Message** is a primary header action. An authorized owner may choose
 **Edit Agent** to edit in place, then explicitly **Save changes** or **Cancel**;
 a failed save keeps the draft and its diagnostic visible. Dangerous or
@@ -2903,6 +2913,15 @@ under that message says it is queued and may include its position. Web does not
 hold the message above the Composer or claim that the Agent is working before
 the Wake reaches the Profile's current slot.
 
+While an Agent Profile is working, Agent settings must state when a saved
+change takes effect. Controller changes stay disabled because rebinding would
+interrupt the current Wake. Model, reasoning effort, collaboration mode, and
+OpenCode permission changes apply to the next Wake. Permission Mode timing
+comes from the versioned Local Agent capability matrix: supported live updates
+may affect later tool requests in the current Wake, while other controllers use
+the saved mode on the next Wake. Web must not present a live update as applied
+without the controller acknowledgement owned by the local runtime.
+
 When a Local Agent or model provider returns a user-facing error, owner-only
 Message details may show the bounded original text with its source label. Web
 does not replace it with a large provider-specific translation matrix. It must
@@ -2957,24 +2976,51 @@ not be used as a status.
 
 ## Wake Authoring And Details
 
-Web must preserve the submitted difference between Wake and Reference.
+Web must preserve the submitted difference between Agent Wake, Agent Reference,
+and Human Mention.
 
-A Wake creates executable work. Reference creates collaboration context, not
-dispatch work. Web must not silently rewrite Reference into Wake.
+A Wake creates executable work. Reference creates Agent collaboration context,
+and Human Mention directs a person's attention. Neither creates dispatch work.
+Web must not silently rewrite one relation into another.
 
-The primary Space composer `@` picker optimizes for the common user action:
+Ordinary Space, Direct Message, and Thread composers place a visible `@` button
+beside the file button. Clicking it inserts `@` at the current selection and
+opens the same picker without losing keyboard focus. The primary Space composer
+uses `To wake an agent, type @, then pick the agent.` as its placeholder;
+Human-only DMs use `Message {name}…`, Agent DMs use `Message {name}…`, Center
+Agent DMs use `Tell Center Agent what you need…`, and Threads use
+`Reply in thread…`.
+
+The `@` picker optimizes for the common user action:
 selecting an Agent Profile authors Wake by default while keeping the visible
 composer text as a plain `@Name` mention. The same picker surface exposes the
 other allowed relation without a required second dialog: Wake uses `@`, and
-Reference uses a link-style symbol. Human Profile selection cannot create Wake.
+Reference uses a link-style symbol. Selecting a Human Profile creates a fixed
+Human Mention mark; people never receive an Agent relation selector.
 
 After selection, Web renders one persistent editable semantic control per
 structured target. The control identifies both the target and its current
 relation, and a multi-target message shows a quiet summary such as
-`Waking 3 agents · Referencing 0`. Web submits the structured relations
+`Waking 3 agents · Referencing 1 agent`. Human Mentions are intentionally omitted
+from this Agent-only summary. Web submits all structured relations
 explicitly instead of relying on Core to infer Wake from arbitrary bare text.
 Changing a semantic control changes the authored structured relation; AI
 interpretation must never silently rewrite it.
+
+The shared Web API client sends the current Space Addressing response-version
+header, and the Web Gateway proxy forwards it unchanged. The live Space proxy
+declares the matching `spaceMessageAddressing` hello capability. Therefore a
+Human Mention remains structured after the optimistic message is replaced,
+after refresh, and on live delivery; compatibility projection for an old client
+must never run on these current paths.
+
+Browser Composer drafts that can contain Human Mention use the version 2 draft
+record and storage key. Current Web reads both version 2 and historical version
+1 records, chooses the newest valid record, and migrates a selected version 1
+record into version 2. It writes new drafts only to the version 2 key, so an
+already-open old Web tab cannot parse and delete a current Human Mention draft
+as invalid version 1 data. Sending, discarding, or clearing drafts removes both
+versions.
 
 For Web-authored Wake messages, Web must create and preserve a non-empty
 `clientMessageId` before the first network hop. That key is the browser-authored

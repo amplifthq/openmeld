@@ -28,7 +28,7 @@ import {
 } from "#/lib/spaces/timeline";
 import { notifyResizeObservers } from "#/test-support/dom-observers.setup";
 import {
-	SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT,
+	SPACE_COMPOSER_ACCESSIBLE_NAME,
 	SPACE_WAKE_COMPOSER_HINT,
 } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
@@ -167,11 +167,9 @@ describe("SpaceConversationPanel", () => {
 			screen.getByRole("log", { name: "Conversation history" })
 		).toBeTruthy();
 		expect(
-			(
-				screen.getByRole("textbox", {
-					name: "Message this space",
-				}) as HTMLTextAreaElement
-			).value
+			screen.getByRole("textbox", {
+				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+			}).textContent
 		).toBe("Draft the follow-up.");
 		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
@@ -179,7 +177,9 @@ describe("SpaceConversationPanel", () => {
 			null
 		);
 		expect(
-			screen.queryByRole("textbox", { name: "Message this space" })
+			screen.queryByRole("textbox", {
+				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+			})
 		).toBeNull();
 		expect(screen.getByRole("region", { name: "Space Graph" })).toBeTruthy();
 		expect(screen.getByText("Review the release plan.")).toBeTruthy();
@@ -189,11 +189,9 @@ describe("SpaceConversationPanel", () => {
 			screen.getByRole("log", { name: "Conversation history" })
 		).toBeTruthy();
 		expect(
-			(
-				screen.getByRole("textbox", {
-					name: "Message this space",
-				}) as HTMLTextAreaElement
-			).value
+			screen.getByRole("textbox", {
+				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+			}).textContent
 		).toBe("Draft the follow-up.");
 	});
 
@@ -1892,28 +1890,144 @@ describe("SpaceConversationPanel", () => {
 		expect(onOpenSpaceFile).toHaveBeenCalledWith("file-1", 3);
 	});
 
-	it("keeps the @ composer hint in ordinary Spaces", () => {
+	it("uses the Wake guidance as the ordinary Space placeholder and exposes the @ button", () => {
+		const onMentionButtonClick = vi.fn();
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
+			onMentionButtonClick,
 			readOnly: false,
 		});
 
-		expect(screen.getByText(SPACE_WAKE_COMPOSER_HINT)).toBeTruthy();
+		expect(
+			screen
+				.getByRole("textbox", {
+					name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+				})
+				.getAttribute("aria-placeholder")
+		).toBe(SPACE_WAKE_COMPOSER_HINT);
+		const mentionButton = screen.getByRole("button", {
+			name: "Mention a member",
+		});
+		expect(mentionButton.parentElement?.className).toContain("gap-1");
+		fireEvent.click(mentionButton);
+		expect(onMentionButtonClick).toHaveBeenCalledOnce();
 	});
 
-	it("shows the Direct Message composer hint when DM messages wake the agent automatically", () => {
+	it("uses the Agent name as the Agent DM placeholder", () => {
 		renderSpaceConversationPanel({
 			agentDirectConversationKind: "direct_message",
 			allowedActions: ["post_message"],
+			isDirectMessage: true,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					createSpaceMemberAgentSnapshot({
+						profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+						profileName: "Codex",
+					}),
+				],
+			}),
 			readOnly: false,
 		});
 
-		const composerHint = screen.getByText(
-			SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT
-		);
-		expect(composerHint.className).toContain("max-sm:line-clamp-2");
-		expect(composerHint.className).toContain("sm:truncate");
-		expect(screen.queryByText(SPACE_WAKE_COMPOSER_HINT)).toBeNull();
+		expect(
+			screen
+				.getByRole("textbox", { name: "Message Codex" })
+				.getAttribute("aria-placeholder")
+		).toBe("Message Codex…");
+		expect(
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
+		expect(
+			screen.queryByText("In this DM, @ is optional. Sending wakes the agent.")
+		).toBeNull();
+	});
+
+	it("uses the Human name as the Human-only DM placeholder", () => {
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			isDirectMessage: true,
+			membersSnapshot: createSpaceMembersSnapshot({
+				humans: [
+					createSpaceMemberHumanSnapshot({
+						profileId: "11111111-1111-4111-8111-111111111111",
+						profileName: "Mira",
+					}),
+					createSpaceMemberHumanSnapshot({
+						profileId: "22222222-2222-4222-8222-222222222222",
+						profileName: "Felix",
+					}),
+				],
+			}),
+			readOnly: false,
+			selfProfileId: "11111111-1111-4111-8111-111111111111",
+		});
+
+		expect(
+			screen
+				.getByRole("textbox", { name: "Message Felix" })
+				.getAttribute("aria-placeholder")
+		).toBe("Message Felix…");
+	});
+
+	it("uses dedicated Center Agent copy and hides the redundant @ button", () => {
+		renderSpaceConversationPanel({
+			agentDirectConversationKind: "direct_message",
+			allowedActions: ["post_message"],
+			isCenterAgentDirectMessage: true,
+			isDirectMessage: true,
+			readOnly: false,
+		});
+
+		expect(
+			screen
+				.getByRole("textbox", {
+					name: "Message Center Agent",
+				})
+				.getAttribute("aria-placeholder")
+		).toBe("Tell Center Agent what you need…");
+		expect(
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
+	});
+
+	it("renders Human Mention as a fixed @ mark without an Agent relation selector", () => {
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			composerAuthoredMentions: [
+				{
+					end: 6,
+					profileId: "22222222-2222-4222-8222-222222222222",
+					relation: "mention",
+					start: 0,
+					text: "@Felix",
+				},
+			],
+			composerAddressingTargets: [
+				{
+					allowedRelations: {
+						mention: true,
+						reference: false,
+						wake: false,
+					},
+					profileId: "22222222-2222-4222-8222-222222222222",
+					profileName: "Felix",
+					relation: "mention",
+					wakeAvailability: {
+						reasonCodes: [],
+						reasonText: null,
+						status: "unsupported",
+					},
+				},
+			],
+			composerText: "@Felix",
+			readOnly: false,
+		});
+
+		const token = screen.getByTestId("space-composer-profile-token");
+		expect(within(token).getByText("Felix")).toBeTruthy();
+		expect(
+			screen.queryByRole("combobox", { name: "Change relation for Felix" })
+		).toBeNull();
 	});
 
 	it("keeps ordinary Spaces and agent direct messages full width", () => {
@@ -1968,7 +2082,9 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 		expect(
 			screen
-				.getByRole("textbox", { name: "Message this space" })
+				.getByRole("textbox", {
+					name: SPACE_COMPOSER_ACCESSIBLE_NAME,
+				})
 				.closest("[data-space-conversation-content-width]")
 		).toBeTruthy();
 
@@ -4124,7 +4240,6 @@ function createSpaceConversationPanelProps(
 		composerBlockedWakeProfileId: null,
 		composerErrorMessage: null,
 		composerReplyToSignalId: null,
-		composerSelection: { end: 0, start: 0 },
 		composerText: "",
 		currentOwnerUserId: null,
 		emptyStateDescription: null,
@@ -4137,25 +4252,21 @@ function createSpaceConversationPanelProps(
 		firstUnreadSignalId: null,
 		isAgentRecoveryPending: () => false,
 		isCenterAgentDirectMessage: false,
+		isDirectMessage: false,
 		isCreatingThread: false,
 		isDiagnosticReportPending: () => false,
 		isDiagnosticReportSent: () => false,
 		isLoadingEarlierHistory: false,
 		isSendingMessage: false,
 		membersSnapshot: null,
-		mentionPopoverState: { kind: "closed" },
 		modelCatalog: null,
 		onAgentRecoveryAction: async () => undefined,
 		onAddComposerFiles: async () => undefined,
 		onClearComposerReplyTo: () => undefined,
-		onComposerChange: () => undefined,
-		onComposerKeyDown: async () => undefined,
-		onComposerSelectionChange: () => undefined,
+		onComposerEditorChange: () => undefined,
 		onCreateThread: async () => undefined,
 		onLoadEarlierHistory: async () => undefined,
-		onMentionItemHover: () => undefined,
-		onMentionItemSelect: () => undefined,
-		onMentionPopoverClose: () => undefined,
+		onMentionButtonClick: () => undefined,
 		onOpenThread: () => undefined,
 		onOpenSpaceFile: () => undefined,
 		onReplyToMessage: () => undefined,

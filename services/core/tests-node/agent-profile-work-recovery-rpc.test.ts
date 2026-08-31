@@ -2,10 +2,14 @@ import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { rpcExecuteAgentProfileWorkRecovery } from "../src/rpc/methods";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  applyDrizzleMigrationForTable as applyMigrationForTable,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const SPACE_ID = "a".repeat(64);
+const TARGET_WAKE_LIFECYCLE_ID = "twl_interrupted";
 const CONTEXT: OpenMeldRequestContext = {
   activeOrganizationId: "org-1",
   actorContext: {
@@ -161,6 +165,73 @@ describe("Agent Profile work recovery Core RPC", () => {
     }
   });
 
+  it("skips interrupted work through the owner Hub", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "skip_interrupted_work" }),
+    });
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "skip_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).resolves.toEqual({
+        action: "skip_interrupted_work",
+        status: "accepted",
+      });
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledOnce();
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledWith({
+        expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+        ownerUserId: "owner-1",
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("rejects an unfenced Skip before reading or mutating owner state", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "skip_interrupted_work" }),
+    });
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: { action: "skip_interrupted_work" } as never,
+            context: CONTEXT,
+          }
+        )
+      ).rejects.toMatchObject({
+        cause: { code: "invalid_payload", status: 400 },
+      });
+      expect(
+        runtimeTransportStub.rpcReadAgentProfileWorkRecovery
+      ).not.toHaveBeenCalled();
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("authorizes one deterministic continuation identity before asking Space to start it", async () => {
     const harness = createRecoveryHarness();
     const callOrder: string[] = [];
@@ -248,14 +319,84 @@ describe("Agent Profile work recovery Core RPC", () => {
       ).toHaveBeenCalledWith({
         continuationClientMessageId:
           "execution-recovery-fd96a80aa0d843939d979142d0c5b177b3785c93ae19939e22b772dac929d3a4",
+        currentAgentControllerRef: "builtin:codex",
+        currentBindingId: "binding-1",
+        currentConfigurationRevision: 1,
+        expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
         ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
         targetProfileId: AGENT_PROFILE_ID,
       });
       expect(spaceStub.rpcInspectExecutionRecovery).toHaveBeenCalledWith({
         context: CONTEXT,
         dispatchId: "dispatch-interrupted",
+        spaceAccess: {
+          actor: {
+            dispatchId: "dispatch-interrupted",
+            kind: "dispatch_continuation",
+            requestContext: CONTEXT,
+            sourceSignalId: "signal-interrupted",
+            targetProfileId: AGENT_PROFILE_ID,
+          },
+          proof: { kind: "none" },
+          spaceId: SPACE_ID,
+        },
         spaceId: SPACE_ID,
       });
+      expect(spaceStub.rpcExecuteExecutionRecovery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spaceAccess: expect.objectContaining({
+            actor: expect.objectContaining({
+              dispatchId: "dispatch-interrupted",
+              kind: "dispatch_continuation",
+              sourceSignalId: "signal-interrupted",
+              targetProfileId: AGENT_PROFILE_ID,
+            }),
+          }),
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("defers a continuation from an older owner shard before any Space side effect", async () => {
+    const harness = createRecoveryHarness();
+    const recovery = buildAvailableRecovery({
+      action: "continue_interrupted_work",
+    });
+    const {
+      interruptedSourceSignalId: _missingOnOlderShard,
+      ...legacyRecovery
+    } = recovery;
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: legacyRecovery,
+    });
+    const spaceGet = vi.fn();
+    const env = {
+      ...createEnv({ db: harness.db, runtimeTransportStub }),
+      OPENMELD_SPACES: {
+        get: spaceGet,
+        idFromString: vi.fn((value: string) => value),
+      },
+    } as unknown as CoreBindings;
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: { action: "continue_interrupted_work" },
+          context: CONTEXT,
+        })
+      ).rejects.toMatchObject({
+        cause: {
+          code: "agent_profile_work_recovery.temporarily_unavailable",
+          status: 503,
+        },
+      });
+      expect(spaceGet).not.toHaveBeenCalled();
+      expect(
+        runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
+      ).not.toHaveBeenCalled();
     } finally {
       harness.close();
     }
@@ -264,6 +405,7 @@ describe("Agent Profile work recovery Core RPC", () => {
 
 function createRecoveryHarness() {
   const harness = createSqliteD1Harness();
+  applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
   harness.run({
     sql: `CREATE TABLE openmeld_profiles (
       profile_id text PRIMARY KEY NOT NULL,
@@ -309,12 +451,42 @@ function createRecoveryHarness() {
       updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   });
+  harness.run({
+    params: [
+      "binding-1",
+      "owner-1",
+      AGENT_PROFILE_ID,
+      "runtime-1",
+      "builtin:codex",
+      "conversation-1",
+      now,
+      now,
+    ],
+    sql: `INSERT INTO openMeldDaemon_agent_profile_bindings (
+      binding_id,
+      owner_kind,
+      owner_id,
+      agent_profile_id,
+      openmeld_service_runtime_id,
+      runtime_kind,
+      agent_controller_ref,
+      agent_controller_conversation_id,
+      binding_state,
+      configuration_revision,
+      created_at_ms,
+      updated_at_ms
+    ) VALUES (?, 'owner_account', ?, ?, ?, 'openmeld_service', ?, ?, 'enabled_primary', 1, ?, ?)`,
+  });
   return harness;
 }
 
 function createRuntimeTransportStub(input?: {
   recovery?:
     | ReturnType<typeof buildAvailableRecovery>
+    | Omit<
+        ReturnType<typeof buildAvailableRecovery>,
+        "interruptedSourceSignalId"
+      >
     | { status: "not_pending" }
     | (() =>
         | ReturnType<typeof buildAvailableRecovery>
@@ -327,7 +499,12 @@ function createRuntimeTransportStub(input?: {
     rpcAuthorizeAgentProfileWorkContinuation: vi.fn(
       (_input: {
         continuationClientMessageId: string;
+        currentAgentControllerRef: string;
+        currentBindingId: string;
+        currentConfigurationRevision: number;
+        expectedInterruptedTargetWakeLifecycleId: string;
         ownerUserId: string;
+        requireAcceptedExecutionTargetRevision: true;
         targetProfileId: string;
       }) => Promise.resolve({ status: "authorized" as const })
     ),
@@ -339,6 +516,15 @@ function createRuntimeTransportStub(input?: {
           : (recovery ?? { status: "not_pending" as const })
       );
     }),
+    rpcSkipAgentProfileInterruptedWork: vi.fn(
+      async (_input: {
+        expectedInterruptedTargetWakeLifecycleId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => ({
+        status: "skipped" as const,
+      })
+    ),
   };
 }
 
@@ -374,7 +560,10 @@ function createEnv(input: {
 }
 
 function buildAvailableRecovery(input: {
-  action: "approve_queued_work" | "continue_interrupted_work";
+  action:
+    | "approve_queued_work"
+    | "continue_interrupted_work"
+    | "skip_interrupted_work";
   authorizedContinuationClientMessageId?: string | null;
 }) {
   return {
@@ -383,6 +572,8 @@ function buildAvailableRecovery(input: {
       input.authorizedContinuationClientMessageId ?? null,
     interruptedClientMessageId: "client-interrupted",
     interruptedDispatchId: "dispatch-interrupted",
+    interruptedSourceSignalId: "signal-interrupted",
+    interruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
     spaceId: SPACE_ID,
     status: "available" as const,
   };

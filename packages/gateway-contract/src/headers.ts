@@ -47,6 +47,12 @@ export const OPENMELD_HEADER_VISITED_PROFILE_IDS_HASH =
 export const OPENMELD_HEADER_FORWARDED_BY = "x-openmeld-forwarded-by";
 export const OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION =
   "x-openmeld-inbox-source-target-version";
+export const OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION =
+  "x-openmeld-inbox-item-kind-version";
+export const OPENMELD_HEADER_SPACE_ADDRESSING_VERSION =
+  "x-openmeld-space-addressing-version";
+export const OPENMELD_SPACE_ADDRESSING_VERSION = "1";
+export const OPENMELD_INBOX_ITEM_KIND_VERSION = "1";
 export const OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION = "3";
 export const OPENMELD_INBOX_SOURCE_TARGET_VERSION = "4";
 export const OPENMELD_EXPECTED_FORWARDED_BY = "openmeld-gateway";

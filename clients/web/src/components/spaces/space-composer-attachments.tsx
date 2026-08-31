@@ -27,7 +27,7 @@ export function useSpaceComposerFileInput(input: {
 			console.error("Failed to add files to the Space composer.", error);
 		});
 	};
-	const handleDragOver = (event: DragEvent<HTMLTextAreaElement>) => {
+	const handleDragOver = (event: DragEvent<HTMLElement>) => {
 		if (!event.dataTransfer.types.includes("Files")) {
 			return;
 		}
@@ -41,7 +41,7 @@ export function useSpaceComposerFileInput(input: {
 		addFiles,
 		handleDragLeave: () => setIsDraggingFiles(false),
 		handleDragOver,
-		handleDrop: (event: DragEvent<HTMLTextAreaElement>) => {
+		handleDrop: (event: DragEvent<HTMLElement>) => {
 			if (!event.dataTransfer.types.includes("Files")) {
 				return;
 			}
@@ -49,7 +49,7 @@ export function useSpaceComposerFileInput(input: {
 			setIsDraggingFiles(false);
 			addFiles(Array.from(event.dataTransfer.files));
 		},
-		handlePaste: (event: ClipboardEvent<HTMLTextAreaElement>) => {
+		handlePaste: (event: ClipboardEvent<HTMLElement>) => {
 			const pastedFiles = Array.from(event.clipboardData.items).flatMap(
 				(item) => {
 					if (item.kind !== "file") {

@@ -6,16 +6,17 @@ import { trimmedStringFromUnknown } from "./shared";
 
 const MULTI_SPACE_PATTERN = /\s+/g;
 const CANONICAL_MENTION_LITERAL_PATTERN =
-  /^@(?<name>.+)\((?<type>wake|reference)\)$/u;
+  /^@(?<name>.+)\((?<type>wake|reference|mention)\)$/u;
 // Keep recognizing the retired `(cc)` suffix at the parsing boundary so
 // current clients can reject it with actionable guidance instead of treating
 // it as ordinary text. CC is not part of the current relation schema.
-const RELATION_TEXT_PATTERN = /\((wake|reference|cc)\)/gu;
+const RELATION_TEXT_PATTERN = /\((wake|reference|mention|cc)\)/gu;
 const WORD_CHARACTER_PATTERN = /\w/u;
 
 export const SPACE_MESSAGE_ADDRESSING_RELATION_VALUES = [
   "wake",
   "reference",
+  "mention",
 ] as const;
 export const MESSAGE_MENTION_TYPE_VALUES =
   SPACE_MESSAGE_ADDRESSING_RELATION_VALUES;
@@ -23,6 +24,7 @@ export const MESSAGE_MENTION_TYPE_VALUES =
 export const MESSAGE_ENVELOPE_TARGET_FIELD_VALUES = [
   "activationTargets",
   "referenceTargets",
+  "mentionTargets",
 ] as const;
 export const SPACE_MESSAGE_ADDRESSING_TARGET_FIELD_VALUES =
   MESSAGE_ENVELOPE_TARGET_FIELD_VALUES;
@@ -46,6 +48,7 @@ export const spaceMessageAddressingTargetKindSchema = z.enum(
 const MESSAGE_ENVELOPE_TARGET_FIELD_BY_MENTION_TYPE = {
   wake: "activationTargets",
   reference: "referenceTargets",
+  mention: "mentionTargets",
 } as const;
 
 type SpaceMessageAddressingRelation = z.infer<
@@ -57,7 +60,8 @@ type SpaceMessageAddressingTargetKind = z.infer<
 
 const SPACE_MESSAGE_ADDRESSING_TARGET_KIND_SUPPORT_BY_RELATION = {
   wake: ["agent_profile"],
-  reference: ["human_profile", "agent_profile"],
+  reference: ["agent_profile"],
+  mention: ["human_profile"],
 } as const satisfies Record<
   SpaceMessageAddressingRelation,
   readonly SpaceMessageAddressingTargetKind[]
@@ -122,6 +126,7 @@ const buildTargetListSchema = (fieldName: MessageEnvelopeTargetField) =>
 
 const activationTargetsSchema = buildTargetListSchema("activationTargets");
 const referenceTargetsSchema = buildTargetListSchema("referenceTargets");
+const mentionTargetsSchema = buildTargetListSchema("mentionTargets");
 
 const replyToSignalIdSchema = z.preprocess(
   trimmedStringFromUnknown,
@@ -132,13 +137,14 @@ const validateDistinctTargetLists = (
   input: {
     activationTargets: string[];
     referenceTargets: string[];
+    mentionTargets?: string[];
   },
   context: z.RefinementCtx
 ) => {
   const seenByTarget = new Map<string, MessageEnvelopeTargetField>();
 
   for (const fieldName of MESSAGE_ENVELOPE_TARGET_FIELD_VALUES) {
-    for (const targetProfileId of input[fieldName]) {
+    for (const targetProfileId of input[fieldName] ?? []) {
       const existingField = seenByTarget.get(targetProfileId);
       if (!existingField) {
         seenByTarget.set(targetProfileId, fieldName);
@@ -158,6 +164,7 @@ const currentMessageEnvelopeSchema = z
   .strictObject({
     activationTargets: activationTargetsSchema,
     referenceTargets: referenceTargetsSchema,
+    mentionTargets: mentionTargetsSchema.optional(),
     navigationAction: navigationActionSchema.optional(),
     replyToSignalId: replyToSignalIdSchema.optional(),
     text: z.preprocess(
@@ -171,6 +178,7 @@ const currentMessageEnvelopeInputSchema = z
   .strictObject({
     activationTargets: activationTargetsSchema.optional(),
     referenceTargets: referenceTargetsSchema.optional(),
+    mentionTargets: mentionTargetsSchema.optional(),
     navigationAction: navigationActionSchema.optional(),
     replyToSignalId: replyToSignalIdSchema.optional(),
     text: z.preprocess(
@@ -183,6 +191,7 @@ const currentMessageEnvelopeInputSchema = z
       {
         activationTargets: value.activationTargets ?? [],
         referenceTargets: value.referenceTargets ?? [],
+        mentionTargets: value.mentionTargets ?? [],
       },
       context
     )
@@ -194,7 +203,7 @@ const currentMessageEnvelopeInputSchema = z
  * folded into Reference before the value enters the current domain model.
  *
  * Removal condition: the minimum supported Web, CLI, Local Service, Gateway,
- * Core, and Remote Agent versions all author and consume the two-relation
+ * Core, and Remote Agent versions all author and consume the current
  * envelope, and production history has been durably migrated or retained
  * behind a dedicated historical decoder.
  */
@@ -246,6 +255,7 @@ export const normalizeMessageEnvelope = (value: unknown) => {
   const normalized = {
     activationTargets: parsed.data.activationTargets ?? [],
     referenceTargets: parsed.data.referenceTargets ?? [],
+    mentionTargets: parsed.data.mentionTargets ?? [],
     ...(parsed.data.navigationAction
       ? { navigationAction: parsed.data.navigationAction }
       : {}),
@@ -450,6 +460,10 @@ export const getSpaceMessageAddressingRelationSupportForTargetKind = (
     }),
     reference: isSpaceMessageAddressingRelationSupportedForTargetKind({
       relation: "reference",
+      targetKind: targetKind.data,
+    }),
+    mention: isSpaceMessageAddressingRelationSupportedForTargetKind({
+      relation: "mention",
       targetKind: targetKind.data,
     }),
   };

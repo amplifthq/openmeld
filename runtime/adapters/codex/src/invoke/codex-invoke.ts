@@ -1,4 +1,5 @@
 import type {
+  AdapterAgentControllerConversationOccupancy,
   AdapterComputerFileAccessBoundary,
   AdapterDispatchExecutionMode,
   AdapterDispatchTelemetry,
@@ -31,12 +32,14 @@ export type CodexInvokeResult = {
 };
 
 export class CodexRuntimeError extends Error {
+  readonly agentControllerConversationOccupancy?: AdapterAgentControllerConversationOccupancy;
   readonly code: string;
   readonly errorType: AdapterErrorType;
   readonly originalError?: string;
   readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
 
   constructor(input: {
+    agentControllerConversationOccupancy?: AdapterAgentControllerConversationOccupancy;
     code: string;
     errorType: AdapterErrorType;
     message: string;
@@ -45,6 +48,8 @@ export class CodexRuntimeError extends Error {
   }) {
     super(input.message);
     this.name = "CodexRuntimeError";
+    this.agentControllerConversationOccupancy =
+      input.agentControllerConversationOccupancy;
     this.code = input.code;
     this.errorType = input.errorType;
     this.originalError = input.originalError;
@@ -126,6 +131,7 @@ export async function invokeCodexWithSingleContextHeal(input: {
 export async function invokeCodexAppServer(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
+  cancellationSignal?: AbortSignal;
   codexTimeoutMs: number | null;
   codexWorkdir: string;
   controlRequestTimeoutMs?: number;
@@ -245,6 +251,11 @@ function toCodexRuntimeError(error: unknown): CodexRuntimeError {
     error instanceof Error
   ) {
     return new CodexRuntimeError({
+      agentControllerConversationOccupancy: (
+        error as {
+          agentControllerConversationOccupancy?: AdapterAgentControllerConversationOccupancy;
+        }
+      ).agentControllerConversationOccupancy,
       code: (error as { code: string }).code,
       errorType: (error as { errorType: AdapterErrorType }).errorType,
       message: error.message,

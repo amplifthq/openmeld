@@ -56,7 +56,8 @@ describe("space target catalog", () => {
         preferredLookupToken: "budget analyst",
         allowedRelations: {
           wake: false,
-          reference: true,
+          reference: false,
+          mention: true,
         },
       })
     );
@@ -212,6 +213,7 @@ describe("space target catalog", () => {
     expect(targets[0]?.allowedRelations).toEqual({
       wake: true,
       reference: true,
+      mention: false,
     });
     expect(targets[0]?.wakeAvailability.status).toBe("ready");
     expect(targets[0]?.controllerDisplay).toBe("codex");
@@ -219,6 +221,7 @@ describe("space target catalog", () => {
     expect(targets[1]?.allowedRelations).toEqual({
       wake: true,
       reference: true,
+      mention: false,
     });
     expect(targets[1]?.wakeAvailability.status).toBe("blocked");
   });

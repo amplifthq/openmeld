@@ -62,6 +62,7 @@ import type {
   OpenMeldDaemonTaskResultPayload,
   ProviderDispatchRuntimeContext,
   RuntimeCoordinatorExecutionTokenEcho,
+  RuntimeTransportAgentControllerConversationOccupancy,
   RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliveryExecutionIdentity,
   RuntimeTransportDispatchLocalQueueDiagnostics,
@@ -232,6 +233,7 @@ export const resolveStructuredActionRequirementFailure =
 const CLI_SPACE_ACTION_RECORD_POLL_INTERVAL_MS = 25;
 const CLI_SPACE_ACTION_RECORD_RUNTIME_COMPLETION_GRACE_MS = 1500;
 const CLI_SPACE_ACTION_PROVIDER_CONVERSATION_GRACE_MS = 1500;
+const AGENT_CONTROLLER_OCCUPANCY_KEEPALIVE_REASSERT_INTERVALS = 4;
 
 // OPENMELD_SERVICE_THIN_CORE: temporary dispatch execution shell.
 // Keep new local-service execution helpers outside this file. This file still
@@ -1364,6 +1366,53 @@ export async function handleDispatchDeliverFrame(input: {
     let usageObservationAuthPromise: ReturnType<
       typeof probeAgentControllerUsageObservationAuth
     > | null = null;
+    const syncAgentControllerConversationOccupancyLifecycle = (
+      event: AdapterRuntimeEvent
+    ) => {
+      if (
+        event.phase !== "agent_controller_conversation_available" &&
+        event.phase !== "agent_controller_conversation_occupied"
+      ) {
+        return;
+      }
+      const occupancy = {
+        agentControllerConversationId: event.agentControllerConversationId,
+        contractVersion: event.contractVersion,
+        state:
+          event.phase === "agent_controller_conversation_occupied"
+            ? ("occupied" as const)
+            : ("available" as const),
+      } satisfies RuntimeTransportAgentControllerConversationOccupancy;
+      stopRunningKeepalive?.();
+      emitDispatchLifecycleTransition({
+        agentControllerConversationOccupancy: occupancy,
+        attemptId: parsedTask.attemptId,
+        connectionGeneration: input.deliverRequest.connectionGeneration,
+        currentSocketRef,
+        daemonSessionId: input.daemonSessionId,
+        dispatchId: parsedTask.dispatchId,
+        leaseEpoch: input.deliverRequest.leaseEpoch,
+        phase: "running",
+        presenter: input.presenter,
+        executionTokenEcho: parsedTask.executionTokenEcho,
+        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+        taskId: parsedTask.taskId,
+      });
+      stopRunningKeepalive = startDispatchLifecycleKeepalive({
+        agentControllerConversationOccupancy: occupancy,
+        attemptId: parsedTask.attemptId,
+        connectionGeneration: input.deliverRequest.connectionGeneration,
+        currentSocketRef,
+        daemonSessionId: input.daemonSessionId,
+        dispatchId: parsedTask.dispatchId,
+        leaseEpoch: input.deliverRequest.leaseEpoch,
+        phase: "running",
+        presenter: input.presenter,
+        executionTokenEcho: parsedTask.executionTokenEcho,
+        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+        taskId: parsedTask.taskId,
+      });
+    };
     const runtimeExecutionPromise = Promise.resolve(
       runDispatchRuntimeExecution({
         computerFileAccessBoundary,
@@ -1386,6 +1435,7 @@ export async function handleDispatchDeliverFrame(input: {
           });
         },
         onRuntimeEvent: (event) => {
+          syncAgentControllerConversationOccupancyLifecycle(event);
           if (event.phase === "tool_activity") {
             agentToolActivitySequence += 1;
             emitDispatchAgentToolActivityFrame({
@@ -3755,6 +3805,7 @@ function normalizeResolvedPostMessageAction(input: {
         failureReason,
         inputKind: "direct_payload",
         memberDirectoryLoaded: input.sendTargetReference.status === "loaded",
+        mentionTargetsCount: action.messageEnvelope.mentionTargets?.length ?? 0,
         referenceTargetsCount: action.messageEnvelope.referenceTargets.length,
         replyToSignalIdResolved: Boolean(
           action.messageEnvelope.replyToSignalId
@@ -5242,6 +5293,7 @@ function toRuntimeTransportDispatchLocalQueueDiagnostics(
 }
 
 function emitDispatchLifecycleTransition(input: {
+  agentControllerConversationOccupancy?: RuntimeTransportAgentControllerConversationOccupancy | null;
   attemptId: string;
   connectionGeneration: number;
   currentSocketRef: CurrentDaemonSocketRef;
@@ -5257,6 +5309,8 @@ function emitDispatchLifecycleTransition(input: {
 }): void {
   try {
     sendCurrentDispatchLifecycleFrame({
+      agentControllerConversationOccupancy:
+        input.agentControllerConversationOccupancy ?? null,
       attemptId: input.attemptId,
       connectionGeneration: input.connectionGeneration,
       currentSocketRef: input.currentSocketRef,
@@ -5329,6 +5383,7 @@ function emitDispatchLifecycleTransition(input: {
 }
 
 function startDispatchLifecycleKeepalive(input: {
+  agentControllerConversationOccupancy?: RuntimeTransportAgentControllerConversationOccupancy | null;
   attemptId: string;
   connectionGeneration: number;
   currentSocketRef: CurrentDaemonSocketRef;
@@ -5342,9 +5397,29 @@ function startDispatchLifecycleKeepalive(input: {
   runtimeCoordinatorExecutionId: string | null;
   taskId: string;
 }): () => void {
+  let intervalCount = 0;
+  let lastOccupancyConnectionGeneration: number | null = null;
   const intervalId = setInterval(() => {
     try {
+      const currentConnectionGeneration = resolveCurrentConnectionGeneration({
+        currentSocketRef: input.currentSocketRef,
+        fallbackConnectionGeneration: input.connectionGeneration,
+      });
+      const shouldReassertOccupancy = Boolean(
+        input.agentControllerConversationOccupancy &&
+          (intervalCount %
+            AGENT_CONTROLLER_OCCUPANCY_KEEPALIVE_REASSERT_INTERVALS ===
+            0 ||
+            lastOccupancyConnectionGeneration !== currentConnectionGeneration)
+      );
+      intervalCount += 1;
+      if (shouldReassertOccupancy) {
+        lastOccupancyConnectionGeneration = currentConnectionGeneration;
+      }
       sendCurrentDispatchLifecycleFrame({
+        agentControllerConversationOccupancy: shouldReassertOccupancy
+          ? (input.agentControllerConversationOccupancy ?? null)
+          : null,
         attemptId: input.attemptId,
         connectionGeneration: input.connectionGeneration,
         currentSocketRef: input.currentSocketRef,
@@ -5377,6 +5452,7 @@ function startDispatchLifecycleKeepalive(input: {
 }
 
 function sendCurrentDispatchLifecycleFrame(input: {
+  agentControllerConversationOccupancy?: RuntimeTransportAgentControllerConversationOccupancy | null;
   attemptId: string;
   connectionGeneration: number;
   currentSocketRef: CurrentDaemonSocketRef;
@@ -5389,6 +5465,8 @@ function sendCurrentDispatchLifecycleFrame(input: {
   runtimeCoordinatorExecutionId: string | null;
 }): void {
   sendDispatchLifecycleFrame({
+    agentControllerConversationOccupancy:
+      input.agentControllerConversationOccupancy ?? null,
     attemptId: input.attemptId,
     connectionGeneration: resolveCurrentConnectionGeneration({
       currentSocketRef: input.currentSocketRef,

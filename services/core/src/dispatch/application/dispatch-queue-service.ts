@@ -1401,7 +1401,10 @@ const settleFreshHeadAdmissionWithoutDelivery = async (input: {
       shouldAck: false,
     };
   }
-  if (input.headAcceptance.status === "queue_full") {
+  if (
+    input.headAcceptance.status === "queue_full" ||
+    input.headAcceptance.status === "recovery_needs_attention"
+  ) {
     return {
       controllerWaitPromise: null,
       shouldAck: await settleVisiblePreHeadFailure({
@@ -1611,6 +1614,11 @@ type RuntimeCoordinatorHeadAcceptanceOutcome =
   | { status: "profile_queue_waiting" }
   | {
       errorMessage: string;
+      reasonCode: "agent_profile_work_coordinator.continuation_needs_attention";
+      status: "recovery_needs_attention";
+    }
+  | {
+      errorMessage: string;
       reasonCode: "agent_profile_work_coordinator.queue_full";
       status: "queue_full";
     }
@@ -1713,6 +1721,19 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
       errorMessage: `Agent Profile Work Coordinator rejected this Wake because ${response.waitingCount} items are already waiting`,
       reasonCode: response.reasonCode,
       status: "queue_full",
+    };
+  }
+  if (
+    !response.ok &&
+    response.status === "conflict" &&
+    response.reasonCode ===
+      "agent_profile_work_coordinator.continuation_needs_attention"
+  ) {
+    return {
+      errorMessage:
+        "This interrupted Wake needs review because the Agent's setup changed before it could continue.",
+      reasonCode: response.reasonCode,
+      status: "recovery_needs_attention",
     };
   }
   return null;
@@ -1957,7 +1978,10 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
     if (headAcceptance.status === "profile_queue_waiting") {
       return { handled: true, shouldAck: true };
     }
-    if (headAcceptance.status === "queue_full") {
+    if (
+      headAcceptance.status === "queue_full" ||
+      headAcceptance.status === "recovery_needs_attention"
+    ) {
       return {
         handled: true,
         shouldAck: await settleVisiblePreHeadFailure({
@@ -3496,7 +3520,10 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   if (headAcceptance.status === "profile_queue_waiting") {
     return { handled: true, shouldAck: true };
   }
-  if (headAcceptance.status === "queue_full") {
+  if (
+    headAcceptance.status === "queue_full" ||
+    headAcceptance.status === "recovery_needs_attention"
+  ) {
     return {
       handled: true,
       shouldAck: await settleVisiblePreHeadFailure({

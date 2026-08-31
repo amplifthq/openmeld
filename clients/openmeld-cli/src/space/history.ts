@@ -554,6 +554,7 @@ function buildSpaceHistoryBriefMessage(input: {
     replyTo: messageReadProjection?.replyToSignalId ?? null,
     wakeTargets: messageReadProjection?.wakeTargets ?? [],
     referenceTargets: messageReadProjection?.referenceTargets ?? [],
+    mentionTargets: messageReadProjection?.mentionTargets ?? [],
     thread: input.thread ?? null,
   };
 }

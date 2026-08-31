@@ -240,6 +240,7 @@ const plugin = {
         additionalProperties: false,
         properties: {
           message: stringSchema,
+          mentionTargets: stringArraySchema,
           referenceTargets: stringArraySchema,
           wakeTargets: stringArraySchema,
         },
@@ -249,9 +250,11 @@ const plugin = {
         const message = requiredText(params?.message, "Reply message");
         const wakeTargets = optionalStringArray(params?.wakeTargets, "wakeTargets");
         const referenceTargets = optionalStringArray(params?.referenceTargets, "referenceTargets");
+        const mentionTargets = optionalStringArray(params?.mentionTargets, "mentionTargets");
         const args = ["space", "action", "reply", "--message-file", "-"];
         for (const target of wakeTargets) args.push("--wake", target);
         for (const target of referenceTargets) args.push("--reference", target);
+        for (const target of mentionTargets) args.push("--mention", target);
         return await runAction(args, message);
       },
     });

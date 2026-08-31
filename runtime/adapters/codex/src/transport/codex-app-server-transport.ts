@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { tmpdir } from "node:os";
 import type {
+  AdapterAgentControllerConversationOccupancy,
   AdapterComputerFileAccessBoundary,
   AdapterDispatchExecutionMode,
   AdapterDispatchTelemetry,
@@ -20,6 +21,7 @@ import type {
   SpawnedAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import {
+  AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
   classifyRuntimePermissionDenialMessage,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
@@ -193,25 +195,67 @@ const APP_SERVER_PROCESS_KILL_GRACE_MS = 1000;
 const DEFAULT_APP_SERVER_STARTUP_TIMEOUT_MS = 15_000;
 
 export class CodexAppServerTransportError extends Error {
+  readonly agentControllerConversationOccupancy?: AdapterAgentControllerConversationOccupancy;
   readonly code: string;
   readonly errorType: AdapterErrorType;
   readonly originalError?: string;
   readonly providerAccessEvidence?: AdapterProviderAccessEvidence;
+  readonly rpcErrorCode?: number;
 
   constructor(input: {
+    agentControllerConversationOccupancy?: AdapterAgentControllerConversationOccupancy;
     code: string;
     errorType: AdapterErrorType;
     message: string;
     originalError?: string;
     providerAccessEvidence?: AdapterProviderAccessEvidence;
+    rpcErrorCode?: number;
   }) {
     super(input.message);
     this.name = "CodexAppServerTransportError";
+    this.agentControllerConversationOccupancy =
+      input.agentControllerConversationOccupancy;
     this.code = input.code;
     this.errorType = input.errorType;
     this.originalError = input.originalError;
     this.providerAccessEvidence = input.providerAccessEvidence;
+    this.rpcErrorCode = input.rpcErrorCode;
   }
+}
+
+function throwIfCodexDispatchCancelled(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw new CodexAppServerTransportError({
+    code: "runtime.turn.cancelled",
+    errorType: "adapter",
+    message: "runtime.turn.cancelled: Codex was stopped before starting a turn",
+  });
+}
+
+export function classifyCodexThreadWriterConflict(input: {
+  agentControllerConversationId: string;
+  operation: CodexAppServerControlOperation;
+  rpcErrorCode: number | undefined;
+  rpcErrorMessage: string;
+}): AdapterAgentControllerConversationOccupancy | null {
+  const agentControllerConversationId =
+    input.agentControllerConversationId.trim();
+  if (
+    !agentControllerConversationId ||
+    input.operation !== "thread/resume" ||
+    input.rpcErrorCode !== -32_600 ||
+    input.rpcErrorMessage !==
+      `thread ${agentControllerConversationId} already has an active writer`
+  ) {
+    return null;
+  }
+  return {
+    agentControllerConversationId,
+    contractVersion: AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
+    state: "occupied",
+  };
 }
 
 export async function probeCodexAppServerAccount(input: {
@@ -239,6 +283,7 @@ export async function probeCodexAppServerAccount(input: {
 
 export async function invokeCodexAppServerTransport(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
+  cancellationSignal?: AbortSignal;
   codexTimeoutMs: number | null;
   codexWorkdir: string;
   controlRequestTimeoutMs?: number;
@@ -259,6 +304,7 @@ export async function invokeCodexAppServerTransport(input: {
   conversationPolicy?: ConversationPolicy;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
 }): Promise<CodexAppServerTransportResult> {
+  throwIfCodexDispatchCancelled(input.cancellationSignal);
   const prompt = normalizeOptionalText(input.prompt);
   if (!prompt) {
     throw new CodexAppServerTransportError({
@@ -292,7 +338,9 @@ export async function invokeCodexAppServerTransport(input: {
       startupTimeoutMs: input.startupTimeoutMs,
     },
     async (session) => {
+      throwIfCodexDispatchCancelled(input.cancellationSignal);
       const threadContext = await resolveDispatchThreadContext({
+        cancellationSignal: input.cancellationSignal,
         conversationPolicyParams,
         codexWorkdir: input.codexWorkdir,
         executionMode: input.executionMode,
@@ -319,6 +367,7 @@ export async function invokeCodexAppServerTransport(input: {
         threadSource: threadContext.threadSource,
       });
       session.emitProviderConversationObserved(continuityThreadId);
+      throwIfCodexDispatchCancelled(input.cancellationSignal);
       const turnResponse = await session.requestControl(
         "turn/start",
         {
@@ -348,6 +397,12 @@ export async function invokeCodexAppServerTransport(input: {
         threadId: executionThreadId,
         turnId,
       });
+      if (input.cancellationSignal?.aborted && turn.status !== "completed") {
+        await session.request("turn/interrupt", {
+          threadId: executionThreadId,
+          turnId,
+        });
+      }
       let completedTurn: AppServerTurn;
       try {
         completedTurn =
@@ -540,6 +595,7 @@ export async function forkCodexAppServerThread(input: {
 }
 
 async function resolveDispatchThreadContext(input: {
+  cancellationSignal?: AbortSignal;
   conversationPolicyParams: CodexAppServerConversationPolicyParams;
   codexWorkdir: string;
   executionMode?: AdapterDispatchExecutionMode;
@@ -559,22 +615,47 @@ async function resolveDispatchThreadContext(input: {
         sourceThreadId: existingThreadId,
       });
     }
-    const response = await input.session.requestControl(
-      "thread/resume",
-      {
-        ...(input.conversationPolicyParams.model
-          ? { model: input.conversationPolicyParams.model }
-          : {}),
-        ...input.permissionModeParams,
-        cwd: input.codexWorkdir,
-        excludeTurns: true,
-        threadId: existingThreadId,
-      },
-      {
-        code: "context.resume_timeout",
-        operation: "thread/resume",
+    let response: unknown;
+    try {
+      throwIfCodexDispatchCancelled(input.cancellationSignal);
+      response = await input.session.requestControl(
+        "thread/resume",
+        {
+          ...(input.conversationPolicyParams.model
+            ? { model: input.conversationPolicyParams.model }
+            : {}),
+          ...input.permissionModeParams,
+          cwd: input.codexWorkdir,
+          excludeTurns: true,
+          threadId: existingThreadId,
+        },
+        {
+          code: "context.resume_timeout",
+          operation: "thread/resume",
+        }
+      );
+    } catch (error) {
+      const transportError =
+        error instanceof CodexAppServerTransportError ? error : null;
+      const occupancy = transportError
+        ? classifyCodexThreadWriterConflict({
+            agentControllerConversationId: existingThreadId,
+            operation: "thread/resume",
+            rpcErrorCode: transportError.rpcErrorCode,
+            rpcErrorMessage: transportError.message,
+          })
+        : null;
+      if (!occupancy) {
+        throw error;
       }
-    );
+      throw new CodexAppServerTransportError({
+        agentControllerConversationOccupancy: occupancy,
+        code: "agent_controller.conversation_occupied",
+        errorType: "adapter",
+        message: transportError?.message ?? "Codex thread writer is occupied",
+        rpcErrorCode: transportError?.rpcErrorCode,
+      });
+    }
     return readThreadContextFromResponse(response);
   }
 
@@ -2527,6 +2608,7 @@ function toJsonRpcTransportError(
     code: "upstream_unreachable",
     errorType: "adapter",
     message,
+    ...(typeof error.code === "number" ? { rpcErrorCode: error.code } : {}),
   });
 }
 

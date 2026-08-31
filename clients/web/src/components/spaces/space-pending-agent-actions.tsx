@@ -36,7 +36,7 @@ export function SpacePendingAgentActions(input: {
 		string,
 		SpaceAgentPermissionModeShortcut
 	>;
-	returnFocusRef?: RefObject<HTMLElement | null>;
+	returnFocusRef?: RefObject<{ focus: () => void } | null>;
 }) {
 	const actionableItems = useMemo(
 		() => listActionablePendingAgentInteractions(input.items),

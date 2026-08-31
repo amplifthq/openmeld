@@ -1,3 +1,4 @@
+import { AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION } from "@openmeld/agent-runtime";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
 
 export function projectAgentControllerInterfaceForCloud(
@@ -44,6 +45,8 @@ export function projectAgentControllerInterfaceForCloud(
           usageLimits: snapshot.usageLimits.map((limit) => ({ ...limit })),
         }
       : {}),
+    usageLimitsSupportMatrixVersion:
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
     version: snapshot.version,
     ...(snapshot.versionAdvisory
       ? {

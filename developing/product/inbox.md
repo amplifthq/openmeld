@@ -62,7 +62,7 @@ material failure. An ordinary unread update is not automatically urgent.
 Phase 1 source kinds are:
 
 - `space_message`
-- `space_reference`
+- `space_mention`
 - `agent_reply`
 - `agent_interaction`
 - `wake_outcome`
@@ -74,6 +74,15 @@ Phase 1 source kinds are:
 Source adapters choose these values from explicit source facts. Inbox must not
 infer urgency from free text, model output, UI copy, elapsed time, or missing
 data.
+
+A structured Human Mention produces one `space_mention` update for that person.
+It replaces the ordinary Space-message update for the same source and recipient,
+so one message never creates duplicate Inbox or browser notifications.
+During the bounded receiver-first rollout, readers may still encounter the
+retired wire discriminator `space_reference`. They normalize it to
+`space_mention` before product behavior or UI rendering. This is transport and
+persisted-row compatibility only: people are never presented as Reference, and
+new writers create only `space_mention`.
 
 ## Item contract and ownership
 
@@ -150,9 +159,9 @@ or tombstone.
 The first release creates items for these explicit user-visible events:
 
 1. A visible Space message from another member, with a targeted reply or
-   structured reference receiving the more specific source kind.
+   structured Human Mention receiving the more specific source kind.
 2. An Agent or Center Agent reply intended for the member who initiated the
-   interaction, a current human member explicitly referenced by the reply, or
+   interaction, a current human member explicitly mentioned by the reply, or
    the current human author of the target thread.
 3. An Agent Interaction that explicitly requests approval, an answer, plan
    review, or other supported human response.
@@ -352,6 +361,19 @@ not create urgent email. An urgent request follows the member's urgent-email
 preference. The member's next reply in the same Space resolves all open Center
 Agent response requests for that member and Space; reading or Dismissing alone
 does not resolve them.
+
+When a running Agent Profile Wake ends because structured Usage is exhausted,
+restored Usage automatically retries only that interrupted request. This retry
+does not create an Inbox action. After the retry succeeds, later queued Wakes
+remain held behind one separate owner approval item. That item is action
+required and urgent, so it may use urgent email; approving it resumes FIFO from
+the oldest held Wake. Reading or Dismissing it does not approve queued work.
+If the interrupted request cannot be replayed safely or that one automatic
+retry fails, OpenMeld creates exactly one urgent `Needs attention` item linked
+to the original Wake. Repeated failure or recovery reports update the same
+idempotent item instead of creating Inbox noise. Reading or Dismissing it does
+not resolve the recovery gate. The owner may skip the interrupted work; that
+action is idempotent and allows the oldest later Wake to continue.
 
 ## Delivery channels and preferences
 

@@ -4,6 +4,7 @@ export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
 export { agentControllerCollaborationModeSchema } from "./agent-controller-collaboration-mode";
 export { agentControllerPermissionModeSchema } from "./agent-controller-permission-mode";
+export { agentProfileWorkRecoveryActionKindSchema } from "./agent-profile-work-recovery";
 export {
   centerAgentOrganizationScopeSchema,
   centerAgentOrganizationTargetSchema,
@@ -508,7 +509,9 @@ export {
   LOCAL_AGENT_TOOL_ACTIVITY_NAMES,
   localAgentToolActivityNameSchema,
   localWakeRouteReportSchema,
+  MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportAgentControllerConversationOccupancySchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
   runtimeTransportAgentProfileExecutionStateResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
@@ -519,11 +522,15 @@ export {
   runtimeTransportAgentProfileOperationalContextsResponseSchema,
   runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema,
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
+  runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema,
+  runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryActionSchema,
   runtimeTransportAgentProfileWorkRecoveryReadRequestSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
+  runtimeTransportAgentProfileWorkSkipRequestSchema,
+  runtimeTransportAgentProfileWorkSkipResponseSchema,
   runtimeTransportAgentProfileWorkUsageAvailableRequestSchema,
   runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
   runtimeTransportBaseCapabilitiesSchema,

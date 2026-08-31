@@ -47,6 +47,15 @@ describe("agent controller interface schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a versioned Usage Limits support declaration", () => {
+    const result = agentControllerInterfaceSnapshotSchema.safeParse({
+      ...createValidAgentControllerInterfaceSnapshot(),
+      usageLimitsSupportMatrixVersion: 1,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it("accepts explicit controller check evidence", () => {
     const result = agentControllerInterfaceSnapshotSchema.safeParse({
       ...createValidAgentControllerInterfaceSnapshot(),

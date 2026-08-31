@@ -12,8 +12,8 @@ const AGENT_PROFILE_WORK_RECOVERY_SOURCE_KIND =
   "agent_profile_work_recovery" as const;
 
 export type AgentProfileWorkRecoveryInboxStage =
-  | "continue_interrupted_work"
-  | "approve_queued_work";
+  | "approve_queued_work"
+  | "review_interrupted_work";
 
 type AgentProfileWorkRecoveryInboxIdentity = {
   interruptedClientMessageId: string;
@@ -29,6 +29,9 @@ export async function projectAgentProfileWorkRecoveryInboxItem(
     organizationId: string;
     ownerUserId: string;
     profileName: string;
+    sourceTarget?:
+      | { kind: "agent_profile"; profileId: string }
+      | { kind: "space"; signalId: string; spaceId: string };
   }
 ): Promise<{ deliveryId: string | null; itemId: string }> {
   const profileName = requireText(input.profileName, "profileName");
@@ -51,7 +54,7 @@ export async function projectAgentProfileWorkRecoveryInboxItem(
       recipientUserId: input.ownerUserId,
       sourceKey: await buildAgentProfileWorkRecoveryInboxSourceKey(input),
       sourceKind: AGENT_PROFILE_WORK_RECOVERY_SOURCE_KIND,
-      sourceTarget: {
+      sourceTarget: input.sourceTarget ?? {
         kind: "agent_profile",
         profileId: input.profileId,
       },
@@ -102,17 +105,17 @@ function resolveRecoveryPresentation(input: {
   stage: AgentProfileWorkRecoveryInboxStage;
 }): { preview: string; title: string } {
   switch (input.stage) {
-    case "continue_interrupted_work":
-      return {
-        preview:
-          "Usage is available again. Continue the interrupted task before queued work can start.",
-        title: `Continue ${input.profileName}'s interrupted work`,
-      };
     case "approve_queued_work":
       return {
         preview:
           "The interrupted task finished. Approve the queued work before it starts.",
         title: `Start queued work for ${input.profileName}`,
+      };
+    case "review_interrupted_work":
+      return {
+        preview:
+          "Open the interrupted Wake to review the failure. Queued work will wait until you skip it.",
+        title: `Review interrupted work for ${input.profileName}`,
       };
     default:
       return assertNeverRecoveryStage(input.stage);
@@ -123,8 +126,8 @@ function requireRecoveryStage(
   stage: AgentProfileWorkRecoveryInboxStage
 ): AgentProfileWorkRecoveryInboxStage {
   switch (stage) {
-    case "continue_interrupted_work":
     case "approve_queued_work":
+    case "review_interrupted_work":
       return stage;
     default:
       return assertNeverRecoveryStage(stage);

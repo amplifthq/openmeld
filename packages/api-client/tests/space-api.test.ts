@@ -1,3 +1,7 @@
+import {
+  OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+} from "@openmeld/gateway-contract";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   catchupResponseSchema,
@@ -1028,19 +1032,20 @@ describe("api-client space api", () => {
             generatedAt: "2026-04-03T00:00:00.000Z",
             members: [
               {
-                profileId: "agt_11111111-1111-4111-8111-111111111111",
-                profileKind: "agent",
-                displayName: "Mira Codex",
-                primaryMentionLabel: "Mira Codex",
-                mentionLabels: ["Mira Codex"],
-                mentionAlias: "codex",
+                profileId: "11111111-1111-4111-8111-111111111111",
+                profileKind: "human",
+                displayName: "Mira",
+                primaryMentionLabel: "Mira",
+                mentionLabels: ["Mira"],
+                mentionAlias: null,
                 labelSource: "profile_name",
-                lookupTokens: ["mira codex", "codex"],
-                preferredLookupToken: "mira codex",
-                profileIdShort: "agt_11111",
+                lookupTokens: ["mira"],
+                preferredLookupToken: "mira",
+                profileIdShort: "11111111",
                 allowedRelations: {
-                  wake: true,
-                  reference: true,
+                  wake: false,
+                  reference: false,
+                  mention: true,
                 },
                 ownerUserId: "owner-1",
                 ownerName: "Mira",
@@ -1069,10 +1074,17 @@ describe("api-client space api", () => {
     });
 
     expect(result.members).toHaveLength(1);
+    expect(result.members[0]?.allowedRelations.mention).toBe(true);
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://gateway.openmeld.invalid/v1/spaces/space-123/member-directory",
         operation: "space.member_directory.read",
+        init: expect.objectContaining({
+          headers: {
+            [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
+              OPENMELD_SPACE_ADDRESSING_VERSION,
+          },
+        }),
       })
     );
   });
@@ -1807,6 +1819,7 @@ describe("api-client space api", () => {
                 activationTargets: [],
                 ccTargets: [],
                 referenceTargets: ["11111111-1111-4111-8111-111111111111"],
+                mentionTargets: ["22222222-2222-4222-8222-222222222222"],
                 text: "hello",
               },
             },
@@ -1834,6 +1847,7 @@ describe("api-client space api", () => {
       messageEnvelope: {
         activationTargets: [],
         referenceTargets: ["11111111-1111-4111-8111-111111111111"],
+        mentionTargets: ["22222222-2222-4222-8222-222222222222"],
         text: "hello",
       },
       meta: {
@@ -1853,6 +1867,8 @@ describe("api-client space api", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
+            [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
+              OPENMELD_SPACE_ADDRESSING_VERSION,
           },
           body: JSON.stringify({
             text: "hello",
@@ -1860,8 +1876,8 @@ describe("api-client space api", () => {
             messageEnvelope: {
               activationTargets: [],
               referenceTargets: ["11111111-1111-4111-8111-111111111111"],
+              mentionTargets: ["22222222-2222-4222-8222-222222222222"],
               text: "hello",
-              ccTargets: [],
             },
             meta: {
               purpose: "smoke",
@@ -1922,6 +1938,7 @@ describe("api-client space api", () => {
         messageEnvelope: {
           activationTargets: [],
           referenceTargets: ["11111111-1111-4111-8111-111111111111"],
+          mentionTargets: ["22222222-2222-4222-8222-222222222222"],
           text: "thread reply",
         },
       },
@@ -1937,11 +1954,16 @@ describe("api-client space api", () => {
             messageEnvelope: {
               activationTargets: [],
               referenceTargets: ["11111111-1111-4111-8111-111111111111"],
+              mentionTargets: ["22222222-2222-4222-8222-222222222222"],
               text: "thread reply",
-              ccTargets: [],
             },
             clientMessageId: "client-message-thread-1",
           }),
+          headers: {
+            "content-type": "application/json",
+            [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
+              OPENMELD_SPACE_ADDRESSING_VERSION,
+          },
         }),
       })
     );

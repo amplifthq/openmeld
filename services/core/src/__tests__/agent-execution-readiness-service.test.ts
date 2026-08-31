@@ -1,6 +1,13 @@
-import { resolveAgentWakeAvailability } from "@openmeld/agent-runtime";
+import {
+  AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  resolveAgentWakeAvailability,
+} from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
-import type { LocalComponentsStatus } from "@openmeld/schemas/types";
+import type {
+  AgentControllerInterfaceSnapshot,
+  AgentControllerUsageLimit,
+  LocalComponentsStatus,
+} from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveCoreAgentExecutionReadinessForProfile as resolveCoreAgentExecutionReadinessForProfileWithoutOrganizationFixture } from "../agent-execution/application/agent-execution-readiness-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
@@ -1256,6 +1263,132 @@ describe("Core Agent Execution Readiness", () => {
     });
   });
 
+  it("projects fresh exhausted Usage as unavailable Wakeability before a Wake", async () => {
+    mockReadyBindingAndRuntime("agt_usage_exhausted", "builtin:codex");
+    mockOnlineRoute("device-1");
+    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
+      createRuntimeReportWithUsage(
+        createUsageLimit({ status: "exhausted", usedPercent: 100 })
+      ),
+    ]);
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId: "agt_usage_exhausted",
+            profileName: "Usage Exhausted Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId: "agt_usage_exhausted",
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "not_ready",
+      facts: {
+        providerAccount: {
+          provider: null,
+        },
+      },
+      primaryAction: "check_status",
+      reasonCodes: expect.arrayContaining(["usage_exhausted"]),
+    });
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      action: "check_status",
+      category: "unavailable",
+      label: "Usage Limit reached",
+      phase: "provider_blocked",
+      reasonCode: "usage_exhausted",
+      status: "unavailable_for_wake",
+    });
+  });
+
+  it("projects supported but unavailable Usage as Checking and does not claim availability", async () => {
+    mockReadyBindingAndRuntime("agt_usage_checking", "builtin:codex");
+    mockOnlineRoute("device-1");
+    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
+      createRuntimeReportWithUsage(
+        createUsageLimit({ status: "unavailable", usedPercent: null })
+      ),
+    ]);
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId: "agt_usage_checking",
+            profileName: "Usage Checking Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId: "agt_usage_checking",
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "not_ready",
+      primaryAction: "check_status",
+      reasonCodes: expect.arrayContaining(["usage_checking"]),
+    });
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "checking",
+      label: "Checking Usage",
+      reasonCode: "usage_checking",
+      status: "checking_connection",
+    });
+  });
+
+  it("keeps explicitly unsupported Usage out of Wakeability", async () => {
+    mockReadyBindingAndRuntime("agt_usage_unsupported", "builtin:cursor");
+    mockOnlineRoute("device-1");
+    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
+      createRuntimeReportWithUsage(
+        createUsageLimit({ status: "unsupported", usedPercent: null }),
+        "builtin:cursor"
+      ),
+    ]);
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId: "agt_usage_unsupported",
+            profileName: "Usage Unsupported Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId: "agt_usage_unsupported",
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "ready",
+      primaryAction: "none",
+    });
+    expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
+      "usage_checking"
+    );
+  });
+
   it("projects exact Codex Usage exhaustion evidence ahead of sign-in guidance", async () => {
     mockReadyBindingAndRuntime("agt_provider_access", "builtin:codex");
     vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
@@ -1821,17 +1954,23 @@ function mockReadyBindingAndRuntime(
     status: "found",
   });
   vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValue([
-    {
-      agentControllerRef,
-      expiresAtMs: GENERATED_AT_MS + 60_000,
-      observedAtMs: GENERATED_AT_MS,
-      reasonCodes: [],
-      openMeldServiceRuntimeId: {
-        source: "runtime_registry_authority",
-        value: "runtime-1",
-      },
-      status: "ready",
-    },
+    agentControllerRef === "builtin:codex" ||
+    agentControllerRef === "builtin:grok-build"
+      ? createRuntimeReportWithUsage(
+          createUsageLimit({ status: "available", usedPercent: 42 }),
+          agentControllerRef
+        )
+      : {
+          agentControllerRef,
+          expiresAtMs: GENERATED_AT_MS + 60_000,
+          observedAtMs: GENERATED_AT_MS,
+          reasonCodes: [],
+          openMeldServiceRuntimeId: {
+            source: "runtime_registry_authority",
+            value: "runtime-1",
+          },
+          status: "ready",
+        },
   ]);
 }
 
@@ -1861,6 +2000,74 @@ function createActiveAgentProfile(input: {
     profileKind: "agent" as const,
     profileName: input.profileName,
     status: "active" as const,
+  };
+}
+
+function createUsageLimit(input: {
+  status: AgentControllerUsageLimit["status"];
+  usedPercent: number | null;
+}): AgentControllerUsageLimit {
+  return {
+    key: "five_hour",
+    label: "5-hour Usage Limit",
+    observedAt: GENERATED_AT,
+    resetsAt:
+      input.status === "unavailable" || input.status === "unsupported"
+        ? null
+        : "2026-05-13T01:00:00.000Z",
+    status: input.status,
+    usedPercent: input.usedPercent,
+  };
+}
+
+function createRuntimeReportWithUsage(
+  usageLimit: AgentControllerUsageLimit,
+  agentControllerRef = "builtin:codex"
+) {
+  const agentControllerInterface = {
+    agentControllerRef,
+    auth: { status: "authenticated" },
+    capabilities: {
+      approvals: true,
+      cancel: true,
+      interrupt: true,
+      modelSelection: true,
+      nativeEventStream: true,
+      permissionModes: true,
+      structuredUserInput: true,
+    },
+    checkedAt: GENERATED_AT,
+    controllerId: agentControllerRef.split(":")[1] ?? "controller",
+    displayName: "Local Agent",
+    launch: {
+      argsPrefix: [],
+      commandPath: "/usr/local/bin/local-agent",
+      installChoiceCount: 1,
+      status: "ready",
+    },
+    message: null,
+    models: [],
+    nativeInterface:
+      agentControllerRef === "builtin:codex" ? "codex-app-server" : "acp",
+    schemaVersion: 1,
+    skills: [],
+    status: "ready",
+    usageLimits: [usageLimit],
+    usageLimitsSupportMatrixVersion:
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+    version: "1.0.0",
+  } satisfies AgentControllerInterfaceSnapshot;
+  return {
+    agentControllerInterface,
+    agentControllerRef,
+    expiresAtMs: GENERATED_AT_MS + 60_000,
+    observedAtMs: GENERATED_AT_MS,
+    reasonCodes: [],
+    openMeldServiceRuntimeId: {
+      source: "runtime_registry_authority" as const,
+      value: "runtime-1",
+    },
+    status: "ready" as const,
   };
 }
 

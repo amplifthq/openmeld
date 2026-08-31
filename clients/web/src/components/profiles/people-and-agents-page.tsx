@@ -294,12 +294,15 @@ function AgentsWorkspaceHome(input: {
 			if (profile.operationalContext) {
 				operationalContextByProfileId.set(
 					profile.profileId,
-					projectAgentProfileOperationalContext(profile.operationalContext)
+					projectAgentProfileOperationalContext(
+						profile.operationalContext,
+						profile.ownerUserId === input.currentUserId
+					)
 				);
 			}
 		}
 		return { operationalContextByProfileId, profiles, readinessByProfileId };
-	}, [input.directoryQuery.data?.agentProfiles]);
+	}, [input.currentUserId, input.directoryQuery.data?.agentProfiles]);
 	const agentProfiles = organizationAgentProjection.profiles;
 	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
 	const operationalContextByProfileId =
@@ -707,7 +710,8 @@ function buildAuthProfileViewFromOrganizationAgentProfile(
 function projectAgentProfileOperationalContext(
 	operationalContext: NonNullable<
 		OrganizationDirectoryResponse["agentProfiles"][number]["operationalContext"]
-	>
+	>,
+	exposeRecoveryAction: boolean
 ): AgentProfileOperationalContextInput {
 	const hasWorkLocations =
 		operationalContext.status === "working" ||
@@ -721,7 +725,20 @@ function projectAgentProfileOperationalContext(
 					(location) => location.spaceName
 				) ?? [])
 			: [],
-		recoveryAction: null,
+		recoveryAction:
+			exposeRecoveryAction &&
+			operationalContext.status === "paused" &&
+			operationalContext.recoveryAction
+				? { kind: operationalContext.recoveryAction }
+				: null,
+		...(exposeRecoveryAction &&
+		operationalContext.status === "paused" &&
+		operationalContext.recoveryTargetWakeLifecycleId
+			? {
+					recoveryTargetWakeLifecycleId:
+						operationalContext.recoveryTargetWakeLifecycleId,
+				}
+			: {}),
 		status: operationalContext.status,
 		waitingCount: hasWorkLocations ? operationalContext.waitingCount : 0,
 	};

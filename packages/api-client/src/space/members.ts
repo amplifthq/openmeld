@@ -8,6 +8,7 @@ import {
   spaceViewerMembershipResponseSchema,
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceAddressingHeaders } from "./addressing-contract";
 import {
   buildSpaceCenterAgentMemberPath,
   buildSpaceIdentityDirectoryPath,
@@ -48,6 +49,7 @@ export async function getSpaceMemberDirectory(
   return await client.requestJson({
     url: buildSpaceMemberDirectoryPath(input.spaceId),
     operation: "space.member_directory.read",
+    headers: currentSpaceAddressingHeaders(),
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,

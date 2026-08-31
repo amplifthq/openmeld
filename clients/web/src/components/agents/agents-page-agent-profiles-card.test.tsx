@@ -527,6 +527,80 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
+	it("lets the owner skip interrupted work before queued work can continue", async () => {
+		executeAgentProfileWorkRecoveryMock.mockResolvedValueOnce({
+			action: "skip_interrupted_work",
+			status: "accepted",
+		});
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: null,
+							queuedWorkLocations: ["Customer follow-up"],
+							recoveryAction: { kind: "skip_interrupted_work" },
+							recoveryTargetWakeLifecycleId: "twl_interrupted",
+							status: "paused",
+							waitingCount: 1,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Skip interrupted work" })
+		);
+
+		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledWith({
+			action: "skip_interrupted_work",
+			agentProfileId: AGENT_PROFILE_ID,
+			expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
+			organizationId: "org-acme",
+		});
+		await waitFor(() => {
+			expect(toastMock.success).toHaveBeenCalledWith(
+				"Skipped Research Agent's interrupted work."
+			);
+		});
+	});
+
+	it("asks the owner to refresh instead of sending an unfenced Skip", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: null,
+							queuedWorkLocations: ["Customer follow-up"],
+							recoveryAction: { kind: "skip_interrupted_work" },
+							status: "paused",
+							waitingCount: 1,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Skip interrupted work" })
+		);
+
+		expect(executeAgentProfileWorkRecoveryMock).not.toHaveBeenCalled();
+		expect(toastMock.error).toHaveBeenCalledWith(
+			"Refresh this page before skipping the interrupted work."
+		);
+	});
+
 	it("redacts owner-only diagnostics from a teammate Agent detail", async () => {
 		const baseBinding = createPrimaryBindingResponse(
 			"codex:approveForMe",
@@ -1616,6 +1690,16 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			screen.getByText(
 				"Controller changes are unavailable while this Agent is working because reconnecting would interrupt the current Wake."
+			)
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Model, reasoning effort, collaboration mode, and OpenCode permission changes apply to the next Wake."
+			)
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"A saved Permission Mode applies to the next Wake. The current Wake keeps its existing mode."
 			)
 		).toBeTruthy();
 	});

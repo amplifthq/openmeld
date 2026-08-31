@@ -773,6 +773,9 @@ function resolveRuntimeRoutePrimaryAction(input: {
   if (input.providerAccount.blocked) {
     return "fix_provider_account";
   }
+  if (input.runtime.reasonCodes.includes("usage_exhausted")) {
+    return "check_status";
+  }
   if (!input.runtime.ready) {
     return resolveRuntimeNotReadyPrimaryAction({
       localService: input.localService,
@@ -869,6 +872,7 @@ function hasRuntimeAgentControllerReportRefreshReason(
   return reasonCodes.some(
     (reasonCode) =>
       reasonCode === "controller.interface.check_failed" ||
+      reasonCode === "usage_checking" ||
       reasonCode === "runtime.agent_controller_report_stale" ||
       reasonCode === "runtime.agent_controller_report_missing" ||
       reasonCode === "runtime.projection_missing" ||

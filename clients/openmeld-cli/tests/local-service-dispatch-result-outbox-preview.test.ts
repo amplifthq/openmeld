@@ -100,6 +100,7 @@ const tempDirs: string[] = [];
 const CLI_SPACE_ACTION_FINALIZATION_TIMEOUT_MS = 15_000;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -556,6 +557,135 @@ describe("dispatch result outbox around preview teardown", () => {
         result: "success",
       });
       expect(fetchSpaceMetaMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("forwards provider conversation occupancy as nonterminal lifecycle evidence", async () => {
+    await withTempHome(async () => {
+      vi.spyOn(globalThis, "setInterval").mockImplementation((handler) => {
+        if (typeof handler === "function") {
+          for (let index = 0; index < 5; index += 1) {
+            handler();
+          }
+        }
+        return 1 as never;
+      });
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const settlementSocket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      });
+      const socket = settlementSocket as never;
+      const runtimeContext = {
+        providerRuntimeWorkingDirectory: process.cwd(),
+      };
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        runtimeContext,
+        status: "ready",
+      });
+      prepareProviderRuntimeMock.mockResolvedValue({
+        envOverrides: undefined,
+        preparationDetails: { kind: "none" },
+        runtimeContext,
+      });
+      runRuntimeTaskMock.mockImplementationOnce((input) => {
+        input.onRuntimeEvent?.({
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          phase: "agent_controller_conversation_occupied",
+          tsMs: 1_700_000_000_100,
+        });
+        input.onRuntimeEvent?.({
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          phase: "agent_controller_conversation_available",
+          tsMs: 1_700_000_000_200,
+        });
+        return createRuntimeSuccessResult();
+      });
+
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest: createDeliverRequest(),
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({ adapter: {} }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: new Map(),
+        socket,
+      });
+
+      expect(result).toEqual({
+        errorCode: null,
+        errorMessage: null,
+        result: "success",
+      });
+      const occupancyFrames = settlementSocket.send.mock.calls
+        .map(([rawFrame]) => JSON.parse(String(rawFrame)))
+        .filter(
+          (frame) =>
+            frame.code === "daemon.dispatch.lifecycle" &&
+            frame.payload.agentControllerConversationOccupancy
+        );
+      expect(
+        occupancyFrames.map(
+          (frame) => frame.payload.agentControllerConversationOccupancy
+        )
+      ).toEqual([
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          state: "occupied",
+        },
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          state: "occupied",
+        },
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          state: "occupied",
+        },
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          state: "available",
+        },
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          state: "available",
+        },
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          state: "available",
+        },
+      ]);
+      expect(
+        settlementSocket.send.mock.calls
+          .map(([rawFrame]) => JSON.parse(String(rawFrame)))
+          .filter(
+            (frame) =>
+              frame.code === "daemon.dispatch.lifecycle" &&
+              frame.payload.phase === "running" &&
+              !frame.payload.agentControllerConversationOccupancy
+          ).length
+      ).toBeGreaterThanOrEqual(6);
     });
   });
 

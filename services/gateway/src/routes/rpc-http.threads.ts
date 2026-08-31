@@ -3,6 +3,7 @@ import {
   contextAuditFields,
   jsonErrorResponse,
   OPENMELD_HEADER_SPACE_PASSWORD,
+  OPENMELD_SPACE_ADDRESSING_VERSION,
   toErrorMessage,
 } from "@openmeld/gateway-contract";
 import {
@@ -53,10 +54,13 @@ function handleListThreads(c: Context<HonoBindings>): Promise<Response> {
     method: "GET",
     includeLegacySpaceAddressingWireFields: true,
     execute: async () =>
-      await c.var.coreRpc.listSpaceThreads({
-        spaceId,
-        spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
-      }),
+      await c.var.coreRpc.listSpaceThreads(
+        {
+          spaceId,
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
+        },
+        OPENMELD_SPACE_ADDRESSING_VERSION
+      ),
     responseSchema: listSpaceThreadsResponseSchema,
   });
 }
@@ -73,11 +77,14 @@ function handleGetThread(c: Context<HonoBindings>): Promise<Response> {
     method: "GET",
     includeLegacySpaceAddressingWireFields: true,
     execute: async () =>
-      await c.var.coreRpc.getSpaceThread({
-        spaceId,
-        threadId,
-        spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
-      }),
+      await c.var.coreRpc.getSpaceThread(
+        {
+          spaceId,
+          threadId,
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
+        },
+        OPENMELD_SPACE_ADDRESSING_VERSION
+      ),
     responseSchema: getSpaceThreadResponseSchema,
   });
 }
@@ -132,12 +139,15 @@ function handleListThreadSignals(c: Context<HonoBindings>): Promise<Response> {
     method: "GET",
     includeLegacySpaceAddressingWireFields: true,
     execute: async () =>
-      await c.var.coreRpc.listSpaceThreadSignals({
-        ...parsedQuery.data,
-        spaceId,
-        threadId,
-        spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
-      }),
+      await c.var.coreRpc.listSpaceThreadSignals(
+        {
+          ...parsedQuery.data,
+          spaceId,
+          threadId,
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
+        },
+        OPENMELD_SPACE_ADDRESSING_VERSION
+      ),
     responseSchema: listSpaceThreadSignalsResponseSchema,
   });
 }

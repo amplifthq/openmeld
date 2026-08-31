@@ -2,6 +2,7 @@ import {
   messageEnvelopeSchema,
   normalizeMessageEnvelope,
   spaceMemberDirectoryAllowedRelationsSchema,
+  toCompatibleSpaceAddressingRequestWireValue,
   toLegacySpaceAddressingWireValue,
 } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
@@ -22,10 +23,43 @@ const legacyAllowedRelationsSchema = z.strictObject({
 });
 
 describe("legacy Space Addressing wire compatibility", () => {
+  it("keeps Human Mention requests current and downgrades requests without them", () => {
+    const currentMentionRequest = {
+      messageEnvelope: {
+        activationTargets: [],
+        referenceTargets: [],
+        mentionTargets: [HUMAN_PROFILE_ID],
+        text: "@Felix please review",
+      },
+    };
+    expect(
+      toCompatibleSpaceAddressingRequestWireValue(currentMentionRequest)
+    ).toEqual(currentMentionRequest);
+
+    expect(
+      toCompatibleSpaceAddressingRequestWireValue({
+        messageEnvelope: {
+          activationTargets: [AGENT_PROFILE_ID],
+          referenceTargets: [],
+          mentionTargets: [],
+          text: "Please investigate",
+        },
+      })
+    ).toEqual({
+      messageEnvelope: {
+        activationTargets: [AGENT_PROFILE_ID],
+        referenceTargets: [],
+        ccTargets: [],
+        text: "Please investigate",
+      },
+    });
+  });
+
   it("adds retired fields only to the serialized wire projection", () => {
     const currentValue = {
       member: {
         allowedRelations: {
+          mention: true,
           reference: true,
           wake: false,
         },
@@ -40,6 +74,7 @@ describe("legacy Space Addressing wire compatibility", () => {
           messageEnvelope: {
             activationTargets: [AGENT_PROFILE_ID],
             referenceTargets: [HUMAN_PROFILE_ID],
+            mentionTargets: [HUMAN_PROFILE_ID],
             text: "Please review.",
           },
         },
@@ -95,7 +130,7 @@ describe("legacy Space Addressing wire compatibility", () => {
     expect(currentEnvelope).not.toHaveProperty("ccTargets");
   });
 
-  it("keeps old and new strict consumers interoperable without a third current fact", () => {
+  it("keeps legacy strict schemas readable during the three-relation rollout", () => {
     const currentEnvelope = normalizeMessageEnvelope({
       activationTargets: [AGENT_PROFILE_ID],
       referenceTargets: [HUMAN_PROFILE_ID],
@@ -110,12 +145,14 @@ describe("legacy Space Addressing wire compatibility", () => {
       referenceTargets: [HUMAN_PROFILE_ID],
       text: "Compatibility window",
     });
-    expect(messageEnvelopeSchema.parse(legacyWireEnvelope)).toEqual(
-      currentEnvelope
-    );
+    expect(messageEnvelopeSchema.parse(legacyWireEnvelope)).toEqual({
+      activationTargets: [AGENT_PROFILE_ID],
+      referenceTargets: [HUMAN_PROFILE_ID],
+      text: "Compatibility window",
+    });
 
     const legacyWireRelations = toLegacySpaceAddressingWireValue({
-      allowedRelations: { reference: true, wake: false },
+      allowedRelations: { mention: true, reference: false, wake: false },
     }) as { allowedRelations: unknown };
     expect(
       legacyAllowedRelationsSchema.parse(legacyWireRelations.allowedRelations)
@@ -129,7 +166,8 @@ describe("legacy Space Addressing wire compatibility", () => {
         legacyWireRelations.allowedRelations
       )
     ).toEqual({
-      reference: true,
+      mention: true,
+      reference: false,
       wake: false,
     });
   });

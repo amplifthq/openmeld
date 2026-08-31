@@ -706,7 +706,7 @@ async function submitAgentControllerReportsWithCompatibilityRetry(input: {
     if (
       shouldRetryWithoutUsageLimits({
         error,
-        requestedReports: input.requestedReports,
+        submittedReports: input.initialInput.reports,
       })
     ) {
       warnDaemonEvent("[openmeld.runtime_reporting.usage_limits_downgraded]", {
@@ -758,11 +758,19 @@ function omitUsageLimitsFromReports(
   return {
     ...input,
     reports: input.reports.map((report) => {
-      if (!report.agentControllerInterface?.usageLimits) {
+      if (
+        !(
+          report.agentControllerInterface?.usageLimits ||
+          report.agentControllerInterface?.usageLimitsSupportMatrixVersion
+        )
+      ) {
         return report;
       }
-      const { usageLimits: _usageLimits, ...agentControllerInterface } =
-        report.agentControllerInterface;
+      const {
+        usageLimits: _usageLimits,
+        usageLimitsSupportMatrixVersion: _usageLimitsSupportMatrixVersion,
+        ...agentControllerInterface
+      } = report.agentControllerInterface;
       return { ...report, agentControllerInterface };
     }),
   };
@@ -770,11 +778,13 @@ function omitUsageLimitsFromReports(
 
 function shouldRetryWithoutUsageLimits(input: {
   error: unknown;
-  requestedReports: readonly RuntimeAgentControllerReportInput[];
+  submittedReports: SubmitRuntimeAgentControllerReportsInput["reports"];
 }): boolean {
   if (
-    !input.requestedReports.some(
-      (report) => report.agentControllerInterface?.usageLimits
+    !input.submittedReports.some(
+      (report) =>
+        report.agentControllerInterface?.usageLimits ||
+        report.agentControllerInterface?.usageLimitsSupportMatrixVersion
     )
   ) {
     return false;

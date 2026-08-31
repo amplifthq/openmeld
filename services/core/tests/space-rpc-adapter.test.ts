@@ -33,6 +33,9 @@ describe("space rpc adapter", () => {
       request.headers.get("x-openmeld-agent-controller-conversation-id")
     ).toBe("ctx-space-1");
     expect(request.headers.get("x-openmeld-space-password")).toBe("pw-space");
+    expect(request.headers.get("x-openmeld-space-addressing-version")).toBe(
+      "1"
+    );
 
     expect(readResolvedOpenMeldContext(request.headers, "fallback-id")).toEqual(
       {

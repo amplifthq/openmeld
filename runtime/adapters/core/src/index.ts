@@ -212,8 +212,25 @@ export type AdapterProviderUsageLimitsObservedEvent = {
   tsMs: number;
   usageLimits: AgentControllerUsageLimit[];
 };
+export const AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION = 1;
+
+export type AdapterAgentControllerConversationOccupancy = {
+  agentControllerConversationId: string;
+  contractVersion: typeof AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION;
+  state: "occupied";
+};
+
+export type AdapterAgentControllerConversationOccupancyEvent = {
+  agentControllerConversationId: string;
+  contractVersion: typeof AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION;
+  phase:
+    | "agent_controller_conversation_available"
+    | "agent_controller_conversation_occupied";
+  tsMs: number;
+};
 export type AdapterRuntimeEvent =
   | CliDriverLifecycleEvent
+  | AdapterAgentControllerConversationOccupancyEvent
   | AdapterProviderConversationObservedEvent
   | AdapterProviderUsageLimitsObservedEvent
   | AdapterToolActivityEvent;
@@ -357,6 +374,7 @@ export type AdapterDispatchSuccess = {
 };
 
 export type AdapterDispatchFailure = {
+  agentControllerConversationOccupancy?: AdapterAgentControllerConversationOccupancy;
   diagnostics?: AdapterDispatchDiagnostics;
   errorCode?: string;
   errorMessage: string;
@@ -884,12 +902,17 @@ export const toAdapterDispatchFailure = (
   defaultErrorType: AdapterErrorType = "adapter"
 ): AdapterDispatchFailure => {
   const errorCode = extractErrorCode(error);
+  const agentControllerConversationOccupancy =
+    extractAgentControllerConversationOccupancy(error);
   const errorType = extractErrorType(error) ?? defaultErrorType;
   const diagnostics = extractDispatchDiagnostics(error);
   const providerAccessEvidence = extractProviderAccessEvidence(error);
   const originalError = extractProviderOriginalError(error);
   const telemetry = extractDispatchTelemetry(error);
   return {
+    ...(agentControllerConversationOccupancy
+      ? { agentControllerConversationOccupancy }
+      : {}),
     ...(diagnostics ? { diagnostics } : {}),
     ...(errorCode ? { errorCode } : {}),
     errorMessage:
@@ -899,6 +922,38 @@ export const toAdapterDispatchFailure = (
     ...(providerAccessEvidence ? { providerAccessEvidence } : {}),
     status: "failed",
     ...(telemetry ? { telemetry } : {}),
+  };
+};
+
+const extractAgentControllerConversationOccupancy = (
+  error: unknown
+): AdapterAgentControllerConversationOccupancy | null => {
+  if (!(error && typeof error === "object")) {
+    return null;
+  }
+  const value = (error as { agentControllerConversationOccupancy?: unknown })
+    .agentControllerConversationOccupancy;
+  if (!(value && typeof value === "object")) {
+    return null;
+  }
+  const occupancy =
+    value as Partial<AdapterAgentControllerConversationOccupancy>;
+  const agentControllerConversationId =
+    typeof occupancy.agentControllerConversationId === "string"
+      ? occupancy.agentControllerConversationId.trim()
+      : "";
+  if (
+    !agentControllerConversationId ||
+    occupancy.contractVersion !==
+      AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION ||
+    occupancy.state !== "occupied"
+  ) {
+    return null;
+  }
+  return {
+    agentControllerConversationId,
+    contractVersion: AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
+    state: "occupied",
   };
 };
 

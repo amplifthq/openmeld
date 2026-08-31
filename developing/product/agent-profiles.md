@@ -655,27 +655,86 @@ failure deadline. A terminal current Wake promotes the next queued Wake
 immediately; an alarm repairs only a crashed or failed promotion and is not the
 normal scheduler.
 
-Usage participates in Wakeability only when current evidence is both reliable
-and fresh. Proven exhausted Usage blocks new Wake admission before the product
-promises that the Agent accepted the task. Unsupported, stale, unavailable, or
-not-yet-evaluated Usage does not block Wakeability by itself. If a running Wake
-reports a structured `usage_exhausted` outcome, that Wake ends as a visible
-failure and the Coordinator holds every queued Wake. Current supported Local
-Agents do not expose a proven idempotent operation that reopens the same
-terminal provider turn, so OpenMeld must not disguise a new turn as automatic
-same-turn recovery. After fresh reliable Usage becomes available, the Profile
-owner may explicitly continue the interrupted work as a new provider turn.
-Successful continuation still requires a separate owner approval before the
-held queue starts. A new Wake submitted after recovery is new intent, but it
-stays behind that held work instead of bypassing FIFO. A provider may gain
-automatic same-turn recovery only after its versioned capability has official
-protocol evidence and a real failure-to-recovery smoke test.
+Space Wake progress may say that a Wake is `queued` only when the Agent Profile
+Work Coordinator head lifecycle confirms that it is waiting behind another
+Wake. A Space outbox handoff, Dispatch lookup, or RuntimeCoordinator
+`created`/`delivery_pending` status alone stays neutral as a sent request; none
+of those facts proves Profile FIFO waiting.
+
+The current Wake may also wait because the official Local Agent has given a
+different process exclusive writer ownership of the exact Agent Controller
+conversation. That Wake remains current, later Wakes remain behind it, and no
+Wake failure is published. OpenMeld retries immediately after an official
+provider release signal; an alarm is only a recovery backstop. This fact comes
+from provider admission, never from Agent Activity, process presence, or a
+guess based on recent output.
+
+Usage participates in Wakeability only when the Local Agent exposes structured,
+reliable Usage Limits. A Local Agent that explicitly reports Usage as
+unsupported, or that has no reliable Usage capability because reporting is
+passive or not evaluated, does not use Usage as an admission condition. Once a
+Local Agent's versioned capability matrix declares native Usage support, a
+missing, stale, expired, or currently unavailable observation projects
+`Checking` and rejects a new Wake; OpenMeld must not promise acceptance while
+the required fact is unknown. During a mixed-version rollout, a legacy Local
+Agent that does not declare its Usage support-matrix version remains outside
+this admission condition; a newer Core must not reinterpret that omission as
+`Checking`. A
+fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
+admission. These decisions use the current report already held by Core and must
+not add a provider call to the Wake hot path. Core and the Local Service consume
+the same matrix from `@openmeld/agent-runtime`; a Local Agent upgrade changes
+this behavior only through one reviewed matrix update backed by official
+provider evidence and a real smoke test.
+
+If a running Wake reports a structured `usage_exhausted` outcome, that Wake ends
+as a visible failure and the Coordinator holds every later Wake. When fresh
+reliable Usage from the exact current support-matrix contract becomes available,
+OpenMeld automatically retries the interrupted request at most once as one
+deterministic, idempotent new execution. A legacy or mismatched Service report
+cannot authorize that retry. OpenMeld does not claim that the terminal provider
+turn reopened. After that continuation succeeds, the owner receives the
+separate urgent Inbox and email approval for the held queue.
+If the user explicitly Stops the continuation, OpenMeld never starts it again;
+later queued work still requires the same owner approval, while an empty queue
+clears recovery immediately. Wakes submitted after recovery remain behind the
+held work and cannot bypass it. A repeated Usage report may safely repair an
+incomplete handoff before the continuation starts through the same deterministic
+operation; it must never create a second continuation. If the original request
+cannot be replayed safely, its source context is incomplete, its Binding or
+configuration changed, or the automatic continuation execution fails, the
+interrupted work moves to `Needs attention` and cannot enter another automatic
+retry loop. A lost or ambiguous Space handoff response is not an execution
+failure: OpenMeld keeps the deterministic continuation identity and confirms or
+retries that same handoff on a later report.
+The owner gets one idempotent Inbox item linked to the original Wake and may
+skip that interrupted work to continue FIFO. Reading or dismissing the item does
+not skip work. A provider may gain true same-turn recovery only after its
+versioned capability has official protocol evidence and a real
+failure-to-recovery smoke test.
+
+For Space and Direct Message Wakes, that automatic continuation uses the exact
+interrupted dispatch and source message as its internal continuation authority.
+The new Wake keeps the original source message's author; the Agent owner's Human
+Profile authorizes recovery but is not shown as the original sender.
 
 Owners may keep editing settings while work is queued or running under the
 existing capability rules. A running Wake keeps its accepted Binding and
 configuration revision. Saved model, reasoning, controller, and launch-only
 permission changes apply to future work. A native live permission update is
 shown as applied only after the provider acknowledges it.
+
+An approved Usage continuation rechecks its exact Binding, controller, and
+configuration revision before it can continue, not only when Usage first
+recovers. Continuation authorization, head admission, and every cloud-owned
+future-work settings change share one owner-shard ordering boundary. If the
+continuation becomes running first, the current Wake keeps its accepted
+settings and the saved change applies to later work. If the setting change wins
+while the continuation is pending or authorized, the continuation moves to
+`Needs attention` without executing. During a rolling deployment, an older
+owner shard that cannot coordinate future-work settings rejects that settings
+save before changing the Binding; ordinary Wakes keep using the unchanged fast
+path.
 
 ## Agent Profile Operational Context
 
@@ -684,6 +743,13 @@ Profile identity, Wakeability, current workload, applied execution settings,
 Usage, and recovery actions. It does not own those facts and cannot decide
 execution by itself.
 
+When interrupted work needs attention, the owner projection exposes one direct
+`Skip interrupted work` action. The action is idempotent, resolves only the exact
+current recovery gate, and promotes the oldest queued Wake. A stale page cannot
+skip a later interrupted Wake; it must refresh the current Profile Details
+projection first. Non-owners see the neutral workload state without this action
+or the interrupted request details.
+
 Owners and other Organization members see the same compact workload summary,
 such as `Working · 3 queued`. Profile Details may show the owner where the
 current Wake is running and which tasks are queued. Other members see only
@@ -691,6 +757,14 @@ neutral workload state and count; they do not receive Space names, task text,
 controller conversation identifiers, local paths, or other owner diagnostics.
 This projection belongs in the existing Profile Details surface, not a separate
 status product.
+
+An owner read may request up to 100 Profiles and each Profile may expose one
+current plus 50 queued work references. Runtime Transport reads those Durable
+Object records in explicit batches of at most 128 keys and runs at most four
+batch reads concurrently. It then restores the requested Profile and FIFO work
+order before applying the same privacy projection. This is a read-only Profile
+Details path, never Wake admission work; the storage limits must not become a
+user-visible partial result or slow a new Wake.
 
 ## Readiness And Recovery Surfaces
 

@@ -318,6 +318,7 @@ export const spaceIdentityDirectorySchema = z.strictObject({
 const currentSpaceMemberDirectoryAllowedRelationsSchema = z.strictObject({
   wake: z.boolean(),
   reference: z.boolean(),
+  mention: z.boolean(),
 });
 
 export const spaceMemberDirectoryAllowedRelationsSchema = z.preprocess(
@@ -326,11 +327,23 @@ export const spaceMemberDirectoryAllowedRelationsSchema = z.preprocess(
       return value;
     }
     const record = value as Record<string, unknown>;
-    if (typeof record.cc !== "boolean") {
-      return value;
+    const { cc: _legacyCc, ...withoutLegacyCc } = record;
+    if (typeof withoutLegacyCc.mention === "boolean") {
+      return withoutLegacyCc;
     }
-    const { cc: _legacyCc, ...currentRelations } = record;
-    return currentRelations;
+    if (
+      typeof withoutLegacyCc.wake !== "boolean" ||
+      typeof withoutLegacyCc.reference !== "boolean"
+    ) {
+      return withoutLegacyCc;
+    }
+    const wasHumanReference =
+      !withoutLegacyCc.wake && withoutLegacyCc.reference;
+    return {
+      ...withoutLegacyCc,
+      mention: wasHumanReference,
+      reference: wasHumanReference ? false : withoutLegacyCc.reference,
+    };
   },
   currentSpaceMemberDirectoryAllowedRelationsSchema
 );
@@ -380,6 +393,20 @@ export const spaceMemberDirectoryEntrySchema = z
         code: "custom",
         message: "human members cannot support Wake",
         path: ["allowedRelations", "wake"],
+      });
+    }
+    if (value.profileKind === "human" && value.allowedRelations.reference) {
+      ctx.addIssue({
+        code: "custom",
+        message: "human members cannot support Reference",
+        path: ["allowedRelations", "reference"],
+      });
+    }
+    if (value.profileKind === "agent" && value.allowedRelations.mention) {
+      ctx.addIssue({
+        code: "custom",
+        message: "agent members cannot support Human Mention",
+        path: ["allowedRelations", "mention"],
       });
     }
   });

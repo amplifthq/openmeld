@@ -1,9 +1,12 @@
 // biome-ignore-all lint/performance/noBarrelFile: Package entrypoint intentionally re-exports Codex runtime helpers.
 import {
+  type AdapterAgentControllerConversationOccupancy,
   type AdapterCancelRequest,
   type AdapterComputerFileAccessVerificationResult,
   type AdapterDispatchContextDelta,
+  type AdapterDispatchFailure,
   type AdapterDispatchRequest,
+  type AdapterDispatchResult,
   type AdapterDispatchTelemetry,
   type AdapterInterruptRequest,
   type AdapterInterruptResult,
@@ -14,6 +17,7 @@ import {
   bridgeAgentControllerConversationRef,
   buildAdapterCancelRequest,
   buildExecutableLaunchContract,
+  buildInterruptPlan,
   createSharedControlShell,
   createSharedDispatchShell,
   type RuntimeAdapter,
@@ -38,6 +42,10 @@ import {
   buildCodexFileAccessBoundaryGlobalArgs,
   redactCodexFileAccessBoundaryDispatchFailure,
 } from "./transport/codex-file-access-boundary.js";
+import {
+  type WaitForCodexThreadWriterAvailability,
+  waitForCodexThreadWriterAvailability,
+} from "./transport/codex-thread-writer-availability.js";
 
 export type CodexInvokeResult = {
   contextDelta?: AdapterDispatchContextDelta;
@@ -45,8 +53,12 @@ export type CodexInvokeResult = {
   telemetry?: AdapterDispatchTelemetry;
 };
 
+type CodexDispatchRequest = AdapterDispatchRequest & {
+  cancellationSignal?: AbortSignal;
+};
+
 export type CodexInvokeFn = (
-  input: AdapterDispatchRequest & {
+  input: CodexDispatchRequest & {
     onPreview?: AdapterPreviewCallback;
   }
 ) => Promise<CodexInvokeResult>;
@@ -82,6 +94,7 @@ export type CodexAdapterOptions = {
   sendCancel?: CodexCancelSignalFn;
   sendInterrupt?: CodexInterruptSignalFn;
   waitForMs?: WaitForMs;
+  waitForThreadWriterAvailability?: WaitForCodexThreadWriterAvailability;
 };
 
 export {
@@ -105,6 +118,7 @@ export { extractCodexToolActivityEvent } from "./output/codex-tool-activity.js";
 export {
   type CodexAppServerAccountProbeResult,
   CodexAppServerTransportError,
+  classifyCodexThreadWriterConflict,
   forkCodexAppServerThread,
   invokeCodexAppServerTransport,
   probeCodexAppServerAccount,
@@ -114,6 +128,7 @@ export {
   CodexCliTransportError,
   invokeCodexCliTransport,
 } from "./transport/codex-cli-transport.js";
+export { waitForCodexThreadWriterAvailability } from "./transport/codex-thread-writer-availability.js";
 export { projectCodexUsageLimits } from "./usage/codex-usage-limits.js";
 
 const CODEX_CONVERSATION_BRIDGE_SPEC =
@@ -129,6 +144,16 @@ type ComputerFileAccessAttestation = {
   result: Promise<AdapterComputerFileAccessVerificationResult>;
 };
 
+type OccupiedCodexDispatch = {
+  abortController: AbortController;
+  taskId: string;
+};
+
+type OccupiedCodexDispatchState = {
+  occupancy: AdapterAgentControllerConversationOccupancy | null;
+  registration: OccupiedCodexDispatch | null;
+};
+
 export const createCodexAdapter = (
   options: CodexAdapterOptions
 ): RuntimeAdapter => {
@@ -137,6 +162,7 @@ export const createCodexAdapter = (
     string,
     ComputerFileAccessAttestation
   >();
+  const occupiedDispatches = new Map<string, OccupiedCodexDispatch>();
   const registerAppServerTurn = (
     registration: CodexAppServerActiveTurnRegistration
   ) => {
@@ -177,6 +203,51 @@ export const createCodexAdapter = (
     sendInterrupt,
     waitForMs: options.waitForMs,
   });
+  const fallbackCancel = controlShell.cancel;
+  const cancel: NonNullable<RuntimeAdapter["cancel"]> = async (request) => {
+    const occupiedDispatchAborted = abortOccupiedCodexDispatch({
+      occupiedDispatches,
+      request,
+    });
+    if (occupiedDispatchAborted && !activeAppServerTurns.has(request.taskId)) {
+      return {
+        accepted: true,
+        deliveryPath: "cancel",
+        reasonCode: "accepted",
+        signalDelivery: "sent",
+        taskId: request.taskId,
+      };
+    }
+    if (!fallbackCancel) {
+      return {
+        accepted: false,
+        reasonCode: "adapter.unsupported",
+        signalDelivery: "not_sent",
+        taskId: request.taskId,
+      };
+    }
+    return await fallbackCancel(request);
+  };
+  const interrupt: RuntimeAdapter["interrupt"] = async (request) => {
+    const occupiedDispatchAborted = abortOccupiedCodexDispatch({
+      occupiedDispatches,
+      request,
+    });
+    if (occupiedDispatchAborted && !activeAppServerTurns.has(request.taskId)) {
+      return {
+        accepted: true,
+        plan: buildInterruptPlan(request),
+        reasonCode: "accepted",
+        signalDelivery: "sent",
+        taskId: request.taskId,
+      };
+    }
+    return await interruptCodexActiveAppServerTurn({
+      activeAppServerTurns,
+      request,
+      fallbackInterrupt: controlShell.interrupt,
+    });
+  };
   const sharedDispatch = createSharedDispatchShell({
     adapterId: "codex",
     bridgeSpec: CODEX_CONVERSATION_BRIDGE_SPEC,
@@ -189,27 +260,21 @@ export const createCodexAdapter = (
     resolveDefaultInvoke: () => resolveDefaultCodexInvoke(options),
     runtimeOptions: options,
   });
-  const dispatch: RuntimeAdapter["dispatch"] = async (request) => {
-    const result = await sharedDispatch(request);
-    if (
-      result.status === "failed" &&
-      request.computerFileAccessBoundary !== undefined
-    ) {
-      return redactCodexFileAccessBoundaryDispatchFailure(result);
-    }
-    return result;
-  };
+  const dispatch: RuntimeAdapter["dispatch"] = (request) =>
+    dispatchCodexWithConversationOccupancy({
+      occupiedDispatches,
+      request,
+      sharedDispatch,
+      waitForThreadWriterAvailability:
+        options.waitForThreadWriterAvailability ??
+        waitForCodexThreadWriterAvailability,
+    });
 
   return {
     adapterId: "codex",
-    cancel: controlShell.cancel,
+    cancel,
     dispatch,
-    interrupt: (request) =>
-      interruptCodexActiveAppServerTurn({
-        activeAppServerTurns,
-        request,
-        fallbackInterrupt: controlShell.interrupt,
-      }),
+    interrupt,
     verifyComputerFileAccessBoundary: async (request) => {
       if (
         request.agentControllerPermissionMode === "codex:customConfig" ||
@@ -299,6 +364,55 @@ export const createCodexAdapter = (
   };
 };
 
+function readCodexConversationOccupancy(
+  result: Awaited<ReturnType<RuntimeAdapter["dispatch"]>>,
+  request: AdapterDispatchRequest
+): AdapterAgentControllerConversationOccupancy | null {
+  if (
+    result.status !== "failed" ||
+    request.transportMode !== "codex-app-server" ||
+    !result.agentControllerConversationOccupancy
+  ) {
+    return null;
+  }
+  return result.agentControllerConversationOccupancy;
+}
+
+function abortOccupiedCodexDispatch(input: {
+  occupiedDispatches: ReadonlyMap<string, OccupiedCodexDispatch>;
+  request: { taskId: string };
+}): boolean {
+  const occupiedDispatch = input.occupiedDispatches.get(input.request.taskId);
+  if (!occupiedDispatch) {
+    return false;
+  }
+  occupiedDispatch.abortController.abort();
+  return true;
+}
+
+function buildCodexWriterWaitCancelledResult(): AdapterDispatchFailure {
+  return {
+    errorCode: "runtime.turn.cancelled",
+    errorMessage:
+      "runtime.turn.cancelled: Codex was stopped while waiting for the Agent Controller conversation",
+    errorType: "adapter",
+    status: "failed",
+  };
+}
+
+async function emitCodexConversationAvailable(input: {
+  occupancy: AdapterAgentControllerConversationOccupancy;
+  request: AdapterDispatchRequest;
+}): Promise<void> {
+  await input.request.onRuntimeEvent?.({
+    agentControllerConversationId:
+      input.occupancy.agentControllerConversationId,
+    contractVersion: input.occupancy.contractVersion,
+    phase: "agent_controller_conversation_available",
+    tsMs: Date.now(),
+  });
+}
+
 function rememberComputerFileAccessAttestation(input: {
   attestations: Map<string, ComputerFileAccessAttestation>;
   cacheKey: string;
@@ -331,6 +445,142 @@ export const buildCodexCancelRequest = (input: {
     reason: input.reason,
     taskId: input.taskId,
   });
+
+async function dispatchCodexWithConversationOccupancy(input: {
+  occupiedDispatches: Map<string, OccupiedCodexDispatch>;
+  request: AdapterDispatchRequest;
+  sharedDispatch: (
+    request: CodexDispatchRequest
+  ) => Promise<AdapterDispatchResult>;
+  waitForThreadWriterAvailability: WaitForCodexThreadWriterAvailability;
+}): Promise<AdapterDispatchResult> {
+  const state: OccupiedCodexDispatchState = {
+    occupancy: null,
+    registration: null,
+  };
+  try {
+    while (true) {
+      const cancellationSignal =
+        state.registration?.abortController.signal ?? undefined;
+      if (cancellationSignal?.aborted) {
+        return buildCodexWriterWaitCancelledResult();
+      }
+      const result = await input.sharedDispatch({
+        ...input.request,
+        ...(cancellationSignal ? { cancellationSignal } : {}),
+      });
+      if (state.registration?.abortController.signal.aborted) {
+        return buildCodexWriterWaitCancelledResult();
+      }
+      const occupancy = readCodexConversationOccupancy(result, input.request);
+      if (occupancy) {
+        const waitOutcome = await waitForOccupiedCodexConversation({
+          ...input,
+          occupancy,
+          state,
+        });
+        if (waitOutcome === "cancelled") {
+          return buildCodexWriterWaitCancelledResult();
+        }
+        continue;
+      }
+      if (state.occupancy) {
+        await emitCodexConversationAvailable({
+          occupancy: state.occupancy,
+          request: input.request,
+        });
+        state.occupancy = null;
+      }
+      return finalizeCodexDispatchResult({ request: input.request, result });
+    }
+  } finally {
+    removeOccupiedCodexDispatchRegistration({
+      occupiedDispatches: input.occupiedDispatches,
+      state,
+      taskId: input.request.taskId,
+    });
+  }
+}
+
+async function waitForOccupiedCodexConversation(input: {
+  occupancy: AdapterAgentControllerConversationOccupancy;
+  occupiedDispatches: Map<string, OccupiedCodexDispatch>;
+  request: AdapterDispatchRequest;
+  state: OccupiedCodexDispatchState;
+  waitForThreadWriterAvailability: WaitForCodexThreadWriterAvailability;
+}): Promise<"cancelled" | "retry"> {
+  const registration = ensureOccupiedCodexDispatchRegistration(input);
+  if (!input.state.occupancy) {
+    await input.request.onRuntimeEvent?.({
+      agentControllerConversationId:
+        input.occupancy.agentControllerConversationId,
+      contractVersion: input.occupancy.contractVersion,
+      phase: "agent_controller_conversation_occupied",
+      tsMs: Date.now(),
+    });
+    input.state.occupancy = input.occupancy;
+  }
+  const waitResult = await input.waitForThreadWriterAvailability({
+    env: input.request.env,
+    occupancy: input.occupancy,
+    signal: registration.abortController.signal,
+  });
+  if (waitResult === "aborted" || registration.abortController.signal.aborted) {
+    return "cancelled";
+  }
+  if (waitResult === "release_observed") {
+    await emitCodexConversationAvailable({
+      occupancy: input.occupancy,
+      request: input.request,
+    });
+    input.state.occupancy = null;
+  }
+  return registration.abortController.signal.aborted ? "cancelled" : "retry";
+}
+
+function ensureOccupiedCodexDispatchRegistration(input: {
+  occupiedDispatches: Map<string, OccupiedCodexDispatch>;
+  request: AdapterDispatchRequest;
+  state: OccupiedCodexDispatchState;
+}): OccupiedCodexDispatch {
+  if (input.state.registration) {
+    return input.state.registration;
+  }
+  const registration = {
+    abortController: new AbortController(),
+    taskId: input.request.taskId,
+  };
+  input.state.registration = registration;
+  input.occupiedDispatches.set(input.request.taskId, registration);
+  return registration;
+}
+
+function finalizeCodexDispatchResult(input: {
+  request: AdapterDispatchRequest;
+  result: AdapterDispatchResult;
+}): AdapterDispatchResult {
+  if (
+    input.result.status === "failed" &&
+    input.request.computerFileAccessBoundary !== undefined
+  ) {
+    return redactCodexFileAccessBoundaryDispatchFailure(input.result);
+  }
+  return input.result;
+}
+
+function removeOccupiedCodexDispatchRegistration(input: {
+  occupiedDispatches: Map<string, OccupiedCodexDispatch>;
+  state: OccupiedCodexDispatchState;
+  taskId: string;
+}): void {
+  const registration = input.state.registration;
+  if (
+    registration &&
+    input.occupiedDispatches.get(input.taskId) === registration
+  ) {
+    input.occupiedDispatches.delete(input.taskId);
+  }
+}
 
 const resolveDefaultCodexInvoke = (
   options: CodexAdapterOptions
@@ -426,6 +676,7 @@ const resolveDefaultCodexAppServerInvoke = (input: {
     const result = await invokeCodexAppServerLocal({
       agentControllerPermissionMode:
         dispatchInput.agentControllerPermissionMode,
+      cancellationSignal: dispatchInput.cancellationSignal,
       computerFileAccessBoundary: dispatchInput.computerFileAccessBoundary,
       launchContract,
       codexTimeoutMs,

@@ -603,32 +603,40 @@ every read and receipt; Flue remains the only runtime conversation and
 compaction owner. Hidden reasoning, system prompts, provider state, memory
 records, attachments, and other member conversations never enter this API.
 
-Model-visible Space addressing has exactly two relations. The Center Agent and
-Remote Agent use Wake when another Agent Profile must act and produce an
-explicit outcome, and Reference when a Human or Agent Profile is context only.
-Their tool schemas, role prompts, Routine catalog, and examples must not teach,
-accept, or generate the retired CC relation. Historical CC normalization is a
-shared transport/read concern completed before model context is assembled; the
-model never needs to interpret it.
+Model-visible Space addressing has exactly three relations. The Center Agent
+and Remote Agent use Wake when another Agent Profile must act and produce an
+explicit outcome, Reference when an Agent Profile is context only, and Human
+Mention when a Human Profile's attention should be notified. Human Mention
+never enters RuntimeCoordinator, Delegation, or Agent execution. Their tool
+schemas, role prompts, Routine catalog, and examples must not teach, accept, or
+generate the retired CC relation or a Human Reference. Historical CC and Human
+Reference normalization is a shared transport concern completed before model
+context is assembled; the model never needs to interpret it.
 
-Space-authoring tools require an explicit `referenceProfileIds` array on every
-model-authored message: exact context-only Profile IDs when present, or an empty
-array only after deciding there are none. This keeps the model's Reference
-decision visible and separate from executable `agentProfileIds` and the
-optional fallback. The visible message text is never the addressing authority:
-writing
-`@Name(reference)` in text without the structured target does not create a
-Reference. Core preserves those IDs only in the Space Message Envelope, and a
-Reference target never becomes delegated work, a fallback, a completion
-subscription, or a continuation trigger.
+Space-authoring tools require explicit `mentionProfileIds` and
+`referenceProfileIds` arrays on every model-authored message: exact Human
+Mention and Agent Reference Profile IDs when present, or an empty array only
+after deciding there are none. This keeps both non-executable relations visible
+and separate from executable `agentProfileIds` and the optional fallback. The
+visible message text is never the addressing authority: writing
+`@Name(mention)` or `@Name(reference)` in text without the matching structured
+target does not create either relation. Core preserves those IDs only in the
+Space Message Envelope. Neither relation becomes delegated work, a fallback, a
+completion subscription, or a continuation trigger; Human Mention alone
+creates the person's Inbox and browser attention signal.
 
-The Remote Agent verifies Core's shared Space-authoring contract before either
-authoring tool can publish. An incompatible Core therefore fails before the
-Space write, while the accepted response is still checked to prove that every
-requested Reference target was preserved. A failed preservation check blocks
-every later Space-authoring call in that submission, preventing a model retry
-from duplicating the write. Deploy Core before Remote Agent for this contract
-and reverse that order during rollback.
+The Remote Agent requests and verifies Core's current shared Space-authoring
+contract before either authoring tool can publish. An old Core returns only the
+legacy contract, so a current Remote Agent fails before the Space write. A
+current Core also serves an older Remote Agent: it accepts the old contract and
+old Human References, lets the Space authoring boundary normalize those Humans
+into Mentions for persisted truth, and projects the accepted response back into
+the legacy shape needed by the old postcondition. The current response is still
+checked to prove that every requested Human Mention and Agent Reference was
+preserved. A failed preservation check blocks every later Space-authoring call
+in that submission, preventing a model retry from duplicating the write.
+Deploy Core before Remote Agent for this contract and reverse that order during
+rollback.
 
 Space Files use a separate ordinary collaboration contract. The Center Agent
 can list and read the same Space tree as any other viewer, and can save or

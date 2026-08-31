@@ -300,6 +300,25 @@ creation targets to `{ kind: "center_agent" }`. Gateway applies the projection
 after validating Core's current response for list, direct-item, and read-mutation
 operations. The projection never rewrites the durable row or weakens the
 canonical schema.
+
+The Human Mention Inbox kind follows the same receiver-first rule without
+reusing source-target versioning. The additive Database migration accepts both
+the retired `space_reference` discriminator and current `space_mention`; it
+does not rewrite existing rows during the live migration window. Current Core,
+Gateway, and API-client readers normalize either discriminator to the canonical
+Human Mention domain kind before product behavior. Current Inbox clients send
+`x-openmeld-inbox-item-kind-version: 1`; Gateway returns `space_mention` only to
+that version and projects it to `space_reference` for an older or already-loaded
+strict Web client. The projection changes only the wire discriminator and never
+changes notification behavior, title, source target, or durable data.
+
+The guarded rollout applies the additive Database migration, deploys Web, then
+Gateway, and only then deploys the Core writer that may create
+`space_mention`. This keeps old Core readable before the writer switch, lets new
+Gateway accept either old or new Core output, and keeps an older Web tab from
+losing its entire Inbox. Rollback removes the new writer before removing these
+compatible readers. A later cleanup may remove `space_reference` only after no
+supported reader, writer, or persisted row needs the compatibility window.
 Core keeps the durable Slack terminal-delivery ledger as the repair owner when
 permalink resolution or Inbox projection fails. The same bounded repair detects
 legacy Slack rows whose source identity still points to the former
@@ -4487,15 +4506,16 @@ and already-deployed strict consumers remain compatible during rollout.
 contracts for Space member snapshots, public Wake availability fields, owner
 diagnostics, and Space member directory entries.
 
-Current Space Message Addressing has exactly two shared-schema relations:
-Wake (`activationTargets`) and Reference (`referenceTargets`). Wake is the only
-relation that may create executable work. Reference is context only and must
+Current Space Message Addressing has exactly three shared-schema relations:
+Wake (`activationTargets`) and Reference (`referenceTargets`) target Agent
+Profiles; Human Mention (`mentionTargets`) targets Human Profiles. Wake is the only
+relation that may create executable work. Reference and Human Mention must
 not enter dispatch, claim, RuntimeCoordinator, Delegation, or continuation
 coordination.
 
 The Space Durable Object is the write-time authority for Message Addressing
 target membership. Before persisting a new text signal, it validates every
-`activationTargets` and `referenceTargets` entry against its own active Space
+`activationTargets`, `referenceTargets`, and `mentionTargets` entry against its own active Space
 member records. Center Agent, HTTP, thread, WebSocket, and idempotent publication
 paths cannot replace this check with Organization Profile data or a client
 member-directory snapshot. Idempotent retries validate the submitted target set
@@ -4504,27 +4524,46 @@ publication remains the successful idempotent result after later membership
 changes. Historical signal reads do not run this authoring check; their
 compatibility projection remains readable after membership changes.
 
-Center Agent Space-authoring RPC requests use `referenceProfileIds` as their
-model-facing input. Core validates and normalizes those IDs, then writes them as
+Current Center Agent Space-authoring RPC requests use `mentionProfileIds` for
+Human Profiles and `referenceProfileIds` for Agent Profiles. Core validates and
+normalizes both sets, then writes them as `mentionTargets` and
 `referenceTargets` in the current Message Envelope. A delegated Wake
-publication command persists the same `referenceTargets` so event-driven retry
-cannot lose structured addressing. Older persisted commands that predate this
-field normalize to an empty list when read. No caller may infer Reference from
-message text. The deterministic Center Agent `clientMessageId` includes a
-non-empty normalized Reference set, while omitting the key for an empty set to
-preserve the pre-extension idempotency key across a Core rollout.
+publication command persists both sets and the current addressing version so
+event-driven retry cannot lose structured addressing or its validation mode.
+Older persisted commands normalize missing lists to empty current-domain lists
+and keep the legacy unversioned mode. No caller may infer either relation from
+message text. The deterministic Center Agent `clientMessageId` includes the
+current addressing version for a current caller plus each non-empty normalized
+set; legacy callers omit the version and preserve their older idempotency keys.
 
 Before either Center Agent Space-authoring RPC can publish, the current Remote
-Agent must call Core's `centerAgentReadSpaceAuthoringContract` RPC and validate
-the shared `addressingModel = wake_reference` and
-`structuredReferenceTargets = true` response. This is a capability fence, not a
-second addressing fact: Core remains the sole owner of the response, and the
-Remote Agent uses it only to reject an incompatible deployment before any
-Space write. The accepted publication response remains a postcondition check
-that the requested Reference targets were preserved. If that postcondition
-fails, the Remote Agent locks every later Space-authoring call in the same
-submission to the same non-retryable contract error, so a model retry cannot
-repeat a non-idempotent publication.
+Agent calls Core's `centerAgentReadSpaceAuthoringContract` RPC with
+`requestedAddressingModel = wake_reference_mention` and validates the matching
+response plus `structuredMentionTargets = true` and
+`structuredReferenceTargets = true`. An older Remote Agent omits the request
+field and receives the legacy `wake_reference` response. This negotiation is a
+capability fence, not a second addressing fact: Core remains the sole owner of
+the response, and a current Remote Agent uses it only to reject an incompatible
+old Core before any Space write.
+
+Current Remote Agent Space-context reads use the same explicit model request:
+`centerAgentReadSpaceContext.requestedAddressingModel = wake_reference_mention`.
+Core returns `mentionTargets` unchanged only for that current request. An older
+Remote Agent omits the field and receives the legacy Reference/cc response
+projection, so mixed-version reads never expose Human Mention as an Agent
+Reference to a current model and never expose an unknown relation to an old
+model.
+
+For Core-first rollout compatibility, an older Remote Agent may still send a
+Human Profile in `referenceProfileIds`. The current Core lets the Space
+authoring boundary translate that active Human into persisted Human Mention
+truth, then projects only the RPC response back to the requested legacy
+Reference set so the old caller's postcondition does not falsely report failure
+after a successful publication. A current caller receives no such projection:
+its accepted response must preserve every requested Human Mention and Agent
+Reference. If that postcondition fails, Remote Agent locks every later
+Space-authoring call in the same submission to the same non-retryable contract
+error, so a model retry cannot repeat a non-idempotent publication.
 
 The `packages/schemas` package is the single shared-schema compatibility
 boundary for retired CC wire data. Its removal points are explicit:
@@ -4533,11 +4572,37 @@ boundary for retired CC wire data. Its removal points are explicit:
   `referenceTargets` before returning a current-domain object.
 - `schemas/http/space-members.ts` accepts the retired
   `allowedRelations.cc` field only while parsing old member-directory
-  projections and returns the current two-relation capability object.
+  projections and returns the current three-relation capability object.
 - `compatibility/legacy-space-addressing-wire.ts` is the outbound compatibility
-  encoder for supported old-client transports. It may add only an empty
-  `ccTargets` field and the retired `allowedRelations.cc = false` capability
-  flag.
+  boundary for supported old-client transports. The request helper preserves a
+  non-empty `mentionTargets` list and otherwise may add only an empty
+  `ccTargets` field. The response encoder folds Human Mention targets and
+  capabilities into the retired client's Reference projection, while adding
+  only the empty `ccTargets` field and `allowedRelations.cc = false` flag.
+
+Current HTTP clients declare
+`x-openmeld-space-addressing-version: 1`. Gateway obtains the current projection
+from Core and returns it only to that negotiated consumer; a request without the
+header receives the strict legacy projection. Current Space WebSocket clients
+declare `capabilities.spaceMessageAddressing = true` in `hello`, and Core stores
+that capability with the session before selecting the live wire projection.
+Core's typed Space RPC adapter always requests the current in-process projection;
+the service-binding RPC method version argument then selects current output for
+current Gateway while preserving legacy output for an already-deployed Gateway.
+Compatibility selection is transport metadata, never Space business state.
+
+An old authoring client that omits this version or WebSocket capability may
+still encode a Human target in `referenceTargets`. Before current target-kind
+validation and persistence, Core translates only active Human member targets
+from that legacy request into `mentionTargets`; Agent References remain
+References, and inactive targets still fail. A negotiated current caller does
+not receive this translation, so Human Reference remains invalid on every
+current user-authored path. Core applies the same translation to
+`system_emitted` Agent replies because already-published OpenMeld Services
+encoded Human attention as Reference and do not carry the HTTP or WebSocket
+negotiation marker. Current Agent reply producers cannot validly author a Human
+Reference. This compatibility step never infers addressing from text and never
+rewrites an already persisted signal.
 
 These three owner points are one package-owned compatibility boundary, not
 three business facts. Neither retired field is a current fact, writer input,
@@ -4547,29 +4612,30 @@ The Contract Impact Audit for this retirement is:
 
 | Direction                                                  | Compatibility rule                                                                                                                                                                                                   |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Old CLI or OpenMeld Service -> new Core                    | New shared request schemas accept the retired empty or populated field only at preprocessing, merge historical targets into Reference, and return a current two-relation object. This includes daemon result frames. |
-| New CLI or OpenMeld Service -> old Core                    | The centralized outbound wire adapter supplies an empty retired field on Space authoring and daemon result frames; current authoring can express only Wake or Reference.                                             |
-| Old Web or API client -> new Gateway/Core                  | New request schemas normalize the retired field at the boundary. Old response readers receive only the empty compatibility field.                                                                                    |
-| New Web or API client -> old Gateway/Core                  | The shared API client's outbound adapter supplies the empty compatibility field, and current response readers normalize old persisted values into Reference.                                                         |
-| Old Gateway or Remote Agent -> new Core                    | New Core request schemas normalize the retired field before current RPC or authoring logic can observe it.                                                                                                           |
-| New Core -> old Gateway, Remote Agent, or OpenMeld Service | Core RPC, thread HTTP, Space live, and daemon delivery responses add only empty retired fields after current-domain validation so strict old consumers can read them.                                                |
-| New Gateway or Remote Agent -> old Core                    | Not a supported mixed-version direction. The guarded rollout must deploy Core first because current cloud consumers intentionally do not send a third current relation.                                              |
+| Old CLI or OpenMeld Service -> new Core                    | New shared request schemas accept the retired empty or populated field only at preprocessing, merge historical targets into Reference, and return a current addressing object. This includes daemon result frames. |
+| New CLI or OpenMeld Service -> old Core                    | Not supported once `mentionTargets` is authored. The guarded rollout deploys current readers before current Human Mention writers.                                                                                |
+| Old Web or API client -> new Gateway/Core                  | New request schemas normalize the retired field at the boundary. Gateway preserves the caller's missing version, and Core translates active Human References into Human Mentions before current validation. Old response readers receive Human Mentions through their legacy Reference projection. |
+| New Web or API client -> old Gateway/Core                  | Requests without Human Mention retain the empty compatibility field. A request with non-empty `mentionTargets` requires current readers; the guarded rollout deploys those readers first. Current response readers normalize old persisted values into Reference.              |
+| Old Gateway or Remote Agent -> new Core                    | New Core request schemas normalize retired wire fields. For Center Agent authoring, an old Remote Agent receives the legacy contract and response projection while persisted Human targets become Mentions.                                                                         |
+| New Core -> old Gateway, Remote Agent, or OpenMeld Service | Consumers that omit the HTTP/RPC response version or WebSocket capability receive their supported legacy projection after current-domain validation. Negotiated current consumers receive `mentionTargets` and `allowedRelations.mention` unchanged.                               |
+| New Gateway or Remote Agent -> old Core                    | Not a supported authoring direction. Current Web/API writers roll out after Core/Gateway, and current Remote Agent detects the old authoring contract and fails before a Space write.                                                                                                 |
 | Historical persisted Signal -> current read projection     | Shared preprocessing merges historical CC targets into Reference before timeline, details, prompt, or dispatch code can observe the message. It never creates work.                                                  |
 
-The Center Agent structured-Reference extension follows the same rollout
-boundary. The request fields remain optional at the Core compatibility
-boundary, so old Remote Agent producers continue to work with new Core. A new
-Remote Agent refuses to publish through an old Core because that Core cannot
-satisfy `centerAgentReadSpaceAuthoringContract`; it does not rely on an unknown
-request field being rejected or on a post-publication comparison. Guarded
-production rollout must therefore deploy Core before Remote Agent, and rollback
-must remove the new Remote Agent before rolling back Core. Old persisted
-delegated publication commands remain readable because Core normalizes their
-missing `referenceTargets` to an empty current-domain list.
+The Center Agent Human Mention extension follows the same rollout boundary.
+The request fields remain optional at the Core compatibility boundary, so old
+Remote Agent producers continue to work with new Core. A current Remote Agent
+refuses to publish through an old Core because that Core cannot satisfy its
+requested `centerAgentReadSpaceAuthoringContract`; it does not rely on an
+unknown authoring field being rejected or on a post-publication comparison.
+Guarded production rollout must therefore deploy Core before Remote Agent, and
+rollback must remove the current Remote Agent before rolling back Core. Old
+persisted delegated publication commands remain readable because Core
+normalizes missing `mentionTargets` and `referenceTargets` to empty
+current-domain lists and treats a missing addressing version as legacy.
 
 Remove all three compatibility owner points together after the minimum
 supported Web, CLI, OpenMeld Service, Gateway, Core, and Remote Agent versions
-use the two-relation model and one production Space-history retention window
+use the three-relation model and one production Space-history retention window
 has elapsed. Until then, production rollout is Core first, then Gateway and
 Remote Agent, then Web, and finally the published CLI, OpenMeld Service, and
 managed skill bundle. Rollback reverses that order. The release fence is
@@ -5021,6 +5087,60 @@ Code, Cursor, Grok Build, and OpenCode. A refreshed or different conversation
 fails repair explicitly; the shell must not relabel it as the canonical
 conversation. OpenClaw remains provider-managed and outside this contract until
 its repair semantics receive a separate audit.
+
+Agent Controller conversation occupancy is a separate versioned adapter and
+daemon-lifecycle contract. Version 1 carries only the exact controller
+conversation id and `occupied` or `available`; provider adapters may produce
+`occupied` only from an official atomic admission result. Core records that
+evidence against the current Profile FIFO head, while the local Service retains
+and retries the same Wake. The original provider error remains adapter
+diagnostics and does not itself drive state. Unknown providers, generic
+transport failures, Agent Activity, and process presence cannot populate this
+contract. After a transition, the first running keepalive, the first keepalive
+on a new connection generation, and a low-frequency recovery keepalive repeat
+the current occupancy value so Core can recover a missed frame without a second
+provider query. Intermediate keepalives omit the additive field for older-Core
+compatibility.
+
+The Agent Profile work-recovery contract exposes only idempotent owner actions
+that change current coordinator state. `skip_interrupted_work` resolves an exact
+`continuation_needs_attention` gate and promotes the oldest queued Wake; it does
+not replay the interrupted request. Its strict request carries the current
+interrupted target-Wake lifecycle id, and the owner shard compares that identity
+before mutation so a stale Web action cannot clear a later gate. Usage-based
+automatic continuation requires the exact current
+`usageLimitsSupportMatrixVersion`, the same Profile, controller, Binding, and
+configuration, complete replayable source context, and no prior automatic
+continuation attempt. The continuation authorization request also carries the
+current canonical Binding tuple and an explicit accepted-revision verification
+marker; the owner shard compares it with the interrupted run command snapshot
+in the same transaction. Missing or mismatched accepted revision evidence is
+unsafe. An unsafe request or failed automatic continuation stays behind one
+current Needs-attention projection instead of entering another retry loop.
+
+RuntimeCoordinator head admission keeps its existing version 1 wire shape so a
+new Core caller cannot stall ordinary Wake traffic on an older strict owner
+shard. The initial continuation authorization compares the current canonical
+`bindingId`, `agentControllerRef`, and `configurationRevision` with the
+interrupted run command in the owner-shard transaction. Future-work settings
+use a dedicated owner-shard mutation RPC instead of adding a field to the
+existing strict execution-target mutation request. That transaction moves a
+pending or authorized continuation to the single Needs-attention gate and
+writes its Inbox intent before the cloud Binding write may begin. If the
+continuation head wins the owner-shard order first, it becomes running and the
+setting may save for later work without changing the current execution. An
+older shard that lacks the dedicated future-settings RPC rejects the setting
+write before D1 mutation; ordinary Wakes continue on the unchanged hot path.
+
+The owner-only Organization directory projection may add the interrupted
+target-Wake lifecycle id beside a paused recovery action. Web accepts the field
+additively, requires it before sending `skip_interrupted_work`, and asks the user
+to refresh when an older projection omitted it. Non-owner projections omit both
+the action and this identity. The directory request advertises Agent Profile
+work-recovery contract version 2 before Core may emit `skip_interrupted_work`;
+requests without that capability continue receiving only the older recovery
+actions, so an already-loaded strict Web build cannot reject the whole
+directory. The strict Core Skip request still fails closed for unfenced callers.
 
 `agentControllerCollaborationMode` is independent shared Binding metadata.
 The initial values are `codex:default` and `codex:plan`; non-Codex Bindings

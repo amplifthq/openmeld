@@ -485,6 +485,7 @@ describe("space send OpenMeld profile identity", () => {
       expect(findLineEnvelope(stdout, "space.send.addressing_summary")).toEqual(
         expect.objectContaining({
           data: {
+            mentionTargetCount: 0,
             referenceTargetCount: 0,
             wakeTargetCount: 0,
           },
@@ -583,10 +584,11 @@ describe("space send OpenMeld profile identity", () => {
       expect(findLineEnvelope(stdout, "space.send.addressing_summary")).toEqual(
         expect.objectContaining({
           data: {
+            mentionTargetCount: 0,
             referenceTargetCount: 0,
             wakeTargetCount: 0,
           },
-          text: "Space Message Addressing: wake=0, reference=0.",
+          text: "Space Message Addressing: wake=0, reference=0, mention=0.",
         })
       );
       const warning = findLineEnvelope(
@@ -606,6 +608,74 @@ describe("space send OpenMeld profile identity", () => {
           },
         ],
       });
+    });
+  });
+
+  it("authors Human Mention without turning the human into a Wake or Reference target", async () => {
+    await withTempHome(async () => {
+      const humanProfileId = "bbbbbbbb-1111-4222-8333-000000000000";
+      const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const method = String(init?.method ?? "GET").toUpperCase();
+
+        if (method === "GET" && url.pathname.endsWith("/members")) {
+          return Promise.resolve(
+            createMembersResponse({
+              humans: [
+                createHumanMember({
+                  profileId: "aaaaaaaa-1111-4222-8333-000000000000",
+                  profileName: "Mira",
+                }),
+                createHumanMember({
+                  profileId: humanProfileId,
+                  profileName: "Felix",
+                }),
+              ],
+              agents: [],
+            })
+          );
+        }
+
+        if (method === "POST" && url.pathname.endsWith("/signals")) {
+          return Promise.resolve(createPostSignalResponse());
+        }
+
+        throw new Error(`unexpected fetch call: ${method} ${url.toString()}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runSend({
+          openMeldProfile: createOpenMeldProfileInput({
+            openMeldProfileId: "aaaaaaaa-1111-4222-8333-000000000000",
+            profileName: "Mira",
+            profileKind: "human",
+          }),
+          baseUrl: "https://gateway.openmeld.invalid",
+          space: "demo",
+          text: "@Felix(mention) Please take a look.",
+          view: "agent",
+        });
+      });
+
+      expect(parsePostSignalBody(fetchMock)).toMatchObject({
+        messageEnvelope: {
+          activationTargets: [],
+          mentionTargets: [humanProfileId],
+          referenceTargets: [],
+          text: "@Felix(mention) Please take a look.",
+        },
+      });
+      expect(findLineEnvelope(stdout, "space.send.addressing_summary")).toEqual(
+        expect.objectContaining({
+          data: {
+            mentionTargetCount: 1,
+            referenceTargetCount: 0,
+            wakeTargetCount: 0,
+          },
+          text: "Space Message Addressing: wake=0, reference=0, mention=1.",
+        })
+      );
     });
   });
 

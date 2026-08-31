@@ -345,15 +345,33 @@ export const writeRuntimeCoordinatorTerminalExecutionProjectionWithoutRead =
 export const writeRuntimeCoordinatorExecutionEvent = async (input: {
   db: D1Database;
   event: RuntimeCoordinatorExecutionEvent;
+  replaceCurrentState?: boolean;
 }): Promise<void> => {
   const parsed = runtimeCoordinatorExecutionEventSchema.safeParse(input.event);
   if (!parsed.success) {
     throw new Error("invalid runtime coordinator execution event");
   }
   const event = parsed.data;
-  await input.db
-    .prepare(
+  const insertMode = input.replaceCurrentState
+    ? `
+        INSERT INTO openMeldDaemon_runtime_coordinator_execution_events (
+          event_id,
+          runtime_coordinator_execution_id,
+          event_type,
+          status_after,
+          reason_code,
+          observed_at_ms,
+          idempotency_key,
+          payload_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(event_id) DO UPDATE SET
+          status_after = excluded.status_after,
+          reason_code = excluded.reason_code,
+          observed_at_ms = excluded.observed_at_ms,
+          payload_json = excluded.payload_json
       `
+    : `
         INSERT OR IGNORE INTO openMeldDaemon_runtime_coordinator_execution_events (
           event_id,
           runtime_coordinator_execution_id,
@@ -365,8 +383,9 @@ export const writeRuntimeCoordinatorExecutionEvent = async (input: {
           payload_json
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
+      `;
+  await input.db
+    .prepare(insertMode)
     .bind(
       event.eventId,
       event.runtimeCoordinatorExecutionId,
@@ -387,6 +406,7 @@ export const writeRuntimeCoordinatorExecutionEventFromParts = async (input: {
   observedAtMs: number;
   payload: Record<string, unknown>;
   reasonCode?: string | null;
+  replaceCurrentState?: boolean;
   runtimeCoordinatorExecutionId: string;
   statusAfter?: RuntimeCoordinatorExecutionStatus | null;
 }): Promise<void> => {
@@ -406,6 +426,7 @@ export const writeRuntimeCoordinatorExecutionEventFromParts = async (input: {
       runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
       statusAfter: input.statusAfter ?? null,
     },
+    replaceCurrentState: input.replaceCurrentState,
   });
 };
 

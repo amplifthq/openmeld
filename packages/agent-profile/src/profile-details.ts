@@ -41,9 +41,8 @@ export type HumanProfileDetailsInput = {
 export type AgentProfileOperationalContextInput = {
   currentWorkLocation: string | null;
   queuedWorkLocations: readonly string[];
-  recoveryAction: {
-    kind: "continue_interrupted_work" | "approve_queued_work";
-  } | null;
+  recoveryAction: Pick<ProfileDetailsRecoveryAction, "kind"> | null;
+  recoveryTargetWakeLifecycleId?: string | null;
   status: "checking" | "idle" | "paused" | "working";
   waitingCount: number;
 };
@@ -332,6 +331,14 @@ function buildAgentProfileActivitySection(
     ],
     operationalContext.recoveryAction
       ? {
+          ...(operationalContext.recoveryAction.kind ===
+            "skip_interrupted_work" &&
+          operationalContext.recoveryTargetWakeLifecycleId
+            ? {
+                expectedInterruptedTargetWakeLifecycleId:
+                  operationalContext.recoveryTargetWakeLifecycleId,
+              }
+            : {}),
           kind: operationalContext.recoveryAction.kind,
           visibility: "owner_self",
         }

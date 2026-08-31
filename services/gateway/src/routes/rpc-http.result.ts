@@ -1,3 +1,4 @@
+import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
 import { getSpaceDispatchResultInputSchema } from "@openmeld/schemas";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
@@ -36,18 +37,22 @@ export function registerResultRoutes(app: Hono<HonoBindings>): void {
       route: SPACE_RESULT_ROUTE,
       method: "GET",
       spaceId,
+      includeLegacySpaceAddressingWireFields: true,
       execute: async () => {
-        return await c.var.coreRpc.getSpaceDispatchResult({
-          spaceId: parsed.data.spaceId,
-          ...(parsed.data.dispatchId
-            ? { dispatchId: parsed.data.dispatchId }
-            : {}),
-          ...(parsed.data.resultRef
-            ? { resultRef: parsed.data.resultRef }
-            : {}),
-          ...(password === undefined ? {} : { password }),
-          context: buildCoreRpcContext(c),
-        });
+        return await c.var.coreRpc.getSpaceDispatchResult(
+          {
+            spaceId: parsed.data.spaceId,
+            ...(parsed.data.dispatchId
+              ? { dispatchId: parsed.data.dispatchId }
+              : {}),
+            ...(parsed.data.resultRef
+              ? { resultRef: parsed.data.resultRef }
+              : {}),
+            ...(password === undefined ? {} : { password }),
+            context: buildCoreRpcContext(c),
+          },
+          OPENMELD_SPACE_ADDRESSING_VERSION
+        );
       },
     });
   });

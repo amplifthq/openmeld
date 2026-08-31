@@ -46,25 +46,26 @@ describe("space typed submission", () => {
       prepareHumanSpaceTypedSubmission({
         text: [
           "  @Budget Analyst(wake) Please propose the rollout plan.",
-          "@Legal(reference) Please keep visibility on this thread.",
-          "@Alice(reference) I agree with the risk framing.  ",
+          "@Legal(mention) Please keep visibility on this thread.",
+          "@Alice(mention) I agree with the risk framing.  ",
         ].join("\n"),
         snapshot: createSnapshot(),
       })
     ).toMatchObject({
       messageEnvelope: {
         activationTargets: [AGENT_BUDGET_ID],
-        referenceTargets: [HUMAN_LEGAL_ID, HUMAN_ANALYST_ID],
+        mentionTargets: [HUMAN_LEGAL_ID, HUMAN_ANALYST_ID],
+        referenceTargets: [],
         text: [
           "@Budget Analyst(wake) Please propose the rollout plan.",
-          "@Legal(reference) Please keep visibility on this thread.",
-          "@Alice(reference) I agree with the risk framing.",
+          "@Legal(mention) Please keep visibility on this thread.",
+          "@Alice(mention) I agree with the risk framing.",
         ].join("\n"),
       },
       text: [
         "@Budget Analyst(wake) Please propose the rollout plan.",
-        "@Legal(reference) Please keep visibility on this thread.",
-        "@Alice(reference) I agree with the risk framing.",
+        "@Legal(mention) Please keep visibility on this thread.",
+        "@Alice(mention) I agree with the risk framing.",
       ].join("\n"),
       hasCanonicalMentions: true,
       canonicalMentionsInTextOrder: [
@@ -75,13 +76,13 @@ describe("space typed submission", () => {
         },
         {
           profileId: HUMAN_LEGAL_ID,
-          type: "reference",
-          text: "@Legal(reference)",
+          type: "mention",
+          text: "@Legal(mention)",
         },
         {
           profileId: HUMAN_ANALYST_ID,
-          type: "reference",
-          text: "@Alice(reference)",
+          type: "mention",
+          text: "@Alice(mention)",
         },
       ],
       resolvedStructuredTargets: {
@@ -128,21 +129,22 @@ describe("space typed submission", () => {
     const prepared = prepareHumanSpaceTypedSubmission({
       text: [
         "@Budget Analyst(wake) lead this.",
-        "@alice_ref(reference) looped in.",
+        "@alice_ref(mention) looped in.",
         "@Blocked Agent-agt_bbbbb(reference) keep visibility.",
-        `@${HUMAN_LEGAL_ID}(reference) exact id fallback.`,
+        `@${HUMAN_LEGAL_ID}(mention) exact id fallback.`,
       ].join("\n"),
       snapshot,
     });
 
     expect(prepared.messageEnvelope).toEqual({
       activationTargets: [AGENT_BUDGET_ID],
-      referenceTargets: [HUMAN_ANALYST_ID, AGENT_BLOCKED_ID, HUMAN_LEGAL_ID],
+      mentionTargets: [HUMAN_ANALYST_ID, HUMAN_LEGAL_ID],
+      referenceTargets: [AGENT_BLOCKED_ID],
       text: [
         "@Budget Analyst(wake) lead this.",
-        "@alice_ref(reference) looped in.",
+        "@alice_ref(mention) looped in.",
         "@Blocked Agent-agt_bbbbb(reference) keep visibility.",
-        `@${HUMAN_LEGAL_ID}(reference) exact id fallback.`,
+        `@${HUMAN_LEGAL_ID}(mention) exact id fallback.`,
       ].join("\n"),
     });
   });
@@ -306,16 +308,17 @@ describe("space typed submission", () => {
       prepareOneShotSpaceTypedSubmission({
         text: [
           "@Budget Analyst(wake) keep the same wake target only once.",
-          "@Alice(reference) add human context.",
+          "@Alice(mention) add human context.",
         ].join("\n"),
         snapshot: createSnapshot(),
       }).messageEnvelope
     ).toEqual({
       activationTargets: [AGENT_BUDGET_ID],
-      referenceTargets: [HUMAN_ANALYST_ID],
+      mentionTargets: [HUMAN_ANALYST_ID],
+      referenceTargets: [],
       text: [
         "@Budget Analyst(wake) keep the same wake target only once.",
-        "@Alice(reference) add human context.",
+        "@Alice(mention) add human context.",
       ].join("\n"),
     });
   });
