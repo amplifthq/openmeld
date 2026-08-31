@@ -159,9 +159,9 @@ or tombstone.
 The first release creates items for these explicit user-visible events:
 
 1. A visible Space message from another member, with a targeted reply or
-   structured reference receiving the more specific source kind.
+   structured Human Mention receiving the more specific source kind.
 2. An Agent or Center Agent reply intended for the member who initiated the
-   interaction, a current human member explicitly referenced by the reply, or
+   interaction, a current human member explicitly mentioned by the reply, or
    the current human author of the target thread.
 3. An Agent Interaction that explicitly requests approval, an answer, plan
    review, or other supported human response.
