@@ -9,6 +9,20 @@ manual, implementation guide, migration plan, or debugging runbook.
 For the documentation system itself, read `developing/README.md`.
 For stable repository vocabulary, read `developing/glossary.md`.
 
+## Engineering Judgment
+
+For implementation, diagnosis, review, or planning that requires engineering
+judgment, use the public
+[Practical Engineering](https://github.com/lumpinif/practical-engineering)
+skill (`practical-engineering`). Use it to keep scope outcome-first, choose the
+smallest coherent root-cause correction, match validation effort to real risk,
+and stop when the requested result is honestly proven.
+
+This skill is decision guidance, not extra ceremony. It does not replace
+explicit user instructions, OpenMeld owner documents, production guardrails,
+or delivery and release rules. Skip it for factual answers and purely
+mechanical edits.
+
 ## Production Guardrails
 
 - Workstation Wakes follow RuntimeCoordinator; Remote Agent native
