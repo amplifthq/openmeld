@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { publishGuardedLocalReleaseEvidence } from "./production-release-evidence.mjs";
 import {
   acquireProductionScopeLease,
   releaseProductionScopeLease,
@@ -1013,6 +1014,10 @@ export async function executeWithProductionScopeLeases(input) {
       );
     }
     executionResult = await input.execute();
+    await input.afterSuccess?.({
+      scopes: resolveProductionLeaseScopes(input.scopes),
+      sourceSha: input.sourceSha,
+    });
   } catch (error) {
     originalError = error;
   }
@@ -1224,6 +1229,8 @@ async function main(argv) {
     return;
   }
   await executeWithProductionScopeLeases({
+    afterSuccess: ({ scopes, sourceSha }) =>
+      publishGuardedLocalReleaseEvidence({ scopes, sourceSha }),
     execute: () =>
       executeProductionDeploySteps({
         afterStep: () => assertSourceStillMatches(plan.sourceSha),

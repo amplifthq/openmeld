@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  assertGuardedLocalEvidenceRepository,
   parseProductionReleaseStatusArgs,
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
@@ -38,6 +39,8 @@ const RECORDED_VALIDATION_REGEX =
   /Source validation: recorded push checks passed/u;
 const WEB_SCOPE_PATTERN = /web/u;
 const UNRELATED_MISSING_SCOPES_PATTERN = /db, gateway, auth, cli, core/u;
+const REPOSITORY_MISMATCH_PATTERN =
+  /does not match the current checkout repository/u;
 
 const RELEASE_RUNS = [
   releaseRun({
@@ -95,14 +98,19 @@ const JOBS_BY_RUN = new Map([
   [
     29_448_168_904,
     [
-      releaseJob(
-        "Release Core Worker / ⚙️ Deploy Core Worker",
-        WEB_SHA,
-        "failure"
-      ),
+      releaseJob("Release Core Worker / ⚙️ Deploy Core Worker", WEB_SHA, {
+        conclusion: "failure",
+      }),
     ],
   ],
-  [29_447_217_195, [releaseJob("Release Web / 🌐 Deploy Web", WEB_SHA)]],
+  [
+    29_447_217_195,
+    [
+      releaseJob("Release Web / 🌐 Deploy Web", WEB_SHA, {
+        completedAt: "2026-07-15T20:15:00Z",
+      }),
+    ],
+  ],
   [
     29_446_538_975,
     [releaseJob("Release Core Worker / ⚙️ Deploy Core Worker", CORE_SHA)],
@@ -231,6 +239,144 @@ test("uses successful deploy jobs even when a parent workflow later fails", () =
       web: WEB_SHA,
     }
   );
+  assert.equal(sources.get("web")?.recordedAt, "2026-07-15T20:15:00Z");
+});
+
+test("recognizes guarded local release evidence without manual deployed overrides", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  adapters.buildPlan = () => ({ changedPaths: [], scopes: [] });
+  adapters.readReleaseRuns = async () =>
+    RELEASE_RUNS.filter((run) => run.databaseId !== 29_441_305_612);
+  adapters.readLocalReleaseSources = async () =>
+    new Map([
+      [
+        "cli",
+        {
+          recordedAt: "2026-07-15T21:00:00Z",
+          sha: SOURCE_SHA,
+          source: "guarded-local",
+          url: undefined,
+        },
+      ],
+      [
+        "core",
+        {
+          recordedAt: "2026-07-15T21:00:00Z",
+          sha: SOURCE_SHA,
+          source: "guarded-local",
+          url: undefined,
+        },
+      ],
+    ]);
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const result = JSON.parse(output);
+  assert.equal(result.globalState, "current");
+  assert.deepEqual(result.globalPendingScopes, []);
+  assert.equal(
+    result.components.find((component) => component.scope === "cli").source,
+    "guarded-local"
+  );
+  assert.equal(
+    result.components.find((component) => component.scope === "core").source,
+    "guarded-local"
+  );
+});
+
+test("uses a later guarded local rollback instead of a newer-SHA hosted release", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  adapters.buildPlan = () => ({ changedPaths: [], scopes: ["web"] });
+  adapters.readReleaseRuns = async () => [RELEASE_RUNS[1]];
+  adapters.readLocalReleaseSources = async () =>
+    new Map([
+      [
+        "web",
+        {
+          recordedAt: "2026-07-15T21:00:00Z",
+          sha: GATEWAY_REMOTE_SHA,
+          source: "guarded-local",
+          url: undefined,
+        },
+      ],
+    ]);
+  adapters.sourceIsAncestor = (candidateSha, sourceSha) =>
+    !(candidateSha === WEB_SHA && sourceSha === GATEWAY_REMOTE_SHA);
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--change-base", CHANGE_BASE_SHA, "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const web = JSON.parse(output).components.find(
+    (component) => component.scope === "web"
+  );
+  assert.equal(web.sha, GATEWAY_REMOTE_SHA);
+  assert.equal(web.source, "guarded-local");
+});
+
+test("keeps a later hosted release ahead of stale guarded local evidence", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  adapters.buildPlan = () => ({ changedPaths: [], scopes: ["web"] });
+  adapters.readReleaseRuns = async () => [RELEASE_RUNS[1]];
+  adapters.readLocalReleaseSources = async () =>
+    new Map([
+      [
+        "web",
+        {
+          recordedAt: "2026-07-15T20:00:00Z",
+          sha: GATEWAY_REMOTE_SHA,
+          source: "guarded-local",
+          url: undefined,
+        },
+      ],
+    ]);
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--change-base", CHANGE_BASE_SHA, "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const web = JSON.parse(output).components.find(
+    (component) => component.scope === "web"
+  );
+  assert.equal(web.sha, WEB_SHA);
+  assert.equal(web.source, "github");
+});
+
+test("does not mix guarded local evidence from another selected repository", () => {
+  assert.doesNotThrow(() =>
+    assertGuardedLocalEvidenceRepository(
+      "amplifthq/openmeld",
+      "AmpliftHQ/OpenMeld"
+    )
+  );
+  assert.throws(
+    () =>
+      assertGuardedLocalEvidenceRepository(
+        "another-owner/openmeld",
+        "amplifthq/openmeld"
+      ),
+    REPOSITORY_MISMATCH_PATTERN
+  );
 });
 
 test("reports pending full release scopes and fails closed on a red push check", async () => {
@@ -325,6 +471,7 @@ function releaseStatusAdapters({ pushChecks }) {
     }),
     readPushChecks: async () => pushChecks,
     readJobReleaseSha: async (job) => job.releaseSha,
+    readLocalReleaseSources: async () => new Map(),
     readReleaseJobs: async (runId) => JOBS_BY_RUN.get(runId) ?? [],
     readReleaseRuns: async () => RELEASE_RUNS,
     resolveRef: () => SOURCE_SHA,
@@ -344,6 +491,10 @@ function releaseRun(input) {
   };
 }
 
-function releaseJob(name, releaseSha, conclusion = "success") {
-  return { conclusion, name, releaseSha };
+function releaseJob(
+  name,
+  releaseSha,
+  { completedAt, conclusion = "success" } = {}
+) {
+  return { completed_at: completedAt, conclusion, name, releaseSha };
 }
