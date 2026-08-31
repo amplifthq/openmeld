@@ -114,9 +114,13 @@ There is no separate Wake command. A normal Space message Wakes an available
 Agent Profile only through canonical `@Agent Name(wake)` addressing.
 
 Inside a Wake dispatch, do not publish the final answer with `openmeld space
-send`. Use the dispatch-scoped Space Action tool or the exact
-`<DISPATCH_ACTION_CLI> space action reply "message"` fallback printed in the
-current Wake prompt. Never guess or rewrite that prefix.
+send`. Prefer the dispatch-scoped OpenMeld Space
+Action tool named in the Wake prompt. The prompt identifies the fallback as
+`<DISPATCH_ACTION_CLI> space action reply "message"`; only if the tool is
+unavailable, use the prompt-owned executable
+`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH"` and run the exact
+`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "message"`
+command printed there. Never guess or rewrite that prefix.
 
 `--wake` is only for waking another available Agent Profile. `--reference`
 adds an Agent Profile as context without starting work. `--mention` notifies a
