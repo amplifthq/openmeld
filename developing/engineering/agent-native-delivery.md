@@ -73,6 +73,22 @@ and may ask for more confidence when the risk justifies it. No reviewer
 identity, reviewer count, approval count, or specific review style is required
 by CI/CD.
 
+Broad affected, integration, release-ready, and Final Candidate runs are
+closeout evidence. Before the first broad closeout run, finish the review that
+is reasonably likely to change product behavior, contracts, compatibility, or
+scope, and settle its practical blockers. An earlier broad run is appropriate
+when the responsible agent genuinely needs it to locate a cross-boundary bug;
+call that a diagnostic run, run only the boundary that can answer the question,
+and do not cascade into the remaining closeout gates yet.
+
+At closeout, fix findings that can materially harm users, security, privacy,
+data, supported compatibility, or the task's required product result. Do not
+delay delivery merely to rename an internal file, prefer another abstraction,
+polish a fixture, or perfect a theoretical edge case that the supported product
+does not exercise. Such cleanup may be included when it is truly trivial and
+does not reopen scope; otherwise state it briefly as deferred. This judgment
+does not require a new approval, checklist, ticket, reviewer count, or meeting.
+
 Inspect the transparent candidate plan at any time:
 
 ```sh

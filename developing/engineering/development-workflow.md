@@ -511,6 +511,16 @@ package boundaries. Run integration suites only for the boundaries they prove.
 `test:full` and manually dispatched Deep Confidence are exhaustive diagnostics,
 not the default closeout step for every change.
 
+Treat broad affected, integration, release-ready, and repository-wide commands
+as heavy closeout work when they fan out across packages. While implementation
+or practical blocker review is still changing the tree, stay on focused tests
+and the smallest real smoke that answers the current question. If a broad run
+is needed early to diagnose an uncertain cross-boundary failure, run only that
+boundary and do not describe it as final evidence. After the scope and
+blocker-capable review are stable, run the selected broad gates once for the
+exact candidate. This is scheduling guidance, not an additional gate or an
+approval requirement.
+
 ### Validation Commands
 
 The Final Candidate, merge, release, health, smoke, evidence, and fallback

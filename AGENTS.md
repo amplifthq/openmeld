@@ -180,6 +180,13 @@ change must leave those signals cleaner and less ambiguous.
 - Before requesting final validation, merging, or releasing, follow the complete
   lifecycle in `developing/engineering/agent-native-delivery.md`. Do not infer a
   second delivery process from workflow YAML, tool output, or old task history.
+- Use focused checks while implementation or blocker-capable review can still
+  change the code. Treat broad affected, integration, release-ready, and Final
+  Candidate runs as closeout evidence after the practical scope is stable, not
+  as an iteration loop. A late cleanup-only suggestion such as a rename,
+  preferred abstraction, or theoretical edge case does not block delivery
+  unless it materially protects users, security, data, a supported compatibility
+  path, or the task's required product outcome.
 - Before declaring a user-, operator-, integrator-, or contributor-visible
   change done, decide whether it needs an OpenMeld Changelog entry and, when it
   does, follow `.agents/skills/openmeld-changelog/SKILL.md`.
