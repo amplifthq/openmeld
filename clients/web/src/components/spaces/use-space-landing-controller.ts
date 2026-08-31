@@ -135,6 +135,7 @@ import {
 	createClientMessageId,
 	createStatusAndMembersRefreshDedupe,
 	findSessionExpiredError,
+	hasActiveSpaceMember,
 	listPendingWakeProgressClientMessageIds,
 	listRecoverableWakeProgressClientMessageIds,
 	mergeActiveWakeProgressPresentation,
@@ -142,7 +143,6 @@ import {
 	mergeWakeProgressItemState,
 	normalizeOptionalText,
 	pollWakeProgress,
-	readActiveSpaceMemberJoinedAt,
 	readSpaceStatusName,
 	reconcileActiveWakeProgressSnapshot,
 	reconcilePolledWakeProgressItems,
@@ -1369,7 +1369,7 @@ export function useSpaceLandingController(input: {
 		setWakeStopRequestStatusBySelectorKey(new Map());
 	}, [currentProfileId, currentSpaceId]);
 	useActiveSpaceHistorySync({
-		currentMembershipJoinedAt: readActiveSpaceMemberJoinedAt({
+		currentProfileIsActiveSpaceMember: hasActiveSpaceMember({
 			membersSnapshot,
 			profileId: input.profileId,
 		}),
@@ -3561,7 +3561,7 @@ async function refreshWakeStopAfterResponse(input: {
 }
 
 function useActiveSpaceHistorySync(input: {
-	currentMembershipJoinedAt: string | null;
+	currentProfileIsActiveSpaceMember: boolean;
 	membersReady: boolean;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
@@ -3573,7 +3573,7 @@ function useActiveSpaceHistorySync(input: {
 	const shouldSync =
 		input.statusReady &&
 		input.membersReady &&
-		input.currentMembershipJoinedAt !== null;
+		input.currentProfileIsActiveSpaceMember;
 
 	useEffect(() => {
 		if (!shouldSync) {
@@ -3581,7 +3581,7 @@ function useActiveSpaceHistorySync(input: {
 		}
 
 		const spaceName = normalizeOptionalText(input.spaceName);
-		const syncKey = `${input.spaceId}:${input.profileId}:${input.currentMembershipJoinedAt}:${spaceName ?? ""}`;
+		const syncKey = `${input.spaceId}:${input.profileId}:${spaceName ?? ""}`;
 		if (syncKeyRef.current === syncKey) {
 			return;
 		}
@@ -3592,7 +3592,6 @@ function useActiveSpaceHistorySync(input: {
 			data: {
 				spaceId: input.spaceId,
 				...(spaceName ? { spaceName } : {}),
-				lastJoinedAt: input.currentMembershipJoinedAt,
 				lastSeenTs: Date.now(),
 				items: [{ profileId: input.profileId }],
 			},
@@ -3623,7 +3622,6 @@ function useActiveSpaceHistorySync(input: {
 			cancelled = true;
 		};
 	}, [
-		input.currentMembershipJoinedAt,
 		input.profileId,
 		input.queryClient,
 		input.spaceId,

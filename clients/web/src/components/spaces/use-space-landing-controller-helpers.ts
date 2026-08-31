@@ -229,23 +229,22 @@ export function removeSetValue<T>(
 	return next;
 }
 
-export function readActiveSpaceMemberJoinedAt(input: {
+export function hasActiveSpaceMember(input: {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	profileId: string;
-}): string | null {
+}): boolean {
 	const normalizedProfileId = input.profileId.trim();
 	if (!input.membersSnapshot || normalizedProfileId.length === 0) {
-		return null;
+		return false;
 	}
 
-	const activeMember = [
+	return [
 		...input.membersSnapshot.humans,
 		...input.membersSnapshot.agents,
-	].find(
+	].some(
 		(member) =>
 			member.profileId === normalizedProfileId && member.status === "active"
 	);
-	return activeMember?.addedAt ?? null;
 }
 
 export function readSpaceStatusName(
