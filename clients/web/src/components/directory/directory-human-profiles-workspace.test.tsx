@@ -147,8 +147,12 @@ vi.mock("#/components/directory/directory-human-profile-avatar", () => ({
 vi.mock("#/components/computers/computers-picker", () => ({
 	ComputersPicker: (props: {
 		computerGroups: readonly OrganizationComputerGroup[];
+		profileId?: string;
 	}) => (
-		<div data-testid="profile-computers-picker">
+		<div
+			data-profile-id={props.profileId}
+			data-testid="profile-computers-picker"
+		>
 			{props.computerGroups[0]?.computers.map((computer) => (
 				<span key={computer.routeId}>{computer.deviceDisplayName}</span>
 			))}
@@ -439,11 +443,13 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByTestId("human-profile-details-drawer")).toBeNull();
 	});
 
-	it("reuses the selected person's Computer cards and preserves Add a Computer for the current user", () => {
-		renderWorkspace();
+	it("keeps the selected Human Profile on a zero-Computer Add flow", () => {
+		renderWorkspace({
+			computerGroups: [{ ...buildCurrentComputerGroup(), computers: [] }],
+		});
 
 		const picker = screen.getByTestId("profile-computers-picker");
-		expect(within(picker).getByText("Felix's MacBook Pro")).toBeTruthy();
+		expect(picker.getAttribute("data-profile-id")).toBe("profile-current");
 		expect(
 			within(picker).getByRole("button", { name: "Add a Computer" })
 		).toBeTruthy();
@@ -555,6 +561,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 
 function renderWorkspace(
 	input: {
+		computerGroups?: readonly OrganizationComputerGroup[];
 		currentNotice?: string;
 		directoryError?: string | null;
 		directoryIsPending?: boolean;
@@ -575,7 +582,7 @@ function renderWorkspace(
 		<DirectoryHumanProfilesWorkspace
 			activeBatch={null}
 			canCreateProfile={false}
-			computerGroups={[buildCurrentComputerGroup()]}
+			computerGroups={input.computerGroups ?? [buildCurrentComputerGroup()]}
 			directoryError={input.directoryError ?? null}
 			directoryIsPending={input.directoryIsPending ?? false}
 			emptyMessage="No Human Profiles"

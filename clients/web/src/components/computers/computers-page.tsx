@@ -143,15 +143,18 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	const canResolvePreferredDeviceRoute =
 		preferredDeviceId !== null &&
 		devices.some((device) => device.deviceId === preferredDeviceId);
-	// A fresh successful inventory is enough to route. Background polling can
-	// keep `isFetching` true after that result arrives, so treating every refetch
-	// as unsettled can strand the legacy route on its loading state.
+	// A successful inventory snapshot may resolve a known current Computer even
+	// during a background refresh. An empty cache is authoritative only after
+	// that refresh stops; setup completion also waits for its explicit
+	// reconciliation status below.
 	const inventoryIsSettled =
 		!recovery.localRuntimesQuery.isPending &&
-		recovery.localRuntimesQuery.isFetchedAfterMount &&
+		recovery.localRuntimesQuery.isSuccess &&
 		!recovery.localRuntimesQuery.isError &&
 		setupCompleteRefreshStatus !== "pending" &&
 		setupCompleteRefreshStatus !== "error";
+	const inventoryAbsenceIsSettled =
+		inventoryIsSettled && !recovery.localRuntimesQuery.isFetching;
 
 	useResolvePreferredComputerRoute({
 		canResolvePreferredDeviceRoute,
@@ -162,7 +165,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	});
 	useResolveMissingComputerRoute({
 		canResolvePreferredDeviceRoute,
-		inventoryIsSettled,
+		inventoryIsSettled: inventoryAbsenceIsSettled,
 		onComputerRouteUnavailable: routeState.onComputerRouteUnavailable,
 		preferredDeviceId,
 		shouldResolve: selectedDeviceId === null,

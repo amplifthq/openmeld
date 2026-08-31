@@ -265,6 +265,7 @@ function buildRecoveryControllerStub(input: {
 				localRuntimes: input.devices,
 			},
 			isPending: input.isPending ?? false,
+			isSuccess: !(input.isError ?? false),
 			isFetching: input.isFetching ?? false,
 			isFetchedAfterMount: input.isFetchedAfterMount ?? true,
 			isError: input.isError ?? false,
@@ -716,7 +717,12 @@ describe("ComputersPage", () => {
 	it("returns to People when the legacy Computers home has no current device", () => {
 		const onComputerRouteUnavailable = vi.fn();
 		useLocalAgentRecoveryControllerMock.mockReturnValue(
-			buildRecoveryControllerStub({ devices: [], connectedDeviceId: null })
+			buildRecoveryControllerStub({
+				devices: [],
+				connectedDeviceId: null,
+				isFetchedAfterMount: false,
+				isFetching: false,
+			})
 		);
 
 		render(
@@ -727,6 +733,50 @@ describe("ComputersPage", () => {
 
 		expect(onComputerRouteUnavailable).toHaveBeenCalledOnce();
 		expect(screen.queryByTestId("computers-picker-list")).toBeNull();
+	});
+
+	it("waits for a refreshing legacy inventory before choosing its current Computer", () => {
+		const onComputerRouteResolved = vi.fn();
+		const onComputerRouteUnavailable = vi.fn();
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				devices: [],
+				connectedDeviceId: null,
+				isFetchedAfterMount: false,
+				isFetching: true,
+			})
+		);
+
+		const view = render(
+			<TestComputersRouteStateProvider
+				value={{ onComputerRouteResolved, onComputerRouteUnavailable }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(onComputerRouteUnavailable).not.toHaveBeenCalled();
+		expect(onComputerRouteResolved).not.toHaveBeenCalled();
+
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				devices: [CURRENT_COMPUTER],
+				connectedDeviceId: "device-current",
+				isFetchedAfterMount: true,
+				isFetching: false,
+			})
+		);
+		view.rerender(
+			<TestComputersRouteStateProvider
+				value={{ onComputerRouteResolved, onComputerRouteUnavailable }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(onComputerRouteUnavailable).not.toHaveBeenCalled();
+		expect(onComputerRouteResolved).toHaveBeenCalledOnce();
+		expect(onComputerRouteResolved).toHaveBeenCalledWith("device-current");
 	});
 
 	it("waits for setup-complete inventory reconciliation before returning to People", () => {
