@@ -771,16 +771,10 @@ async function acquireRuntimeCoordinatorAgentProfileMutation(input: {
     }
 
     const expiresAtMs = input.nowMs + EXECUTION_TARGET_MUTATION_LEASE_MS;
-    const marked =
-      input.mutationKind === "future_work_settings"
-        ? markAgentProfileWorkContinuationNeedsAttention({
-            coordinator: projectAgentProfileWorkCoordinator(admission),
-            nowMs: input.nowMs,
-          })
-        : {
-            changed: false,
-            coordinator: projectAgentProfileWorkCoordinator(admission),
-          };
+    const marked = markAgentProfileWorkContinuationNeedsAttention({
+      coordinator: projectAgentProfileWorkCoordinator(admission),
+      nowMs: input.nowMs,
+    });
     const nextRecoveryGate = marked.changed
       ? marked.coordinator.recoveryGate
       : admission.recoveryGate;
