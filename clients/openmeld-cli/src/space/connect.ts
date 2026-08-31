@@ -14,7 +14,7 @@ import {
   normalizeSpaceCursorPatch,
   SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
   SPACE_MEMBER_REMOVE_NOTICE_PURPOSE,
-  toLegacySpaceAddressingWireValue,
+  toCompatibleSpaceAddressingRequestWireValue,
 } from "@openmeld/schemas";
 import type {
   AgentProfileBindingModelSelection,
@@ -1645,7 +1645,7 @@ export async function runConnect(input: {
       try {
         ws.send(
           JSON.stringify(
-            toLegacySpaceAddressingWireValue(
+            toCompatibleSpaceAddressingRequestWireValue(
               makeTextSignal(outboundText, {
                 ...(preparedOutboundText.messageEnvelope
                   ? { messageEnvelope: preparedOutboundText.messageEnvelope }

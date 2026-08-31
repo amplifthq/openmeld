@@ -433,10 +433,12 @@ function emitSendAddressingSummary(input: {
   const envelope = input.outboundMessageEnvelope;
   const wakeCount = envelope?.activationTargets.length ?? 0;
   const referenceCount = envelope?.referenceTargets.length ?? 0;
+  const mentionCount = envelope?.mentionTargets?.length ?? 0;
   input.presenter.line({
     code: "space.send.addressing_summary",
-    text: `Space Message Addressing: wake=${wakeCount}, reference=${referenceCount}.`,
+    text: `Space Message Addressing: wake=${wakeCount}, reference=${referenceCount}, mention=${mentionCount}.`,
     data: {
+      mentionTargetCount: mentionCount,
       referenceTargetCount: referenceCount,
       wakeTargetCount: wakeCount,
     },
@@ -456,7 +458,13 @@ function emitBareMentionDiagnostics(input: {
   if (!first) {
     return;
   }
-  const suggestion = first.suggestedWakeText ?? first.suggestedReferenceText;
+  const suggestion =
+    first.suggestedWakeText ??
+    first.suggestedReferenceText ??
+    first.suggestedMentionText;
+  if (!suggestion) {
+    return;
+  }
   const text = `Bare mention ${first.mentionText} is plain text and does not create a Wake. Use ${suggestion} when you want OpenMeld to address that profile.`;
 
   if (input.resolvedView === "agent") {
@@ -469,6 +477,7 @@ function emitBareMentionDiagnostics(input: {
           profileId: diagnostic.profileId,
           profileKind: diagnostic.profileKind,
           profileName: diagnostic.profileName,
+          suggestedMentionText: diagnostic.suggestedMentionText,
           suggestedReferenceText: diagnostic.suggestedReferenceText,
           suggestedWakeText: diagnostic.suggestedWakeText,
         })),

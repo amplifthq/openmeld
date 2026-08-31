@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
 import type {
   SignalEnvelope,
   SpaceCursor,
@@ -723,6 +724,7 @@ import {
   type RestoreSpaceFileRevisionInput,
   type ResumeRoutineInput,
   type RevokeAgentProfileBindingForOrganizationInput,
+  resolveCenterAgentSpaceAddressingVersion,
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAddSpaceMembers,
@@ -1628,11 +1630,20 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return inspectCoreDispatchStorageReadiness(this.env);
   }
 
-  listSignals(input: ListSignalsInput): Promise<ListSignalsResult> {
-    return withLegacySpaceAddressingRpcOutput(rpcListSignals(this.env, input));
+  listSignals(
+    input: ListSignalsInput,
+    spaceAddressingVersion?: string
+  ): Promise<ListSignalsResult> {
+    return withSpaceAddressingRpcOutput(
+      rpcListSignals(this.env, input),
+      spaceAddressingVersion
+    );
   }
 
-  async postSignal(input: PostSignalInput): Promise<SignalEnvelope> {
+  async postSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
     const startedAt = Date.now();
     const requestId = input.context?.actorContext.requestId ?? null;
     const clientMessageId = input.meta?.clientMessageId ?? null;
@@ -1655,7 +1666,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     });
 
     try {
-      const signal = await rpcPostSignal(this.env, input);
+      const signal = await rpcPostSignal(this.env, {
+        ...input,
+        ...(spaceAddressingVersion ? { spaceAddressingVersion } : {}),
+      });
       emitCoreCloudflareRuntimeEvidence(this.env, {
         event: "core.openmeld.space.signal_posted",
         workerEnvironment: this.env.OPENMELD_WORKER_ENVIRONMENT,
@@ -1670,7 +1684,7 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
         targetProfileId,
         activationTargetCount,
       });
-      return toLegacySpaceAddressingRpcOutput(signal);
+      return toSpaceAddressingRpcOutput(signal, spaceAddressingVersion);
     } catch (error) {
       emitCoreCloudflareRuntimeEvidence(this.env, {
         event: "core.openmeld.space.signal_post_failed",
@@ -1706,10 +1720,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   }
 
   getSpaceMemberDirectory(
-    input: GetSpaceMembersInput
+    input: GetSpaceMembersInput,
+    spaceAddressingVersion?: string
   ): Promise<SpaceMemberDirectory> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcGetSpaceMemberDirectory(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcGetSpaceMemberDirectory(this.env, input),
+      spaceAddressingVersion
     );
   }
 
@@ -1824,16 +1840,22 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   }
 
   listSpaceThreads(
-    input: ListSpaceThreadsInput
+    input: ListSpaceThreadsInput,
+    spaceAddressingVersion?: string
   ): Promise<ListSpaceThreadsResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcListSpaceThreads(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcListSpaceThreads(this.env, input),
+      spaceAddressingVersion
     );
   }
 
-  getSpaceThread(input: GetSpaceThreadInput): Promise<GetSpaceThreadResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcGetSpaceThread(this.env, input)
+  getSpaceThread(
+    input: GetSpaceThreadInput,
+    spaceAddressingVersion?: string
+  ): Promise<GetSpaceThreadResponse> {
+    return withSpaceAddressingRpcOutput(
+      rpcGetSpaceThread(this.env, input),
+      spaceAddressingVersion
     );
   }
 
@@ -1844,10 +1866,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   }
 
   listSpaceThreadSignals(
-    input: ListSpaceThreadSignalsInput
+    input: ListSpaceThreadSignalsInput,
+    spaceAddressingVersion?: string
   ): Promise<ListSpaceThreadSignalsResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcListSpaceThreadSignals(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcListSpaceThreadSignals(this.env, input),
+      spaceAddressingVersion
     );
   }
 
@@ -2005,34 +2029,42 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   }
 
   getSpaceBootstrap(
-    input: GetSpaceBootstrapInput
+    input: GetSpaceBootstrapInput,
+    spaceAddressingVersion?: string
   ): Promise<SpaceBootstrapResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcGetSpaceBootstrap(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcGetSpaceBootstrap(this.env, input),
+      spaceAddressingVersion
     );
   }
 
   getSpaceBootstrapWithTiming(
-    input: GetSpaceBootstrapInput
+    input: GetSpaceBootstrapInput,
+    spaceAddressingVersion?: string
   ): Promise<SpaceBootstrapWithTiming> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcGetSpaceBootstrapWithTiming(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcGetSpaceBootstrapWithTiming(this.env, input),
+      spaceAddressingVersion
     );
   }
 
   getSpaceUpdates(
-    input: GetSpaceUpdatesInput
+    input: GetSpaceUpdatesInput,
+    spaceAddressingVersion?: string
   ): Promise<GetSpaceUpdatesResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcGetSpaceUpdates(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcGetSpaceUpdates(this.env, input),
+      spaceAddressingVersion
     );
   }
 
   getSpaceDispatchResult(
-    input: GetSpaceDispatchResultInput
+    input: GetSpaceDispatchResultInput,
+    spaceAddressingVersion?: string
   ): Promise<DispatchResult> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcGetSpaceDispatchResult(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcGetSpaceDispatchResult(this.env, input),
+      spaceAddressingVersion
     );
   }
 
@@ -3005,8 +3037,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcCenterAgentReadSpaceContext(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcCenterAgentReadSpaceContext(this.env, input),
+      resolveCenterAgentSpaceAddressingVersion(input)
     );
   }
 
@@ -3043,8 +3076,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentPostSpaceMessage(
     input: CenterAgentPostSpaceMessageInput
   ): Promise<CenterAgentPostSpaceMessageResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcCenterAgentPostSpaceMessage(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcCenterAgentPostSpaceMessage(this.env, input),
+      resolveCenterAgentSpaceAddressingVersion(input)
     );
   }
 
@@ -3093,8 +3127,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentWakeAgentProfilesInSpace(
     input: CenterAgentWakeAgentProfilesInSpaceInput
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
-    return withLegacySpaceAddressingRpcOutput(
-      rpcCenterAgentWakeAgentProfilesInSpace(this.env, input)
+    return withSpaceAddressingRpcOutput(
+      rpcCenterAgentWakeAgentProfilesInSpace(this.env, input),
+      resolveCenterAgentSpaceAddressingVersion(input)
     );
   }
 
@@ -3657,12 +3692,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getCenterAgentMemberResearchStatus(input);
   }
 
-  listSignals(input: ListSignalsInput): Promise<ListSignalsResult> {
-    return super.listSignals(input);
+  listSignals(
+    input: ListSignalsInput,
+    spaceAddressingVersion?: string
+  ): Promise<ListSignalsResult> {
+    return super.listSignals(input, spaceAddressingVersion);
   }
 
-  postSignal(input: PostSignalInput): Promise<SignalEnvelope> {
-    return super.postSignal(input);
+  postSignal(
+    input: PostSignalInput,
+    spaceAddressingVersion?: string
+  ): Promise<SignalEnvelope> {
+    return super.postSignal(input, spaceAddressingVersion);
   }
 
   postTransientSignal(input: PostTransientSignalInput): Promise<void> {
@@ -3680,9 +3721,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 
   getSpaceMemberDirectory(
-    input: GetSpaceMembersInput
+    input: GetSpaceMembersInput,
+    spaceAddressingVersion?: string
   ): Promise<SpaceMemberDirectory> {
-    return super.getSpaceMemberDirectory(input);
+    return super.getSpaceMemberDirectory(input, spaceAddressingVersion);
   }
 
   getSpaceViewerMembership(
@@ -3772,13 +3814,17 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 
   listSpaceThreads(
-    input: ListSpaceThreadsInput
+    input: ListSpaceThreadsInput,
+    spaceAddressingVersion?: string
   ): Promise<ListSpaceThreadsResponse> {
-    return super.listSpaceThreads(input);
+    return super.listSpaceThreads(input, spaceAddressingVersion);
   }
 
-  getSpaceThread(input: GetSpaceThreadInput): Promise<GetSpaceThreadResponse> {
-    return super.getSpaceThread(input);
+  getSpaceThread(
+    input: GetSpaceThreadInput,
+    spaceAddressingVersion?: string
+  ): Promise<GetSpaceThreadResponse> {
+    return super.getSpaceThread(input, spaceAddressingVersion);
   }
 
   listSpaceThreadEvents(
@@ -3788,9 +3834,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 
   listSpaceThreadSignals(
-    input: ListSpaceThreadSignalsInput
+    input: ListSpaceThreadSignalsInput,
+    spaceAddressingVersion?: string
   ): Promise<ListSpaceThreadSignalsResponse> {
-    return super.listSpaceThreadSignals(input);
+    return super.listSpaceThreadSignals(input, spaceAddressingVersion);
   }
 
   getSpaceDispatchTrace(
@@ -3898,15 +3945,17 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 
   getSpaceBootstrap(
-    input: GetSpaceBootstrapInput
+    input: GetSpaceBootstrapInput,
+    spaceAddressingVersion?: string
   ): Promise<SpaceBootstrapResponse> {
-    return super.getSpaceBootstrap(input);
+    return super.getSpaceBootstrap(input, spaceAddressingVersion);
   }
 
   getSpaceBootstrapWithTiming(
-    input: GetSpaceBootstrapInput
+    input: GetSpaceBootstrapInput,
+    spaceAddressingVersion?: string
   ): Promise<SpaceBootstrapWithTiming> {
-    return super.getSpaceBootstrapWithTiming(input);
+    return super.getSpaceBootstrapWithTiming(input, spaceAddressingVersion);
   }
 
   inspectDispatchStorageReadiness(): Promise<DispatchStorageReadiness> {
@@ -3914,15 +3963,17 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 
   getSpaceUpdates(
-    input: GetSpaceUpdatesInput
+    input: GetSpaceUpdatesInput,
+    spaceAddressingVersion?: string
   ): Promise<GetSpaceUpdatesResponse> {
-    return super.getSpaceUpdates(input);
+    return super.getSpaceUpdates(input, spaceAddressingVersion);
   }
 
   getSpaceDispatchResult(
-    input: GetSpaceDispatchResultInput
+    input: GetSpaceDispatchResultInput,
+    spaceAddressingVersion?: string
   ): Promise<DispatchResult> {
-    return super.getSpaceDispatchResult(input);
+    return super.getSpaceDispatchResult(input, spaceAddressingVersion);
   }
 
   deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
@@ -5074,10 +5125,20 @@ function toLegacySpaceAddressingRpcOutput<T>(value: T): T {
   return toLegacySpaceAddressingWireValue(value) as T;
 }
 
-async function withLegacySpaceAddressingRpcOutput<T>(
-  value: Promise<T>
+function toSpaceAddressingRpcOutput<T>(
+  value: T,
+  spaceAddressingVersion: string | undefined
+): T {
+  return spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION
+    ? value
+    : toLegacySpaceAddressingRpcOutput(value);
+}
+
+async function withSpaceAddressingRpcOutput<T>(
+  value: Promise<T>,
+  spaceAddressingVersion: string | undefined
 ): Promise<T> {
-  return toLegacySpaceAddressingRpcOutput(await value);
+  return toSpaceAddressingRpcOutput(await value, spaceAddressingVersion);
 }
 
 class CoreEntrypoint extends CenterAgentRpcEntrypoint {

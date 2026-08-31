@@ -1172,125 +1172,129 @@ describe("shared db tooling", () => {
     }
   });
 
-  it("stores current Core dispatch data on the greenfield baseline", () => {
-    const sqlitePath = path.join(
-      os.tmpdir(),
-      `openmeld-shared-core-current-upgrade-${Date.now()}.sqlite`
-    );
-    const database = new Database(sqlitePath);
+  it(
+    "stores current Core dispatch data on the greenfield baseline",
+    () => {
+      const sqlitePath = path.join(
+        os.tmpdir(),
+        `openmeld-shared-core-current-upgrade-${Date.now()}.sqlite`
+      );
+      const database = new Database(sqlitePath);
 
-    try {
-      seedCurrentSharedCoreDispatchTables(database);
+      try {
+        seedCurrentSharedCoreDispatchTables(database);
 
-      expect(
-        database
-          .prepare<
-            [],
-            {
-              connection_generation: number | null;
-              dispatch_id: string;
-              lease_epoch: number | null;
-            }
-          >(
-            "SELECT dispatch_id, lease_epoch, connection_generation FROM openMeldDaemon_dispatch_attempts WHERE attempt_id = 'attempt-1';"
-          )
-          .all()[0]
-      ).toEqual({
-        connection_generation: 9,
-        dispatch_id: "dispatch-1",
-        lease_epoch: 7,
-      });
+        expect(
+          database
+            .prepare<
+              [],
+              {
+                connection_generation: number | null;
+                dispatch_id: string;
+                lease_epoch: number | null;
+              }
+            >(
+              "SELECT dispatch_id, lease_epoch, connection_generation FROM openMeldDaemon_dispatch_attempts WHERE attempt_id = 'attempt-1';"
+            )
+            .all()[0]
+        ).toEqual({
+          connection_generation: 9,
+          dispatch_id: "dispatch-1",
+          lease_epoch: 7,
+        });
 
-      expect(
-        database
-          .prepare<
-            [],
-            {
-              actor_name: string | null;
-              dispatch_id: string;
-              final_text: string | null;
-              message_envelope_json: string | null;
-            }
-          >(
-            "SELECT dispatch_id, actor_name, message_envelope_json, final_text FROM openMeldDaemon_dispatch_results WHERE result_ref = 'result-1';"
-          )
-          .all()[0]
-      ).toEqual({
-        actor_name: "Agent One",
-        dispatch_id: "dispatch-1",
-        final_text: "done",
-        message_envelope_json: '{"kind":"message"}',
-      });
+        expect(
+          database
+            .prepare<
+              [],
+              {
+                actor_name: string | null;
+                dispatch_id: string;
+                final_text: string | null;
+                message_envelope_json: string | null;
+              }
+            >(
+              "SELECT dispatch_id, actor_name, message_envelope_json, final_text FROM openMeldDaemon_dispatch_results WHERE result_ref = 'result-1';"
+            )
+            .all()[0]
+        ).toEqual({
+          actor_name: "Agent One",
+          dispatch_id: "dispatch-1",
+          final_text: "done",
+          message_envelope_json: '{"kind":"message"}',
+        });
 
-      expect(
-        database
-          .prepare<
-            [],
-            {
-              attempt_count: number;
-              dispatch_id: string;
-              final_reply_sent_at_ms: number | null;
-              latest_attempt_id: string | null;
-              reply_hint_sent_at_ms: number | null;
-            }
-          >(
-            "SELECT dispatch_id, latest_attempt_id, reply_hint_sent_at_ms, final_reply_sent_at_ms, attempt_count FROM openMeldDaemon_dispatch_ledger WHERE id = 1;"
-          )
-          .all()[0]
-      ).toEqual({
-        attempt_count: 1,
-        dispatch_id: "dispatch-1",
-        final_reply_sent_at_ms: 3030,
-        latest_attempt_id: "attempt-1",
-        reply_hint_sent_at_ms: 3020,
-      });
+        expect(
+          database
+            .prepare<
+              [],
+              {
+                attempt_count: number;
+                dispatch_id: string;
+                final_reply_sent_at_ms: number | null;
+                latest_attempt_id: string | null;
+                reply_hint_sent_at_ms: number | null;
+              }
+            >(
+              "SELECT dispatch_id, latest_attempt_id, reply_hint_sent_at_ms, final_reply_sent_at_ms, attempt_count FROM openMeldDaemon_dispatch_ledger WHERE id = 1;"
+            )
+            .all()[0]
+        ).toEqual({
+          attempt_count: 1,
+          dispatch_id: "dispatch-1",
+          final_reply_sent_at_ms: 3030,
+          latest_attempt_id: "attempt-1",
+          reply_hint_sent_at_ms: 3020,
+        });
 
-      expect(
-        readNonPrimaryKeyUniqueConstraintKeys(
-          database,
-          "openMeldDaemon_dispatch_attempts"
-        )
-      ).toEqual([]);
-      expect(
-        readNonPrimaryKeyUniqueConstraintKeys(
-          database,
-          "openMeldDaemon_dispatch_ledger"
-        )
-      ).toEqual(["idempotency_key"]);
-      expect(
-        readNonPrimaryKeyUniqueConstraintKeys(
-          database,
-          "openMeldDaemon_dispatch_results"
-        )
-      ).toEqual(["dispatch_id"]);
-      expect(
-        readNamedUniqueIndexNames(database, "openMeldDaemon_dispatch_ledger")
-      ).toEqual(["openMeldDaemon_dispatch_ledger_idempotency_key_unique"]);
-      expect(
-        database
-          .prepare<[], SqliteIndexNameRow>(
-            `PRAGMA index_list('openMeldDaemon_dispatch_ledger');`
+        expect(
+          readNonPrimaryKeyUniqueConstraintKeys(
+            database,
+            "openMeldDaemon_dispatch_attempts"
           )
-          .all()
-          .map((row) => row.name.trim())
-          .filter((name) =>
-            name.startsWith("idx_openMeldDaemon_dispatch_ledger_")
+        ).toEqual([]);
+        expect(
+          readNonPrimaryKeyUniqueConstraintKeys(
+            database,
+            "openMeldDaemon_dispatch_ledger"
           )
-          .sort()
-      ).toEqual([
-        "idx_openMeldDaemon_dispatch_ledger_dispatch_id",
-        "idx_openMeldDaemon_dispatch_ledger_space_client_message_target",
-        "idx_openMeldDaemon_dispatch_ledger_space_source_target",
-        "idx_openMeldDaemon_dispatch_ledger_status_last_attempt",
-      ]);
-      expect(
-        readNamedUniqueIndexNames(database, "openMeldDaemon_dispatch_results")
-      ).toEqual(["openMeldDaemon_dispatch_results_dispatch_id_unique"]);
-    } finally {
-      database.close();
-      fs.rmSync(sqlitePath, { force: true });
-    }
-  });
+        ).toEqual(["idempotency_key"]);
+        expect(
+          readNonPrimaryKeyUniqueConstraintKeys(
+            database,
+            "openMeldDaemon_dispatch_results"
+          )
+        ).toEqual(["dispatch_id"]);
+        expect(
+          readNamedUniqueIndexNames(database, "openMeldDaemon_dispatch_ledger")
+        ).toEqual(["openMeldDaemon_dispatch_ledger_idempotency_key_unique"]);
+        expect(
+          database
+            .prepare<[], SqliteIndexNameRow>(
+              `PRAGMA index_list('openMeldDaemon_dispatch_ledger');`
+            )
+            .all()
+            .map((row) => row.name.trim())
+            .filter((name) =>
+              name.startsWith("idx_openMeldDaemon_dispatch_ledger_")
+            )
+            .sort()
+        ).toEqual([
+          "idx_openMeldDaemon_dispatch_ledger_dispatch_id",
+          "idx_openMeldDaemon_dispatch_ledger_space_client_message_target",
+          "idx_openMeldDaemon_dispatch_ledger_space_source_target",
+          "idx_openMeldDaemon_dispatch_ledger_status_last_attempt",
+        ]);
+        expect(
+          readNamedUniqueIndexNames(database, "openMeldDaemon_dispatch_results")
+        ).toEqual(["openMeldDaemon_dispatch_results_dispatch_id_unique"]);
+      } finally {
+        database.close();
+        fs.rmSync(sqlitePath, { force: true });
+      }
+    },
+    DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
+  );
 
   it(
     "returns diff_detected when shared db:verify sees an unsupported legacy dispatch shape",

@@ -64,7 +64,10 @@ export {
   CENTER_AGENT_ACCOUNT_CONNECTION_REQUIRED_PUBLIC_COPY,
   resolveCenterAgentCompletedCallbackMessage,
 } from "./center-agent-publication-copy";
-export { toLegacySpaceAddressingWireValue } from "./compatibility/legacy-space-addressing-wire";
+export {
+  toCompatibleSpaceAddressingRequestWireValue,
+  toLegacySpaceAddressingWireValue,
+} from "./compatibility/legacy-space-addressing-wire";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,

@@ -31,7 +31,11 @@ type CliIgnoredIncomingFrame =
   | SpaceLiveSignalFrame;
 
 export function makeHello(profile: Profile) {
-  return { type: "hello", profile };
+  return {
+    type: "hello",
+    profile,
+    capabilities: { spaceMessageAddressing: true },
+  };
 }
 
 export function makeTextSignal(

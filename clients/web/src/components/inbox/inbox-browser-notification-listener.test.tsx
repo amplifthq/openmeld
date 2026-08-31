@@ -51,7 +51,7 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 		(item.importance === "urgent" ||
 			(item.attention === "action_required" &&
 				item.resolutionStatus === "open") ||
-			item.kind === "space_reference" ||
+			item.kind === "space_mention" ||
 			item.kind === "agent_reply" ||
 			item.kind === "wake_outcome" ||
 			item.kind === "center_agent_task"),
@@ -1088,7 +1088,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 		const reference = createInboxItem({
 			id: "reference-item",
-			kind: "space_reference",
+			kind: "space_mention",
 			sourceTarget: {
 				kind: "space",
 				signalId: "signal-reference",

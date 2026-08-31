@@ -21,7 +21,8 @@ describe("normalizeDispatchPostMessageAction", () => {
         type: "post_message",
         messageEnvelope: {
           activationTargets: [READY_AGENT_PROFILE_ID],
-          referenceTargets: [HUMAN_PROFILE_ID],
+          mentionTargets: [HUMAN_PROFILE_ID],
+          referenceTargets: [],
           text: "  hello from the agent path  ",
         },
       },
@@ -32,6 +33,7 @@ describe("normalizeDispatchPostMessageAction", () => {
           allowedRelations: {
             wake: true,
             reference: true,
+            mention: false,
           },
           profileId: READY_AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -41,7 +43,8 @@ describe("normalizeDispatchPostMessageAction", () => {
         createProjectionEntry({
           allowedRelations: {
             wake: false,
-            reference: true,
+            reference: false,
+            mention: true,
           },
           profileId: HUMAN_PROFILE_ID,
           profileKind: "human",
@@ -55,7 +58,8 @@ describe("normalizeDispatchPostMessageAction", () => {
       type: "post_message",
       messageEnvelope: {
         activationTargets: [READY_AGENT_PROFILE_ID],
-        referenceTargets: [HUMAN_PROFILE_ID],
+        mentionTargets: [HUMAN_PROFILE_ID],
+        referenceTargets: [],
         replyToSignalId: "sig-current-reply",
         text: "hello from the agent path",
       },
@@ -64,7 +68,8 @@ describe("normalizeDispatchPostMessageAction", () => {
       activationTargetsCount: 1,
       inputKind: "direct_payload",
       memberDirectoryLoaded: true,
-      referenceTargetsCount: 1,
+      mentionTargetsCount: 1,
+      referenceTargetsCount: 0,
       replyToSignalIdResolved: true,
     });
   });
@@ -114,6 +119,7 @@ describe("normalizeDispatchPostMessageAction", () => {
       type: "post_message",
       messageEnvelope: {
         activationTargets: [],
+        mentionTargets: [],
         referenceTargets: [],
         text: "hello",
       },
@@ -163,6 +169,7 @@ describe("normalizeDispatchPostMessageAction", () => {
           allowedRelations: {
             wake: true,
             reference: true,
+            mention: false,
           },
           profileId: SLEEPING_AGENT_PROFILE_ID,
           profileKind: "agent",
@@ -194,7 +201,8 @@ describe("normalizeDispatchPostMessageAction", () => {
           createProjectionEntry({
             allowedRelations: {
               wake: false,
-              reference: true,
+              reference: false,
+              mention: true,
             },
             profileId: HUMAN_PROFILE_ID,
             profileKind: "human",
@@ -225,7 +233,8 @@ describe("normalizeDispatchPostMessageAction", () => {
           createProjectionEntry({
             allowedRelations: {
               wake: false,
-              reference: true,
+              reference: false,
+              mention: true,
             },
             profileId: HUMAN_PROFILE_ID,
             profileKind: "human",
@@ -291,6 +300,9 @@ function formatAllowedRelations(
   }
   if (target.allowedRelations.reference) {
     relations.push("reference");
+  }
+  if (target.allowedRelations.mention) {
+    relations.push("mention");
   }
   return relations.join(" | ");
 }

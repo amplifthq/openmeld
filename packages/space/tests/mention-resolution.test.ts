@@ -86,7 +86,7 @@ describe("space mention resolution", () => {
 
     const text = [
       "hello @Ops Bot(wake)!",
-      "loop in @Felix Space(reference), then @Ops Bot(wake).",
+      "loop in @Felix Space(mention), then @Ops Bot(wake).",
     ].join(" ");
 
     expect(
@@ -94,7 +94,7 @@ describe("space mention resolution", () => {
         text,
         index,
       }).map((match) => match.mentionText)
-    ).toEqual(["@Ops Bot(wake)", "@Felix Space(reference)", "@Ops Bot(wake)"]);
+    ).toEqual(["@Ops Bot(wake)", "@Felix Space(mention)", "@Ops Bot(wake)"]);
 
     expect(
       listRecentMentionProfileIdsFromText({
@@ -141,7 +141,7 @@ describe("space mention resolution", () => {
         text: [
           "@budget analyst(wake) should not match.",
           `@${agentProfileId}(wake) should match by profile id.`,
-          "@OpenMeld Dev Local Test(reference) should match spaced name.",
+          "@OpenMeld Dev Local Test(mention) should match spaced name.",
         ].join(" "),
         index,
       }).map((match) => ({
@@ -154,7 +154,7 @@ describe("space mention resolution", () => {
         profileId: agentProfileId,
       },
       {
-        mentionText: "@OpenMeld Dev Local Test(reference)",
+        mentionText: "@OpenMeld Dev Local Test(mention)",
         profileId: humanProfileId,
       },
     ]);
@@ -192,7 +192,7 @@ describe("space mention resolution", () => {
         text: [
           "@Felix Space(wake) should not resolve.",
           "@Ops Bot(wake) should resolve.",
-          "@Felix Space(reference) should resolve.",
+          "@Felix Space(mention) should resolve.",
         ].join(" "),
         index,
       }).map((match) => ({
@@ -205,7 +205,7 @@ describe("space mention resolution", () => {
         profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       },
       {
-        mentionText: "@Felix Space(reference)",
+        mentionText: "@Felix Space(mention)",
         profileId: "11111111-1111-4111-8111-111111111111",
       },
     ]);
@@ -215,7 +215,7 @@ describe("space mention resolution", () => {
         text: [
           "@Felix Space(wake) ignored invalid relation",
           "@Ops Bot(wake) valid wake",
-          "@Felix Space(reference) valid reference",
+          "@Felix Space(mention) valid mention",
         ].join(" "),
         index,
       })

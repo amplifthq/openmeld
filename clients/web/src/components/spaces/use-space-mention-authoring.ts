@@ -177,6 +177,34 @@ export function useSpaceMentionAuthoring(input: {
 		[addressingMentions, input.snapshot]
 	);
 
+	useEffect(() => {
+		const snapshot = input.snapshot;
+		if (!snapshot) {
+			return;
+		}
+		const restoredAuthoredMentions = normalizeRestoredHumanMentionRelations({
+			mentions: authoredMentions,
+			snapshot,
+		});
+		if (restoredAuthoredMentions === authoredMentions) {
+			return;
+		}
+
+		composerDraft.setContent((currentDraft) => {
+			const nextAuthoredMentions = normalizeRestoredHumanMentionRelations({
+				mentions: currentDraft.authoredMentions,
+				snapshot,
+			});
+			if (nextAuthoredMentions === currentDraft.authoredMentions) {
+				return currentDraft;
+			}
+			return {
+				...currentDraft,
+				authoredMentions: nextAuthoredMentions,
+			};
+		});
+	}, [authoredMentions, composerDraft.setContent, input.snapshot]);
+
 	// biome-ignore lint/correctness/useExhaustiveDependencies: Changing conversation identity must reset ephemeral picker and selection state even though the key is not rendered.
 	useEffect(() => {
 		const nextComposerText = currentComposerTextRef.current;
@@ -457,6 +485,37 @@ export function useSpaceMentionAuthoring(input: {
 		},
 		onComposerSelectionChange: (selection: SpaceComposerSelection) => {
 			setComposerSelection(selection);
+		},
+		onMentionButtonClick: () => {
+			const nextText = `${composerText.slice(0, composerSelection.start)}@${composerText.slice(composerSelection.end)}`;
+			const nextCaretPosition = composerSelection.start + 1;
+			composerDraft.setContent((currentDraft) => ({
+				...currentDraft,
+				authoredMentions: reconcileTrackedAuthoredMentions({
+					mentions: currentDraft.authoredMentions,
+					nextText,
+					previousText: currentDraft.text,
+				}),
+				text: nextText,
+			}));
+			setDismissedMentionStarts((currentStarts) =>
+				reconcileDismissedMentionStarts({
+					starts: currentStarts.filter(
+						(start) => start !== composerSelection.start
+					),
+					nextText,
+					previousText: composerText,
+				})
+			);
+			setComposerSelection({
+				end: nextCaretPosition,
+				start: nextCaretPosition,
+			});
+			pendingSelectionRef.current = {
+				end: nextCaretPosition,
+				start: nextCaretPosition,
+			};
+			setHighlightedIndex(-1);
 		},
 		onMentionItemHover: (index: number) => {
 			setHighlightedIndex(index);
@@ -896,9 +955,9 @@ export function resolveDefaultSpaceComposerMentionRelation(
 
 	if (
 		suggestion.profileKind === "human" &&
-		suggestion.allowedRelations.reference
+		suggestion.allowedRelations.mention
 	) {
-		return "reference";
+		return "mention";
 	}
 
 	return null;
@@ -913,11 +972,8 @@ export function buildSpaceComposerAddressingSummary(
 			relationByProfileId.set(mention.profileId, mention.relation);
 		}
 	}
-	if (relationByProfileId.size < 2) {
-		return null;
-	}
-
 	const relationCounts: Record<MessageMentionType, number> = {
+		mention: 0,
 		reference: 0,
 		wake: 0,
 	};
@@ -925,12 +981,44 @@ export function buildSpaceComposerAddressingSummary(
 		relationCounts[relation] += 1;
 	}
 
-	const agentLabel = relationCounts.wake === 1 ? "agent" : "agents";
-	const segments = [
-		`Waking ${String(relationCounts.wake)} ${agentLabel}`,
-		`Referencing ${String(relationCounts.reference)}`,
-	];
+	const segments: string[] = [];
+	if (relationCounts.wake > 0) {
+		const agentLabel = relationCounts.wake === 1 ? "agent" : "agents";
+		segments.push(`Waking ${String(relationCounts.wake)} ${agentLabel}`);
+	}
+	if (relationCounts.reference > 0) {
+		const agentLabel = relationCounts.reference === 1 ? "agent" : "agents";
+		segments.push(
+			`Referencing ${String(relationCounts.reference)} ${agentLabel}`
+		);
+	}
+	if (segments.length === 0) {
+		return null;
+	}
 	return segments.join(" · ");
+}
+
+function normalizeRestoredHumanMentionRelations(input: {
+	mentions: readonly TrackedComposerAuthoredMention[];
+	snapshot: SpaceMembersSnapshot;
+}): readonly TrackedComposerAuthoredMention[] {
+	const catalog = createSpaceTargetCatalog(input.snapshot);
+	let changed = false;
+	const mentions = input.mentions.map((mention) => {
+		if (mention.relation !== "reference") {
+			return mention;
+		}
+		const target = catalog.byProfileId.get(mention.profileId);
+		if (
+			!target?.allowedRelations.mention ||
+			target.allowedRelations.reference
+		) {
+			return mention;
+		}
+		changed = true;
+		return { ...mention, relation: "mention" as const };
+	});
+	return changed ? mentions : input.mentions;
 }
 
 export function buildSpaceComposerAddressingTargets(input: {
@@ -984,6 +1072,9 @@ export function resolveSpaceComposerAddressingMentions(input: {
 		const referenceProfileIds = new Set(
 			preparedSubmission.messageEnvelope?.referenceTargets ?? []
 		);
+		const mentionProfileIds = new Set(
+			preparedSubmission.messageEnvelope?.mentionTargets ?? []
+		);
 
 		return preparedSubmission.resolvedStructuredTargets.profileIdsInTextOrder.flatMap(
 			(profileId): SpaceComposerAddressingMention[] => {
@@ -992,6 +1083,9 @@ export function resolveSpaceComposerAddressingMentions(input: {
 				}
 				if (referenceProfileIds.has(profileId)) {
 					return [{ profileId, relation: "reference" }];
+				}
+				if (mentionProfileIds.has(profileId)) {
+					return [{ profileId, relation: "mention" }];
 				}
 				return [];
 			}

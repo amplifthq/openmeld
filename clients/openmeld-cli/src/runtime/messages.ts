@@ -99,7 +99,7 @@ const HUMAN_MESSAGES = {
   "connect.connected_no_stdio": (params) =>
     formatConnectedNoStdioMessage("human", params),
   "connect.chat_mention_hint": () =>
-    "Press @ to insert @Name(wake) or @Name(reference).",
+    "Press @ to insert an Agent Wake, Agent Reference, or Human Mention.",
   "connect.chat_ready": () => "Type your message and press Enter to send.",
   "connect.chat_exit_hint": () => "Exit with '/quit', ':q', Ctrl+D, or Ctrl+C.",
   "connect.chat_prompt_question": () =>
@@ -204,7 +204,7 @@ const AGENT_MESSAGES = {
   "connect.connected_no_stdio": (params) =>
     formatConnectedNoStdioMessage("agent", params),
   "connect.chat_mention_hint": () =>
-    "use @Name(wake) or @Name(reference) when you need to add people or agents in this space",
+    "use @Name(wake) or @Name(reference) for agents, and @Name(mention) for people",
   "connect.chat_ready": () => "chat mode active; type a line to send",
   "connect.chat_exit_hint": () =>
     "enter sends; line ending with \\ continues draft; exit with /quit, :q, Ctrl+D, or Ctrl+C",

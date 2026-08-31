@@ -22,6 +22,7 @@ const OPENMELD_HEADER_SPACE_PASSWORD = "x-openmeld-space-password";
 const OPENMELD_STREAM_ROUTE_PATTERN = /^\/v1\/spaces\/([^/]+)\/stream$/u;
 const SPACE_STREAM_HELLO_CAPABILITIES = {
 	liveSignalHistory: true,
+	spaceMessageAddressing: true,
 } as const;
 
 type AcceptableWebSocket = WebSocket & {

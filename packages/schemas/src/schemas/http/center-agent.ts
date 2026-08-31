@@ -680,6 +680,7 @@ export const centerAgentReadSpaceContextBodySchema = z
   .strictObject({
     afterSignalId: trimmedNonEmptyStringSchema.optional(),
     limit: z.number().int().min(1).max(100).optional(),
+    requestedAddressingModel: z.literal("wake_reference_mention").optional(),
     scope: centerAgentSpaceContextScopeSchema.optional(),
     sourceSignalId: trimmedNonEmptyStringSchema.optional(),
     spaceId: trimmedNonEmptyStringSchema,
@@ -721,16 +722,35 @@ export const centerAgentReadDispatchHistoryBodySchema = z.strictObject({
   targetProfileId: trimmedNonEmptyStringSchema.optional(),
 });
 
-export const centerAgentPostSpaceMessageBodySchema = z.strictObject({
-  files: spaceMessageFileReferencesSchema.optional(),
-  onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
-  referenceProfileIds: z
-    .array(openMeldRuntimeProfileIdSchema)
-    .max(25)
-    .optional(),
-  spaceId: trimmedNonEmptyStringSchema,
-  text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
-});
+export const centerAgentPostSpaceMessageBodySchema = z
+  .strictObject({
+    files: spaceMessageFileReferencesSchema.optional(),
+    mentionProfileIds: z
+      .array(openMeldRuntimeProfileIdSchema)
+      .max(25)
+      .optional(),
+    onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
+    referenceProfileIds: z
+      .array(openMeldRuntimeProfileIdSchema)
+      .max(25)
+      .optional(),
+    spaceId: trimmedNonEmptyStringSchema,
+    text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
+  })
+  .superRefine((value, context) => {
+    const referenceProfileIds = new Set(value.referenceProfileIds ?? []);
+    const overlappingMentionIndex = value.mentionProfileIds?.findIndex(
+      (profileId) => referenceProfileIds.has(profileId)
+    );
+    if (overlappingMentionIndex !== undefined && overlappingMentionIndex >= 0) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A profile cannot be both a Human Mention and a Reference target.",
+        path: ["mentionProfileIds", overlappingMentionIndex],
+      });
+    }
+  });
 
 export const CENTER_AGENT_PUBLICATION_OPERATION_ID_MAX_CHARS = 256;
 
@@ -842,6 +862,10 @@ export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
     agentProfileIds: z.array(agentProfileIdSchema).min(1).max(25),
     completionMode: centerAgentDelegationCompletionModeSchema.optional(),
     fallbackAgentProfileId: agentProfileIdSchema.optional(),
+    mentionProfileIds: z
+      .array(openMeldRuntimeProfileIdSchema)
+      .max(25)
+      .optional(),
     onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
     referenceProfileIds: z
       .array(openMeldRuntimeProfileIdSchema)
@@ -851,6 +875,22 @@ export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
     text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
   })
   .superRefine((value, context) => {
+    const otherAddressingProfileIds = new Set([
+      ...value.agentProfileIds,
+      ...(value.fallbackAgentProfileId ? [value.fallbackAgentProfileId] : []),
+      ...(value.referenceProfileIds ?? []),
+    ]);
+    const overlappingMentionIndex = value.mentionProfileIds?.findIndex(
+      (profileId) => otherAddressingProfileIds.has(profileId)
+    );
+    if (overlappingMentionIndex !== undefined && overlappingMentionIndex >= 0) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A profile cannot be both a Human Mention and another addressing target.",
+        path: ["mentionProfileIds", overlappingMentionIndex],
+      });
+    }
     const overlappingReferenceIndex = findCenterAgentReferenceOverlapIndex({
       activationTargets: value.agentProfileIds,
       fallbackAgentProfileId: value.fallbackAgentProfileId,
@@ -915,10 +955,12 @@ export const centerAgentWakePublicationCommandSchema = z
     organizationId: trimmedNonEmptyStringSchema,
     parentSubmissionId: trimmedNonEmptyStringSchema,
     profile: profileSchema,
+    mentionTargets: z.array(openMeldRuntimeProfileIdSchema).max(25).default([]),
     referenceTargets: z
       .array(openMeldRuntimeProfileIdSchema)
       .max(25)
       .default([]),
+    spaceAddressingVersion: z.literal("1").optional(),
     spaceId: trimmedNonEmptyStringSchema,
     subscriptionIds: z.array(trimmedNonEmptyStringSchema).min(1),
     text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
@@ -1463,10 +1505,18 @@ export const centerAgentUpdateSpaceSettingsResponseSchema =
     spaceId: trimmedNonEmptyStringSchema,
   });
 
-export const centerAgentSpaceAuthoringContractResponseSchema = z.strictObject({
-  addressingModel: z.literal("wake_reference"),
-  structuredReferenceTargets: z.literal(true),
-});
+export const centerAgentSpaceAuthoringContractResponseSchema =
+  z.discriminatedUnion("addressingModel", [
+    z.strictObject({
+      addressingModel: z.literal("wake_reference"),
+      structuredReferenceTargets: z.literal(true),
+    }),
+    z.strictObject({
+      addressingModel: z.literal("wake_reference_mention"),
+      structuredMentionTargets: z.literal(true),
+      structuredReferenceTargets: z.literal(true),
+    }),
+  ]);
 
 export const centerAgentPostSpaceMessageResponseSchema =
   centerAgentConciergeActionResponseSchema.extend({

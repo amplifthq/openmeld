@@ -1825,6 +1825,7 @@ function SpaceLandingConversation({
 			isCreatingThread={controller.isCreatingThread}
 			isDiagnosticReportPending={controller.isDiagnosticReportPending}
 			isDiagnosticReportSent={controller.isDiagnosticReportSent}
+			isDirectMessage={isDirectMessage}
 			isLoadingEarlierHistory={controller.isLoadingEarlierHistory}
 			isPersonalContext={input.isPersonalContext === true}
 			isSendingMessage={controller.isSendingMessage}
@@ -1842,6 +1843,7 @@ function SpaceLandingConversation({
 			onEditAgentProfile={onEditAgentProfile}
 			onJumpToDate={controller.onJumpToDate}
 			onLoadEarlierHistory={controller.onLoadEarlierHistory}
+			onMentionButtonClick={controller.onMentionButtonClick}
 			onMentionItemHover={controller.onMentionItemHover}
 			onMentionItemSelect={controller.onMentionItemSelect}
 			onMentionPopoverClose={controller.onMentionPopoverClose}
@@ -2033,6 +2035,7 @@ function SpaceLandingSecondaryPanels({
 				onComposerKeyDown={controller.onThreadComposerKeyDown}
 				onComposerSelectionChange={controller.onThreadComposerSelectionChange}
 				onEditAgentProfile={onEditAgentProfile}
+				onMentionButtonClick={controller.onThreadMentionButtonClick}
 				onMentionItemHover={controller.onThreadMentionItemHover}
 				onMentionItemSelect={controller.onThreadMentionItemSelect}
 				onMentionPopoverClose={controller.onThreadMentionPopoverClose}

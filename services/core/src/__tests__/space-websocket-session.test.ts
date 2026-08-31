@@ -47,6 +47,7 @@ describe("space websocket session", () => {
 
     expect(session.helloAccepted).toBe(false);
     expect(session.supportsLiveSignalHistory).toBe(false);
+    expect(session.supportsSpaceMessageAddressing).toBe(false);
     expect(session.profile).toBeUndefined();
     expect(session.enforcedProfile).toEqual(ENFORCED_PROFILE);
   });
@@ -94,18 +95,22 @@ describe("space websocket session", () => {
         profile: HELLO_PROFILE,
         capabilities: {
           liveSignalHistory: true,
+          spaceMessageAddressing: true,
         },
       },
     });
 
     expect(session.supportsLiveSignalHistory).toBe(true);
+    expect(session.supportsSpaceMessageAddressing).toBe(true);
     const attachment = buildSpaceWebSocketSessionAttachment(session);
     expect(attachment).toMatchObject({
       supportsLiveSignalHistory: true,
+      supportsSpaceMessageAddressing: true,
     });
 
     const restored = restoreSpaceWebSocketSessionFromAttachment(attachment);
     expect(restored.supportsLiveSignalHistory).toBe(true);
+    expect(restored.supportsSpaceMessageAddressing).toBe(true);
   });
 
   it("restores accepted sessions from legacy attachments without helloAccepted", () => {

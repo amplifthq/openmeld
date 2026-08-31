@@ -88,7 +88,8 @@ function getRemoteAgentOpenMeldToolDefinitions(
     ...input,
     coreWorker: {
       centerAgentReadSpaceAuthoringContract: vi.fn(async () => ({
-        addressingModel: "wake_reference" as const,
+        addressingModel: "wake_reference_mention" as const,
+        structuredMentionTargets: true as const,
         structuredReferenceTargets: true as const,
       })),
       ...input.coreWorker,
@@ -3051,6 +3052,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     await expect(
       executeTool(tools, "openmeld_wake_agent_profiles_in_space", {
         agentProfileIds: [AGENT_PROFILE_ID],
+        mentionProfileIds: [],
         referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Review this and publish the result.",
@@ -3084,6 +3086,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       agentProfileIds: [AGENT_PROFILE_ID],
       completionMode: "child_reports_directly",
       computerFilePaths: ["launch/checklist.md"],
+      mentionProfileIds: [],
       referenceProfileIds: [],
       spaceId: SPACE_ID,
       text: "Finish the approved launch checklist on the workstation.",
@@ -3122,6 +3125,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         agentProfileIds: [AGENT_PROFILE_ID],
         completionMode: "child_reports_directly",
         computerFilePaths: ["notes.md"],
+        mentionProfileIds: [],
         referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Continue this work locally.",
@@ -3144,6 +3148,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_wake_agent_profiles_in_space", {
         agentProfileIds: [AGENT_PROFILE_ID],
         completionMode: "resume_parent_when_all_terminal",
+        mentionProfileIds: [],
         referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Review this, then let me synthesize the result.",
@@ -3186,6 +3191,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     const resumeInput = {
       agentProfileIds: [AGENT_PROFILE_ID],
       completionMode: "resume_parent_when_all_terminal",
+      mentionProfileIds: [],
       referenceProfileIds: [],
       spaceId: SPACE_ID,
       text: "Review this, then let me synthesize the result.",
@@ -3248,6 +3254,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_wake_agent_profiles_in_space", {
         agentProfileIds: [AGENT_PROFILE_ID],
         completionMode: "resume_parent_when_all_terminal",
+        mentionProfileIds: [],
         referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Review this, then let me synthesize the result.",
@@ -3300,6 +3307,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         agentProfileIds: [AGENT_PROFILE_ID],
         completionMode: "resume_parent_on_failure",
         fallbackAgentProfileId: FALLBACK_AGENT_PROFILE_ID,
+        mentionProfileIds: [],
         referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Try Codex first, then use Claude only if Codex fails.",
@@ -4674,7 +4682,8 @@ describe("remote agent OpenMeld tool catalog", () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);
     const centerAgentReadSpaceAuthoringContract = vi.fn(async () => ({
-      addressingModel: "wake_reference" as const,
+      addressingModel: "wake_reference_mention" as const,
+      structuredMentionTargets: true as const,
       structuredReferenceTargets: true as const,
     }));
     const centerAgentPostSpaceMessage = vi.fn(async () =>
@@ -4689,7 +4698,8 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
 
     const payload = {
-      referenceProfileIds: [HUMAN_PROFILE_ID],
+      mentionProfileIds: [],
+      referenceProfileIds: [AGENT_PROFILE_ID],
       spaceId: SPACE_ID,
       text: "Launch notes are ready.",
     };
@@ -4703,6 +4713,31 @@ describe("remote agent OpenMeld tool catalog", () => {
     }
     expect(centerAgentReadSpaceAuthoringContract).toHaveBeenCalledOnce();
     expect(centerAgentPostSpaceMessage).toHaveBeenCalledOnce();
+  });
+
+  it("publishes Human Mentions separately from Agent References", async () => {
+    const request = createSubmitTurnRequest();
+    const centerAgentPostSpaceMessage = vi.fn(async () =>
+      postSpaceMessageResponse([AGENT_PROFILE_ID], [HUMAN_PROFILE_ID])
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostSpaceMessage },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await executeTool(tools, "openmeld_post_space_message", {
+      mentionProfileIds: [HUMAN_PROFILE_ID],
+      referenceProfileIds: [AGENT_PROFILE_ID],
+      spaceId: SPACE_ID,
+      text: "Launch notes are ready.",
+    });
+
+    expect(centerAgentPostSpaceMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mentionProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [AGENT_PROFILE_ID],
+      })
+    );
   });
 
   it("sends exact canonical Space File revisions from the Center Agent", async () => {
@@ -4726,6 +4761,7 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await executeTool(tools, "openmeld_post_space_message", {
       files,
+      mentionProfileIds: [],
       referenceProfileIds: [],
       spaceId: SPACE_ID,
       text: "I shared the decision record.",
@@ -4750,7 +4786,8 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_post_space_message", {
-        referenceProfileIds: [HUMAN_PROFILE_ID],
+        mentionProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Launch notes are ready.",
       })
@@ -4767,11 +4804,12 @@ describe("remote agent OpenMeld tool catalog", () => {
       .fn()
       .mockRejectedValueOnce(new Error("Core is temporarily unavailable."))
       .mockResolvedValue({
-        addressingModel: "wake_reference" as const,
+        addressingModel: "wake_reference_mention" as const,
+        structuredMentionTargets: true as const,
         structuredReferenceTargets: true as const,
       });
     const centerAgentPostSpaceMessage = vi.fn(async () =>
-      postSpaceMessageResponse([HUMAN_PROFILE_ID])
+      postSpaceMessageResponse([], [HUMAN_PROFILE_ID])
     );
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {
@@ -4781,7 +4819,8 @@ describe("remote agent OpenMeld tool catalog", () => {
       storage,
     });
     const payload = {
-      referenceProfileIds: [HUMAN_PROFILE_ID],
+      mentionProfileIds: [HUMAN_PROFILE_ID],
+      referenceProfileIds: [],
       spaceId: SPACE_ID,
       text: "Launch notes are ready.",
     };
@@ -4793,7 +4832,7 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_post_space_message", payload)
-    ).resolves.toEqual(postSpaceMessageResponse([HUMAN_PROFILE_ID]));
+    ).resolves.toEqual(postSpaceMessageResponse([], [HUMAN_PROFILE_ID]));
     expect(centerAgentReadSpaceAuthoringContract).toHaveBeenCalledTimes(2);
     expect(centerAgentPostSpaceMessage).toHaveBeenCalledOnce();
   });
@@ -5922,7 +5961,11 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_center_agent_turn_diagnostics",
     },
     {
-      expectedPayload: { limit: 25, spaceId: SPACE_ID },
+      expectedPayload: {
+        limit: 25,
+        requestedAddressingModel: "wake_reference_mention",
+        spaceId: SPACE_ID,
+      },
       input: { limit: 25, spaceId: SPACE_ID },
       response: readSpaceContextResponse(),
       rpcName: "centerAgentReadSpaceContext",
@@ -5931,6 +5974,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         limit: 25,
+        requestedAddressingModel: "wake_reference_mention",
         scope: "source",
         sourceSignalId: "signal-source",
         spaceId: SPACE_ID,
@@ -6102,17 +6146,19 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
+        mentionProfileIds: [HUMAN_PROFILE_ID],
         onBehalfOf,
-        referenceProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Launch notes are ready.",
       },
       input: {
-        referenceProfileIds: [HUMAN_PROFILE_ID],
+        mentionProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Launch notes are ready.",
       },
-      response: postSpaceMessageResponse(),
+      response: postSpaceMessageResponse([], [HUMAN_PROFILE_ID]),
       rpcName: "centerAgentPostSpaceMessage",
       toolName: "openmeld_post_space_message",
     },
@@ -6157,19 +6203,21 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       expectedPayload: {
         agentProfileIds: [AGENT_PROFILE_ID],
         completionMode: "child_reports_directly",
+        mentionProfileIds: [HUMAN_PROFILE_ID],
         onBehalfOf,
-        referenceProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Please review the launch checklist.",
       },
       input: {
         agentProfileIds: [AGENT_PROFILE_ID],
         completionMode: "child_reports_directly",
-        referenceProfileIds: [HUMAN_PROFILE_ID],
+        mentionProfileIds: [HUMAN_PROFILE_ID],
+        referenceProfileIds: [],
         spaceId: SPACE_ID,
         text: "Please review the launch checklist.",
       },
-      response: wakeAgentProfilesInSpaceResponse([HUMAN_PROFILE_ID]),
+      response: wakeAgentProfilesInSpaceResponse([], [HUMAN_PROFILE_ID]),
       rpcName: "centerAgentWakeAgentProfilesInSpace",
       toolName: "openmeld_wake_agent_profiles_in_space",
     },
@@ -7295,7 +7343,8 @@ function updateSpaceSettingsResponse() {
 }
 
 function postSpaceMessageResponse(
-  referenceTargets: string[] = [HUMAN_PROFILE_ID]
+  referenceTargets: string[] = [HUMAN_PROFILE_ID],
+  mentionTargets: string[] = []
 ) {
   return {
     ...actionResponseBase({ id: SPACE_ID, type: "space" }),
@@ -7303,7 +7352,8 @@ function postSpaceMessageResponse(
       "signal_center_agent_message",
       "Launch notes are ready.",
       [],
-      referenceTargets
+      referenceTargets,
+      mentionTargets
     ),
     spaceId: SPACE_ID,
   };
@@ -7320,7 +7370,10 @@ function postSlackChannelMessageResponse() {
   };
 }
 
-function wakeAgentProfilesInSpaceResponse(referenceTargets: string[] = []) {
+function wakeAgentProfilesInSpaceResponse(
+  referenceTargets: string[] = [],
+  mentionTargets: string[] = []
+) {
   return {
     ...actionResponseBase({ id: SPACE_ID, type: "space" }),
     agentProfileIds: [AGENT_PROFILE_ID],
@@ -7328,7 +7381,8 @@ function wakeAgentProfilesInSpaceResponse(referenceTargets: string[] = []) {
       "signal_center_agent_wake",
       "Please review the launch checklist.",
       [AGENT_PROFILE_ID],
-      referenceTargets
+      referenceTargets,
+      mentionTargets
     ),
     spaceId: SPACE_ID,
   };
@@ -7378,12 +7432,14 @@ function signalTextEnvelope(
   id: string,
   text: string,
   activationTargets: string[],
-  referenceTargets: string[] = []
+  referenceTargets: string[] = [],
+  mentionTargets: string[] = []
 ) {
   return {
     data: {
       messageEnvelope: {
         activationTargets,
+        mentionTargets,
         referenceTargets,
         text,
       },

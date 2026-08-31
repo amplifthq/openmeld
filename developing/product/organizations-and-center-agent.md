@@ -820,12 +820,14 @@ result or exact-conversation outcome resumes the relevant parent task
 idempotently through Agent Task Coordination; failure, user Stop, and
 outcome-unknown remain explicit outcomes rather than invitations to rerun.
 
-The delegated Space message may also include Human or Agent Profiles as
-structured Reference context. The Center Agent passes their exact Profile IDs
-separately from Wake and fallback targets. Core preserves References in the
-Message Envelope and the durable publication command, but never turns them into
-children, subscriptions, fallbacks, or continuation conditions. A visible
-`@Name(reference)` string is not a substitute for that structured fact.
+The delegated Space message may also include Human Profiles as structured
+Human Mentions and Agent Profiles as structured Reference context. The Center
+Agent passes their exact Profile IDs in separate Mention and Reference fields,
+apart from Wake and fallback targets. Core preserves both non-executable
+relations in the Message Envelope and the durable publication command, but
+never turns either into children, subscriptions, fallbacks, or continuation
+conditions. Visible `@Name(mention)` or `@Name(reference)` text is not a
+substitute for the corresponding structured fact.
 
 The initial delegated Wake is also crash-recoverable. Before creating active
 child work, Core persists the exact Center Agent Wake publication command under

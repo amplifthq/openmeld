@@ -1,6 +1,7 @@
 import { getSpaceUpdatesResponseSchema } from "@openmeld/schemas";
 import type { GetSpaceUpdatesResponse } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceAddressingHeaders } from "./addressing-contract";
 import { buildSpaceUpdatesPath } from "./routes";
 import type { SpaceRequestInput } from "./types";
 
@@ -18,6 +19,7 @@ export async function getSpaceUpdates(
       spaceId: input.spaceId,
     }),
     operation: "space.updates.read",
+    headers: currentSpaceAddressingHeaders(),
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,

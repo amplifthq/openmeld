@@ -66,7 +66,7 @@ describe("SpaceMentionPopover", () => {
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 
-	it("keeps Wake and Reference in one picker without a second prompt", () => {
+	it("keeps Agent actions explicit while Human Mention needs no second choice", () => {
 		const items = buildSpaceMentionTargetItems({
 			query: "@",
 			snapshot: createSpaceMembersSnapshot({
@@ -139,8 +139,18 @@ describe("SpaceMentionPopover", () => {
 			/>
 		);
 		expect(screen.queryByRole("button", { name: "Wake Mira" })).toBeNull();
-		expect(screen.getByRole("button", { name: "Reference Mira" })).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Reference Mira" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Mention Mira" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "CC Mira" })).toBeNull();
+
+		const humanOption = within(targetList)
+			.getAllByRole("option")
+			.find((option) => option.textContent?.includes("Mira"));
+		if (!humanOption) {
+			throw new Error("Expected Mira in the Human Mention options.");
+		}
+		fireEvent.mouseDown(humanOption);
+		expect(onSelectItem).toHaveBeenCalledWith(1);
 	});
 
 	it("shows member status text using the same status order as the members panel", () => {

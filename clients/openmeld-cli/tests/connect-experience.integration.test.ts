@@ -1331,7 +1331,7 @@ describe("connect experience enhancements", () => {
       const { stdout } = await connectPromise;
       const normalizedStdout = stripTerminalControl(stdout);
       expect(normalizedStdout).toContain(
-        "Press @ to insert @Name(wake) or @Name(reference)."
+        "Press @ to insert an Agent Wake, Agent Reference, or Human Mention."
       );
       expect(normalizedStdout).toContain(
         "Type your message and press Enter to send."
@@ -1354,6 +1354,7 @@ describe("connect experience enhancements", () => {
 
   it("renders replying status line with system and agent emoji prefixes", async () => {
     const harness = createMessageStreamHarness();
+    const promptObserver = createConnectPromptObserver("- Codex (agent): ");
     mockConnectFetchSuccess();
     let observedStdout = "";
     let closeAndSettle: (() => Promise<void>) | undefined;
@@ -1391,11 +1392,13 @@ describe("connect experience enhancements", () => {
         {
           onStdout: (text) => {
             observedStdout += text;
+            promptObserver.observe(text);
           },
         }
       );
 
       await harness.waitUntilReady();
+      await promptObserver.waitUntilReady();
       let streamClosed = false;
       closeAndSettle = async () => {
         if (!streamClosed) {
@@ -1449,6 +1452,7 @@ describe("connect experience enhancements", () => {
 
   it("renders each replying agent on its own status line instead of collapsing to (+n)", async () => {
     const harness = createMessageStreamHarness();
+    const promptObserver = createConnectPromptObserver("- Codex (agent): ");
     mockConnectFetchSuccess();
     const stdoutTtyDescriptor = Object.getOwnPropertyDescriptor(
       process.stdout,
@@ -1461,25 +1465,29 @@ describe("connect experience enhancements", () => {
 
     try {
       const selfProfileId = "11111111-0000-0000-0000-000000000016";
-      const connectPromise = withCapturedStdio(async () => {
-        await withTempHome(async () => {
-          await runConnect({
-            profile: "codex--multi-replying-status",
-            openMeldProfile: createOpenMeldProfileInput({
-              openMeldProfileId: selfProfileId,
-              profileName: "Codex",
-              profileKind: "agent",
-            }),
-            baseUrl: "https://example.com",
-            space: "ops-room",
-            stdio: true,
-            output: "text",
-            view: "human",
+      const connectPromise = withCapturedStdio(
+        async () => {
+          await withTempHome(async () => {
+            await runConnect({
+              profile: "codex--multi-replying-status",
+              openMeldProfile: createOpenMeldProfileInput({
+                openMeldProfileId: selfProfileId,
+                profileName: "Codex",
+                profileKind: "agent",
+              }),
+              baseUrl: "https://example.com",
+              space: "ops-room",
+              stdio: true,
+              output: "text",
+              view: "human",
+            });
           });
-        });
-      });
+        },
+        { onStdout: promptObserver.observe }
+      );
 
       await harness.waitUntilReady();
+      await promptObserver.waitUntilReady();
       harness.emit(
         createTextSignalRawEvent({
           id: "signal-replying-codex",
@@ -1534,6 +1542,7 @@ describe("connect experience enhancements", () => {
 
   it("keeps a sending row visible alongside an active replying row", async () => {
     const harness = createMessageStreamHarness();
+    const promptObserver = createConnectPromptObserver("- Codex (agent): ");
     mockConnectFetchSuccess();
     let observedStdout = "";
     let closeAndSettle: (() => Promise<void>) | undefined;
@@ -1581,11 +1590,13 @@ describe("connect experience enhancements", () => {
         {
           onStdout: (text) => {
             observedStdout += text;
+            promptObserver.observe(text);
           },
         }
       );
 
       await harness.waitUntilReady();
+      await promptObserver.waitUntilReady();
       let streamClosed = false;
       closeAndSettle = async () => {
         if (!streamClosed) {
@@ -4502,6 +4513,27 @@ function createMessageStreamHarness(): {
       resolveClosed();
     },
     send,
+  };
+}
+
+function createConnectPromptObserver(prompt: string): {
+  observe: (text: string) => void;
+  waitUntilReady: () => Promise<void>;
+} {
+  let stdout = "";
+
+  return {
+    observe: (text) => {
+      stdout += text;
+    },
+    waitUntilReady: async () => {
+      await vi.waitFor(() => {
+        const readyComposer = `What would you like to say in this space?\n${prompt}`;
+        if (!stripTerminalControl(stdout).includes(readyComposer)) {
+          throw new Error("connect composer prompt is not ready");
+        }
+      });
+    },
   };
 }
 

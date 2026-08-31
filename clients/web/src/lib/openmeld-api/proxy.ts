@@ -1,8 +1,10 @@
 import {
+	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
 	OPENMELD_HEADER_PROFILE_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG,
+	OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
 	OPENMELD_HEADER_SPACE_PASSWORD,
 } from "@openmeld/gateway-contract";
 import {
@@ -41,6 +43,8 @@ const ALLOWED_PROXY_REQUEST_HEADERS = new Set([
 	"pragma",
 	CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER.toLowerCase(),
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase(),
+	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION.toLowerCase(),
+	OPENMELD_HEADER_SPACE_ADDRESSING_VERSION.toLowerCase(),
 	OPENMELD_HEADER_PROFILE_ID.toLowerCase(),
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID.toLowerCase(),
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG.toLowerCase(),
@@ -102,13 +106,21 @@ export function buildOpenMeldGatewayUpstreamHeaders(input: {
 		const isInboxSourceTargetVersionHeader =
 			normalizedHeaderName ===
 			OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase();
+		const isInboxItemKindVersionHeader =
+			normalizedHeaderName ===
+			OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION.toLowerCase();
+		const isSpaceAddressingVersionHeader =
+			normalizedHeaderName ===
+			OPENMELD_HEADER_SPACE_ADDRESSING_VERSION.toLowerCase();
 		if (
 			(normalizedHeaderName.startsWith("x-openmeld-") &&
 				!isSpacePasswordHeader &&
 				!isProfileIdHeader &&
 				!isOrganizationSelectorHeader &&
 				!isTaskResponseContractHeader &&
-				!isInboxSourceTargetVersionHeader) ||
+				!isInboxSourceTargetVersionHeader &&
+				!isInboxItemKindVersionHeader &&
+				!isSpaceAddressingVersionHeader) ||
 			normalizedHeaderName.startsWith("x-forwarded-") ||
 			normalizedHeaderName === "authorization" ||
 			!ALLOWED_PROXY_REQUEST_HEADERS.has(normalizedHeaderName)

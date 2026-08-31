@@ -25,12 +25,19 @@ function createTargetRef(
 
 function createProjection(
   input?: Partial<
-    Pick<SpaceMessageReadProjection, "wakeTargets" | "referenceTargets">
+    Pick<
+      SpaceMessageReadProjection,
+      "wakeTargets" | "referenceTargets" | "mentionTargets"
+    >
   >
-): Pick<SpaceMessageReadProjection, "wakeTargets" | "referenceTargets"> {
+): Pick<
+  SpaceMessageReadProjection,
+  "wakeTargets" | "referenceTargets" | "mentionTargets"
+> {
   return {
     wakeTargets: input?.wakeTargets ?? [],
     referenceTargets: input?.referenceTargets ?? [],
+    mentionTargets: input?.mentionTargets ?? [],
   };
 }
 
@@ -49,7 +56,7 @@ function createReplyContext(
 }
 
 describe("human message read display", () => {
-  it("formats relation lines in wake-reference order", () => {
+  it("formats relation lines in wake-reference-mention order", () => {
     const lines = buildHumanMessageRelationLines(
       createProjection({
         wakeTargets: [createTargetRef("agt-1", "Phase 2a Agent")],
@@ -57,12 +64,14 @@ describe("human message read display", () => {
           createTargetRef("agt-2", "Budget Analyst"),
           createTargetRef("agt-3", "Legal"),
         ],
+        mentionTargets: [createTargetRef("hum-1", "Felix")],
       })
     );
 
     expect(lines).toEqual([
       "wake: Phase 2a Agent",
       "reference: Budget Analyst, Legal",
+      "mention: Felix",
     ]);
   });
 

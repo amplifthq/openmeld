@@ -30,7 +30,7 @@ export type SpaceMessageReadTargetRef = {
 };
 
 export type SpaceMessageReadRelationSummary = {
-  relation: "wake" | "reference";
+  relation: "wake" | "reference" | "mention";
   targets: readonly SpaceMessageReadTargetRef[];
 };
 
@@ -59,6 +59,7 @@ export type SpaceMessageReadProjection = {
   threadRef: SpaceMessageThreadRef | null;
   wakeTargets: readonly SpaceMessageReadTargetRef[];
   referenceTargets: readonly SpaceMessageReadTargetRef[];
+  mentionTargets: readonly SpaceMessageReadTargetRef[];
   replyToSignalId: string | null;
   replyToContext: SpaceMessageReplyContext | null;
 };
@@ -101,6 +102,10 @@ export function buildSignalMessageReadProjection(input: {
       envelope?.referenceTargets,
       memberIdentityIndex
     ),
+    mentionTargets: resolveTargetRefs(
+      envelope?.mentionTargets,
+      memberIdentityIndex
+    ),
     replyToSignalId,
     replyToContext: resolveReplyToContext({
       replyToSignalId,
@@ -139,6 +144,10 @@ export function buildDispatchResultMessageReadProjection(input: {
     ),
     referenceTargets: resolveTargetRefs(
       envelope?.referenceTargets,
+      memberIdentityIndex
+    ),
+    mentionTargets: resolveTargetRefs(
+      envelope?.mentionTargets,
       memberIdentityIndex
     ),
     replyToSignalId,
@@ -221,6 +230,7 @@ export function resolveReplyToContext(input: {
 export function buildSpaceMessageReadRelationSummary(input: {
   wakeTargets: readonly SpaceMessageReadTargetRef[];
   referenceTargets: readonly SpaceMessageReadTargetRef[];
+  mentionTargets: readonly SpaceMessageReadTargetRef[];
 }): readonly SpaceMessageReadRelationSummary[] {
   const summary: SpaceMessageReadRelationSummary[] = [];
   if (input.wakeTargets.length > 0) {
@@ -233,6 +243,12 @@ export function buildSpaceMessageReadRelationSummary(input: {
     summary.push({
       relation: "reference",
       targets: input.referenceTargets,
+    });
+  }
+  if (input.mentionTargets.length > 0) {
+    summary.push({
+      relation: "mention",
+      targets: input.mentionTargets,
     });
   }
   return summary;
@@ -288,6 +304,10 @@ function buildSignalRelationSummary(input: {
     ),
     referenceTargets: resolveTargetRefs(
       envelope.referenceTargets,
+      input.memberIdentityIndex
+    ),
+    mentionTargets: resolveTargetRefs(
+      envelope.mentionTargets,
       input.memberIdentityIndex
     ),
   });

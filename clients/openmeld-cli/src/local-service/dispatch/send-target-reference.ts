@@ -217,6 +217,9 @@ function formatAllowedRelations(
   if (target.allowedRelations.reference) {
     relations.push("reference");
   }
+  if (target.allowedRelations.mention) {
+    relations.push("mention");
+  }
   return relations.join(" | ");
 }
 

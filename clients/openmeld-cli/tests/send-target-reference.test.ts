@@ -71,7 +71,7 @@ describe("resolveDispatchSendTargetReference", () => {
     ).toEqual(["Budget Analyst", "Mira", "Watcher"]);
     expect(result.referenceLines).toEqual([
       "Budget Analyst -> agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa (wake | reference)",
-      "Mira -> 11111111-1111-4111-8111-111111111111 (reference)",
+      "Mira -> 11111111-1111-4111-8111-111111111111 (mention)",
       "Watcher -> agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb (wake | reference)",
     ]);
     expect(buildRequestContextMock).toHaveBeenCalledWith({
@@ -329,7 +329,8 @@ function createDirectoryMember(input: {
   return {
     allowedRelations: {
       wake: input.profileKind === "agent",
-      reference: true,
+      reference: input.profileKind === "agent",
+      mention: input.profileKind === "human",
     },
     agentCard: null,
     displayName: input.displayName,

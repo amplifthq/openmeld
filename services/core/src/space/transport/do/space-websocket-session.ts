@@ -32,6 +32,7 @@ export type SpaceWebSocketSession = {
   quit?: boolean;
   helloAccepted: boolean;
   supportsLiveSignalHistory: boolean;
+  supportsSpaceMessageAddressing: boolean;
 };
 
 type SpaceWebSocketSessionAttachment = {
@@ -42,6 +43,7 @@ type SpaceWebSocketSessionAttachment = {
   spacePassword?: string;
   helloAccepted?: boolean;
   supportsLiveSignalHistory?: boolean;
+  supportsSpaceMessageAddressing?: boolean;
 };
 
 export function createPendingSpaceWebSocketSession(input: {
@@ -61,6 +63,7 @@ export function createPendingSpaceWebSocketSession(input: {
     enforcedProfile: input.enforcedProfile,
     helloAccepted: false,
     supportsLiveSignalHistory: false,
+    supportsSpaceMessageAddressing: false,
     ...(input.viewerOwnerUserId
       ? { viewerOwnerUserId: input.viewerOwnerUserId }
       : {}),
@@ -86,6 +89,8 @@ export function acceptSpaceWebSocketHello(input: {
   input.session.helloAccepted = true;
   input.session.supportsLiveSignalHistory =
     input.hello.capabilities?.liveSignalHistory === true;
+  input.session.supportsSpaceMessageAddressing =
+    input.hello.capabilities?.spaceMessageAddressing === true;
   return profile;
 }
 
@@ -154,6 +159,9 @@ export function buildSpaceWebSocketSessionAttachment(
     ...(session.supportsLiveSignalHistory
       ? { supportsLiveSignalHistory: true }
       : {}),
+    ...(session.supportsSpaceMessageAddressing
+      ? { supportsSpaceMessageAddressing: true }
+      : {}),
   };
 }
 
@@ -171,6 +179,8 @@ export function restoreSpaceWebSocketSessionFromAttachment(
     blocked: [],
     helloAccepted,
     supportsLiveSignalHistory: meta.supportsLiveSignalHistory === true,
+    supportsSpaceMessageAddressing:
+      meta.supportsSpaceMessageAddressing === true,
     ...(helloAccepted ? { profile: meta.profile ?? meta.enforcedProfile } : {}),
     ...(meta.enforcedProfile ? { enforcedProfile: meta.enforcedProfile } : {}),
     ...(meta.viewerOwnerUserId

@@ -1,8 +1,62 @@
 export const SPACE_WAKE_COMPOSER_HINT =
 	"To wake an agent, type @, then pick the agent.";
+export const SPACE_COMPOSER_ACCESSIBLE_NAME = "Message this space";
 export type SpaceAgentDirectConversationComposerHintKind = "direct_message";
 export const SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT =
 	"In this DM, @ is optional. Sending wakes the agent.";
+
+export type SpaceComposerPlaceholderContext =
+	| "space"
+	| "human_direct_message"
+	| "agent_direct_message"
+	| "center_agent_direct_message"
+	| "thread";
+
+export function resolveSpaceComposerPlaceholder(input: {
+	canSendMessage: boolean;
+	context: SpaceComposerPlaceholderContext;
+	readOnlyPlaceholder?: string;
+	targetName?: string | null;
+}): string {
+	if (input.readOnlyPlaceholder) {
+		return input.readOnlyPlaceholder;
+	}
+	if (!input.canSendMessage) {
+		return "Posting is unavailable in this space right now";
+	}
+	if (input.context === "thread") {
+		return "Reply in thread…";
+	}
+	if (input.context === "center_agent_direct_message") {
+		return "Tell Center Agent what you need…";
+	}
+	if (input.context === "human_direct_message") {
+		return `Message ${input.targetName?.trim() || "this person"}…`;
+	}
+	if (input.context === "agent_direct_message") {
+		return `Message ${input.targetName?.trim() || "this agent"}…`;
+	}
+	return SPACE_WAKE_COMPOSER_HINT;
+}
+
+export function resolveSpaceComposerAccessibleName(input: {
+	context: SpaceComposerPlaceholderContext;
+	targetName?: string | null;
+}): string {
+	if (input.context === "thread") {
+		return "Reply in thread";
+	}
+	if (input.context === "center_agent_direct_message") {
+		return "Message Center Agent";
+	}
+	if (input.context === "human_direct_message") {
+		return `Message ${input.targetName?.trim() || "this person"}`;
+	}
+	if (input.context === "agent_direct_message") {
+		return `Message ${input.targetName?.trim() || "this agent"}`;
+	}
+	return SPACE_COMPOSER_ACCESSIBLE_NAME;
+}
 
 const RAW_WAKE_TEXT_HINT =
 	"This will send a normal message. To wake an agent, use the @ menu and pick the agent.";

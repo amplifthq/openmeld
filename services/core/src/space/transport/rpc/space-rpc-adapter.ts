@@ -1,3 +1,7 @@
+import {
+  OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+} from "@openmeld/gateway-contract";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
 import {
   getSpaceAccessPassword,
@@ -41,6 +45,10 @@ export function buildSpaceRpcRequest(input: {
   const url = new URL(input.path, "https://openmeld-space.internal");
   appendSpaceRpcQuery(url, input.query);
   const headers = buildSpaceRpcHeaders(input);
+  headers.set(
+    OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+    OPENMELD_SPACE_ADDRESSING_VERSION
+  );
   if (input.body !== undefined) {
     headers.set("content-type", "application/json");
   }

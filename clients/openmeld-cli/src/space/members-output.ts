@@ -68,6 +68,7 @@ function formatMemberAddressing(
     ...(member.allowedRelations.reference
       ? [`@${mentionLabel}(reference)`]
       : []),
+    ...(member.allowedRelations.mention ? [`@${mentionLabel}(mention)`] : []),
   ];
   return relations.length > 0
     ? relations.join(", ")
