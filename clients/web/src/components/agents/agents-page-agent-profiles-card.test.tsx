@@ -527,6 +527,47 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
+	it("lets the owner skip interrupted work before queued work can continue", async () => {
+		executeAgentProfileWorkRecoveryMock.mockResolvedValueOnce({
+			action: "skip_interrupted_work",
+			status: "accepted",
+		});
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: null,
+							queuedWorkLocations: ["Customer follow-up"],
+							recoveryAction: { kind: "skip_interrupted_work" },
+							status: "paused",
+							waitingCount: 1,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Skip interrupted work" })
+		);
+
+		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledWith({
+			action: "skip_interrupted_work",
+			agentProfileId: AGENT_PROFILE_ID,
+			organizationId: "org-acme",
+		});
+		await waitFor(() => {
+			expect(toastMock.success).toHaveBeenCalledWith(
+				"Skipped Research Agent's interrupted work."
+			);
+		});
+	});
+
 	it("redacts owner-only diagnostics from a teammate Agent detail", async () => {
 		const baseBinding = createPrimaryBindingResponse(
 			"codex:approveForMe",

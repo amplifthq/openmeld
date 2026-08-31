@@ -1,4 +1,5 @@
 import * as z from "../../lazy-zod";
+import { agentProfileWorkRecoveryActionKindSchema } from "../agent-profile-work-recovery";
 import {
   executionRecoveryDestinationSchema,
   executionRecoveryIdentitySchema,
@@ -123,10 +124,8 @@ const runtimeTransportAgentProfileWorkReferenceSchema = z.strictObject({
   spaceId: z.string().trim().min(1).max(512),
 });
 
-export const runtimeTransportAgentProfileWorkRecoveryActionSchema = z.enum([
-  "continue_interrupted_work",
-  "approve_queued_work",
-]);
+export const runtimeTransportAgentProfileWorkRecoveryActionSchema =
+  agentProfileWorkRecoveryActionKindSchema;
 
 export const runtimeTransportAgentProfileWorkRecoveryReadRequestSchema =
   z.strictObject({
@@ -250,12 +249,28 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema
     status: z.enum(["authorized", "not_pending", "unavailable"]),
   });
 
+export const runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+
+export const runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema =
+  z.strictObject({
+    status: z.enum(["marked", "not_pending", "unavailable"]),
+  });
+
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
   runtimeTransportAgentProfileWorkRecoveryTargetSchema;
 
 export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
   z.strictObject({
     status: z.enum(["approved", "not_pending", "unavailable"]),
+  });
+
+export const runtimeTransportAgentProfileWorkSkipRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+
+export const runtimeTransportAgentProfileWorkSkipResponseSchema =
+  z.strictObject({
+    status: z.enum(["skipped", "not_pending", "unavailable"]),
   });
 
 export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =

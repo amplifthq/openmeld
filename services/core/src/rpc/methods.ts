@@ -4445,36 +4445,46 @@ export async function rpcSubmitRuntimeAgentControllerReports(
     });
 
     if (result.status === "accepted") {
-      await notifyAgentProfileWorkUsageRecoveryAvailable({
-        bindingStore: {
-          listBindings: async (bindingInput) =>
-            await listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController(
-              {
-                ...bindingInput,
-                db,
-              }
-            ),
-        },
-        currentReport: result.currentReport,
-        notifyUsageAvailable: async (recoveryInput) =>
-          await resolveRuntimeTransportOwnerShard(
-            env,
-            recoveryInput.ownerUserId
-          ).rpcMarkAgentProfileWorkUsageAvailable({
-            ownerUserId: recoveryInput.ownerUserId,
-            targetProfileIds: [...recoveryInput.targetProfileIds],
-          }),
-        nowMs: acceptedAtMs,
-        ownerUserId: request.userId,
-        resumeInterruptedWork: async (recoveryInput) => {
-          await resumeUsageExhaustedAgentProfileWork({
-            context,
-            env,
-            ownerUserId: recoveryInput.ownerUserId,
-            targetProfileIds: recoveryInput.targetProfileIds,
-          });
-        },
-      });
+      try {
+        await notifyAgentProfileWorkUsageRecoveryAvailable({
+          bindingStore: {
+            listBindings: async (bindingInput) =>
+              await listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController(
+                {
+                  ...bindingInput,
+                  db,
+                }
+              ),
+          },
+          currentReport: result.currentReport,
+          notifyUsageAvailable: async (recoveryInput) =>
+            await resolveRuntimeTransportOwnerShard(
+              env,
+              recoveryInput.ownerUserId
+            ).rpcMarkAgentProfileWorkUsageAvailable({
+              ownerUserId: recoveryInput.ownerUserId,
+              targetProfileIds: [...recoveryInput.targetProfileIds],
+            }),
+          nowMs: acceptedAtMs,
+          ownerUserId: request.userId,
+          resumeInterruptedWork: async (recoveryInput) => {
+            await resumeUsageExhaustedAgentProfileWork({
+              context,
+              env,
+              ownerUserId: recoveryInput.ownerUserId,
+              targetProfileIds: recoveryInput.targetProfileIds,
+            });
+          },
+        });
+      } catch (error) {
+        console.warn("[core.agent_profile_work.usage_recovery_failed]", {
+          agentControllerRef: result.currentReport.agentControllerRef,
+          error,
+          openMeldServiceRuntimeId:
+            result.currentReport.openMeldServiceRuntimeId.value,
+          ownerUserId: request.userId,
+        });
+      }
     }
 
     reports.push(
@@ -4771,6 +4781,12 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
     });
+  } else if (recovery.action === "skip_interrupted_work") {
+    await executeAgentProfileInterruptedWorkSkip({
+      ownerShard,
+      ownerUserId: request.owner.id,
+      targetProfileId: request.agentProfileId,
+    });
   } else {
     const continuation = await executeAgentProfileWorkContinuation({
       context: request.context,
@@ -4791,6 +4807,31 @@ export async function rpcExecuteAgentProfileWorkRecovery(
   return executeAgentProfileWorkRecoveryResponseSchema.parse({
     action: recovery.action,
     status: "accepted",
+  });
+}
+
+async function executeAgentProfileInterruptedWorkSkip(input: {
+  ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<void> {
+  const skipped = await input.ownerShard.rpcSkipAgentProfileInterruptedWork({
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.targetProfileId,
+  });
+  if (skipped.status === "skipped") {
+    return;
+  }
+  throw createCoreRpcHttpError({
+    code:
+      skipped.status === "unavailable"
+        ? "agent_profile_work_recovery.temporarily_unavailable"
+        : "agent_profile_work_recovery.not_pending",
+    reason:
+      skipped.status === "unavailable"
+        ? "OpenMeld could not skip this interrupted task yet. Try again."
+        : "This recovery action is no longer needed.",
+    status: skipped.status === "unavailable" ? 503 : 409,
   });
 }
 
@@ -4854,6 +4895,21 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
         targetProfileId,
       });
     } catch (error) {
+      try {
+        await ownerShard.rpcMarkAgentProfileWorkContinuationNeedsAttention({
+          ownerUserId: input.ownerUserId,
+          targetProfileId,
+        });
+      } catch (markError) {
+        console.warn(
+          "[core.agent_profile_work.continuation_needs_attention_failed]",
+          {
+            error: markError,
+            ownerUserId: input.ownerUserId,
+            targetProfileId,
+          }
+        );
+      }
       firstError ??= error;
     }
   }

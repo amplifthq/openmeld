@@ -5,10 +5,12 @@ import {
   approveAgentProfileWorkQueue,
   authorizeAgentProfileWorkContinuation,
   createAgentProfileWorkCoordinator,
+  markAgentProfileWorkContinuationNeedsAttention,
   markAgentProfileWorkControllerConversationOccupancy,
   markAgentProfileWorkUsageAvailable,
   removeAgentProfileWork,
   settleAgentProfileWork,
+  skipAgentProfileInterruptedWork,
   summarizeAgentProfileWorkCoordinator,
 } from "../runtime-transport/application/agent-profile-work-coordinator";
 
@@ -392,7 +394,7 @@ describe("Agent Profile Work Coordinator", () => {
     });
   });
 
-  it("keeps the original interrupted work identity when a continuation fails", () => {
+  it("moves a failed automatic continuation to Needs attention without retrying it", () => {
     let coordinator = acceptAgentProfileWork({
       coordinator: createAgentProfileWorkCoordinator({
         nowMs: 1_700_000_000_000,
@@ -433,9 +435,60 @@ describe("Agent Profile Work Coordinator", () => {
     expect(failedContinuation.coordinator.recoveryGate).toMatchObject({
       continuationClientMessageId: null,
       interruptedWork: workItem(1),
-      status: "continuation_pending",
+      status: "continuation_needs_attention",
     });
     expect(failedContinuation.coordinator.workItems).toEqual([]);
+    expect(
+      markAgentProfileWorkUsageAvailable({
+        coordinator: failedContinuation.coordinator,
+        nowMs: 1_700_000_000_600,
+      })
+    ).toEqual({
+      changed: false,
+      coordinator: failedContinuation.coordinator,
+    });
+  });
+
+  it("lets the owner skip unsafe interrupted work and starts the FIFO head once", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 2; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: workItem(index),
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+    coordinator = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      outcome: "usage_exhausted",
+      targetWakeLifecycleId: "wake-1",
+    }).coordinator;
+    coordinator = markAgentProfileWorkUsageAvailable({
+      coordinator,
+      nowMs: 1_700_000_000_150,
+    }).coordinator;
+    coordinator = markAgentProfileWorkContinuationNeedsAttention({
+      coordinator,
+      nowMs: 1_700_000_000_200,
+    }).coordinator;
+
+    const skipped = skipAgentProfileInterruptedWork({
+      coordinator,
+      nowMs: 1_700_000_000_300,
+    });
+
+    expect(skipped.coordinator.recoveryGate).toBeNull();
+    expect(skipped.promotedItem).toEqual(workItem(2));
+    expect(summarizeAgentProfileWorkCoordinator(skipped.coordinator)).toEqual({
+      currentWork: workItem(2),
+      queuedWork: [],
+      status: "working",
+      waitingCount: 0,
+    });
   });
 
   it("never restarts a stopped continuation and keeps later work behind owner approval", () => {

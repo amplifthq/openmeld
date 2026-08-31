@@ -3,6 +3,7 @@ const AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MODEL_VERSION =
 const AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_STORAGE_KEY_PREFIX =
   "runtime-coordinator:agent-profile-work-recovery-inbox-projection:v1:";
 const AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_RETRY_DELAY_MS = 1000;
+export const AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MAX_FAILURES = 3;
 
 type AgentProfileWorkRecoveryInboxProjectionReadStorage = Pick<
   DurableObjectStorage,
@@ -11,8 +12,10 @@ type AgentProfileWorkRecoveryInboxProjectionReadStorage = Pick<
 
 export type AgentProfileWorkRecoveryInboxProjectionIntent = {
   desiredStatus: "open" | "resolved";
+  failureCount: number;
   modelVersion: typeof AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MODEL_VERSION;
   occurredAtMs: number;
+  stage: "approve_queued_work" | "review_interrupted_work";
   targetProfileId: string;
   targetWakeLifecycleId: string;
   updatedAtMs: number;
@@ -21,14 +24,17 @@ export type AgentProfileWorkRecoveryInboxProjectionIntent = {
 export function buildAgentProfileWorkRecoveryInboxProjectionIntent(input: {
   desiredStatus: AgentProfileWorkRecoveryInboxProjectionIntent["desiredStatus"];
   occurredAtMs: number;
+  stage: AgentProfileWorkRecoveryInboxProjectionIntent["stage"];
   targetProfileId: string;
   targetWakeLifecycleId: string;
   updatedAtMs: number;
 }): AgentProfileWorkRecoveryInboxProjectionIntent {
   return {
     desiredStatus: input.desiredStatus,
+    failureCount: 0,
     modelVersion: AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MODEL_VERSION,
     occurredAtMs: input.occurredAtMs,
+    stage: input.stage,
     targetProfileId: input.targetProfileId,
     targetWakeLifecycleId: input.targetWakeLifecycleId,
     updatedAtMs: input.updatedAtMs,
@@ -90,6 +96,8 @@ export function parseAgentProfileWorkRecoveryInboxProjectionIntent(
   }
   const intent =
     value as Partial<AgentProfileWorkRecoveryInboxProjectionIntent>;
+  const failureCount = intent.failureCount ?? 0;
+  const stage = intent.stage ?? "approve_queued_work";
   if (
     intent.modelVersion !==
       AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MODEL_VERSION ||
@@ -98,12 +106,23 @@ export function parseAgentProfileWorkRecoveryInboxProjectionIntent(
     intent.targetProfileId.length === 0 ||
     typeof intent.targetWakeLifecycleId !== "string" ||
     intent.targetWakeLifecycleId.length === 0 ||
+    (stage !== "approve_queued_work" && stage !== "review_interrupted_work") ||
+    !isNonnegativeInteger(failureCount) ||
     !isNonnegativeInteger(intent.occurredAtMs) ||
     !isNonnegativeInteger(intent.updatedAtMs)
   ) {
     return null;
   }
-  return intent as AgentProfileWorkRecoveryInboxProjectionIntent;
+  return {
+    desiredStatus: intent.desiredStatus,
+    failureCount,
+    modelVersion: intent.modelVersion,
+    occurredAtMs: intent.occurredAtMs,
+    stage,
+    targetProfileId: intent.targetProfileId,
+    targetWakeLifecycleId: intent.targetWakeLifecycleId,
+    updatedAtMs: intent.updatedAtMs,
+  } as AgentProfileWorkRecoveryInboxProjectionIntent;
 }
 
 export function sameAgentProfileWorkRecoveryInboxProjectionIntent(
@@ -112,11 +131,44 @@ export function sameAgentProfileWorkRecoveryInboxProjectionIntent(
 ): boolean {
   return (
     left.desiredStatus === right.desiredStatus &&
+    left.failureCount === right.failureCount &&
     left.occurredAtMs === right.occurredAtMs &&
+    left.stage === right.stage &&
     left.targetProfileId === right.targetProfileId &&
     left.targetWakeLifecycleId === right.targetWakeLifecycleId &&
     left.updatedAtMs === right.updatedAtMs
   );
+}
+
+export async function recordAgentProfileWorkRecoveryInboxProjectionFailure(input: {
+  intent: AgentProfileWorkRecoveryInboxProjectionIntent;
+  storage: Pick<DurableObjectStorage, "delete" | "get" | "put" | "transaction">;
+}): Promise<"dropped" | "recorded" | "state_changed"> {
+  const storageKey = buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+    input.intent.targetProfileId
+  );
+  return await input.storage.transaction(async (transaction) => {
+    const current = parseAgentProfileWorkRecoveryInboxProjectionIntent(
+      await transaction.get<unknown>(storageKey)
+    );
+    if (
+      !(
+        current &&
+        sameAgentProfileWorkRecoveryInboxProjectionIntent(current, input.intent)
+      )
+    ) {
+      return "state_changed" as const;
+    }
+    const failureCount = current.failureCount + 1;
+    if (
+      failureCount >= AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MAX_FAILURES
+    ) {
+      await transaction.delete(storageKey);
+      return "dropped" as const;
+    }
+    await transaction.put(storageKey, { ...current, failureCount });
+    return "recorded" as const;
+  });
 }
 
 function isNonnegativeInteger(value: unknown): value is number {

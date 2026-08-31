@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { agentProfileWorkRecoveryActionKindSchema } from "./agent-profile-work-recovery";
 import { authProfileKindSchema } from "./http/profiles";
 
 export const profileDetailsViewerScopeSchema = z.enum([
@@ -40,10 +41,8 @@ export const profileDetailsFieldVisibilitySchema = z.enum([
   "owner_self",
 ]);
 
-export const profileDetailsRecoveryActionKindSchema = z.enum([
-  "continue_interrupted_work",
-  "approve_queued_work",
-]);
+export const profileDetailsRecoveryActionKindSchema =
+  agentProfileWorkRecoveryActionKindSchema;
 
 export const profileDetailsRecoveryActionSchema = z.strictObject({
   kind: profileDetailsRecoveryActionKindSchema,

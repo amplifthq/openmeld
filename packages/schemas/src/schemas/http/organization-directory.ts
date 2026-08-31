@@ -1,4 +1,5 @@
 import * as z from "../../lazy-zod";
+import { agentProfileWorkRecoveryActionKindSchema } from "../agent-profile-work-recovery";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { agentProfileIdSchema, uuidProfileIdSchema } from "../protocol/profile";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
@@ -42,9 +43,7 @@ export const organizationDirectoryAgentProfileOperationalContextSchema =
         .array(organizationDirectoryAgentProfileWorkLocationSchema)
         .max(50)
         .optional(),
-      recoveryAction: z
-        .enum(["continue_interrupted_work", "approve_queued_work"])
-        .optional(),
+      recoveryAction: agentProfileWorkRecoveryActionKindSchema.optional(),
       status: z.literal("paused"),
       waitingCount: z.number().int().min(0).max(50),
     }),

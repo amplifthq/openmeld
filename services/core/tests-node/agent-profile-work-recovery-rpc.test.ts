@@ -161,6 +161,39 @@ describe("Agent Profile work recovery Core RPC", () => {
     }
   });
 
+  it("skips interrupted work through the owner Hub", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "skip_interrupted_work" }),
+    });
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: { action: "skip_interrupted_work" },
+            context: CONTEXT,
+          }
+        )
+      ).resolves.toEqual({
+        action: "skip_interrupted_work",
+        status: "accepted",
+      });
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledOnce();
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledWith({
+        ownerUserId: "owner-1",
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("authorizes one deterministic continuation identity before asking Space to start it", async () => {
     const harness = createRecoveryHarness();
     const callOrder: string[] = [];
@@ -408,6 +441,9 @@ function createRuntimeTransportStub(input?: {
           : (recovery ?? { status: "not_pending" as const })
       );
     }),
+    rpcSkipAgentProfileInterruptedWork: vi.fn(async () => ({
+      status: "skipped" as const,
+    })),
   };
 }
 
@@ -443,7 +479,10 @@ function createEnv(input: {
 }
 
 function buildAvailableRecovery(input: {
-  action: "approve_queued_work" | "continue_interrupted_work";
+  action:
+    | "approve_queued_work"
+    | "continue_interrupted_work"
+    | "skip_interrupted_work";
   authorizedContinuationClientMessageId?: string | null;
 }) {
   return {

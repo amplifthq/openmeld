@@ -774,7 +774,7 @@ function resolveRuntimeRoutePrimaryAction(input: {
     return "fix_provider_account";
   }
   if (input.runtime.reasonCodes.includes("usage_exhausted")) {
-    return "fix_provider_account";
+    return "check_status";
   }
   if (!input.runtime.ready) {
     return resolveRuntimeNotReadyPrimaryAction({

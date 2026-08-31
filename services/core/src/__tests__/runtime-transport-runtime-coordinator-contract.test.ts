@@ -666,7 +666,7 @@ const createRecordingD1 = (input?: {
             }
             if (
               query.includes(
-                "INSERT OR IGNORE INTO openMeldDaemon_runtime_coordinator_execution_events"
+                "INTO openMeldDaemon_runtime_coordinator_execution_events"
               )
             ) {
               const [
@@ -679,7 +679,10 @@ const createRecordingD1 = (input?: {
                 idempotencyKey,
                 payloadJson,
               ] = params;
-              if (!eventRows.has(String(eventId))) {
+              if (
+                query.includes("ON CONFLICT(event_id) DO UPDATE") ||
+                !eventRows.has(String(eventId))
+              ) {
                 eventRows.set(String(eventId), {
                   event_id: eventId,
                   event_type: eventType,
@@ -4470,6 +4473,139 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ resolution_status: "open" });
   });
 
+  it("projects one interrupted-work review and promotes queued work only after the owner skips", async () => {
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      spaceFetchRequests,
+      state,
+      storageRecords,
+    } = createHarness();
+    const { admissionKey, queuedIdentity } =
+      await prepareRunningContinuationWithQueuedWork({
+        hub,
+        queuedWorkName: "needs-attention-successor",
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      });
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: {
+        interruptedWork: {
+          dispatchId: string;
+          targetWakeLifecycleId: string;
+        };
+      };
+      revision: number;
+      updatedAtMs: number;
+      workItems: Array<{
+        dispatchId: string;
+        enqueuedAtMs: number;
+        targetWakeLifecycleId: string;
+      }>;
+    };
+    const queuedWork = admission.workItems.find(
+      (item) => item.dispatchId === queuedIdentity.dispatchId
+    );
+    if (!queuedWork) {
+      throw new Error("Expected queued work after the interrupted Wake.");
+    }
+    storageRecords.set(admissionKey, {
+      ...admission,
+      recoveryGate: {
+        continuationClientMessageId: null,
+        interruptedWork: admission.recoveryGate.interruptedWork,
+        status: "continuation_pending",
+        updatedAtMs: Date.now(),
+      },
+      revision: admission.revision + 1,
+      updatedAtMs: Date.now(),
+      workItems: [queuedWork],
+    });
+
+    const recoveryHub = hub as unknown as {
+      rpcMarkAgentProfileWorkContinuationNeedsAttention: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcReadAgentProfileWorkRecovery: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcSkipAgentProfileInterruptedWork: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const request = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    await expect(
+      recoveryHub.rpcMarkAgentProfileWorkContinuationNeedsAttention(request)
+    ).resolves.toEqual({ status: "marked" });
+    await expect(
+      recoveryHub.rpcMarkAgentProfileWorkContinuationNeedsAttention(request)
+    ).resolves.toEqual({ status: "not_pending" });
+    await expect(
+      recoveryHub.rpcReadAgentProfileWorkRecovery(request)
+    ).resolves.toMatchObject({
+      action: "skip_interrupted_work",
+      interruptedClientMessageId: "client-message-1",
+      interruptedDispatchId: "dispatch-1",
+      interruptedSourceSignalId: "signal-1",
+      spaceId: HEX_SPACE_ID,
+      status: "available",
+    });
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    const reviewRows = [...recordingD1.interactionInboxRows.values()];
+    expect(reviewRows).toEqual([
+      expect.objectContaining({
+        resolution_status: "open",
+        title: "Review interrupted work for Codex Agent",
+      }),
+    ]);
+    expect(JSON.parse(String(reviewRows[0]?.source_target_json))).toEqual({
+      kind: "space",
+      signalId: "signal-1",
+      spaceId: HEX_SPACE_ID,
+    });
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(recordingD1.interactionInboxRows.size).toBe(1);
+
+    await expect(
+      recoveryHub.rpcSkipAgentProfileInterruptedWork(request)
+    ).resolves.toEqual({ status: "skipped" });
+    await expect(
+      recoveryHub.rpcSkipAgentProfileInterruptedWork(request)
+    ).resolves.toEqual({ status: "not_pending" });
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          queuedIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "accepted" });
+    expect(spaceFetchRequests).toContainEqual({
+      body: {
+        reason: "agent_profile_work_coordinator_promotion",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: queuedIdentity.targetWakeLifecycleId,
+      },
+      path: "/internal/dispatches/dispatch-needs-attention-successor/redrive",
+    });
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "resolved" }),
+    ]);
+  });
+
   it("keeps a stopped Usage continuation terminal and holds queued work for owner approval", async () => {
     const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
       createHarness();
@@ -4581,6 +4717,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         buildAgentProfileWorkRecoveryInboxProjectionIntent({
           desiredStatus: "open",
           occurredAtMs: 1_700_000_000_000 + index,
+          stage: "approve_queued_work",
           targetProfileId,
           targetWakeLifecycleId: identity.targetWakeLifecycleId,
           updatedAtMs: 1_700_000_000_000 + index,
@@ -4596,6 +4733,77 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
     expect(recordingD1.interactionInboxRows.size).toBe(9);
+    expect(
+      projectionKeys.filter((key) => storageRecords.has(key))
+    ).toHaveLength(0);
+  });
+
+  it("drops permanently broken recovery projections so later Inbox work can run", async () => {
+    const { hub, recordingD1, storageRecords } = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const baseIdentity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    const baseHead = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        baseIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const projectionKeys: string[] = [];
+
+    for (let index = 0; index < 9; index += 1) {
+      const targetProfileId = `agt_${(index + 40)
+        .toString(16)
+        .padStart(8, "0")}-3333-4333-8333-${(index + 40)
+        .toString(16)
+        .padStart(12, "0")}`;
+      const dispatchId = `dispatch-recovery-starvation-${index}`;
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `client-message-recovery-starvation-${index}`,
+        dispatchId,
+        sourceSignalId: `signal-recovery-starvation-${index}`,
+        spaceId: String(index + 1).repeat(64),
+        targetProfileId,
+      });
+      if (index === 8) {
+        storageRecords.set(
+          buildRuntimeCoordinatorHeadLifecycleStorageKey(
+            identity.targetWakeLifecycleId
+          ),
+          {
+            ...baseHead,
+            primaryDispatchId: dispatchId,
+            primaryIdempotencyKey: `idempotency-recovery-starvation-${index}`,
+            targetWakeLifecycleId: identity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: identity,
+          }
+        );
+      }
+      const projectionKey =
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(targetProfileId);
+      projectionKeys.push(projectionKey);
+      storageRecords.set(
+        projectionKey,
+        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "open",
+          occurredAtMs: 1_700_000_100_000 + index,
+          stage: "approve_queued_work",
+          targetProfileId,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          updatedAtMs: 1_700_000_100_000 + index,
+        })
+      );
+    }
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    }
+    expect(recordingD1.interactionInboxRows.size).toBe(0);
+    expect(projectionKeys.filter((key) => storageRecords.has(key))).toEqual([
+      projectionKeys[8],
+    ]);
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(recordingD1.interactionInboxRows.size).toBe(1);
     expect(
       projectionKeys.filter((key) => storageRecords.has(key))
     ).toHaveLength(0);
@@ -5326,6 +5534,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
 
     expect(storageRecords.has(admissionKey)).toBe(false);
+    expect(
+      storageRecords.has(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          continuationIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toBe(false);
     expect(
       storageRecords.has(
         buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
@@ -12024,6 +12239,81 @@ describe("runtime transport runtime coordinator transport contract", () => {
         (call) => call.params[2] === "runtime_coordinator_redelivery_commanded"
       )
     ).toBe(false);
+  });
+
+  it("keeps the latest conversation occupancy transition as current evidence", async () => {
+    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const lifecycleHub = hub as unknown as {
+      handleDispatchLifecycleFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+    };
+    const nowSpy = vi.spyOn(Date, "now");
+    try {
+      const reportOccupancy = async (
+        stateValue: "available" | "occupied",
+        nowMs: number
+      ) => {
+        nowSpy.mockReturnValue(nowMs);
+        await lifecycleHub.handleDispatchLifecycleFrame(
+          socket,
+          buildLifecycleRequest({
+            agentControllerConversationOccupancy: {
+              agentControllerConversationId: "conversation-1",
+              contractVersion: 1,
+              state: stateValue,
+            },
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            lifecycleAtMs: nowMs,
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        );
+        await vi.waitFor(() => {
+          expect(
+            [...recordingD1.eventRows.values()].some((row) => {
+              const payload = JSON.parse(String(row.payload_json));
+              return (
+                payload.agentControllerConversationOccupancy?.state ===
+                stateValue
+              );
+            })
+          ).toBe(true);
+        });
+      };
+
+      await reportOccupancy("occupied", 1_700_000_000_100);
+      await reportOccupancy("available", 1_700_000_000_200);
+      await reportOccupancy("occupied", 1_700_000_000_300);
+
+      const occupancyRows = [...recordingD1.eventRows.values()].filter(
+        (row) => {
+          const payload = JSON.parse(String(row.payload_json));
+          return Boolean(payload.agentControllerConversationOccupancy);
+        }
+      );
+      expect(occupancyRows).toHaveLength(2);
+      expect(
+        occupancyRows.map((row) => ({
+          observedAtMs: row.observed_at_ms,
+          state: JSON.parse(String(row.payload_json))
+            .agentControllerConversationOccupancy.state,
+        }))
+      ).toEqual(
+        expect.arrayContaining([
+          { observedAtMs: 1_700_000_000_200, state: "available" },
+          { observedAtMs: 1_700_000_000_300, state: "occupied" },
+        ])
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("defers redelivery instead of keep-waiting when the current route lacks capability", async () => {

@@ -5030,7 +5030,19 @@ evidence against the current Profile FIFO head, while the local Service retains
 and retries the same Wake. The original provider error remains adapter
 diagnostics and does not itself drive state. Unknown providers, generic
 transport failures, Agent Activity, and process presence cannot populate this
-contract.
+contract. After a transition, ordinary running keepalives repeat the current
+occupancy value so Core can recover a missed frame without a second provider
+query.
+
+The Agent Profile work-recovery contract exposes only idempotent owner actions
+that change current coordinator state. `skip_interrupted_work` resolves an exact
+`continuation_needs_attention` gate and promotes the oldest queued Wake; it does
+not replay the interrupted request. Usage-based automatic continuation requires
+the exact current `usageLimitsSupportMatrixVersion`, the same Profile,
+controller, Binding, and configuration, complete replayable source context, and
+no prior automatic continuation attempt. An unsafe request or failed automatic
+continuation stays behind one current Needs-attention projection instead of
+entering another retry loop.
 
 `agentControllerCollaborationMode` is independent shared Binding metadata.
 The initial values are `codex:default` and `codex:plan`; non-Codex Bindings

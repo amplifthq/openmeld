@@ -1713,6 +1713,11 @@ and other members see the same compact workload copy, for example
 the owner may see the current Space and queued task references, while another
 member sees only neutral working and queue-count facts. Neither view infers work
 from Agent Activity, browser timers, or message age.
+If interrupted work needs attention, only the owner sees **Skip interrupted
+work** in this Activity section. The action resolves the exact current recovery
+gate and lets the oldest queued Wake continue; repeating it is harmless.
+Non-owners see the same neutral workload summary without the interrupted source
+or recovery action.
 **Direct Message** is a primary header action. An authorized owner may choose
 **Edit Agent** to edit in place, then explicitly **Save changes** or **Cancel**;
 a failed save keeps the draft and its diagnostic visible. Dangerous or

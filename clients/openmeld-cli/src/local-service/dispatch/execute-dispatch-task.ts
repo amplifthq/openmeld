@@ -1398,6 +1398,7 @@ export async function handleDispatchDeliverFrame(input: {
         taskId: parsedTask.taskId,
       });
       stopRunningKeepalive = startDispatchLifecycleKeepalive({
+        agentControllerConversationOccupancy: occupancy,
         attemptId: parsedTask.attemptId,
         connectionGeneration: input.deliverRequest.connectionGeneration,
         currentSocketRef,

@@ -227,6 +227,43 @@ function resolveProfileDetailsViewerScope(
 	return canManage ? "owner_self" : "observer";
 }
 
+function formatAgentProfileWorkRecoverySuccess(
+	recoveryAction: ProfileDetailsRecoveryAction,
+	profileName: string
+): string {
+	switch (recoveryAction.kind) {
+		case "continue_interrupted_work":
+			return `Continuing ${profileName}'s interrupted work.`;
+		case "approve_queued_work":
+			return `Starting ${profileName}'s queued work.`;
+		case "skip_interrupted_work":
+			return `Skipped ${profileName}'s interrupted work.`;
+		default:
+			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
+	}
+}
+
+function formatAgentProfileWorkRecoveryFailureAction(
+	recoveryAction: ProfileDetailsRecoveryAction
+): string {
+	switch (recoveryAction.kind) {
+		case "continue_interrupted_work":
+			return "continue the interrupted work";
+		case "approve_queued_work":
+			return "start the queued work";
+		case "skip_interrupted_work":
+			return "skip the interrupted work";
+		default:
+			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
+	}
+}
+
+function assertNeverProfileDetailsRecoveryActionKind(value: never): never {
+	throw new Error(
+		`Unsupported Agent Profile recovery action: ${String(value)}`
+	);
+}
+
 export type {
 	AgentProfileControllerChangeUpdate,
 	AgentProfileModelSelectionUpdate,
@@ -1372,20 +1409,19 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				return;
 			}
 			toast.success(
-				recoveryAction.kind === "continue_interrupted_work"
-					? `Continuing ${profile.profileName}'s interrupted work.`
-					: `Starting ${profile.profileName}'s queued work.`
+				formatAgentProfileWorkRecoverySuccess(
+					recoveryAction,
+					profile.profileName
+				)
 			);
 		} catch (error) {
 			console.error("Failed to recover Agent Profile work.", error);
 			toast.error(
 				formatMutationError(
 					error,
-					`OpenMeld could not ${
-						recoveryAction.kind === "continue_interrupted_work"
-							? "continue the interrupted work"
-							: "start the queued work"
-					} for ${profile.profileName}.`
+					`OpenMeld could not ${formatAgentProfileWorkRecoveryFailureAction(
+						recoveryAction
+					)} for ${profile.profileName}.`
 				)
 			);
 		} finally {

@@ -359,6 +359,12 @@ does not create an Inbox action. After the retry succeeds, later queued Wakes
 remain held behind one separate owner approval item. That item is action
 required and urgent, so it may use urgent email; approving it resumes FIFO from
 the oldest held Wake. Reading or Dismissing it does not approve queued work.
+If the interrupted request cannot be replayed safely or that one automatic
+retry fails, OpenMeld creates exactly one urgent `Needs attention` item linked
+to the original Wake. Repeated failure or recovery reports update the same
+idempotent item instead of creating Inbox noise. Reading or Dismissing it does
+not resolve the recovery gate. The owner may skip the interrupted work; that
+action is idempotent and allows the oldest later Wake to continue.
 
 ## Delivery channels and preferences
 

@@ -1,10 +1,9 @@
 import * as z from "zod/v4";
+import { agentProfileWorkRecoveryActionKindSchema } from "../agent-profile-work-recovery";
 import { agentProfileIdSchema } from "../protocol/profile";
 
-export const agentProfileWorkRecoveryActionSchema = z.enum([
-  "continue_interrupted_work",
-  "approve_queued_work",
-]);
+export const agentProfileWorkRecoveryActionSchema =
+  agentProfileWorkRecoveryActionKindSchema;
 
 export const agentProfileWorkRecoveryRouteParamsSchema = z.strictObject({
   agentProfileId: agentProfileIdSchema,

@@ -184,17 +184,37 @@ function ProfileDetailsSectionView(input: {
 function formatProfileDetailsRecoveryActionPendingLabel(
 	recoveryAction: ProfileDetailsRecoveryAction
 ): string {
-	return recoveryAction.kind === "continue_interrupted_work"
-		? "Continuing interrupted work…"
-		: "Starting queued work…";
+	switch (recoveryAction.kind) {
+		case "continue_interrupted_work":
+			return "Continuing interrupted work…";
+		case "approve_queued_work":
+			return "Starting queued work…";
+		case "skip_interrupted_work":
+			return "Skipping interrupted work…";
+		default:
+			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
+	}
 }
 
 function formatProfileDetailsRecoveryActionLabel(
 	recoveryAction: ProfileDetailsRecoveryAction
 ): string {
-	return recoveryAction.kind === "continue_interrupted_work"
-		? "Continue interrupted work"
-		: "Start queued work";
+	switch (recoveryAction.kind) {
+		case "continue_interrupted_work":
+			return "Continue interrupted work";
+		case "approve_queued_work":
+			return "Start queued work";
+		case "skip_interrupted_work":
+			return "Skip interrupted work";
+		default:
+			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
+	}
+}
+
+function assertNeverProfileDetailsRecoveryActionKind(value: never): never {
+	throw new Error(
+		`Unsupported Agent Profile recovery action: ${String(value)}`
+	);
 }
 
 function ProfileDetailsFieldRow(input: { row: ProfileDetailsField }) {

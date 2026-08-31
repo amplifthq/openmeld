@@ -100,6 +100,7 @@ const tempDirs: string[] = [];
 const CLI_SPACE_ACTION_FINALIZATION_TIMEOUT_MS = 15_000;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -561,6 +562,12 @@ describe("dispatch result outbox around preview teardown", () => {
 
   it("forwards provider conversation occupancy as nonterminal lifecycle evidence", async () => {
     await withTempHome(async () => {
+      vi.spyOn(globalThis, "setInterval").mockImplementation((handler) => {
+        if (typeof handler === "function") {
+          handler();
+        }
+        return 1 as never;
+      });
       const ledgerPaths = createLedgerPaths();
       const presenter = createPresenter();
       const settlementSocket = createAcceptedSettlementSocket({
@@ -640,6 +647,16 @@ describe("dispatch result outbox around preview teardown", () => {
           agentControllerConversationId: "thread-occupied",
           contractVersion: 1,
           state: "occupied",
+        },
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          state: "occupied",
+        },
+        {
+          agentControllerConversationId: "thread-occupied",
+          contractVersion: 1,
+          state: "available",
         },
         {
           agentControllerConversationId: "thread-occupied",
