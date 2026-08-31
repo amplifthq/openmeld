@@ -14,6 +14,7 @@ import {
   withAuthSessionCandidateRefreshLock,
   withAuthSessionTransitionMutationLock,
 } from "./auth-session-transition-lock";
+import { isLoopbackHostname } from "./loopback-hostname";
 import { openMeldRootDir } from "./paths";
 import {
   deleteAccessToken,
@@ -1720,12 +1721,6 @@ function parseUrlOrNull(value: string): URL | null {
   } catch {
     return null;
   }
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-  );
 }
 
 function hasActiveSessionPayload(payload: unknown): boolean {

@@ -1,9 +1,9 @@
+import { SPACE_STATUS_PREVIEW_MAX_UTF16_UNITS } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
   resolveFormalSpaceUpdatePreviewText,
   resolveSpaceStatusPreviewText,
   resolveVisibleTimelineSignalTypes,
-  SPACE_STATUS_PREVIEW_MAX_CHARS,
   VISIBLE_SPACE_TIMELINE_SIGNAL_TYPES,
 } from "../space/rules/formal-space-update";
 
@@ -62,13 +62,15 @@ describe("Space update previews", () => {
     const signal = {
       type: "signal.text",
       data: {
-        text: `${"a".repeat(SPACE_STATUS_PREVIEW_MAX_CHARS - 2)}😀tail`,
+        text: `${"a".repeat(SPACE_STATUS_PREVIEW_MAX_UTF16_UNITS - 2)}😀tail`,
       },
     } as Parameters<typeof resolveFormalSpaceUpdatePreviewText>[0];
     const preview = resolveSpaceStatusPreviewText(signal);
 
-    expect(preview).toHaveLength(SPACE_STATUS_PREVIEW_MAX_CHARS - 1);
-    expect(preview).toBe(`${"a".repeat(SPACE_STATUS_PREVIEW_MAX_CHARS - 2)}…`);
+    expect(preview).toHaveLength(SPACE_STATUS_PREVIEW_MAX_UTF16_UNITS - 1);
+    expect(preview).toBe(
+      `${"a".repeat(SPACE_STATUS_PREVIEW_MAX_UTF16_UNITS - 2)}…`
+    );
     expect(preview).not.toContain("tail");
     expect(resolveFormalSpaceUpdatePreviewText(signal)).toContain("😀tail");
   });

@@ -1,5 +1,8 @@
 import type { SpaceMeta } from "@openmeld/protocol";
-import { MAX_SPACE_GUIDE_LENGTH } from "@openmeld/schemas";
+import {
+  MAX_SPACE_GUIDE_LENGTH,
+  resolveInitialSpaceAccessMode,
+} from "@openmeld/schemas";
 import {
   buildSpacePasswordProof,
   type SpacePasswordProof,
@@ -195,7 +198,7 @@ function resolveSpaceMetaAccessMode(
     }
     return input.metaUpdate.accessMode;
   }
-  return visibility === "private" ? "members_only" : "public";
+  return resolveInitialSpaceAccessMode(visibility);
 }
 
 function resolveSpaceMetaOrganizationId(input: {

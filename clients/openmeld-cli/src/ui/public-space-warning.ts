@@ -1,7 +1,5 @@
 import type { SpaceAccessPresentationInput } from "../space/access-presentation";
-import { buildUnifiedCardFrame } from "./card-frame";
-
-const PUBLIC_SPACE_WARNING_TITLE = "⚠️ Check Before You Continue";
+import { buildSpaceAccessPromptCardMessage } from "./space-access-prompt-card";
 
 type PublicSpaceConfirmPromptConfig = {
   active: string;
@@ -86,23 +84,4 @@ function buildPublicSpacePromptMessage(
     lines: buildPublicSpaceWarningLines(exposure),
     question,
   });
-}
-
-export function buildSpaceAccessPromptCardMessage(input: {
-  lines: string[];
-  question: string;
-}): string {
-  const frame = buildUnifiedCardFrame({
-    title: PUBLIC_SPACE_WARNING_TITLE,
-    rowTextList: input.lines,
-    minContentWidth: 76,
-  });
-  return [
-    frame.top,
-    frame.empty,
-    ...frame.rows,
-    frame.empty,
-    frame.bottom,
-    input.question,
-  ].join("\n");
 }

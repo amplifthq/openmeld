@@ -1,5 +1,6 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
+  boundSpaceStatusPreviewText,
   SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
   SPACE_MEMBER_REMOVE_NOTICE_PURPOSE,
 } from "@openmeld/schemas";
@@ -46,7 +47,6 @@ export function resolveVisibleTimelineSignalTypes(
 }
 
 const OPENMELD_SYSTEM_PROFILE_ID = "openmeld-system";
-export const SPACE_STATUS_PREVIEW_MAX_CHARS = 240;
 
 export function isFormalSpaceUpdateSignal(
   signal: SignalEnvelope
@@ -118,21 +118,8 @@ export function resolveFormalSpaceUpdatePreviewText(
 export function resolveSpaceStatusPreviewText(
   signal: FormalSpaceUpdateSignal
 ): string | null {
-  return truncateSpaceStatusPreview(
-    resolveFormalSpaceUpdatePreviewText(signal)
-  );
-}
-
-function truncateSpaceStatusPreview(text: string | null): string | null {
-  if (!(text && text.length > SPACE_STATUS_PREVIEW_MAX_CHARS)) {
-    return text;
-  }
-  let truncated = text.slice(0, SPACE_STATUS_PREVIEW_MAX_CHARS - 1).trimEnd();
-  const finalCodeUnit = truncated.charCodeAt(truncated.length - 1);
-  if (finalCodeUnit >= 0xd8_00 && finalCodeUnit <= 0xdb_ff) {
-    truncated = truncated.slice(0, -1).trimEnd();
-  }
-  return `${truncated}…`;
+  const text = resolveFormalSpaceUpdatePreviewText(signal);
+  return text ? boundSpaceStatusPreviewText(text) : null;
 }
 
 function readSignalTextMeta(

@@ -79,6 +79,7 @@ import {
   readListSignalsQueryRawValues,
   removeSpaceMembersBodySchema,
   removeSpaceMembersResponseSchema,
+  resolveInitialSpaceAccessMode,
   resolveProfileResponseSchema,
   revokeAgentProfileBindingForOrganizationResponseSchema,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
@@ -1115,6 +1116,48 @@ describe("http schemas", () => {
       }
       expect(statusResponse.data.centerAgentProfileId).toBe(AGENT_PROFILE_ID);
       expect(statusResponse.data.organizationVisibility).toBe("private");
+    });
+
+    it("uses one shared policy for a newly created Space's initial access", () => {
+      expect(resolveInitialSpaceAccessMode("public")).toBe("public");
+      expect(resolveInitialSpaceAccessMode("private")).toBe("members_only");
+    });
+
+    it("bounds status previews received from older Core deployments", () => {
+      const longPreview = `${"a".repeat(238)}😀tail-that-must-not-leak`;
+      const parsed = getSpaceStatusResponseSchema.parse({
+        spaceId: "space-1",
+        generatedAt: "2026-03-21T00:00:00.000Z",
+        accessMode: "members_only",
+        passwordProtected: false,
+        dispatchPolicy: { mode: "mention_only" },
+        publicationMode: "collaboration",
+        allowedActions: ["post_message", "post_status", "stay_silent"],
+        resultArchivePolicy: { mode: "all_final_results" },
+        entryBrief: "default",
+        dispatchBrief: "default",
+        members: {
+          totalCount: 1,
+          humanCount: 1,
+          agentCount: 0,
+          liveNowCount: 0,
+          liveHumanCount: 0,
+          liveAgentCount: 0,
+        },
+        latestVisibleUpdate: {
+          signalId: "sig-status-long",
+          signalType: "signal.text",
+          createdAt: "2026-03-21T00:00:00.000Z",
+          actorProfileId: "11111111-1111-4111-8111-111111111111",
+          previewText: longPreview,
+        },
+      });
+
+      expect(parsed.latestVisibleUpdate?.previewText).toHaveLength(239);
+      expect(parsed.latestVisibleUpdate?.previewText).toBe(
+        `${"a".repeat(238)}…`
+      );
+      expect(parsed.latestVisibleUpdate?.previewText).not.toContain("tail");
     });
 
     it("preserves Space status compatibility counts without using them as status truth", () => {

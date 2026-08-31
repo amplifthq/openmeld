@@ -47,4 +47,38 @@ describe("space-latest-visible-update-service", () => {
       signalId: visibleSignal.id,
     });
   });
+
+  it("returns a bounded preview for a long visible message", async () => {
+    const visibleSignal = {
+      v: 1,
+      id: "signal-long-visible-update",
+      spaceId: "space-long-latest-visible",
+      ts: 900,
+      type: "signal.text",
+      profile: {
+        kind: "human",
+        profileId: "11111111-1111-4111-8111-111111111111",
+        profileName: "Test User",
+      },
+      data: { text: `${"a".repeat(238)}😀tail-that-must-not-leak` },
+    };
+    const exec = vi.fn(() => ({
+      toArray: () => [
+        {
+          id: visibleSignal.id,
+          payload_json: JSON.stringify(visibleSignal),
+          ts: visibleSignal.ts,
+        },
+      ],
+    }));
+
+    const latestVisibleUpdate = await readLatestVisibleFormalUpdate({
+      env: {} as CoreBindings,
+      sql: { exec } as unknown as SqlStorage,
+    });
+
+    expect(latestVisibleUpdate?.previewText).toHaveLength(239);
+    expect(latestVisibleUpdate?.previewText).toBe(`${"a".repeat(238)}…`);
+    expect(latestVisibleUpdate?.previewText).not.toContain("tail");
+  });
 });

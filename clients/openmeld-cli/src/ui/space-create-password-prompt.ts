@@ -1,6 +1,6 @@
-import { buildSpaceAccessPromptCardMessage } from "./public-space-warning";
+import { buildSpaceAccessPromptCardMessage } from "./space-access-prompt-card";
 
-export type SpaceCreateVisibility = "public" | "private";
+export type SpaceCreateInitialAccessMode = "public" | "members_only";
 
 export type SpaceCreatePasswordPromptConfig = {
   message: string;
@@ -9,13 +9,13 @@ export type SpaceCreatePasswordPromptConfig = {
 };
 
 export function buildSpaceCreatePasswordPromptConfig(input: {
+  accessMode: SpaceCreateInitialAccessMode;
   minimumLength: number;
-  visibility: SpaceCreateVisibility;
 }): SpaceCreatePasswordPromptConfig {
   return {
     message: buildSpaceAccessPromptCardMessage({
       lines: [
-        resolveSpaceCreatePasswordlessAccessText(input.visibility),
+        resolveSpaceCreatePasswordlessAccessText(input.accessMode),
         "With a password, only people who have it can open and join the Space.",
         `Passwords must be at least ${input.minimumLength} characters.`,
       ],
@@ -23,16 +23,16 @@ export function buildSpaceCreatePasswordPromptConfig(input: {
     }),
     setPasswordLabel: "Yes, require a password to open and join",
     skipPasswordLabel:
-      input.visibility === "public"
+      input.accessMode === "public"
         ? "No, anyone with the link can join"
         : "No, keep access members-only",
   };
 }
 
 export function resolveSpaceCreatePasswordlessAccessText(
-  visibility: SpaceCreateVisibility
+  accessMode: SpaceCreateInitialAccessMode
 ): string {
-  return visibility === "public"
+  return accessMode === "public"
     ? "Without a password, anyone with this Space link can read what is shared here and join."
     : "Without a password, only current members can open this Space. New participants must be added explicitly.";
 }

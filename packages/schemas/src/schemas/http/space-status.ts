@@ -21,13 +21,31 @@ const optionalTrimmedStringSchema = z.preprocess((value) => {
   return normalized.length > 0 ? normalized : undefined;
 }, z.string().min(1).optional());
 
+export const SPACE_STATUS_PREVIEW_MAX_UTF16_UNITS = 240 as const;
+
+export function boundSpaceStatusPreviewText(text: string): string {
+  if (text.length <= SPACE_STATUS_PREVIEW_MAX_UTF16_UNITS) {
+    return text;
+  }
+  let truncated = text
+    .slice(0, SPACE_STATUS_PREVIEW_MAX_UTF16_UNITS - 1)
+    .trimEnd();
+  const finalCodeUnit = truncated.charCodeAt(truncated.length - 1);
+  if (finalCodeUnit >= 0xd8_00 && finalCodeUnit <= 0xdb_ff) {
+    truncated = truncated.slice(0, -1).trimEnd();
+  }
+  return `${truncated}…`;
+}
+
 export const spaceStatusLatestVisibleUpdateSchema = z.object({
   signalId: nonEmptyTrimmedStringFromUnknown,
   signalType: z.enum(["signal.text", "signal.status", "signal.system_notice"]),
   createdAt: isoDateTimeSchema,
   actorProfileId: openMeldRuntimeProfileIdSchema,
   actorName: optionalTrimmedStringSchema,
-  previewText: nonEmptyTrimmedStringFromUnknown,
+  previewText: nonEmptyTrimmedStringFromUnknown.transform(
+    boundSpaceStatusPreviewText
+  ),
 });
 
 export const spaceStatusMembersSummarySchema = spaceMembersSummarySchema.extend(

@@ -15,6 +15,7 @@ import type { SpaceCreator, SpaceMeta } from "@openmeld/protocol";
 import {
   normalizeBuiltinAgentControllerId,
   normalizeSpacePasswordText,
+  resolveInitialSpaceAccessMode,
   resolveSingleSpaceMentionLabels,
   SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
   SPACE_MEMBER_REMOVE_NOTICE_PURPOSE,
@@ -59,6 +60,7 @@ import {
   type StoredActiveOrganization,
   type StoredAuthSession,
 } from "../config/auth-session";
+import { isLoopbackHostname } from "../config/loopback-hostname";
 import {
   listOpenMeldProfiles,
   type OpenMeldProfile,
@@ -1450,12 +1452,6 @@ function parseUrlOrNull(value: string): URL | null {
   }
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-  );
-}
-
 function requireActiveOrganizationSlug(
   organization: StoredActiveOrganization | null
 ): string {
@@ -2124,8 +2120,9 @@ function emitSpaceCreatePasswordOptionalHint(input: {
 function buildSpaceCreatePasswordOptionalHintText(
   visibility: SpaceCreateVisibility
 ): string {
+  const initialAccessMode = resolveInitialSpaceAccessMode(visibility);
   return (
-    `Password is optional. ${resolveSpaceCreatePasswordlessAccessText(visibility)} To require a password to open and join, use --password <value>. Password rule: ` +
+    `Password is optional. ${resolveSpaceCreatePasswordlessAccessText(initialAccessMode)} To require a password to open and join, use --password <value>. Password rule: ` +
     buildSpacePasswordRequirementsText()
   );
 }
@@ -2140,8 +2137,8 @@ export function buildCreateSpacePasswordPromptConfig(
   visibility: SpaceCreateVisibility
 ): SpaceCreatePasswordPromptConfig {
   return buildSpaceCreatePasswordPromptConfig({
+    accessMode: resolveInitialSpaceAccessMode(visibility),
     minimumLength: SPACE_PASSWORD_MIN_LENGTH,
-    visibility,
   });
 }
 

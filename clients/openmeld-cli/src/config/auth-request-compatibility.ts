@@ -1,5 +1,6 @@
 import { normalizeBaseUrl } from "../protocol/urls";
 import type { StoredAuthSession } from "./auth-session";
+import { isLoopbackHostname } from "./loopback-hostname";
 
 export type AuthRequestCompatibilityReason =
   | "invalid_request_url"
@@ -138,12 +139,6 @@ function parseUrlOrNull(value: string): URL | null {
   } catch {
     return null;
   }
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-  );
 }
 
 function isSecureTransportProtocol(protocol: string): boolean {

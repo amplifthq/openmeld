@@ -65,6 +65,16 @@ describe("resolveAuthRequestCompatibility for the daemon stream URL", () => {
     expect(result.reason).toBe("loopback");
   });
 
+  it("accepts IPv6 loopback auth and gateway URLs", () => {
+    const result = resolveAuthRequestCompatibility({
+      session: sessionWithAuthBaseUrl("http://[::1]:8788"),
+      requestUrl: "http://[::1]:8080/v1/spaces/space-1/status",
+    });
+
+    expect(result.compatible).toBe(true);
+    expect(result.reason).toBe("loopback");
+  });
+
   it("rejects the dev-local default against the prod daemon stream", () => {
     // A session written by a dev-local/canary sign-in cannot authenticate a
     // prod gateway dial. This is the lane-mix shape that must fail closed

@@ -4,8 +4,8 @@ import { buildSpaceCreatePasswordPromptConfig } from "../src/ui/space-create-pas
 describe("Space create password prompt", () => {
   it("explains the public passwordless choice", () => {
     const config = buildSpaceCreatePasswordPromptConfig({
+      accessMode: "public",
       minimumLength: 6,
-      visibility: "public",
     });
 
     expect(config).toMatchObject({
@@ -27,8 +27,8 @@ describe("Space create password prompt", () => {
 
   it("explains the private passwordless choice", () => {
     const config = buildSpaceCreatePasswordPromptConfig({
+      accessMode: "members_only",
       minimumLength: 6,
-      visibility: "private",
     });
 
     expect(config).toMatchObject({
