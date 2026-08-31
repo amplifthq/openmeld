@@ -12,12 +12,13 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { createRef } from "react";
+import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
 } from "./space-composer-editor";
+import { getEditorFocusReadiness } from "./space-composer-focus";
 import type { SpaceComposerAddressingTarget } from "./use-space-mention-authoring";
 import { buildSpaceMentionTargetItems } from "./use-space-mention-authoring";
 
@@ -644,6 +645,53 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
+	it("focuses a restored external draft after its Slate nodes reach the DOM", async () => {
+		const view = render(<RestoredDraftHarness text="" />);
+
+		view.rerender(<RestoredDraftHarness text="Restored draft" />);
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(
+				screen.getByRole("textbox", { name: "Message this space" })
+			);
+		});
+	});
+
+	it("bounds focus retries when Slate operations are empty but the DOM range is invalid", () => {
+		const selection = {
+			anchor: { offset: 14, path: [0, 0] },
+			focus: { offset: 14, path: [0, 0] },
+		};
+		const toDOMRange = vi.fn(() => {
+			throw new Error(
+				'Cannot resolve a DOM node from Slate node: {"text":"Restored draft"}'
+			);
+		});
+
+		expect(
+			getEditorFocusReadiness(
+				{
+					api: { toDOMRange } as never,
+					operations: [],
+					selection,
+				},
+				1
+			)
+		).toBe("retry");
+		expect(
+			getEditorFocusReadiness(
+				{
+					api: { toDOMRange } as never,
+					operations: [],
+					selection,
+				},
+				0
+			)
+		).toBe("cancel");
+		expect(toDOMRange).toHaveBeenCalledTimes(2);
+		expect(toDOMRange).toHaveBeenLastCalledWith(selection);
+	});
+
 	it("accepts plain browser text input through the contenteditable surface", async () => {
 		const onChange = vi.fn();
 		render(
@@ -684,6 +732,32 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 });
+
+function RestoredDraftHarness(input: { text: string }) {
+	const composerRef = useRef<SpaceComposerEditorHandle>(null);
+	useLayoutEffect(() => {
+		if (input.text) {
+			composerRef.current?.selectTextRange({
+				end: input.text.length,
+				start: input.text.length,
+			});
+		}
+	}, [input.text]);
+
+	return (
+		<SpaceComposerEditor
+			addressingTargets={[]}
+			ariaLabel="Message this space"
+			authoredMentions={[]}
+			composerRef={composerRef}
+			mentionPickerItems={[]}
+			onChange={vi.fn()}
+			onSend={vi.fn()}
+			placeholder="To wake an agent, type @, then pick the agent."
+			text={input.text}
+		/>
+	);
+}
 
 function createAgentTarget(): SpaceComposerAddressingTarget {
 	return {
