@@ -10,6 +10,12 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { buildOpenMeldSetupBootstrapScript } from "../../clients/web/src/lib/setup-bootstrap-script.ts";
+import {
+  betterAuthDeviceAuthorizationTokenRequestSchema,
+  betterAuthDeviceAuthorizationTokenResponseSchema,
+  betterAuthSessionSnapshotResponseSchema,
+  prepareSessionResponseSchema,
+} from "../../packages/schemas/dist/index.js";
 import { buildCliBinary } from "../release/build-cli-binary.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +29,67 @@ const OPENMELD_ENV_KEYS_TO_CLEAR = new Set([
   "OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND",
   "OPENMELD_USER_FACING_CLI_COMMAND",
 ]);
+
+// Auth fixtures are parsed by the shared Better Auth vendor-contract schemas.
+// The session field names and serialized shapes follow the sanitized capture in
+// services/auth/tests/better-auth-routes.test.ts; only fixture values differ.
+const FIXTURE_ACCOUNT_A_SESSION_RESPONSE =
+  betterAuthSessionSnapshotResponseSchema.parse({
+    session: {
+      id: "fixture-session-a",
+      token: "redacted-session-token-a",
+      userId: "fixture-user-a",
+      activeOrganizationId: "fixture-organization",
+      expiresAt: "2099-08-31T00:00:00.000Z",
+      createdAt: "2026-08-31T00:00:00.000Z",
+      updatedAt: "2026-08-31T00:00:00.000Z",
+      ipAddress: "127.0.0.1",
+      userAgent: "",
+    },
+    user: {
+      id: "fixture-user-a",
+      email: "account-a@example.invalid",
+      name: "Fixture Account A",
+      emailVerified: true,
+      image: null,
+      username: null,
+      displayUsername: null,
+      createdAt: "2026-08-31T00:00:00.000Z",
+      updatedAt: "2026-08-31T00:00:00.000Z",
+    },
+  });
+const FIXTURE_ACCOUNT_B_SESSION_RESPONSE =
+  betterAuthSessionSnapshotResponseSchema.parse({
+    session: {
+      id: "fixture-session-b",
+      token: "redacted-session-token-b",
+      userId: "fixture-user-b",
+      activeOrganizationId: "fixture-organization",
+      expiresAt: "2099-08-31T00:00:00.000Z",
+      createdAt: "2026-08-31T00:00:00.000Z",
+      updatedAt: "2026-08-31T00:00:00.000Z",
+      ipAddress: "127.0.0.1",
+      userAgent: "",
+    },
+    user: {
+      id: "fixture-user-b",
+      email: "account-b@example.invalid",
+      name: "Fixture Account B",
+      emailVerified: true,
+      image: null,
+      username: null,
+      displayUsername: null,
+      createdAt: "2026-08-31T00:00:00.000Z",
+      updatedAt: "2026-08-31T00:00:00.000Z",
+    },
+  });
+const FIXTURE_DEVICE_TOKEN_RESPONSE =
+  betterAuthDeviceAuthorizationTokenResponseSchema.parse({
+    access_token: "fixture-access-token-b",
+    token_type: "Bearer",
+    expires_in: 3600,
+    scope: "openid profile email",
+  });
 
 async function main() {
   const tempRoot = await mkdtemp(
@@ -156,6 +223,7 @@ async function main() {
         setupUrl: `${server.origin}/setup`,
       });
     assertNonInteractiveAccountSwitchOutput(nonInteractiveAccountSwitchOutput);
+    assertAccountSwitchRevocationCount(server.getRequestCounts());
 
     process.stdout.write(
       [
@@ -369,6 +437,15 @@ function assertNonInteractiveAccountSwitchOutput(output) {
   if (output.includes("Switch this computer from account-a@example.invalid")) {
     throw new Error(
       `non-interactive account switch displayed an unusable prompt:\n${output}`
+    );
+  }
+}
+
+function assertAccountSwitchRevocationCount(requestCounts) {
+  const expectedRevocations = 4;
+  if (requestCounts.authSignOut !== expectedRevocations) {
+    throw new Error(
+      `expected ${expectedRevocations} unused account-switch sessions to be revoked, received ${requestCounts.authSignOut}`
     );
   }
 }
@@ -666,9 +743,14 @@ async function startBinaryManifestServer(input) {
   );
 
   let origin = "";
-  const requestCounts = { archive: 0, manifest: 0, raw: 0 };
+  const requestCounts = {
+    archive: 0,
+    authSignOut: 0,
+    manifest: 0,
+    raw: 0,
+  };
   let setupScript = "";
-  const server = createServer((request, response) => {
+  const server = createServer(async (request, response) => {
     if (request.url === "/setup") {
       response.writeHead(200, {
         "cache-control": "no-store",
@@ -678,67 +760,68 @@ async function startBinaryManifestServer(input) {
       return;
     }
     if (request.url === "/api/auth/one-time-token/verify") {
-      response.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
-        "set-auth-token": "fixture-access-token-a",
+      await respondToValidatedJsonFixture({
+        request,
+        response,
+        method: "POST",
+        expectedPayload: { token: "fixture-account-a" },
+        responseBody: FIXTURE_ACCOUNT_A_SESSION_RESPONSE,
+        responseHeaders: {
+          "set-auth-token": "fixture-access-token-a",
+        },
       });
-      response.end(
-        JSON.stringify({
-          session: {
-            id: "fixture-session-a",
-            expiresAt: "2099-08-31T00:00:00.000Z",
-          },
-          user: {
-            id: "fixture-user-a",
-            email: "account-a@example.invalid",
-            name: "Fixture Account A",
-          },
-        })
-      );
       return;
     }
     if (request.url === "/api/auth/device/token") {
-      response.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
+      await respondToValidatedJsonFixture({
+        request,
+        response,
+        method: "POST",
+        parsePayload: (payload) =>
+          betterAuthDeviceAuthorizationTokenRequestSchema.parse(payload),
+        expectedPayload: {
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code: "fixture-device-code-b",
+          client_id: "openmeld-cli",
+        },
+        responseBody: FIXTURE_DEVICE_TOKEN_RESPONSE,
       });
-      response.end(
-        JSON.stringify({
-          access_token: "fixture-access-token-b",
-          token_type: "Bearer",
-          expires_in: 3600,
-          scope: "openid profile email",
-        })
-      );
       return;
     }
     if (request.url === "/api/auth/get-session") {
-      response.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
+      await respondToValidatedJsonFixture({
+        request,
+        response,
+        method: "GET",
+        expectedAuthorization: "Bearer fixture-access-token-b",
+        responseBody: FIXTURE_ACCOUNT_B_SESSION_RESPONSE,
       });
-      response.end(
-        JSON.stringify({
-          session: { id: "fixture-session-b" },
-          user: {
-            id: "fixture-user-b",
-            email: "account-b@example.invalid",
-            name: "Fixture Account B",
-          },
-        })
-      );
       return;
     }
     if (request.url === "/api/auth/sign-out") {
-      response.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
+      await respondToValidatedJsonFixture({
+        request,
+        response,
+        method: "POST",
+        expectedAuthorization: "Bearer fixture-access-token-b",
+        expectedPayload: {},
+        onValidated: () => {
+          requestCounts.authSignOut += 1;
+        },
+        responseBody: { ok: true },
       });
-      response.end('{"ok":true}');
       return;
     }
     if (request.url === "/v1/prepare/sessions/resolve-token") {
-      response.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
+      await respondToValidatedJsonFixture({
+        request,
+        response,
+        method: "POST",
+        expectedPayload: { opaqueToken: "fixture-prepare-session" },
+        responseBody: prepareSessionResponseSchema.parse({
+          snapshot: buildPrepareSessionSnapshot(),
+        }),
       });
-      response.end(JSON.stringify({ snapshot: buildPrepareSessionSnapshot() }));
       return;
     }
     if (request.url === "/cli/manifest.json") {
@@ -804,6 +887,59 @@ async function startBinaryManifestServer(input) {
         server.close((error) => (error ? reject(error) : resolve()));
       }),
   };
+}
+
+async function respondToValidatedJsonFixture(input) {
+  try {
+    if (input.request.method !== input.method) {
+      throw new Error(
+        `expected ${input.method}, received ${String(input.request.method)}`
+      );
+    }
+    if (
+      input.expectedAuthorization !== undefined &&
+      input.request.headers.authorization !== input.expectedAuthorization
+    ) {
+      throw new Error("received an unexpected authorization header");
+    }
+
+    if (input.expectedPayload !== undefined) {
+      const rawPayload = await readJsonRequestPayload(input.request);
+      const parsedPayload = input.parsePayload
+        ? input.parsePayload(rawPayload)
+        : rawPayload;
+      if (
+        JSON.stringify(parsedPayload) !== JSON.stringify(input.expectedPayload)
+      ) {
+        throw new Error(
+          `received an unexpected request payload: ${JSON.stringify(parsedPayload)}`
+        );
+      }
+    }
+
+    input.onValidated?.();
+    input.response.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      ...input.responseHeaders,
+    });
+    input.response.end(JSON.stringify(input.responseBody));
+  } catch (error) {
+    input.response.writeHead(400, {
+      "content-type": "text/plain; charset=utf-8",
+    });
+    input.response.end(
+      `fixture contract mismatch: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+async function readJsonRequestPayload(request) {
+  let body = "";
+  request.setEncoding("utf8");
+  for await (const chunk of request) {
+    body += chunk;
+  }
+  return JSON.parse(body);
 }
 
 function buildPrepareSessionSnapshot() {

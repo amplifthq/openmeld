@@ -80,7 +80,7 @@
     "release:desktop-preview:upload": "node scripts/release/desktop-preview.mjs upload",
     "cli:binary:serve": "node scripts/dev/serve-cli-binary.mjs",
     "cli:binary:smoke": "node --experimental-strip-types scripts/e2e/cli-binary-smoke.mjs",
-    "cli:binary:prod-smoke": "node --experimental-strip-types scripts/e2e/cli-binary-prod-setup-smoke.mjs",
+    "cli:binary:prod-smoke": "pnpm --filter @openmeld/schemas build && node --experimental-strip-types scripts/e2e/cli-binary-prod-setup-smoke.mjs",
     "verify:release-ready": "node scripts/release/verify-release-ready.mjs",
     "sync:theme-background": "node scripts/ui/sync-theme-background.mjs",
     "verify:theme-background": "node --test scripts/ui/sync-theme-background.test.mjs && node scripts/ui/sync-theme-background.mjs --check",

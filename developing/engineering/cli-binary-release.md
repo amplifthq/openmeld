@@ -133,7 +133,17 @@ pnpm cli:binary:smoke
 pnpm cli:binary:prod-smoke
 ```
 
-- The production-like smoke builds the real binary, serves a localhost manifest plus raw and gzip artifacts instead of R2, generates the production `dist=binary` setup bootstrap with a temporary `OPENMELD_HOME`, simulates `curl | sh`, verifies the gzip archive and decompressed executable, runs the real `install-self`, and checks the managed production-lane binary version.
+- The production-like smoke builds the real binary, serves a localhost manifest
+  plus raw and gzip artifacts instead of R2, generates the production
+  `dist=binary` setup bootstrap with a temporary `OPENMELD_HOME`, simulates
+  `curl | sh`, verifies the gzip archive and decompressed executable, runs the
+  real `install-self`, and checks the managed production-lane binary version.
+  It also seeds one fixture account through the real CLI login flow, drives the
+  Web-style piped bootstrap into a second-account confirmation in a real PTY,
+  verifies arrow selection, Enter, Escape, and candidate-session cleanup, and
+  proves the same path fails promptly without rendering a prompt when no
+  controlling terminal is available. Auth responses use the shared Better Auth
+  vendor-contract schemas and Prepare responses use the shared Prepare schema.
 - To keep the temporary `OPENMELD_HOME` for manual inspection, run:
 
 ```sh

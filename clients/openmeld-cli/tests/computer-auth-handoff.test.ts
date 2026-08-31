@@ -571,6 +571,50 @@ describe("Computer authorization handoff", () => {
     });
     expect(commit).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    "declined",
+    "cancelled",
+  ] as const)("revokes the unused candidate when an interactive account switch is %s", async (decision) => {
+    getAuthSessionStateMock.mockResolvedValueOnce({
+      state: "valid",
+      session: {
+        ...existingSession,
+        user: { id: "user-other", email: "other@example.com" },
+      },
+    });
+    promptConfirmMock.mockResolvedValueOnce(decision);
+    const humanRuntime = {
+      interactive: true,
+      resolvedView: "human",
+      viewMode: "human",
+    } satisfies RuntimeContext;
+    const humanPresenter = {
+      data: vi.fn(),
+      event: vi.fn(),
+      line: vi.fn(),
+      view: "human",
+    } satisfies Presenter;
+
+    await expect(
+      runComputerAuthorizationHandoff({
+        deviceCode: "approved-device-code",
+        interactive: true,
+        presenter: humanPresenter,
+        runtime: humanRuntime,
+        startSession: "starttok_demo",
+        view: "human",
+      })
+    ).resolves.toEqual({
+      reason: "user_cancelled",
+      status: "not_completed",
+    });
+
+    expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
+      candidateSession
+    );
+    expect(beginAuthSessionTransitionMock).not.toHaveBeenCalled();
+  });
 });
 
 function runAgentHandoff() {
