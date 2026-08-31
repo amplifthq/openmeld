@@ -1355,34 +1355,44 @@ describe("connect experience enhancements", () => {
   it("renders replying status line with system and agent emoji prefixes", async () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess();
+    let observedStdout = "";
     const stdoutTtyDescriptor = Object.getOwnPropertyDescriptor(
       process.stdout,
       "isTTY"
     );
+    const shellOverride = process.env[INTERACTIVE_SPACE_SHELL_ENV_NAME];
     Object.defineProperty(process.stdout, "isTTY", {
       configurable: true,
       value: true,
     });
+    process.env[INTERACTIVE_SPACE_SHELL_ENV_NAME] = "legacy";
 
     try {
       const selfProfileId = "11111111-0000-0000-0000-000000000006";
-      const connectPromise = withCapturedStdio(async () => {
-        await withTempHome(async () => {
-          await runConnect({
-            profile: "codex--connect-experience",
-            openMeldProfile: createOpenMeldProfileInput({
-              openMeldProfileId: selfProfileId,
-              profileName: "Codex",
-              profileKind: "agent",
-            }),
-            baseUrl: "https://example.com",
-            space: "ops-room",
-            stdio: true,
-            output: "text",
-            view: "human",
+      const connectPromise = withCapturedStdio(
+        async () => {
+          await withTempHome(async () => {
+            await runConnect({
+              profile: "codex--connect-experience",
+              openMeldProfile: createOpenMeldProfileInput({
+                openMeldProfileId: selfProfileId,
+                profileName: "Codex",
+                profileKind: "agent",
+              }),
+              baseUrl: "https://example.com",
+              space: "ops-room",
+              stdio: true,
+              output: "text",
+              view: "human",
+            });
           });
-        });
-      });
+        },
+        {
+          onStdout: (text) => {
+            observedStdout += text;
+          },
+        }
+      );
 
       await harness.waitUntilReady();
       harness.emit(
@@ -1400,7 +1410,11 @@ describe("connect experience enhancements", () => {
           },
         })
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.waitFor(() => {
+        expect(stripAnsi(observedStdout)).toContain(
+          "* 📣 system · 🤖 @hey-bot is replying..."
+        );
+      });
       harness.close(1006, "");
 
       const { stdout } = await connectPromise;
@@ -1414,6 +1428,11 @@ describe("connect experience enhancements", () => {
         Object.defineProperty(process.stdout, "isTTY", stdoutTtyDescriptor);
       } else {
         Reflect.deleteProperty(process.stdout, "isTTY");
+      }
+      if (shellOverride === undefined) {
+        Reflect.deleteProperty(process.env, INTERACTIVE_SPACE_SHELL_ENV_NAME);
+      } else {
+        process.env[INTERACTIVE_SPACE_SHELL_ENV_NAME] = shellOverride;
       }
     }
   });
@@ -1506,6 +1525,7 @@ describe("connect experience enhancements", () => {
   it("keeps a sending row visible alongside an active replying row", async () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess();
+    let observedStdout = "";
     const stdoutTtyDescriptor = Object.getOwnPropertyDescriptor(
       process.stdout,
       "isTTY"
@@ -1528,24 +1548,31 @@ describe("connect experience enhancements", () => {
     try {
       const selfProfileId = "11111111-0000-0000-0000-000000000017";
       const outboundText = "@dev-repro-codex what is the date";
-      const connectPromise = withCapturedStdio(async () => {
-        await withTempHome(async () => {
-          await runConnect({
-            profile: "codex--sending-row-alongside-replying",
-            openMeldProfile: createOpenMeldProfileInput({
-              openMeldProfileId: selfProfileId,
-              profileName: "Codex",
-              profileKind: "agent",
-            }),
-            baseUrl: "https://example.com",
-            space: "ops-room",
-            stdio: true,
-            localEcho: true,
-            output: "text",
-            view: "human",
+      const connectPromise = withCapturedStdio(
+        async () => {
+          await withTempHome(async () => {
+            await runConnect({
+              profile: "codex--sending-row-alongside-replying",
+              openMeldProfile: createOpenMeldProfileInput({
+                openMeldProfileId: selfProfileId,
+                profileName: "Codex",
+                profileKind: "agent",
+              }),
+              baseUrl: "https://example.com",
+              space: "ops-room",
+              stdio: true,
+              localEcho: true,
+              output: "text",
+              view: "human",
+            });
           });
-        });
-      });
+        },
+        {
+          onStdout: (text) => {
+            observedStdout += text;
+          },
+        }
+      );
 
       await harness.waitUntilReady();
       harness.emit(
@@ -1563,12 +1590,20 @@ describe("connect experience enhancements", () => {
           },
         })
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.waitFor(() => {
+        expect(stripAnsi(observedStdout)).toContain(
+          "* 📣 system · 🤖 @dev-repro-claude is replying..."
+        );
+      });
       process.stdin.emit("data", Buffer.from(`${outboundText}\n`));
       await vi.waitFor(() => {
         expect(harness.send).toHaveBeenCalledTimes(2);
       });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.waitFor(() => {
+        expect(stripAnsi(observedStdout)).toContain(
+          "* 📣 system · 🤖 Sending: @dev-repro-codex what is the date"
+        );
+      });
       harness.close(1006, "");
 
       const { stdout } = await connectPromise;
@@ -1601,6 +1636,7 @@ describe("connect experience enhancements", () => {
   it("re-renders the remaining replying status after multiple statuses shrink back to one line", async () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess();
+    let observedStdout = "";
     const stdoutTtyDescriptor = Object.getOwnPropertyDescriptor(
       process.stdout,
       "isTTY"
@@ -1609,6 +1645,7 @@ describe("connect experience enhancements", () => {
       process.stdout,
       "columns"
     );
+    const shellOverride = process.env[INTERACTIVE_SPACE_SHELL_ENV_NAME];
     Object.defineProperty(process.stdout, "isTTY", {
       configurable: true,
       value: true,
@@ -1617,26 +1654,34 @@ describe("connect experience enhancements", () => {
       configurable: true,
       value: 48,
     });
+    process.env[INTERACTIVE_SPACE_SHELL_ENV_NAME] = "legacy";
 
     try {
       const selfProfileId = "11111111-0000-0000-0000-000000000017";
-      const connectPromise = withCapturedStdio(async () => {
-        await withTempHome(async () => {
-          await runConnect({
-            profile: "codex--replying-status-shrink",
-            openMeldProfile: createOpenMeldProfileInput({
-              openMeldProfileId: selfProfileId,
-              profileName: "OpenMeld Dev Local Test",
-              profileKind: "human",
-            }),
-            baseUrl: "https://example.com",
-            space: "ops-room",
-            stdio: true,
-            output: "text",
-            view: "human",
+      const connectPromise = withCapturedStdio(
+        async () => {
+          await withTempHome(async () => {
+            await runConnect({
+              profile: "codex--replying-status-shrink",
+              openMeldProfile: createOpenMeldProfileInput({
+                openMeldProfileId: selfProfileId,
+                profileName: "OpenMeld Dev Local Test",
+                profileKind: "human",
+              }),
+              baseUrl: "https://example.com",
+              space: "ops-room",
+              stdio: true,
+              output: "text",
+              view: "human",
+            });
           });
-        });
-      });
+        },
+        {
+          onStdout: (text) => {
+            observedStdout += text;
+          },
+        }
+      );
 
       await harness.waitUntilReady();
       harness.emit(
@@ -1669,6 +1714,13 @@ describe("connect experience enhancements", () => {
           },
         })
       );
+      await vi.waitFor(() => {
+        const normalizedStdout = stripAnsi(
+          stripTerminalControl(observedStdout)
+        );
+        expect(normalizedStdout).toContain("@dev-repro-codex is replying...");
+        expect(normalizedStdout).toContain("@dev-repro-claude is replying...");
+      });
       harness.emit(
         createTextSignalRawEvent({
           id: "signal-replying-claude-shrink-end",
@@ -1684,6 +1736,18 @@ describe("connect experience enhancements", () => {
           },
         })
       );
+      await vi.waitFor(() => {
+        const normalizedStdout = stripAnsi(
+          stripTerminalControl(observedStdout)
+        );
+        const lastCodexIndex = normalizedStdout.lastIndexOf(
+          "@dev-repro-codex is replying..."
+        );
+        const lastClaudeIndex = normalizedStdout.lastIndexOf(
+          "@dev-repro-claude is replying..."
+        );
+        expect(lastCodexIndex).toBeGreaterThan(lastClaudeIndex);
+      });
       harness.close(1006, "");
 
       const { stdout } = await connectPromise;
@@ -1709,6 +1773,11 @@ describe("connect experience enhancements", () => {
         );
       } else {
         Reflect.deleteProperty(process.stdout, "columns");
+      }
+      if (shellOverride === undefined) {
+        Reflect.deleteProperty(process.env, INTERACTIVE_SPACE_SHELL_ENV_NAME);
+      } else {
+        process.env[INTERACTIVE_SPACE_SHELL_ENV_NAME] = shellOverride;
       }
     }
   });
