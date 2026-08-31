@@ -45,6 +45,8 @@ describe("resolveAgentProfileUsageWakeability", () => {
           expiresAtMs: NOW_MS + 60_000,
           status: "ready",
           usageLimits: [createUsageLimit("exhausted")],
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         },
       })
     ).toEqual({
@@ -66,6 +68,8 @@ describe("resolveAgentProfileUsageWakeability", () => {
           expiresAtMs: NOW_MS + 60_000,
           status: "ready",
           usageLimits: usageLimit ? [usageLimit] : undefined,
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         },
       })
     ).toEqual({
@@ -87,6 +91,8 @@ describe("resolveAgentProfileUsageWakeability", () => {
           expiresAtMs: NOW_MS + 60_000,
           status: "ready",
           usageLimits: [usageLimit],
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         },
       })
     ).toEqual({
@@ -125,7 +131,12 @@ describe("resolveAgentProfileUsageWakeability", () => {
         resolveAgentProfileUsageWakeability({
           agentControllerRef: "builtin:codex",
           nowMs: NOW_MS,
-          report: { ...value, status: "ready" },
+          report: {
+            ...value,
+            status: "ready",
+            usageLimitsSupportMatrixVersion:
+              AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+          },
         })
       ).toEqual({
         blocksNewWork: true,
@@ -160,6 +171,29 @@ describe("resolveAgentProfileUsageWakeability", () => {
         report: {
           expiresAtMs: NOW_MS + 60_000,
           status: "ready",
+        },
+      })
+    ).toEqual({
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
+    });
+  });
+
+  it.each([
+    ["available", createUsageLimit("available")],
+    ["exhausted", createUsageLimit("exhausted")],
+    ["stale", createUsageLimit("stale")],
+    ["unavailable", createUsageLimit("unavailable")],
+  ] as const)("keeps Wake available for legacy Usage evidence that reports %s without the current matrix", (_label, usageLimit) => {
+    expect(
+      resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:codex",
+        nowMs: NOW_MS,
+        report: {
+          expiresAtMs: NOW_MS + 60_000,
+          status: "ready",
+          usageLimits: [usageLimit],
         },
       })
     ).toEqual({
@@ -239,6 +273,8 @@ describe("resolveAgentProfileUsageWakeability", () => {
           expiresAtMs: NOW_MS + 60_000,
           status: "unavailable",
           usageLimits: [createUsageLimit("unavailable")],
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         },
       })
     ).toEqual({
@@ -264,6 +300,8 @@ describe("resolveAgentProfileUsageRecoveryAvailability", () => {
               observedAt: "2026-08-30T00:01:00.000Z",
             }),
           ].map((limit, index) => ({ ...limit, key: `limit_${index}` })),
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         },
       })
     ).toEqual({ available: true });
@@ -281,6 +319,8 @@ describe("resolveAgentProfileUsageRecoveryAvailability", () => {
             createUsageLimit("available"),
             createUsageLimit("unsupported"),
           ].map((limit, index) => ({ ...limit, key: `limit_${index}` })),
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         },
       })
     ).toEqual({ available: true });
@@ -307,6 +347,22 @@ describe("resolveAgentProfileUsageRecoveryAvailability", () => {
           expiresAtMs: NOW_MS + 60_000,
           status: "ready",
           usageLimits: limits,
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+        },
+      })
+    ).toEqual({ available: false });
+  });
+
+  it("does not auto-resume from a legacy report without the current Usage matrix", () => {
+    expect(
+      resolveAgentProfileUsageRecoveryAvailability({
+        agentControllerRef: "builtin:codex",
+        nowMs: NOW_MS,
+        report: {
+          expiresAtMs: NOW_MS + 60_000,
+          status: "ready",
+          usageLimits: [createUsageLimit("available")],
         },
       })
     ).toEqual({ available: false });

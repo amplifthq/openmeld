@@ -4,6 +4,7 @@ export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
 export { agentControllerCollaborationModeSchema } from "./agent-controller-collaboration-mode";
 export { agentControllerPermissionModeSchema } from "./agent-controller-permission-mode";
+export { agentProfileWorkRecoveryActionKindSchema } from "./agent-profile-work-recovery";
 export {
   centerAgentOrganizationScopeSchema,
   centerAgentOrganizationTargetSchema,
@@ -521,11 +522,15 @@ export {
   runtimeTransportAgentProfileOperationalContextsResponseSchema,
   runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema,
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
+  runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema,
+  runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryActionSchema,
   runtimeTransportAgentProfileWorkRecoveryReadRequestSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
+  runtimeTransportAgentProfileWorkSkipRequestSchema,
+  runtimeTransportAgentProfileWorkSkipResponseSchema,
   runtimeTransportAgentProfileWorkUsageAvailableRequestSchema,
   runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
   runtimeTransportBaseCapabilitiesSchema,

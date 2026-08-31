@@ -292,7 +292,7 @@ test("codex Stop fences the default app-server path while writer occupancy waits
   }
 });
 
-test("codex retry due never claims the conversation became available", async () => {
+test("codex clears occupied evidence when the retry is accepted", async () => {
   const { CodexAppServerTransportError, createCodexAdapter } = await import(
     "../dist/index.js"
   );
@@ -345,7 +345,10 @@ test("codex retry due never claims the conversation became available", async () 
 
   assert.equal(result.status, "success");
   assert.equal(dispatchCalls, 2);
-  assert.deepEqual(events, ["agent_controller_conversation_occupied"]);
+  assert.deepEqual(events, [
+    "agent_controller_conversation_occupied",
+    "agent_controller_conversation_available",
+  ]);
 });
 
 test("codex Stop aborts an occupied writer wait without resuming the thread again", async () => {

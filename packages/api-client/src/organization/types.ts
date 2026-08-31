@@ -60,6 +60,7 @@ export type OrganizationRouteInput = OrganizationRequestInput & {
 };
 
 export type GetCurrentOrganizationDirectoryInput = OrganizationRequestInput & {
+  agentProfileWorkRecoveryVersion?: 2;
   includeMemberLastActiveAt?: boolean;
 };
 

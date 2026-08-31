@@ -95,7 +95,7 @@ describe("api-client organization api", () => {
       expect.objectContaining({
         init: expect.objectContaining({ method: "GET" }),
         operation: "organization.directory.read",
-        url: "https://gateway.openmeld.invalid/v1/organizations/current/directory",
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/directory?agentProfileWorkRecoveryVersion=2",
       })
     );
   });
@@ -122,7 +122,7 @@ describe("api-client organization api", () => {
 
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/organizations/current/directory?includeMemberLastActiveAt=true",
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/directory?agentProfileWorkRecoveryVersion=2&includeMemberLastActiveAt=true",
       })
     );
   });

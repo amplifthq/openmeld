@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION } from "@openmeld/agent-runtime";
 import { MAX_TEXT_LENGTH } from "@openmeld/protocol";
 import {
   buildRuntimeCoordinatorExecutionId,
@@ -1262,6 +1263,15 @@ describe("handleDispatchQueueBatch", () => {
     expect(
       runtimeCoordinatorClient.deliverRuntimeTransportDispatch
     ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        head: expect.not.objectContaining({
+          executionTargetRevision: expect.anything(),
+        }),
+      })
+    );
     expect(markDispatchStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
@@ -1356,6 +1366,54 @@ describe("handleDispatchQueueBatch", () => {
         data: expect.objectContaining({
           reasonCode: "agent_profile_work_coordinator.queue_full",
           text: expect.stringContaining("queue is full"),
+        }),
+      })
+    );
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(message.retry).not.toHaveBeenCalled();
+  });
+
+  it("publishes an execution-target mismatch as one visible Needs attention failure", async () => {
+    const message = createDispatchQueueMessage({
+      dispatchId: "dispatch-continuation-needs-attention-1",
+      sourceEventId: "evt-continuation-needs-attention-1",
+      targetProfileId: "agt-continuation-needs-attention-1",
+      targetProfileNameSnapshot: "Codex",
+      visitedProfileIdsHash: "hash-continuation-needs-attention-1",
+    });
+    const body = message.body as OpenMeldDaemonDispatchQueueMessage;
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockResolvedValueOnce({
+      ok: false,
+      primaryDispatchId: null,
+      reasonCode: "agent_profile_work_coordinator.continuation_needs_attention",
+      status: "conflict",
+      targetWakeLifecycleId:
+        "twl_v1|7:space-1|34:evt-continuation-needs-attention-1|52:agt_continuation_needs_attention_1",
+    });
+
+    await runDispatchQueueMessage(message);
+
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
+        errorCode:
+          "agent_profile_work_coordinator.continuation_needs_attention",
+        idempotencyKey: body.idempotencyKey,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      })
+    );
+    expect(rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reasonCode:
+            "agent_profile_work_coordinator.continuation_needs_attention",
+          text: expect.stringContaining("settings changed"),
         }),
       })
     );
@@ -9049,6 +9107,8 @@ describe("handleDispatchQueueBatch", () => {
         schemaVersion: 1,
         skills: [],
         status: "ready",
+        usageLimitsSupportMatrixVersion:
+          AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         usageLimits: [
           {
             key: "five_hour",
@@ -9116,6 +9176,8 @@ describe("handleDispatchQueueBatch", () => {
         schemaVersion: 1,
         skills: [],
         status: "ready",
+        usageLimitsSupportMatrixVersion:
+          AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         usageLimits: [
           {
             key: "five_hour",

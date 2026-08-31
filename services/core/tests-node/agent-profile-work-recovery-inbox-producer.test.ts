@@ -62,6 +62,56 @@ describe("Agent Profile work recovery Inbox producer", () => {
     }
   });
 
+  it("projects one Needs attention item that links back to the interrupted Wake", async () => {
+    const harness = createInboxHarness();
+    try {
+      const input = {
+        db: harness.db,
+        interruptedClientMessageId: "message_interrupted",
+        nowMs: 3200,
+        occurredAtMs: 3100,
+        organizationId: "org_one",
+        ownerUserId: "user_owner",
+        profileId: "profile_one",
+        profileName: "Release Reviewer",
+        sourceTarget: {
+          kind: "space" as const,
+          signalId: "signal_interrupted",
+          spaceId: "a".repeat(64),
+        },
+        stage: "review_interrupted_work" as const,
+      };
+
+      await projectAgentProfileWorkRecoveryInboxItem(input);
+      await projectAgentProfileWorkRecoveryInboxItem(input);
+
+      expect(
+        harness.queryAll<{
+          attention: string;
+          preview: string;
+          source_target_json: string;
+          title: string;
+        }>({
+          sql: "SELECT attention, preview, source_target_json, title FROM inbox_items",
+        })
+      ).toEqual([
+        {
+          attention: "action_required",
+          preview:
+            "Open the interrupted Wake to review the failure. Queued work will wait until you skip it.",
+          source_target_json: JSON.stringify({
+            kind: "space",
+            signalId: "signal_interrupted",
+            spaceId: "a".repeat(64),
+          }),
+          title: "Review interrupted work for Release Reviewer",
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("resolves the exact queue approval and suppresses its pending email", async () => {
     const harness = createInboxHarness();
     try {

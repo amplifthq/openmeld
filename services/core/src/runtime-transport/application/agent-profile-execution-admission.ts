@@ -17,10 +17,12 @@ import {
   approveAgentProfileWorkQueue,
   authorizeAgentProfileWorkContinuation,
   createAgentProfileWorkCoordinator,
+  markAgentProfileWorkContinuationNeedsAttention,
   markAgentProfileWorkControllerConversationOccupancy,
   markAgentProfileWorkUsageAvailable,
   removeAgentProfileWork,
   settleAgentProfileWork,
+  skipAgentProfileInterruptedWork,
   summarizeAgentProfileWorkCoordinator,
 } from "./agent-profile-work-coordinator";
 import {
@@ -31,12 +33,15 @@ import {
 import {
   type AgentProfileWorkRecoveryInboxProjectionIntent,
   buildAgentProfileWorkRecoveryInboxProjectionIntent,
-  buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
+  deleteAgentProfileWorkRecoveryInboxProjectionIntent,
   parseAgentProfileWorkRecoveryInboxProjectionIntent,
+  resolveAgentProfileWorkRecoveryInboxProjectionStorageKey,
   sameAgentProfileWorkRecoveryInboxProjectionIntent,
+  writeAgentProfileWorkRecoveryInboxProjectionIntent,
 } from "./agent-profile-work-recovery-inbox-projection";
 import {
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
+  buildRuntimeCoordinatorRunCommandStateStorageKey,
   buildRuntimeCoordinatorTokenAuthorityStorageKey,
   isRuntimeCoordinatorHeadLifecycleRecord,
   isRuntimeCoordinatorRunCommandState,
@@ -438,6 +443,7 @@ export async function readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmissio
       head.targetWakeLifecycleIdentity.clientMessageId,
     interruptedDispatchId: head.primaryDispatchId,
     interruptedSourceSignalId: head.targetWakeLifecycleIdentity.sourceSignalId,
+    interruptedTargetWakeLifecycleId: head.targetWakeLifecycleId,
     spaceId: head.targetWakeLifecycleIdentity.spaceId,
     status: "available",
   };
@@ -569,7 +575,14 @@ function projectAgentProfileWorkReferences(input: {
           sourceSignalId: string;
           spaceId: string;
         }[],
-        ...(recoveryAction ? { recoveryAction } : {}),
+        ...(recoveryAction && input.admission.recoveryGate
+          ? {
+              recoveryAction,
+              recoveryTargetWakeLifecycleId:
+                input.admission.recoveryGate.interruptedWork
+                  .targetWakeLifecycleId,
+            }
+          : {}),
         status: "paused",
         waitingCount: references.length,
       },
@@ -599,13 +612,19 @@ function projectAgentProfileWorkReferences(input: {
 
 function resolveAgentProfileWorkRecoveryAction(
   status: AgentProfileWorkRecoveryGate["status"] | null
-): "continue_interrupted_work" | "approve_queued_work" | null {
+):
+  | "continue_interrupted_work"
+  | "approve_queued_work"
+  | "skip_interrupted_work"
+  | null {
   switch (status) {
     case "continuation_pending":
     case "continuation_authorized":
       return "continue_interrupted_work";
     case "awaiting_owner_approval":
       return "approve_queued_work";
+    case "continuation_needs_attention":
+      return "skip_interrupted_work";
     case "awaiting_usage":
     case "continuation_running":
     case null:
@@ -622,6 +641,33 @@ function assertNeverRecoveryGateStatus(value: never): never {
 }
 
 export async function acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation(input: {
+  nowMs: number;
+  operationId: string;
+  ownerUserId: string;
+  storage: ExecutionAdmissionStorage;
+  targetProfileId: string;
+}): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
+  return await acquireRuntimeCoordinatorAgentProfileMutation({
+    ...input,
+    mutationKind: "execution_target",
+  });
+}
+
+export async function acquireRuntimeCoordinatorAgentProfileFutureWorkSettingsMutation(input: {
+  nowMs: number;
+  operationId: string;
+  ownerUserId: string;
+  storage: ExecutionAdmissionStorage;
+  targetProfileId: string;
+}): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
+  return await acquireRuntimeCoordinatorAgentProfileMutation({
+    ...input,
+    mutationKind: "future_work_settings",
+  });
+}
+
+async function acquireRuntimeCoordinatorAgentProfileMutation(input: {
+  mutationKind: "execution_target" | "future_work_settings";
   nowMs: number;
   operationId: string;
   ownerUserId: string;
@@ -661,7 +707,11 @@ export async function acquireRuntimeCoordinatorAgentProfileExecutionTargetMutati
 
   const executionState =
     await readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission(input);
-  if (executionState.status === "active") {
+  if (
+    input.mutationKind === "execution_target" &&
+    executionState.status === "active" &&
+    (!existing || admissionBlocksExecutionTargetMutation(existing))
+  ) {
     return {
       reasonCode: "runtime_coordinator.agent_profile_execution_active",
       status: "blocked",
@@ -699,7 +749,10 @@ export async function acquireRuntimeCoordinatorAgentProfileExecutionTargetMutati
       return prepared.response;
     }
     const admission = prepared.admission;
-    if (admissionHasActiveReferences(admission)) {
+    if (
+      input.mutationKind === "execution_target" &&
+      admissionBlocksExecutionTargetMutation(admission)
+    ) {
       return {
         reasonCode: "runtime_coordinator.agent_profile_execution_active",
         status: "blocked" as const,
@@ -718,16 +771,44 @@ export async function acquireRuntimeCoordinatorAgentProfileExecutionTargetMutati
     }
 
     const expiresAtMs = input.nowMs + EXECUTION_TARGET_MUTATION_LEASE_MS;
-    await transaction.put(storageKey, {
+    const marked = markAgentProfileWorkContinuationNeedsAttention({
+      coordinator: projectAgentProfileWorkCoordinator(admission),
+      nowMs: input.nowMs,
+    });
+    const nextRecoveryGate = marked.changed
+      ? marked.coordinator.recoveryGate
+      : admission.recoveryGate;
+    const nextAdmission = {
       ...admission,
       executionTargetMutation: {
         expiresAtMs,
         operationId: input.operationId,
         startedAtMs: input.nowMs,
       },
-      revision: admission.revision + 1,
+      recoveryGate: nextRecoveryGate,
+      revision: marked.changed
+        ? marked.coordinator.revision
+        : admission.revision + 1,
       updatedAtMs: input.nowMs,
-    } satisfies AgentProfileExecutionAdmissionRecord);
+    } satisfies AgentProfileExecutionAdmissionRecord;
+    await transaction.put(storageKey, nextAdmission);
+    if (marked.changed && nextRecoveryGate) {
+      await Promise.all([
+        writeAgentProfileWorkRecoveryInboxProjectionIntent({
+          intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
+            desiredStatus: "open",
+            occurredAtMs: input.nowMs,
+            stage: "review_interrupted_work",
+            targetProfileId: input.targetProfileId,
+            targetWakeLifecycleId:
+              nextRecoveryGate.interruptedWork.targetWakeLifecycleId,
+            updatedAtMs: input.nowMs,
+          }),
+          storage: transaction,
+        }),
+        transaction.setAlarm(input.nowMs),
+      ]);
+    }
     return {
       expiresAtMs,
       operationId: input.operationId,
@@ -865,9 +946,7 @@ export async function completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxPro
           buildPendingAgentProfileWorkPromotionStorageKey(targetProfileId)
         ),
         transaction.get<unknown>(
-          buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
-            targetProfileId
-          )
+          resolveAgentProfileWorkRecoveryInboxProjectionStorageKey(input.intent)
         ),
       ]);
     const recoveryProjection =
@@ -887,10 +966,11 @@ export async function completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxPro
     ) {
       return false;
     }
-    const recoveryProjectionStorageKey =
-      buildAgentProfileWorkRecoveryInboxProjectionStorageKey(targetProfileId);
     if (input.intent.desiredStatus === "open") {
-      await transaction.delete(recoveryProjectionStorageKey);
+      await deleteAgentProfileWorkRecoveryInboxProjectionIntent({
+        intent: input.intent,
+        storage: transaction,
+      });
       return true;
     }
     const admission = parseExecutionAdmissionRecord(rawAdmission);
@@ -913,7 +993,6 @@ export async function completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxPro
       RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY
     );
     const writes: Promise<unknown>[] = [
-      transaction.delete(recoveryProjectionStorageKey),
       transaction.delete(headStorageKey),
       transaction.put(
         RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
@@ -923,6 +1002,10 @@ export async function completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxPro
         )
       ),
     ];
+    await deleteAgentProfileWorkRecoveryInboxProjectionIntent({
+      intent: input.intent,
+      storage: transaction,
+    });
     if (admission && shouldDeleteInactiveAdmission(admission, input.nowMs)) {
       const activeProfileIndex = parseActiveProfileIndexRecord(
         await transaction.get<unknown>(
@@ -990,6 +1073,7 @@ type AgentProfileWorkCoordinatorHeadWriteBaseResult =
       waitingCount: number;
     }
   | { status: "execution_target_mutation_in_progress" }
+  | { status: "continuation_needs_attention" }
   | {
       effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
       status: "existing";
@@ -1131,11 +1215,17 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
 
 export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(input: {
   continuationClientMessageId: string;
+  currentAgentControllerRef: string;
+  currentBindingId: string;
+  currentConfigurationRevision: number;
+  expectedInterruptedTargetWakeLifecycleId: string;
   nowMs: number;
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
   targetProfileId: string;
-}): Promise<{ status: "authorized" | "not_pending" | "unavailable" }> {
+}): Promise<{
+  status: "authorized" | "needs_attention" | "not_pending" | "unavailable";
+}> {
   const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
   const readyIndex = await ensureExecutionIndexReady({
     nowMs: input.nowMs,
@@ -1158,8 +1248,63 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
     }
     const rawAdmission = await transaction.get<unknown>(storageKey);
     const admission = parseExecutionAdmissionRecord(rawAdmission);
-    if (!admission || admission.targetProfileId !== input.targetProfileId) {
+    if (
+      !admission ||
+      admission.targetProfileId !== input.targetProfileId ||
+      admission.recoveryGate?.interruptedWork.targetWakeLifecycleId !==
+        input.expectedInterruptedTargetWakeLifecycleId
+    ) {
       return { status: "not_pending" as const };
+    }
+    if (
+      admission.executionTargetMutation &&
+      admission.executionTargetMutation.expiresAtMs > input.nowMs
+    ) {
+      return { status: "unavailable" as const };
+    }
+    if (admission.recoveryGate.status === "continuation_needs_attention") {
+      return { status: "needs_attention" as const };
+    }
+    const acceptedExecutionTargetMatches =
+      await acceptedRecoveryExecutionTargetMatchesCurrent({
+        admission,
+        currentAgentControllerRef: input.currentAgentControllerRef,
+        currentBindingId: input.currentBindingId,
+        currentConfigurationRevision: input.currentConfigurationRevision,
+        ownerUserId: input.ownerUserId,
+        storage: transaction,
+      });
+    if (!acceptedExecutionTargetMatches) {
+      const marked = markAgentProfileWorkContinuationNeedsAttention({
+        coordinator: projectAgentProfileWorkCoordinator(admission),
+        nowMs: input.nowMs,
+      });
+      if (!(marked.changed && marked.coordinator.recoveryGate)) {
+        return { status: "not_pending" as const };
+      }
+      await Promise.all([
+        transaction.put(storageKey, {
+          ...admission,
+          recoveryGate: marked.coordinator.recoveryGate,
+          revision: marked.coordinator.revision,
+          updatedAtMs: marked.coordinator.updatedAtMs,
+        } satisfies AgentProfileExecutionAdmissionRecord),
+        writeAgentProfileWorkRecoveryInboxProjectionIntent({
+          intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
+            desiredStatus: "open",
+            occurredAtMs: input.nowMs,
+            stage: "review_interrupted_work",
+            targetProfileId: input.targetProfileId,
+            targetWakeLifecycleId:
+              marked.coordinator.recoveryGate.interruptedWork
+                .targetWakeLifecycleId,
+            updatedAtMs: input.nowMs,
+          }),
+          storage: transaction,
+        }),
+        transaction.setAlarm(input.nowMs),
+      ]);
+      return { status: "needs_attention" as const };
     }
     const result = authorizeAgentProfileWorkContinuation({
       continuationClientMessageId: input.continuationClientMessageId,
@@ -1176,6 +1321,136 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
       updatedAtMs: result.coordinator.updatedAtMs,
     } satisfies AgentProfileExecutionAdmissionRecord);
     return { status: "authorized" as const };
+  });
+}
+
+async function acceptedRecoveryExecutionTargetMatchesCurrent(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  currentAgentControllerRef: string;
+  currentBindingId: string;
+  currentConfigurationRevision: number;
+  ownerUserId: string;
+  storage: Pick<DurableObjectStorage, "get">;
+}): Promise<boolean> {
+  const recoveryGate = input.admission.recoveryGate;
+  if (!recoveryGate) {
+    return false;
+  }
+  const head = await input.storage.get<unknown>(
+    buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      recoveryGate.interruptedWork.targetWakeLifecycleId
+    )
+  );
+  if (
+    !isRuntimeCoordinatorHeadLifecycleRecord(head) ||
+    head.targetWakeLifecycleId !==
+      recoveryGate.interruptedWork.targetWakeLifecycleId ||
+    head.ownerUserId !== input.ownerUserId ||
+    head.primaryDispatchId !== recoveryGate.interruptedWork.dispatchId ||
+    head.targetWakeLifecycleIdentity.targetProfileId !==
+      input.admission.targetProfileId ||
+    !head.runtimeCoordinatorExecutionId
+  ) {
+    return false;
+  }
+  const commandState = await input.storage.get<unknown>(
+    buildRuntimeCoordinatorRunCommandStateStorageKey(
+      head.runtimeCoordinatorExecutionId
+    )
+  );
+  if (
+    !isRuntimeCoordinatorRunCommandState(commandState) ||
+    commandState.runtimeCoordinatorExecutionId !==
+      head.runtimeCoordinatorExecutionId ||
+    commandState.dispatchId !== recoveryGate.interruptedWork.dispatchId ||
+    commandState.ownerUserId !== input.ownerUserId ||
+    commandState.profileId !== input.admission.targetProfileId
+  ) {
+    return false;
+  }
+  const payload = commandState.sanitizedDeliveryRequest.payload;
+  const acceptedExecutionIdentity = payload.executionIdentity.core;
+  const acceptedControllerSnapshot = payload.controllerSnapshot;
+  return (
+    acceptedExecutionIdentity.bindingId === input.currentBindingId &&
+    acceptedExecutionIdentity.agentControllerRef ===
+      input.currentAgentControllerRef &&
+    acceptedControllerSnapshot.bindingId === input.currentBindingId &&
+    acceptedControllerSnapshot.agentControllerRef ===
+      input.currentAgentControllerRef &&
+    acceptedControllerSnapshot.configurationRevision ===
+      input.currentConfigurationRevision
+  );
+}
+
+export async function markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
+  nowMs: number;
+  ownerUserId: string;
+  storage: ExecutionAdmissionStorage;
+  targetProfileId: string;
+}): Promise<{ status: "marked" | "not_pending" | "unavailable" }> {
+  const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
+  const readyIndex = await ensureExecutionIndexReady({
+    nowMs: input.nowMs,
+    ownerUserId: input.ownerUserId,
+    storage: input.storage,
+  });
+  if (readyIndex.status !== "ready") {
+    return { status: "unavailable" };
+  }
+  return await input.storage.transaction(async (transaction) => {
+    const index = parseExecutionIndexState(
+      await transaction.get<unknown>(EXECUTION_INDEX_STORAGE_KEY)
+    );
+    if (
+      index?.status !== "ready" ||
+      index.generation !== readyIndex.generation ||
+      index.ownerUserId !== input.ownerUserId
+    ) {
+      return { status: "unavailable" as const };
+    }
+    const admission = parseExecutionAdmissionRecord(
+      await transaction.get<unknown>(storageKey)
+    );
+    if (
+      !admission ||
+      admission.targetProfileId !== input.targetProfileId ||
+      admission.recoveryGate?.interruptedWork.targetWakeLifecycleId !==
+        input.expectedInterruptedTargetWakeLifecycleId
+    ) {
+      return { status: "not_pending" as const };
+    }
+    const marked = markAgentProfileWorkContinuationNeedsAttention({
+      coordinator: projectAgentProfileWorkCoordinator(admission),
+      nowMs: input.nowMs,
+    });
+    if (!(marked.changed && marked.coordinator.recoveryGate)) {
+      return { status: "not_pending" as const };
+    }
+    await Promise.all([
+      transaction.put(storageKey, {
+        ...admission,
+        recoveryGate: marked.coordinator.recoveryGate,
+        revision: marked.coordinator.revision,
+        updatedAtMs: marked.coordinator.updatedAtMs,
+      } satisfies AgentProfileExecutionAdmissionRecord),
+      writeAgentProfileWorkRecoveryInboxProjectionIntent({
+        intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "open",
+          occurredAtMs: input.nowMs,
+          stage: "review_interrupted_work",
+          targetProfileId: input.targetProfileId,
+          targetWakeLifecycleId:
+            marked.coordinator.recoveryGate.interruptedWork
+              .targetWakeLifecycleId,
+          updatedAtMs: input.nowMs,
+        }),
+        storage: transaction,
+      }),
+      transaction.setAlarm(input.nowMs),
+    ]);
+    return { status: "marked" as const };
   });
 }
 
@@ -1262,22 +1537,126 @@ export async function approveRuntimeCoordinatorAgentProfileWorkQueue(input: {
           })
         )
       ),
-      transaction.put(
-        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
-          input.targetProfileId
-        ),
-        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+      writeAgentProfileWorkRecoveryInboxProjectionIntent({
+        intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
           desiredStatus: "resolved",
           occurredAtMs: approvedRecoveryGate.updatedAtMs,
+          stage: "approve_queued_work",
           targetProfileId: input.targetProfileId,
           targetWakeLifecycleId:
             approvedRecoveryGate.interruptedWork.targetWakeLifecycleId,
           updatedAtMs: input.nowMs,
-        })
-      ),
+        }),
+        storage: transaction,
+      }),
       transaction.setAlarm(input.nowMs),
     ]);
     return { pendingPromotion, status: "approved" as const };
+  });
+}
+
+export async function skipRuntimeCoordinatorAgentProfileInterruptedWork(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
+  nowMs: number;
+  ownerUserId: string;
+  storage: ExecutionAdmissionStorage;
+  targetProfileId: string;
+}): Promise<{
+  pendingPromotion: PendingAgentProfileWorkPromotion | null;
+  status: "skipped" | "not_pending" | "unavailable";
+}> {
+  const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
+  const readyIndex = await ensureExecutionIndexReady({
+    nowMs: input.nowMs,
+    ownerUserId: input.ownerUserId,
+    storage: input.storage,
+  });
+  if (readyIndex.status !== "ready") {
+    return { pendingPromotion: null, status: "unavailable" };
+  }
+  return await input.storage.transaction(async (transaction) => {
+    const index = parseExecutionIndexState(
+      await transaction.get<unknown>(EXECUTION_INDEX_STORAGE_KEY)
+    );
+    if (
+      index?.status !== "ready" ||
+      index.generation !== readyIndex.generation ||
+      index.ownerUserId !== input.ownerUserId
+    ) {
+      return { pendingPromotion: null, status: "unavailable" as const };
+    }
+    const admission = parseExecutionAdmissionRecord(
+      await transaction.get<unknown>(storageKey)
+    );
+    if (
+      !admission ||
+      admission.targetProfileId !== input.targetProfileId ||
+      admission.recoveryGate?.status !== "continuation_needs_attention" ||
+      admission.recoveryGate.interruptedWork.targetWakeLifecycleId !==
+        input.expectedInterruptedTargetWakeLifecycleId
+    ) {
+      return { pendingPromotion: null, status: "not_pending" as const };
+    }
+    const skippedRecoveryGate = admission.recoveryGate;
+    const skipped = skipAgentProfileInterruptedWork({
+      coordinator: projectAgentProfileWorkCoordinator(admission),
+      nowMs: input.nowMs,
+    });
+    let nextAdmission = {
+      ...admission,
+      recoveryGate: skipped.coordinator.recoveryGate,
+      revision: skipped.coordinator.revision,
+      updatedAtMs: skipped.coordinator.updatedAtMs,
+    } satisfies AgentProfileExecutionAdmissionRecord;
+    let pendingPromotion: PendingAgentProfileWorkPromotion | null = null;
+    if (skipped.promotedItem) {
+      const promotion = await promoteAgentProfileWorkItem({
+        admission: nextAdmission,
+        item: skipped.promotedItem,
+        nowMs: input.nowMs,
+        transaction,
+      });
+      nextAdmission = promotion.admission;
+      pendingPromotion = promotion.pendingPromotion;
+    }
+    const activeProfileIndex = resolveActiveProfileIndexForWrite({
+      generation: index.generation,
+      indexReady: true,
+      raw: await transaction.get<unknown>(
+        EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
+      ),
+    });
+    if (!activeProfileIndex) {
+      throw new Error("runtime_coordinator.active_profile_index_invalid");
+    }
+    await Promise.all([
+      transaction.put(storageKey, nextAdmission),
+      transaction.put(
+        EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
+        createActiveProfileIndexRecord(
+          index.generation,
+          updateActiveProfileIds({
+            active: admissionHasActiveReferences(nextAdmission),
+            activeProfileIds: activeProfileIndex.targetProfileIds,
+            targetProfileId: input.targetProfileId,
+          })
+        )
+      ),
+      writeAgentProfileWorkRecoveryInboxProjectionIntent({
+        intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "resolved",
+          occurredAtMs: skippedRecoveryGate.updatedAtMs,
+          stage: "review_interrupted_work",
+          targetProfileId: input.targetProfileId,
+          targetWakeLifecycleId:
+            skippedRecoveryGate.interruptedWork.targetWakeLifecycleId,
+          updatedAtMs: input.nowMs,
+        }),
+        storage: transaction,
+      }),
+      transaction.setAlarm(input.nowMs),
+    ]);
+    return { pendingPromotion, status: "skipped" as const };
   });
 }
 
@@ -1293,7 +1672,7 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
       record: input.record,
       transaction,
     });
-    const { admission, admissionKey, index, parsedIndex } = prepared;
+    const { admission } = prepared;
     const headLifecycleStorageKey =
       buildRuntimeCoordinatorHeadLifecycleStorageKey(
         input.record.targetWakeLifecycleId
@@ -1315,6 +1694,14 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
       admission.executionTargetMutation.expiresAtMs > input.nowMs
     ) {
       return { status: "execution_target_mutation_in_progress" as const };
+    }
+
+    const continuationFence = resolveContinuationHeadFence({
+      admission,
+      record: input.record,
+    });
+    if (continuationFence) {
+      return continuationFence;
     }
 
     const workPlan = planAgentProfileWorkAcceptance({
@@ -1346,49 +1733,15 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
       record: effectiveRecord,
       transaction,
     });
-    const nextAdmission = terminalTransition.admission;
-    const rawActiveProfileIds = await transaction.get<unknown>(
-      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
-    );
-    const activeProfileIndex = resolveActiveProfileIndexForWrite({
-      generation: index.generation,
-      indexReady: index.status === "ready",
-      raw: rawActiveProfileIds,
+    await persistHeadLifecycleAdmissionTransition({
+      admissionAfterHeadWrite,
+      effectiveRecord,
+      headLifecycleStorageKey,
+      nextAdmission: terminalTransition.admission,
+      nowMs: input.nowMs,
+      preparation: prepared,
+      transaction,
     });
-    if (!activeProfileIndex) {
-      throw new Error("runtime_coordinator.active_profile_index_invalid");
-    }
-    const nextActiveProfileIds = updateActiveProfileIds({
-      active: admissionHasActiveReferences(nextAdmission),
-      activeProfileIds: activeProfileIndex.targetProfileIds,
-      targetProfileId: input.record.targetWakeLifecycleIdentity.targetProfileId,
-    });
-    const rawLegacyIndex = await transaction.get<unknown>(
-      RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY
-    );
-    const legacyIds = normalizeLegacyIndex(rawLegacyIndex);
-    const nextLegacyIds = resolveHeadLifecycleIndexIds({
-      legacyIds,
-      record: effectiveRecord,
-    });
-    const writes: Promise<unknown>[] = [
-      transaction.put(headLifecycleStorageKey, effectiveRecord),
-      transaction.put(
-        RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
-        nextLegacyIds
-      ),
-      shouldDeleteInactiveAdmission(nextAdmission, input.nowMs)
-        ? transaction.delete(admissionKey)
-        : transaction.put(admissionKey, nextAdmission),
-      transaction.put(
-        EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
-        createActiveProfileIndexRecord(index.generation, nextActiveProfileIds)
-      ),
-    ];
-    if (!parsedIndex) {
-      writes.push(transaction.put(EXECUTION_INDEX_STORAGE_KEY, index));
-    }
-    await Promise.all(writes);
     const result: AgentProfileWorkCoordinatorHeadWriteBaseResult =
       workAcceptance
         ? {
@@ -1400,6 +1753,89 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
       ? { ...result, pendingPromotion: terminalTransition.pendingPromotion }
       : result;
   });
+}
+
+function resolveContinuationHeadFence(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  record: RuntimeCoordinatorHeadLifecycleRecord;
+}): { status: "continuation_needs_attention" } | null {
+  const recoveryGate = input.admission.recoveryGate;
+  if (
+    recoveryGate?.status === "continuation_needs_attention" &&
+    recoveryGate.continuationClientMessageId ===
+      input.record.targetWakeLifecycleIdentity.clientMessageId
+  ) {
+    return { status: "continuation_needs_attention" };
+  }
+  return null;
+}
+
+async function persistHeadLifecycleAdmissionTransition(input: {
+  admissionAfterHeadWrite: AgentProfileExecutionAdmissionRecord;
+  effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
+  headLifecycleStorageKey: string;
+  nextAdmission: AgentProfileExecutionAdmissionRecord;
+  nowMs: number;
+  preparation: Awaited<ReturnType<typeof prepareHeadLifecycleAdmissionWrite>>;
+  transaction: DurableObjectTransaction;
+}): Promise<void> {
+  const { admissionAfterHeadWrite, effectiveRecord, nextAdmission } = input;
+  const { admissionKey, index, parsedIndex } = input.preparation;
+  const shouldRetireEffectiveHead =
+    admissionAfterHeadWrite.recoveryGate?.status === "continuation_running" &&
+    nextAdmission.recoveryGate === null &&
+    admissionAfterHeadWrite.recoveryGate.interruptedWork
+      .targetWakeLifecycleId === effectiveRecord.targetWakeLifecycleId;
+  const [rawActiveProfileIds, rawLegacyIndex] = await Promise.all([
+    input.transaction.get<unknown>(EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY),
+    input.transaction.get<unknown>(
+      RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY
+    ),
+  ]);
+  const activeProfileIndex = resolveActiveProfileIndexForWrite({
+    generation: index.generation,
+    indexReady: index.status === "ready",
+    raw: rawActiveProfileIds,
+  });
+  if (!activeProfileIndex) {
+    throw new Error("runtime_coordinator.active_profile_index_invalid");
+  }
+  const nextActiveProfileIds = updateActiveProfileIds({
+    active: admissionHasActiveReferences(nextAdmission),
+    activeProfileIds: activeProfileIndex.targetProfileIds,
+    targetProfileId:
+      effectiveRecord.targetWakeLifecycleIdentity.targetProfileId,
+  });
+  const legacyIds = normalizeLegacyIndex(rawLegacyIndex);
+  const nextLegacyIds = shouldRetireEffectiveHead
+    ? legacyIds.filter(
+        (targetWakeLifecycleId) =>
+          targetWakeLifecycleId !== effectiveRecord.targetWakeLifecycleId
+      )
+    : resolveHeadLifecycleIndexIds({
+        legacyIds,
+        record: effectiveRecord,
+      });
+  const writes: Promise<unknown>[] = [
+    shouldRetireEffectiveHead
+      ? input.transaction.delete(input.headLifecycleStorageKey)
+      : input.transaction.put(input.headLifecycleStorageKey, effectiveRecord),
+    input.transaction.put(
+      RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
+      nextLegacyIds
+    ),
+    shouldDeleteInactiveAdmission(nextAdmission, input.nowMs)
+      ? input.transaction.delete(admissionKey)
+      : input.transaction.put(admissionKey, nextAdmission),
+    input.transaction.put(
+      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
+      createActiveProfileIndexRecord(index.generation, nextActiveProfileIds)
+    ),
+  ];
+  if (!parsedIndex) {
+    writes.push(input.transaction.put(EXECUTION_INDEX_STORAGE_KEY, index));
+  }
+  await Promise.all(writes);
 }
 
 async function resolveExistingHeadLifecycleWrite(input: {
@@ -2766,7 +3202,7 @@ async function removeTerminalAgentProfileWorkAndPromoteSuccessor(input: {
     return { admission: input.admission, pendingPromotion: null };
   }
 
-  const nextAdmission = {
+  let nextAdmission = {
     ...input.admission,
     recoveryGate: removal.coordinator.recoveryGate,
     revision: removal.coordinator.revision,
@@ -2775,23 +3211,50 @@ async function removeTerminalAgentProfileWorkAndPromoteSuccessor(input: {
   } satisfies AgentProfileExecutionAdmissionRecord;
   if (
     coordinator.recoveryGate?.status === "continuation_running" &&
-    removal.coordinator.recoveryGate?.status === "awaiting_owner_approval"
+    removal.coordinator.recoveryGate === null
+  ) {
+    const retiredHeadId =
+      coordinator.recoveryGate.interruptedWork.targetWakeLifecycleId;
+    const rawLegacyIds = await input.transaction.get<unknown>(
+      RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY
+    );
+    nextAdmission = removeRetiredHeadReference(nextAdmission, retiredHeadId);
+    await Promise.all([
+      input.transaction.delete(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(retiredHeadId)
+      ),
+      input.transaction.put(
+        RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
+        normalizeLegacyIndex(rawLegacyIds).filter(
+          (targetWakeLifecycleId) => targetWakeLifecycleId !== retiredHeadId
+        )
+      ),
+    ]);
+  }
+  if (
+    coordinator.recoveryGate?.status === "continuation_running" &&
+    (removal.coordinator.recoveryGate?.status === "awaiting_owner_approval" ||
+      removal.coordinator.recoveryGate?.status ===
+        "continuation_needs_attention")
   ) {
     await Promise.all([
-      input.transaction.put(
-        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
-          input.admission.targetProfileId
-        ),
-        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+      writeAgentProfileWorkRecoveryInboxProjectionIntent({
+        intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
           desiredStatus: "open",
           occurredAtMs: removal.coordinator.recoveryGate.updatedAtMs,
+          stage:
+            removal.coordinator.recoveryGate.status ===
+            "continuation_needs_attention"
+              ? "review_interrupted_work"
+              : "approve_queued_work",
           targetProfileId: input.admission.targetProfileId,
           targetWakeLifecycleId:
             removal.coordinator.recoveryGate.interruptedWork
               .targetWakeLifecycleId,
           updatedAtMs: input.nowMs,
-        })
-      ),
+        }),
+        storage: input.transaction,
+      }),
       input.transaction.setAlarm(input.nowMs),
     ]);
   }
@@ -2800,19 +3263,18 @@ async function removeTerminalAgentProfileWorkAndPromoteSuccessor(input: {
     removal.coordinator.recoveryGate === null
   ) {
     await Promise.all([
-      input.transaction.put(
-        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
-          input.admission.targetProfileId
-        ),
-        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+      writeAgentProfileWorkRecoveryInboxProjectionIntent({
+        intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
           desiredStatus: "resolved",
           occurredAtMs: coordinator.recoveryGate.updatedAtMs,
+          stage: "approve_queued_work",
           targetProfileId: input.admission.targetProfileId,
           targetWakeLifecycleId:
             coordinator.recoveryGate.interruptedWork.targetWakeLifecycleId,
           updatedAtMs: input.nowMs,
-        })
-      ),
+        }),
+        storage: input.transaction,
+      }),
       input.transaction.setAlarm(input.nowMs),
     ]);
   }
@@ -3068,6 +3530,7 @@ function parseAgentProfileWorkRecoveryGateOrLegacy(
     status === "continuation_pending" ||
     status === "continuation_authorized" ||
     status === "continuation_running" ||
+    status === "continuation_needs_attention" ||
     status === "awaiting_owner_approval";
   const continuationClientMessageIdValid =
     gate.continuationClientMessageId === null ||
@@ -3083,7 +3546,8 @@ function parseAgentProfileWorkRecoveryGateOrLegacy(
     isNonnegativeInteger(gate.updatedAtMs) &&
     (status === "continuation_authorized"
       ? typeof gate.continuationClientMessageId === "string"
-      : gate.continuationClientMessageId === null)
+      : status === "continuation_needs_attention" ||
+        gate.continuationClientMessageId === null)
   ) {
     return {
       continuationClientMessageId: gate.continuationClientMessageId ?? null,
@@ -3350,6 +3814,17 @@ function admissionHasActiveReferences(
     admission.workItems.length > 0 ||
     admission.activeExecutionIds.length > 0 ||
     admission.activeHeadLifecycleIds.length > 0
+  );
+}
+
+function admissionBlocksExecutionTargetMutation(
+  admission: AgentProfileExecutionAdmissionRecord
+): boolean {
+  return (
+    admission.referencesOverflowed ||
+    admission.activeExecutionIds.length > 0 ||
+    admission.activeHeadLifecycleIds.length > 0 ||
+    admission.recoveryGate?.status === "continuation_running"
   );
 }
 

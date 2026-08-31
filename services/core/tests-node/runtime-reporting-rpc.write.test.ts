@@ -1,9 +1,11 @@
+import { AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION } from "@openmeld/agent-runtime";
 import type {
   AgentControllerInterfaceSnapshot,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { createCoreRpcHttpError } from "../src/rpc/errors";
 import {
   rpcSubmitRuntimeAgentControllerReports,
   rpcSubmitRuntimeProviderConversationProofs,
@@ -314,6 +316,96 @@ describe("runtime reporting Core RPC write", () => {
       });
       expect(readRecovery).toHaveBeenCalledOnce();
       expect(spaceGet).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps recovery reads without an exact lifecycle retryable while isolating later reports", async () => {
+    const harness = createSqliteD1Harness();
+    applyRuntimeReportingMigrations(harness);
+    try {
+      const agentProfileId = buildTestAgentProfileId(1);
+      const markContinuationNeedsAttention = vi.fn().mockResolvedValue({
+        status: "marked",
+      });
+      const ownerShard = {
+        rpcMarkAgentProfileWorkUsageAvailable: vi.fn().mockResolvedValue({
+          changedProfileIds: [agentProfileId],
+          continuationProfileIds: [agentProfileId],
+          status: "updated",
+        }),
+        rpcMarkAgentProfileWorkContinuationNeedsAttention:
+          markContinuationNeedsAttention,
+        rpcReadAgentProfileWorkRecovery: vi
+          .fn()
+          .mockRejectedValueOnce(new Error("recovery read failed"))
+          .mockRejectedValueOnce(
+            createCoreRpcHttpError({
+              code: "agent_profile_work_recovery.continuation_outcome_unknown",
+              reason: "OpenMeld is still confirming the continuation.",
+              status: 503,
+            })
+          )
+          .mockRejectedValueOnce(
+            createCoreRpcHttpError({
+              code: "agent_profile_work_recovery.continuation_unavailable",
+              reason: "The accepted Agent configuration changed.",
+              status: 409,
+            })
+          ),
+      };
+      const env = {
+        ...coreEnv(harness.db),
+        OPENMELD_RUNTIME_TRANSPORT: {
+          get: vi.fn(() => ownerShard),
+          idFromName: vi.fn((name: string) => name),
+        },
+      } as unknown as CoreBindings;
+      const registration = await rpcSubmitRuntimeRegistration(env, {
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+      });
+      if (!registration.openMeldServiceRuntimeId) {
+        throw new Error(
+          "test registration did not return openMeldServiceRuntimeId"
+        );
+      }
+      const observedAtMs = Date.now();
+      insertPrimaryAgentProfileBinding(harness, {
+        agentControllerConversationId: "conversation-recovery-failure",
+        agentControllerRef: "builtin:codex",
+        agentProfileId,
+        bindingId: "binding-recovery-failure",
+        nowMs: observedAtMs,
+        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId.value,
+        ownerId: "owner-1",
+      });
+      const createReport = (offsetMs: number) => ({
+        agentControllerInterface: createAvailableUsageInterface(),
+        agentControllerRef: "builtin:codex",
+        expiresAtMs: observedAtMs + 60_000 + offsetMs,
+        observedAtMs: observedAtMs + offsetMs,
+        reasonCodes: ["runtime.agent_controller_report.ready"],
+        status: "ready" as const,
+      });
+
+      const result = await rpcSubmitRuntimeAgentControllerReports(env, {
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        reports: [createReport(0), createReport(1), createReport(2)],
+        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
+      });
+
+      expect(result.reports).toHaveLength(3);
+      expect(result.reports).toEqual([
+        expect.objectContaining({ status: "accepted" }),
+        expect.objectContaining({ status: "accepted" }),
+        expect.objectContaining({ status: "accepted" }),
+      ]);
+      expect(markContinuationNeedsAttention).not.toHaveBeenCalled();
     } finally {
       harness.close();
     }
@@ -819,6 +911,8 @@ function createAvailableUsageInterface() {
         usedPercent: 42,
       },
     ],
+    usageLimitsSupportMatrixVersion:
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
     version: "1.0.0",
   } satisfies AgentControllerInterfaceSnapshot;
 }

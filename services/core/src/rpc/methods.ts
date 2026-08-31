@@ -901,6 +901,7 @@ import {
 } from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
 import {
   acquireRuntimeTransportAgentProfileExecutionTargetMutation,
+  acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
   controlRuntimeTransportOpenMeldTools,
   isRuntimeTransportProfileWorkspaceOutcomeDefinitive,
   lookupRuntimeTransportOwnerService,
@@ -2612,6 +2613,7 @@ export type SaveOrganizationWakeAccessChoiceInput =
   };
 
 export type GetCurrentOrganizationDirectoryInput = {
+  agentProfileWorkRecoveryVersion?: 2;
   context?: CoreRpcContextInput;
   includeMemberLastActiveAt?: boolean;
 };
@@ -4445,36 +4447,46 @@ export async function rpcSubmitRuntimeAgentControllerReports(
     });
 
     if (result.status === "accepted") {
-      await notifyAgentProfileWorkUsageRecoveryAvailable({
-        bindingStore: {
-          listBindings: async (bindingInput) =>
-            await listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController(
-              {
-                ...bindingInput,
-                db,
-              }
-            ),
-        },
-        currentReport: result.currentReport,
-        notifyUsageAvailable: async (recoveryInput) =>
-          await resolveRuntimeTransportOwnerShard(
-            env,
-            recoveryInput.ownerUserId
-          ).rpcMarkAgentProfileWorkUsageAvailable({
-            ownerUserId: recoveryInput.ownerUserId,
-            targetProfileIds: [...recoveryInput.targetProfileIds],
-          }),
-        nowMs: acceptedAtMs,
-        ownerUserId: request.userId,
-        resumeInterruptedWork: async (recoveryInput) => {
-          await resumeUsageExhaustedAgentProfileWork({
-            context,
-            env,
-            ownerUserId: recoveryInput.ownerUserId,
-            targetProfileIds: recoveryInput.targetProfileIds,
-          });
-        },
-      });
+      try {
+        await notifyAgentProfileWorkUsageRecoveryAvailable({
+          bindingStore: {
+            listBindings: async (bindingInput) =>
+              await listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController(
+                {
+                  ...bindingInput,
+                  db,
+                }
+              ),
+          },
+          currentReport: result.currentReport,
+          notifyUsageAvailable: async (recoveryInput) =>
+            await resolveRuntimeTransportOwnerShard(
+              env,
+              recoveryInput.ownerUserId
+            ).rpcMarkAgentProfileWorkUsageAvailable({
+              ownerUserId: recoveryInput.ownerUserId,
+              targetProfileIds: [...recoveryInput.targetProfileIds],
+            }),
+          nowMs: acceptedAtMs,
+          ownerUserId: request.userId,
+          resumeInterruptedWork: async (recoveryInput) => {
+            await resumeUsageExhaustedAgentProfileWork({
+              context,
+              env,
+              ownerUserId: recoveryInput.ownerUserId,
+              targetProfileIds: recoveryInput.targetProfileIds,
+            });
+          },
+        });
+      } catch (error) {
+        console.warn("[core.agent_profile_work.usage_recovery_failed]", {
+          agentControllerRef: result.currentReport.agentControllerRef,
+          error,
+          openMeldServiceRuntimeId:
+            result.currentReport.openMeldServiceRuntimeId.value,
+          ownerUserId: request.userId,
+        });
+      }
     }
 
     reports.push(
@@ -4765,8 +4777,16 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     });
   }
 
-  if (recovery.action === "approve_queued_work") {
+  if (parsedBody.data.action === "approve_queued_work") {
     await executeAgentProfileWorkQueueApproval({
+      ownerShard,
+      ownerUserId: request.owner.id,
+      targetProfileId: request.agentProfileId,
+    });
+  } else if (parsedBody.data.action === "skip_interrupted_work") {
+    await executeAgentProfileInterruptedWorkSkip({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
       ownerShard,
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
@@ -4791,6 +4811,34 @@ export async function rpcExecuteAgentProfileWorkRecovery(
   return executeAgentProfileWorkRecoveryResponseSchema.parse({
     action: recovery.action,
     status: "accepted",
+  });
+}
+
+async function executeAgentProfileInterruptedWorkSkip(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
+  ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<void> {
+  const skipped = await input.ownerShard.rpcSkipAgentProfileInterruptedWork({
+    expectedInterruptedTargetWakeLifecycleId:
+      input.expectedInterruptedTargetWakeLifecycleId,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.targetProfileId,
+  });
+  if (skipped.status === "skipped") {
+    return;
+  }
+  throw createCoreRpcHttpError({
+    code:
+      skipped.status === "unavailable"
+        ? "agent_profile_work_recovery.temporarily_unavailable"
+        : "agent_profile_work_recovery.not_pending",
+    reason:
+      skipped.status === "unavailable"
+        ? "OpenMeld could not skip this interrupted task yet. Try again."
+        : "This recovery action is no longer needed.",
+    status: skipped.status === "unavailable" ? 503 : 409,
   });
 }
 
@@ -4831,6 +4879,7 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
   );
   let firstError: unknown = null;
   for (const targetProfileId of input.targetProfileIds) {
+    let interruptedTargetWakeLifecycleId: string | null = null;
     try {
       const recovery =
         runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
@@ -4845,6 +4894,8 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
       ) {
         continue;
       }
+      interruptedTargetWakeLifecycleId =
+        recovery.interruptedTargetWakeLifecycleId ?? null;
       await executeAgentProfileWorkContinuation({
         context: input.context,
         env: input.env,
@@ -4854,12 +4905,55 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
         targetProfileId,
       });
     } catch (error) {
+      if (
+        interruptedTargetWakeLifecycleId &&
+        shouldMarkUsageContinuationNeedsAttention(error)
+      ) {
+        try {
+          await ownerShard.rpcMarkAgentProfileWorkContinuationNeedsAttention({
+            expectedInterruptedTargetWakeLifecycleId:
+              interruptedTargetWakeLifecycleId,
+            ownerUserId: input.ownerUserId,
+            targetProfileId,
+          });
+        } catch (markError) {
+          console.warn(
+            "[core.agent_profile_work.continuation_needs_attention_failed]",
+            {
+              error: markError,
+              ownerUserId: input.ownerUserId,
+              targetProfileId,
+            }
+          );
+        }
+      }
       firstError ??= error;
     }
   }
   if (firstError) {
     throw firstError;
   }
+}
+
+function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
+  const definitiveCodes = new Set([
+    "agent_profile_work_recovery.continuation_conflict",
+    "agent_profile_work_recovery.continuation_unavailable",
+  ]);
+  const visited = new Set<unknown>();
+  let current = error;
+  for (let depth = 0; depth < 4 && current !== null; depth += 1) {
+    if (visited.has(current) || typeof current !== "object") {
+      return false;
+    }
+    visited.add(current);
+    const record = current as Record<string, unknown>;
+    if (typeof record.code === "string" && definitiveCodes.has(record.code)) {
+      return true;
+    }
+    current = record.cause ?? null;
+  }
+  return false;
 }
 
 async function executeAgentProfileWorkContinuation(input: {
@@ -4873,7 +4967,12 @@ async function executeAgentProfileWorkContinuation(input: {
   >;
   targetProfileId: string;
 }): Promise<"deferred" | "started"> {
-  if (!input.recovery.interruptedSourceSignalId) {
+  if (
+    !(
+      input.recovery.interruptedSourceSignalId &&
+      input.recovery.interruptedTargetWakeLifecycleId
+    )
+  ) {
     return "deferred";
   }
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
@@ -4931,24 +5030,26 @@ async function executeAgentProfileWorkContinuation(input: {
     });
   }
   if (input.recovery.authorizedContinuationClientMessageId === null) {
-    const authorized =
-      await input.ownerShard.rpcAuthorizeAgentProfileWorkContinuation({
-        continuationClientMessageId,
+    const currentBinding =
+      await requireCurrentAgentProfileWorkContinuationBinding({
+        env: input.env,
         ownerUserId: input.ownerUserId,
         targetProfileId: input.targetProfileId,
       });
-    if (authorized.status !== "authorized") {
-      throw createCoreRpcHttpError({
-        code:
-          authorized.status === "unavailable"
-            ? "agent_profile_work_recovery.temporarily_unavailable"
-            : "agent_profile_work_recovery.not_pending",
-        reason:
-          authorized.status === "unavailable"
-            ? "OpenMeld could not prepare this continuation yet. Try again."
-            : "This recovery action is no longer needed.",
-        status: authorized.status === "unavailable" ? 503 : 409,
+    const authorized =
+      await input.ownerShard.rpcAuthorizeAgentProfileWorkContinuation({
+        continuationClientMessageId,
+        currentAgentControllerRef: currentBinding.agentControllerRef,
+        currentBindingId: currentBinding.bindingId,
+        currentConfigurationRevision: currentBinding.configurationRevision,
+        expectedInterruptedTargetWakeLifecycleId:
+          input.recovery.interruptedTargetWakeLifecycleId,
+        ownerUserId: input.ownerUserId,
+        requireAcceptedExecutionTargetRevision: true,
+        targetProfileId: input.targetProfileId,
       });
+    if (authorized.status !== "authorized") {
+      throwAgentProfileWorkContinuationAuthorizationError(authorized.status);
     }
   }
   const executed = await stub.rpcExecuteExecutionRecovery({
@@ -4969,6 +5070,75 @@ async function executeAgentProfileWorkContinuation(input: {
     });
   }
   return "started";
+}
+
+function throwAgentProfileWorkContinuationAuthorizationError(
+  status: "needs_attention" | "not_pending" | "unavailable"
+): never {
+  if (status === "unavailable") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld could not prepare this continuation yet. Try again.",
+      status: 503,
+    });
+  }
+  if (status === "needs_attention") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.continuation_unavailable",
+      reason:
+        "This Agent’s setup changed after the task was interrupted. Review the interrupted work before continuing.",
+      status: 409,
+    });
+  }
+  throw createCoreRpcHttpError({
+    code: "agent_profile_work_recovery.not_pending",
+    reason: "This recovery action is no longer needed.",
+    status: 409,
+  });
+}
+
+async function requireCurrentAgentProfileWorkContinuationBinding(input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<{
+  agentControllerRef: string;
+  bindingId: string;
+  configurationRevision: number;
+}> {
+  const bindingDb = localStateDb(input.env);
+  if (!bindingDb) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld could not verify this Agent’s current setup yet.",
+      status: 503,
+    });
+  }
+  const binding = await readPrimaryAgentProfileBindingRecord({
+    agentProfileId: input.targetProfileId,
+    db: bindingDb,
+    owner: { id: input.ownerUserId, kind: "owner_account" },
+  });
+  const agentControllerRef = binding
+    ? parseAgentControllerRef(binding.agentControllerRef)
+    : null;
+  if (
+    binding?.bindingState !== "enabled_primary" ||
+    binding.runtimeKind !== "openmeld_service" ||
+    !agentControllerRef
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.continuation_unavailable",
+      reason:
+        "This Agent’s setup changed after the task was interrupted. Review the interrupted work before continuing.",
+      status: 409,
+    });
+  }
+  return {
+    agentControllerRef: agentControllerRef.ref,
+    bindingId: binding.bindingId,
+    configurationRevision: binding.configurationRevision,
+  };
 }
 
 async function buildAgentProfileWorkRecoveryOperationId(input: {
@@ -6085,6 +6255,7 @@ export async function rpcGetCurrentOrganizationDirectory(
       ...agent,
       operationalContext:
         projectOrganizationDirectoryAgentProfileOperationalContext({
+          exposeRecoveryVersion2: input.agentProfileWorkRecoveryVersion === 2,
           exposeWorkReferences: projected?.exposeWorkReferences === true,
           operationalContext: projected?.operationalContext ?? {
             reasonCode: "runtime_coordinator.operational_context_unavailable",
@@ -16351,18 +16522,32 @@ export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissi
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
   });
-  const result =
-    await updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
+  let result: AgentProfileBindingCommandResult;
+  try {
+    result = await withAgentProfileExecutionTargetMutationAdmission({
       agentProfileId: request.agentProfileId,
-      agentControllerPermissionMode: body.data.agentControllerPermissionMode,
-      bindingStore: createD1AgentProfileBindingCommandStore({ db }),
-      nowMs: Date.now(),
-      ownerAuthorization: {
-        owner: request.owner,
-        status: "allowed",
-      },
-      profileOwnerValidation,
+      env,
+      mutate: async () =>
+        await updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
+          agentProfileId: request.agentProfileId,
+          agentControllerPermissionMode:
+            body.data.agentControllerPermissionMode,
+          bindingStore: createD1AgentProfileBindingCommandStore({ db }),
+          nowMs: Date.now(),
+          ownerAuthorization: {
+            owner: request.owner,
+            status: "allowed",
+          },
+          profileOwnerValidation,
+        }),
+      ownerUserId: request.owner.id,
     });
+  } catch (error) {
+    if (error instanceof AgentProfileExecutionTargetMutationAdmissionError) {
+      return buildRejectedAgentProfileBindingResponse([error.reasonCode]);
+    }
+    throwAgentProfileBindingCommandHttpError(error);
+  }
   if (result.status === "rejected") {
     return buildRejectedAgentProfileBindingResponse(result.reasonCodes);
   }
@@ -16417,19 +16602,32 @@ export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerCollabor
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
   });
-  const result =
-    await updatePrimaryAgentProfileBindingAgentControllerCollaborationMode({
+  let result: AgentProfileBindingCommandResult;
+  try {
+    result = await withAgentProfileExecutionTargetMutationAdmission({
       agentProfileId: request.agentProfileId,
-      agentControllerCollaborationMode:
-        body.data.agentControllerCollaborationMode,
-      bindingStore: createD1AgentProfileBindingCommandStore({ db }),
-      nowMs: Date.now(),
-      ownerAuthorization: {
-        owner: request.owner,
-        status: "allowed",
-      },
-      profileOwnerValidation,
+      env,
+      mutate: async () =>
+        await updatePrimaryAgentProfileBindingAgentControllerCollaborationMode({
+          agentProfileId: request.agentProfileId,
+          agentControllerCollaborationMode:
+            body.data.agentControllerCollaborationMode,
+          bindingStore: createD1AgentProfileBindingCommandStore({ db }),
+          nowMs: Date.now(),
+          ownerAuthorization: {
+            owner: request.owner,
+            status: "allowed",
+          },
+          profileOwnerValidation,
+        }),
+      ownerUserId: request.owner.id,
     });
+  } catch (error) {
+    if (error instanceof AgentProfileExecutionTargetMutationAdmissionError) {
+      return buildRejectedAgentProfileBindingResponse([error.reasonCode]);
+    }
+    throwAgentProfileBindingCommandHttpError(error);
+  }
   if (result.status === "rejected") {
     return buildRejectedAgentProfileBindingResponse(result.reasonCodes);
   }
@@ -16484,19 +16682,28 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
   });
   let result: AgentProfileBindingCommandResult;
   try {
-    result = await updatePrimaryAgentProfileBindingModelSelection({
+    result = await withAgentProfileExecutionTargetMutationAdmission({
       agentProfileId: request.agentProfileId,
-      bindingStore: createD1AgentProfileBindingCommandStore({ db }),
-      modelId: body.data.modelId,
-      nowMs: Date.now(),
-      ownerAuthorization: {
-        owner: request.owner,
-        status: "allowed",
-      },
-      profileOwnerValidation,
-      reasoningLevel: body.data.reasoningLevel,
+      env,
+      mutate: async () =>
+        await updatePrimaryAgentProfileBindingModelSelection({
+          agentProfileId: request.agentProfileId,
+          bindingStore: createD1AgentProfileBindingCommandStore({ db }),
+          modelId: body.data.modelId,
+          nowMs: Date.now(),
+          ownerAuthorization: {
+            owner: request.owner,
+            status: "allowed",
+          },
+          profileOwnerValidation,
+          reasoningLevel: body.data.reasoningLevel,
+        }),
+      ownerUserId: request.owner.id,
     });
   } catch (error) {
+    if (error instanceof AgentProfileExecutionTargetMutationAdmissionError) {
+      return buildRejectedAgentProfileBindingResponse([error.reasonCode]);
+    }
     throwAgentProfileBindingCommandHttpError(error);
   }
   if (result.status === "rejected") {
@@ -16550,17 +16757,31 @@ export async function rpcUpdateAgentProfilePrimaryBindingOpenCodePermission(
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
   });
-  const result = await updatePrimaryAgentProfileBindingOpenCodePermission({
-    agentProfileId: request.agentProfileId,
-    bindingStore: createD1AgentProfileBindingCommandStore({ db }),
-    nowMs: Date.now(),
-    openCodePermission: body.data.openCodePermission,
-    ownerAuthorization: {
-      owner: request.owner,
-      status: "allowed",
-    },
-    profileOwnerValidation,
-  });
+  let result: AgentProfileBindingCommandResult;
+  try {
+    result = await withAgentProfileExecutionTargetMutationAdmission({
+      agentProfileId: request.agentProfileId,
+      env,
+      mutate: async () =>
+        await updatePrimaryAgentProfileBindingOpenCodePermission({
+          agentProfileId: request.agentProfileId,
+          bindingStore: createD1AgentProfileBindingCommandStore({ db }),
+          nowMs: Date.now(),
+          openCodePermission: body.data.openCodePermission,
+          ownerAuthorization: {
+            owner: request.owner,
+            status: "allowed",
+          },
+          profileOwnerValidation,
+        }),
+      ownerUserId: request.owner.id,
+    });
+  } catch (error) {
+    if (error instanceof AgentProfileExecutionTargetMutationAdmissionError) {
+      return buildRejectedAgentProfileBindingResponse([error.reasonCode]);
+    }
+    throwAgentProfileBindingCommandHttpError(error);
+  }
   if (result.status === "rejected") {
     return buildRejectedAgentProfileBindingResponse(result.reasonCodes);
   }
@@ -22159,14 +22380,39 @@ async function acquireAgentProfileExecutionTargetMutationAdmission(input: {
   env: CoreBindings;
   ownerUserId: string;
 }): Promise<AgentProfileExecutionTargetMutationAdmission> {
-  const operationId = `agent-profile-execution-target-mutation:${crypto.randomUUID()}`;
-  const admission =
-    await acquireRuntimeTransportAgentProfileExecutionTargetMutation({
-      env: input.env,
-      operationId,
-      ownerUserId: input.ownerUserId,
-      targetProfileId: input.agentProfileId,
-    });
+  return await acquireAgentProfileMutationAdmission({
+    ...input,
+    acquire: acquireRuntimeTransportAgentProfileExecutionTargetMutation,
+    operationKind: "execution-target",
+  });
+}
+
+async function acquireAgentProfileFutureWorkSettingsMutationAdmission(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+}): Promise<AgentProfileExecutionTargetMutationAdmission> {
+  return await acquireAgentProfileMutationAdmission({
+    ...input,
+    acquire: acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
+    operationKind: "future-work-settings",
+  });
+}
+
+async function acquireAgentProfileMutationAdmission(input: {
+  acquire: typeof acquireRuntimeTransportAgentProfileExecutionTargetMutation;
+  agentProfileId: string;
+  env: CoreBindings;
+  operationKind: "execution-target" | "future-work-settings";
+  ownerUserId: string;
+}): Promise<AgentProfileExecutionTargetMutationAdmission> {
+  const operationId = `agent-profile-${input.operationKind}-mutation:${crypto.randomUUID()}`;
+  const admission = await input.acquire({
+    env: input.env,
+    operationId,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.agentProfileId,
+  });
   if (admission.status === "acquired") {
     return { operationId, status: "acquired" };
   }
@@ -22215,6 +22461,31 @@ async function releaseAgentProfileExecutionTargetMutationAdmission(input: {
       }
     );
   });
+}
+
+async function withAgentProfileExecutionTargetMutationAdmission<T>(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  mutate: () => Promise<T>;
+  ownerUserId: string;
+}): Promise<T> {
+  const admission =
+    await acquireAgentProfileFutureWorkSettingsMutationAdmission(input);
+  if (admission.status !== "acquired") {
+    throw new AgentProfileExecutionTargetMutationAdmissionError(
+      resolveControllerChangeAdmissionReasonCode(admission)
+    );
+  }
+  try {
+    return await input.mutate();
+  } finally {
+    await releaseAgentProfileExecutionTargetMutationAdmission({
+      agentProfileId: input.agentProfileId,
+      env: input.env,
+      operationId: admission.operationId,
+      ownerUserId: input.ownerUserId,
+    });
+  }
 }
 
 function buildDisableAgentProfilePrimaryBindingResponse(input: {

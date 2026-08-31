@@ -689,17 +689,28 @@ provider evidence and a real smoke test.
 
 If a running Wake reports a structured `usage_exhausted` outcome, that Wake ends
 as a visible failure and the Coordinator holds every later Wake. When fresh
-reliable Usage becomes available, OpenMeld automatically retries the interrupted
-request as one deterministic, idempotent new execution. It does not claim that
-the terminal provider turn reopened. After that continuation succeeds, the
-owner receives the separate urgent Inbox and email approval for the held queue.
+reliable Usage from the exact current support-matrix contract becomes available,
+OpenMeld automatically retries the interrupted request at most once as one
+deterministic, idempotent new execution. A legacy or mismatched Service report
+cannot authorize that retry. OpenMeld does not claim that the terminal provider
+turn reopened. After that continuation succeeds, the owner receives the
+separate urgent Inbox and email approval for the held queue.
 If the user explicitly Stops the continuation, OpenMeld never starts it again;
 later queued work still requires the same owner approval, while an empty queue
 clears recovery immediately. Wakes submitted after recovery remain behind the
-held work and cannot bypass it. A repeated Usage report may safely repair a
-failed continuation handoff through the same deterministic operation; it must
-never create a second continuation. A provider may gain true same-turn recovery
-only after its versioned capability has official protocol evidence and a real
+held work and cannot bypass it. A repeated Usage report may safely repair an
+incomplete handoff before the continuation starts through the same deterministic
+operation; it must never create a second continuation. If the original request
+cannot be replayed safely, its source context is incomplete, its Binding or
+configuration changed, or the automatic continuation execution fails, the
+interrupted work moves to `Needs attention` and cannot enter another automatic
+retry loop. A lost or ambiguous Space handoff response is not an execution
+failure: OpenMeld keeps the deterministic continuation identity and confirms or
+retries that same handoff on a later report.
+The owner gets one idempotent Inbox item linked to the original Wake and may
+skip that interrupted work to continue FIFO. Reading or dismissing the item does
+not skip work. A provider may gain true same-turn recovery only after its
+versioned capability has official protocol evidence and a real
 failure-to-recovery smoke test.
 
 For Space and Direct Message Wakes, that automatic continuation uses the exact
@@ -713,12 +724,31 @@ configuration revision. Saved model, reasoning, controller, and launch-only
 permission changes apply to future work. A native live permission update is
 shown as applied only after the provider acknowledges it.
 
+An approved Usage continuation rechecks its exact Binding, controller, and
+configuration revision before it can continue, not only when Usage first
+recovers. Continuation authorization, head admission, and every cloud-owned
+future-work settings change share one owner-shard ordering boundary. If the
+continuation becomes running first, the current Wake keeps its accepted
+settings and the saved change applies to later work. If the setting change wins
+while the continuation is pending or authorized, the continuation moves to
+`Needs attention` without executing. During a rolling deployment, an older
+owner shard that cannot coordinate future-work settings rejects that settings
+save before changing the Binding; ordinary Wakes keep using the unchanged fast
+path.
+
 ## Agent Profile Operational Context
 
 Agent Profile Operational Context is the read projection that composes Agent
 Profile identity, Wakeability, current workload, applied execution settings,
 Usage, and recovery actions. It does not own those facts and cannot decide
 execution by itself.
+
+When interrupted work needs attention, the owner projection exposes one direct
+`Skip interrupted work` action. The action is idempotent, resolves only the exact
+current recovery gate, and promotes the oldest queued Wake. A stale page cannot
+skip a later interrupted Wake; it must refresh the current Profile Details
+projection first. Non-owners see the neutral workload state without this action
+or the interrupted request details.
 
 Owners and other Organization members see the same compact workload summary,
 such as `Working · 3 queued`. Profile Details may show the owner where the

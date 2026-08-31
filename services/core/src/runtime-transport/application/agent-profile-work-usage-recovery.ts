@@ -42,6 +42,9 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
       expiresAtMs: input.currentReport.expiresAtMs,
       status: input.currentReport.status,
       usageLimits: input.currentReport.agentControllerInterface?.usageLimits,
+      usageLimitsSupportMatrixVersion:
+        input.currentReport.agentControllerInterface
+          ?.usageLimitsSupportMatrixVersion,
     },
   });
   if (!availability.available) {
@@ -65,18 +68,17 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
     offset < targetProfileIds.length;
     offset += MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS
   ) {
-    const marked =
-      runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse(
-        await input.notifyUsageAvailable({
-          ownerUserId: input.ownerUserId,
-          targetProfileIds: targetProfileIds.slice(
-            offset,
-            offset +
-              MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS
-          ),
-        })
-      );
-    continuationProfileIds.push(...marked.continuationProfileIds);
+    continuationProfileIds.push(
+      ...(await markUsageAvailableWithoutProfileFailureFanout({
+        notifyUsageAvailable: input.notifyUsageAvailable,
+        ownerUserId: input.ownerUserId,
+        targetProfileIds: targetProfileIds.slice(
+          offset,
+          offset +
+            MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS
+        ),
+      }))
+    );
   }
   if (continuationProfileIds.length === 0) {
     return;
@@ -85,4 +87,42 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
     ownerUserId: input.ownerUserId,
     targetProfileIds: continuationProfileIds,
   });
+}
+
+async function markUsageAvailableWithoutProfileFailureFanout(input: {
+  notifyUsageAvailable: NotifyAgentProfileWorkUsageAvailable;
+  ownerUserId: string;
+  targetProfileIds: readonly string[];
+}): Promise<readonly string[]> {
+  try {
+    const marked =
+      runtimeTransportAgentProfileWorkUsageAvailableResponseSchema.parse(
+        await input.notifyUsageAvailable({
+          ownerUserId: input.ownerUserId,
+          targetProfileIds: input.targetProfileIds,
+        })
+      );
+    return marked.continuationProfileIds;
+  } catch (error) {
+    if (input.targetProfileIds.length > 1) {
+      const midpoint = Math.ceil(input.targetProfileIds.length / 2);
+      const [left, right] = await Promise.all([
+        markUsageAvailableWithoutProfileFailureFanout({
+          ...input,
+          targetProfileIds: input.targetProfileIds.slice(0, midpoint),
+        }),
+        markUsageAvailableWithoutProfileFailureFanout({
+          ...input,
+          targetProfileIds: input.targetProfileIds.slice(midpoint),
+        }),
+      ]);
+      return [...left, ...right];
+    }
+    console.warn("[core.agent_profile_work.usage_recovery_profile_failed]", {
+      agentProfileId: input.targetProfileIds[0] ?? null,
+      error,
+      ownerUserId: input.ownerUserId,
+    });
+    return [];
+  }
 }

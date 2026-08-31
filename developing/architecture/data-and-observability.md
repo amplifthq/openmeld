@@ -100,9 +100,22 @@ and Operational Context reads never fan out into Inbox writes. After the
 idempotent D1 Inbox write succeeds, one Durable Object transaction verifies the
 same intent, interrupted head, and admission state. Resolving an item deletes
 the intent and retires the exact current head and lifecycle-index reference in
-that transaction. Any D1 or Durable Object failure leaves the intent available
-for the next alarm retry. This uses no cron, owner-shard scan, or Wake hot-path
-work.
+that transaction. A projection failure records one bounded attempt on the
+current intent. After three failed attempts, housekeeping preserves diagnostics,
+moves that intent to a parked retry lane, and continues later intents so one
+broken Profile cannot starve the owner shard. Parked keys are ordered by their
+next retry time, so housekeeping still reads only the next fixed batch and
+retries each failed intent no more often than once per minute. A later
+successful retry still creates or resolves the idempotent Inbox item and, for
+resolution, retires the exact old head and lifecycle-index reference; the intent
+is never discarded merely because a dependency failed three times. This uses no
+cron, owner-shard scan, or Wake hot-path work.
+
+Conversation occupancy in D1 is a compact current-state projection keyed by the
+exact execution and state, not an append-only event history. Repeated
+recovery keepalives upsert the current `occupied` or `available` value so
+reconnect can self-heal while retaining only the evidence needed for trace and
+reconciliation.
 
 The long-term data domains are:
 

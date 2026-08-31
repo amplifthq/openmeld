@@ -1,12 +1,28 @@
-import { ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER } from "@openmeld/gateway-contract";
+import {
+  ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER,
+  ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
+} from "@openmeld/gateway-contract";
 
 export function buildCurrentOrganizationDirectoryPath(input?: {
+  agentProfileWorkRecoveryVersion?: 2;
   includeMemberLastActiveAt?: boolean;
 }): string {
   const path = "/v1/organizations/current/directory";
-  return input?.includeMemberLastActiveAt === true
-    ? `${path}?${ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER}=true`
-    : path;
+  const query = new URLSearchParams();
+  if (input?.agentProfileWorkRecoveryVersion === 2) {
+    query.set(
+      ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER,
+      "2"
+    );
+  }
+  if (input?.includeMemberLastActiveAt === true) {
+    query.set(
+      ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
+      "true"
+    );
+  }
+  const queryString = query.toString();
+  return queryString ? `${path}?${queryString}` : path;
 }
 
 export function buildCurrentOrganizationComputersPath(input?: {

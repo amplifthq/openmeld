@@ -39,9 +39,14 @@ import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys,
 } from "../runtime-transport/application/agent-profile-execution-admission";
+import type {
+  AgentProfileWorkCoordinatorItem,
+  AgentProfileWorkRecoveryGate,
+} from "../runtime-transport/application/agent-profile-work-coordinator";
 import {
   buildAgentProfileWorkRecoveryInboxProjectionIntent,
   buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
+  parseAgentProfileWorkRecoveryInboxProjectionIntent,
 } from "../runtime-transport/application/agent-profile-work-recovery-inbox-projection";
 import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
 import {
@@ -666,7 +671,7 @@ const createRecordingD1 = (input?: {
             }
             if (
               query.includes(
-                "INSERT OR IGNORE INTO openMeldDaemon_runtime_coordinator_execution_events"
+                "INTO openMeldDaemon_runtime_coordinator_execution_events"
               )
             ) {
               const [
@@ -679,7 +684,10 @@ const createRecordingD1 = (input?: {
                 idempotencyKey,
                 payloadJson,
               ] = params;
-              if (!eventRows.has(String(eventId))) {
+              if (
+                query.includes("ON CONFLICT(event_id) DO UPDATE") ||
+                !eventRows.has(String(eventId))
+              ) {
                 eventRows.set(String(eventId), {
                   event_id: eventId,
                   event_type: eventType,
@@ -1738,6 +1746,8 @@ const buildDeliverRequest = (
     contextIdMappingSpec: null,
     controllerSnapshot: {
       agentControllerRef: "builtin:codex",
+      bindingId: "binding-1",
+      configurationRevision: 1,
       targetBindingEnabled: true,
       targetBindingState: "bound" as const,
     },
@@ -1907,6 +1917,34 @@ const configureCompatibleRoute = (input: {
   });
 };
 
+const configureRevisionAwareRoute = (input: {
+  configurationRevision: number;
+  socket: WebSocket;
+  state: RuntimeTransportMutableState;
+}) => {
+  configureCompatibleRoute(input);
+  const session = input.state.sessionsById.get("daemon-session-1");
+  if (!session) {
+    throw new Error("Expected compatible Runtime Transport session.");
+  }
+  session.capabilities.profileConfigurationRevision = true;
+  session.localWakeRouteReport = {
+    daemonSessionId: session.daemonSessionId,
+    deviceId: session.deviceId,
+    includedProfileIds: [TARGET_AGENT_PROFILE_ID],
+    lane: session.lane,
+    profileConfigurationRevisions: [
+      {
+        bindingId: "binding-1",
+        configurationRevision: input.configurationRevision,
+        profileId: TARGET_AGENT_PROFILE_ID,
+      },
+    ],
+    reportedAtMs: Date.now(),
+    skippedProfiles: [],
+  };
+};
+
 const registerCompatibleRoute = (input: {
   connectionGeneration?: number;
   daemonSessionId?: string;
@@ -2037,6 +2075,7 @@ const classifyPublicationClosureDiagnostics = (
 
 const issueDeliveryToken = async (input: {
   hub: RuntimeTransportHub;
+  profileConfigurationRevision?: number;
   replyToSnapshot?: {
     signalId: string;
     profileId: string;
@@ -2052,10 +2091,18 @@ const issueDeliveryToken = async (input: {
     threadId: string;
   };
 }): Promise<RuntimeCoordinatorExecutionTokenEnvelope> => {
-  configureCompatibleRoute({
-    socket: input.socket,
-    state: input.state,
-  });
+  if (input.profileConfigurationRevision === undefined) {
+    configureCompatibleRoute({
+      socket: input.socket,
+      state: input.state,
+    });
+  } else {
+    configureRevisionAwareRoute({
+      configurationRevision: input.profileConfigurationRevision,
+      socket: input.socket,
+      state: input.state,
+    });
+  }
   await acceptDefaultRuntimeCoordinatorHead(input.hub);
 
   await (
@@ -2126,6 +2173,7 @@ const acceptDefaultRuntimeCoordinatorHead = (
 
 const prepareRunningContinuationWithQueuedWork = async (input: {
   hub: RuntimeTransportHub;
+  profileConfigurationRevision?: number;
   queuedWorkName: string;
   sentFrames: unknown[];
   socket: WebSocket;
@@ -2138,6 +2186,7 @@ const prepareRunningContinuationWithQueuedWork = async (input: {
 }> => {
   await issueDeliveryToken({
     hub: input.hub,
+    profileConfigurationRevision: input.profileConfigurationRevision,
     sentFrames: input.sentFrames,
     socket: input.socket,
     state: input.state,
@@ -4053,7 +4102,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toHaveLength(promotionRedriveCount);
   });
 
-  it("holds FIFO work when the running Wake exhausts Usage", async () => {
+  it.each([
+    ["still matches", false, "accepted"],
+    ["changes after approval", true, "needs_attention"],
+  ] as const)("holds FIFO work when the running Wake exhausts Usage and its execution target %s", async (_caseName, saveFutureSettings, expectedOutcome) => {
     const {
       hub,
       recordingD1,
@@ -4070,7 +4122,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         profile_name: "Codex Agent",
       },
     });
-    configureCompatibleRoute({ socket, state });
+    configureRevisionAwareRoute({
+      configurationRevision: 1,
+      socket,
+      state,
+    });
     await acceptDefaultRuntimeCoordinatorHead(hub);
     const deliveryResponse = await (
       hub as unknown as {
@@ -4183,7 +4239,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const recoveryHub = hub as unknown as {
       rpcAuthorizeAgentProfileWorkContinuation: (input: {
         continuationClientMessageId: string;
+        currentAgentControllerRef: string;
+        currentBindingId: string;
+        currentConfigurationRevision: number;
+        expectedInterruptedTargetWakeLifecycleId: string;
         ownerUserId: string;
+        requireAcceptedExecutionTargetRevision: true;
         targetProfileId: string;
       }) => Promise<unknown>;
       rpcMarkAgentProfileWorkUsageAvailable: (input: {
@@ -4246,6 +4307,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
       interruptedSourceSignalId: "signal-1",
+      interruptedTargetWakeLifecycleId:
+        buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
+          .targetWakeLifecycleId,
       spaceId: HEX_SPACE_ID,
       status: "available",
     });
@@ -4266,6 +4330,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
               },
             ],
             recoveryAction: "continue_interrupted_work",
+            recoveryTargetWakeLifecycleId:
+              buildRuntimeCoordinatorHeadAcceptRequest()
+                .targetWakeLifecycleIdentity.targetWakeLifecycleId,
             status: "paused",
             waitingCount: 1,
           },
@@ -4287,7 +4354,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(
       recoveryHub.rpcAuthorizeAgentProfileWorkContinuation({
         continuationClientMessageId: "client-message-usage-continuation",
+        currentAgentControllerRef: "builtin:codex",
+        currentBindingId: "binding-1",
+        currentConfigurationRevision: 1,
+        expectedInterruptedTargetWakeLifecycleId:
+          buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
+            .targetWakeLifecycleId,
         ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       })
     ).resolves.toEqual({ status: "authorized" });
@@ -4320,22 +4394,121 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceId: "c".repeat(64),
       targetProfileId: TARGET_AGENT_PROFILE_ID,
     });
-    await expect(
-      (
-        await fetchRuntimeTransportJson(
-          hub,
-          "/runtime-coordinator/head/accept",
-          buildRuntimeCoordinatorHeadAcceptRequest({
-            dispatchId: "dispatch-usage-continuation",
-            idempotencyKey: "idempotency-usage-continuation",
-            targetWakeLifecycleIdentity: continuationIdentity,
-          })
+    const mutationHub = hub as unknown as {
+      rpcAcquireAgentProfileFutureWorkSettingsMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{ status: string }>;
+      rpcAcquireAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{ status: string }>;
+      rpcReleaseAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{ status: string }>;
+    };
+    if (saveFutureSettings) {
+      await expect(
+        mutationHub.rpcAcquireAgentProfileFutureWorkSettingsMutation({
+          operationId: "save-future-settings-after-approval",
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({ status: "acquired" });
+      await expect(
+        mutationHub.rpcReleaseAgentProfileControllerMutation({
+          operationId: "save-future-settings-after-approval",
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "released" });
+    }
+
+    const continuationAcceptance = await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        buildRuntimeCoordinatorHeadAcceptRequest({
+          dispatchId: "dispatch-usage-continuation",
+          idempotencyKey: "idempotency-usage-continuation",
+          targetWakeLifecycleIdentity: continuationIdentity,
+        })
+      )
+    ).json();
+    if (expectedOutcome === "needs_attention") {
+      expect(continuationAcceptance).toMatchObject({
+        ok: false,
+        reasonCode:
+          "agent_profile_work_coordinator.continuation_needs_attention",
+        status: "conflict",
+      });
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorHeadLifecycleStorageKey(
+            continuationIdentity.targetWakeLifecycleId
+          )
         )
-      ).json()
+      ).toBeUndefined();
+      expect(storageRecords.get(admissionKey)).toMatchObject({
+        recoveryGate: {
+          continuationClientMessageId: "client-message-usage-continuation",
+          status: "continuation_needs_attention",
+        },
+        workItems: [
+          expect.objectContaining({ dispatchId: "dispatch-usage-successor" }),
+        ],
+      });
+      const recoveryProjectionCount = [...storageRecords.values()].filter(
+        (value) =>
+          parseAgentProfileWorkRecoveryInboxProjectionIntent(value) !== null
+      ).length;
+      await expect(
+        (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            buildRuntimeCoordinatorHeadAcceptRequest({
+              dispatchId: "dispatch-usage-continuation",
+              idempotencyKey: "idempotency-usage-continuation",
+              targetWakeLifecycleIdentity: continuationIdentity,
+            })
+          )
+        ).json()
+      ).resolves.toMatchObject({
+        reasonCode:
+          "agent_profile_work_coordinator.continuation_needs_attention",
+        status: "conflict",
+      });
+      expect(
+        [...storageRecords.values()].filter(
+          (value) =>
+            parseAgentProfileWorkRecoveryInboxProjectionIntent(value) !== null
+        )
+      ).toHaveLength(recoveryProjectionCount);
+      expect(storageRecords.get(admissionKey)).toMatchObject({
+        workItems: [
+          expect.objectContaining({ dispatchId: "dispatch-usage-successor" }),
+        ],
+      });
+      return;
+    }
+    await expect(
+      Promise.resolve(continuationAcceptance)
     ).resolves.toMatchObject({
       action: "create_execution",
       status: "accepted",
     });
+    await expect(
+      mutationHub.rpcAcquireAgentProfileControllerMutation({
+        operationId: "too-late-after-continuation-started",
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({ status: "blocked" });
     expect(
       storageRecords.get(
         runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
@@ -4470,6 +4643,579 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ resolution_status: "open" });
   });
 
+  it("projects one interrupted-work review and promotes queued work only after the owner skips", async () => {
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      spaceFetchRequests,
+      state,
+      storageRecords,
+    } = createHarness();
+    const { admissionKey, queuedIdentity } =
+      await prepareRunningContinuationWithQueuedWork({
+        hub,
+        queuedWorkName: "needs-attention-successor",
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      });
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: {
+        interruptedWork: {
+          dispatchId: string;
+          targetWakeLifecycleId: string;
+        };
+      };
+      revision: number;
+      updatedAtMs: number;
+      workItems: Array<{
+        dispatchId: string;
+        enqueuedAtMs: number;
+        targetWakeLifecycleId: string;
+      }>;
+    };
+    const queuedWork = admission.workItems.find(
+      (item) => item.dispatchId === queuedIdentity.dispatchId
+    );
+    if (!queuedWork) {
+      throw new Error("Expected queued work after the interrupted Wake.");
+    }
+    storageRecords.set(admissionKey, {
+      ...admission,
+      recoveryGate: {
+        continuationClientMessageId: null,
+        interruptedWork: admission.recoveryGate.interruptedWork,
+        status: "continuation_pending",
+        updatedAtMs: Date.now(),
+      },
+      revision: admission.revision + 1,
+      updatedAtMs: Date.now(),
+      workItems: [queuedWork],
+    });
+
+    const recoveryHub = hub as unknown as {
+      rpcMarkAgentProfileWorkContinuationNeedsAttention: (input: {
+        expectedInterruptedTargetWakeLifecycleId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcReadAgentProfileWorkRecovery: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcSkipAgentProfileInterruptedWork: (input: {
+        expectedInterruptedTargetWakeLifecycleId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const request = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    const markRequest = {
+      expectedInterruptedTargetWakeLifecycleId:
+        admission.recoveryGate.interruptedWork.targetWakeLifecycleId,
+      ...request,
+    };
+    const skipRequest = {
+      expectedInterruptedTargetWakeLifecycleId:
+        admission.recoveryGate.interruptedWork.targetWakeLifecycleId,
+      ...request,
+    };
+
+    await expect(
+      recoveryHub.rpcMarkAgentProfileWorkContinuationNeedsAttention(markRequest)
+    ).resolves.toEqual({ status: "marked" });
+    await expect(
+      recoveryHub.rpcMarkAgentProfileWorkContinuationNeedsAttention(markRequest)
+    ).resolves.toEqual({ status: "not_pending" });
+    await expect(
+      recoveryHub.rpcReadAgentProfileWorkRecovery(request)
+    ).resolves.toMatchObject({
+      action: "skip_interrupted_work",
+      interruptedClientMessageId: "client-message-1",
+      interruptedDispatchId: "dispatch-1",
+      interruptedSourceSignalId: "signal-1",
+      spaceId: HEX_SPACE_ID,
+      status: "available",
+    });
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    const reviewRows = [...recordingD1.interactionInboxRows.values()];
+    expect(reviewRows).toEqual([
+      expect.objectContaining({
+        resolution_status: "open",
+        title: "Review interrupted work for Codex Agent",
+      }),
+    ]);
+    expect(JSON.parse(String(reviewRows[0]?.source_target_json))).toEqual({
+      kind: "space",
+      signalId: "signal-1",
+      spaceId: HEX_SPACE_ID,
+    });
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(recordingD1.interactionInboxRows.size).toBe(1);
+
+    await expect(
+      recoveryHub.rpcSkipAgentProfileInterruptedWork(skipRequest)
+    ).resolves.toEqual({ status: "skipped" });
+    await expect(
+      recoveryHub.rpcSkipAgentProfileInterruptedWork(skipRequest)
+    ).resolves.toEqual({ status: "not_pending" });
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          queuedIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "accepted" });
+    expect(spaceFetchRequests).toContainEqual({
+      body: {
+        reason: "agent_profile_work_coordinator_promotion",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: queuedIdentity.targetWakeLifecycleId,
+      },
+      path: "/internal/dispatches/dispatch-needs-attention-successor/redrive",
+    });
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "resolved" }),
+    ]);
+  });
+
+  it("does not let a stale Skip action clear a later interrupted-work gate", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { admissionKey } = await prepareRunningContinuationWithQueuedWork({
+      hub,
+      queuedWorkName: "stale-skip-successor",
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    });
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: AgentProfileWorkRecoveryGate;
+      revision: number;
+    };
+    const staleTargetWakeLifecycleId =
+      admission.recoveryGate.interruptedWork.targetWakeLifecycleId;
+    const currentTargetWakeLifecycleId = "twl_current-needs-attention";
+    storageRecords.set(admissionKey, {
+      ...admission,
+      recoveryGate: {
+        ...admission.recoveryGate,
+        interruptedWork: {
+          ...admission.recoveryGate.interruptedWork,
+          dispatchId: "dispatch-current-needs-attention",
+          targetWakeLifecycleId: currentTargetWakeLifecycleId,
+        },
+        status: "continuation_needs_attention",
+      },
+      revision: admission.revision + 1,
+    });
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcSkipAgentProfileInterruptedWork: (input: {
+            expectedInterruptedTargetWakeLifecycleId: string;
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcSkipAgentProfileInterruptedWork({
+        expectedInterruptedTargetWakeLifecycleId: staleTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "not_pending" });
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: {
+        interruptedWork: {
+          targetWakeLifecycleId: currentTargetWakeLifecycleId,
+        },
+        status: "continuation_needs_attention",
+      },
+    });
+  });
+
+  it("does not let a delayed failure mark a later interrupted-work gate", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { admissionKey } = await prepareRunningContinuationWithQueuedWork({
+      hub,
+      queuedWorkName: "stale-needs-attention-successor",
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    });
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: AgentProfileWorkRecoveryGate;
+      revision: number;
+    };
+    const staleTargetWakeLifecycleId =
+      admission.recoveryGate.interruptedWork.targetWakeLifecycleId;
+    const currentTargetWakeLifecycleId = "twl_current-continuation";
+    storageRecords.set(admissionKey, {
+      ...admission,
+      recoveryGate: {
+        ...admission.recoveryGate,
+        interruptedWork: {
+          ...admission.recoveryGate.interruptedWork,
+          dispatchId: "dispatch-current-continuation",
+          targetWakeLifecycleId: currentTargetWakeLifecycleId,
+        },
+        status: "continuation_pending",
+      },
+      revision: admission.revision + 1,
+    });
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcMarkAgentProfileWorkContinuationNeedsAttention: (input: {
+            expectedInterruptedTargetWakeLifecycleId: string;
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcMarkAgentProfileWorkContinuationNeedsAttention({
+        expectedInterruptedTargetWakeLifecycleId: staleTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "not_pending" });
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: {
+        interruptedWork: {
+          targetWakeLifecycleId: currentTargetWakeLifecycleId,
+        },
+        status: "continuation_pending",
+      },
+    });
+  });
+
+  it("moves a pending continuation to Needs attention when a future-settings save wins", async () => {
+    const {
+      hub,
+      sentFrames,
+      socket,
+      spaceFetchRequests,
+      state,
+      storageRecords,
+    } = createHarness();
+    const { admissionKey } = await prepareRunningContinuationWithQueuedWork({
+      hub,
+      queuedWorkName: "future-settings-successor",
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    });
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: AgentProfileWorkRecoveryGate;
+      revision: number;
+      updatedAtMs: number;
+      workItems: AgentProfileWorkCoordinatorItem[];
+    };
+    const interruptedTargetWakeLifecycleId =
+      admission.recoveryGate.interruptedWork.targetWakeLifecycleId;
+    storageRecords.set(admissionKey, {
+      ...admission,
+      recoveryGate: {
+        ...admission.recoveryGate,
+        continuationClientMessageId: null,
+        status: "continuation_pending",
+      },
+      revision: admission.revision + 1,
+    });
+    const redriveCount = spaceFetchRequests.length;
+    const mutationHub = hub as unknown as {
+      rpcAcquireAgentProfileFutureWorkSettingsMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcReleaseAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const mutation = {
+      operationId: "save-settings-before-continuation-authorization",
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    await expect(
+      mutationHub.rpcAcquireAgentProfileFutureWorkSettingsMutation(mutation)
+    ).resolves.toMatchObject({ status: "acquired" });
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: {
+        interruptedWork: {
+          targetWakeLifecycleId: interruptedTargetWakeLifecycleId,
+        },
+        status: "continuation_needs_attention",
+      },
+      workItems: admission.workItems,
+    });
+    expect(
+      [...storageRecords.values()].filter(
+        (value) =>
+          parseAgentProfileWorkRecoveryInboxProjectionIntent(value) !== null
+      )
+    ).toHaveLength(1);
+    expect(spaceFetchRequests).toHaveLength(redriveCount);
+    await expect(
+      mutationHub.rpcReleaseAgentProfileControllerMutation(mutation)
+    ).resolves.toEqual({ status: "released" });
+  });
+
+  it.each([
+    "continuation_pending",
+    "continuation_authorized",
+  ] as const)("moves a %s continuation to Needs attention when an execution-target change wins", async (continuationStatus) => {
+    const {
+      hub,
+      sentFrames,
+      socket,
+      spaceFetchRequests,
+      state,
+      storageRecords,
+    } = createHarness();
+    await issueDeliveryToken({
+      hub,
+      profileConfigurationRevision: 1,
+      sentFrames,
+      socket,
+      state,
+    });
+    const queuedWorkName = `execution-target-${continuationStatus}-successor`;
+    const queuedDispatchId = `dispatch-${queuedWorkName}`;
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId: queuedDispatchId,
+        idempotencyKey: `idempotency-${queuedWorkName}`,
+        targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+          clientMessageId: `client-message-${queuedWorkName}`,
+          dispatchId: queuedDispatchId,
+          sourceSignalId: `signal-${queuedWorkName}`,
+          spaceId: "b".repeat(64),
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }),
+      })
+    );
+    const authority =
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords);
+    if (!authority) {
+      throw new Error("Expected interrupted execution authority.");
+    }
+    await (
+      hub as unknown as {
+        writeRuntimeCoordinatorTokenAuthority: (
+          nextAuthority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+        ) => Promise<void>;
+      }
+    ).writeRuntimeCoordinatorTokenAuthority({
+      ...authority,
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "usage_exhausted",
+        replySignalId: null,
+        status: "failed_terminal",
+      },
+    });
+    const admissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const recoveryHub = hub as unknown as {
+      rpcAuthorizeAgentProfileWorkContinuation: (input: {
+        continuationClientMessageId: string;
+        currentAgentControllerRef: string;
+        currentBindingId: string;
+        currentConfigurationRevision: number;
+        expectedInterruptedTargetWakeLifecycleId: string;
+        ownerUserId: string;
+        requireAcceptedExecutionTargetRevision: true;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcMarkAgentProfileWorkUsageAvailable: (input: {
+        ownerUserId: string;
+        targetProfileIds: string[];
+      }) => Promise<unknown>;
+    };
+    await expect(
+      recoveryHub.rpcMarkAgentProfileWorkUsageAvailable({
+        ownerUserId: "owner-1",
+        targetProfileIds: [TARGET_AGENT_PROFILE_ID],
+      })
+    ).resolves.toMatchObject({
+      continuationProfileIds: [TARGET_AGENT_PROFILE_ID],
+      status: "updated",
+    });
+    const pendingAdmission = storageRecords.get(admissionKey) as {
+      recoveryGate: AgentProfileWorkRecoveryGate;
+      workItems: AgentProfileWorkCoordinatorItem[];
+    };
+    const interruptedTargetWakeLifecycleId =
+      pendingAdmission.recoveryGate.interruptedWork.targetWakeLifecycleId;
+    if (continuationStatus === "continuation_authorized") {
+      await expect(
+        recoveryHub.rpcAuthorizeAgentProfileWorkContinuation({
+          continuationClientMessageId: "client-message-authorized-continuation",
+          currentAgentControllerRef: "builtin:codex",
+          currentBindingId: "binding-1",
+          currentConfigurationRevision: 1,
+          expectedInterruptedTargetWakeLifecycleId:
+            interruptedTargetWakeLifecycleId,
+          ownerUserId: "owner-1",
+          requireAcceptedExecutionTargetRevision: true,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "authorized" });
+    }
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: { status: continuationStatus },
+    });
+    const redriveCount = spaceFetchRequests.length;
+    const mutationHub = hub as unknown as {
+      rpcAcquireAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcReleaseAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const mutation = {
+      operationId: `change-execution-target-${continuationStatus}`,
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    await expect(
+      mutationHub.rpcAcquireAgentProfileControllerMutation(mutation)
+    ).resolves.toMatchObject({ status: "acquired" });
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: {
+        interruptedWork: {
+          targetWakeLifecycleId: interruptedTargetWakeLifecycleId,
+        },
+        status: "continuation_needs_attention",
+      },
+      workItems: pendingAdmission.workItems,
+    });
+    expect(
+      [...storageRecords.values()].filter(
+        (value) =>
+          parseAgentProfileWorkRecoveryInboxProjectionIntent(value) !== null
+      )
+    ).toHaveLength(1);
+    expect(spaceFetchRequests).toHaveLength(redriveCount);
+    await expect(
+      mutationHub.rpcReleaseAgentProfileControllerMutation(mutation)
+    ).resolves.toEqual({ status: "released" });
+  });
+
+  it("moves Usage recovery to Needs attention when the accepted configuration changed", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const publishAgentReadinessInvalidated = vi.fn();
+    (
+      hub as unknown as {
+        publishAgentReadinessInvalidated: (input: {
+          profileIds: readonly string[];
+          reason: string;
+        }) => void;
+      }
+    ).publishAgentReadinessInvalidated = publishAgentReadinessInvalidated;
+    const { admissionKey } = await prepareRunningContinuationWithQueuedWork({
+      hub,
+      profileConfigurationRevision: 1,
+      queuedWorkName: "changed-configuration-successor",
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    });
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: AgentProfileWorkRecoveryGate;
+      revision: number;
+    };
+    const interruptedTargetWakeLifecycleId =
+      admission.recoveryGate.interruptedWork.targetWakeLifecycleId;
+    storageRecords.set(admissionKey, {
+      ...admission,
+      recoveryGate: {
+        ...admission.recoveryGate,
+        status: "continuation_pending",
+      },
+      revision: admission.revision + 1,
+    });
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcAuthorizeAgentProfileWorkContinuation: (input: {
+            continuationClientMessageId: string;
+            currentAgentControllerRef: string;
+            currentBindingId: string;
+            currentConfigurationRevision: number;
+            expectedInterruptedTargetWakeLifecycleId: string;
+            ownerUserId: string;
+            requireAcceptedExecutionTargetRevision: true;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcAuthorizeAgentProfileWorkContinuation({
+        continuationClientMessageId: "client-message-changed-configuration",
+        currentAgentControllerRef: "builtin:codex",
+        currentBindingId: "binding-1",
+        currentConfigurationRevision: 2,
+        expectedInterruptedTargetWakeLifecycleId:
+          interruptedTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "needs_attention" });
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: {
+        continuationClientMessageId: null,
+        interruptedWork: {
+          targetWakeLifecycleId: interruptedTargetWakeLifecycleId,
+        },
+        status: "continuation_needs_attention",
+      },
+    });
+    expect(
+      storageRecords.get(
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+          TARGET_AGENT_PROFILE_ID
+        )
+      )
+    ).toMatchObject({
+      desiredStatus: "open",
+      stage: "review_interrupted_work",
+      targetWakeLifecycleId: interruptedTargetWakeLifecycleId,
+    });
+    expect(publishAgentReadinessInvalidated).toHaveBeenCalledWith({
+      profileIds: [TARGET_AGENT_PROFILE_ID],
+      reason: "agent_profile_work_coordinator.changed",
+    });
+  });
+
   it("keeps a stopped Usage continuation terminal and holds queued work for owner approval", async () => {
     const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
       createHarness();
@@ -4581,6 +5327,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         buildAgentProfileWorkRecoveryInboxProjectionIntent({
           desiredStatus: "open",
           occurredAtMs: 1_700_000_000_000 + index,
+          stage: "approve_queued_work",
           targetProfileId,
           targetWakeLifecycleId: identity.targetWakeLifecycleId,
           updatedAtMs: 1_700_000_000_000 + index,
@@ -4599,6 +5346,241 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(
       projectionKeys.filter((key) => storageRecords.has(key))
     ).toHaveLength(0);
+  });
+
+  it("parks broken recovery projections without starving later Inbox work", async () => {
+    const { hub, recordingD1, storageRecords } = createHarness();
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const baseIdentity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    const baseHead = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        baseIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const projectionKeys: string[] = [];
+
+    for (let index = 0; index < 9; index += 1) {
+      const targetProfileId = `agt_${(index + 40)
+        .toString(16)
+        .padStart(8, "0")}-3333-4333-8333-${(index + 40)
+        .toString(16)
+        .padStart(12, "0")}`;
+      const dispatchId = `dispatch-recovery-starvation-${index}`;
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `client-message-recovery-starvation-${index}`,
+        dispatchId,
+        sourceSignalId: `signal-recovery-starvation-${index}`,
+        spaceId: String(index + 1).repeat(64),
+        targetProfileId,
+      });
+      if (index === 8) {
+        storageRecords.set(
+          buildRuntimeCoordinatorHeadLifecycleStorageKey(
+            identity.targetWakeLifecycleId
+          ),
+          {
+            ...baseHead,
+            primaryDispatchId: dispatchId,
+            primaryIdempotencyKey: `idempotency-recovery-starvation-${index}`,
+            targetWakeLifecycleId: identity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: identity,
+          }
+        );
+      }
+      const projectionKey =
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(targetProfileId);
+      projectionKeys.push(projectionKey);
+      storageRecords.set(
+        projectionKey,
+        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "open",
+          occurredAtMs: 1_700_000_100_000 + index,
+          stage: "approve_queued_work",
+          targetProfileId,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          updatedAtMs: 1_700_000_100_000 + index,
+        })
+      );
+    }
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    }
+    expect(recordingD1.interactionInboxRows.size).toBe(0);
+    expect(
+      [...storageRecords.values()].filter((value) =>
+        parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
+      )
+    ).toHaveLength(9);
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(recordingD1.interactionInboxRows.size).toBe(1);
+    expect(
+      [...storageRecords.values()].filter((value) =>
+        parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
+      )
+    ).toHaveLength(8);
+  });
+
+  it("retries a parked recovery Inbox projection after transient failures", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub, recordingD1, storageRecords } = createHarness({
+        interactionInboxWriteFailures: 3,
+      });
+      await acceptDefaultRuntimeCoordinatorHead(hub);
+      const identity =
+        buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+      storageRecords.set(
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+          TARGET_AGENT_PROFILE_ID
+        ),
+        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "open",
+          occurredAtMs: Date.now(),
+          stage: "review_interrupted_work",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          updatedAtMs: Date.now(),
+        })
+      );
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      }
+      expect(recordingD1.interactionInboxRows.size).toBe(0);
+      expect(
+        [...storageRecords.values()].filter((value) =>
+          parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
+        )
+      ).toHaveLength(1);
+      expect(
+        [...storageRecords.keys()].some((key) =>
+          key.includes(
+            "agent-profile-work-recovery-inbox-projection-parked-pointer"
+          )
+        )
+      ).toBe(true);
+
+      vi.setSystemTime(1_700_000_060_001);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+
+      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+        expect.objectContaining({
+          resolution_status: "open",
+          source_kind: "agent_profile_work_recovery",
+        }),
+      ]);
+      expect(
+        [...storageRecords.values()].filter((value) =>
+          parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
+        )
+      ).toHaveLength(0);
+      expect(
+        [...storageRecords.keys()].some((key) =>
+          key.includes(
+            "agent-profile-work-recovery-inbox-projection-parked-pointer"
+          )
+        )
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("eventually resolves parked recovery Inbox work and retires its old head", async () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000 });
+    try {
+      const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
+        createHarness({ interactionInboxResolveFailures: 3 });
+      const { admissionKey, authority } =
+        await prepareRunningContinuationWithQueuedWork({
+          hub,
+          queuedWorkName: "parked-resolution",
+          sentFrames,
+          socket,
+          state,
+          storageRecords,
+        });
+      await (
+        hub as unknown as {
+          writeRuntimeCoordinatorTokenAuthority: (
+            nextAuthority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+          ) => Promise<void>;
+        }
+      ).writeRuntimeCoordinatorTokenAuthority({
+        ...authority,
+        terminalOutcome: {
+          finalizedAtMs: Date.now(),
+          reasonCode: "space.reply_published",
+          replySignalId: "signal-parked-resolution-final",
+          status: "reply_published",
+        },
+      });
+      const admission = storageRecords.get(admissionKey) as {
+        recoveryGate: AgentProfileWorkRecoveryGate;
+      };
+      const interruptedTargetWakeLifecycleId =
+        admission.recoveryGate.interruptedWork.targetWakeLifecycleId;
+      const interruptedHeadKey = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        interruptedTargetWakeLifecycleId
+      );
+
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+        expect.objectContaining({ resolution_status: "open" }),
+      ]);
+
+      await expect(
+        (
+          hub as unknown as {
+            rpcApproveAgentProfileWorkQueue: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcApproveAgentProfileWorkQueue({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "approved" });
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      }
+      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+        expect.objectContaining({ resolution_status: "open" }),
+      ]);
+      expect(storageRecords.has(interruptedHeadKey)).toBe(true);
+      expect(
+        [...storageRecords.values()].filter((value) =>
+          parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
+        )
+      ).toHaveLength(1);
+
+      vi.setSystemTime(1_700_000_060_001);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+
+      expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+        expect.objectContaining({ resolution_status: "resolved" }),
+      ]);
+      expect(storageRecords.has(interruptedHeadKey)).toBe(false);
+      expect(
+        [...storageRecords.values()].filter((value) =>
+          parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
+        )
+      ).toHaveLength(0);
+      expect(
+        [...storageRecords.keys()].some((key) =>
+          key.includes(
+            "agent-profile-work-recovery-inbox-projection-parked-pointer"
+          )
+        )
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("repairs queued-work Inbox projection without rolling back Coordinator truth", async () => {
@@ -5328,6 +6310,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(storageRecords.has(admissionKey)).toBe(false);
     expect(
       storageRecords.has(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          continuationIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toBe(false);
+    expect(
+      storageRecords.has(
         buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
           TARGET_AGENT_PROFILE_ID
         )
@@ -6055,6 +7044,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
       interruptedSourceSignalId: "signal-1",
+      interruptedTargetWakeLifecycleId:
+        buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
+          .targetWakeLifecycleId,
       spaceId: HEX_SPACE_ID,
       status: "available",
     });
@@ -6070,6 +7062,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
           operationalContext: {
             queuedWorkReferences: [],
             recoveryAction: "continue_interrupted_work",
+            recoveryTargetWakeLifecycleId:
+              buildRuntimeCoordinatorHeadAcceptRequest()
+                .targetWakeLifecycleIdentity.targetWakeLifecycleId,
             status: "paused",
             waitingCount: 0,
           },
@@ -6598,6 +7593,39 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ok: true,
       status: "accepted",
     });
+  });
+
+  it("allows future-work settings to save while the current Wake keeps its accepted revision", async () => {
+    const { hub } = createHarness();
+    const acceptedWake = await acceptDefaultRuntimeCoordinatorHead(hub);
+    expect(acceptedWake.status).toBe(200);
+
+    const mutationHub = hub as unknown as {
+      rpcAcquireAgentProfileFutureWorkSettingsMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{ status: string }>;
+      rpcReleaseAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{ status: string }>;
+    };
+    const mutationIdentity = {
+      operationId: "future-work-settings-1",
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    await expect(
+      mutationHub.rpcAcquireAgentProfileFutureWorkSettingsMutation(
+        mutationIdentity
+      )
+    ).resolves.toMatchObject({ status: "acquired" });
+
+    await expect(
+      mutationHub.rpcReleaseAgentProfileControllerMutation(mutationIdentity)
+    ).resolves.toEqual({ status: "released" });
   });
 
   it("rechecks both sides when Wake acceptance and execution-target mutation overlap", async () => {
@@ -12024,6 +13052,81 @@ describe("runtime transport runtime coordinator transport contract", () => {
         (call) => call.params[2] === "runtime_coordinator_redelivery_commanded"
       )
     ).toBe(false);
+  });
+
+  it("keeps the latest conversation occupancy transition as current evidence", async () => {
+    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const lifecycleHub = hub as unknown as {
+      handleDispatchLifecycleFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+    };
+    const nowSpy = vi.spyOn(Date, "now");
+    try {
+      const reportOccupancy = async (
+        stateValue: "available" | "occupied",
+        nowMs: number
+      ) => {
+        nowSpy.mockReturnValue(nowMs);
+        await lifecycleHub.handleDispatchLifecycleFrame(
+          socket,
+          buildLifecycleRequest({
+            agentControllerConversationOccupancy: {
+              agentControllerConversationId: "conversation-1",
+              contractVersion: 1,
+              state: stateValue,
+            },
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            lifecycleAtMs: nowMs,
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        );
+        await vi.waitFor(() => {
+          expect(
+            [...recordingD1.eventRows.values()].some((row) => {
+              const payload = JSON.parse(String(row.payload_json));
+              return (
+                payload.agentControllerConversationOccupancy?.state ===
+                stateValue
+              );
+            })
+          ).toBe(true);
+        });
+      };
+
+      await reportOccupancy("occupied", 1_700_000_000_100);
+      await reportOccupancy("available", 1_700_000_000_200);
+      await reportOccupancy("occupied", 1_700_000_000_300);
+
+      const occupancyRows = [...recordingD1.eventRows.values()].filter(
+        (row) => {
+          const payload = JSON.parse(String(row.payload_json));
+          return Boolean(payload.agentControllerConversationOccupancy);
+        }
+      );
+      expect(occupancyRows).toHaveLength(2);
+      expect(
+        occupancyRows.map((row) => ({
+          observedAtMs: row.observed_at_ms,
+          state: JSON.parse(String(row.payload_json))
+            .agentControllerConversationOccupancy.state,
+        }))
+      ).toEqual(
+        expect.arrayContaining([
+          { observedAtMs: 1_700_000_000_200, state: "available" },
+          { observedAtMs: 1_700_000_000_300, state: "occupied" },
+        ])
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("defers redelivery instead of keep-waiting when the current route lacks capability", async () => {

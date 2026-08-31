@@ -202,7 +202,8 @@ describe("org commands", () => {
       body: null,
       method: "GET",
       pathname: "/v1/organizations/current/directory",
-      search: "?includeMemberLastActiveAt=true",
+      search:
+        "?agentProfileWorkRecoveryVersion=2&includeMemberLastActiveAt=true",
     });
   });
 

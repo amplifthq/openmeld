@@ -50,6 +50,12 @@ export function resolveAgentProfileUsageWakeability(input: {
   if (!report) {
     return CHECKING_USAGE;
   }
+  if (
+    report.usageLimitsSupportMatrixVersion !==
+    AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION
+  ) {
+    return ALLOWS_NEW_WORK;
+  }
   const supportedUsageLimits = report.usageLimits?.filter(
     (usageLimit) => usageLimit.status !== "unsupported"
   );
@@ -57,10 +63,7 @@ export function resolveAgentProfileUsageWakeability(input: {
     return ALLOWS_NEW_WORK;
   }
   if (!supportedUsageLimits?.length) {
-    return report.usageLimitsSupportMatrixVersion ===
-      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION
-      ? CHECKING_USAGE
-      : ALLOWS_NEW_WORK;
+    return CHECKING_USAGE;
   }
 
   if (report.status !== "ready" || report.expiresAtMs <= input.nowMs) {
@@ -106,6 +109,8 @@ export function resolveAgentProfileUsageRecoveryAvailability(input: {
   );
   if (
     !report ||
+    report.usageLimitsSupportMatrixVersion !==
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION ||
     report.status !== "ready" ||
     report.expiresAtMs <= input.nowMs ||
     !supportedUsageLimits?.length
