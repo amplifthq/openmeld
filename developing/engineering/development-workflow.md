@@ -119,9 +119,11 @@ environment callback, or no coordination best fits the actual work.
   next action. Ordinary evidence and status facts can be sent without Wake.
   The Center Agent can summarize or connect organization context when that adds
   value; it is not a merge authority or a required relay.
-- Treat OpenMeld friction as product evidence. Report reproducible Wake,
-  CI/CD, OpenCode Worker, CLI, or collaboration problems once through
-  [Development Infrastructure Feedback](agent-native-delivery.md#development-infrastructure-feedback).
+- Treat OpenMeld friction as product evidence. Record every firsthand problem
+  in any OpenMeld product surface, App, client, Service, runtime, integration,
+  Wake, CI/CD, OpenCode Worker, or collaboration path through
+  [Agent Experience Occurrence Feedback](agent-native-delivery.md#agent-experience-occurrence-feedback)
+  without searching for or suppressing duplicates.
   For ordinary development coordination, an authorized native fallback may
   keep delivery moving after the failure is recorded. When Wake itself is the
   product behavior under smoke, only the visible product path proves success.
@@ -510,6 +512,16 @@ Run focused validation first. Expand to affected packages when the change crosse
 package boundaries. Run integration suites only for the boundaries they prove.
 `test:full` and manually dispatched Deep Confidence are exhaustive diagnostics,
 not the default closeout step for every change.
+
+Treat broad affected, integration, release-ready, and repository-wide commands
+as heavy closeout work when they fan out across packages. While implementation
+or practical blocker review is still changing the tree, stay on focused tests
+and the smallest real smoke that answers the current question. If a broad run
+is needed early to diagnose an uncertain cross-boundary failure, run only that
+boundary and do not describe it as final evidence. After the scope and
+blocker-capable review are stable, run the selected broad gates once for the
+exact candidate. This is scheduling guidance, not an additional gate or an
+approval requirement.
 
 ### Validation Commands
 
