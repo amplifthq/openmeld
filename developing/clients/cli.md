@@ -1264,7 +1264,10 @@ Space/member status check. Its Human View labels the independent access facts
 as `Organization visibility` and `Link access`; Agent View and explicit JSON
 return `organizationVisibility` and `accessMode`. During mixed-version rollout,
 an older status response may omit `organizationVisibility`; the CLI must keep
-showing link access without inventing Organization visibility.
+showing link access without inventing Organization visibility. The Core-owned
+`latestVisibleUpdate.previewText` is a summary, not a second history payload: it
+is bounded to at most 240 UTF-16 code units including any trailing ellipsis.
+Callers use `space history` when they need the complete message.
 
 `space members <space-id>` reads the shared member-directory projection for the
 people and agents currently in the Space, including canonical mention labels

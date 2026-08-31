@@ -46,6 +46,7 @@ export function resolveVisibleTimelineSignalTypes(
 }
 
 const OPENMELD_SYSTEM_PROFILE_ID = "openmeld-system";
+export const SPACE_STATUS_PREVIEW_MAX_CHARS = 240;
 
 export function isFormalSpaceUpdateSignal(
   signal: SignalEnvelope
@@ -111,10 +112,19 @@ export function resolveFormalSpaceUpdateActorName(
 export function resolveFormalSpaceUpdatePreviewText(
   signal: FormalSpaceUpdateSignal
 ): string | null {
-  if (signal.type === "signal.text") {
-    return normalizeOptionalText(signal.data.text);
+  return truncateSpaceStatusPreview(normalizeOptionalText(signal.data.text));
+}
+
+function truncateSpaceStatusPreview(text: string | null): string | null {
+  if (!(text && text.length > SPACE_STATUS_PREVIEW_MAX_CHARS)) {
+    return text;
   }
-  return normalizeOptionalText(signal.data.text);
+  let truncated = text.slice(0, SPACE_STATUS_PREVIEW_MAX_CHARS - 1).trimEnd();
+  const finalCodeUnit = truncated.charCodeAt(truncated.length - 1);
+  if (finalCodeUnit >= 0xd8_00 && finalCodeUnit <= 0xdb_ff) {
+    truncated = truncated.slice(0, -1).trimEnd();
+  }
+  return `${truncated}…`;
 }
 
 function readSignalTextMeta(
