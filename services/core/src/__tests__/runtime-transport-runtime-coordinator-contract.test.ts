@@ -39,7 +39,10 @@ import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys,
 } from "../runtime-transport/application/agent-profile-execution-admission";
-import type { AgentProfileWorkRecoveryGate } from "../runtime-transport/application/agent-profile-work-coordinator";
+import type {
+  AgentProfileWorkCoordinatorItem,
+  AgentProfileWorkRecoveryGate,
+} from "../runtime-transport/application/agent-profile-work-coordinator";
 import {
   buildAgentProfileWorkRecoveryInboxProjectionIntent,
   buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
@@ -1799,9 +1802,6 @@ const buildRuntimeCoordinatorHeadAcceptRequest = (
   return {
     v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
     dispatchId,
-    ...(overrides.executionTargetRevision
-      ? { executionTargetRevision: overrides.executionTargetRevision }
-      : {}),
     idempotencyKey: overrides.idempotencyKey ?? "idempotency-1",
     ownerUserId: overrides.ownerUserId ?? "owner-1",
     targetProfileMentionLabel:
@@ -4103,9 +4103,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
-    ["still matches", 1, "accepted"],
-    ["changed after approval", 2, "needs_attention"],
-  ] as const)("holds FIFO work when the running Wake exhausts Usage and its execution target %s", async (_caseName, continuationConfigurationRevision, expectedOutcome) => {
+    ["still matches", false, "accepted"],
+    ["changes after approval", true, "needs_attention"],
+  ] as const)("holds FIFO work when the running Wake exhausts Usage and its execution target %s", async (_caseName, saveFutureSettings, expectedOutcome) => {
     const {
       hub,
       recordingD1,
@@ -4394,33 +4394,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceId: "c".repeat(64),
       targetProfileId: TARGET_AGENT_PROFILE_ID,
     });
-    await expect(
-      (
-        await fetchRuntimeTransportJson(
-          hub,
-          "/runtime-coordinator/head/accept",
-          buildRuntimeCoordinatorHeadAcceptRequest({
-            dispatchId: "dispatch-usage-continuation",
-            idempotencyKey: "idempotency-usage-continuation",
-            targetWakeLifecycleIdentity: continuationIdentity,
-          })
-        )
-      ).json()
-    ).resolves.toMatchObject({
-      ok: false,
-      reasonCode:
-        "agent_profile_work_coordinator.continuation_target_revision_unavailable",
-      status: "retry_later",
-    });
-    expect(
-      storageRecords.get(
-        buildRuntimeCoordinatorHeadLifecycleStorageKey(
-          continuationIdentity.targetWakeLifecycleId
-        )
-      )
-    ).toBeUndefined();
-
     const mutationHub = hub as unknown as {
+      rpcAcquireAgentProfileFutureWorkSettingsMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<{ status: string }>;
       rpcAcquireAgentProfileControllerMutation: (input: {
         operationId: string;
         ownerUserId: string;
@@ -4432,38 +4411,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
         targetProfileId: string;
       }) => Promise<{ status: string }>;
     };
-    if (expectedOutcome === "needs_attention") {
+    if (saveFutureSettings) {
       await expect(
-        mutationHub.rpcAcquireAgentProfileControllerMutation({
-          operationId: "change-approved-continuation-target",
+        mutationHub.rpcAcquireAgentProfileFutureWorkSettingsMutation({
+          operationId: "save-future-settings-after-approval",
           ownerUserId: "owner-1",
           targetProfileId: TARGET_AGENT_PROFILE_ID,
         })
       ).resolves.toMatchObject({ status: "acquired" });
       await expect(
-        (
-          await fetchRuntimeTransportJson(
-            hub,
-            "/runtime-coordinator/head/accept",
-            buildRuntimeCoordinatorHeadAcceptRequest({
-              dispatchId: "dispatch-usage-continuation",
-              executionTargetRevision: {
-                agentControllerRef: "builtin:codex",
-                bindingId: "binding-1",
-                configurationRevision: continuationConfigurationRevision,
-              },
-              idempotencyKey: "idempotency-usage-continuation",
-              targetWakeLifecycleIdentity: continuationIdentity,
-            })
-          )
-        ).json()
-      ).resolves.toMatchObject({
-        reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
-        status: "retry_later",
-      });
-      await expect(
         mutationHub.rpcReleaseAgentProfileControllerMutation({
-          operationId: "change-approved-continuation-target",
+          operationId: "save-future-settings-after-approval",
           ownerUserId: "owner-1",
           targetProfileId: TARGET_AGENT_PROFILE_ID,
         })
@@ -4476,11 +4434,6 @@ describe("runtime transport runtime coordinator transport contract", () => {
         "/runtime-coordinator/head/accept",
         buildRuntimeCoordinatorHeadAcceptRequest({
           dispatchId: "dispatch-usage-continuation",
-          executionTargetRevision: {
-            agentControllerRef: "builtin:codex",
-            bindingId: "binding-1",
-            configurationRevision: continuationConfigurationRevision,
-          },
           idempotencyKey: "idempotency-usage-continuation",
           targetWakeLifecycleIdentity: continuationIdentity,
         })
@@ -4520,11 +4473,6 @@ describe("runtime transport runtime coordinator transport contract", () => {
             "/runtime-coordinator/head/accept",
             buildRuntimeCoordinatorHeadAcceptRequest({
               dispatchId: "dispatch-usage-continuation",
-              executionTargetRevision: {
-                agentControllerRef: "builtin:codex",
-                bindingId: "binding-1",
-                configurationRevision: continuationConfigurationRevision,
-              },
               idempotencyKey: "idempotency-usage-continuation",
               targetWakeLifecycleIdentity: continuationIdentity,
             })
@@ -4950,6 +4898,83 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "continuation_pending",
       },
     });
+  });
+
+  it("moves a pending continuation to Needs attention when a future-settings save wins", async () => {
+    const {
+      hub,
+      sentFrames,
+      socket,
+      spaceFetchRequests,
+      state,
+      storageRecords,
+    } = createHarness();
+    const { admissionKey } = await prepareRunningContinuationWithQueuedWork({
+      hub,
+      queuedWorkName: "future-settings-successor",
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    });
+    const admission = storageRecords.get(admissionKey) as {
+      recoveryGate: AgentProfileWorkRecoveryGate;
+      revision: number;
+      updatedAtMs: number;
+      workItems: AgentProfileWorkCoordinatorItem[];
+    };
+    const interruptedTargetWakeLifecycleId =
+      admission.recoveryGate.interruptedWork.targetWakeLifecycleId;
+    storageRecords.set(admissionKey, {
+      ...admission,
+      recoveryGate: {
+        ...admission.recoveryGate,
+        continuationClientMessageId: null,
+        status: "continuation_pending",
+      },
+      revision: admission.revision + 1,
+    });
+    const redriveCount = spaceFetchRequests.length;
+    const mutationHub = hub as unknown as {
+      rpcAcquireAgentProfileFutureWorkSettingsMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcReleaseAgentProfileControllerMutation: (input: {
+        operationId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const mutation = {
+      operationId: "save-settings-before-continuation-authorization",
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    await expect(
+      mutationHub.rpcAcquireAgentProfileFutureWorkSettingsMutation(mutation)
+    ).resolves.toMatchObject({ status: "acquired" });
+    expect(storageRecords.get(admissionKey)).toMatchObject({
+      recoveryGate: {
+        interruptedWork: {
+          targetWakeLifecycleId: interruptedTargetWakeLifecycleId,
+        },
+        status: "continuation_needs_attention",
+      },
+      workItems: admission.workItems,
+    });
+    expect(
+      [...storageRecords.values()].filter(
+        (value) =>
+          parseAgentProfileWorkRecoveryInboxProjectionIntent(value) !== null
+      )
+    ).toHaveLength(1);
+    expect(spaceFetchRequests).toHaveLength(redriveCount);
+    await expect(
+      mutationHub.rpcReleaseAgentProfileControllerMutation(mutation)
+    ).resolves.toEqual({ status: "released" });
   });
 
   it("moves Usage recovery to Needs attention when the accepted configuration changed", async () => {
@@ -7424,8 +7449,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(acceptedWake.status).toBe(200);
 
     const mutationHub = hub as unknown as {
-      rpcAcquireAgentProfileControllerMutation: (input: {
-        mutationKind: "future_work_settings";
+      rpcAcquireAgentProfileFutureWorkSettingsMutation: (input: {
         operationId: string;
         ownerUserId: string;
         targetProfileId: string;
@@ -7442,10 +7466,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       targetProfileId: TARGET_AGENT_PROFILE_ID,
     };
     await expect(
-      mutationHub.rpcAcquireAgentProfileControllerMutation({
-        ...mutationIdentity,
-        mutationKind: "future_work_settings",
-      })
+      mutationHub.rpcAcquireAgentProfileFutureWorkSettingsMutation(
+        mutationIdentity
+      )
     ).resolves.toMatchObject({ status: "acquired" });
 
     await expect(

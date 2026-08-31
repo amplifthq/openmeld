@@ -585,11 +585,38 @@ describe("agent profile binding Core RPC", () => {
         status: "accepted",
       });
 
+      const settingsUnavailableEnv = coreEnv(harness.db, {
+        controllerMutationAcquireStatus: "unavailable",
+      });
+      await expect(
+        rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(
+          settingsUnavailableEnv,
+          {
+            agentControllerPermissionMode: "codex:fullAccess",
+            agentProfileId: AGENT_PROFILE_ID,
+            context: DEFAULT_CONTEXT,
+          }
+        )
+      ).resolves.toMatchObject({
+        reasonCodes: [
+          "agent_profile_binding.controller_change_eligibility_unavailable",
+        ],
+        status: "rejected",
+      });
+
       expect(
-        harness.queryFirst<{ agent_controller_ref: string }>({
-          sql: "SELECT agent_controller_ref FROM openMeldDaemon_agent_profile_bindings WHERE binding_state = 'enabled_primary'",
+        harness.queryFirst<{
+          agent_controller_permission_mode: string | null;
+          agent_controller_ref: string;
+          configuration_revision: number;
+        }>({
+          sql: "SELECT agent_controller_permission_mode, agent_controller_ref, configuration_revision FROM openMeldDaemon_agent_profile_bindings WHERE binding_state = 'enabled_primary'",
         })
-      ).toEqual({ agent_controller_ref: "builtin:codex" });
+      ).toEqual({
+        agent_controller_permission_mode: null,
+        agent_controller_ref: "builtin:codex",
+        configuration_revision: 2,
+      });
     } finally {
       harness.close();
     }
@@ -1821,35 +1848,47 @@ function coreEnv(
         status: input?.agentProfileExecutionState ?? ("inactive" as const),
       });
     }),
-    rpcAcquireAgentProfileControllerMutation: vi.fn(
-      (request: { mutationKind?: string }) => {
-        let status = input?.controllerMutationAcquireStatus ?? "acquired";
-        if (!input?.controllerMutationAcquireStatus) {
-          if (
-            input?.agentProfileExecutionState === "active" &&
-            request.mutationKind !== "future_work_settings"
-          ) {
-            status = "blocked";
-          } else if (input?.agentProfileExecutionState === "unavailable") {
-            status = "unavailable";
-          }
+    rpcAcquireAgentProfileControllerMutation: vi.fn(() => {
+      let status = input?.controllerMutationAcquireStatus ?? "acquired";
+      if (!input?.controllerMutationAcquireStatus) {
+        if (input?.agentProfileExecutionState === "active") {
+          status = "blocked";
+        } else if (input?.agentProfileExecutionState === "unavailable") {
+          status = "unavailable";
         }
-        if (status === "acquired") {
-          return Promise.resolve({
-            expiresAtMs: Date.now() + 300_000,
-            operationId: "controller-mutation-test",
-            status,
-          });
-        }
+      }
+      if (status === "acquired") {
         return Promise.resolve({
-          reasonCode:
-            status === "blocked"
-              ? "runtime_coordinator.agent_profile_execution_active"
-              : "runtime_coordinator.execution_state_unavailable",
+          expiresAtMs: Date.now() + 300_000,
+          operationId: "controller-mutation-test",
           status,
         });
       }
-    ),
+      return Promise.resolve({
+        reasonCode:
+          status === "blocked"
+            ? "runtime_coordinator.agent_profile_execution_active"
+            : "runtime_coordinator.execution_state_unavailable",
+        status,
+      });
+    }),
+    rpcAcquireAgentProfileFutureWorkSettingsMutation: vi.fn(() => {
+      const status =
+        input?.agentProfileExecutionState === "unavailable"
+          ? "unavailable"
+          : (input?.controllerMutationAcquireStatus ?? "acquired");
+      if (status === "acquired") {
+        return Promise.resolve({
+          expiresAtMs: Date.now() + 300_000,
+          operationId: "future-work-settings-mutation-test",
+          status,
+        });
+      }
+      return Promise.resolve({
+        reasonCode: "runtime_coordinator.execution_state_unavailable",
+        status,
+      });
+    }),
     rpcReleaseAgentProfileControllerMutation: vi.fn(() =>
       Promise.resolve({ status: "released" as const })
     ),

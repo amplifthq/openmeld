@@ -250,15 +250,12 @@ describe("runtime transport schema", () => {
         request
       )
     ).toEqual(request);
-    expect(
+    expect(() =>
       runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.parse({
         ...request,
         mutationKind: "future_work_settings",
       })
-    ).toEqual({
-      ...request,
-      mutationKind: "future_work_settings",
-    });
+    ).toThrow();
     expect(
       runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.parse(
         {
@@ -982,7 +979,7 @@ describe("runtime transport schema", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("accepts an exact execution target revision on RuntimeCoordinator head admission", () => {
+  it("keeps RuntimeCoordinator head admission compatible with the v1 wire", () => {
     const identity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-1",
       dispatchId: "dispatch-1",
@@ -1005,7 +1002,7 @@ describe("runtime transport schema", () => {
         targetWakeLifecycleIdentity: identity,
       });
 
-    expect(parsed.success).toBe(true);
+    expect(parsed.success).toBe(false);
   });
 
   it("accepts RuntimeCoordinator head dedupe responses with a linked execution", () => {

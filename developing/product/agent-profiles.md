@@ -725,13 +725,16 @@ permission changes apply to future work. A native live permission update is
 shown as applied only after the provider acknowledges it.
 
 An approved Usage continuation rechecks its exact Binding, controller, and
-configuration revision when it actually reaches the Profile work slot, not
-only when Usage first recovers. That head admission and every cloud-owned
-execution-target setting change share one owner-shard mutation boundary. If the
-continuation wins first, the setting change waits until the head is established;
-if the setting change wins first, the continuation moves to `Needs attention`
-without executing. A rolling caller that cannot provide the current canonical
-revision waits and retries instead of guessing.
+configuration revision before it can continue, not only when Usage first
+recovers. Continuation authorization, head admission, and every cloud-owned
+future-work settings change share one owner-shard ordering boundary. If the
+continuation becomes running first, the current Wake keeps its accepted
+settings and the saved change applies to later work. If the setting change wins
+while the continuation is pending or authorized, the continuation moves to
+`Needs attention` without executing. During a rolling deployment, an older
+owner shard that cannot coordinate future-work settings rejects that settings
+save before changing the Binding; ordinary Wakes keep using the unchanged fast
+path.
 
 ## Agent Profile Operational Context
 

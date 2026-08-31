@@ -5052,20 +5052,19 @@ in the same transaction. Missing or mismatched accepted revision evidence is
 unsafe. An unsafe request or failed automatic continuation stays behind one
 current Needs-attention projection instead of entering another retry loop.
 
-RuntimeCoordinator head admission carries an additive optional
-`executionTargetRevision` with the current canonical `bindingId`,
-`agentControllerRef`, and `configurationRevision`. It is required before an
-authorized automatic continuation can execute. The owner shard compares it
-with the interrupted run command and creates the head in the same transaction;
-the cloud Binding and controller-setting write paths use the same execution
-target mutation lease. The request's additive `mutationKind` distinguishes a
-real execution-target replacement, which remains blocked by active work, from
-`future_work_settings`, which may save while the running Wake keeps its frozen
-accepted revision. A mismatch atomically records the single
-Needs-attention gate and Inbox intent without creating executable work. The
-field remains optional only for rolling schema compatibility: an older caller
-that omits it receives retryable waiting, never optimistic execution. Rollback
-removes the Core producer before removing the additive schema field.
+RuntimeCoordinator head admission keeps its existing version 1 wire shape so a
+new Core caller cannot stall ordinary Wake traffic on an older strict owner
+shard. The initial continuation authorization compares the current canonical
+`bindingId`, `agentControllerRef`, and `configurationRevision` with the
+interrupted run command in the owner-shard transaction. Future-work settings
+use a dedicated owner-shard mutation RPC instead of adding a field to the
+existing strict execution-target mutation request. That transaction moves a
+pending or authorized continuation to the single Needs-attention gate and
+writes its Inbox intent before the cloud Binding write may begin. If the
+continuation head wins the owner-shard order first, it becomes running and the
+setting may save for later work without changing the current execution. An
+older shard that lacks the dedicated future-settings RPC rejects the setting
+write before D1 mutation; ordinary Wakes continue on the unchanged hot path.
 
 The owner-only Organization directory projection may add the interrupted
 target-Wake lifecycle id beside a paused recovery action. Web accepts the field

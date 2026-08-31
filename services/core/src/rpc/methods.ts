@@ -901,6 +901,7 @@ import {
 } from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
 import {
   acquireRuntimeTransportAgentProfileExecutionTargetMutation,
+  acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
   controlRuntimeTransportOpenMeldTools,
   isRuntimeTransportProfileWorkspaceOutcomeDefinitive,
   lookupRuntimeTransportOwnerService,
@@ -22377,18 +22378,41 @@ class AgentProfileExecutionTargetMutationAdmissionError extends Error {
 async function acquireAgentProfileExecutionTargetMutationAdmission(input: {
   agentProfileId: string;
   env: CoreBindings;
-  mutationKind?: "execution_target" | "future_work_settings";
   ownerUserId: string;
 }): Promise<AgentProfileExecutionTargetMutationAdmission> {
-  const operationId = `agent-profile-execution-target-mutation:${crypto.randomUUID()}`;
-  const admission =
-    await acquireRuntimeTransportAgentProfileExecutionTargetMutation({
-      env: input.env,
-      ...(input.mutationKind ? { mutationKind: input.mutationKind } : {}),
-      operationId,
-      ownerUserId: input.ownerUserId,
-      targetProfileId: input.agentProfileId,
-    });
+  return await acquireAgentProfileMutationAdmission({
+    ...input,
+    acquire: acquireRuntimeTransportAgentProfileExecutionTargetMutation,
+    operationKind: "execution-target",
+  });
+}
+
+async function acquireAgentProfileFutureWorkSettingsMutationAdmission(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+}): Promise<AgentProfileExecutionTargetMutationAdmission> {
+  return await acquireAgentProfileMutationAdmission({
+    ...input,
+    acquire: acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
+    operationKind: "future-work-settings",
+  });
+}
+
+async function acquireAgentProfileMutationAdmission(input: {
+  acquire: typeof acquireRuntimeTransportAgentProfileExecutionTargetMutation;
+  agentProfileId: string;
+  env: CoreBindings;
+  operationKind: "execution-target" | "future-work-settings";
+  ownerUserId: string;
+}): Promise<AgentProfileExecutionTargetMutationAdmission> {
+  const operationId = `agent-profile-${input.operationKind}-mutation:${crypto.randomUUID()}`;
+  const admission = await input.acquire({
+    env: input.env,
+    operationId,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.agentProfileId,
+  });
   if (admission.status === "acquired") {
     return { operationId, status: "acquired" };
   }
@@ -22445,10 +22469,8 @@ async function withAgentProfileExecutionTargetMutationAdmission<T>(input: {
   mutate: () => Promise<T>;
   ownerUserId: string;
 }): Promise<T> {
-  const admission = await acquireAgentProfileExecutionTargetMutationAdmission({
-    ...input,
-    mutationKind: "future_work_settings",
-  });
+  const admission =
+    await acquireAgentProfileFutureWorkSettingsMutationAdmission(input);
   if (admission.status !== "acquired") {
     throw new AgentProfileExecutionTargetMutationAdmissionError(
       resolveControllerChangeAdmissionReasonCode(admission)

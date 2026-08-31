@@ -1739,34 +1739,6 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   return null;
 };
 
-const resolveRuntimeCoordinatorHeadExecutionTargetRevision = (
-  dispatchMessage: OpenMeldDaemonDispatchQueueMessage
-):
-  | {
-      executionTargetRevision: {
-        agentControllerRef: string;
-        bindingId: string;
-        configurationRevision: number;
-      };
-    }
-  | Record<string, never> => {
-  const { agentControllerRef, bindingId, configurationRevision } =
-    dispatchMessage.controllerSnapshot;
-  if (
-    !(agentControllerRef && bindingId && configurationRevision) ||
-    configurationRevision < 1
-  ) {
-    return {};
-  }
-  return {
-    executionTargetRevision: {
-      agentControllerRef,
-      bindingId,
-      configurationRevision,
-    },
-  };
-};
-
 const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   allowPublicationIntentReconcile?: boolean;
   db: D1Database;
@@ -1801,9 +1773,6 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     head: {
       v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
       dispatchId: input.dispatchMessage.dispatchId,
-      ...resolveRuntimeCoordinatorHeadExecutionTargetRevision(
-        input.dispatchMessage
-      ),
       idempotencyKey: input.dispatchMessage.idempotencyKey,
       ownerUserId: input.targetOwnerUserId,
       ...(input.dispatchMessage.targetProfileMentionLabel

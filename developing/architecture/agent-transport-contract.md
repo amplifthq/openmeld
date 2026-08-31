@@ -177,16 +177,19 @@ Binding, or configuration, or whose one continuation execution fails moves to
 `continuation_needs_attention`; it cannot re-enter automatic continuation.
 Initial authorization compares the exact interrupted run command's accepted
 Binding, controller, and configuration revision with the current canonical Core
-Binding inside the owner-shard transaction. Actual RuntimeCoordinator head
-admission repeats that comparison atomically with head creation. The head
-request carries the canonical `bindingId`, `agentControllerRef`, and
-`configurationRevision`; cloud-owned execution-target mutations use the same
-owner-shard lease. A mismatched tuple moves the exact continuation to
-`continuation_needs_attention` without creating a head or work item. A rolling
-caller that omits the tuple receives retryable waiting and cannot execute. This
-is distinct from an interrupted run command whose original accepted revision
-evidence is missing: that request is inherently unsafe and moves to
-`continuation_needs_attention` rather than being treated as unchanged.
+Binding inside the owner-shard transaction. That authorization and every
+future-work settings write are ordered by the same owner shard. If a setting
+write wins while the gate is pending or authorized, the same transaction moves
+the exact continuation to `continuation_needs_attention` and writes its Inbox
+intent before D1 settings may change. If head creation wins first, the gate is
+already running; the setting may save for later work without changing the
+current execution. Ordinary head admission keeps the established version 1
+wire shape and adds no capability probe or preflight delay. A new cloud caller
+uses a dedicated future-settings mutation RPC; an older shard that lacks it
+rejects the setting write before D1 mutation instead of accepting an unsafe
+half-rollout. Missing original accepted revision evidence remains inherently
+unsafe and moves to `continuation_needs_attention` rather than being treated as
+unchanged.
 One idempotent Inbox item links the original Wake. The owner may skip the exact
 interrupted work to resolve the gate and promote the oldest queued Wake.
 The Usage report path sends candidate Profiles in stable, schema-bounded

@@ -17,6 +17,7 @@ import {
 } from "../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import {
   acquireRuntimeTransportAgentProfileExecutionTargetMutation,
+  acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
   controlRuntimeTransportOpenMeldTools,
   discoverRuntimeTransportProjects,
   forkRuntimeTransportAgentSession,
@@ -169,7 +170,7 @@ const createEnv = (input?: {
 };
 
 describe("runtime transport split clients call fallback behavior", () => {
-  it("uses the backward-compatible Controller mutation RPC names on the Durable Object wire", async () => {
+  it("keeps Controller mutation wire payloads strict while future settings use their own RPC", async () => {
     const acquire = vi.fn(async (request: { operationId: string }) => ({
       expiresAtMs: 1_700_000_300_000,
       operationId: request.operationId,
@@ -180,6 +181,7 @@ describe("runtime transport split clients call fallback behavior", () => {
       OPENMELD_RUNTIME_TRANSPORT: {
         get: vi.fn(() => ({
           rpcAcquireAgentProfileControllerMutation: acquire,
+          rpcAcquireAgentProfileFutureWorkSettingsMutation: acquire,
           rpcReleaseAgentProfileControllerMutation: release,
         })),
         idFromName: vi.fn(() => "owner-shard"),
@@ -193,10 +195,13 @@ describe("runtime transport split clients call fallback behavior", () => {
     };
 
     await expect(
-      acquireRuntimeTransportAgentProfileExecutionTargetMutation({
-        ...request,
-        mutationKind: "future_work_settings",
-      })
+      acquireRuntimeTransportAgentProfileExecutionTargetMutation(request)
+    ).resolves.toMatchObject({
+      operationId: "mutation-1",
+      status: "acquired",
+    });
+    await expect(
+      acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation(request)
     ).resolves.toMatchObject({
       operationId: "mutation-1",
       status: "acquired",
@@ -204,14 +209,43 @@ describe("runtime transport split clients call fallback behavior", () => {
     await expect(
       releaseRuntimeTransportAgentProfileExecutionTargetMutation(request)
     ).resolves.toEqual({ status: "released" });
-    expect(acquire).toHaveBeenCalledOnce();
-    expect(acquire).toHaveBeenCalledWith({
-      mutationKind: "future_work_settings",
+    expect(acquire).toHaveBeenCalledTimes(2);
+    expect(acquire).toHaveBeenNthCalledWith(1, {
+      operationId: "mutation-1",
+      ownerUserId: "owner-1",
+      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+    });
+    expect(acquire).toHaveBeenNthCalledWith(2, {
       operationId: "mutation-1",
       ownerUserId: "owner-1",
       targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
     });
     expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed before saving future settings when an older shard lacks the dedicated RPC", async () => {
+    const acquireControllerMutation = vi.fn();
+    const env = {
+      OPENMELD_RUNTIME_TRANSPORT: {
+        get: vi.fn(() => ({
+          rpcAcquireAgentProfileControllerMutation: acquireControllerMutation,
+        })),
+        idFromName: vi.fn(() => "owner-shard"),
+      },
+    } as unknown as CoreBindings;
+
+    await expect(
+      acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation({
+        env,
+        operationId: "future-settings-on-old-shard",
+        ownerUserId: "owner-1",
+        targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      })
+    ).resolves.toEqual({
+      reasonCode: "runtime_coordinator.execution_state_unavailable",
+      status: "unavailable",
+    });
+    expect(acquireControllerMutation).not.toHaveBeenCalled();
   });
 
   it("keeps workspace mutation admission when the local outcome is unknown", () => {

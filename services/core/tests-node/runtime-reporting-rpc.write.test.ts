@@ -321,7 +321,7 @@ describe("runtime reporting Core RPC write", () => {
     }
   });
 
-  it("keeps ambiguous continuation handoffs retryable while isolating later reports", async () => {
+  it("keeps recovery reads without an exact lifecycle retryable while isolating later reports", async () => {
     const harness = createSqliteD1Harness();
     applyRuntimeReportingMigrations(harness);
     try {
@@ -405,11 +405,7 @@ describe("runtime reporting Core RPC write", () => {
         expect.objectContaining({ status: "accepted" }),
         expect.objectContaining({ status: "accepted" }),
       ]);
-      expect(markContinuationNeedsAttention).toHaveBeenCalledOnce();
-      expect(markContinuationNeedsAttention).toHaveBeenCalledWith({
-        ownerUserId: "owner-1",
-        targetProfileId: agentProfileId,
-      });
+      expect(markContinuationNeedsAttention).not.toHaveBeenCalled();
     } finally {
       harness.close();
     }

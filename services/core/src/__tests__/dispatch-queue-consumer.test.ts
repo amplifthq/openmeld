@@ -1267,12 +1267,8 @@ describe("handleDispatchQueueBatch", () => {
       runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        head: expect.objectContaining({
-          executionTargetRevision: {
-            agentControllerRef: "builtin:codex",
-            bindingId: expect.stringContaining("binding-"),
-            configurationRevision: 1,
-          },
+        head: expect.not.objectContaining({
+          executionTargetRevision: expect.anything(),
         }),
       })
     );

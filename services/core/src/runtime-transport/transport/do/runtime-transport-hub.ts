@@ -299,6 +299,7 @@ import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../../space-index
 import {
   type AgentProfileWorkCoordinatorHeadWriteResult,
   acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation,
+  acquireRuntimeCoordinatorAgentProfileFutureWorkSettingsMutation,
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   approveRuntimeCoordinatorAgentProfileWorkQueue,
   authorizeRuntimeCoordinatorAgentProfileWorkContinuation,
@@ -1135,15 +1136,6 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
         status: "conflict",
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
-    case "continuation_target_revision_unavailable":
-      return {
-        ok: false,
-        primaryDispatchId: null,
-        reasonCode:
-          "agent_profile_work_coordinator.continuation_target_revision_unavailable",
-        status: "retry_later",
-        targetWakeLifecycleId: identity.targetWakeLifecycleId,
-      };
     case "execution_target_mutation_in_progress":
       return {
         ok: false,
@@ -1771,9 +1763,28 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   async rpcAcquireAgentProfileControllerMutation(
     input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
   ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
+    return await this.acquireAgentProfileMutation({
+      acquire: acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation,
+      input,
+    });
+  }
+
+  async rpcAcquireAgentProfileFutureWorkSettingsMutation(
+    input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
+  ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
+    return await this.acquireAgentProfileMutation({
+      acquire: acquireRuntimeCoordinatorAgentProfileFutureWorkSettingsMutation,
+      input,
+    });
+  }
+
+  private async acquireAgentProfileMutation(input: {
+    acquire: typeof acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation;
+    input: RuntimeTransportAgentProfileExecutionTargetMutationRequest;
+  }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
     const parsed =
       runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
-        input
+        input.input
       );
     if (!parsed.success) {
       return {
@@ -1782,17 +1793,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "unavailable",
       };
     }
-    const response =
-      await acquireRuntimeCoordinatorAgentProfileExecutionTargetMutation({
-        ...(parsed.data.mutationKind
-          ? { mutationKind: parsed.data.mutationKind }
-          : {}),
-        nowMs: Date.now(),
-        operationId: parsed.data.operationId,
-        ownerUserId: parsed.data.ownerUserId,
-        storage: this.ctx.storage,
-        targetProfileId: parsed.data.targetProfileId,
-      });
+    const response = await input.acquire({
+      nowMs: Date.now(),
+      operationId: parsed.data.operationId,
+      ownerUserId: parsed.data.ownerUserId,
+      storage: this.ctx.storage,
+      targetProfileId: parsed.data.targetProfileId,
+    });
     if (
       response.status === "unavailable" &&
       (response.reasonCode ===
@@ -10817,9 +10824,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     };
     const admission = await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
       blockForExecutionTargetMutation: true,
-      ...(request.executionTargetRevision
-        ? { executionTargetRevision: request.executionTargetRevision }
-        : {}),
       nowMs,
       record: nextRecord,
       storage: this.ctx.storage,

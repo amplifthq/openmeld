@@ -302,9 +302,6 @@ export const runtimeTransportAgentProfileWorkSkipResponseSchema =
 
 export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
   z.strictObject({
-    mutationKind: z
-      .enum(["execution_target", "future_work_settings"])
-      .optional(),
     operationId: z.string().trim().min(1).max(256),
     ownerUserId: z.string().trim().min(1).max(256),
     targetProfileId: agentProfileIdSchema,
@@ -1296,13 +1293,6 @@ export const runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema =
       .string()
       .min(1)
       .max(MAX_PROFILE_NAME_LENGTH)
-      .optional(),
-    executionTargetRevision: z
-      .strictObject({
-        agentControllerRef: agentControllerRefSchema,
-        bindingId: z.string().min(1),
-        configurationRevision: z.number().int().positive(),
-      })
       .optional(),
     targetWakeLifecycleIdentity: targetWakeLifecycleIdentitySchema,
   });
