@@ -47,6 +47,8 @@ export function useSpaceMessageReferences(input: {
 			scope: "account",
 		})
 	);
+	const accountSpaceSections =
+		input.accountProfileId === null ? undefined : accountSpacesQuery.data;
 	const directorySpaceIds = useMemo(
 		() =>
 			new Set(
@@ -59,18 +61,14 @@ export function useSpaceMessageReferences(input: {
 	const accountSpaceIds = useMemo(
 		() =>
 			new Set(
-				input.accountProfileId !== null && accountSpacesQuery.isSuccess
+				accountSpaceSections
 					? [
-							...accountSpacesQuery.data.pinnedItems,
-							...accountSpacesQuery.data.spaceItems,
+							...accountSpaceSections.pinnedItems,
+							...accountSpaceSections.spaceItems,
 						].map((space) => space.spaceId)
 					: []
 			),
-		[
-			accountSpacesQuery.data,
-			accountSpacesQuery.isSuccess,
-			input.accountProfileId,
-		]
+		[accountSpaceSections]
 	);
 
 	useEffect(() => {
@@ -129,14 +127,8 @@ export function useSpaceMessageReferences(input: {
 	return useMemo(() => {
 		return buildSpaceMessageReferences({
 			accountProfileId: input.accountProfileId,
-			accountPinnedSpaces:
-				input.accountProfileId !== null && accountSpacesQuery.isSuccess
-					? accountSpacesQuery.data.pinnedItems
-					: [],
-			accountSpaces:
-				input.accountProfileId !== null && accountSpacesQuery.isSuccess
-					? accountSpacesQuery.data.spaceItems
-					: [],
+			accountPinnedSpaces: accountSpaceSections?.pinnedItems ?? [],
+			accountSpaces: accountSpaceSections?.spaceItems ?? [],
 			currentSpaceId,
 			currentSpaceName,
 			directorySpaces:
@@ -147,8 +139,7 @@ export function useSpaceMessageReferences(input: {
 			referencedSpaceIdSet,
 		});
 	}, [
-		accountSpacesQuery.data,
-		accountSpacesQuery.isSuccess,
+		accountSpaceSections,
 		directoryQuery.data,
 		directoryQuery.isSuccess,
 		currentSpaceId,

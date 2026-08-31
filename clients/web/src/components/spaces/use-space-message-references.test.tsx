@@ -1,8 +1,10 @@
 import type { OrganizationSpaceDirectoryWithMemberCountsResponse } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { useSpaceMessageReferences } from "./use-space-message-references";
 
 const { listAccountSpaceItemsMock, listCurrentOrganizationSpacesMock } =
@@ -98,6 +100,56 @@ describe("useSpaceMessageReferences", () => {
 				"Launch Planning"
 			);
 		});
+	});
+
+	it("keeps a cached account Space name when its refresh fails", async () => {
+		listCurrentOrganizationSpacesMock.mockResolvedValue({
+			...createDirectoryResponse(),
+			spaces: [],
+		});
+		listAccountSpaceItemsMock
+			.mockResolvedValueOnce({
+				...createEmptyAccountSpaces(),
+				spaceItems: [createAccountSpaceItem()],
+			})
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Account Space refresh failed"), {
+					code: "gateway.invalid_response",
+				})
+			);
+		const queryClient = createTestQueryClient();
+
+		renderReferenceHarness(
+			{ messageTexts: [`Target /spaces/${REFERENCED_SPACE_ID}`] },
+			queryClient
+		);
+		await waitFor(() => {
+			expect(screen.getByTestId(REFERENCED_SPACE_ID).textContent).toBe(
+				"Launch Planning"
+			);
+		});
+		const renderCountBeforeRefresh = Number(
+			screen.getByTestId("reference-render-count").textContent
+		);
+
+		await act(async () => {
+			await queryClient.refetchQueries({
+				queryKey: accountSpaceQueryKeys.items("profile-1", "account"),
+			});
+		});
+		expect(
+			queryClient.getQueryState(
+				accountSpaceQueryKeys.items("profile-1", "account")
+			)?.status
+		).toBe("error");
+		await waitFor(() => {
+			expect(
+				Number(screen.getByTestId("reference-render-count").textContent)
+			).toBeGreaterThan(renderCountBeforeRefresh);
+		});
+		expect(screen.getByTestId(REFERENCED_SPACE_ID).textContent).toBe(
+			"Launch Planning"
+		);
 	});
 
 	it("refreshes a cached directory at most once for new missing references inside the cooldown", async () => {
@@ -205,6 +257,8 @@ function ReferenceHarness(input: {
 	messageTexts: readonly string[];
 	organizationId: string | null;
 }) {
+	const renderCountRef = useRef(0);
+	renderCountRef.current += 1;
 	const references = useSpaceMessageReferences({
 		accountProfileId: input.accountProfileId,
 		currentSpace: { name: "Current Space", spaceId: CURRENT_SPACE_ID },
@@ -215,6 +269,9 @@ function ReferenceHarness(input: {
 
 	return (
 		<>
+			<output data-testid="reference-render-count">
+				{renderCountRef.current}
+			</output>
 			{[...references.values()].map((reference) => (
 				<output
 					data-href={reference.href}
