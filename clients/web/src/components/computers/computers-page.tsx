@@ -143,16 +143,18 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	const canResolvePreferredDeviceRoute =
 		preferredDeviceId !== null &&
 		devices.some((device) => device.deviceId === preferredDeviceId);
-	// Any successful inventory snapshot is enough to leave this legacy handoff.
-	// People is the canonical Computer home, so a cached empty result may safely
-	// return there while a background refresh continues. Setup completion still
-	// waits for its explicit reconciliation status below.
+	// A successful inventory snapshot may resolve a known current Computer even
+	// during a background refresh. An empty cache is authoritative only after
+	// that refresh stops; setup completion also waits for its explicit
+	// reconciliation status below.
 	const inventoryIsSettled =
 		!recovery.localRuntimesQuery.isPending &&
 		recovery.localRuntimesQuery.isSuccess &&
 		!recovery.localRuntimesQuery.isError &&
 		setupCompleteRefreshStatus !== "pending" &&
 		setupCompleteRefreshStatus !== "error";
+	const inventoryAbsenceIsSettled =
+		inventoryIsSettled && !recovery.localRuntimesQuery.isFetching;
 
 	useResolvePreferredComputerRoute({
 		canResolvePreferredDeviceRoute,
@@ -163,7 +165,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	});
 	useResolveMissingComputerRoute({
 		canResolvePreferredDeviceRoute,
-		inventoryIsSettled,
+		inventoryIsSettled: inventoryAbsenceIsSettled,
 		onComputerRouteUnavailable: routeState.onComputerRouteUnavailable,
 		preferredDeviceId,
 		shouldResolve: selectedDeviceId === null,

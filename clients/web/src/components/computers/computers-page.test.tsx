@@ -735,6 +735,50 @@ describe("ComputersPage", () => {
 		expect(screen.queryByTestId("computers-picker-list")).toBeNull();
 	});
 
+	it("waits for a refreshing legacy inventory before choosing its current Computer", () => {
+		const onComputerRouteResolved = vi.fn();
+		const onComputerRouteUnavailable = vi.fn();
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				devices: [],
+				connectedDeviceId: null,
+				isFetchedAfterMount: false,
+				isFetching: true,
+			})
+		);
+
+		const view = render(
+			<TestComputersRouteStateProvider
+				value={{ onComputerRouteResolved, onComputerRouteUnavailable }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(onComputerRouteUnavailable).not.toHaveBeenCalled();
+		expect(onComputerRouteResolved).not.toHaveBeenCalled();
+
+		useLocalAgentRecoveryControllerMock.mockReturnValue(
+			buildRecoveryControllerStub({
+				devices: [CURRENT_COMPUTER],
+				connectedDeviceId: "device-current",
+				isFetchedAfterMount: true,
+				isFetching: false,
+			})
+		);
+		view.rerender(
+			<TestComputersRouteStateProvider
+				value={{ onComputerRouteResolved, onComputerRouteUnavailable }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+
+		expect(onComputerRouteUnavailable).not.toHaveBeenCalled();
+		expect(onComputerRouteResolved).toHaveBeenCalledOnce();
+		expect(onComputerRouteResolved).toHaveBeenCalledWith("device-current");
+	});
+
 	it("waits for setup-complete inventory reconciliation before returning to People", () => {
 		const onComputerRouteUnavailable = vi.fn();
 		useRefreshComputersAfterSetupCompleteMock.mockReturnValue("pending");
