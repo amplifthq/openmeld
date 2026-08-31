@@ -264,6 +264,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 							group={selectedComputerGroup}
 							isOrganizationContext={input.state.context === "organization"}
 							orgSlug={input.orgSlug}
+							profileId={selectedMember.id}
 							recovery={input.recovery}
 						/>
 					}
@@ -759,6 +760,7 @@ function HumanProfileComputers(input: {
 	group: OrganizationComputerGroup | null;
 	isOrganizationContext: boolean;
 	orgSlug: string;
+	profileId: string;
 	recovery: LocalAgentRecoveryController;
 }) {
 	if (input.directoryError) {
@@ -798,6 +800,7 @@ function HumanProfileComputers(input: {
 				}
 				isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
 				orgSlug={input.orgSlug}
+				profileId={input.profileId}
 				recovery={input.recovery}
 			/>
 		</div>

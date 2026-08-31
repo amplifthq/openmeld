@@ -1,8 +1,9 @@
 import {
-	buildOrganizationComputersPath,
 	buildOrganizationConnectPath,
+	buildOrganizationPeoplePath,
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
+import { buildHumanProfilePath } from "#/lib/profile-routes";
 import { buildOpenMeldServiceSettingsPath } from "#/lib/settings-routes";
 
 const LOGIN_CONNECT_PATH_PATTERN = /^\/o\/login\/connect/;
@@ -25,6 +26,7 @@ export type ConnectRouteIntent =
 	| {
 			connectedComputerId?: string;
 			kind: "account_computer_setup";
+			profileId?: string;
 			resetThisComputer: boolean;
 			serviceAction?: ConnectServiceAction;
 	  }
@@ -48,6 +50,7 @@ export const DEFAULT_CONNECT_ROUTE_INTENT: ConnectRouteIntent = {
 export function buildConnectComputerPath(input?: {
 	connectedComputerId?: string;
 	orgSlug?: string;
+	profileId?: string;
 	serviceAction?: ConnectServiceAction;
 	session?: ConnectSession;
 }): string;
@@ -75,12 +78,12 @@ export function buildConnectComputerPath(input?: {
 	if (input?.connectedComputerId) {
 		params.set("connectedComputerId", input.connectedComputerId);
 	}
+	if (input?.profileId) {
+		params.set("profileId", input.profileId);
+	}
 	if (input?.returnTo === "space" && input.spaceId) {
 		params.set("returnTo", "space");
 		params.set("spaceId", input.spaceId);
-		if (input.profileId) {
-			params.set("profileId", input.profileId);
-		}
 		if (input.agentProfileIds && input.agentProfileIds.length > 0) {
 			params.set("agentProfileIds", input.agentProfileIds.join(","));
 		}
@@ -151,6 +154,7 @@ export function resolveConnectRouteIntent(
 			? { connectedComputerId: search.connectedComputerId }
 			: {}),
 		kind: "account_computer_setup",
+		profileId: search.profileId,
 		resetThisComputer,
 		serviceAction: search.serviceAction,
 	};
@@ -180,6 +184,7 @@ export function buildConnectRouteSearch(
 		...(intent.connectedComputerId
 			? { connectedComputerId: intent.connectedComputerId }
 			: {}),
+		profileId: intent.profileId,
 		serviceAction: intent.serviceAction,
 		session: intent.resetThisComputer ? "fresh" : undefined,
 	};
@@ -192,7 +197,12 @@ export function resolveConnectBackTarget(
 	if (intent.kind === "space_recovery") {
 		return buildSpaceRouteTarget(intent, orgSlug);
 	}
-	return orgSlug ? buildOrganizationComputersPath(orgSlug) : "/login";
+	if (!orgSlug) {
+		return "/login";
+	}
+	return intent.profileId
+		? buildHumanProfilePath({ orgSlug, profileId: intent.profileId })
+		: buildOrganizationPeoplePath(orgSlug);
 }
 
 export function resolveConnectCompletionTarget(

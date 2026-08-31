@@ -46,6 +46,7 @@ export function ComputersPicker(input: {
 	isPending: boolean;
 	isReconcilingCurrentToolsStatus: boolean;
 	orgSlug: string;
+	profileId?: string;
 	recovery: LocalAgentRecoveryController;
 }) {
 	if (input.isPending) {
@@ -125,7 +126,10 @@ export function ComputersPicker(input: {
 					className="bg-transparent"
 					itemId={`${group.ownerUserId}:add-computer`}
 				>
-					<AddComputerPickerCard orgSlug={input.orgSlug} />
+					<AddComputerPickerCard
+						orgSlug={input.orgSlug}
+						profileId={input.profileId}
+					/>
 				</DirectoryCardItem>
 			) : null}
 		</DirectoryCardGrid>
@@ -168,7 +172,7 @@ export function ComputersPicker(input: {
 	);
 }
 
-function AddComputerPickerCard(input: { orgSlug: string }) {
+function AddComputerPickerCard(input: { orgSlug: string; profileId?: string }) {
 	return (
 		<Link
 			aria-label="Add a Computer"
@@ -176,6 +180,7 @@ function AddComputerPickerCard(input: { orgSlug: string }) {
 			data-testid="add-computer-picker-card"
 			to={buildConnectComputerPath({
 				orgSlug: input.orgSlug,
+				profileId: input.profileId,
 				session: "fresh",
 			})}
 		>

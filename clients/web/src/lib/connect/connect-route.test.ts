@@ -22,8 +22,12 @@ describe("buildConnectComputerPath", () => {
 
 	it("uses session=fresh for new App Connect setup sessions", () => {
 		expect(
-			buildConnectComputerPath({ orgSlug: "acme", session: "fresh" })
-		).toBe("/o/acme/connect?session=fresh");
+			buildConnectComputerPath({
+				orgSlug: "acme",
+				profileId: "human-1",
+				session: "fresh",
+			})
+		).toBe("/o/acme/connect?profileId=human-1&session=fresh");
 	});
 
 	it("keeps the selected computer identity on reconnect", () => {
@@ -74,13 +78,16 @@ describe("parseAgentProfileIdList", () => {
 });
 
 describe("connect route targets", () => {
-	it("returns account computer setup to Settings Computers", () => {
+	it("returns account computer setup to the selected Human Profile", () => {
 		const intent = {
 			kind: "account_computer_setup",
+			profileId: "human-1",
 			resetThisComputer: false,
 		} as const;
 
-		expect(resolveConnectBackTarget(intent, "acme")).toBe("/o/acme/computers");
+		expect(resolveConnectBackTarget(intent, "acme")).toBe(
+			"/o/acme/people?profileId=human-1"
+		);
 		expect(resolveConnectCompletionTarget(intent, "acme")).toBe(
 			"/o/acme/computers?focus=service&refresh=setup-complete"
 		);

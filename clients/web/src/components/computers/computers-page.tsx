@@ -143,12 +143,13 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	const canResolvePreferredDeviceRoute =
 		preferredDeviceId !== null &&
 		devices.some((device) => device.deviceId === preferredDeviceId);
-	// A fresh successful inventory is enough to route. Background polling can
-	// keep `isFetching` true after that result arrives, so treating every refetch
-	// as unsettled can strand the legacy route on its loading state.
+	// Any successful inventory snapshot is enough to leave this legacy handoff.
+	// People is the canonical Computer home, so a cached empty result may safely
+	// return there while a background refresh continues. Setup completion still
+	// waits for its explicit reconciliation status below.
 	const inventoryIsSettled =
 		!recovery.localRuntimesQuery.isPending &&
-		recovery.localRuntimesQuery.isFetchedAfterMount &&
+		recovery.localRuntimesQuery.isSuccess &&
 		!recovery.localRuntimesQuery.isError &&
 		setupCompleteRefreshStatus !== "pending" &&
 		setupCompleteRefreshStatus !== "error";

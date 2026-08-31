@@ -191,6 +191,19 @@ describe("/o/$orgSlug/connect route", () => {
 		expect(providerProps.routeIntent.kind).toBe("account_computer_setup");
 	});
 
+	it("returns a selected Human Profile's Add a Computer flow to People", () => {
+		renderRoute({ profileId: "human-1", session: "fresh" });
+
+		expect(
+			screen.getByRole("link", { name: "Back" }).getAttribute("href")
+		).toBe("/o/acme/people?profileId=human-1");
+		const providerProps = bringAgentsSetupProviderMock.mock.calls[0][0];
+		expect(providerProps.routeIntent).toMatchObject({
+			kind: "account_computer_setup",
+			profileId: "human-1",
+		});
+	});
+
 	it("keeps legacy reset=this-computer links compatible", () => {
 		renderRoute({ reset: "this-computer" });
 

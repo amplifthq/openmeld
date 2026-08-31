@@ -265,6 +265,7 @@ function buildRecoveryControllerStub(input: {
 				localRuntimes: input.devices,
 			},
 			isPending: input.isPending ?? false,
+			isSuccess: !(input.isError ?? false),
 			isFetching: input.isFetching ?? false,
 			isFetchedAfterMount: input.isFetchedAfterMount ?? true,
 			isError: input.isError ?? false,
@@ -716,7 +717,12 @@ describe("ComputersPage", () => {
 	it("returns to People when the legacy Computers home has no current device", () => {
 		const onComputerRouteUnavailable = vi.fn();
 		useLocalAgentRecoveryControllerMock.mockReturnValue(
-			buildRecoveryControllerStub({ devices: [], connectedDeviceId: null })
+			buildRecoveryControllerStub({
+				devices: [],
+				connectedDeviceId: null,
+				isFetchedAfterMount: false,
+				isFetching: false,
+			})
 		);
 
 		render(

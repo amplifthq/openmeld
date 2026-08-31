@@ -36,8 +36,8 @@ export const Route = createFileRoute("/o/$orgSlug/connect")({
 // prepare-session stream. Local-agent selection happens in the CLI terminal,
 // while the page stays inside the shared app shell.
 //
-// Default (no space params): account_computer_setup, so Back/completion land on
-// Settings Computers. When a Space's Connect/recovery action sends the user here with
+// Default (no space params): account_computer_setup, so Back returns to People
+// while completion opens the refreshed Computer setup result. When a Space's Connect/recovery action sends the user here with
 // returnTo=space + spaceId (profileId optional — the Space route resolves the
 // viewer from its last-used human profile), the page reuses the space_recovery
 // intent so Back/completion return to that originating Space.
