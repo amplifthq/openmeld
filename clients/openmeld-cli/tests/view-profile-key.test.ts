@@ -33,6 +33,16 @@ describe("view profile key", () => {
     });
   });
 
+  it("uses canonical profile IDs without a remote name lookup", async () => {
+    await withTempHome(async () => {
+      const profileId = "d18e8fa2-db78-4473-b257-614dcfe9a8f1";
+
+      await expect(resolveViewProfileKey(profileId)).resolves.toBe(profileId);
+
+      expect(resolveOpenMeldProfileByIdOrNameMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("preserves explicit input when profile lookup is unavailable", async () => {
     await withTempHome(async () => {
       resolveOpenMeldProfileByIdOrNameMock.mockRejectedValueOnce(

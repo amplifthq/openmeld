@@ -1,3 +1,4 @@
+import { openMeldProfileIdSchema } from "@openmeld/schemas";
 import { getSelectedOpenMeldProfileId } from "./openmeld-profile-selection";
 import { resolveOpenMeldProfileByIdOrName } from "./openmeld-profiles-api";
 
@@ -6,6 +7,10 @@ export async function resolveViewProfileKey(
 ): Promise<string | null> {
   const explicit = normalizeOptionalString(inputProfile);
   if (explicit) {
+    const profileId = openMeldProfileIdSchema.safeParse(explicit);
+    if (profileId.success) {
+      return profileId.data;
+    }
     const profile = await resolveOpenMeldProfileByIdOrName({
       profileIdentifier: explicit,
     }).catch(() => null);
