@@ -119,6 +119,27 @@ test("keeps the manual production dispatcher deploy-only and scoped by default",
   assert.ok(source.includes(`if [ "\${GITHUB_REF}" != "refs/heads/main" ]`));
 });
 
+test("admits hosted fleet order before any Production deployment can start", () => {
+  const source = readRepoFile(".github/workflows/release-on-main.yml");
+  const validationJob = source
+    .split("  validate_release_source:")[1]
+    ?.split(YAML_JOB_BOUNDARY)[0];
+
+  assert.ok(validationJob?.includes("fetch-tags: true"));
+  assert.ok(validationJob?.includes("path: release-source"));
+  assert.ok(
+    validationJob?.includes(
+      "node ../release-control/scripts/release/hosted-fleet-plan-admission.mjs"
+    )
+  );
+  assert.ok(validationJob?.includes('--scope "$RELEASE_SCOPE"'));
+  assert.ok(
+    validationJob?.includes(
+      "Admit the hosted fleet deployment order before Production mutation"
+    )
+  );
+});
+
 test("pins a scoped production release to one explicit main commit", () => {
   const source = readRepoFile(".github/workflows/release-on-main.yml");
   const validationScript = readRepoFile(

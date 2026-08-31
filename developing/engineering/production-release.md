@@ -251,6 +251,15 @@ The planner reports this ordinary order as `default-auth-receiver-first`, which
 names its mixed-version invariant instead of implying that every boundary in
 the cloud graph is consumer-first.
 
+The hosted `cloud` and `full` dispatcher implements only that ordinary static
+order. Before any Production mutation it compares the exact release against
+the immutable tag behind the current stable CLI channel and runs the trusted
+planner. If the result requires any receiver-first profile, the hosted fleet
+run fails immediately with the exact profile and planning command; it must not
+partially deploy the ordinary order and discover the mismatch later at Core.
+Use the planner's guarded ordered path until that exact profile has reviewed
+hosted orchestration support.
+
 ### Inbox source-target receiver-first order
 
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
