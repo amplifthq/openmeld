@@ -5039,12 +5039,28 @@ compatibility.
 The Agent Profile work-recovery contract exposes only idempotent owner actions
 that change current coordinator state. `skip_interrupted_work` resolves an exact
 `continuation_needs_attention` gate and promotes the oldest queued Wake; it does
-not replay the interrupted request. Usage-based automatic continuation requires
-the exact current `usageLimitsSupportMatrixVersion`, the same Profile,
-controller, Binding, and configuration, complete replayable source context, and
-no prior automatic continuation attempt. An unsafe request or failed automatic
-continuation stays behind one current Needs-attention projection instead of
-entering another retry loop.
+not replay the interrupted request. Its strict request carries the current
+interrupted target-Wake lifecycle id, and the owner shard compares that identity
+before mutation so a stale Web action cannot clear a later gate. Usage-based
+automatic continuation requires the exact current
+`usageLimitsSupportMatrixVersion`, the same Profile, controller, Binding, and
+configuration, complete replayable source context, and no prior automatic
+continuation attempt. The continuation authorization request also carries the
+current canonical Binding tuple and an explicit accepted-revision verification
+marker; the owner shard compares it with the interrupted run command snapshot
+in the same transaction. Missing or mismatched accepted revision evidence is
+unsafe. An unsafe request or failed automatic continuation stays behind one
+current Needs-attention projection instead of entering another retry loop.
+
+The owner-only Organization directory projection may add the interrupted
+target-Wake lifecycle id beside a paused recovery action. Web accepts the field
+additively, requires it before sending `skip_interrupted_work`, and asks the user
+to refresh when an older projection omitted it. Non-owner projections omit both
+the action and this identity. The directory request advertises Agent Profile
+work-recovery contract version 2 before Core may emit `skip_interrupted_work`;
+requests without that capability continue receiving only the older recovery
+actions, so an already-loaded strict Web build cannot reject the whole
+directory. The strict Core Skip request still fails closed for unfenced callers.
 
 `agentControllerCollaborationMode` is independent shared Binding metadata.
 The initial values are `codex:default` and `codex:plan`; non-Codex Bindings

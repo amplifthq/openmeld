@@ -44,6 +44,7 @@ export const organizationDirectoryAgentProfileOperationalContextSchema =
         .max(50)
         .optional(),
       recoveryAction: agentProfileWorkRecoveryActionKindSchema.optional(),
+      recoveryTargetWakeLifecycleId: trimmedNonEmptyStringSchema.optional(),
       status: z.literal("paused"),
       waitingCount: z.number().int().min(0).max(50),
     }),

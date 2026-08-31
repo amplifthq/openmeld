@@ -1715,7 +1715,12 @@ member sees only neutral working and queue-count facts. Neither view infers work
 from Agent Activity, browser timers, or message age.
 If interrupted work needs attention, only the owner sees **Skip interrupted
 work** in this Activity section. The action resolves the exact current recovery
-gate and lets the oldest queued Wake continue; repeating it is harmless.
+gate and lets the oldest queued Wake continue; repeating it is harmless. Web
+sends the projected interrupted-Wake identity with the action. If an older
+projection omitted that identity, Web asks the owner to refresh instead of
+sending an unfenced Skip. Web advertises directory work-recovery contract
+version 2; Core omits Skip from callers that do not advertise that receiver
+capability, including already-loaded older Web builds.
 Non-owners see the same neutral workload summary without the interrupted source
 or recovery action.
 **Direct Message** is a primary header action. An authorized owner may choose

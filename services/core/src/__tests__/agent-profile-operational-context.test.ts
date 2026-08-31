@@ -19,6 +19,12 @@ const pausedContext = {
   status: "paused" as const,
 };
 
+const needsAttentionContext = {
+  ...pausedContext,
+  recoveryAction: "skip_interrupted_work" as const,
+  recoveryTargetWakeLifecycleId: "twl_interrupted",
+};
+
 describe("Agent Profile Operational Context directory projection", () => {
   it("gives teammates the truthful workload summary without private work locations", () => {
     expect(
@@ -86,6 +92,27 @@ describe("Agent Profile Operational Context directory projection", () => {
       recoveryAction: "continue_interrupted_work",
       status: "paused",
       waitingCount: 1,
+    });
+  });
+
+  it("only projects Skip after the directory caller opts into its contract", () => {
+    const common = {
+      exposeWorkReferences: true,
+      operationalContext: needsAttentionContext,
+      spaceNamesById: new Map<string, string>(),
+    };
+
+    expect(
+      projectOrganizationDirectoryAgentProfileOperationalContext(common)
+    ).not.toHaveProperty("recoveryAction");
+    expect(
+      projectOrganizationDirectoryAgentProfileOperationalContext({
+        ...common,
+        exposeSkipInterruptedWork: true,
+      })
+    ).toMatchObject({
+      recoveryAction: "skip_interrupted_work",
+      recoveryTargetWakeLifecycleId: "twl_interrupted",
     });
   });
 });

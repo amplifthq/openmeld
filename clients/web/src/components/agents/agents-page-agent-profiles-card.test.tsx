@@ -543,6 +543,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 							currentWorkLocation: null,
 							queuedWorkLocations: ["Customer follow-up"],
 							recoveryAction: { kind: "skip_interrupted_work" },
+							recoveryTargetWakeLifecycleId: "twl_interrupted",
 							status: "paused",
 							waitingCount: 1,
 						},
@@ -559,6 +560,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledWith({
 			action: "skip_interrupted_work",
 			agentProfileId: AGENT_PROFILE_ID,
+			expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
 			organizationId: "org-acme",
 		});
 		await waitFor(() => {
@@ -566,6 +568,37 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				"Skipped Research Agent's interrupted work."
 			);
 		});
+	});
+
+	it("asks the owner to refresh instead of sending an unfenced Skip", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: null,
+							queuedWorkLocations: ["Customer follow-up"],
+							recoveryAction: { kind: "skip_interrupted_work" },
+							status: "paused",
+							waitingCount: 1,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Skip interrupted work" })
+		);
+
+		expect(executeAgentProfileWorkRecoveryMock).not.toHaveBeenCalled();
+		expect(toastMock.error).toHaveBeenCalledWith(
+			"Refresh this page before skipping the interrupted work."
+		);
 	});
 
 	it("redacts owner-only diagnostics from a teammate Agent detail", async () => {

@@ -2612,6 +2612,7 @@ export type SaveOrganizationWakeAccessChoiceInput =
   };
 
 export type GetCurrentOrganizationDirectoryInput = {
+  agentProfileWorkRecoveryVersion?: 2;
   context?: CoreRpcContextInput;
   includeMemberLastActiveAt?: boolean;
 };
@@ -4775,14 +4776,16 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     });
   }
 
-  if (recovery.action === "approve_queued_work") {
+  if (parsedBody.data.action === "approve_queued_work") {
     await executeAgentProfileWorkQueueApproval({
       ownerShard,
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
     });
-  } else if (recovery.action === "skip_interrupted_work") {
+  } else if (parsedBody.data.action === "skip_interrupted_work") {
     await executeAgentProfileInterruptedWorkSkip({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
       ownerShard,
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
@@ -4811,11 +4814,14 @@ export async function rpcExecuteAgentProfileWorkRecovery(
 }
 
 async function executeAgentProfileInterruptedWorkSkip(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   targetProfileId: string;
 }): Promise<void> {
   const skipped = await input.ownerShard.rpcSkipAgentProfileInterruptedWork({
+    expectedInterruptedTargetWakeLifecycleId:
+      input.expectedInterruptedTargetWakeLifecycleId,
     ownerUserId: input.ownerUserId,
     targetProfileId: input.targetProfileId,
   });
@@ -4895,20 +4901,22 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
         targetProfileId,
       });
     } catch (error) {
-      try {
-        await ownerShard.rpcMarkAgentProfileWorkContinuationNeedsAttention({
-          ownerUserId: input.ownerUserId,
-          targetProfileId,
-        });
-      } catch (markError) {
-        console.warn(
-          "[core.agent_profile_work.continuation_needs_attention_failed]",
-          {
-            error: markError,
+      if (shouldMarkUsageContinuationNeedsAttention(error)) {
+        try {
+          await ownerShard.rpcMarkAgentProfileWorkContinuationNeedsAttention({
             ownerUserId: input.ownerUserId,
             targetProfileId,
-          }
-        );
+          });
+        } catch (markError) {
+          console.warn(
+            "[core.agent_profile_work.continuation_needs_attention_failed]",
+            {
+              error: markError,
+              ownerUserId: input.ownerUserId,
+              targetProfileId,
+            }
+          );
+        }
       }
       firstError ??= error;
     }
@@ -4916,6 +4924,27 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
   if (firstError) {
     throw firstError;
   }
+}
+
+function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
+  const definitiveCodes = new Set([
+    "agent_profile_work_recovery.continuation_conflict",
+    "agent_profile_work_recovery.continuation_unavailable",
+  ]);
+  const visited = new Set<unknown>();
+  let current = error;
+  for (let depth = 0; depth < 4 && current !== null; depth += 1) {
+    if (visited.has(current) || typeof current !== "object") {
+      return false;
+    }
+    visited.add(current);
+    const record = current as Record<string, unknown>;
+    if (typeof record.code === "string" && definitiveCodes.has(record.code)) {
+      return true;
+    }
+    current = record.cause ?? null;
+  }
+  return false;
 }
 
 async function executeAgentProfileWorkContinuation(input: {
@@ -4987,10 +5016,22 @@ async function executeAgentProfileWorkContinuation(input: {
     });
   }
   if (input.recovery.authorizedContinuationClientMessageId === null) {
+    const currentBinding =
+      await requireCurrentAgentProfileWorkContinuationBinding({
+        env: input.env,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      });
     const authorized =
       await input.ownerShard.rpcAuthorizeAgentProfileWorkContinuation({
         continuationClientMessageId,
+        currentAgentControllerRef: currentBinding.agentControllerRef,
+        currentBindingId: currentBinding.bindingId,
+        currentConfigurationRevision: currentBinding.configurationRevision,
+        expectedInterruptedTargetWakeLifecycleId:
+          input.recovery.interruptedTargetWakeLifecycleId,
         ownerUserId: input.ownerUserId,
+        requireAcceptedExecutionTargetRevision: true,
         targetProfileId: input.targetProfileId,
       });
     if (authorized.status !== "authorized") {
@@ -5025,6 +5066,50 @@ async function executeAgentProfileWorkContinuation(input: {
     });
   }
   return "started";
+}
+
+async function requireCurrentAgentProfileWorkContinuationBinding(input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<{
+  agentControllerRef: string;
+  bindingId: string;
+  configurationRevision: number;
+}> {
+  const bindingDb = localStateDb(input.env);
+  if (!bindingDb) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld could not verify this Agent’s current setup yet.",
+      status: 503,
+    });
+  }
+  const binding = await readPrimaryAgentProfileBindingRecord({
+    agentProfileId: input.targetProfileId,
+    db: bindingDb,
+    owner: { id: input.ownerUserId, kind: "owner_account" },
+  });
+  const agentControllerRef = binding
+    ? parseAgentControllerRef(binding.agentControllerRef)
+    : null;
+  if (
+    binding?.bindingState !== "enabled_primary" ||
+    binding.runtimeKind !== "openmeld_service" ||
+    !agentControllerRef
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.continuation_unavailable",
+      reason:
+        "This Agent’s setup changed after the task was interrupted. Review the interrupted work before continuing.",
+      status: 409,
+    });
+  }
+  return {
+    agentControllerRef: agentControllerRef.ref,
+    bindingId: binding.bindingId,
+    configurationRevision: binding.configurationRevision,
+  };
 }
 
 async function buildAgentProfileWorkRecoveryOperationId(input: {
@@ -6141,6 +6226,8 @@ export async function rpcGetCurrentOrganizationDirectory(
       ...agent,
       operationalContext:
         projectOrganizationDirectoryAgentProfileOperationalContext({
+          exposeSkipInterruptedWork:
+            input.agentProfileWorkRecoveryVersion === 2,
           exposeWorkReferences: projected?.exposeWorkReferences === true,
           operationalContext: projected?.operationalContext ?? {
             reasonCode: "runtime_coordinator.operational_context_unavailable",

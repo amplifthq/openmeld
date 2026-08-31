@@ -702,8 +702,11 @@ held work and cannot bypass it. A repeated Usage report may safely repair an
 incomplete handoff before the continuation starts through the same deterministic
 operation; it must never create a second continuation. If the original request
 cannot be replayed safely, its source context is incomplete, its Binding or
-configuration changed, or the automatic continuation fails, the interrupted
-work moves to `Needs attention` and cannot enter another automatic retry loop.
+configuration changed, or the automatic continuation execution fails, the
+interrupted work moves to `Needs attention` and cannot enter another automatic
+retry loop. A lost or ambiguous Space handoff response is not an execution
+failure: OpenMeld keeps the deterministic continuation identity and confirms or
+retries that same handoff on a later report.
 The owner gets one idempotent Inbox item linked to the original Wake and may
 skip that interrupted work to continue FIFO. Reading or dismissing the item does
 not skip work. A provider may gain true same-turn recovery only after its
@@ -730,8 +733,10 @@ execution by itself.
 
 When interrupted work needs attention, the owner projection exposes one direct
 `Skip interrupted work` action. The action is idempotent, resolves only the exact
-current recovery gate, and promotes the oldest queued Wake. Non-owners see the
-neutral workload state without this action or the interrupted request details.
+current recovery gate, and promotes the oldest queued Wake. A stale page cannot
+skip a later interrupted Wake; it must refresh the current Profile Details
+projection first. Non-owners see the neutral workload state without this action
+or the interrupted request details.
 
 Owners and other Organization members see the same compact workload summary,
 such as `Working · 3 queued`. Profile Details may show the owner where the

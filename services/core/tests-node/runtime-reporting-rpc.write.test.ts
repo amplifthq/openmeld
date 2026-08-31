@@ -5,6 +5,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { createCoreRpcHttpError } from "../src/rpc/errors";
 import {
   rpcSubmitRuntimeAgentControllerReports,
   rpcSubmitRuntimeProviderConversationProofs,
@@ -320,7 +321,7 @@ describe("runtime reporting Core RPC write", () => {
     }
   });
 
-  it("accepts later reports when one Profile recovery side effect fails", async () => {
+  it("keeps ambiguous continuation handoffs retryable while isolating later reports", async () => {
     const harness = createSqliteD1Harness();
     applyRuntimeReportingMigrations(harness);
     try {
@@ -339,7 +340,20 @@ describe("runtime reporting Core RPC write", () => {
         rpcReadAgentProfileWorkRecovery: vi
           .fn()
           .mockRejectedValueOnce(new Error("recovery read failed"))
-          .mockResolvedValue({ status: "not_pending" }),
+          .mockRejectedValueOnce(
+            createCoreRpcHttpError({
+              code: "agent_profile_work_recovery.continuation_outcome_unknown",
+              reason: "OpenMeld is still confirming the continuation.",
+              status: 503,
+            })
+          )
+          .mockRejectedValueOnce(
+            createCoreRpcHttpError({
+              code: "agent_profile_work_recovery.continuation_unavailable",
+              reason: "The accepted Agent configuration changed.",
+              status: 409,
+            })
+          ),
       };
       const env = {
         ...coreEnv(harness.db),
@@ -381,12 +395,13 @@ describe("runtime reporting Core RPC write", () => {
         context: DEFAULT_CONTEXT,
         deviceId: "device-1",
         lane: "openmeld-dev",
-        reports: [createReport(0), createReport(1)],
+        reports: [createReport(0), createReport(1), createReport(2)],
         openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
       });
 
-      expect(result.reports).toHaveLength(2);
+      expect(result.reports).toHaveLength(3);
       expect(result.reports).toEqual([
+        expect.objectContaining({ status: "accepted" }),
         expect.objectContaining({ status: "accepted" }),
         expect.objectContaining({ status: "accepted" }),
       ]);

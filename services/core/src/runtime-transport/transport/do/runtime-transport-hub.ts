@@ -1448,6 +1448,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const response =
       await authorizeRuntimeCoordinatorAgentProfileWorkContinuation({
         continuationClientMessageId: parsed.data.continuationClientMessageId,
+        currentAgentControllerRef: parsed.data.currentAgentControllerRef,
+        currentBindingId: parsed.data.currentBindingId,
+        currentConfigurationRevision: parsed.data.currentConfigurationRevision,
+        expectedInterruptedTargetWakeLifecycleId:
+          parsed.data.expectedInterruptedTargetWakeLifecycleId,
         nowMs: Date.now(),
         ownerUserId: parsed.data.ownerUserId,
         storage: this.ctx.storage,
@@ -1545,6 +1550,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return { status: "unavailable" };
     }
     const response = await skipRuntimeCoordinatorAgentProfileInterruptedWork({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsed.data.expectedInterruptedTargetWakeLifecycleId,
       nowMs: Date.now(),
       ownerUserId: parsed.data.ownerUserId,
       storage: this.ctx.storage,
@@ -10102,7 +10109,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const intents =
       await readPendingAgentProfileWorkRecoveryInboxProjectionIntents(
         this.ctx.storage,
-        AGENT_PROFILE_WORK_RECOVERY_INBOX_HOUSEKEEPING_BATCH_SIZE
+        AGENT_PROFILE_WORK_RECOVERY_INBOX_HOUSEKEEPING_BATCH_SIZE,
+        Date.now()
       );
     for (const intent of intents) {
       if (
@@ -10206,11 +10214,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       const failureOutcome =
         await recordAgentProfileWorkRecoveryInboxProjectionFailure({
           intent,
+          nowMs: Date.now(),
           storage: this.ctx.storage,
         });
       console.warn(
-        failureOutcome === "dropped"
-          ? "[core.runtime_transport.agent_profile_work_recovery_inbox_projection_dropped]"
+        failureOutcome === "parked"
+          ? "[core.runtime_transport.agent_profile_work_recovery_inbox_projection_parked]"
           : "[core.runtime_transport.agent_profile_work_recovery_inbox_projection_deferred]",
         {
           error: error instanceof Error ? error.message : String(error),

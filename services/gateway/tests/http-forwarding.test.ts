@@ -1654,7 +1654,7 @@ describe("gateway http forwarding", () => {
     );
     const enrichedResponse = await app.fetch(
       new Request(
-        "http://local/v1/organizations/current/directory?includeHumanProfileLastUsedAt=true&includeMemberLastActiveAt=true"
+        "http://local/v1/organizations/current/directory?agentProfileWorkRecoveryVersion=2&includeHumanProfileLastUsedAt=true&includeMemberLastActiveAt=true"
       ),
       env,
       TEST_EXECUTION_CONTEXT
@@ -1692,6 +1692,7 @@ describe("gateway http forwarding", () => {
       context: EXPECTED_CORE_CONTEXT,
     });
     expect(getCurrentOrganizationDirectory).toHaveBeenNthCalledWith(2, {
+      agentProfileWorkRecoveryVersion: 2,
       context: EXPECTED_CORE_CONTEXT,
       includeMemberLastActiveAt: true,
     });

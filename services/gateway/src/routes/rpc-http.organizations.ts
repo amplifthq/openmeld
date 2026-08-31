@@ -1,4 +1,5 @@
 import {
+  ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
 } from "@openmeld/gateway-contract";
@@ -308,6 +309,12 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       c.req.query(
         ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER
       ) === "true";
+    const agentProfileWorkRecoveryVersion =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER
+      ) === "2"
+        ? 2
+        : undefined;
 
     return executeRpcRoute({
       c,
@@ -322,6 +329,9 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
         }),
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationDirectory({
+          ...(agentProfileWorkRecoveryVersion
+            ? { agentProfileWorkRecoveryVersion }
+            : {}),
           context: buildCoreRpcContext(c),
           ...(includeMemberLastActiveAt
             ? { includeMemberLastActiveAt: true }

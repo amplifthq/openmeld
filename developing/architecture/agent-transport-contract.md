@@ -168,10 +168,18 @@ terminal: it never re-arms automatic continuation, and any later queued work
 also remains behind owner approval. If no later work exists, the Stop clears
 the recovery gate. Later Wakes, including new intent accepted after Usage
 recovers, remain in FIFO behind that gate. Repeated reports and retries must
-converge on the same continuation operation. A request that cannot be replayed
-safely, has incomplete source context, no longer matches the same Profile,
-controller, Binding, or configuration, or whose one continuation fails moves
-to `continuation_needs_attention`; it cannot re-enter automatic continuation.
+converge on the same continuation operation. A transport failure or
+`outcome_unknown` while handing that deterministic operation to Space preserves
+the pending or authorized identity so the next report can confirm or retry the
+same operation. A request that definitively cannot be replayed safely, has
+incomplete source context, no longer matches the same Profile, controller,
+Binding, or configuration, or whose one continuation execution fails moves to
+`continuation_needs_attention`; it cannot re-enter automatic continuation.
+Authorization compares the exact interrupted run command's accepted Binding,
+controller, and configuration revision with the current canonical Core Binding
+inside the owner-shard transaction. Missing accepted revision evidence from an
+older Service fails safe to `continuation_needs_attention`; it is not treated as
+unchanged configuration.
 One idempotent Inbox item links the original Wake. The owner may skip the exact
 interrupted work to resolve the gate and promote the oldest queued Wake.
 The Usage report path sends candidate Profiles in stable, schema-bounded

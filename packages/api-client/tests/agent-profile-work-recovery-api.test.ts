@@ -63,6 +63,63 @@ describe("api-client Agent Profile work recovery API", () => {
     );
   });
 
+  it("posts the exact interrupted Wake identity with Skip", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          action: "skip_interrupted_work",
+          status: "accepted",
+        })
+      )
+    );
+    const api = createAgentProfileWorkRecoveryApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.execute({
+        action: "skip_interrupted_work",
+        agentProfileId: AGENT_PROFILE_ID,
+        expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
+      })
+    ).resolves.toEqual({
+      action: "skip_interrupted_work",
+      status: "accepted",
+    });
+
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({
+          body: JSON.stringify({
+            action: "skip_interrupted_work",
+            expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
+          }),
+        }),
+      })
+    );
+  });
+
+  it("rejects Skip without the interrupted Wake identity before making a request", async () => {
+    const transport = vi.fn();
+    const api = createAgentProfileWorkRecoveryApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.execute({
+        action: "skip_interrupted_work",
+        agentProfileId: AGENT_PROFILE_ID,
+      } as never)
+    ).rejects.toThrow();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
   it("rejects an invalid action before making a request", async () => {
     const transport = vi.fn();
     const api = createAgentProfileWorkRecoveryApi(

@@ -140,6 +140,7 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
+      interruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
       // Older owner shards omit this during a rolling Core deployment. Current
       // writers always include it; callers must defer side effects until it exists.
       interruptedSourceSignalId: z.string().trim().min(1).max(512).optional(),
@@ -179,6 +180,12 @@ export const runtimeTransportAgentProfileOperationalContextSchema =
         .optional(),
       recoveryAction:
         runtimeTransportAgentProfileWorkRecoveryActionSchema.optional(),
+      recoveryTargetWakeLifecycleId: z
+        .string()
+        .trim()
+        .min(1)
+        .max(512)
+        .optional(),
       status: z.literal("paused"),
       waitingCount: z.number().int().min(0).max(50),
     }),
@@ -242,6 +249,11 @@ export const runtimeTransportAgentProfileWorkUsageAvailableResponseSchema =
 export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema =
   runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
     continuationClientMessageId: clientMessageIdSchema,
+    currentAgentControllerRef: agentControllerRefSchema,
+    currentBindingId: z.string().trim().min(1).max(512),
+    currentConfigurationRevision: z.number().int().positive(),
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    requireAcceptedExecutionTargetRevision: z.literal(true),
   });
 
 export const runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema =
@@ -266,7 +278,9 @@ export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
   });
 
 export const runtimeTransportAgentProfileWorkSkipRequestSchema =
-  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
 
 export const runtimeTransportAgentProfileWorkSkipResponseSchema =
   z.strictObject({

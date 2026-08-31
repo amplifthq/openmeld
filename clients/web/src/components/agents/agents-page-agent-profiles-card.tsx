@@ -21,6 +21,7 @@ import type {
 	AgentProfileBindingOpenCodePermission,
 	AgentWakeAvailability,
 	AuthProfileView,
+	ExecuteAgentProfileWorkRecoveryBody,
 	GetAgentExecutionReadinessResponse,
 	GetAgentProfilePrimaryBindingResponse,
 	LocalRuntimeComputer,
@@ -1382,12 +1383,27 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		profile: AuthProfileView,
 		recoveryAction: ProfileDetailsRecoveryAction
 	) => {
+		let recoveryRequest: ExecuteAgentProfileWorkRecoveryBody;
+		if (recoveryAction.kind === "skip_interrupted_work") {
+			const expectedInterruptedTargetWakeLifecycleId =
+				recoveryAction.expectedInterruptedTargetWakeLifecycleId;
+			if (!expectedInterruptedTargetWakeLifecycleId) {
+				toast.error("Refresh this page before skipping the interrupted work.");
+				return;
+			}
+			recoveryRequest = {
+				action: recoveryAction.kind,
+				expectedInterruptedTargetWakeLifecycleId,
+			};
+		} else {
+			recoveryRequest = { action: recoveryAction.kind };
+		}
 		setPendingRecoveryActionProfileId(profile.openMeldProfileId);
 		try {
 			await executeAgentProfileWorkRecovery({
-				action: recoveryAction.kind,
 				agentProfileId: profile.openMeldProfileId,
 				organizationId: currentOrganization.id,
+				...recoveryRequest,
 			});
 			try {
 				await Promise.all([

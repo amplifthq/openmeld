@@ -45,6 +45,12 @@ export const profileDetailsRecoveryActionKindSchema =
   agentProfileWorkRecoveryActionKindSchema;
 
 export const profileDetailsRecoveryActionSchema = z.strictObject({
+  expectedInterruptedTargetWakeLifecycleId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(512)
+    .optional(),
   kind: profileDetailsRecoveryActionKindSchema,
   visibility: z.literal("owner_self"),
 });
