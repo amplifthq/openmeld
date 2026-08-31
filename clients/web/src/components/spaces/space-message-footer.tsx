@@ -113,7 +113,7 @@ export function SpaceMessageFooter(input: {
 	return (
 		<div
 			className={cn(
-				"@container flex min-h-7 w-full min-w-0 items-center",
+				"@container mt-1 flex min-h-7 w-full min-w-0 items-center",
 				input.align === "end" ? "justify-end" : "justify-start"
 			)}
 			data-persistent={persistent ? "true" : undefined}

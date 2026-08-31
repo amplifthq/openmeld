@@ -51,6 +51,8 @@ describe("SpaceMessageFooter", () => {
 		const primary = view.container.querySelector(
 			'[data-slot="message-footer-primary-actions"]'
 		);
+		const footer = view.container.querySelector('[data-slot="message-footer"]');
+		expect(footer?.className).toContain("mt-1");
 		expect(primary).toBeTruthy();
 		expect(
 			within(primary as HTMLElement)
