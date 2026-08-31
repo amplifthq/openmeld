@@ -96,7 +96,7 @@ flowchart LR
 The workstation chain is strict:
 
 - Wake is the only Space addressing relation that creates executable work.
-- Reference addresses people or agents for context only.
+- Reference addresses agents for context only.
 - Agent-to-agent delivery must use Wake or Reply + Wake. A visible reply that
   merely contains a bare `@Agent Name` is not executable delivery.
 - The Space durable outbox is the production reliable dispatch buffer for

@@ -489,8 +489,9 @@ Common options: `--profile`, `--password`, `--history-limit`, `--guide`,
 `--join`, `--no-join`, `--member`, `--agent-profile`, `--human-profile`,
 `--all`, `--plain`.
 
-Use `--plain` only when `@Name(wake)` or `@Name(reference)` should be sent as
-literal text. Without `--plain`, canonical mention syntax is
+Use `--plain` only when `@Name(wake)`, `@Name(reference)`, or
+`@Name(mention)` should be sent as literal text. Without `--plain`, canonical
+mention syntax is
 resolved as Space addressing and must fail closed if OpenMeld cannot load the current
 Space members.
 

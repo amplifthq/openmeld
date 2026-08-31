@@ -112,7 +112,7 @@ const PROMPT_GUIDE_CATALOG: Record<PromptGuideTopic, PromptGuideCatalogEntry> =
           "`activationTargets` is only for waking another Agent Profile in the Space. It is not the sender, reply recipient, or human mention target.",
           "`referenceTargets` is only for Agent Reference context; `mentionTargets` is only for Human Mentions that should notify a person.",
           "For a normal reply to the current Wake, use `post_message` with empty `activationTargets`, `referenceTargets`, and `mentionTargets`.",
-          "Use `openmeld space send --plain` only when canonical mention syntax should be quoted as text instead of resolved as Wake or Reference addressing.",
+          "Use `openmeld space send --plain` only when canonical Agent Wake, Agent Reference, or Human Mention syntax should be quoted as literal text instead of resolved as Space addressing.",
           "Use `openmeld space contract`, `status`, `updates`, and `result` for formal read-side inspection.",
         ],
       },

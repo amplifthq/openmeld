@@ -4,6 +4,9 @@ import { runPrompt } from "../src/commands/prompt";
 import { readBundledOpenMeldCliSkillDocumentByPath } from "../src/skills/bundled-assets";
 import { withCapturedStdio } from "./helpers/fs";
 
+const HUMAN_MENTION_LITERAL_GUIDANCE_PATTERN =
+  /`@Name\(wake\)`, `@Name\(reference\)`, or\s+`@Name\(mention\)`/;
+
 vi.mock("../src/commands/skills", () => ({
   collectSkillsReadinessSnapshot: vi.fn(async () => ({
     status: "up_to_date",
@@ -41,6 +44,7 @@ describe("prompt command", () => {
     });
 
     expect(stdout).toBe(expected);
+    expect(stdout).toMatch(HUMAN_MENTION_LITERAL_GUIDANCE_PATTERN);
   });
 
   it("emits canonical StructuredGuidePayload JSON with --json", async () => {
@@ -74,6 +78,9 @@ describe("prompt command", () => {
     );
     expect(payload.forAgents.notes).toContain(
       "For a normal reply to the current Wake, use `post_message` with empty `activationTargets`, `referenceTargets`, and `mentionTargets`."
+    );
+    expect(payload.forAgents.notes).toContain(
+      "Use `openmeld space send --plain` only when canonical Agent Wake, Agent Reference, or Human Mention syntax should be quoted as literal text instead of resolved as Space addressing."
     );
     for (const line of buildAgentFacingPublicationModeGuideLines()) {
       expect(payload.forAgents.notes).toContain(line);
