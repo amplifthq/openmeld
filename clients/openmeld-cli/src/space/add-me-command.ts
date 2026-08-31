@@ -88,12 +88,12 @@ export async function runSpaceAddMe(input: {
   view?: string;
   workingDirectory?: string;
 }): Promise<SpaceCommandNavigationStatus> {
-  const target = parseSpaceAddMeTarget(input.space);
+  const target = parseSpaceAddMeTarget(input.space, { baseUrl: input.baseUrl });
   const profile = resolveSpaceAddMeActingProfileId({
     cliProfileId: input.profile,
     urlProfileId: target.profileId,
   });
-  const baseUrl = input.baseUrl ?? target.baseUrl;
+  const baseUrl = target.baseUrl;
   const hasExplicitBaseUrlInput = normalizeOptionalString(baseUrl) !== null;
 
   const context = await prepareAuthenticatedSpaceCommandContext({

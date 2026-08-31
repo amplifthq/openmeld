@@ -1,5 +1,8 @@
+import { resolveSpaceWebGatewayOrigin } from "./web-url";
+
 const SPACE_ID_HEX_REGEX = /^[0-9a-f]{64}$/i;
-const TRAILING_SLASH_REGEX = /\/$/u;
+const INVALID_SPACE_TARGET_MESSAGE =
+  "Space target must be a 64-character Space ID or an OpenMeld Space URL.";
 
 export type ParsedSpaceTarget = {
   baseUrl?: string;
@@ -7,10 +10,25 @@ export type ParsedSpaceTarget = {
   spaceId: string;
 };
 
-export function parseSpaceTarget(value: string): ParsedSpaceTarget {
+export function parseSpaceTarget(
+  value: string,
+  options?: { baseUrl?: string }
+): ParsedSpaceTarget {
+  const explicitBaseUrl = normalizeOptionalString(options?.baseUrl);
+  const target = parseSpaceTargetValue(value, !explicitBaseUrl);
+  return {
+    ...target,
+    ...(explicitBaseUrl ? { baseUrl: explicitBaseUrl } : {}),
+  };
+}
+
+function parseSpaceTargetValue(
+  value: string,
+  deriveBaseUrl: boolean
+): ParsedSpaceTarget {
   const raw = normalizeOptionalString(value);
   if (!raw) {
-    throw new Error("Space ID or Space URL is required.");
+    throw new Error(INVALID_SPACE_TARGET_MESSAGE);
   }
   if (SPACE_ID_HEX_REGEX.test(raw)) {
     return { spaceId: raw };
@@ -18,17 +36,16 @@ export function parseSpaceTarget(value: string): ParsedSpaceTarget {
 
   const isPathOnly = raw.startsWith("/");
   let url: URL;
+  let segments: string[];
   try {
     url = isPathOnly ? new URL(raw, "https://openmeld.ai") : new URL(raw);
+    segments = url.pathname
+      .split("/")
+      .map((segment) => decodeURIComponent(segment.trim()))
+      .filter((segment) => segment.length > 0);
   } catch {
-    throw new Error(
-      "Space target must be a 64-character Space ID or an OpenMeld Space URL."
-    );
+    throw new Error(INVALID_SPACE_TARGET_MESSAGE);
   }
-  const segments = url.pathname
-    .split("/")
-    .map((segment) => decodeURIComponent(segment.trim()))
-    .filter((segment) => segment.length > 0);
   const spacesIndex = segments.indexOf("spaces");
   const spaceId = spacesIndex >= 0 ? segments[spacesIndex + 1] : undefined;
   if (!(spaceId && SPACE_ID_HEX_REGEX.test(spaceId))) {
@@ -40,7 +57,9 @@ export function parseSpaceTarget(value: string): ParsedSpaceTarget {
   return {
     spaceId,
     ...(profileId ? { profileId } : {}),
-    ...(isPathOnly ? {} : { baseUrl: deriveGatewayUrlFromSpaceUrl(url) }),
+    ...(isPathOnly || !deriveBaseUrl
+      ? {}
+      : { baseUrl: resolveSpaceWebGatewayOrigin(url) }),
   };
 }
 
@@ -53,40 +72,14 @@ export function resolveSpaceReadCommandTarget(input: {
   profile?: string;
   space: string;
 } {
-  const target = parseSpaceTarget(input.space);
-  const explicitBaseUrl = normalizeOptionalString(input.baseUrl);
+  const target = parseSpaceTarget(input.space, { baseUrl: input.baseUrl });
   const explicitProfile = normalizeOptionalString(input.profile);
-  const baseUrl = explicitBaseUrl ?? target.baseUrl;
   const profile = explicitProfile ?? target.profileId;
   return {
     space: target.spaceId,
-    ...(baseUrl ? { baseUrl } : {}),
+    ...(target.baseUrl ? { baseUrl: target.baseUrl } : {}),
     ...(profile ? { profile } : {}),
   };
-}
-
-function deriveGatewayUrlFromSpaceUrl(url: URL): string {
-  const gatewayUrl = new URL(url.toString());
-  gatewayUrl.pathname = "/";
-  gatewayUrl.search = "";
-  gatewayUrl.hash = "";
-  if (gatewayUrl.hostname === "openmeld.ai") {
-    gatewayUrl.hostname = "gateway.openmeld.ai";
-    gatewayUrl.protocol = "https:";
-    gatewayUrl.port = "";
-  } else if (
-    isLoopbackHostname(gatewayUrl.hostname) &&
-    gatewayUrl.port === "3000"
-  ) {
-    gatewayUrl.port = "8080";
-  }
-  return gatewayUrl.toString().replace(TRAILING_SLASH_REGEX, "");
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-  );
 }
 
 function normalizeOptionalString(value: unknown): string | null {

@@ -172,7 +172,10 @@ function isInvalidSpaceTargetMessage(message: string): boolean {
   return (
     message.includes("invalid space target") ||
     message.includes("Space target must be a 64-character Space ID") ||
-    message.includes("Space URL must include /o/<org-slug>/spaces/<space-id>")
+    message.includes(
+      "Space URL must include /o/<org-slug>/spaces/<space-id>"
+    ) ||
+    message.includes("Space URL must use a trusted OpenMeld Web origin")
   );
 }
 
