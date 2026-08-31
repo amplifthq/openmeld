@@ -88,6 +88,24 @@ Use these owner documents:
 | Repo-specific anti-patterns for tests, mocks, status logic, timeouts, keepalive | `developing/engineering/anti-patterns.md` |
 | Blessed example files to copy for routes, services, DO alarms, CLI commands, queries, mocks, logging | `developing/engineering/exemplars.md` |
 
+## Practical Engineering
+
+Optimize for the requested outcome and its real user effect before theoretical
+completeness.
+
+- Understand the intended outcome, current behavior, and non-goals before
+  expanding scope. Diagnose through observed behavior, ownership, and control
+  flow; search hits are starting points, not root-cause proof.
+- Prefer the smallest coherent root-cause correction over added wrappers,
+  fallbacks, states, or parallel behavior. Preserve compatibility only for
+  supported users and contracts.
+- Match effort and validation to likelihood, impact, reversibility, and
+  evidence. Keep common, harmful, irreversible, security-, privacy-, and
+  data-sensitive paths rigorous; usually defer speculative, rare, reversible,
+  or cleanup-only concerns.
+- Stop when the requested outcome is proven. State non-blocking follow-ups
+  briefly without turning them into required work.
+
 ## Core Invariants
 
 - Human UX and agent UX are first-class requirements.
