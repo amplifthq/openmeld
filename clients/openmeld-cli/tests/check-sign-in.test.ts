@@ -1,9 +1,23 @@
 import { resolveProfileResponseSchema } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const getAuthSessionStateMock = vi.hoisted(() => vi.fn());
+const { getAuthSessionStateMock, runAuthLoginMock, selectPromptMock } =
+  vi.hoisted(() => ({
+    getAuthSessionStateMock: vi.fn(),
+    runAuthLoginMock: vi.fn(),
+    selectPromptMock: vi.fn(),
+  }));
 const UNAVAILABLE_JSON_MESSAGE_RE =
   /saved sign-in is temporarily unavailable.*macOS Keychain helper timed out after 5000ms/u;
+
+vi.mock("@clack/prompts", async () => {
+  const actual =
+    await vi.importActual<typeof import("@clack/prompts")>("@clack/prompts");
+  return {
+    ...actual,
+    select: selectPromptMock,
+  };
+});
 
 vi.mock("../src/config/auth-session", async () => {
   const actual = await vi.importActual<
@@ -18,7 +32,7 @@ vi.mock("../src/config/auth-session", async () => {
 });
 
 vi.mock("../src/commands/auth", () => ({
-  runAuthLogin: vi.fn(),
+  runAuthLogin: runAuthLoginMock,
 }));
 
 import { runSignInCheck } from "../src/command-entry-checks/check-sign-in";
@@ -32,6 +46,8 @@ import {
 describe("sign-in command entry check", () => {
   beforeEach(() => {
     getAuthSessionStateMock.mockReset();
+    runAuthLoginMock.mockReset();
+    selectPromptMock.mockReset();
     resetCurrentCommandCheckState();
     resetOpenMeldProfilesSessionCacheForTests();
   });
@@ -176,6 +192,83 @@ describe("sign-in command entry check", () => {
     ).resolves.toMatchObject({ openMeldProfileId: "human-profile-1" });
 
     expect(getAuthSessionStateMock.mock.calls).toEqual([
+      [{ validateRemote: true }],
+      [{ validateRemote: false }],
+    ]);
+  });
+
+  it("reuses an interactive login session for the command's Profile resolution", async () => {
+    const session = {
+      v: 1 as const,
+      accessToken: "token-after-login",
+      tokenType: "Bearer",
+      authBaseUrl: "https://auth.testing.example",
+      clientId: "openmeld-cli",
+      createdAt: "2026-08-25T00:00:00.000Z",
+      user: {
+        id: "user-1",
+        email: "felix@example.com",
+      },
+    };
+    getAuthSessionStateMock
+      .mockResolvedValueOnce({
+        state: "invalid",
+        session: null,
+        reasonCode: "session_metadata_missing",
+      })
+      .mockResolvedValueOnce({ state: "valid", session })
+      .mockResolvedValueOnce({ state: "valid", session });
+    selectPromptMock.mockResolvedValue("__command_auth_login__");
+    runAuthLoginMock.mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json(
+          resolveProfileResponseSchema.parse({
+            ok: true,
+            profile: {
+              createdAt: "2026-08-25T00:00:00.000Z",
+              createdByUserId: "user-1",
+              creatorProfileId: null,
+              isDefault: true,
+              lastUsedAt: null,
+              managedRole: null,
+              openMeldProfileId: "human-profile-1",
+              ownerUserId: "user-1",
+              profileHandle: "mira",
+              profileKind: "human",
+              profileName: "Mira",
+              source: "web_create",
+              status: "active",
+              updatedAt: "2026-08-25T00:00:00.000Z",
+            },
+          })
+        )
+      )
+    );
+    const context = createAgentContext(vi.fn(), "space.status");
+    context.runtime = {
+      viewMode: "human",
+      resolvedView: "human",
+      interactive: true,
+    };
+    context.allowPrompt = true;
+
+    await expect(
+      runSignInCheck({
+        context,
+        requirement: { mode: "required", stage: "before-entry" },
+      })
+    ).resolves.toEqual({ status: "continue" });
+    await expect(
+      resolveOpenMeldProfileByIdOrName({
+        profileIdentifier: "human-profile-1",
+      })
+    ).resolves.toMatchObject({ openMeldProfileId: "human-profile-1" });
+
+    expect(runAuthLoginMock).toHaveBeenCalledOnce();
+    expect(getAuthSessionStateMock.mock.calls).toEqual([
+      [{ validateRemote: true }],
       [{ validateRemote: true }],
       [{ validateRemote: false }],
     ]);

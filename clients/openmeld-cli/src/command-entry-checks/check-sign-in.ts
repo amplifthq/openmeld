@@ -152,6 +152,7 @@ async function runRequiredSignInCheck(input: {
     ),
     allowPrompt: true,
     evaluated: input.evaluated,
+    onAuthenticatedSession: primeOpenMeldProfilesSessionCache,
   });
   if (!authenticated) {
     return {
@@ -273,6 +274,9 @@ async function runOptionalSignInLogin(input: {
   });
   setCurrentSignInStatus(afterLogin.status, input.context.gatewayUrl);
   if (afterLogin.status === "valid") {
+    if (afterLogin.session) {
+      primeOpenMeldProfilesSessionCache(afterLogin.session);
+    }
     return {
       status: "continue",
     };
