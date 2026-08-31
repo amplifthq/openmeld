@@ -839,12 +839,18 @@ export function buildProductionReleasePlan(input) {
     requested ??
     resolveAutomaticReleaseScopes({ affectedPackages, changedPaths });
   const sourceSha = input.sourceSha ?? readHeadSha();
+  const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
+  const deployScopeOrder = resolveProductionDeployScopeOrder(
+    scopes,
+    changedPaths
+  );
   return {
     affectedPackages,
     base: input.base,
     changedPaths,
     coreProjectionFromCli: scopes.includes("cli"),
-    deployOrderProfile: resolveProductionDeployOrderProfile(changedPaths),
+    deployOrderProfile,
+    deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
       changedPaths,
       releaseSha: sourceSha,

@@ -10,7 +10,14 @@ import { buildProductionReleasePlan } from "./production-release.mjs";
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const CANONICAL_VERSION_PATTERN =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
-const STATIC_HOSTED_DEPLOY_ORDER = "default-auth-receiver-first";
+const STATIC_HOSTED_SCOPE_ORDER = [
+  "db",
+  "auth",
+  "web",
+  "gateway",
+  "core",
+  "remote-agent",
+];
 const FLEET_SCOPES = new Set(["cloud", "full"]);
 
 export async function admitHostedFleetPlan(input, dependencies = {}) {
@@ -58,11 +65,22 @@ export async function admitHostedFleetPlan(input, dependencies = {}) {
     sourceSha: releaseSha,
   });
   const deployOrderProfile = String(plan.deployOrderProfile ?? "").trim();
-  if (deployOrderProfile !== STATIC_HOSTED_DEPLOY_ORDER) {
+  const deployScopeOrder = requireStringArray(
+    "planned deploy scope order",
+    plan.deployScopeOrder
+  );
+  const selectedScopes = new Set(
+    requireStringArray("planned release scopes", plan.scopes)
+  );
+  const supportedScopeOrder = STATIC_HOSTED_SCOPE_ORDER.filter((candidate) =>
+    selectedScopes.has(candidate)
+  );
+  if (!hasSameValuesInOrder(deployScopeOrder, supportedScopeOrder)) {
     throw new Error(
       [
         `Hosted ${scope} release refused before any Production mutation.`,
-        `The exact ${baseRef}..${releaseSha} plan requires ${deployOrderProfile || "an unknown deploy order"}, but release-on-main.yml can execute only ${STATIC_HOSTED_DEPLOY_ORDER}.`,
+        `The exact ${baseRef}..${releaseSha} plan requires ${deployOrderProfile || "an unknown deploy order"}: ${deployScopeOrder.join(" -> ") || "no deploy scopes"}.`,
+        `release-on-main.yml can execute only: ${supportedScopeOrder.join(" -> ") || "no deploy scopes"}.`,
         "Do not approximate this receiver-first plan with the ordinary hosted fleet workflow.",
         "Inspect the trusted ordered plan from a clean current-main worktree:",
         `  pnpm run release:plan -- --base ${baseRef} --scope auto`,
@@ -75,9 +93,27 @@ export async function admitHostedFleetPlan(input, dependencies = {}) {
     baseRef,
     baseSha,
     deployOrderProfile,
+    deployScopeOrder,
     releaseSha,
     scope,
   };
+}
+
+function hasSameValuesInOrder(actual, expected) {
+  return (
+    actual.length === expected.length &&
+    actual.every((value, index) => value === expected[index])
+  );
+}
+
+function requireStringArray(label, value) {
+  if (
+    !Array.isArray(value) ||
+    value.some((item) => typeof item !== "string" || item.length === 0)
+  ) {
+    throw new Error(`Hosted fleet-plan admission requires ${label}.`);
+  }
+  return value;
 }
 
 async function readStableCliVersion() {
