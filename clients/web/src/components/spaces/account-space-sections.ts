@@ -7,14 +7,18 @@ import type {
 import { isWelcomingSpacePurpose } from "#/lib/spaces/welcoming-space";
 
 // A successful pin mutation can still be waiting for the Space Index projection.
-// Keep that optimistic choice on the in-memory query item until the owner read
-// converges. Non-enumerable symbols stay out of persisted query data and payloads.
+// Keep that optimistic choice on the in-memory query item for one bounded owner
+// convergence window. Non-enumerable symbols stay out of persisted data and payloads.
 const ACCOUNT_SPACE_PIN_OVERLAY = Symbol("account-space-pin-overlay");
 const ACCOUNT_SPACE_PIN_OVERLAY_CLEARS = Symbol(
 	"account-space-pin-overlay-clears"
 );
+const ACCOUNT_SPACE_PIN_OVERLAY_MAX_AGE_MS = 60_000;
 
 type AccountSpacePinOverlay = {
+	baselinePinnedAt: string | null;
+	baselineProfileIds: readonly string[];
+	expiresAtMs: number;
 	pinnedAt: string | null;
 	profileIds: readonly string[];
 };
@@ -159,25 +163,13 @@ export function applyOptimisticAccountSpacePinUpdate(
 		profileIds: readonly string[];
 	}
 ): AccountSpaceSections {
-	const nextItem: AccountSpaceItemWithPinOverlay = {
-		...variables.item,
+	return applyAccountSpacePinOverlay(current, variables.item, {
+		baselinePinnedAt: variables.item.pinnedAt,
+		baselineProfileIds: variables.item.pinnedProfileIds,
+		expiresAtMs: Date.now() + ACCOUNT_SPACE_PIN_OVERLAY_MAX_AGE_MS,
 		pinnedAt: variables.pinnedAt,
-		pinnedProfileIds: variables.pinnedAt ? variables.profileIds : [],
-	};
-	Object.defineProperty(nextItem, ACCOUNT_SPACE_PIN_OVERLAY, {
-		configurable: true,
-		value: {
-			pinnedAt: variables.pinnedAt,
-			profileIds: variables.profileIds,
-		} satisfies AccountSpacePinOverlay,
+		profileIds: variables.profileIds,
 	});
-	const nextItems = [...current.pinnedItems, ...current.spaceItems].filter(
-		(item) =>
-			normalizeSpaceKey(item.spaceId) !== normalizeSpaceKey(nextItem.spaceId)
-	);
-	nextItems.push(nextItem);
-
-	return buildAccountSpacePinSections(current, nextItems);
 }
 
 export function restoreAccountSpaceItemAfterPinFailure(
@@ -225,20 +217,56 @@ export function preserveOptimisticAccountSpacePinUpdates(
 	]) {
 		const overlay = readAccountSpacePinOverlay(previousItem);
 		const spaceKey = normalizeSpaceKey(previousItem.spaceId);
-		if (!overlay || clearedSpaceKeys.has(spaceKey)) {
+		if (
+			!overlay ||
+			clearedSpaceKeys.has(spaceKey) ||
+			Date.now() >= overlay.expiresAtMs
+		) {
 			continue;
 		}
 		const ownerItem = findAccountSpaceItem(next, previousItem.spaceId);
-		if (!ownerItem || accountSpacePinOverlayMatches(ownerItem, overlay)) {
+		if (
+			!ownerItem ||
+			accountSpacePinStateMatches(
+				ownerItem,
+				overlay.pinnedAt,
+				overlay.profileIds
+			) ||
+			!accountSpacePinStateMatches(
+				ownerItem,
+				overlay.baselinePinnedAt,
+				overlay.baselineProfileIds
+			)
+		) {
 			continue;
 		}
-		next = applyOptimisticAccountSpacePinUpdate(next, {
-			item: ownerItem,
-			pinnedAt: overlay.pinnedAt,
-			profileIds: overlay.profileIds,
-		});
+		next = applyAccountSpacePinOverlay(next, ownerItem, overlay);
 	}
 	return next;
+}
+
+function applyAccountSpacePinOverlay(
+	current: AccountSpaceSections,
+	item: AccountSpaceItem,
+	overlay: AccountSpacePinOverlay
+): AccountSpaceSections {
+	const nextItem: AccountSpaceItemWithPinOverlay = {
+		...item,
+		pinnedAt: overlay.pinnedAt,
+		pinnedProfileIds: overlay.pinnedAt ? overlay.profileIds : [],
+	};
+	Object.defineProperty(nextItem, ACCOUNT_SPACE_PIN_OVERLAY, {
+		configurable: true,
+		value: overlay,
+	});
+	const nextItems = [...current.pinnedItems, ...current.spaceItems].filter(
+		(currentItem) =>
+			normalizeSpaceKey(currentItem.spaceId) !==
+			normalizeSpaceKey(nextItem.spaceId)
+	);
+	nextItems.push(nextItem);
+
+	return buildAccountSpacePinSections(current, nextItems);
 }
 
 function buildAccountSpacePinSections(
@@ -264,21 +292,20 @@ function readAccountSpacePinOverlay(
 	);
 }
 
-function accountSpacePinOverlayMatches(
+function accountSpacePinStateMatches(
 	item: AccountSpaceItem,
-	overlay: AccountSpacePinOverlay
+	pinnedAt: string | null,
+	profileIds: readonly string[]
 ): boolean {
-	if (item.pinnedAt !== overlay.pinnedAt) {
+	if (item.pinnedAt !== pinnedAt) {
 		return false;
 	}
 	const ownerProfileIds = [...item.pinnedProfileIds].sort();
-	const overlayProfileIds = [
-		...(overlay.pinnedAt === null ? [] : overlay.profileIds),
-	].sort();
+	const expectedProfileIds = [...(pinnedAt === null ? [] : profileIds)].sort();
 	return (
-		ownerProfileIds.length === overlayProfileIds.length &&
+		ownerProfileIds.length === expectedProfileIds.length &&
 		ownerProfileIds.every(
-			(profileId, index) => profileId === overlayProfileIds[index]
+			(profileId, index) => profileId === expectedProfileIds[index]
 		)
 	);
 }
