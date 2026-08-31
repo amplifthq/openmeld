@@ -307,6 +307,10 @@ describe("Profile Details snapshot", () => {
       "Felix's MacBook Pro"
     );
     expect(
+      findRowValue(snapshot, "space_membership", "Last activity in this Space")
+    ).toBe("1d ago");
+    expect(findRowValue(snapshot, "space_membership", "Last seen")).toBeNull();
+    expect(
       findRowValue(snapshot, "connection", "Controller conversation ID")
     ).toBe("thread-codex-1");
     expect(

@@ -5,10 +5,12 @@ import { RobotIcon } from "@phosphor-icons/react";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 
 const SPACE_PROFILE_ICON_SIZE_CLASS_NAMES = {
+	inline: "size-3.5",
 	sm: "size-6",
 	xs: "size-5",
 } as const;
 const SPACE_PROFILE_ICON_SIZE_PIXELS = {
+	inline: 14,
 	sm: 24,
 	xs: 20,
 } as const;
@@ -78,7 +80,7 @@ export function SpaceProfileIcon(input: {
 				<LocalAgentLogo
 					agentId={controllerLogoRef}
 					className="h-full w-full"
-					size={size}
+					size={size === "inline" ? "xs" : size}
 				/>
 			) : (
 				<RobotIcon

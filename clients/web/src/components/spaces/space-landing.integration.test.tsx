@@ -13933,11 +13933,9 @@ describe("SpaceLanding", () => {
 			.getByText("Please review this.")
 			.closest("[data-signal-id]");
 		expect(actionMessage).not.toBeNull();
-		// MessageHoverActions renders as a sibling of the bubble under the
-		// shared data-message-row-id row (not inside the bubble/data-signal-id
-		// element), and every action button there always mounts in the DOM --
-		// hover/focus only toggles CSS opacity -- so none of them need a
-		// mouseEnter first.
+		// The reserved footer is a sibling of the bubble under the shared
+		// data-message-row-id row. Its actions stay mounted while opacity handles
+		// hover and keyboard reveal, so they are reachable without pointer state.
 		const actionRow = actionMessage?.closest("[data-message-row-id]");
 		expect(actionRow).not.toBeNull();
 		const actionScope = within(actionRow as HTMLElement);
@@ -14060,9 +14058,14 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByText("Can someone check the privacy page?")
 		).toBeTruthy();
-		const preview = screen.getByRole("group", { name: "Thread preview" });
+		const preview = screen.getByRole("region", { name: "Thread preview" });
 		expect(preview.className).toContain("min-w-0");
+		expect(preview.className).toContain("w-full");
+		expect(preview.className).toContain("max-w-full");
 		expect(preview.className).toContain("overflow-hidden");
+		expect(preview.className).toContain("pe-2");
+		expect(preview.parentElement?.className).toContain("w-full");
+		expect(preview.parentElement?.className).toContain("max-w-full");
 		expect(preview.parentElement?.className).toContain("overflow-hidden");
 		expect(within(preview).getByText("I'll check it.")).toBeTruthy();
 		const secondPreviewMessage = within(preview).getByText("Filed the issue.");
@@ -14078,11 +14081,8 @@ describe("SpaceLanding", () => {
 			.getByText("Can someone check the privacy page?")
 			.closest("[data-signal-id]");
 		expect(rootMessage).not.toBeNull();
-		// The row's own hover actions (MessageHoverActionSlot) always mount in
-		// the DOM and only reveal via CSS opacity on hover/focus-within (so
-		// keyboard/screen-reader users can still reach them without a mouse),
-		// so this button is present before the hover fires too.
-		fireEvent.mouseEnter(rootMessage as HTMLElement);
+		// The fixed footer always mounts so keyboard and screen-reader users can
+		// reach the action without a hover-only DOM change.
 		expect(screen.getByRole("button", { name: "Open thread" })).toBeTruthy();
 	});
 
@@ -14354,20 +14354,18 @@ describe("SpaceLanding", () => {
 
 		const sourceMessage = document.querySelector('[data-signal-id="sig-wake"]');
 		expect(sourceMessage).not.toBeNull();
-		// MessageHoverActions renders as a sibling of the bubble under the
-		// shared data-message-row-id row (not inside the bubble/data-signal-id
-		// element), and every action button there always mounts in the DOM --
-		// hover/focus only toggles CSS opacity -- so this scope has to be the
-		// row and none of the buttons need a mouseEnter to appear.
+		// The fixed footer renders as a sibling of the bubble under the shared
+		// data-message-row-id row. It remains mounted while hover/focus controls
+		// opacity, so this scope stays stable for pointer and keyboard users.
 		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceRow).not.toBeNull();
 		const sourceActionScope = within(sourceRow as HTMLElement);
 		const sourceMessageDetailsButton =
 			sourceRow?.querySelector<HTMLButtonElement>(
-				'[data-message-action-slot="hover"] button[aria-label="Message details"]'
+				'[data-slot="message-footer"] button[aria-label="Message details"]'
 			);
 		if (!sourceMessageDetailsButton) {
-			throw new Error("Expected the source message hover details action.");
+			throw new Error("Expected the source message footer details action.");
 		}
 		expect(sourceMessageDetailsButton.className).toContain("text-destructive");
 		expect(
@@ -14376,15 +14374,16 @@ describe("SpaceLanding", () => {
 		expect(
 			sourceActionScope.getByRole("button", { name: "Reply in thread" })
 		).toBeTruthy();
-		// The @watcher terminal_failure notice is anchored directly under its
-		// source message (SpaceOutcomeRow) rather than hidden until Message
-		// details opens -- see space-conversation-panel.test.tsx's "projects an
-		// anchored terminal_failure notice under its source message" coverage.
+		// The source footer keeps only the calm failure summary. The diagnostic
+		// body remains in Message details instead of extending the timeline.
 		expect(
-			within(sourceRow as HTMLElement).getByText(
+			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
+		).toBeTruthy();
+		expect(
+			within(sourceRow as HTMLElement).queryByText(
 				"Watcher could not complete this Wake."
 			)
-		).toBeTruthy();
+		).toBeNull();
 		fireEvent.click(sourceMessageDetailsButton);
 
 		expect(
@@ -14458,13 +14457,9 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Close message details" })
 		);
-		// Still anchored under its source message after closing an unrelated
-		// Message details panel -- the anchored outcome row isn't a byproduct
-		// of any dialog state.
+		// The persistent failure footer remains after Message details closes.
 		expect(
-			within(sourceRow as HTMLElement).getByText(
-				"Watcher could not complete this Wake."
-			)
+			within(sourceRow as HTMLElement).getByText("Agent couldn’t reply")
 		).toBeTruthy();
 	});
 

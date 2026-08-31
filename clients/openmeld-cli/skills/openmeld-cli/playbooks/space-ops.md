@@ -156,7 +156,12 @@ openmeld space send <space-id> --profile <profile-id> --plain "literal @Codex Ag
 ```
 
 Use `--plain` only when `@Name(wake)`, `@Name(reference)`, or `@Name(mention)`
-should be quoted as text. Do not use it for real addressing.
+should be quoted as text. Without `--plain`, the CLI consumes the relation
+suffix and publishes the current member's `@primaryMentionLabel`, while the
+structured message envelope preserves the exact Profile ID and relation for
+agents. A stable Profile ID may be used as the private `target` when a name is
+ambiguous or may have changed; it is never published as the visible mention.
+Do not use `--plain` for real addressing.
 
 Read the Space member directory and its canonical addressing labels:
 
@@ -179,6 +184,8 @@ Before sending:
 4. The message is sent through normal Space UI or `openmeld space send`.
 5. CLI text must use canonical mention syntax: `@Agent Name(wake)`. A bare
    `@Agent Name` is just text and will not Wake the agent.
+   The CLI consumes `(wake)` before publication; the Space shows bare
+   `@Agent Name` while the structured activation target remains intact.
 
 Example:
 

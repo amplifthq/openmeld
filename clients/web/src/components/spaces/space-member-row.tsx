@@ -1,4 +1,7 @@
-import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import {
+	type AgentProfileReplyRecoveryPlan,
+	formatSpaceMemberActivityLabel,
+} from "@openmeld/agent-profile";
 import { isAgentProfileWorkspaceBlockerReasonCode } from "@openmeld/agent-runtime";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
@@ -17,6 +20,11 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import type { StatusTone } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -91,6 +99,7 @@ const SPACE_MEMBER_NAME_CLASS_NAME = cn(
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 	"sm:text-[13px]"
 );
+const SPACE_MEMBER_ACTIVITY_TOOLTIP = "Last activity in this Space";
 
 export function SpaceMemberRow(input: SpaceMemberRowProps) {
 	if (input.entry.profileKind === "agent") {
@@ -275,7 +284,7 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 		entry: input.entry,
 		memberTransientState: displayedMemberTransientState,
 	});
-	const primaryDetail =
+	const resolvedPrimaryDetail =
 		input.variant === "compact"
 			? resolveCompactDetail(input.entry, isSelf)
 			: resolvePrimaryDetail(
@@ -284,6 +293,15 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 					null,
 					displayedMemberTransientState
 				);
+	const spaceActivityLabel =
+		isSelf || input.entry.liveNow
+			? null
+			: formatSpaceMemberActivityLabel(input.entry.lastSeenLabel);
+	const primaryDetail = spaceActivityLabel ? (
+		<SpaceMemberActivityText label={spaceActivityLabel} />
+	) : (
+		resolvedPrimaryDetail
+	);
 	const detailsDialog = useSpaceProfileDetailsDialog({
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.entry,
@@ -339,6 +357,32 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 			/>
 			{detailsDialog.profileDetailsDialog}
 		</>
+	);
+}
+
+function SpaceMemberActivityText(input: { label: string }) {
+	const accessibleLabel = `${input.label}. ${SPACE_MEMBER_ACTIVITY_TOOLTIP}`;
+	const activity = (
+		<span
+			aria-label={accessibleLabel}
+			className="cursor-help break-words"
+			role="note"
+			title={SPACE_MEMBER_ACTIVITY_TOOLTIP}
+		>
+			{input.label}
+		</span>
+	);
+
+	return (
+		<Tooltip>
+			<TooltipTrigger render={activity} />
+			<TooltipContent
+				className="max-w-sm whitespace-normal text-left leading-5"
+				side="top"
+			>
+				{SPACE_MEMBER_ACTIVITY_TOOLTIP}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 
