@@ -48,11 +48,14 @@ async function main() {
     });
 
     const productionBootstrap = buildOpenMeldSetupBootstrapScript({
+      authUrl: server.origin,
       binaryManifestUrl: manifestUrl,
       distribution: "binary",
+      gatewayUrl: server.origin,
       lane: "prod",
       openMeldHome,
     });
+    server.setSetupScript(productionBootstrap);
     assertGeneratedProductionBinaryBootstrap({
       manifestUrl,
       script: productionBootstrap,
@@ -103,6 +106,33 @@ async function main() {
       expectedStdout: built.version,
       label: "managed production-lane binary version smoke",
     });
+    await seedPreviousAccount({
+      managedBinaryPath,
+      openMeldHome,
+      serverOrigin: server.origin,
+      tempRoot,
+    });
+    const directAccountSwitchOutput = await runAccountSwitchPtySmoke({
+      command: `'${managedBinaryPath}' setup --start-session fixture-prepare-session --device-code fixture-device-code-b --view human`,
+      env: buildManagedBinaryEnv({
+        managedBinaryPath,
+        serverOrigin: server.origin,
+        tempRoot,
+        openMeldHome,
+      }),
+      label: "direct managed CLI account-switch PTY smoke",
+    });
+    assertAccountSwitchPtyOutput(directAccountSwitchOutput);
+    const accountSwitchOutput = await runPipedAccountSwitchPtySmoke({
+      env: buildManagedBinaryEnv({
+        managedBinaryPath,
+        serverOrigin: server.origin,
+        tempRoot,
+        openMeldHome,
+      }),
+      setupUrl: `${server.origin}/setup`,
+    });
+    assertAccountSwitchPtyOutput(accountSwitchOutput);
 
     process.stdout.write(
       [
@@ -164,10 +194,113 @@ function buildBootstrapEnv(input) {
 function buildManagedBinaryEnv(input) {
   return {
     ...buildBootstrapEnv({ tempRoot: input.tempRoot }),
+    OPENMELD_ACCEPT_DISCLAIMER: "1",
+    OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN: "1",
+    OPENMELD_DEV_MODE: "1",
     OPENMELD_ENV_PRESET: "prod",
+    ...(input.serverOrigin
+      ? {
+          OPENMELD_AUTH_URL: input.serverOrigin,
+          OPENMELD_GATEWAY_URL: input.serverOrigin,
+        }
+      : {}),
     OPENMELD_HOME: input.openMeldHome,
     OPENMELD_USER_FACING_CLI_COMMAND: input.managedBinaryPath,
   };
+}
+
+async function seedPreviousAccount(input) {
+  await runCommandAsync({
+    args: [
+      "auth",
+      "login",
+      "--method",
+      "ott",
+      "--ott",
+      "fixture-account-a",
+      "--auth-url",
+      input.serverOrigin,
+      "--no-open",
+      "--view",
+      "human",
+    ],
+    command: input.managedBinaryPath,
+    env: buildManagedBinaryEnv(input),
+    expectedOutput: "Welcome account-a@example.invalid",
+    label: "seed previous account through the real CLI login flow",
+  });
+}
+
+async function runPipedAccountSwitchPtySmoke(input) {
+  process.stdout.write(
+    "[cli:binary:prod-smoke] piped bootstrap account-switch PTY smoke\n"
+  );
+  return await runAccountSwitchPtySmoke({
+    command: `curl -fsSL '${input.setupUrl}' | sh -s -- setup --start-session fixture-prepare-session --device-code fixture-device-code-b --view human`,
+    env: input.env,
+    label: "drive account-switch prompt through curl | sh",
+  });
+}
+
+async function runAccountSwitchPtySmoke(input) {
+  if (process.platform !== "darwin") {
+    process.stdout.write(
+      "[cli:binary:prod-smoke] skipped account-switch PTY smoke outside darwin\n"
+    );
+    return "SKIPPED";
+  }
+
+  const expectScript = [
+    "set timeout 12",
+    "set command $env(OPENMELD_ACCOUNT_SWITCH_COMMAND)",
+    'spawn sh -c "stty rows 40 columns 120; $command"',
+    "expect {",
+    "  -re {Switch this computer from account-a@example\\.invalid to account-b@example\\.invalid\\?} {}",
+    "  timeout { exit 3 }",
+    "  eof { exit 4 }",
+    "}",
+    "after 150",
+    'send "\\033\\[B"',
+    "after 100",
+    'send "\\033\\[A"',
+    "after 100",
+    'send "\\r"',
+    "expect {",
+    "  -re {Account switch canceled\\. The current Computer connection was not changed\\.} {}",
+    "  timeout { exit 5 }",
+    "  eof { exit 6 }",
+    "}",
+    "expect eof",
+    "set waitResult [wait]",
+    "exit [lindex $waitResult 3]",
+  ].join("\n");
+
+  return await runCommandAsync({
+    args: ["-c", expectScript],
+    command: "expect",
+    env: {
+      ...input.env,
+      OPENMELD_ACCOUNT_SWITCH_COMMAND: input.command,
+    },
+    label: input.label,
+    timeoutMs: 20_000,
+  }).then((result) => result.output);
+}
+
+function assertAccountSwitchPtyOutput(output) {
+  if (output === "SKIPPED") {
+    return;
+  }
+  for (const expected of [
+    "Switch this computer from account-a@example.invalid to account-b@example.invalid?",
+    "Account switch canceled. The current Computer connection was not changed.",
+  ]) {
+    if (!output.includes(expected)) {
+      throw new Error(
+        `account-switch PTY output is missing ${expected}:\n${output}`
+      );
+    }
+  }
 }
 
 async function runPipedSetupBootstrap(input) {
@@ -277,6 +410,65 @@ function runCommand(input) {
     );
   }
   return result;
+}
+
+async function runCommandAsync(input) {
+  process.stdout.write(`[cli:binary:prod-smoke] ${input.label}\n`);
+  return await new Promise((resolve, reject) => {
+    const child = spawn(input.command, input.args, {
+      cwd: REPO_ROOT,
+      env: input.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    let settled = false;
+    const finish = (error, result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(result);
+    };
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(
+        new Error(
+          `${input.label} timed out after ${input.timeoutMs ?? 30_000}ms:\n${output}`
+        )
+      );
+    }, input.timeoutMs ?? 30_000);
+    for (const stream of [child.stdout, child.stderr]) {
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk) => {
+        output += chunk;
+      });
+    }
+    child.on("error", (error) => finish(error));
+    child.on("close", (code, signal) => {
+      if (code !== 0) {
+        finish(
+          new Error(
+            `${input.label} failed with exit ${String(code)}${signal ? ` signal ${signal}` : ""}:\n${output}`
+          )
+        );
+        return;
+      }
+      if (input.expectedOutput && !output.includes(input.expectedOutput)) {
+        finish(
+          new Error(
+            `${input.label} output is missing ${input.expectedOutput}:\n${output}`
+          )
+        );
+        return;
+      }
+      finish(null, { output });
+    });
+  });
 }
 
 async function verifyManifestDownload(input) {
@@ -404,7 +596,80 @@ async function startBinaryManifestServer(input) {
 
   let origin = "";
   const requestCounts = { archive: 0, manifest: 0, raw: 0 };
+  let setupScript = "";
   const server = createServer((request, response) => {
+    if (request.url === "/setup") {
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-type": "text/plain; charset=utf-8",
+      });
+      response.end(setupScript);
+      return;
+    }
+    if (request.url === "/api/auth/one-time-token/verify") {
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "set-auth-token": "fixture-access-token-a",
+      });
+      response.end(
+        JSON.stringify({
+          session: {
+            id: "fixture-session-a",
+            expiresAt: "2099-08-31T00:00:00.000Z",
+          },
+          user: {
+            id: "fixture-user-a",
+            email: "account-a@example.invalid",
+            name: "Fixture Account A",
+          },
+        })
+      );
+      return;
+    }
+    if (request.url === "/api/auth/device/token") {
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
+      response.end(
+        JSON.stringify({
+          access_token: "fixture-access-token-b",
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "openid profile email",
+        })
+      );
+      return;
+    }
+    if (request.url === "/api/auth/get-session") {
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
+      response.end(
+        JSON.stringify({
+          session: { id: "fixture-session-b" },
+          user: {
+            id: "fixture-user-b",
+            email: "account-b@example.invalid",
+            name: "Fixture Account B",
+          },
+        })
+      );
+      return;
+    }
+    if (request.url === "/api/auth/sign-out") {
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
+      response.end('{"ok":true}');
+      return;
+    }
+    if (request.url === "/v1/prepare/sessions/resolve-token") {
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
+      response.end(JSON.stringify({ snapshot: buildPrepareSessionSnapshot() }));
+      return;
+    }
     if (request.url === "/cli/manifest.json") {
       requestCounts.manifest += 1;
       const body = manifest
@@ -460,10 +725,65 @@ async function startBinaryManifestServer(input) {
     archiveSizeBytes: archive.byteLength,
     origin,
     getRequestCounts: () => ({ ...requestCounts }),
+    setSetupScript: (script) => {
+      setupScript = script;
+    },
     close: () =>
       new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       }),
+  };
+}
+
+function buildPrepareSessionSnapshot() {
+  const now = "2026-08-31T00:00:00.000Z";
+  return {
+    prepareSessionId: "fixture-prepare-session",
+    ownerUserId: "fixture-user-b",
+    humanProfileId: "22222222-2222-4222-8222-222222222222",
+    deviceId: "fixture-device",
+    runtimeLane: "prod",
+    targetSpaceId: null,
+    sessionRevision: 1,
+    lifecycleStatus: "active",
+    phase: "reporting_runtime",
+    steps: [
+      "computer",
+      "connect_terminal",
+      "choose_local_agents",
+      "prepare_selected_agents",
+      "refresh_service",
+      "report_runtime",
+      "verify_setup",
+      "ready",
+    ].map((id) => ({
+      id,
+      state: "pending",
+      title: id,
+      summary: id,
+      blockerReasonCode: null,
+      startedAt: null,
+      completedAt: null,
+      updatedAt: now,
+    })),
+    localAgentCatalog: null,
+    localReadinessSnapshot: null,
+    selectedLocalAgentIds: [],
+    terminalConnection: {
+      status: "connected",
+      connectionId: "fixture-terminal",
+      connectionEpoch: 1,
+      connectedAt: now,
+      lastSeenAt: now,
+      disconnectedAt: null,
+      disconnectReason: null,
+    },
+    blockers: [],
+    diagnosticCorrelationId: "prepare:fixture-prepare-session",
+    createdAt: now,
+    updatedAt: now,
+    completedAt: null,
+    expiresAt: "2099-08-31T00:30:00.000Z",
   };
 }
 
