@@ -15,10 +15,10 @@ import {
 import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	isEditorReadyToFocus,
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
 } from "./space-composer-editor";
+import { isEditorReadyToFocus } from "./space-composer-focus";
 import type { SpaceComposerAddressingTarget } from "./use-space-mention-authoring";
 import { buildSpaceMentionTargetItems } from "./use-space-mention-authoring";
 

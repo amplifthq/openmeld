@@ -50,6 +50,7 @@ import {
 	type SpaceComposerProfileElement,
 	serializeSpaceComposerEditorValue,
 } from "./space-composer-editor-model";
+import { isEditorReadyToFocus } from "./space-composer-focus";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import type {
 	SpaceComposerAddressingTarget,
@@ -330,22 +331,6 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			</Plate>
 		</SpaceComposerEditorContext.Provider>
 	);
-}
-
-export function isEditorReadyToFocus(
-	editor: Pick<PlateEditor, "api" | "operations" | "selection">
-): boolean {
-	if (editor.operations.length > 0) {
-		return false;
-	}
-	if (!editor.selection) {
-		return true;
-	}
-	try {
-		return Boolean(editor.api.toDOMRange(editor.selection));
-	} catch {
-		return false;
-	}
 }
 
 function focusEditorAtSelection(
