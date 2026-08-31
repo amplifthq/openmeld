@@ -1,0 +1,693 @@
+"use client";
+
+import type { MessageMentionType } from "@openmeld/schemas/types";
+import { listSpaceMentionRelationChoices } from "@openmeld/space";
+import { CaretDownIcon } from "@phosphor-icons/react";
+import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
+import type { TElement } from "platejs";
+import {
+	createPlatePlugin,
+	ParagraphPlugin,
+	Plate,
+	type PlateEditor,
+	PlateElement,
+	type PlateElementProps,
+	useEditorRef,
+	usePlateEditor,
+} from "platejs/react";
+import {
+	type ClipboardEvent,
+	createContext,
+	type DragEvent,
+	type KeyboardEvent,
+	type MutableRefObject,
+	useContext,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+} from "react";
+import { Editor, EditorContainer } from "#/components/editor/ui/editor";
+import {
+	InlineCombobox,
+	InlineComboboxContent,
+	InlineComboboxEmpty,
+	InlineComboboxGroup,
+	InlineComboboxGroupLabel,
+	InlineComboboxInput,
+	InlineComboboxItem,
+} from "#/components/editor/ui/inline-combobox";
+import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import {
+	createSpaceComposerEditorValue,
+	getSpaceComposerEditorChildText,
+	isSpaceComposerProfileElement,
+	SPACE_COMPOSER_PROFILE_ELEMENT_TYPE,
+	type SpaceComposerEditorValue,
+	type SpaceComposerProfileElement,
+	serializeSpaceComposerEditorValue,
+} from "./space-composer-editor-model";
+import { SpaceProfileIcon } from "./space-profile-icon";
+import type {
+	SpaceComposerAddressingTarget,
+	SpaceComposerSelection,
+	SpaceMentionPickerItem,
+} from "./use-space-mention-authoring";
+import { resolveDefaultSpaceComposerMentionRelation } from "./use-space-mention-authoring";
+
+const SPACE_COMPOSER_MENTION_INPUT_TYPE = "mention_input";
+
+export type SpaceComposerEditorHandle = {
+	focus: () => void;
+	insertMentionTrigger: () => void;
+	selectTextRange: (selection: SpaceComposerSelection) => void;
+};
+
+export type SpaceComposerInputRef = MutableRefObject<
+	HTMLTextAreaElement | SpaceComposerEditorHandle | null
+>;
+
+export type SpaceComposerEditorChange = {
+	authoredMentions: ComposerDraftAuthoredMention[];
+	selection: SpaceComposerSelection;
+	text: string;
+};
+
+type SpaceComposerEditorProps = {
+	addressingTargets: readonly SpaceComposerAddressingTarget[];
+	ariaLabel: string;
+	authoredMentions: readonly ComposerDraftAuthoredMention[];
+	composerRef?: SpaceComposerInputRef;
+	disabled?: boolean;
+	maxHeight?: number;
+	mentionPickerItems: readonly SpaceMentionPickerItem[];
+	onChange: (change: SpaceComposerEditorChange) => void;
+	onDragEnter?: (event: DragEvent<HTMLDivElement>) => void;
+	onDragLeave?: (event: DragEvent<HTMLDivElement>) => void;
+	onDragOver?: (event: DragEvent<HTMLDivElement>) => void;
+	onDrop?: (event: DragEvent<HTMLDivElement>) => void;
+	onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
+	onSend: () => void;
+	placeholder: string;
+	text: string;
+};
+
+type SpaceComposerEditorContextValue = Pick<
+	SpaceComposerEditorProps,
+	"addressingTargets" | "mentionPickerItems"
+>;
+
+const SpaceComposerEditorContext =
+	createContext<SpaceComposerEditorContextValue | null>(null);
+
+const SpaceComposerEditorKit = [
+	ParagraphPlugin.withComponent(SpaceComposerParagraphElement),
+	MentionPlugin.configure({
+		options: {
+			insertSpaceAfterMention: true,
+			trigger: "@",
+		},
+	}),
+	MentionInputPlugin.withComponent(SpaceComposerMentionInput),
+	createPlatePlugin({
+		key: SPACE_COMPOSER_PROFILE_ELEMENT_TYPE,
+		node: {
+			component: SpaceComposerProfileToken,
+			isElement: true,
+			isInline: true,
+			isMarkableVoid: true,
+			isVoid: true,
+		},
+	}),
+];
+
+export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
+	const initialValue = useRef(
+		createSpaceComposerEditorValue({
+			authoredMentions: input.authoredMentions,
+			text: input.text,
+		})
+	);
+	const editor = usePlateEditor({
+		plugins: SpaceComposerEditorKit,
+		value: initialValue.current,
+	});
+	const pendingExternalValueRef = useRef<{
+		authoredMentions: readonly ComposerDraftAuthoredMention[];
+		text: string;
+	} | null>(null);
+	const lastExternalValueRef = useRef({
+		authoredMentions: input.authoredMentions,
+		text: input.text,
+	});
+	const contextValue = useMemo(
+		() => ({
+			addressingTargets: input.addressingTargets,
+			mentionPickerItems: input.mentionPickerItems,
+		}),
+		[input.addressingTargets, input.mentionPickerItems]
+	);
+
+	useLayoutEffect(() => {
+		const lastExternalValue = lastExternalValueRef.current;
+		if (
+			lastExternalValue.text === input.text &&
+			authoredMentionsEqual(
+				lastExternalValue.authoredMentions,
+				input.authoredMentions
+			)
+		) {
+			return;
+		}
+		lastExternalValueRef.current = {
+			authoredMentions: input.authoredMentions,
+			text: input.text,
+		};
+		const current = serializeSpaceComposerEditorValue(editor.children);
+		if (
+			current.text === input.text &&
+			authoredMentionsEqual(current.authoredMentions, input.authoredMentions)
+		) {
+			return;
+		}
+
+		pendingExternalValueRef.current = {
+			authoredMentions: input.authoredMentions,
+			text: input.text,
+		};
+		editor.tf.setValue(
+			createSpaceComposerEditorValue({
+				authoredMentions: input.authoredMentions,
+				text: input.text,
+			})
+		);
+	}, [editor, input.authoredMentions, input.text]);
+
+	useLayoutEffect(() => {
+		if (!input.composerRef) {
+			return;
+		}
+
+		input.composerRef.current = {
+			focus: () => {
+				focusEditorAtSelection(editor);
+			},
+			insertMentionTrigger: () => {
+				focusEditorAtSelection(editor);
+				editor.tf.insertText("@");
+			},
+			selectTextRange: (selection) => {
+				const value = editor.children as SpaceComposerEditorValue;
+				editor.tf.select({
+					anchor: resolvePointAtTextOffset(value, selection.start),
+					focus: resolvePointAtTextOffset(value, selection.end),
+				});
+				editor.tf.focus();
+			},
+		};
+
+		return () => {
+			if (input.composerRef?.current) {
+				input.composerRef.current = null;
+			}
+		};
+	}, [editor, input.composerRef]);
+
+	return (
+		<SpaceComposerEditorContext.Provider value={contextValue}>
+			<Plate
+				editor={editor}
+				onChange={({ editor: changedEditor }) => {
+					const serialized = serializeSpaceComposerEditorValue(
+						changedEditor.children
+					);
+					const pendingExternalValue = pendingExternalValueRef.current;
+					if (
+						pendingExternalValue &&
+						pendingExternalValue.text === serialized.text &&
+						authoredMentionsEqual(
+							pendingExternalValue.authoredMentions,
+							serialized.authoredMentions
+						)
+					) {
+						pendingExternalValueRef.current = null;
+						return;
+					}
+					pendingExternalValueRef.current = null;
+					input.onChange({
+						...serialized,
+						selection: resolveTextSelection(
+							changedEditor,
+							serialized.text.length
+						),
+					});
+				}}
+				readOnly={input.disabled}
+			>
+				<EditorContainer
+					className="overflow-y-auto"
+					style={{ maxHeight: input.maxHeight ?? 240 }}
+				>
+					<Editor
+						aria-label={input.ariaLabel}
+						aria-placeholder={input.placeholder}
+						className="min-h-11 px-1 py-2 text-sm leading-6"
+						disabled={input.disabled}
+						onCopyCapture={(event) => handleCopy(event, editor)}
+						onDragEnterCapture={(event) =>
+							handleDragCapture(event, input.onDragEnter)
+						}
+						onDragLeaveCapture={(event) =>
+							handleDragCapture(event, input.onDragLeave)
+						}
+						onDragOverCapture={(event) =>
+							handleDragCapture(event, input.onDragOver)
+						}
+						onDropCapture={(event) => handleDragCapture(event, input.onDrop)}
+						onKeyDownCapture={(event) =>
+							handleKeyDown(event, editor, input.onSend)
+						}
+						onPasteCapture={(event) =>
+							handlePaste(event, editor, input.onPaste)
+						}
+						placeholder={input.placeholder}
+						variant="none"
+					/>
+				</EditorContainer>
+			</Plate>
+		</SpaceComposerEditorContext.Provider>
+	);
+}
+
+function focusEditorAtSelection(editor: PlateEditor): void {
+	const shouldSelectEnd = !editor.selection;
+	editor.tf.focus();
+	if (shouldSelectEnd) {
+		const end = editor.api.end([]);
+		if (end) {
+			editor.tf.select(end);
+		}
+	}
+}
+
+function handleDragCapture(
+	event: DragEvent<HTMLDivElement>,
+	handler?: (event: DragEvent<HTMLDivElement>) => void
+): void {
+	handler?.(event);
+	if (event.defaultPrevented) {
+		event.stopPropagation();
+	}
+}
+
+function SpaceComposerParagraphElement(props: PlateElementProps) {
+	return (
+		<PlateElement {...props} className="m-0 min-h-6">
+			{props.children}
+		</PlateElement>
+	);
+}
+
+function SpaceComposerProfileToken(
+	props: PlateElementProps<SpaceComposerProfileElement>
+) {
+	const { editor, element } = props;
+	const context = useSpaceComposerEditorContext();
+	const target = context.addressingTargets.find(
+		(candidate) => candidate.profileId === element.profileId
+	);
+	const pickerItem = context.mentionPickerItems.find(
+		(item) => item.suggestion.profileId === element.profileId
+	);
+	const profileName = target?.profileName ?? element.mentionText.slice(1);
+	const profileKind =
+		pickerItem?.suggestion.profileKind ??
+		(element.relation === "mention" ? "human" : "agent");
+	const choices = target
+		? listSpaceMentionRelationChoices({
+				allowedRelations: target.allowedRelations,
+				primaryMentionLabel: target.profileName,
+				wakeAvailability: target.wakeAvailability,
+			})
+		: [];
+
+	return (
+		<PlateElement {...props} as="span">
+			<span
+				className="mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
+				contentEditable={false}
+				data-mention-text={element.mentionText}
+				data-testid="space-composer-profile-token"
+			>
+				<SpaceProfileIcon
+					agentControllerRef={
+						pickerItem?.memberEntry.agentControllerRef ?? null
+					}
+					avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
+					className="size-4"
+					profileId={element.profileId}
+					profileKind={profileKind}
+					profileName={profileName}
+				/>
+				<span aria-hidden="true" className="font-semibold">
+					@
+				</span>
+				<span className="max-w-40 truncate font-medium">{profileName}</span>
+				{profileKind === "agent" && choices.length > 0 ? (
+					<label className="relative inline-flex h-6 items-center border-border border-l pl-1 text-muted-foreground">
+						<span className="sr-only">Relation</span>
+						<select
+							aria-label={`Change relation for ${profileName}`}
+							className="h-6 cursor-pointer appearance-none bg-transparent pr-4 pl-1 font-medium text-xs outline-none"
+							onChange={(event) => {
+								const path = editor.api.findPath(element);
+								if (!path) {
+									return;
+								}
+								editor.tf.setNodes(
+									{
+										relation: event.target.value as MessageMentionType,
+									},
+									{ at: path }
+								);
+							}}
+							onClick={(event) => event.stopPropagation()}
+							onMouseDown={(event) => event.stopPropagation()}
+							value={element.relation}
+						>
+							{choices.map((choice) => (
+								<option key={choice.relation} value={choice.relation}>
+									{choice.label}
+								</option>
+							))}
+						</select>
+						<CaretDownIcon
+							aria-hidden="true"
+							className="pointer-events-none absolute right-0 size-3"
+						/>
+					</label>
+				) : null}
+			</span>
+			{props.children}
+		</PlateElement>
+	);
+}
+
+function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
+	const { element } = props;
+	const context = useSpaceComposerEditorContext();
+	const agentItems = context.mentionPickerItems.filter(
+		(item) => item.suggestion.profileKind === "agent"
+	);
+	const humanItems = context.mentionPickerItems.filter(
+		(item) => item.suggestion.profileKind === "human"
+	);
+
+	return (
+		<PlateElement {...props} as="span">
+			<InlineCombobox element={element} trigger="@">
+				<span className="inline-flex rounded bg-muted px-1">
+					<InlineComboboxInput aria-label="Find a member to mention" />
+				</span>
+				<InlineComboboxContent
+					aria-label="Member options"
+					className="w-[min(24rem,calc(100vw-1.5rem))]"
+				>
+					<InlineComboboxEmpty>No matching members</InlineComboboxEmpty>
+					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
+					<SpaceComposerMentionGroup items={humanItems} title="Humans" />
+				</InlineComboboxContent>
+			</InlineCombobox>
+			{props.children}
+		</PlateElement>
+	);
+}
+
+function SpaceComposerMentionGroup(input: {
+	items: readonly SpaceMentionPickerItem[];
+	title: string;
+}) {
+	const editor = useEditorRef();
+	if (input.items.length === 0) {
+		return null;
+	}
+
+	return (
+		<InlineComboboxGroup>
+			<InlineComboboxGroupLabel>{input.title}</InlineComboboxGroupLabel>
+			{input.items.map((item) => (
+				<InlineComboboxItem
+					key={item.suggestion.profileId}
+					keywords={[item.suggestion.primaryMentionLabel]}
+					label={item.suggestion.profileName}
+					onClick={() => insertProfile(editor, item)}
+					value={item.suggestion.profileName}
+				>
+					<SpaceProfileIcon
+						agentControllerRef={item.memberEntry.agentControllerRef}
+						avatarImageUrl={item.memberEntry.avatarUrl}
+						className="mr-2 size-5"
+						profileId={item.suggestion.profileId}
+						profileKind={item.suggestion.profileKind}
+						profileName={item.suggestion.profileName}
+					/>
+					<span className="min-w-0 flex-1 truncate font-medium">
+						{item.suggestion.profileName}
+					</span>
+					<span className="ml-2 text-muted-foreground text-xs">
+						{item.suggestion.profileKind === "human" ? "Mention" : "Wake"}
+					</span>
+				</InlineComboboxItem>
+			))}
+		</InlineComboboxGroup>
+	);
+}
+
+function insertProfile(
+	editor: PlateEditor,
+	item: SpaceMentionPickerItem
+): void {
+	const relation = resolveDefaultSpaceComposerMentionRelation(item.suggestion);
+	if (!relation) {
+		return;
+	}
+	const mentionText = `@${item.suggestion.primaryMentionLabel}`;
+	const existing = serializeSpaceComposerEditorValue(
+		editor.children
+	).authoredMentions.some(
+		(mention) => mention.profileId === item.suggestion.profileId
+	);
+	if (existing) {
+		editor.tf.insertText(`${mentionText} `);
+		return;
+	}
+
+	editor.tf.insertNodes({
+		children: [{ text: "" }],
+		mentionText,
+		profileId: item.suggestion.profileId,
+		relation,
+		type: SPACE_COMPOSER_PROFILE_ELEMENT_TYPE,
+	});
+	editor.tf.move({ unit: "offset" });
+	editor.tf.insertText(" ");
+}
+
+function handleKeyDown(
+	event: KeyboardEvent<HTMLDivElement>,
+	editor: PlateEditor,
+	onSend: () => void
+): void {
+	if (event.nativeEvent.isComposing || event.key !== "Enter") {
+		return;
+	}
+	if (event.shiftKey) {
+		event.preventDefault();
+		event.stopPropagation();
+		editor.tf.insertBreak();
+		return;
+	}
+	if (
+		editor.api.some({
+			at: [],
+			match: (node) =>
+				"type" in node && node.type === SPACE_COMPOSER_MENTION_INPUT_TYPE,
+		})
+	) {
+		return;
+	}
+
+	event.preventDefault();
+	event.stopPropagation();
+	onSend();
+}
+
+function handlePaste(
+	event: ClipboardEvent<HTMLDivElement>,
+	editor: PlateEditor,
+	onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void
+): void {
+	onPaste?.(event);
+	if (event.defaultPrevented || event.clipboardData.files.length > 0) {
+		if (event.defaultPrevented) {
+			event.stopPropagation();
+		}
+		return;
+	}
+	const text = event.clipboardData.getData("text/plain");
+	if (!text) {
+		return;
+	}
+	event.preventDefault();
+	event.stopPropagation();
+	if (!editor.selection) {
+		focusEditorAtSelection(editor);
+	}
+	editor.tf.insertText(text);
+}
+
+function handleCopy(
+	event: ClipboardEvent<HTMLDivElement>,
+	editor: PlateEditor
+): void {
+	if (!editor.selection) {
+		return;
+	}
+	const fragment = editor.api.fragment(editor.selection);
+	if (fragment.length === 0) {
+		return;
+	}
+	const blocks = fragment.every(
+		(node) => "children" in node && Array.isArray(node.children)
+	)
+		? (fragment as TElement[])
+		: [{ children: fragment, type: "p" } as TElement];
+	const text = serializeSpaceComposerEditorValue(blocks).text;
+	event.preventDefault();
+	event.stopPropagation();
+	event.clipboardData.setData("text/plain", text);
+}
+
+function resolveTextSelection(
+	editor: PlateEditor,
+	fallbackOffset: number
+): SpaceComposerSelection {
+	if (!editor.selection) {
+		return { end: fallbackOffset, start: fallbackOffset };
+	}
+	const value = editor.children as SpaceComposerEditorValue;
+	return {
+		end: resolveTextOffsetAtPoint(
+			value,
+			editor.selection.focus.path,
+			editor.selection.focus.offset
+		),
+		start: resolveTextOffsetAtPoint(
+			value,
+			editor.selection.anchor.path,
+			editor.selection.anchor.offset
+		),
+	};
+}
+
+function resolveTextOffsetAtPoint(
+	value: SpaceComposerEditorValue,
+	path: readonly number[],
+	pointOffset: number
+): number {
+	let offset = 0;
+	const blockIndex = path[0] ?? 0;
+	for (let index = 0; index < blockIndex; index += 1) {
+		const precedingBlock = value[index];
+		if (precedingBlock) {
+			offset +=
+				serializeSpaceComposerEditorValue([precedingBlock]).text.length + 1;
+		}
+	}
+	const block = value[blockIndex] ?? value[0];
+	const childIndex = path[1] ?? 0;
+	for (let index = 0; index < childIndex; index += 1) {
+		const child = block.children[index];
+		offset += getSpaceComposerEditorChildText(child).length;
+	}
+	const child = block.children[childIndex];
+	if (child && "text" in child && !isSpaceComposerProfileElement(child)) {
+		offset += Math.min(pointOffset, child.text.length);
+	}
+	return offset;
+}
+
+function resolvePointAtTextOffset(
+	value: SpaceComposerEditorValue,
+	targetOffset: number
+): { offset: number; path: number[] } {
+	let offset = 0;
+	for (let blockIndex = 0; blockIndex < value.length; blockIndex += 1) {
+		const block = value[blockIndex];
+		if (!block) {
+			continue;
+		}
+		for (
+			let childIndex = 0;
+			childIndex < block.children.length;
+			childIndex += 1
+		) {
+			const child = block.children[childIndex];
+			if (!child) {
+				continue;
+			}
+			const length = getSpaceComposerEditorChildText(child).length;
+			if (isSpaceComposerProfileElement(child) && targetOffset <= offset) {
+				return {
+					offset: 0,
+					path: [blockIndex, childIndex, 0],
+				};
+			}
+			if ("text" in child && targetOffset <= offset + length) {
+				return {
+					offset: Math.max(0, targetOffset - offset),
+					path: [blockIndex, childIndex],
+				};
+			}
+			offset += length;
+		}
+		offset += 1;
+	}
+
+	const lastBlockIndex = value.length - 1;
+	const lastBlock = value.at(-1) ?? value[0];
+	const lastChildIndex = lastBlock.children.length - 1;
+	const lastChild = lastBlock.children.at(-1) ?? { text: "" };
+	return "text" in lastChild && typeof lastChild.text === "string"
+		? {
+				offset: lastChild.text.length,
+				path: [lastBlockIndex, lastChildIndex],
+			}
+		: { offset: 0, path: [lastBlockIndex, lastChildIndex, 0] };
+}
+
+function authoredMentionsEqual(
+	left: readonly ComposerDraftAuthoredMention[],
+	right: readonly ComposerDraftAuthoredMention[]
+): boolean {
+	return (
+		left.length === right.length &&
+		left.every((mention, index) => {
+			const candidate = right[index];
+			return (
+				candidate?.end === mention.end &&
+				candidate.profileId === mention.profileId &&
+				candidate.relation === mention.relation &&
+				candidate.start === mention.start &&
+				candidate.text === mention.text
+			);
+		})
+	);
+}
+
+function useSpaceComposerEditorContext(): SpaceComposerEditorContextValue {
+	const context = useContext(SpaceComposerEditorContext);
+	if (!context) {
+		throw new Error("Space Composer editor context is missing.");
+	}
+	return context;
+}
