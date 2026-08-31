@@ -112,7 +112,15 @@ export function resolveFormalSpaceUpdateActorName(
 export function resolveFormalSpaceUpdatePreviewText(
   signal: FormalSpaceUpdateSignal
 ): string | null {
-  return truncateSpaceStatusPreview(normalizeOptionalText(signal.data.text));
+  return normalizeOptionalText(signal.data.text);
+}
+
+export function resolveSpaceStatusPreviewText(
+  signal: FormalSpaceUpdateSignal
+): string | null {
+  return truncateSpaceStatusPreview(
+    resolveFormalSpaceUpdatePreviewText(signal)
+  );
 }
 
 function truncateSpaceStatusPreview(text: string | null): string | null {

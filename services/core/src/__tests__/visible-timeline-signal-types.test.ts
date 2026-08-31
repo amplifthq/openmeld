@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveFormalSpaceUpdatePreviewText,
+  resolveSpaceStatusPreviewText,
   resolveVisibleTimelineSignalTypes,
   SPACE_STATUS_PREVIEW_MAX_CHARS,
   VISIBLE_SPACE_TIMELINE_SIGNAL_TYPES,
@@ -56,17 +57,19 @@ describe("resolveVisibleTimelineSignalTypes", () => {
   });
 });
 
-describe("resolveFormalSpaceUpdatePreviewText", () => {
+describe("Space update previews", () => {
   it("bounds a long latest-update preview without splitting a character", () => {
-    const preview = resolveFormalSpaceUpdatePreviewText({
+    const signal = {
       type: "signal.text",
       data: {
         text: `${"a".repeat(SPACE_STATUS_PREVIEW_MAX_CHARS - 2)}😀tail`,
       },
-    } as Parameters<typeof resolveFormalSpaceUpdatePreviewText>[0]);
+    } as Parameters<typeof resolveFormalSpaceUpdatePreviewText>[0];
+    const preview = resolveSpaceStatusPreviewText(signal);
 
     expect(preview).toHaveLength(SPACE_STATUS_PREVIEW_MAX_CHARS - 1);
     expect(preview).toBe(`${"a".repeat(SPACE_STATUS_PREVIEW_MAX_CHARS - 2)}…`);
     expect(preview).not.toContain("tail");
+    expect(resolveFormalSpaceUpdatePreviewText(signal)).toContain("😀tail");
   });
 });

@@ -1,5 +1,8 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
+import {
+  AGENT_REPLY_FINAL_PURPOSE,
+  sanitizeSignalTextPreview,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { truncateInboxText } from "../inbox/application/inbox-text";
 import { buildSpaceInboxProjectionOutboxRecord } from "../space/application/space-inbox-projection";
@@ -85,6 +88,32 @@ describe("Space Inbox projection", () => {
 
     expect(truncated).toBe("aa…");
     expect(truncated.length).toBeLessThanOrEqual(4);
+  });
+
+  it("keeps Inbox on its own sanitizer contract when Space status is bounded separately", () => {
+    const text = "a".repeat(400);
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("profile-author", "user-author", "human"),
+        member("profile-reader", "user-reader", "human"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      signal: textSignal({
+        authorKind: "human",
+        authorName: "Alex Author",
+        authorProfileId: "profile-author",
+        text,
+      }),
+      spaceName: "Launch Room",
+    });
+
+    expect(record?.candidates).toEqual([
+      expect.objectContaining({
+        preview: sanitizeSignalTextPreview(text),
+        recipientUserId: "user-reader",
+      }),
+    ]);
   });
 
   it("projects exact thread targets, Human Mention priority, and active human visibility without notifying the author", () => {

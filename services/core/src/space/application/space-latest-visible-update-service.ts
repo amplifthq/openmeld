@@ -13,7 +13,7 @@ import {
   isFormalSpaceUpdateSignal,
   resolveFormalSpaceUpdateActorName,
   resolveFormalSpaceUpdateActorProfileId,
-  resolveFormalSpaceUpdatePreviewText,
+  resolveSpaceStatusPreviewText,
 } from "../rules/formal-space-update";
 import { parseStoredSignal } from "../rules/parsers/stored-signal";
 import { redactSignalForViewer } from "../rules/privacy/agent-profile-visibility";
@@ -90,7 +90,7 @@ function projectLatestVisibleFormalUpdateCandidate(input: {
     return undefined;
   }
   const actorProfileId = resolveFormalSpaceUpdateActorProfileId(visibleSignal);
-  const previewText = resolveFormalSpaceUpdatePreviewText(visibleSignal);
+  const previewText = resolveSpaceStatusPreviewText(visibleSignal);
   const parsedActorProfileId =
     openMeldRuntimeProfileIdSchema.safeParse(actorProfileId);
   if (!(parsedActorProfileId.success && previewText)) {
