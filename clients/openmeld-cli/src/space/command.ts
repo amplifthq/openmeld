@@ -950,6 +950,7 @@ async function resolveSpaceCreateInput(input: {
     resolvedView: input.runtime.resolvedView,
     providedPassword: input.providedPassword,
     interactive: input.interactive,
+    visibility,
   });
   const password = await resolveCreateSpacePasswordInput({
     providedPassword: input.providedPassword,
@@ -2075,6 +2076,7 @@ function emitSpaceCreatePasswordOptionalHint(input: {
   resolvedView: "human" | "agent";
   providedPassword?: string;
   interactive: boolean;
+  visibility: SpaceCreateVisibility;
 }): void {
   if (typeof input.providedPassword === "string") {
     return;
@@ -2084,10 +2086,9 @@ function emitSpaceCreatePasswordOptionalHint(input: {
   }
   input.presenter.line({
     code: "space.create.password.optional_hint",
-    text:
-      "Password is optional. Without one, link access stays members-only. Only current members can open the Space, and new participants must be added explicitly. To require a password to open and join, use --password <value>. Password rule: " +
-      buildSpacePasswordRequirementsText(),
+    text: buildSpaceCreatePasswordOptionalHintText(input.visibility),
     data: {
+      accessMode: input.visibility === "public" ? "public" : "members_only",
       optional: true,
       requirements: {
         minLength: SPACE_PASSWORD_MIN_LENGTH,
@@ -2102,6 +2103,19 @@ function emitSpaceCreatePasswordOptionalHint(input: {
       ),
     },
   });
+}
+
+function buildSpaceCreatePasswordOptionalHintText(
+  visibility: SpaceCreateVisibility
+): string {
+  const accessExplanation =
+    visibility === "public"
+      ? "Without one, anyone with the Space link can open and join."
+      : "Without one, link access stays members-only. Only current members can open the Space, and new participants must be added explicitly.";
+  return (
+    `Password is optional. ${accessExplanation} To require a password to open and join, use --password <value>. Password rule: ` +
+    buildSpacePasswordRequirementsText()
+  );
 }
 
 export function buildCreateSpacePasswordPromptMessage(): string {

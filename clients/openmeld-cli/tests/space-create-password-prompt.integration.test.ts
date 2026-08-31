@@ -706,6 +706,50 @@ describe("space create password prompt", () => {
     });
   });
 
+  it("explains public link access when an agent creates a public Space without a password", async () => {
+    resolveRuntimeContextMock.mockResolvedValue({
+      viewMode: "agent",
+      resolvedView: "agent",
+      interactive: false,
+    });
+
+    await withTempHome(async () => {
+      mockSpaceCreateFetchSequence(
+        createAuthProbeResponse(),
+        createSpaceCreatedResponse()
+      );
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runSpaceCreate({
+          profile: "agt-space-create-prompt",
+          baseUrl: "https://gateway.openmeld.invalid",
+          name: "public-room",
+          visibility: "public",
+          join: false,
+          view: "agent",
+        });
+      });
+
+      const hintEnvelope = stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              code?: string;
+              text?: string;
+            }
+        )
+        .find((line) => line.code === "space.create.password.optional_hint");
+
+      expect(hintEnvelope?.text).toContain(
+        "Without one, anyone with the Space link can open and join"
+      );
+      expect(hintEnvelope?.text).not.toContain("members-only");
+    });
+  });
+
   it("prompts for space name when --name is missing in interactive human view", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       viewMode: "human",
