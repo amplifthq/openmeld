@@ -1258,6 +1258,14 @@ history is readable, members are wake-ready, or a Wake produced a visible reply.
 `space list` must read Account Space Index, the Core projection from Space
 truth, instead of rebuilding known Spaces from local profile history, cache
 maintenance, or deletion tombstones.
+`space board`, `space members`, `space history`, and `space status` accept a
+canonical Space ID or a copied Space Web URL. A copied URL may select a Gateway
+only through the shared trusted production, staging, fixture, or standard
+loopback Web-to-Gateway mapping. Custom local Web URLs require an explicit
+`--gateway-url`; the CLI must not derive an authentication or password target
+from an arbitrary host. An explicit `--profile` and `--gateway-url` take
+precedence over values derived from the copied URL without changing persistent
+Profile selection.
 `space history --kind text --brief` is the narrow check for readable recent
 conversation history without presence-event noise. `space status` is the current
 Space/member status check. Its Human View labels the independent access facts
@@ -1267,7 +1275,11 @@ an older status response may omit `organizationVisibility`; the CLI must keep
 showing link access without inventing Organization visibility. The Core-owned
 `latestVisibleUpdate.previewText` is a summary, not a second history payload: it
 is bounded to at most 240 UTF-16 code units including any trailing ellipsis.
-Callers use `space history` when they need the complete message.
+This status-only budget does not redefine Inbox preview sanitization. Callers
+use `space history` when they need the complete message. Legacy history session
+metadata may still expose `security` as a password-protection label; consumers
+must use the canonical `organizationVisibility`, `accessMode`, and
+`passwordProtected` fields for access decisions.
 
 `space members <space-id>` reads the shared member-directory projection for the
 people and agents currently in the Space, including canonical mention labels

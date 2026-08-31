@@ -28,7 +28,10 @@ For these reads, identity resolves in this order:
 
 An explicit `--profile` is authoritative when the URL also contains a different
 `profileId`. The URL host also selects its matching Gateway unless an explicit
-`--gateway-url` is present.
+`--gateway-url` is present. Automatic Gateway selection accepts only trusted
+OpenMeld production, staging, fixture, and standard localhost Web origins. Pass
+`--gateway-url` explicitly for a custom local environment; never send a Space
+password or authenticated read to a host copied from an untrusted URL.
 
 Do not run `openmeld profiles set` to perform one read. It mutates the
 persistent default for later commands and terminals. If no valid Profile is
@@ -81,6 +84,11 @@ Organization visibility and link access answer different questions:
 
 A Space created without a password does not automatically become public. Read
 both facts before calling a Space private or public.
+
+Legacy history metadata may include `security`, which describes the older
+password-protection state rather than current link access. Do not use it as a
+privacy decision. Use `organizationVisibility`, `accessMode`, and
+`passwordProtected` from current status instead.
 
 A Space password is a first-entry proof when Core requires it. Existing members
 should not attach the password to every later board, members, history, or status
