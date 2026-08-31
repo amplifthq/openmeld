@@ -324,6 +324,11 @@ test("runs one explicit Final Candidate request with separate runner and publish
       "scripts/ci/final-candidate-policy.test.mjs"
     )
   );
+  assert.ok(
+    rootPackage.scripts["verify:release-workflows"].includes(
+      "scripts/release/hosted-fleet-plan-admission.test.mjs"
+    )
+  );
   assert.ok(!hook.includes("verify:pre-push:checks"));
   for (const retiredPath of [
     ".github/workflows/pr-checks.yml",
