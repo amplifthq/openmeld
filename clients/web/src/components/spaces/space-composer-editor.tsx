@@ -50,7 +50,10 @@ import {
 	type SpaceComposerProfileElement,
 	serializeSpaceComposerEditorValue,
 } from "./space-composer-editor-model";
-import { isEditorReadyToFocus } from "./space-composer-focus";
+import {
+	getEditorFocusReadiness,
+	SPACE_COMPOSER_FOCUS_RETRY_FRAMES,
+} from "./space-composer-focus";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import type {
 	SpaceComposerAddressingTarget,
@@ -143,6 +146,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		text: string;
 	} | null>(null);
 	const focusAnimationFrameRef = useRef<number | null>(null);
+	const focusRetryFramesRemainingRef = useRef(0);
 	const isMountedRef = useRef(false);
 	const pendingFocusRef = useRef(false);
 	const lastExternalValueRef = useRef({
@@ -162,6 +166,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		return () => {
 			isMountedRef.current = false;
 			pendingFocusRef.current = false;
+			focusRetryFramesRemainingRef.current = 0;
 			if (focusAnimationFrameRef.current !== null) {
 				window.cancelAnimationFrame(focusAnimationFrameRef.current);
 				focusAnimationFrameRef.current = null;
@@ -217,24 +222,42 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			if (!(isMountedRef.current && pendingFocusRef.current)) {
 				return;
 			}
-			if (!isEditorReadyToFocus(editor)) {
+			const readiness = getEditorFocusReadiness(
+				editor,
+				focusRetryFramesRemainingRef.current
+			);
+			if (readiness === "retry") {
+				focusRetryFramesRemainingRef.current -= 1;
 				focusAnimationFrameRef.current =
 					window.requestAnimationFrame(flushPendingFocus);
 				return;
 			}
 			pendingFocusRef.current = false;
-			editor.tf.focus();
+			focusRetryFramesRemainingRef.current = 0;
+			if (readiness === "focus") {
+				editor.tf.focus();
+			}
 		};
 		const focusWhenReady = () => {
-			if (!isEditorReadyToFocus(editor)) {
+			const readiness = getEditorFocusReadiness(
+				editor,
+				SPACE_COMPOSER_FOCUS_RETRY_FRAMES
+			);
+			if (readiness === "retry") {
 				pendingFocusRef.current = true;
+				focusRetryFramesRemainingRef.current =
+					SPACE_COMPOSER_FOCUS_RETRY_FRAMES - 1;
 				if (focusAnimationFrameRef.current === null) {
 					focusAnimationFrameRef.current =
 						window.requestAnimationFrame(flushPendingFocus);
 				}
 				return;
 			}
-			editor.tf.focus();
+			pendingFocusRef.current = false;
+			focusRetryFramesRemainingRef.current = 0;
+			if (readiness === "focus") {
+				editor.tf.focus();
+			}
 		};
 
 		input.composerRef.current = {

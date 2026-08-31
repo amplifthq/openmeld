@@ -18,7 +18,7 @@ import {
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
 } from "./space-composer-editor";
-import { isEditorReadyToFocus } from "./space-composer-focus";
+import { getEditorFocusReadiness } from "./space-composer-focus";
 import type { SpaceComposerAddressingTarget } from "./use-space-mention-authoring";
 import { buildSpaceMentionTargetItems } from "./use-space-mention-authoring";
 
@@ -657,7 +657,7 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
-	it("retries focus when Slate operations are empty but the DOM range is not ready", () => {
+	it("bounds focus retries when Slate operations are empty but the DOM range is invalid", () => {
 		const selection = {
 			anchor: { offset: 14, path: [0, 0] },
 			focus: { offset: 14, path: [0, 0] },
@@ -669,13 +669,27 @@ describe("SpaceComposerEditor", () => {
 		});
 
 		expect(
-			isEditorReadyToFocus({
-				api: { toDOMRange } as never,
-				operations: [],
-				selection,
-			})
-		).toBe(false);
-		expect(toDOMRange).toHaveBeenCalledWith(selection);
+			getEditorFocusReadiness(
+				{
+					api: { toDOMRange } as never,
+					operations: [],
+					selection,
+				},
+				1
+			)
+		).toBe("retry");
+		expect(
+			getEditorFocusReadiness(
+				{
+					api: { toDOMRange } as never,
+					operations: [],
+					selection,
+				},
+				0
+			)
+		).toBe("cancel");
+		expect(toDOMRange).toHaveBeenCalledTimes(2);
+		expect(toDOMRange).toHaveBeenLastCalledWith(selection);
 	});
 
 	it("accepts plain browser text input through the contenteditable surface", async () => {
