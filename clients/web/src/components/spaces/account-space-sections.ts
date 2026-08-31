@@ -178,10 +178,24 @@ export function restoreAccountSpaceItemAfterPinFailure(
 	spaceId: string
 ): AccountSpaceSections {
 	const spaceKey = normalizeSpaceKey(spaceId);
+	const currentItem = findAccountSpaceItem(current, spaceId);
 	const nextItems = [...current.pinnedItems, ...current.spaceItems].filter(
 		(item) => normalizeSpaceKey(item.spaceId) !== spaceKey
 	);
-	if (previousItem) {
+	if (currentItem && readAccountSpacePinOverlay(currentItem) === null) {
+		// The owner projection advanced while the mutation was pending. Keep it
+		// intact instead of restoring any part of the stale pre-mutation snapshot.
+		nextItems.push(currentItem);
+	} else if (currentItem && previousItem) {
+		// Polling can refresh names, membership, and last-seen truth while the
+		// optimistic Pin overlay is active. Roll back only the fields that the
+		// optimistic update changed and retain every refreshed owner field.
+		nextItems.push({
+			...currentItem,
+			pinnedAt: previousItem.pinnedAt,
+			pinnedProfileIds: previousItem.pinnedProfileIds,
+		});
+	} else if (previousItem) {
 		nextItems.push(previousItem);
 	}
 

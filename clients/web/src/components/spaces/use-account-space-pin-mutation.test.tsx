@@ -14,6 +14,7 @@ import type {
 	AccountSpaceSections,
 } from "#/lib/spaces/account-spaces";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import { preserveOptimisticAccountSpacePinUpdates } from "./account-space-sections";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 
 const { setAccountSpaceItemPinnedMock, toastErrorMock, toastWarningMock } =
@@ -189,6 +190,77 @@ describe("useAccountSpacePinMutation", () => {
 		);
 		consoleError.mockRestore();
 	});
+
+	it("keeps refreshed owner facts when a pending pin update fails", async () => {
+		const item = {
+			...createAccountSpaceItem({
+				spaceId: "space-planning",
+				spaceName: "Planning",
+			}),
+			lastSeenTs: null,
+		};
+		const queryClient = createQueryClient({
+			pinnedItems: [],
+			spaceItems: [item],
+		});
+		let rejectPin: ((error: Error) => void) | undefined;
+		setAccountSpaceItemPinnedMock.mockReturnValue(
+			new Promise((_resolve, reject) => {
+				rejectPin = reject;
+			})
+		);
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+
+		renderWithQueryClient(
+			queryClient,
+			<PinControl controlName="Sidebar" item={item} />
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Sidebar Pin Planning" })
+		);
+		await waitFor(() => {
+			expect(readSections(queryClient).pinnedItems).toHaveLength(1);
+		});
+
+		act(() => {
+			const refreshedLastSeenTs = Date.parse("2026-08-31T20:00:00.000Z");
+			queryClient.setQueryData<AccountSpaceSections>(
+				accountSpaceQueryKeys.items("human-1", "account"),
+				{
+					pinnedItems: [],
+					recentlyDeletedItems: [],
+					spaceItems: [
+						{
+							...item,
+							lastSeenTs: refreshedLastSeenTs,
+							spaceName: "Planning Renamed",
+						},
+					],
+				}
+			);
+		});
+		expect(readSections(queryClient).pinnedItems[0]).toMatchObject({
+			lastSeenTs: Date.parse("2026-08-31T20:00:00.000Z"),
+			spaceName: "Planning Renamed",
+		});
+
+		await act(async () => {
+			rejectPin?.(new Error("Pin failed"));
+			await Promise.resolve();
+		});
+
+		await waitFor(() => {
+			expect(readSections(queryClient).spaceItems[0]).toMatchObject({
+				lastSeenTs: Date.parse("2026-08-31T20:00:00.000Z"),
+				pinnedAt: null,
+				pinnedProfileIds: [],
+				spaceName: "Planning Renamed",
+			});
+		});
+		consoleError.mockRestore();
+	});
 });
 
 function PinControl(input: { controlName: string; item: AccountSpaceItem }) {
@@ -210,7 +282,10 @@ function createQueryClient(sections: AccountSpaceSections): QueryClient {
 	const queryClient = new QueryClient({
 		defaultOptions: {
 			mutations: { retry: false },
-			queries: { retry: false },
+			queries: {
+				retry: false,
+				structuralSharing: preserveOptimisticAccountSpacePinUpdates,
+			},
 		},
 	});
 	queryClient.setQueryData(
