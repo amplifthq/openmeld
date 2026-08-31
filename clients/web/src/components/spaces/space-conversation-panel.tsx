@@ -2924,10 +2924,12 @@ function ThreadPreview(input: {
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
 
 	return (
-		<div className="flex min-w-0 flex-col gap-2 overflow-hidden border-border border-t pt-2">
+		<div className="flex w-full min-w-0 max-w-full flex-col gap-2 overflow-hidden border-border border-t pt-2">
 			{previewItems.length > 0 ? (
-				<fieldset className="flex min-w-0 flex-col gap-1.5 overflow-hidden">
-					<legend className="sr-only">Thread preview</legend>
+				<section
+					aria-label="Thread preview"
+					className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden pe-2"
+				>
 					{previewItems.map((item) => (
 						<div
 							className="flex min-w-0 items-start gap-2 overflow-hidden"
@@ -2944,7 +2946,7 @@ function ThreadPreview(input: {
 							</span>
 						</div>
 					))}
-				</fieldset>
+				</section>
 			) : null}
 			<button
 				aria-label={

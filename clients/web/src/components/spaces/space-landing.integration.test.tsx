@@ -14198,9 +14198,14 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByText("Can someone check the privacy page?")
 		).toBeTruthy();
-		const preview = screen.getByRole("group", { name: "Thread preview" });
+		const preview = screen.getByRole("region", { name: "Thread preview" });
 		expect(preview.className).toContain("min-w-0");
+		expect(preview.className).toContain("w-full");
+		expect(preview.className).toContain("max-w-full");
 		expect(preview.className).toContain("overflow-hidden");
+		expect(preview.className).toContain("pe-2");
+		expect(preview.parentElement?.className).toContain("w-full");
+		expect(preview.parentElement?.className).toContain("max-w-full");
 		expect(preview.parentElement?.className).toContain("overflow-hidden");
 		expect(within(preview).getByText("I'll check it.")).toBeTruthy();
 		const secondPreviewMessage = within(preview).getByText("Filed the issue.");
