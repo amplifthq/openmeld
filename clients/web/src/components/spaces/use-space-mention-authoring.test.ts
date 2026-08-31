@@ -131,16 +131,19 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		const firstComposer = renderHook(() => useSpaceMentionAuthoring(input));
 
 		act(() => {
-			firstComposer.result.current.onComposerChange("@Run", {
-				end: 4,
-				start: 4,
+			firstComposer.result.current.onComposerEditorChange({
+				authoredMentions: [
+					{
+						end: 7,
+						profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+						relation: "wake",
+						start: 0,
+						text: "@Runner",
+					},
+				],
+				selection: { end: 8, start: 8 },
+				text: "@Runner ",
 			});
-		});
-		expect(firstComposer.result.current.mentionPopoverState.kind).toBe(
-			"target_picker"
-		);
-		act(() => {
-			firstComposer.result.current.onMentionItemSelect(0, "wake");
 		});
 		act(() => {
 			firstComposer.result.current.onReplyToSignal({ signalId: "signal-1" });
@@ -218,74 +221,7 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		});
 	});
 
-	it("rewrites the owning canonical mention when its relation changes", () => {
-		const runnerProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-		const composer = renderHook(() =>
-			useSpaceMentionAuthoring({
-				composerDraftScope: {
-					kind: "space",
-					ownerAccountId: "account-1",
-					profileId: "human-1",
-					spaceId: "space-1",
-				},
-				isMembersLoading: false,
-				membersErrorMessage: null,
-				openMeldProfileId: "human-1",
-				snapshot: createSpaceMembersSnapshot({
-					agents: [
-						createSpaceMemberAgentSnapshot({
-							agentWakeAvailability: { status: "available_for_wake" },
-							profileId: runnerProfileId,
-							profileName: "Runner",
-						}),
-					],
-				}),
-				spaceId: "space-1",
-			})
-		);
-
-		const textWithDuplicate = "@Runner(wake) Review this plan with @Run";
-		act(() => {
-			composer.result.current.onComposerChange(textWithDuplicate, {
-				end: textWithDuplicate.length,
-				start: textWithDuplicate.length,
-			});
-		});
-		expect(composer.result.current.mentionPopoverState.kind).toBe(
-			"target_picker"
-		);
-		act(() => {
-			composer.result.current.onMentionItemSelect(0, "reference");
-		});
-		expect(composer.result.current.addressingTargets).toEqual([
-			expect.objectContaining({
-				profileId: runnerProfileId,
-				relation: "wake",
-			}),
-		]);
-
-		act(() => {
-			composer.result.current.onMentionRelationChange(
-				runnerProfileId,
-				"reference"
-			);
-		});
-
-		expect(composer.result.current.composerText).toBe(
-			"@Runner(reference) Review this plan with @Runner "
-		);
-		expect(
-			composer.result.current.prepareSubmission("Members are required.")
-				.messageEnvelope
-		).toEqual({
-			activationTargets: [],
-			mentionTargets: [],
-			referenceTargets: [runnerProfileId],
-			text: "@Runner(reference) Review this plan with @Runner",
-		});
-	});
-
-	it("inserts @ at the current selection and opens the member picker", () => {
+	it("inserts @ at the current selection for the cold-loading textarea", () => {
 		const composer = renderHook(() =>
 			useSpaceMentionAuthoring({
 				composerDraftScope: {
@@ -317,9 +253,6 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 			end: 7,
 			start: 7,
 		});
-		expect(composer.result.current.mentionPopoverState.kind).toBe(
-			"target_picker"
-		);
 	});
 
 	it("authors a Human Mention without creating Agent addressing copy", () => {
@@ -348,10 +281,19 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		);
 
 		act(() => {
-			composer.result.current.onComposerChange("@", { end: 1, start: 1 });
-		});
-		act(() => {
-			composer.result.current.onMentionItemSelect(0, "mention");
+			composer.result.current.onComposerEditorChange({
+				authoredMentions: [
+					{
+						end: 6,
+						profileId: humanProfileId,
+						relation: "mention",
+						start: 0,
+						text: "@Felix",
+					},
+				],
+				selection: { end: 7, start: 7 },
+				text: "@Felix ",
+			});
 		});
 
 		expect(composer.result.current.addressingTargets).toEqual([

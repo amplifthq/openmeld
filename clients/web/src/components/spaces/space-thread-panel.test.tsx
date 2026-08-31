@@ -20,7 +20,6 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
-import { SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT } from "./space-composer-copy";
 import { SpaceThreadPanel } from "./space-thread-panel";
 import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 
@@ -145,19 +144,30 @@ describe("SpaceThreadPanel", () => {
 	});
 
 	it("uses Thread-specific placeholder copy and keeps the @ button", () => {
+		renderThreadPanel();
+
+		expect(
+			screen
+				.getByRole("textbox", { name: "Reply in thread" })
+				.getAttribute("aria-placeholder")
+		).toBe("Reply in thread…");
+		const mentionButton = screen.getByRole("button", {
+			name: "Mention a member",
+		});
+		expect(mentionButton.parentElement?.className).toContain("gap-1");
+	});
+
+	it("hides redundant mention guidance in an Agent DM thread", () => {
 		renderThreadPanel({
 			agentDirectConversationKind: "direct_message",
 		});
 
 		expect(
-			screen.getByRole("textbox", { name: "Reply in thread" })
-		).toHaveProperty("placeholder", "Reply in thread…");
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
 		expect(
-			screen.getByRole("button", { name: "Mention a member" })
-		).toBeTruthy();
-		expect(
-			screen.getByText(SPACE_AGENT_DIRECT_MESSAGE_COMPOSER_HINT)
-		).toBeTruthy();
+			screen.queryByText("In this DM, @ is optional. Sending wakes the agent.")
+		).toBeNull();
 	});
 
 	it("hides the @ button in a Center Agent DM thread", () => {
@@ -1573,7 +1583,6 @@ function renderThreadPanel(
 		agentStreams: [],
 		composerBlockedWakeProfileId: null,
 		composerErrorMessage: null,
-		composerSelection: { end: 0, start: 0 },
 		composerText: "",
 		composerFiles: [],
 		composerFileLimitReached: false,
@@ -1583,18 +1592,12 @@ function renderThreadPanel(
 		isDiagnosticReportSent: () => false,
 		isSendingMessage: false,
 		membersSnapshot: null,
-		mentionPopoverState: { kind: "closed" as const },
 		onAgentRecoveryAction: async () => undefined,
 		onClose: () => undefined,
-		onComposerChange: () => undefined,
-		onComposerKeyDown: async () => undefined,
-		onComposerSelectionChange: () => undefined,
+		onComposerEditorChange: () => undefined,
 		onAddComposerFiles: async () => undefined,
 		onRemoveComposerFile: () => undefined,
-		onMentionItemHover: () => undefined,
-		onMentionItemSelect: () => undefined,
 		onMentionButtonClick: () => undefined,
-		onMentionPopoverClose: () => undefined,
 		onReportMessage: async () => undefined,
 		onOpenSpaceFile: () => undefined,
 		onSend: async () => undefined,
