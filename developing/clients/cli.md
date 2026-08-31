@@ -1049,6 +1049,13 @@ session before changing local auth. A cross-account switch requires explicit
 interactive confirmation. That confirmation is bound to the stable identity of
 the exact committed session the user reviewed and is compared again inside the
 auth mutation lock; a changed session fails closed and requires fresh review.
+The Web bootstrap arrives through a shell pipe and may reopen the controlling
+terminal for the managed CLI. Any prompt reachable from that bootstrap must use
+the CLI's binary-safe interactive prompt primitive, which reads the reopened
+terminal synchronously in the compiled binary. It must not bypass that owner
+with an asynchronous third-party prompt. If no controlling terminal is usable,
+setup must not render a prompt; it fails before mutation and tells the user to
+rerun the setup command in an interactive Terminal.
 Until commit, ordinary CLI processes continue to see the previous committed
 session while only the transition owner and candidate OpenMeld Service can use
 the candidate. The local session switch is committed only after Prepare

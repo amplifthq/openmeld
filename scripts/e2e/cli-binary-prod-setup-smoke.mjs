@@ -120,6 +120,7 @@ async function main() {
         tempRoot,
         openMeldHome,
       }),
+      interaction: "arrows-and-enter",
       label: "direct managed CLI account-switch PTY smoke",
     });
     assertAccountSwitchPtyOutput(directAccountSwitchOutput);
@@ -133,6 +134,28 @@ async function main() {
       setupUrl: `${server.origin}/setup`,
     });
     assertAccountSwitchPtyOutput(accountSwitchOutput);
+    const accountSwitchEscapeOutput = await runPipedAccountSwitchPtySmoke({
+      env: buildManagedBinaryEnv({
+        managedBinaryPath,
+        serverOrigin: server.origin,
+        tempRoot,
+        openMeldHome,
+      }),
+      interaction: "escape",
+      setupUrl: `${server.origin}/setup`,
+    });
+    assertAccountSwitchPtyOutput(accountSwitchEscapeOutput);
+    const nonInteractiveAccountSwitchOutput =
+      await runNonInteractivePipedAccountSwitchSmoke({
+        env: buildManagedBinaryEnv({
+          managedBinaryPath,
+          serverOrigin: server.origin,
+          tempRoot,
+          openMeldHome,
+        }),
+        setupUrl: `${server.origin}/setup`,
+      });
+    assertNonInteractiveAccountSwitchOutput(nonInteractiveAccountSwitchOutput);
 
     process.stdout.write(
       [
@@ -238,7 +261,11 @@ async function runPipedAccountSwitchPtySmoke(input) {
   return await runAccountSwitchPtySmoke({
     command: `curl -fsSL '${input.setupUrl}' | sh -s -- setup --start-session fixture-prepare-session --device-code fixture-device-code-b --view human`,
     env: input.env,
-    label: "drive account-switch prompt through curl | sh",
+    interaction: input.interaction ?? "arrows-and-enter",
+    label:
+      input.interaction === "escape"
+        ? "cancel piped account-switch prompt with Escape"
+        : "drive account-switch prompt through curl | sh",
   });
 }
 
@@ -260,11 +287,15 @@ async function runAccountSwitchPtySmoke(input) {
     "  eof { exit 4 }",
     "}",
     "after 150",
-    'send "\\033\\[B"',
-    "after 100",
-    'send "\\033\\[A"',
-    "after 100",
-    'send "\\r"',
+    ...(input.interaction === "escape"
+      ? ['send "\\033"']
+      : [
+          'send "\\033\\[B"',
+          "after 100",
+          'send "\\033\\[A"',
+          "after 100",
+          'send "\\r"',
+        ]),
     "expect {",
     "  -re {Account switch canceled\\. The current Computer connection was not changed\\.} {}",
     "  timeout { exit 5 }",
@@ -287,6 +318,22 @@ async function runAccountSwitchPtySmoke(input) {
   }).then((result) => result.output);
 }
 
+async function runNonInteractivePipedAccountSwitchSmoke(input) {
+  process.stdout.write(
+    "[cli:binary:prod-smoke] non-interactive piped account-switch fails closed smoke\n"
+  );
+  const command = `curl -fsSL '${input.setupUrl}' | sh -s -- setup --start-session fixture-prepare-session --device-code fixture-device-code-b --view human`;
+  const result = await runCommandAsync({
+    args: ["-c", command],
+    command: "sh",
+    env: input.env,
+    expectedExitCode: 1,
+    label: "fail piped account switch without a controlling TTY",
+    timeoutMs: 5000,
+  });
+  return result.output;
+}
+
 function assertAccountSwitchPtyOutput(output) {
   if (output === "SKIPPED") {
     return;
@@ -300,6 +347,21 @@ function assertAccountSwitchPtyOutput(output) {
         `account-switch PTY output is missing ${expected}:\n${output}`
       );
     }
+  }
+}
+
+function assertNonInteractiveAccountSwitchOutput(output) {
+  const expected =
+    "Run the setup command in an interactive Terminal to review and confirm the account switch.";
+  if (!output.includes(expected)) {
+    throw new Error(
+      `non-interactive account-switch output is missing ${expected}:\n${output}`
+    );
+  }
+  if (output.includes("Switch this computer from account-a@example.invalid")) {
+    throw new Error(
+      `non-interactive account switch displayed an unusable prompt:\n${output}`
+    );
   }
 }
 
@@ -450,10 +512,11 @@ async function runCommandAsync(input) {
     }
     child.on("error", (error) => finish(error));
     child.on("close", (code, signal) => {
-      if (code !== 0) {
+      const expectedExitCode = input.expectedExitCode ?? 0;
+      if (code !== expectedExitCode) {
         finish(
           new Error(
-            `${input.label} failed with exit ${String(code)}${signal ? ` signal ${signal}` : ""}:\n${output}`
+            `${input.label} exited ${String(code)} instead of ${String(expectedExitCode)}${signal ? ` signal ${signal}` : ""}:\n${output}`
           )
         );
         return;
@@ -466,7 +529,7 @@ async function runCommandAsync(input) {
         );
         return;
       }
-      finish(null, { output });
+      finish(null, { exitCode: code, output });
     });
   });
 }

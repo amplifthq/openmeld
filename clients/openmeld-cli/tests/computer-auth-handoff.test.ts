@@ -6,7 +6,7 @@ const {
   beginAuthSessionTransitionMock,
   bestEffortStopCurrentLaneDaemonServiceMock,
   completeInterruptedComputerAuthSessionRecoveryMock,
-  confirmMock,
+  promptConfirmMock,
   exchangeComputerAuthorizationGrantMock,
   exchangeOneTimeTokenAuthSessionMock,
   getAuthSessionStateMock,
@@ -22,7 +22,7 @@ const {
   beginAuthSessionTransitionMock: vi.fn(),
   bestEffortStopCurrentLaneDaemonServiceMock: vi.fn(),
   completeInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
-  confirmMock: vi.fn(),
+  promptConfirmMock: vi.fn(),
   exchangeComputerAuthorizationGrantMock: vi.fn(),
   exchangeOneTimeTokenAuthSessionMock: vi.fn(),
   getAuthSessionStateMock: vi.fn(),
@@ -36,9 +36,8 @@ const {
   runPrepareSessionExecutorMock: vi.fn(),
 }));
 
-vi.mock("@clack/prompts", () => ({
-  confirm: confirmMock,
-  isCancel: () => false,
+vi.mock("../src/ui/confirm", () => ({
+  promptConfirm: promptConfirmMock,
 }));
 
 vi.mock("../src/config/auth-session", async (importOriginal) => ({
@@ -166,7 +165,7 @@ describe("Computer authorization handoff", () => {
     bestEffortStopCurrentLaneDaemonServiceMock.mockResolvedValue({
       status: "stopped",
     });
-    confirmMock.mockResolvedValue(true);
+    promptConfirmMock.mockResolvedValue("confirmed");
   });
 
   it("validates Prepare before exchanging the grant and restores the previous Computer after failure", async () => {
@@ -519,7 +518,7 @@ describe("Computer authorization handoff", () => {
       "Run the setup command in an interactive Terminal to review and confirm the account switch. The current Computer connection was not changed."
     );
 
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(promptConfirmMock).not.toHaveBeenCalled();
     expect(beginAuthSessionTransitionMock).not.toHaveBeenCalled();
     expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
       candidateSession
@@ -563,7 +562,9 @@ describe("Computer authorization handoff", () => {
       })
     ).resolves.toMatchObject({ status: "completed" });
 
-    expect(confirmMock).toHaveBeenCalledWith({
+    expect(promptConfirmMock).toHaveBeenCalledWith({
+      activeLabel: "Switch account",
+      inactiveLabel: "Keep current account",
       initialValue: false,
       message:
         "Switch this computer from other@example.com to next@example.com?",
