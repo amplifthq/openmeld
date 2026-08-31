@@ -4,13 +4,16 @@ This directory stores OpenMeld-compatible Skills for local installation.
 
 Current layout:
 
-- `skills/openmeld-cli/SKILL.md` — OpenMeld CLI skill for local setup and skills workflow.
+- `skills/openmeld-cli/SKILL.md` — short OpenMeld CLI router with topic playbooks
+  and command references beside it.
 
 By design, OpenMeld CLI installs bundled skills from the packaged `skills/` directory.
 
 ## Maintenance Rule
 
-When OpenMeld CLI adds or changes command behavior, update `skills/openmeld-cli/SKILL.md` in the same PR:
+When OpenMeld CLI adds or changes command behavior, update the owning topic file
+under `skills/openmeld-cli/` in the same PR. Keep `SKILL.md` short and update it
+only when the first-layer routing or common path changes:
 
 1. Command list (added/removed/renamed commands).
 2. Option list (new flags, defaults, and constraints).

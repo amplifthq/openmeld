@@ -44,6 +44,7 @@ const REQUIRED_SKILL_DOC_RELATIVE_PATHS = [
   "SKILL.md",
   "playbooks/agent-onboarding.md",
   "playbooks/space-ops.md",
+  "playbooks/space-reads.md",
   "references/commands.md",
   "references/runtime-resolution.md",
 ] as const;

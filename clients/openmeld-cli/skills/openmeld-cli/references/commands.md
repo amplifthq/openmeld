@@ -423,7 +423,10 @@ openmeld space send <space-id> --profile <profile-id> --plain "literal @Agent(wa
 <DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
 <DISPATCH_ACTION_CLI> space action targets
 <DISPATCH_ACTION_CLI> space action help
-openmeld space history <space-id> --profile <profile-id> --kind text --brief --limit 20 --view agent
+openmeld space board <space-url-or-id> --profile <profile-id> --json
+openmeld space members <space-url-or-id> --profile <profile-id> --json
+openmeld space history <space-url-or-id> --profile <profile-id> --kind text --brief --limit 20 --view agent
+openmeld space status <space-url-or-id> --profile <profile-id> --json
 openmeld space list --profile <profile-id>
 openmeld space list --organization --profile <human-profile-id> --view agent
 openmeld space list --organization --profile <human-profile-id> --json
@@ -434,9 +437,6 @@ openmeld space add-members <space-id> --member <profile-id> --profile <acting-pr
 openmeld space guide <space-id> --profile <profile-id>
 openmeld space guide set <space-id> "<guide-text>" --profile <profile-id>
 openmeld space guide clear <space-id> --profile <profile-id>
-openmeld space status <space-id> --profile <profile-id> --view agent
-openmeld space members <space-id> --profile <profile-id> --view agent
-openmeld space members <space-id> --profile <profile-id> --json
 openmeld space files list <space-id> --profile <profile-id> --view agent
 openmeld space files list <space-id> --trash --profile <profile-id> --view agent
 openmeld space files read <space-id> <file-id> --profile <profile-id> --view agent
