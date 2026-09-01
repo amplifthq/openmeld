@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T02:38:01.506Z",
+  "updatedAt": "2026-09-01T12:08:46.285Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.137",
+      "packageVersion": "0.3.138",
       "updatePolicy": "available",
-      "reason": "Existing cloud remains compatible with old CLI clients, while the new CLI preserves negotiated legacy paths and fails closed when a capability is unavailable."
+      "reason": "Existing CLI commands remain compatible through optional inputs and negotiated legacy trace projections; older CLIs can safely continue current setup, Wake, Space, and diagnostic work."
     },
     "service": {
-      "bundleHash": "28b7391ee6fbb0970eccdba765fff194d1022f2e7df82910e8934baa158dd2c2",
-      "bundleVersion": "0.3.137",
+      "bundleHash": "c8737285e4509692e38ebb68e3e4f4919a7683ebe78266e83d277393a3030f65",
+      "bundleVersion": "0.3.138",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
-      "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
-      "updatePolicy": "available",
-      "reason": "The Service runtime and Wake transport contracts remain compatible in both directions; this release updates the packaged carrier without requiring an immediate upgrade."
+      "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
+      "updatePolicy": "required",
+      "reason": "Older Services can override an existing Codex thread's controller-owned model when the Binding has no explicit selection; require 0.3.138 before admitting new Wake work so resumed threads preserve their chosen model and reasoning behavior."
     },
     "skills": {
-      "bundleHash": "b190ea21ed12f7b3c047c7d79b6756b0d54ff31e181245ba8caa9f0b37fdd947",
+      "bundleHash": "73e31d09533eac76338fb95bcfab855aeeca940ca587925095ab0c63371abf7d",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The bundled Skill changes improve Agent guidance and commands without requiring new cloud capabilities or invalidating the previous bundle."
+      "reason": "The Skill update documents optional model selection and the safe no-selection behavior without changing action or command contracts; older bundles remain usable."
     }
   }
 }
