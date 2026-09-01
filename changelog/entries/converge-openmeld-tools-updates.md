@@ -4,6 +4,16 @@ title: Keep one OpenMeld Tools update in control
 kind: fixed
 areas: ["cli", "computers", "openmeld-service", "setup"]
 audiences: ["members", "admins"]
+publishedAt: 2026-09-01
+release: v0.3.142
+evidence:
+  - "pr:532"
+  - "pr:539"
+  - "pr:541"
+  - "pr:543"
+  - "commit:d8067f9ffbb3c851ffb98e28f29b18a1a2713e31"
+  - "workflow:33551034027"
+  - "workflow:33556392417"
 ---
 
 OpenMeld Tools updates now join an update already in progress instead of
