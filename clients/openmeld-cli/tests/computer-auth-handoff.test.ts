@@ -14,10 +14,12 @@ const {
   markInterruptedComputerAuthSessionRecoveryMock,
   recordInterruptedComputerAuthSessionRecoveryFailureMock,
   resolveBaseUrlMock,
+  resolveExternalOpenMeldToolsUpdateMock,
   resolvePrepareSessionForHandoffMock,
   revokePreparedAuthSessionMock,
   runDaemonServiceParticipationGateMock,
   runPrepareSessionExecutorMock,
+  waitForExternalOpenMeldToolsUpdateMock,
 } = vi.hoisted(() => ({
   beginAuthSessionTransitionMock: vi.fn(),
   bestEffortStopCurrentLaneDaemonServiceMock: vi.fn(),
@@ -30,10 +32,12 @@ const {
   markInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
   recordInterruptedComputerAuthSessionRecoveryFailureMock: vi.fn(),
   resolveBaseUrlMock: vi.fn(),
+  resolveExternalOpenMeldToolsUpdateMock: vi.fn(),
   resolvePrepareSessionForHandoffMock: vi.fn(),
   revokePreparedAuthSessionMock: vi.fn(),
   runDaemonServiceParticipationGateMock: vi.fn(),
   runPrepareSessionExecutorMock: vi.fn(),
+  waitForExternalOpenMeldToolsUpdateMock: vi.fn(),
 }));
 
 vi.mock("../src/ui/confirm", () => ({
@@ -79,6 +83,13 @@ vi.mock("../src/system/local-service-participation-gate", () => ({
 vi.mock("../src/commands/service", () => ({
   bestEffortStopCurrentLaneDaemonService:
     bestEffortStopCurrentLaneDaemonServiceMock,
+}));
+
+vi.mock("../src/local-service/maintenance/openmeld-tools-update-join", () => ({
+  resolveExternalOpenMeldToolsUpdate: (...args: unknown[]) =>
+    resolveExternalOpenMeldToolsUpdateMock(...args),
+  waitForExternalOpenMeldToolsUpdate: (...args: unknown[]) =>
+    waitForExternalOpenMeldToolsUpdateMock(...args),
 }));
 
 import {
@@ -133,6 +144,7 @@ describe("Computer authorization handoff", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resolveBaseUrlMock.mockResolvedValue("https://gateway.openmeld.test");
+    resolveExternalOpenMeldToolsUpdateMock.mockResolvedValue(null);
     resolvePrepareSessionForHandoffMock.mockResolvedValue({
       ownerUserId: "user-1",
       prepareSessionId: "prepare-session",
@@ -158,6 +170,7 @@ describe("Computer authorization handoff", () => {
       snapshot: { selectedLocalAgentIds: [] },
       status: "completed",
     });
+    waitForExternalOpenMeldToolsUpdateMock.mockResolvedValue(undefined);
     revokePreparedAuthSessionMock.mockResolvedValue({ ok: true });
     runDaemonServiceParticipationGateMock.mockResolvedValue({
       status: "aligned",
@@ -197,6 +210,28 @@ describe("Computer authorization handoff", () => {
         intent: "start",
       })
     );
+  });
+
+  it("waits for an existing OpenMeld update before starting a new Computer handoff", async () => {
+    let releaseUpdateWait: (() => void) | undefined;
+    waitForExternalOpenMeldToolsUpdateMock.mockImplementationOnce(
+      async () =>
+        await new Promise<void>((resolve) => {
+          releaseUpdateWait = resolve;
+        })
+    );
+
+    const handoff = runAgentHandoff();
+    await vi.waitFor(() => {
+      expect(waitForExternalOpenMeldToolsUpdateMock).toHaveBeenCalledTimes(1);
+    });
+    expect(resolvePrepareSessionForHandoffMock).not.toHaveBeenCalled();
+
+    releaseUpdateWait?.();
+    await expect(handoff).resolves.toEqual(
+      expect.objectContaining({ status: "completed" })
+    );
+    expect(resolvePrepareSessionForHandoffMock).toHaveBeenCalledTimes(1);
   });
 
   it("commits the new Computer session only after Prepare completes", async () => {
@@ -289,6 +324,12 @@ describe("Computer authorization handoff", () => {
     ).resolves.toBe("completed");
 
     expect(bestEffortStopCurrentLaneDaemonServiceMock).toHaveBeenCalledTimes(1);
+    expect(
+      waitForExternalOpenMeldToolsUpdateMock.mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      bestEffortStopCurrentLaneDaemonServiceMock.mock.invocationCallOrder[0] ??
+        0
+    );
     expect(runDaemonServiceParticipationGateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedOwnerUserId: "user-1",
@@ -330,6 +371,45 @@ describe("Computer authorization handoff", () => {
     expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
       candidateSession
     );
+  });
+
+  it("waits and retries when an update wins the Service lock after the first preflight", async () => {
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-update-race",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: false,
+    });
+    bestEffortStopCurrentLaneDaemonServiceMock
+      .mockResolvedValueOnce({
+        status: "warning",
+        errorMessage: "OpenMeld Service update owns the lifecycle lock.",
+      })
+      .mockResolvedValueOnce({ status: "stopped" });
+    resolveExternalOpenMeldToolsUpdateMock.mockResolvedValueOnce({
+      operationId: "update-operation-1",
+      phase: "updating",
+      requestSource: "automatic",
+      requestedAt: "2026-09-01T12:27:00.000Z",
+      targetVersion: "0.3.139",
+      updatedAt: "2026-09-01T12:27:01.000Z",
+      urgency: "required",
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).resolves.toBe("completed");
+
+    expect(waitForExternalOpenMeldToolsUpdateMock).toHaveBeenCalledTimes(2);
+    expect(bestEffortStopCurrentLaneDaemonServiceMock).toHaveBeenCalledTimes(2);
+    expect(
+      recordInterruptedComputerAuthSessionRecoveryFailureMock
+    ).not.toHaveBeenCalled();
   });
 
   it("keeps failed candidate revocation durable without redoing Service recovery", async () => {

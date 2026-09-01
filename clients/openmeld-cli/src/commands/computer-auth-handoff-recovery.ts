@@ -4,6 +4,11 @@ import {
   markInterruptedComputerAuthSessionRecovery,
   recordInterruptedComputerAuthSessionRecoveryFailure,
 } from "../config/auth-session";
+import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
+import {
+  resolveExternalOpenMeldToolsUpdate,
+  waitForExternalOpenMeldToolsUpdate,
+} from "../local-service/maintenance/openmeld-tools-update-join";
 import type { Presenter } from "../runtime/presenter/index";
 import type { RuntimeContext } from "../runtime/types";
 import { runDaemonServiceParticipationGate } from "../system/local-service-participation-gate";
@@ -32,9 +37,22 @@ export async function recoverInterruptedComputerAuthHandoff(input: {
     recovery.previousSession?.user?.id
   );
   if (!recovery.serviceReconciled) {
-    const stopped = await bestEffortStopCurrentLaneDaemonService({
+    await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
+    let stopped = await bestEffortStopCurrentLaneDaemonService({
       runtime: input.runtime,
     });
+    while (
+      stopped.status === "warning" &&
+      (await resolveExternalOpenMeldToolsUpdate({
+        currentOperationId:
+          readOpenMeldToolsUpdateContextFromEnv()?.operationId,
+      }))
+    ) {
+      await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
+      stopped = await bestEffortStopCurrentLaneDaemonService({
+        runtime: input.runtime,
+      });
+    }
     if (stopped.status === "warning") {
       const error = new Error(
         stopped.errorMessage ??
@@ -122,6 +140,26 @@ export async function recoverInterruptedComputerAuthHandoff(input: {
     recovery.id
   );
   return completed ? "completed" : "deferred";
+}
+
+export async function waitForOpenMeldToolsUpdateBeforeComputerHandoff(input: {
+  presenter: Presenter;
+}): Promise<void> {
+  const currentUpdate = readOpenMeldToolsUpdateContextFromEnv();
+  await waitForExternalOpenMeldToolsUpdate({
+    currentOperationId: currentUpdate?.operationId,
+    onWaiting: (operation) => {
+      input.presenter.line({
+        code: "setup.openmeld_tools_update.waiting",
+        text: "OpenMeld is finishing an update already in progress. Setup will continue automatically when the update finishes.",
+        data: {
+          operationId: operation.operationId,
+          phase: operation.phase,
+          targetVersion: operation.targetVersion,
+        },
+      });
+    },
+  });
 }
 
 function logDeferredComputerAuthHandoffRecovery(input: {
