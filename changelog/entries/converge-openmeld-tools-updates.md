@@ -14,6 +14,8 @@ automatically. On the Computer page, the button stays disabled with an active
 
 Automatic updates can also respond to a newly available release over the
 Service's existing connection when that Service explicitly supports the
-request. Startup, reconnect, and hourly checks remain as fallbacks, failed
-connections can retry promptly, and active Agent work still finishes before
-OpenMeld switches the Service version.
+request. Update actions bypass an older version cached by the running Service,
+while simultaneous checks still share one fresh request. Startup, reconnect,
+and hourly checks remain as fallbacks, failed connections can retry promptly,
+and active Agent work still finishes before OpenMeld switches the Service
+version.
