@@ -46,14 +46,17 @@ Versioning notes:
   - `suspended`: hide or reject new setup, enable, and Agent Profile creation choices while preserving best-effort runtime support for existing configured users and existing Agent Profiles.
   - omitted lifecycle status defaults to `active`; supported built-ins should still declare it explicitly so product policy is visible in the registry.
 - `originLaunch`:
-	  - optional official CLI command template for reopening the Agent Controller conversation.
-	  - supported placeholders:
-	    - `{agentControllerConversationId}`
-	    - `{workingDirectory}`
-	  - examples:
-	    - `codex resume {agentControllerConversationId}`
-	    - `cd {workingDirectory} && claude --resume {agentControllerConversationId}`
-	    - `openclaw tui --session {agentControllerConversationId}`
+  - optional official CLI command template for reopening the Agent Controller conversation.
+  - `commandTemplate` is used with an explicit model selection or for controllers that always resolve their catalog default.
+  - optional `unselectedModelCommandTemplate` preserves provider-owned model state when a Binding has no explicit model selection.
+  - supported placeholders:
+    - `{agentControllerConversationId}`
+    - `{model}`
+    - `{workingDirectory}`
+  - examples:
+    - `codex resume {agentControllerConversationId}`
+    - `cd {workingDirectory} && claude --resume {agentControllerConversationId}`
+    - `openclaw tui --session {agentControllerConversationId}`
 - `transportModes` / `defaultTransportMode`:
   - optional top-level mirror fields.
   - must only exist when `runtime.supported=true`.

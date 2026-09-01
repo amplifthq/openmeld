@@ -21,6 +21,7 @@ const {
   setCustomProfileWorkspaceMock,
   submitRuntimeAgentControllerReportMock,
   updateAgentProfilePrimaryBindingAgentControllerPermissionModeMock,
+  updateAgentProfilePrimaryBindingModelSelectionMock,
   validateCustomProfileWorkspacePathMock,
 } = vi.hoisted(() => ({
   createOpenMeldAgentProfileMock: vi.fn(),
@@ -35,6 +36,7 @@ const {
   setCustomProfileWorkspaceMock: vi.fn(),
   submitRuntimeAgentControllerReportMock: vi.fn(),
   updateAgentProfilePrimaryBindingAgentControllerPermissionModeMock: vi.fn(),
+  updateAgentProfilePrimaryBindingModelSelectionMock: vi.fn(),
   validateCustomProfileWorkspacePathMock: vi.fn(),
 }));
 
@@ -112,6 +114,11 @@ vi.mock(
   })
 );
 
+vi.mock("../src/system/agent-profile-binding-model-selection", () => ({
+  updateAgentProfilePrimaryBindingModelSelection:
+    updateAgentProfilePrimaryBindingModelSelectionMock,
+}));
+
 const SPACE_ID = "a".repeat(64);
 const HUMAN_PROFILE = {
   openMeldProfileId: "hum_current",
@@ -176,6 +183,13 @@ describe("space add-me command", () => {
     });
     ensureAgentProfileRuntimeBindingMock.mockResolvedValue({
       outcome: "created",
+      reasonCodes: [],
+      routable: true,
+      source: "agent_profile_binding_api",
+      status: "accepted",
+    });
+    updateAgentProfilePrimaryBindingModelSelectionMock.mockResolvedValue({
+      outcome: "updated",
       reasonCodes: [],
       routable: true,
       source: "agent_profile_binding_api",
@@ -286,6 +300,8 @@ describe("space add-me command", () => {
       const normalized = content.replace(/\s+/g, " ").toLowerCase();
       expect(normalized).toContain("openmeld space add-me <space-url-or-id>");
       expect(normalized).toContain("--project-folder");
+      expect(normalized).toContain("--model <model>");
+      expect(normalized).toContain("--reasoning-effort <level>");
       expect(normalized).toContain("add yourself");
       expect(normalized).toContain("current project folder");
       expect(normalized).toContain("codex_thread_id");
@@ -319,6 +335,8 @@ describe("space add-me command", () => {
     expect(stdout).toContain("--workspace-path <path>");
     expect(stdout).toContain("--working-directory <path>");
     expect(stdout).toContain("--cwd <path>");
+    expect(stdout).toContain("--model <model>");
+    expect(stdout).toContain("--reasoning-effort <level>");
     expect(stdout).toContain(
       "Cursor: default|plan|ask|auto-review|run-everything."
     );
@@ -496,6 +514,90 @@ describe("space add-me command", () => {
     expect(line?.data?.wakeReadiness).toBe("not_checked");
     expect(line?.data?.doesNotProve).toContain("Wake availability");
     expect(line?.data?.doesNotProve).not.toContain("Ready for Wake");
+  });
+
+  it("stores an explicit model selection when creating the current Agent Profile Binding", async () => {
+    const { runSpaceAddMe } = await import("../src/space/add-me-command");
+    const project = await mkdtemp(join(tmpdir(), "openmeld-add-me-project-"));
+
+    await runSpaceAddMe({
+      addMembers: runSpaceAddMembersMock,
+      env: { CODEX_THREAD_ID: "codex-thread" },
+      model: "gpt-5.5",
+      projectFolders: { projectFolder: [project] },
+      reasoningEffort: "high",
+      space: SPACE_ID,
+      workingDirectory: project,
+    });
+
+    expect(ensureAgentProfileRuntimeBindingMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentControllerConversationId: "codex-thread",
+        modelId: "gpt-5.5",
+        reasoningLevel: "high",
+      })
+    );
+  });
+
+  it("updates the existing Binding through the model-selection contract when add-me receives an explicit model", async () => {
+    const { runSpaceAddMe } = await import("../src/space/add-me-command");
+    const project = await mkdtemp(join(tmpdir(), "openmeld-add-me-project-"));
+    const existingAgentProfile = {
+      ...CREATED_AGENT_PROFILE,
+      openMeldProfileId: "agt_existing",
+    };
+    listOpenMeldProfilesMock.mockResolvedValue([existingAgentProfile]);
+    resolveAgentProfilePrimaryAgentControllerReportMock.mockResolvedValue({
+      agentControllerRef: "builtin:codex",
+      bindingState: "bound",
+      primaryBinding: {
+        executionTarget: {
+          agentControllerConversationId: "codex-thread",
+        },
+      },
+      reasonCodes: [],
+      routable: true,
+    });
+    readProfileWorkspaceConfigMock.mockResolvedValue({
+      status: "valid",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+      path: "/tmp/profile-meta.json",
+      persistedVersion: 2,
+      value: { mode: "custom", customWorkspacePath: project },
+    });
+
+    await runSpaceAddMe({
+      addMembers: runSpaceAddMembersMock,
+      env: { CODEX_THREAD_ID: "codex-thread" },
+      model: "gpt-5.5",
+      projectFolders: { projectFolder: [project] },
+      reasoningEffort: "xhigh",
+      space: SPACE_ID,
+      workingDirectory: project,
+    });
+
+    expect(
+      updateAgentProfilePrimaryBindingModelSelectionMock
+    ).toHaveBeenCalledWith({
+      modelId: "gpt-5.5",
+      profile: existingAgentProfile,
+      reasoningLevel: "xhigh",
+    });
+    expect(ensureAgentProfileRuntimeBindingMock).not.toHaveBeenCalled();
+  });
+
+  it("requires --model when add-me receives --reasoning-effort", async () => {
+    const { runSpaceAddMe } = await import("../src/space/add-me-command");
+
+    await expect(
+      runSpaceAddMe({
+        addMembers: runSpaceAddMembersMock,
+        env: { CODEX_THREAD_ID: "codex-thread" },
+        reasoningEffort: "high",
+        space: SPACE_ID,
+      })
+    ).rejects.toThrow("--reasoning-effort requires --model.");
+    expect(prepareAuthenticatedSpaceCommandContextMock).not.toHaveBeenCalled();
   });
 
   it("emits sparse progress while preparing a slow current Agent Profile", async () => {

@@ -2381,6 +2381,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			onRemoveProfile={input.row.onRemoveProfile}
 			onRenameProfile={input.row.onRenameProfile}
 			onRepairAction={input.row.onRepairAction}
+			operationalContext={input.row.operationalContext}
 			organizationId={input.row.organizationId}
 			pendingState={input.row.pendingState}
 			presentation={input.row.presentation}
@@ -2984,6 +2985,7 @@ function AgentProfileRowMoreMenu(input: {
 	editState: AgentProfileEditState | null;
 	modelCatalog: ModelCatalog | null;
 	modelCompatibilityContext: AgentProfileModelCompatibilityContext | null;
+	operationalContext: AgentProfileOperationalContextInput | null;
 	onControllerChange: (
 		update: AgentProfileControllerChangeUpdate
 	) => Promise<void>;
@@ -3412,6 +3414,7 @@ function AgentProfileWorkspacePresentation(input: {
 					});
 				}}
 				onRecoveryAction={input.input.onRecoveryAction}
+				operationalContext={input.input.operationalContext}
 				overflowActions={overflowActions}
 				profile={input.input.profile}
 				supportingContent={input.input.supportingContent}

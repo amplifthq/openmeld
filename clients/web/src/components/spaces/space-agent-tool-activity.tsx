@@ -49,7 +49,7 @@ export function SpaceAgentToolActivity(input: {
 			<ThinkingSteps
 				aria-busy={isLive}
 				className="min-w-0 flex-1"
-				defaultOpen={isLive}
+				defaultOpen={false}
 			>
 				<ThinkingStepsHeader
 					active={isLive}

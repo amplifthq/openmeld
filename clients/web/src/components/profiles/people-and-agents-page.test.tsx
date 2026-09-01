@@ -853,8 +853,8 @@ describe("PeopleAndAgentsPage", () => {
 				"agt_11111111-1111-4111-8111-111111111111"
 			)
 		).toEqual({
-			currentWorkLocation: "Launch planning",
-			queuedWorkLocations: ["Customer follow-up"],
+			currentWorkLocation: null,
+			queuedWorkLocations: [],
 			recoveryAction: null,
 			status: "paused",
 			waitingCount: 1,

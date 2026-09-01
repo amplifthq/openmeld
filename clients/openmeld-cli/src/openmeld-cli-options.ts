@@ -121,6 +121,8 @@ export type SpaceAddMeCliOptions = {
   confirmDangerousAgentControllerPermissionMode?: boolean;
   details?: boolean;
   json?: boolean;
+  model?: string;
+  reasoningEffort?: string;
 };
 
 export type SpaceRemoveMembersCliOptions = {

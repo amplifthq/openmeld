@@ -1,4 +1,7 @@
-import type { CurrentLocalRuntimeReplyReadinessResponse } from "@openmeld/schemas/types";
+import type {
+	CurrentLocalRuntimeReplyReadinessResponse,
+	LocalRuntimeExecutionTarget,
+} from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
 	resolveComputerAttentionTone,
@@ -109,6 +112,57 @@ function resolveUpdatePolicy(
 	}
 }
 
+function buildExecutionTarget(input: {
+	agentId: string;
+	displayName: string;
+	reasonCodes: string[];
+}): LocalRuntimeExecutionTarget {
+	return {
+		capabilities: [
+			{
+				agentControllerInterface: null,
+				agentControllerRef: `builtin:${input.agentId}`,
+				enabled: true,
+				reasonCodes: input.reasonCodes,
+				status: "not_ready",
+			},
+		],
+		deviceId: "device-1",
+		isCurrent: true,
+		lastObservedAtMs: 1_700_000_000_000,
+		localAgentCatalog: {
+			detectedNotSupportedYet: 0,
+			detectedSupported: 1,
+			entries: [
+				{
+					agentId: input.agentId,
+					detected: true,
+					displayName: input.displayName,
+					enabled: true,
+					lifecycleStatus: "active",
+					launchStatus: "needs_repair",
+					selectable: true,
+					selectableReason: null,
+					targetKind: "builtin",
+				},
+			],
+			needsChoice: 0,
+			needsRepair: 1,
+			notDetected: 0,
+			totalBuiltins: 1,
+		},
+		localAgentControl: { refreshCatalog: true, setEnabled: true },
+		openMeldServiceRuntimeId: {
+			source: "runtime_registry_authority",
+			value: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+		},
+		reasonCodes: input.reasonCodes,
+		runtimeLane: "dev-local",
+		status: "not_ready",
+		userFacingCommand: "openmeld-dev",
+	};
+}
+
 describe("computer summary status", () => {
 	it("returns one ready status for a healthy current computer", () => {
 		const status = resolveCurrentLocalRuntimeComputerSummaryStatus({
@@ -185,7 +239,7 @@ describe("computer summary status", () => {
 		});
 	});
 
-	it("asks for setup without claiming a repair when local agents are not ready", () => {
+	it("asks for attention without making a generic setup claim", () => {
 		expect(
 			resolveCurrentLocalRuntimeComputerSummaryStatus({
 				readiness: buildReadiness({
@@ -195,7 +249,7 @@ describe("computer summary status", () => {
 					status: "blocked",
 				}),
 			})
-		).toMatchObject({ label: "Local agents need setup", tone: "warning" });
+		).toMatchObject({ label: "Local agents need attention", tone: "warning" });
 	});
 
 	it("keeps attention when one agent needs sign-in and another has a real failure", () => {
@@ -217,7 +271,7 @@ describe("computer summary status", () => {
 		expect(
 			resolveCurrentLocalRuntimeComputerSummaryStatus({ readiness })
 		).toMatchObject({
-			label: "Local agents need setup",
+			label: "Local agents need attention",
 			reason: "agent_needs_setup",
 			tone: "warning",
 		});
@@ -255,6 +309,79 @@ describe("computer summary status", () => {
 				readiness,
 			})
 		).toBeNull();
+	});
+
+	it("names and identifies one local agent that needs sign-in", () => {
+		const readiness = buildReadiness({
+			canReplyFromThisComputer: false,
+			nextAction: "run_setup",
+			primaryBlocker: "agent_controller_report_not_ready",
+			runtime: {
+				...buildReadiness().runtime,
+				reasonCodes: [
+					"provider_account.access_required",
+					"controller.auth.unauthenticated",
+				],
+				signInOnlyBlockers: true,
+			},
+			status: "blocked",
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({
+				executionTarget: buildExecutionTarget({
+					agentId: "claude-code",
+					displayName: "Claude Code",
+					reasonCodes: [
+						"provider_account.access_required",
+						"controller.auth.unauthenticated",
+					],
+				}),
+				readiness,
+			})
+		).toMatchObject({
+			label: "Sign in to Claude Code",
+			localAgent: { agentId: "claude-code", displayName: "Claude Code" },
+			reason: "agent_sign_in_needed",
+			tone: "muted",
+		});
+	});
+
+	it("uses clear installation guidance for one affected local agent", () => {
+		const readiness = buildReadiness({
+			canReplyFromThisComputer: false,
+			nextAction: "run_setup",
+			primaryBlocker: "agent_controller_report_not_ready",
+			status: "blocked",
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({
+				executionTarget: buildExecutionTarget({
+					agentId: "claude-code",
+					displayName: "Claude Code",
+					reasonCodes: ["controller.launch.choice_required"],
+				}),
+				readiness,
+			})
+		).toMatchObject({
+			label: "Choose a Claude Code installation",
+			localAgent: { agentId: "claude-code", displayName: "Claude Code" },
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({
+				executionTarget: buildExecutionTarget({
+					agentId: "claude-code",
+					displayName: "Claude Code",
+					reasonCodes: ["controller.launch.needs_repair"],
+				}),
+				readiness,
+			})
+		).toMatchObject({
+			label: "Claude Code can’t start",
+			localAgent: { agentId: "claude-code", displayName: "Claude Code" },
+		});
 	});
 
 	it("shows all-disabled local agents as an intentional quiet state", () => {

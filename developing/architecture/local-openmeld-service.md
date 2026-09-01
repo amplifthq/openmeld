@@ -426,6 +426,15 @@ Wake Stop aborts the task's lock watcher and retry boundary immediately, and
 that task must not issue another `thread/resume`. Normal execution adds no extra
 query or network round trip. No other RPC code, message, timeout, stderr,
 process presence, or Agent Activity fact may be promoted to occupancy.
+
+Normal dispatch preserves the same ownership boundary for model selection. An
+existing Codex thread with no explicit primary Binding model selection resumes
+without model or reasoning overrides, so its controller-owned settings remain
+unchanged. A new thread receives the catalog default. An explicit Binding
+selection is user intent and remains authoritative on resume and turn start.
+The Service must not inspect private Codex rollout files or global config to
+infer a substitute selection.
+
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after
 a connection-generation change, and a low-frequency recovery keepalive. Until
@@ -580,6 +589,16 @@ misinterpret model-authored text as a Space action, so the final release must
 mark Service and Skills updates as required. The Runtime Transport epoch and
 wire schemas do not change: new and old cloud code can still exchange the same
 typed action records while the required local update closes the unsafe writer.
+
+The later local-component contract
+`openmeld-service-contract-2026-09-codex-thread-model-v1` requires a Service
+that distinguishes a new Codex thread from a resumed thread whose primary
+Binding has no explicit model selection. Older Services can inject the newly
+published catalog default into an existing thread and replace its controller-
+owned model. The release that activates the new catalog default must therefore
+mark the Service update as required. The Runtime Transport epoch and wire
+schemas remain unchanged; the hard cut protects execution semantics rather than
+introducing a second transport shape.
 
 Cursor dispatch uses only the official Agent Client Protocol exposed by
 `cursor-agent acp`; OpenMeld does not maintain a second Cursor print-mode

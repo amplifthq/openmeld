@@ -126,21 +126,13 @@ export function resolveAgentControllerInterfaceDescription(input: {
       "controller.auth.unauthenticated",
       { agentControllerId: input.snapshot.controllerId }
     );
-    const genericDescription =
-      signInCopy?.controllerInterfaceDescriptionFallback;
-    if (!genericDescription) {
+    const signInInstruction = signInCopy?.availabilitySummary;
+    if (!signInInstruction) {
       throw new Error(
-        "Shared controller sign-in copy is missing its Computers fallback"
+        "Shared controller sign-in copy is missing its Computers instruction"
       );
     }
-    // Controller inventory can name the exact CLI/provider, so its resolver
-    // message wins. Shared controller-specific copy is next, and the generic
-    // shared sentence is only the final fallback.
-    return (
-      input.snapshot.message ??
-      signInCopy?.controllerInterfaceDescription ??
-      genericDescription
-    );
+    return signInInstruction;
   }
   if (input.snapshot.message) {
     return input.snapshot.message;
@@ -193,18 +185,17 @@ export function formatAgentControllerInterfaceSummary(
 export function getAgentControllerVersionAdvisoryPresentation(
   snapshot: AgentControllerInterfaceSnapshot | null
 ): AgentControllerVersionAdvisoryPresentation | null {
-  const advisory = snapshot?.versionAdvisory;
-  if (advisory?.status !== "behind_latest") {
+  if (!snapshot || snapshot.versionAdvisory?.status !== "behind_latest") {
     return null;
   }
+  const advisory = snapshot.versionAdvisory;
   const latestVersion = formatAgentControllerVersion(advisory.latestVersion);
   return {
-    detail:
-      advisory.message ??
-      (latestVersion
-        ? `A newer version is available: ${latestVersion}.`
-        : "A newer controller version is available."),
-    label: "Update",
+    detail: latestVersion
+      ? `A newer version of ${snapshot.displayName} is available: ${latestVersion}.`
+      : (advisory.message ??
+        `${snapshot.displayName} has an update available.`),
+    label: "Update available",
     tone: "warning",
     updateCommand: advisory.updateCommand,
   };
@@ -218,7 +209,7 @@ function formatAgentControllerAuthSummary(
     return account ? `Authenticated · ${account}` : "Authenticated";
   }
   if (snapshot.auth.status === "unauthenticated") {
-    return "Not authenticated";
+    return null;
   }
   return null;
 }
@@ -286,7 +277,7 @@ function formatAgentControllerAccount(
     return resolveAgentControllerAuthDisplayLabel(snapshot) ?? "Authenticated";
   }
   if (snapshot.auth.status === "unauthenticated") {
-    return "Not authenticated";
+    return "Not signed in";
   }
   return "Unknown";
 }
@@ -365,9 +356,9 @@ function formatLocalAgentLaunchStatus(
     case "ready":
       return "Can launch";
     case "needs_choice":
-      return "Needs install choice";
+      return "Choose an installation";
     case "needs_repair":
-      return "Needs repair";
+      return "Can’t start";
     default:
       return "Not available";
   }

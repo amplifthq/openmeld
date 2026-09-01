@@ -117,14 +117,20 @@ describe("SpaceMessageBody", () => {
 			'[data-slot="space-message-agent-mention"]'
 		);
 
-		expect(mention?.childNodes.item(0).textContent).toBe("@");
+		const atMark = mention?.querySelector('[aria-hidden="true"]');
+		expect(atMark?.textContent).toBe("@");
+		expect(atMark?.className).toContain("me-1.5");
 		expect(mention?.childNodes.item(2).textContent).toBe(
 			WAKE_TARGET_PROFILE_NAME
 		);
-		expect(
-			screen.getByTestId(`space-profile-icon-${WAKE_TARGET_PROFILE_ID}`)
-		).toBeTruthy();
-		expect(screen.getByText(WAKE_TARGET_PROFILE_NAME).tagName).toBe("STRONG");
+		const profileIcon = screen.getByTestId(
+			`space-profile-icon-${WAKE_TARGET_PROFILE_ID}`
+		);
+		expect(profileIcon.className).toContain("me-1");
+		const profileName = screen.getByText(WAKE_TARGET_PROFILE_NAME);
+		expect(profileName.tagName).toBe("STRONG");
+		expect(profileName.className).toContain("font-semibold");
+		expect(profileName.className).not.toContain("font-bold");
 		expect(mention?.nextSibling?.textContent).toBe(" hi");
 	});
 

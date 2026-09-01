@@ -222,7 +222,9 @@ function resolveTeamLocalAgentSummaryStatus(
 				return { label: "Couldn't check", tone: "warning" };
 			}
 			if (agent.details?.status === "error") {
-				return { label: "Error", tone: "danger" };
+				return agent.details.launch.status === "needs_repair"
+					? { label: "Can’t start", tone: "danger" }
+					: { label: "Needs attention", tone: "danger" };
 			}
 			return { label: "Unavailable", tone: "warning" };
 		}
@@ -1686,13 +1688,17 @@ function LocalAgentUpdateBanner(input: { command: string; detail: string }) {
 		const didCopy = await copyCliEntryCommand(input.command);
 		if (didCopy) {
 			setCopyStatus("copied");
-			toast.success("Command copied.");
+			toast.success("Update command copied.");
 		}
 	};
 	return (
-		<div className="flex flex-col gap-2">
+		<div className="flex flex-col gap-2.5">
 			<p className="text-amber-600 text-xs leading-5 dark:text-amber-300">
 				{input.detail}
+			</p>
+			<p className="text-muted-foreground text-xs leading-5">
+				Copy this command. Then open a terminal on this computer, paste the
+				command, and press Enter.
 			</p>
 			<div className="flex items-center justify-between gap-3">
 				<code className="min-w-0 overflow-x-auto font-mono text-xs leading-5">
@@ -1708,15 +1714,16 @@ function LocalAgentUpdateBanner(input: { command: string; detail: string }) {
 							console.error("Failed to copy update command.", error);
 						});
 					}}
-					size="icon-sm"
+					size="sm"
 					type="button"
-					variant="ghost"
+					variant="outline"
 				>
 					{copyStatus === "copied" ? (
 						<CheckIcon aria-hidden="true" weight="bold" />
 					) : (
 						<CopyIcon aria-hidden="true" />
 					)}
+					{copyStatus === "copied" ? "Copied" : "Copy command"}
 				</Button>
 			</div>
 		</div>
@@ -2063,9 +2070,9 @@ function resolveLocalAgentSetupSummaryStatus(
 		return null;
 	}
 	if (entry.launchStatus === "needs_choice") {
-		return { label: "Choose setup", tone: "warning" };
+		return { label: "Choose installation", tone: "warning" };
 	}
-	return { label: "Error", tone: "danger" };
+	return { label: "Can’t start", tone: "danger" };
 }
 
 function resolveAgentControllerInterfaceSummaryStatus(
@@ -2083,7 +2090,9 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return { label: "Not signed in", tone: "muted" };
 	}
 	if (snapshot.status === "error") {
-		return { label: "Error", tone: "danger" };
+		return snapshot.launch.status === "needs_repair"
+			? { label: "Can’t start", tone: "danger" }
+			: { label: "Needs attention", tone: "danger" };
 	}
 	if (snapshot.status === "warning" || snapshot.status === "unavailable") {
 		return snapshot.status === "unavailable"
@@ -2292,7 +2301,7 @@ function resolveLocalAgentCatalogAvailabilityDisplay(input: {
 	if (input.entry.launchStatus === "needs_choice") {
 		return {
 			badgeVariant: "outline",
-			description: "Detected, but setup needs one more choice.",
+			description: `OpenMeld found more than one ${input.entry.displayName} installation. Choose which one to use.`,
 			label: null,
 		};
 	}
@@ -2300,7 +2309,7 @@ function resolveLocalAgentCatalogAvailabilityDisplay(input: {
 	if (input.entry.launchStatus === "needs_repair") {
 		return {
 			badgeVariant: "destructive",
-			description: `OpenMeld found ${input.entry.displayName}, but couldn't confirm a working launch command.`,
+			description: `OpenMeld found ${input.entry.displayName}, but can’t start it. Open Details to review the installation.`,
 			label: null,
 		};
 	}

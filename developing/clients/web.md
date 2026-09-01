@@ -2162,9 +2162,13 @@ client read-cache API. Dexie is the IndexedDB storage engine underneath the
 official TanStack Query persistence protocol; routes and components must not
 read Dexie directly or create a second browser data model.
 
-The persistence allowlist contains exactly six successful query families:
+The persistence allowlist contains exactly seven successful query families:
 
 - `startQueryKeys.profilesForStorageScope(accountId)` for the confirmed account;
+- `startQueryKeys.currentComputerToolbarDisplaySnapshot(accountId)` for a
+  versioned current-Computer toolbar hint containing only an opaque device id
+  and a validated warning or danger reason/tone. It excludes the Computer name,
+  inventory, readiness payload, diagnostics, paths, accounts, and actions;
 - `organizationQueryKeys.spaces(organizationId)` for one confirmed account and
   Organization pair;
 - `organizationAppConnectionQueryKeys.statusSummary(organizationId)` for a
@@ -2185,8 +2189,11 @@ query requires an explicit allowlist change, privacy and authority review, and a
 test that proves unrelated queries remain absent. Organization scope,
 activation, directories, Center Agent designation and open-command state, Space
 bootstrap and current status, Thread lists and Thread signals, membership
-authority, readiness, current-device facts, Wake state, diagnostics, errors,
-and every mutation remain excluded. The
+authority, raw readiness and current-device projections, Wake state,
+diagnostics, errors, and every mutation remain excluded. The toolbar snapshot's
+opaque device id is only a stale-hint rejection key after live inventory
+arrives; it never renders Computer identity or establishes which device is
+current. The
 full App catalog response and per-service connection responses remain excluded;
 member names, user ids, provider connection names, and connection records must
 never enter the persisted App summary. That summary may avoid a false
@@ -2693,7 +2700,14 @@ paste and drag and drop use the same path.
 A composer accepts up to ten files, each up to the shared 10 MiB limit.
 Selection immediately stages each file as a temporary Composer Upload and keeps
 a removable local row with image thumbnail when available, file name, progress,
-failure, and request id. A staged upload is not listed in Files. Sending waits
+failure, and request id. A staged upload is not listed in Files. The file tray
+keeps compact fixed-width cards in one horizontal row and scrolls horizontally
+when they exceed the available composer width. The visual scrollbar stays
+hidden so it does not consume Composer height, while pointer, touch, and
+keyboard scrolling remain available. Each card keeps the file name
+above its status and truncates an overlong name; hovering the name reveals the
+complete value in a tooltip without hiding upload progress, failure copy, or
+the remove action. Sending waits
 for in-progress staging, publishes each ready upload as a canonical root-level
 Space File, and allows a file-only message without invented caption text. A
 failed stage or publication is excluded while the member's text and other
@@ -2783,8 +2797,12 @@ second row and preserves the same Stop control and Message details action
 without shifting the conversation layout. While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never
-replace or hide the active execution state. The summary defaults open inside a
-bounded scroll viewport no taller than 12 rem or 30% of the dynamic viewport.
+replace or hide the active execution state. The live progress row belongs inside
+the Agent answer bubble after any accumulated answer text and before the
+message footer, so the state remains visually attached to the Agent and message
+actions never precede it. The summary defaults collapsed; the user can expand
+it into a bounded scroll viewport no taller than 12 rem or 30% of the dynamic
+viewport.
 Web first reconciles lifecycle parts by tool-call identity so starting and
 completed evidence for one call remains one step. It then groups only
 consecutive calls with the same semantic work, safe subject, and lifecycle
@@ -2802,12 +2820,31 @@ Graph and the structured message envelope retain the exact Wake or Reference
 relation for agents and diagnostics. Message details remains the drill-in for
 complete execution and failure context.
 
+Each recorded message reserves one stable footer for its timestamp and actions.
+When a message has a failure, the visible footer keeps only Message details,
+the concise failure summary, More actions, and the timestamp at every width;
+Copy, Reply, Thread, and Addressing move into More actions. Footer icon controls
+use a compact 28-pixel container with 6-pixel visual padding. A failure colors
+the Message details icon red but does not show a persistent hover or selected
+background; that background appears only through real interaction state.
+
+Message rhythm follows the existing speaker grouping instead of the current
+member's alignment. Message content sits 2 pixels above its reserved footer. A
+consecutive message from the same speaker starts 4 pixels after the preceding
+footer. When the speaker changes or the existing conversation grouping starts a
+new run, the adjacent run edges contribute 6 pixels each for a 12-pixel group
+boundary. Date separators, system regions, and other real section boundaries
+keep their wider spacing. The reserved footer height remains stable while its
+hover actions change opacity, so pointer interaction does not move later
+messages.
+
 In the full message body on the main timeline and in the Thread panel, the
 first visible mention owned by each structured Agent Wake renders as one compact
-inline identity: `@`, the Agent's 14-pixel Profile icon, and its bold canonical
-name, without inserted spacing. Web derives this presentation only from the
-structured Wake target and resolved Profile presentation. It does not decorate
-ordinary mention-like text, code, links, or quoted reply previews.
+inline identity: `@`, the Agent's 14-pixel Profile icon, and its semibold
+canonical name. The `@` and icon use a 6-pixel gap, while the icon and name use
+a 4-pixel gap. Web derives this presentation only from the structured Wake
+target and resolved Profile presentation. It does not decorate ordinary
+mention-like text, code, links, or quoted reply previews.
 
 For a durable final reply, Web prefers the complete
 `signal.text.data.meta.agentWorkSummary` projection. It reads the legacy
@@ -3592,6 +3629,14 @@ completed outcome. A completed `check_status` verdict uses the same amber
 **Couldn't check** outcome on the affected local-agent row, the current Computer
 summary, and current-Computer toolbar attention. It never becomes a red repair
 alert or setup action.
+
+The current-Computer toolbar keeps that coarse warning or danger attention
+stable while page navigation or a full browser refresh revalidates current
+inventory and readiness. During a cold reload it may paint the validated
+account-scoped display snapshot, but it must not create a Computer detail link
+from that snapshot. Live inventory must match the snapshot's opaque device id
+before the hint can bridge the readiness load; a device mismatch or read error
+removes the hint, and the next successful Core readiness result replaces it.
 
 Computers applies the same severity boundary to controller account states.
 Signed out and provider access unavailable are non-runnable `Unavailable`

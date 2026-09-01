@@ -3086,6 +3086,11 @@ withSpaceProfileOption(
       "--agent-controller-permission-mode <policy>",
       formatAgentControllerPermissionModeHelp()
     )
+    .option("--model <model>", "Model for this Agent Profile Binding")
+    .option(
+      "--reasoning-effort <level>",
+      "Reasoning effort for the selected model"
+    )
     .option(
       "--confirm-dangerous-agent-controller-permission-mode",
       "Confirm a dangerous Agent Controller Permission Mode without prompting",
@@ -3124,6 +3129,8 @@ withSpaceProfileOption(
             opts.confirmDangerousAgentControllerPermissionMode === true,
           details: opts.details === true,
           json: opts.json === true,
+          model: opts.model,
+          reasoningEffort: opts.reasoningEffort,
           view,
           entryChecksHandled: true,
         });

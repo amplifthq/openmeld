@@ -22,7 +22,7 @@ describe("agents registry origin launch", () => {
         agentControllerConversationId: "thread-ctx-1",
         workingDirectory: " /tmp/My Project ",
       })
-    ).toBe("cd ' /tmp/My Project ' && codex resume -m gpt-5.5 thread-ctx-1");
+    ).toBe("cd ' /tmp/My Project ' && codex resume thread-ctx-1");
   });
 
   it("renders shell-safe codex origin launch for working directories with apostrophes", () => {
@@ -32,9 +32,7 @@ describe("agents registry origin launch", () => {
         agentControllerConversationId: "thread-ctx-1",
         workingDirectory: "/Users/alice/O'Brien",
       })
-    ).toBe(
-      "cd '/Users/alice/O'\\''Brien' && codex resume -m gpt-5.5 thread-ctx-1"
-    );
+    ).toBe("cd '/Users/alice/O'\\''Brien' && codex resume thread-ctx-1");
   });
 
   it("renders codex origin launch with an explicit model", () => {

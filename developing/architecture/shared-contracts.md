@@ -817,6 +817,16 @@ public `OrganizationDirectoryResponse` adds only the optional member-level
 `lastActiveAt` field. Gateway strips it unless the query opts in, so older Web
 and CLI clients continue to receive the prior strict shape during rollout.
 
+Organization Directory readiness is permission-scoped before serialization.
+The Agent owner receives the normal owner projection. Another active member
+receives the public four-state Wakeability status with private readiness facts
+and actions replaced by neutral placeholders. The only additional blocker fact
+on that projection is the exact structured `usage_exhausted` reason, rendered
+as **Usage Limit reached** with no action. This explicit allowlist does not
+expose provider or account identity, Computer or Space detail, route or Binding
+evidence, controller or conversation identity, task content, raw errors, or an
+owner recovery action. Every other reason code remains omitted.
+
 `POST /v1/organizations/current/member-activity/web` is an additive
 Gateway-to-Core contract. It accepts no client-selected user, member, Profile,
 Organization, or timestamp; Gateway and Core derive those values from the

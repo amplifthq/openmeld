@@ -1238,6 +1238,99 @@ describe("SpaceLanding", () => {
 		});
 	});
 
+	it("keeps the Human viewer out of an agent-only Space until they explicitly join", async () => {
+		const addMembersMock = vi.fn().mockResolvedValue({
+			addedMemberIds: [DEFAULT_SPACE_PROFILE_ID],
+			alreadyMemberIds: [],
+			items: [],
+		});
+		createWebSpaceApiMock.mockReturnValue({
+			addMembers: addMembersMock,
+			deleteSpace: vi.fn().mockResolvedValue({
+				deleted: true,
+				spaceId: "space-123",
+			}),
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [],
+				query: {
+					clientMessageId: "client-message-1",
+					spaceId: "space-123",
+					targetProfileId: null,
+				},
+			}),
+			leaveSpace: vi.fn().mockResolvedValue({
+				leftProfileId: DEFAULT_SPACE_PROFILE_ID,
+				status: "left",
+			}),
+			listSignalEnvelopes: vi.fn(),
+			postNormalMessage: vi.fn(),
+		});
+		const agentOnlyMembers = createMembersSnapshot({
+			defaultAgentOwnerUserId: "user-mira",
+		});
+		agentOnlyMembers.humans = [];
+		agentOnlyMembers.summary = {
+			...agentOnlyMembers.summary,
+			humanCount: 0,
+			totalCount: 1,
+		};
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: agentOnlyMembers,
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding({
+			accountProfiles: [
+				createLandingAccountProfile({
+					openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+					ownerUserId: "user-mira",
+					profileKind: "human",
+					profileName: "Mira",
+				}),
+				createLandingAccountProfile({
+					openMeldProfileId: DEFAULT_AGENT_PROFILE_ID,
+					ownerUserId: "user-mira",
+					profileKind: "agent",
+					profileName: "Runner",
+				}),
+			],
+			organizationScope: createOrganizationScope({ isPersonal: true }),
+		});
+
+		expect(upsertProfileSpaceHistoryMock).not.toHaveBeenCalled();
+		expect(FakeWebSocket.instances).toHaveLength(0);
+		const composer = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		expect(composer.getAttribute("aria-placeholder")).toBe(
+			"Join as Mira to participate in this Space."
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Join as Mira" }));
+
+		await waitFor(() => {
+			expect(addMembersMock).toHaveBeenCalledWith({
+				memberProfileIds: [DEFAULT_SPACE_PROFILE_ID],
+				requestContext: expect.objectContaining({
+					actorContext: expect.objectContaining({
+						openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+					}),
+				}),
+				spaceId: "space-123",
+			});
+		});
+	});
+
 	it("closes Add members when profile history refresh fails after the membership write", async () => {
 		const addMembersMock = vi.fn().mockResolvedValue({
 			addedMemberIds: [SECOND_AGENT_PROFILE_ID],
@@ -10763,7 +10856,7 @@ describe("SpaceLanding", () => {
 		}
 	});
 
-	it("refreshes shared readiness caches when current owner evidence is unavailable", async () => {
+	it("waits for confirmed Human membership before refreshing shared readiness caches", async () => {
 		vi.useFakeTimers();
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const refreshAllMock = vi.fn().mockResolvedValue(undefined);
@@ -10777,16 +10870,17 @@ describe("SpaceLanding", () => {
 			refreshAll: refreshAllMock,
 			storageScope: "test-storage-scope",
 		});
+		const membersResult = createQueryResult({
+			isPending: true,
+			refetch: membersRefetchMock,
+		});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
 				refetch: statusRefetchMock,
 			}),
-			members: createQueryResult({
-				isPending: true,
-				refetch: membersRefetchMock,
-			}),
+			members: membersResult,
 			history: createQueryResult({
 				isSuccess: true,
 				data: {
@@ -10796,7 +10890,21 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		const view = renderSpaceLanding();
+
+		expect(FakeWebSocket.instances).toHaveLength(0);
+		Object.assign(membersResult, {
+			data: createMembersSnapshot(),
+			isPending: false,
+			isSuccess: true,
+		});
+		view.rerender(
+			<SpaceLanding
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
 
 		await act(async () => {
 			await FakeWebSocket.instances[0]?.emitOpen();
@@ -14376,11 +14484,12 @@ describe("SpaceLanding", () => {
 			throw new Error("Expected the source message footer details action.");
 		}
 		expect(sourceMessageDetailsButton.className).toContain("text-destructive");
+		fireEvent.click(
+			sourceActionScope.getByRole("button", { name: "More actions" })
+		);
+		expect(screen.getByRole("menuitem", { name: "Reply" })).toBeTruthy();
 		expect(
-			sourceActionScope.getByRole("button", { name: "Reply" })
-		).toBeTruthy();
-		expect(
-			sourceActionScope.getByRole("button", { name: "Reply in thread" })
+			screen.getByRole("menuitem", { name: "Reply in thread" })
 		).toBeTruthy();
 		// The source footer keeps only the calm failure summary. The diagnostic
 		// body remains in Message details instead of extending the timeline.

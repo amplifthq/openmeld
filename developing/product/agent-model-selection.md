@@ -526,7 +526,10 @@ free):
   catalog before writing. Unknown or unavailable models and unsupported
   reasoning levels fail the whole request with a stable 400 error and the
   actually supported values. Omitted selections do not read or validate the
-  catalog and retain the default-model behavior.
+  catalog. A new controller conversation receives the catalog default at
+  dispatch. An existing Codex thread with no explicit Binding selection keeps
+  its thread-owned model and reasoning settings because OpenMeld omits both
+  fields; an explicit Binding selection still overrides that thread state.
 - **Controller rebind invalidates the model:** when a binding is rebound to a
   different `agentControllerRef`, clear `model_id` / `reasoning_level` (they
   reset to the new controller's default).
@@ -546,7 +549,8 @@ Binding identity and `configurationRevision` with the optional model selection.
 At dispatch the daemon:
 
 1. resolves the effective model/reasoning from local binding state + embedded
-   catalog (using the §6.1 pure functions),
+   catalog (using the §6.1 pure functions), except that an existing Codex thread
+   with no explicit Binding selection produces no model/reasoning override,
 2. sets them on the in-process `AdapterDispatchRequest.conversationPolicy`
    (`model`, `reasoningLevel`) — the slot already exists at
    [conversation-contract.ts:18-21](../../packages/schemas/src/schemas/daemon/conversation-contract.ts)
@@ -578,7 +582,7 @@ delivery and preserves the previous behavior during rollout.
 | | Pass model | Pass reasoning | Fallback | Error classification |
 |---|---|---|---|---|
 | **Claude Code** ([Claude Agent SDK transport](../../runtime/adapters/claude-code/src/transport/claude-agent-sdk-transport.ts), legacy argv in [buildClaudeArgs](../../runtime/adapters/claude-code/src/transport/claude-cli-transport.ts)) | `model` SDK option / `--model <pinned id>` | `effort` SDK option / `--effort <level>` | `fallbackModel` SDK option / `--fallback-model <controller default>` (native) | Classifies invalid/retired models as `config.invalid`, temporary availability separately, and a signal-terminated CLI process as `provider.process_terminated` |
-| **Codex** ([CLI transport](../../runtime/adapters/codex/src/transport/codex-cli-transport.ts), [App Server transport](../../runtime/adapters/codex/src/transport/codex-app-server-transport.ts)) | CLI: `-m <pinned id>` (also on `exec resume`); App Server: `turn/start.model` on every turn | CLI: `-c model_reasoning_effort=<level>`; App Server: `turn/start.effort` on every turn | resolve `unavailable` → default before dispatch | Already classifies bad model → `config.invalid` |
+| **Codex** ([CLI transport](../../runtime/adapters/codex/src/transport/codex-cli-transport.ts), [App Server transport](../../runtime/adapters/codex/src/transport/codex-app-server-transport.ts)) | Explicit Binding selection: CLI `-m <pinned id>` (also on `exec resume`); App Server `thread/resume.model` and `turn/start.model`. New conversation with no selection: catalog default. Existing thread with no selection: omit the override. | Explicit Binding selection: CLI `-c model_reasoning_effort=<level>`; App Server `turn/start.effort`. Existing thread with no selection: omit the override. | resolve explicit `unavailable` → default before dispatch | Already classifies bad model → `config.invalid` |
 | **OpenCode** ([buildOpenCodeArgs](../../runtime/adapters/opencode/src/transport/opencode-cli-transport.ts)) | `--model <provider/model>` | `--variant <level>` where the level comes from OpenCode model variants | resolve `unavailable` → default before dispatch | Use OpenCode provider error classification; provider/model errors must stay visible |
 | **Cursor** ([Cursor ACP transport](../../runtime/adapters/cursor/src/transport/cursor-acp-transport.ts)) | `session/set_config_option` with `configId: "model"`, `type: "id"`, and the exact model ID returned in the session's model config option; fall back to legacy `session/set_model` only when ACP explicitly reports that the standard method is unavailable | Not exposed independently by Cursor ACP; reasoning-bearing variants remain part of the exact model ID | Catalog defaults to Cursor's `default[]` (**Auto**); the adapter validates the requested ID against one complete session inventory | Reject a complete inventory that excludes the requested ID as `model.unavailable`; classify a still-missing or conflicting inventory as `model.inventory_unavailable`; reject independent reasoning as `model.reasoning_unsupported` |
 | **Grok Build** ([Grok ACP transport](../../runtime/adapters/grok-build/src/transport/grok-build-acp-transport.ts)) | ACP session model selection using the exact model ID advertised by the authenticated account | ACP effort selection using an effort advertised for that exact live model | No adapter-side substitute after live negotiation; an unavailable explicit model or effort fails before `session/prompt` | Reject incomplete or conflicting live inventory as `model.inventory_unavailable`, a missing requested model as `model.unavailable`, and an unsupported effort as `model.reasoning_unsupported` |
@@ -606,10 +610,10 @@ closed before `session/prompt` when the requested model or effort is absent. It
 does not ask Grok to guess, silently choose another live model, or replay the
 Wake through Headless JSON.
 
-Also add a `{model}` token to the `originLaunch.commandTemplate` allow-list and
-templates in `registry.json` (currently `claude --resume {id}` /
-`codex resume {id}` with no model — the copy-paste resume hint otherwise
-reproduces the incident).
+The `originLaunch` registry supports both a model-bearing `commandTemplate` and
+an optional `unselectedModelCommandTemplate`. Codex uses the latter when the
+Binding has no explicit model selection, so its copy-paste resume hint preserves
+the thread-owned model instead of injecting the current catalog default.
 
 ### 8.2 Resilience — one mechanism, three problems
 
@@ -639,8 +643,10 @@ and multi-device divergence:
 - **Per-profile settings (Web + CLI):** the same two controls, editable later,
   reading the live catalog so an `unavailable` selection is shown as such with a
   switch-to-default affordance.
-- **Rendering everywhere:** show the profile's **effective** model; never blank —
-  an unset profile renders "Using default: &lt;model&gt;".
+- **Rendering everywhere:** show an explicit Binding selection as the profile's
+  effective model. An unset new conversation may render "Using default:
+  &lt;model&gt;". An existing Codex thread with no explicit selection must not claim
+  that the catalog default replaced the thread-owned model.
 
 ### 8.4 CLI agent view (enables dogfooding)
 

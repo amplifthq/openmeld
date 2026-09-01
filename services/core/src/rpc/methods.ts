@@ -1,4 +1,5 @@
 import {
+  AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE,
   type AuthorityOpenMeldServiceRuntimeId,
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
@@ -42,6 +43,7 @@ import {
   CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
   CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   canonicalizeAgentControllerRef,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
@@ -706,6 +708,7 @@ import {
 } from "../agent-execution/application/agent-execution-readiness-service";
 import { acceptProviderConversationProofRecord } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
 import { projectOrganizationDirectoryAgentProfileOperationalContext } from "../agent-profile/application/agent-profile-operational-context";
+import { resolveAgentProfileWorkRecoveryAuthScope } from "../agent-profile/application/agent-profile-work-recovery-auth-scope";
 import {
   type AgentProfileBindingCommandResult,
   AgentProfileBindingModelSelectionValidationError,
@@ -4747,12 +4750,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       status: 400,
     });
   }
-  const { request } = await requireAgentProfileWorkspaceScope(env, input);
-  await assertAgentProfileOwnerMatchesRequest({
-    agentProfileId: request.agentProfileId,
-    env,
-    owner: request.owner,
-  });
+  const request = await requireAgentProfileWorkRecoveryScope(env, input);
 
   const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
   const recovery =
@@ -6212,10 +6210,12 @@ export async function rpcGetCurrentOrganizationDirectory(
             ...agent,
             isCenterAgent:
               centerAgentDesignation?.agentProfileId === agent.profileId,
-            readiness: buildGetAgentExecutionReadinessResponse({
-              generatedAt,
-              readiness,
-            }),
+            readiness:
+              buildOrganizationDirectoryAgentExecutionReadinessResponse({
+                generatedAt,
+                isOwner: agent.ownerUserId === activeOrganization.userId,
+                readiness,
+              }),
           };
         })
       ),
@@ -20517,6 +20517,70 @@ async function requireAgentProfileWorkspaceScope(
   return { db, request };
 }
 
+async function requireAgentProfileWorkRecoveryScope(
+  env: CoreBindings,
+  input: {
+    agentProfileId: string;
+    context?: CoreRpcContextInput;
+  }
+): Promise<ReturnType<typeof requireAgentProfileBindingRequest>> {
+  const request = requireAgentProfileBindingRequest(input);
+  const activeOrganizationId = normalizeOptionalText(
+    request.context.activeOrganizationId
+  );
+  if (!activeOrganizationId) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.organization_context_missing",
+      reason: "Select a workspace before managing this Agent Profile.",
+      status: 403,
+    });
+  }
+
+  const profileScope = await resolveAgentProfileWorkRecoveryAuthScope({
+    agentProfileId: request.agentProfileId,
+    authWorker: env.OPENMELD_AUTH_WORKER,
+  });
+  if (profileScope.status === "unavailable") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.unavailable",
+      reason: "agent profile unavailable",
+      status: 503,
+    });
+  }
+  if (profileScope.status !== "valid") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.not_found",
+      reason: "agent profile not found",
+      status: 404,
+    });
+  }
+  if (profileScope.scope.organizationId !== activeOrganizationId) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.organization_mismatch",
+      reason:
+        "Agent Profile can only be managed in the workspace where it was created.",
+      status: 403,
+    });
+  }
+  if (
+    !ownersEqual(
+      {
+        id: profileScope.scope.ownerUserId,
+        kind: "owner_account",
+      },
+      request.owner
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.not_found",
+      reason: "agent profile not found",
+      status: 404,
+    });
+  }
+
+  return request;
+}
+
 type ActiveOrganization = {
   memberId?: string;
   organizationId: string;
@@ -22842,6 +22906,249 @@ function buildGetAgentExecutionReadinessResponse(input: {
     );
   }
   return validated.data;
+}
+
+function buildOrganizationDirectoryAgentExecutionReadinessResponse(input: {
+  generatedAt: string;
+  isOwner: boolean;
+  readiness: CoreAgentExecutionReadiness;
+}): GetAgentExecutionReadinessResponse {
+  const ownerResponse = buildGetAgentExecutionReadinessResponse(input);
+  if (input.isOwner) {
+    return ownerResponse;
+  }
+
+  return projectTeamSafeOrganizationDirectoryReadiness(ownerResponse);
+}
+
+export function projectTeamSafeOrganizationDirectoryReadiness(
+  ownerResponse: GetAgentExecutionReadinessResponse
+): GetAgentExecutionReadinessResponse {
+  const agentWakeAvailability =
+    projectTeamSafeOrganizationDirectoryWakeAvailability(
+      ownerResponse.agentWakeAvailability
+    );
+  const response = {
+    agentExecutionReadiness: {
+      agentProfileId: ownerResponse.agentProfileId,
+      displayState: resolveTeamSafeOrganizationDirectoryDisplayState(
+        agentWakeAvailability.category
+      ),
+      facts: {
+        profile: {
+          active: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        binding: {
+          reasonCodes: [],
+          routable: false,
+          source: "not_checked",
+        },
+        claim: {
+          executionBlocked: false,
+          grantsClaimSuccess: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        providerAccount: {
+          blocked: false,
+          expiresAtMs: null,
+          observedAtMs: null,
+          provider: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        providerConversation: {
+          agentControllerConversationId: null,
+          errorCode: null,
+          errorMessage: null,
+          errorType: null,
+          expiresAtMs: null,
+          method: null,
+          observedAtMs: null,
+          provider: null,
+          ready: false,
+          reasonCodes: [],
+          required: false,
+          source: "unavailable",
+          status: "unavailable",
+        },
+        readinessImpact: {
+          blocked: false,
+          expiresAtMs: null,
+          impactKind: null,
+          observedAtMs: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        localService: {
+          reachable: false,
+          refreshable: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        service: {
+          executionCompatible: false,
+          expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+          observedEpoch: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        route: {
+          deviceId: null,
+          lane: null,
+          observedAt: null,
+          online: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        runtime: {
+          ready: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+      },
+      primaryAction: "none",
+      reasonCodes: [],
+    },
+    agentWakeAvailability,
+    agentWakeRouteRegistration: {
+      status: "unavailable",
+      reasonCode: null,
+      reportedAtMs: null,
+      daemonSessionId: null,
+      deviceId: null,
+      lane: null,
+      serviceVersion: null,
+    },
+    agentProfileId: ownerResponse.agentProfileId,
+    agentControllerRef: null,
+    generatedAt: ownerResponse.generatedAt,
+    ownerUserId: null,
+    primaryBinding: null,
+    primaryActionPlan: {
+      action: "none",
+      target: null,
+    },
+    profileName: null,
+    routeDeviceId: null,
+    routeLane: null,
+    runtimeDeviceDisplayName: null,
+    wakeRouteEvidence: {
+      observedAt: ownerResponse.generatedAt,
+      reasonCode: "not_requested",
+      status: "unavailable",
+    },
+    wakeRouteStatus: {
+      status: "unavailable",
+    },
+  } satisfies GetAgentExecutionReadinessResponse;
+  const validated =
+    getAgentExecutionReadinessResponseSchema.safeParse(response);
+  if (!validated.success) {
+    throw new Error(
+      `failed to build team-safe Organization Directory readiness response: ${validated.error.message}`
+    );
+  }
+  return validated.data;
+}
+
+function projectTeamSafeOrganizationDirectoryWakeAvailability(
+  availability: GetAgentExecutionReadinessResponse["agentWakeAvailability"]
+): GetAgentExecutionReadinessResponse["agentWakeAvailability"] {
+  const sharesUsageExhausted =
+    availability.category === "unavailable" &&
+    availability.reasonCode === AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE &&
+    availability.status === "unavailable_for_wake";
+  const shared = {
+    action: "none" as const,
+    category: availability.category,
+    reasonCode: sharesUsageExhausted
+      ? AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE
+      : null,
+    status: availability.status,
+  };
+  switch (availability.category) {
+    case "available":
+      return {
+        ...shared,
+        badgeLabel: "Available",
+        isRefreshing: false,
+        label: "Available for Wake",
+        phase: "available",
+        summary: "This Agent is available for Wake.",
+        tooltip: "Available for Wake",
+      };
+    case "checking":
+      return {
+        ...shared,
+        badgeLabel: "Checking",
+        isRefreshing: true,
+        label: "Checking Wake availability",
+        phase: "checking_status",
+        summary: "Checking whether this Agent is available for Wake.",
+        tooltip: "Checking Wake availability",
+      };
+    case "offline":
+      return {
+        ...shared,
+        badgeLabel: "Offline",
+        isRefreshing: false,
+        label: "Offline for Wake",
+        phase: "offline",
+        summary: "This Agent is offline for Wake.",
+        tooltip: "Offline for Wake",
+      };
+    case "unavailable":
+      if (sharesUsageExhausted) {
+        return {
+          ...shared,
+          badgeLabel: "Unavailable",
+          isRefreshing: false,
+          label: "Usage Limit reached",
+          phase: "unavailable",
+          summary:
+            "This Agent reached a Usage Limit and cannot start new work.",
+          tooltip: "Usage Limit reached",
+        };
+      }
+      return {
+        ...shared,
+        badgeLabel: "Unavailable",
+        isRefreshing: false,
+        label: "Unavailable for Wake",
+        phase: "unavailable",
+        summary: "This Agent is unavailable for Wake.",
+        tooltip: "Unavailable for Wake",
+      };
+    default: {
+      const exhaustiveCategory: never = availability.category;
+      throw new Error(
+        `unsupported Organization Directory Wake availability category: ${exhaustiveCategory}`
+      );
+    }
+  }
+}
+
+function resolveTeamSafeOrganizationDirectoryDisplayState(
+  category: GetAgentExecutionReadinessResponse["agentWakeAvailability"]["category"]
+): GetAgentExecutionReadinessResponse["agentExecutionReadiness"]["displayState"] {
+  switch (category) {
+    case "available":
+      return "ready";
+    case "checking":
+      return "unknown";
+    case "offline":
+    case "unavailable":
+      return "not_ready";
+    default: {
+      const exhaustiveCategory: never = category;
+      throw new Error(
+        `unsupported Organization Directory Wake availability category: ${exhaustiveCategory}`
+      );
+    }
+  }
 }
 
 function resolveHttpAgentWakeAvailability(

@@ -1,5 +1,7 @@
 "use client";
 
+import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
+import { resolveAgentWakeAvailabilityDisplayCategory } from "@openmeld/agent-runtime";
 import type {
 	AgentWakeAvailability,
 	AuthProfileView,
@@ -17,7 +19,14 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import { AgentProfileOperationalStatusText } from "#/components/agents/agent-profile-operational-status";
 import { ProfileDetailsContent } from "#/components/profiles/profile-details-dialog";
+import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+
+const AGENT_OPERATIONAL_CONTEXT_SECTION_IDS = [
+	"activity",
+	"wake_availability",
+] as const;
 
 export function AgentProfileWorkspaceDetail(input: {
 	canEdit: boolean;
@@ -34,6 +43,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	editing: boolean;
 	isDirectMessagePending: boolean;
 	isRecoveryActionPending: boolean;
+	operationalContext: AgentProfileOperationalContextInput | null;
 	onEdit: () => void;
 	onOpenDirectMessage: () => void;
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
@@ -53,6 +63,20 @@ export function AgentProfileWorkspaceDetail(input: {
 		wakeAvailabilityErrorMessage: input.wakeAvailabilityErrorMessage,
 		wakeAvailabilityIsPending: input.wakeAvailabilityIsPending,
 	});
+	const showOwnerOperationalContext =
+		input.details.viewerScope === "owner_self";
+	const projectedRecoveryAction = input.details.sections.find(
+		(section) => section.id === "activity"
+	)?.recoveryAction;
+	let availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
+		displayedWakeAvailability
+	);
+	if (!displayedWakeAvailability && input.wakeAvailabilityErrorMessage) {
+		availabilityCategory = "unavailable";
+	}
+	const hasReducedProminence =
+		availabilityCategory === "offline" ||
+		availabilityCategory === "unavailable";
 	return (
 		<div
 			className="@container/agent-detail mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
@@ -62,79 +86,26 @@ export function AgentProfileWorkspaceDetail(input: {
 				<div className="flex min-w-0 flex-1 items-start gap-4">
 					<AgentProfileControllerAvatar
 						agentControllerRef={input.agentControllerRef}
-						className="shrink-0"
+						className={cn(
+							"shrink-0",
+							hasReducedProminence ? "opacity-55 grayscale" : null
+						)}
 						profileId={input.profile.openMeldProfileId}
 						size={96}
 					/>
 					<div className="min-w-0 flex-1 pt-1">
-						<h1 className="select-text break-words font-semibold text-xl leading-7">
+						<h1
+							className={cn(
+								"select-text break-words font-semibold text-xl leading-7",
+								hasReducedProminence ? "text-muted-foreground" : null
+							)}
+						>
 							{input.profile.profileName}
 						</h1>
-						<p className="mt-1 break-words text-muted-foreground text-sm">
-							{input.controllerModelSummary}
-						</p>
-						{displayedWakeAvailability ? (
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<span
-											className={cn(
-												"mt-2 inline-flex rounded-md bg-muted px-2 py-1 font-medium text-xs"
-											)}
-											data-availability-action={
-												displayedWakeAvailability.action ?? undefined
-											}
-											data-availability-phase={
-												displayedWakeAvailability.phase ?? undefined
-											}
-											data-availability-reason-code={
-												displayedWakeAvailability.reasonCode ?? undefined
-											}
-										/>
-									}
-								>
-									{displayedWakeAvailability.badgeLabel}
-								</TooltipTrigger>
-								<TooltipContent className="max-w-sm" side="top">
-									{displayedWakeAvailability.tooltip}
-								</TooltipContent>
-							</Tooltip>
-						) : (
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<span
-											className={cn(
-												"mt-2 inline-flex rounded-md bg-muted px-2 py-1 font-medium text-xs",
-												fallbackAvailability.className
-											)}
-										/>
-									}
-								>
-									{fallbackAvailability.label}
-								</TooltipTrigger>
-								<TooltipContent className="max-w-sm" side="top">
-									{fallbackAvailability.tooltip}
-								</TooltipContent>
-							</Tooltip>
-						)}
-						{fallbackAvailability.diagnostic ? (
-							<p
-								className={cn(
-									"mt-2 max-w-2xl text-sm",
-									input.wakeAvailabilityErrorMessage
-										? "text-destructive"
-										: "text-muted-foreground"
-								)}
-								role={input.wakeAvailabilityErrorMessage ? "alert" : undefined}
-							>
-								{fallbackAvailability.diagnostic}
+						{showOwnerOperationalContext ? (
+							<p className="mt-1 break-words text-muted-foreground text-sm">
+								{input.controllerModelSummary}
 							</p>
-						) : null}
-						{input.wakeAvailabilityRecoveryActions ? (
-							<div className="mt-3">
-								{input.wakeAvailabilityRecoveryActions}
-							</div>
 						) : null}
 					</div>
 				</div>
@@ -164,6 +135,16 @@ export function AgentProfileWorkspaceDetail(input: {
 					{input.overflowActions}
 				</div>
 			</div>
+			<AgentProfileOperationalContextPanel
+				fallbackAvailability={fallbackAvailability}
+				isOwner={showOwnerOperationalContext}
+				isRecoveryActionPending={input.isRecoveryActionPending}
+				onRecoveryAction={input.onRecoveryAction}
+				operationalContext={input.operationalContext}
+				projectedRecoveryAction={projectedRecoveryAction ?? null}
+				wakeAvailability={displayedWakeAvailability}
+				wakeAvailabilityRecoveryActions={input.wakeAvailabilityRecoveryActions}
+			/>
 			{input.supportingContent ? (
 				<div className="max-w-3xl">{input.supportingContent}</div>
 			) : null}
@@ -172,14 +153,225 @@ export function AgentProfileWorkspaceDetail(input: {
 				input.editContent
 			) : (
 				<ProfileDetailsContent
+					collapseAgentTechnicalDetails={showOwnerOperationalContext}
 					currentSession={input.currentSession}
 					details={input.details}
+					excludedSectionIds={AGENT_OPERATIONAL_CONTEXT_SECTION_IDS}
 					isRecoveryActionPending={input.isRecoveryActionPending}
 					onRecoveryAction={input.onRecoveryAction}
 					showSummary={false}
 				/>
 			)}
 		</div>
+	);
+}
+
+function AgentProfileOperationalContextPanel(input: {
+	fallbackAvailability: ReturnType<typeof resolveFallbackWakeAvailability>;
+	isOwner: boolean;
+	isRecoveryActionPending: boolean;
+	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
+	operationalContext: AgentProfileOperationalContextInput | null;
+	projectedRecoveryAction: ProfileDetailsRecoveryAction | null;
+	wakeAvailability: AgentWakeAvailability | null;
+	wakeAvailabilityRecoveryActions?: ReactNode;
+}) {
+	let recoveryAction: ReactNode = null;
+	if (
+		input.isOwner &&
+		input.projectedRecoveryAction &&
+		input.onRecoveryAction
+	) {
+		recoveryAction = (
+			<ProfileDetailsRecoveryActionButton
+				isPending={input.isRecoveryActionPending}
+				onRecoveryAction={input.onRecoveryAction}
+				recoveryAction={input.projectedRecoveryAction}
+			/>
+		);
+	} else if (input.isOwner && input.wakeAvailabilityRecoveryActions) {
+		recoveryAction = input.wakeAvailabilityRecoveryActions;
+	}
+	const usageExhausted =
+		input.wakeAvailability?.reasonCode === "usage_exhausted";
+	const usageDescription = resolveUsageDescription({
+		isOwner: input.isOwner,
+		usageExhausted,
+	});
+	return (
+		<section
+			aria-labelledby="agent-operational-context-heading"
+			className="min-w-0"
+		>
+			<h2
+				className="font-medium text-muted-foreground text-xs"
+				id="agent-operational-context-heading"
+			>
+				Operational context
+			</h2>
+			<div className="mt-2 grid min-w-0 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2">
+				<OperationalContextFact label="Work">
+					<AgentProfileOperationalStatusText
+						className="text-sm"
+						operationalContext={input.operationalContext}
+					/>
+					<AgentProfileWorkSummary
+						operationalContext={input.operationalContext}
+						showLocations={input.isOwner}
+					/>
+				</OperationalContextFact>
+				{input.isOwner ? (
+					<OperationalContextFact label="Wakeability">
+						<WakeabilityValue
+							fallbackAvailability={input.fallbackAvailability}
+							wakeAvailability={input.wakeAvailability}
+						/>
+					</OperationalContextFact>
+				) : null}
+				<OperationalContextFact description={usageDescription} label="Usage">
+					<span data-reported={usageExhausted ? "true" : "false"}>
+						{usageExhausted ? "Exhausted" : "Not reported"}
+					</span>
+				</OperationalContextFact>
+				{input.isOwner ? (
+					<OperationalContextFact
+						description="No confirmed timing has been reported for saved settings."
+						label="Settings timing"
+					>
+						<span data-reported="false">Not reported</span>
+					</OperationalContextFact>
+				) : null}
+			</div>
+			{input.isOwner && input.fallbackAvailability.diagnostic ? (
+				<p
+					className="mt-2 max-w-2xl text-muted-foreground text-sm"
+					role={
+						input.fallbackAvailability.label === "Unavailable"
+							? "alert"
+							: undefined
+					}
+				>
+					{input.fallbackAvailability.diagnostic}
+				</p>
+			) : null}
+			{recoveryAction ? <div className="mt-3">{recoveryAction}</div> : null}
+		</section>
+	);
+}
+
+function OperationalContextFact(input: {
+	children: ReactNode;
+	description?: string;
+	label: string;
+}) {
+	return (
+		<div className="min-w-0 bg-background px-3 py-3">
+			<p className="text-muted-foreground text-xs">{input.label}</p>
+			<div className="mt-1 break-words font-medium text-sm">
+				{input.children}
+			</div>
+			{input.description ? (
+				<p className="mt-1 text-muted-foreground text-xs leading-5">
+					{input.description}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
+function AgentProfileWorkSummary(input: {
+	operationalContext: AgentProfileOperationalContextInput | null;
+	showLocations: boolean;
+}) {
+	const operationalContext = input.operationalContext;
+	if (!operationalContext) {
+		return null;
+	}
+	let queuedWork: ReactNode = null;
+	if (operationalContext.waitingCount > 0) {
+		queuedWork =
+			input.showLocations &&
+			operationalContext.queuedWorkLocations.length > 0 ? (
+				<details className="group/work-queue">
+					<summary className="min-h-6 cursor-pointer list-none rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+						{operationalContext.waitingCount} queued
+					</summary>
+					<ol className="mt-1 list-decimal space-y-1 pl-4">
+						{operationalContext.queuedWorkLocations.map((location) => (
+							<li className="break-words" key={location}>
+								{location}
+							</li>
+						))}
+					</ol>
+				</details>
+			) : (
+				<p>{operationalContext.waitingCount} queued</p>
+			);
+	}
+	return (
+		<div className="mt-1 space-y-1 font-normal text-muted-foreground text-xs leading-5">
+			{input.showLocations && operationalContext.currentWorkLocation ? (
+				<p className="break-words">
+					Current: {operationalContext.currentWorkLocation}
+				</p>
+			) : null}
+			{queuedWork}
+		</div>
+	);
+}
+
+function resolveUsageDescription(input: {
+	isOwner: boolean;
+	usageExhausted: boolean;
+}): string {
+	if (input.usageExhausted) {
+		return "This Agent reached a current Usage Limit.";
+	}
+	return input.isOwner
+		? "This Controller has not reported reliable Usage."
+		: "Reliable Usage has not been reported for this Agent.";
+}
+
+function WakeabilityValue(input: {
+	fallbackAvailability: ReturnType<typeof resolveFallbackWakeAvailability>;
+	wakeAvailability: AgentWakeAvailability | null;
+}) {
+	const label =
+		input.wakeAvailability?.badgeLabel ?? input.fallbackAvailability.label;
+	const tooltip =
+		input.wakeAvailability?.tooltip ?? input.fallbackAvailability.tooltip;
+	const category = resolveAgentWakeAvailabilityDisplayCategory(
+		input.wakeAvailability
+	);
+	let textClassName = input.wakeAvailability
+		? "text-foreground"
+		: input.fallbackAvailability.className;
+	if (category === "offline" || category === "unavailable") {
+		textClassName = "text-muted-foreground";
+	}
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span
+						className={cn("inline-flex min-w-0 text-sm", textClassName)}
+						data-availability-action={
+							input.wakeAvailability?.action ?? undefined
+						}
+						data-availability-phase={input.wakeAvailability?.phase ?? undefined}
+						data-availability-reason-code={
+							input.wakeAvailability?.reasonCode ?? undefined
+						}
+						title={tooltip}
+					/>
+				}
+			>
+				{label}
+			</TooltipTrigger>
+			<TooltipContent className="max-w-sm" side="top">
+				{tooltip}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 
@@ -193,7 +385,7 @@ function resolveFallbackWakeAvailability(input: {
 	}
 	if (input.wakeAvailabilityErrorMessage) {
 		return {
-			className: resolveStatusToneTextClassName("warning"),
+			className: resolveStatusToneTextClassName("muted"),
 			diagnostic: input.wakeAvailabilityErrorMessage,
 			label: "Unavailable",
 			tooltip: "Status unavailable",

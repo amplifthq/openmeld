@@ -1,4 +1,8 @@
-import type { CurrentLocalRuntimeReplyReadinessResponse } from "@openmeld/schemas/types";
+import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import type {
+	CurrentLocalRuntimeReplyReadinessResponse,
+	LocalRuntimeExecutionTarget,
+} from "@openmeld/schemas/types";
 import {
 	hasCurrentLocalRuntimeOpenMeldToolsUpdate,
 	isOpenMeldToolsComponentUpdateRequired,
@@ -26,6 +30,10 @@ export type ComputerSummaryStatusReason =
 
 export type ComputerSummaryStatus = {
 	label: string;
+	localAgent?: {
+		agentId: string;
+		displayName: string;
+	};
 	reason: ComputerSummaryStatusReason;
 	showLabel: boolean;
 	tone: ComputerSummaryStatusTone;
@@ -60,7 +68,7 @@ const SERVICE_NOT_CONNECTED_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const AGENT_NEEDS_SETUP_STATUS = {
-	label: "Local agents need setup",
+	label: "Local agents need attention",
 	reason: "agent_needs_setup",
 	showLabel: true,
 	tone: "warning",
@@ -126,6 +134,7 @@ const STATUS_UNAVAILABLE = {
 } as const satisfies ComputerSummaryStatus;
 
 export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
+	executionTarget?: LocalRuntimeExecutionTarget | null;
 	isReconcilingStatus?: boolean;
 	readiness: CurrentLocalRuntimeReplyReadinessResponse | null | undefined;
 }): ComputerSummaryStatus | null {
@@ -140,10 +149,10 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 		return SERVICE_NOT_CONNECTED_STATUS;
 	}
 	if (readiness.nextAction === "run_setup") {
-		if (hasOnlyControllerSignInBlockers(readiness)) {
-			return AGENT_SIGN_IN_NEEDED_STATUS;
-		}
-		return AGENT_NEEDS_SETUP_STATUS;
+		return resolveLocalAgentAttentionStatus({
+			executionTarget: input.executionTarget ?? null,
+			readiness,
+		});
 	}
 	if (
 		readiness.primaryBlocker === "service_update_required" ||
@@ -174,6 +183,75 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 		return STATUS_UNAVAILABLE;
 	}
 	return READY_STATUS;
+}
+
+function resolveLocalAgentAttentionStatus(input: {
+	executionTarget: LocalRuntimeExecutionTarget | null;
+	readiness: CurrentLocalRuntimeReplyReadinessResponse;
+}): ComputerSummaryStatus {
+	const blockers =
+		input.executionTarget?.capabilities.filter(
+			(capability) => capability.enabled && capability.status !== "ready"
+		) ?? [];
+	const blocker = blockers.length === 1 ? blockers[0] : null;
+	const localAgent =
+		blocker && input.executionTarget
+			? resolveComputerSummaryLocalAgent(input.executionTarget, blocker)
+			: null;
+
+	if (hasOnlyControllerSignInBlockers(input.readiness)) {
+		if (localAgent) {
+			return {
+				...AGENT_SIGN_IN_NEEDED_STATUS,
+				label: `Sign in to ${localAgent.displayName}`,
+				localAgent,
+			};
+		}
+		return blockers.length > 1
+			? { ...AGENT_SIGN_IN_NEEDED_STATUS, label: "Sign in to local agents" }
+			: AGENT_SIGN_IN_NEEDED_STATUS;
+	}
+
+	if (blocker && localAgent) {
+		if (
+			blocker.reasonCodes.includes("controller.launch.choice_required") ||
+			blocker.agentControllerInterface?.launch.status === "needs_choice"
+		) {
+			return {
+				...AGENT_NEEDS_SETUP_STATUS,
+				label: `Choose a ${localAgent.displayName} installation`,
+				localAgent,
+			};
+		}
+		if (
+			blocker.reasonCodes.includes("controller.launch.needs_repair") ||
+			blocker.agentControllerInterface?.launch.status === "needs_repair"
+		) {
+			return {
+				...AGENT_NEEDS_SETUP_STATUS,
+				label: `${localAgent.displayName} can’t start`,
+				localAgent,
+			};
+		}
+	}
+
+	return AGENT_NEEDS_SETUP_STATUS;
+}
+
+function resolveComputerSummaryLocalAgent(
+	executionTarget: LocalRuntimeExecutionTarget,
+	capability: LocalRuntimeExecutionTarget["capabilities"][number]
+): ComputerSummaryStatus["localAgent"] | null {
+	const parsed = parseAgentControllerRef(capability.agentControllerRef);
+	if (!parsed) {
+		return null;
+	}
+	const entry = executionTarget.localAgentCatalog.entries.find(
+		(candidate) => candidate.agentId === parsed.id
+	);
+	return entry
+		? { agentId: entry.agentId, displayName: entry.displayName }
+		: null;
 }
 
 export function resolveOrganizationComputerSummaryStatus(

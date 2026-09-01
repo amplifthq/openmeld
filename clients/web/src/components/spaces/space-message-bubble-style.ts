@@ -12,15 +12,15 @@ export function resolveSpaceMessageRowLayoutClassName(input: {
 	isLastInGroup: boolean;
 }): string {
 	if (input.isFirstInGroup && input.isLastInGroup) {
-		return SPACE_MESSAGE_ROW_LAYOUT_CLASS;
+		return "px-3 pt-1.5 pb-1.5";
 	}
 	if (input.isFirstInGroup) {
-		return "px-3 pt-2 pb-0";
+		return "px-3 pt-1.5 pb-0";
 	}
 	if (input.isLastInGroup) {
-		return "px-3 pt-0 pb-2";
+		return "px-3 pt-1 pb-1.5";
 	}
-	return "px-3 py-0";
+	return "px-3 pt-1 pb-0";
 }
 // Hover/focus-within background for one message row. Apply this to the
 // per-message row element, not to a container that spans multiple grouped

@@ -984,6 +984,7 @@ export type SpaceLandingController =
 			isMembersLoading: boolean;
 			isMembersRefreshing: boolean;
 			isCurrentAccessConfirmed: boolean;
+			currentProfileMembershipState: CurrentProfileSpaceMembershipState;
 			isSendingMessage: boolean;
 			isDiagnosticReportPending: (signalId: string) => boolean;
 			isDiagnosticReportSent: (signalId: string) => boolean;
@@ -1081,6 +1082,46 @@ export type SpaceLandingController =
 				SpaceWakeStopRequestStatus
 			>;
 	  };
+
+type CurrentProfileSpaceMembershipState = "member" | "nonmember" | "unknown";
+
+function useCurrentProfileSpaceMembershipState(input: {
+	membersSnapshot: SpaceMembersSnapshot | null;
+	profileId: string;
+	spaceId: string;
+}): CurrentProfileSpaceMembershipState {
+	const identity = `${input.spaceId}:${input.profileId}`;
+	let confirmedState: Exclude<
+		CurrentProfileSpaceMembershipState,
+		"unknown"
+	> | null = null;
+	if (input.membersSnapshot) {
+		confirmedState = hasActiveSpaceMember({
+			membersSnapshot: input.membersSnapshot,
+			profileId: input.profileId,
+		})
+			? "member"
+			: "nonmember";
+	}
+	const lastConfirmedRef = useRef<{
+		identity: string;
+		state: Exclude<CurrentProfileSpaceMembershipState, "unknown">;
+	} | null>(null);
+
+	useEffect(() => {
+		if (confirmedState === null) {
+			return;
+		}
+		lastConfirmedRef.current = { identity, state: confirmedState };
+	}, [confirmedState, identity]);
+
+	if (confirmedState !== null) {
+		return confirmedState;
+	}
+	return lastConfirmedRef.current?.identity === identity
+		? lastConfirmedRef.current.state
+		: "unknown";
+}
 
 function projectSpaceExecutionRecoveryResolution(
 	recovery: ExecutionRecoveryProjection
@@ -1358,6 +1399,13 @@ export function useSpaceLandingController(input: {
 	});
 	const currentProfileId = input.profileId;
 	const currentSpaceId = input.spaceId;
+	const currentProfileMembershipState = useCurrentProfileSpaceMembershipState({
+		membersSnapshot,
+		profileId: input.profileId,
+		spaceId: input.spaceId,
+	});
+	const currentProfileIsActiveSpaceMember =
+		currentProfileMembershipState === "member";
 	useEffect(() => {
 		if (
 			currentProfileId.trim().length === 0 ||
@@ -1369,10 +1417,7 @@ export function useSpaceLandingController(input: {
 		setWakeStopRequestStatusBySelectorKey(new Map());
 	}, [currentProfileId, currentSpaceId]);
 	useActiveSpaceHistorySync({
-		currentProfileIsActiveSpaceMember: hasActiveSpaceMember({
-			membersSnapshot,
-			profileId: input.profileId,
-		}),
+		currentProfileIsActiveSpaceMember,
 		membersReady,
 		profileId: input.profileId,
 		queryClient,
@@ -1389,6 +1434,7 @@ export function useSpaceLandingController(input: {
 		timelineEnvelopes,
 	} = useSpaceLandingFeed({
 		openMeldProfileId: input.profileId,
+		participationEnabled: currentProfileIsActiveSpaceMember,
 		onAgentReadinessInvalidated: input.onAgentReadinessInvalidated,
 		onWakeFinalOutcomeFactsRefresh: input.onWakeFinalOutcomeFactsRefresh,
 		onThreadSignal: handleLiveThreadSignal,
@@ -1481,6 +1527,7 @@ export function useSpaceLandingController(input: {
 		const pendingMessage = input.initialPendingMessage;
 		const canAttemptPendingMessage =
 			statusReady &&
+			currentProfileIsActiveSpaceMember &&
 			(membersReady || membersError) &&
 			!isSendingMessage &&
 			mentionAuthoring.composerText.trim() === pendingMessage?.text.trim();
@@ -1501,6 +1548,7 @@ export function useSpaceLandingController(input: {
 		});
 	}, [
 		input.initialPendingMessage,
+		currentProfileIsActiveSpaceMember,
 		isSendingMessage,
 		membersError,
 		membersReady,
@@ -2031,6 +2079,7 @@ export function useSpaceLandingController(input: {
 		isMembersLoading: membersLoading,
 		isMembersRefreshing: membersQuery.isFetching && !membersQuery.isPending,
 		isCurrentAccessConfirmed: statusReady,
+		currentProfileMembershipState,
 		isSendingMessage,
 		isDiagnosticReportPending,
 		isDiagnosticReportSent,
@@ -2151,6 +2200,7 @@ export function useSpaceLandingController(input: {
 		if (
 			!canStartSpaceComposerSend({
 				allowedToPost:
+					currentProfileIsActiveSpaceMember &&
 					statusSnapshot?.allowedActions.includes("post_message") === true,
 				isInFlight: composerSendInFlightRef.current,
 				statusReady,

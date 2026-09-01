@@ -813,6 +813,15 @@ controller conversation identifiers, local paths, or other owner diagnostics.
 This projection belongs in the existing Profile Details surface, not a separate
 status product.
 
+The non-owner readiness projection keeps the public four-state Wakeability
+status and may additionally name one exact, structured `usage_exhausted` fact
+as **Usage Limit reached**. That fact helps teammates avoid assigning work that
+cannot start. It is a narrow allowlist exception, not provider-account access:
+the projection still omits provider and account identity, Computer and Space
+details, route and Binding evidence, controller and conversation identity, task
+content, raw errors, and every owner recovery action. Every other blocking
+reason remains the generic public Wakeability state.
+
 An owner read may request up to 100 Profiles and each Profile may expose one
 current plus 50 queued work references. Runtime Transport reads those Durable
 Object records in explicit batches of at most 128 keys and runs at most four

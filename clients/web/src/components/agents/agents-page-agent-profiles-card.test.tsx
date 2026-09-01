@@ -12,6 +12,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,6 +33,7 @@ import {
 const AGENT_PROFILE_ID = "agt-codex";
 const CREATE_AN_AGENT_PROFILE_NAME = /Create an Agent/;
 const PERMISSIONS_MODE_NAME_PATTERN = /permissions mode/i;
+const REPAIR_OR_RECONNECT_ACTION_NAME_PATTERN = /repair|reconnect/i;
 const WAKE_ACCESS_LABEL_PATTERN = /Wake access:/i;
 const ORGANIZATION_WAKE_ACCESS_SWITCH_PATTERN = /organization.*Wake access/i;
 
@@ -374,6 +376,56 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
+	it("puts owner operational context first and collapses technical details", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Launch planning",
+							queuedWorkLocations: ["Customer follow-up"],
+							recoveryAction: null,
+							status: "working",
+							waitingCount: 1,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		expect(
+			await screen.findByRole("heading", { name: "Operational context" })
+		).toBeTruthy();
+		const workStatus = screen.getByTestId("agent-profile-operational-status");
+		expect(workStatus.getAttribute("data-agent-work-status")).toBe("working");
+		expect(within(workStatus).getByText("Working").className).toContain(
+			"shimmer-text"
+		);
+		expect(screen.getByText("Current: Launch planning")).toBeTruthy();
+		expect(screen.getByText("1 queued")).toBeTruthy();
+		expect(screen.getByText("Wakeability")).toBeTruthy();
+		expect(screen.getByText("Usage")).toBeTruthy();
+		expect(screen.getByText("Settings timing")).toBeTruthy();
+		expect(screen.getAllByText("Not reported")).toHaveLength(2);
+
+		const technicalDetails = screen.getByTestId(
+			"profile-technical-details"
+		) as HTMLDetailsElement;
+		expect(technicalDetails.open).toBe(false);
+		expect(
+			within(technicalDetails).getByText("Technical details")
+		).toBeTruthy();
+		expect(
+			within(technicalDetails).getByText("Agent Controller Permission Mode")
+		).toBeTruthy();
+		expect(screen.queryByText("Activity")).toBeNull();
+		expect(screen.queryByText("Wake availability")).toBeNull();
+	});
+
 	it("shows the Coordinator workload summary and owner-only work locations in Profile Details", () => {
 		renderAgentProfilesCard(
 			{},
@@ -601,7 +653,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 	});
 
-	it("redacts owner-only diagnostics from a teammate Agent detail", async () => {
+	it("shows only team-safe workload and Usage in a teammate Agent detail", async () => {
 		const baseBinding = createPrimaryBindingResponse(
 			"codex:approveForMe",
 			"builtin:codex",
@@ -616,11 +668,40 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		};
 		const readiness = {
 			...createReadinessResponseWithPrimaryBinding(primaryBinding),
-			runtimeDeviceDisplayName: "Mira's MacBook Pro",
+			agentControllerRef: null,
+			agentWakeAvailability: {
+				action: "none",
+				badgeLabel: "Unavailable",
+				category: "unavailable",
+				isRefreshing: false,
+				label: "Unavailable for Wake",
+				phase: "unavailable",
+				reasonCode: "usage_exhausted",
+				status: "unavailable_for_wake",
+				summary: "This Agent is unavailable for Wake.",
+				tooltip: "Unavailable for Wake",
+			},
+			ownerUserId: null,
+			primaryActionPlan: { action: "none", target: null },
+			primaryBinding: null,
+			profileName: null,
+			runtimeDeviceDisplayName: null,
 		} as unknown as GetAgentExecutionReadinessResponse;
-		renderAgentProfilesCard({}, primaryBinding, {
+		renderAgentProfilesCard({}, null, {
 			agentExecutionReadinessByProfileId: new Map([
 				[AGENT_PROFILE_ID, readiness],
+			]),
+			agentProfileOperationalContextByProfileId: new Map([
+				[
+					AGENT_PROFILE_ID,
+					{
+						currentWorkLocation: "Private Space",
+						queuedWorkLocations: ["Private task"],
+						recoveryAction: { kind: "skip_interrupted_work" },
+						status: "working",
+						waitingCount: 2,
+					},
+				],
 			]),
 			canManageProfile: () => false,
 			presentation: "detail",
@@ -631,14 +712,68 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Direct Message" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Edit Agent" })).toBeNull();
+		expect(
+			screen.getByRole("heading", { name: "Operational context" })
+		).toBeTruthy();
+		expect(screen.getByText("Working")).toBeTruthy();
+		expect(screen.getByText("2 queued")).toBeTruthy();
+		expect(screen.getByText("Usage")).toBeTruthy();
+		expect(screen.getByText("Exhausted")).toBeTruthy();
+		expect(screen.queryByText("Settings timing")).toBeNull();
+		expect(screen.queryByText("Private Space")).toBeNull();
+		expect(screen.queryByText("Private task")).toBeNull();
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("Computer")).toBeNull();
 		expect(screen.queryByText("Model")).toBeNull();
 		expect(screen.queryByText("Binding state")).toBeNull();
 		expect(screen.queryByText("GPT-5.5 · High")).toBeNull();
+		expect(screen.queryByText("No Controller connected")).toBeNull();
 		await waitFor(() => {
 			expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
 		});
+	});
+
+	it("does not turn team-safe null Binding readiness into an owner setup or repair action", async () => {
+		const privateBinding =
+			createPrimaryBindingResponse("codex:approveForMe").binding;
+		const ownerReadiness = createReadinessResponseWithPrimaryBinding(
+			privateBinding
+		) as unknown as GetAgentExecutionReadinessResponse;
+		const teamSafeReadiness = {
+			...ownerReadiness,
+			agentControllerRef: null,
+			agentExecutionReadiness: {
+				...ownerReadiness.agentExecutionReadiness,
+				primaryAction: "none",
+				reasonCodes: [],
+			},
+			agentWakeAvailability: {
+				...ownerReadiness.agentWakeAvailability,
+				action: "none",
+				phase: "unavailable",
+				reasonCode: null,
+			},
+			ownerUserId: null,
+			primaryActionPlan: { action: "none", target: null },
+			primaryBinding: null,
+			profileName: null,
+		} as GetAgentExecutionReadinessResponse;
+
+		const { container } = renderAgentProfilesCard({}, null, {
+			agentExecutionReadinessByProfileId: new Map([
+				[AGENT_PROFILE_ID, teamSafeReadiness],
+			]),
+			canManageProfile: () => false,
+			presentation: "detail",
+		});
+
+		expect(await screen.findByText("Research Agent")).toBeTruthy();
+		expect(container.querySelector('a[href="/app/connect"]')).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: REPAIR_OR_RECONNECT_ACTION_NAME_PATTERN,
+			})
+		).toBeNull();
 	});
 
 	it("keeps a readiness failure and its diagnostic visible in detail", async () => {

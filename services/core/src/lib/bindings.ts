@@ -143,6 +143,7 @@ type CoreAuthDispatchBindingRpc = {
           profileKind: "human" | "agent" | "system";
           status: "active" | "disabled";
           ownerUserId: string;
+          organizationId?: string | null;
           defaultProjectId?: string | null;
         };
       }

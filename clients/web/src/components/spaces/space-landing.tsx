@@ -77,7 +77,10 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { buildProfileRequestContext } from "#/lib/profiles/human-profiles";
 import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
-import { listActiveProfilesByKind } from "#/lib/profiles/profiles";
+import {
+	findActiveProfileById,
+	listActiveProfilesByKind,
+} from "#/lib/profiles/profiles";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import {
@@ -1500,9 +1503,36 @@ function SpaceLandingReady({
 				open={membersOpen}
 			/>
 		);
-	const currentProfileName = resolveCurrentSpaceProfileName({
+	const currentHumanViewer = resolveCurrentSpaceHumanViewer({
+		accountProfiles,
 		currentProfileId: controller.profileId,
-		snapshot: controller.membersSnapshot,
+		membersSnapshot: controller.membersSnapshot,
+	});
+	const currentProfileIsActiveSpaceMember =
+		controller.currentProfileMembershipState === "member";
+	const currentProfileName = currentHumanViewer.profileName;
+	const humanJoinControl = (
+		<SpaceHumanJoinControl
+			humanProfile={currentHumanViewer.humanProfile}
+			isActiveSpaceMember={currentProfileIsActiveSpaceMember}
+			isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
+			isDirectMessage={isDirectMessage}
+			membersSnapshot={controller.membersSnapshot}
+			onJoin={async (profileId) => {
+				await handleAddProfiles([profileId]);
+			}}
+		/>
+	);
+	const managementControl = (
+		<>
+			{currentSpaceControls.managementControl}
+			{humanJoinControl}
+		</>
+	);
+	const currentProfileLeaveAction = resolveCurrentProfileLeaveAction({
+		isAccessConfirmed: controller.isCurrentAccessConfirmed,
+		isActiveSpaceMember: currentProfileIsActiveSpaceMember,
+		onLeaveSpace: controller.onLeaveSpace,
 	});
 	const agentDirectConversationKind = resolveAgentDirectConversationKind(
 		controller.status
@@ -1594,7 +1624,7 @@ function SpaceLandingReady({
 						leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
 						liveErrorMessage={controller.liveErrorMessage}
 						liveState={controller.liveState}
-						managementControl={currentSpaceControls.managementControl}
+						managementControl={managementControl}
 						membersControl={membersControl}
 						menuItems={
 							currentSpaceIsCenterAgentDirectMessage
@@ -1603,11 +1633,7 @@ function SpaceLandingReady({
 						}
 						menuLabel="Center Agent menu"
 						onDeleteSpace={controller.onDeleteSpace}
-						onLeaveSpace={
-							controller.isCurrentAccessConfirmed
-								? controller.onLeaveSpace
-								: undefined
-						}
+						onLeaveSpace={currentProfileLeaveAction}
 						onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
 						onSetAccessMode={controller.onSetAccessMode}
 						onUpdateSpaceName={controller.onUpdateSpaceName}
@@ -1662,6 +1688,10 @@ function SpaceLandingReady({
 						agentDirectConversationKind={agentDirectConversationKind}
 						composerProfileControl={composerProfileControl}
 						controller={controller}
+						currentProfileIsActiveSpaceMember={
+							currentProfileIsActiveSpaceMember
+						}
+						currentProfileName={currentProfileName}
 						currentSpaceControls={currentSpaceControls}
 						editableAgentProfileIds={
 							pendingAgentActions.editableAgentProfileIds
@@ -1684,6 +1714,9 @@ function SpaceLandingReady({
 							agentProfileEditContext={agentProfileEditContext}
 							composerProfileControl={composerProfileControl}
 							controller={controller}
+							currentProfileIsActiveSpaceMember={
+								currentProfileIsActiveSpaceMember
+							}
 							currentSpaceControls={currentSpaceControls}
 							editableAgentProfileIds={
 								pendingAgentActions.editableAgentProfileIds
@@ -1731,6 +1764,8 @@ function SpaceLandingConversation({
 	agentDirectConversationKind,
 	composerProfileControl,
 	controller,
+	currentProfileIsActiveSpaceMember,
+	currentProfileName,
 	currentSpaceControls,
 	editableAgentProfileIds,
 	historyErrorMessage,
@@ -1745,6 +1780,8 @@ function SpaceLandingConversation({
 	>;
 	composerProfileControl: ReactNode;
 	controller: ReadySpaceLandingController;
+	currentProfileIsActiveSpaceMember: boolean;
+	currentProfileName: string | null;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
 	editableAgentProfileIds: ReadonlySet<string>;
 	historyErrorMessage: string | null;
@@ -1859,8 +1896,17 @@ function SpaceLandingConversation({
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
-			readOnly={!controller.isCurrentAccessConfirmed}
-			readOnlyComposerPlaceholder="Write a message while OpenMeld checks access…"
+			readOnly={
+				!(
+					controller.isCurrentAccessConfirmed &&
+					currentProfileIsActiveSpaceMember
+				)
+			}
+			readOnlyComposerPlaceholder={
+				controller.isCurrentAccessConfirmed
+					? `Join as ${currentProfileName ?? "your Human Profile"} to participate in this Space.`
+					: "Write a message while OpenMeld checks access…"
+			}
 			renderSetupGuidance={(presentation) =>
 				controller.isCurrentAccessConfirmed ? (
 					<SpaceConversationRecoveryBanner
@@ -1902,11 +1948,115 @@ function SpaceLandingConversation({
 	);
 }
 
+function SpaceHumanJoinControl(input: {
+	humanProfile: AuthProfileView | null;
+	isActiveSpaceMember: boolean;
+	isCenterAgentDirectMessage: boolean;
+	isDirectMessage: boolean;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	onJoin: (profileId: string) => Promise<void>;
+}) {
+	const humanProfile = input.humanProfile;
+	if (
+		!(input.membersSnapshot && humanProfile) ||
+		input.isActiveSpaceMember ||
+		input.isDirectMessage ||
+		input.isCenterAgentDirectMessage
+	) {
+		return null;
+	}
+
+	return (
+		<SpaceHumanJoinAction
+			onJoin={async () => {
+				await input.onJoin(humanProfile.openMeldProfileId);
+			}}
+			profileName={humanProfile.profileName}
+		/>
+	);
+}
+
+function resolveCurrentSpaceHumanViewer(input: {
+	accountProfiles: readonly AuthProfileView[];
+	currentProfileId: string;
+	membersSnapshot: SpaceMembersSnapshot | null;
+}): {
+	humanProfile: AuthProfileView | null;
+	profileName: string | null;
+} {
+	const humanProfile = findActiveProfileById(input.accountProfiles, {
+		profileId: input.currentProfileId,
+		profileKind: "human",
+	});
+	return {
+		humanProfile,
+		profileName:
+			resolveCurrentSpaceProfileName({
+				currentProfileId: input.currentProfileId,
+				snapshot: input.membersSnapshot,
+			}) ??
+			humanProfile?.profileName ??
+			null,
+	};
+}
+
+function resolveCurrentProfileLeaveAction(input: {
+	isAccessConfirmed: boolean;
+	isActiveSpaceMember: boolean;
+	onLeaveSpace: () => Promise<void>;
+}): (() => Promise<void>) | undefined {
+	return input.isAccessConfirmed && input.isActiveSpaceMember
+		? input.onLeaveSpace
+		: undefined;
+}
+
+function SpaceHumanJoinAction(input: {
+	onJoin: () => Promise<void>;
+	profileName: string;
+}) {
+	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [isPending, setIsPending] = useState(false);
+	const profileName = input.profileName.trim() || "your Human Profile";
+
+	return (
+		<div className="flex min-w-0 flex-col items-end gap-1">
+			<Button
+				disabled={isPending}
+				onClick={() => {
+					setIsPending(true);
+					setErrorMessage(null);
+					input
+						.onJoin()
+						.catch(() => {
+							setErrorMessage("Unable to join this Space. Try again.");
+						})
+						.finally(() => {
+							setIsPending(false);
+						});
+				}}
+				size="sm"
+				type="button"
+			>
+				{isPending ? "Joining…" : `Join as ${profileName}`}
+			</Button>
+			{errorMessage ? (
+				<p
+					className="max-w-64 text-right text-destructive text-xs"
+					role="alert"
+				>
+					{errorMessage}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
 function SpaceLandingSecondaryPanels({
 	agentDirectConversationKind,
 	agentProfileEditContext,
 	composerProfileControl,
 	controller,
+	currentProfileIsActiveSpaceMember,
 	currentSpaceControls,
 	editableAgentProfileIds,
 	input,
@@ -1923,6 +2073,7 @@ function SpaceLandingSecondaryPanels({
 	>;
 	composerProfileControl: ReactNode;
 	controller: ReadySpaceLandingController;
+	currentProfileIsActiveSpaceMember: boolean;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
 	editableAgentProfileIds: ReadonlySet<string>;
 	input: SpaceLandingInput;
@@ -2043,6 +2194,7 @@ function SpaceLandingSecondaryPanels({
 				pendingActionSurface={pendingActionSurface}
 				prepareSetupHref={prepareSetupHref}
 				profileControl={composerProfileControl}
+				readOnly={!currentProfileIsActiveSpaceMember}
 				selfAvatarImageUrl={currentUserAvatarImageUrl}
 				selfProfileId={controller.profileId}
 				signals={controller.threadSignals}

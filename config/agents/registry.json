@@ -230,7 +230,8 @@
         "status": "active"
       },
       "originLaunch": {
-        "commandTemplate": "cd {workingDirectory} && codex resume -m {model} {agentControllerConversationId}"
+        "commandTemplate": "cd {workingDirectory} && codex resume -m {model} {agentControllerConversationId}",
+        "unselectedModelCommandTemplate": "cd {workingDirectory} && codex resume {agentControllerConversationId}"
       },
       "notes": "Primary runnable agent in current environment.",
       "transportModes": ["codex-app-server"],

@@ -6,7 +6,7 @@ describe("model catalog config", () => {
   it("reads the repo-owned release catalog without touching runtime state", () => {
     const catalog = readModelCatalog();
 
-    expect(catalog.agentControllers.codex?.defaultModelId).toBe("gpt-5.5");
+    expect(catalog.agentControllers.codex?.defaultModelId).toBe("gpt-5.6-sol");
     expect(catalog.agentControllers["claude-code"]?.defaultModelId).toBe(
       "claude-opus-4-8"
     );
@@ -41,7 +41,7 @@ describe("model catalog config", () => {
       schemaVersion: 1,
       agentControllers: {
         codex: {
-          defaultModelId: "gpt-5.5",
+          defaultModelId: "gpt-5.6-sol",
         },
         cursor: {
           defaultModelId: "default[]",
@@ -57,7 +57,12 @@ describe("model catalog config", () => {
     expect(
       catalog.agentControllers.codex?.models.map((model) => model.id)
     ).toEqual(
-      expect.arrayContaining(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
+      expect.arrayContaining([
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+      ])
     );
     expect(
       catalog.agentControllers["claude-code"]?.models.map((model) => model.id)

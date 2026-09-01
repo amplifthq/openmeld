@@ -674,6 +674,15 @@ process looks like Codex but no reliable thread ID is present, the command must
 fail closed with a clear next action instead of pretending to bind an unknown
 thread.
 
+`add-me` accepts `--model <model>` and optional `--reasoning-effort <level>`
+for the detected Agent Profile. These flags write through the existing primary
+Binding model-selection contract for both newly created and reused Bindings;
+`--reasoning-effort` without `--model` fails before Binding or membership
+mutation.
+When the flags are omitted, `add-me` does not create an implicit explicit
+selection. In particular, an existing Codex thread keeps its current model and
+reasoning settings instead of being rewritten to the catalog default.
+
 The canonical workspace term in CLI copy for this flow is `Project folder`.
 The primary option is `--project-folder <path>`. `--workspace-path`,
 `--working-directory`, and `--cwd` are accepted aliases for agent convenience,

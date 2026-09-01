@@ -29,6 +29,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@openmeld/ui/components/dialog";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { Switch } from "@openmeld/ui/components/switch";
 import {
@@ -86,7 +87,10 @@ import { useCurrentOrganizationSlug } from "#/lib/organizations/organization-con
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import { startQueryKeys } from "#/query/query-keys";
 import { resolveAgentsPageFocusedSurfaceClassName } from "./agents-page-agent-profile-helpers";
-import { formatComputerReplyReadinessDescription } from "./agents-page-computer";
+import {
+	formatComputerReplyReadinessDescription,
+	resolveCurrentExecutionTarget,
+} from "./agents-page-computer";
 import {
 	createExecutionTargetKey,
 	formatExecutionTargetStatus,
@@ -547,6 +551,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 				currentLocalRuntimeReplyReadiness={
 					input.currentLocalRuntimeReplyReadiness
 				}
+				executionTarget={resolveCurrentExecutionTarget(input.computer)}
 				expectedServiceVersion={input.currentExpectedServiceVersion}
 				isCheckingStatus={isCheckingStatus}
 				isSavingAutomaticUpdates={isSavingAutomaticUpdates}
@@ -786,6 +791,7 @@ function ReadOnlyRuntimeTargetList(input: {
 
 function CurrentLocalRuntimeServiceFacts(input: {
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
+	executionTarget: LocalRuntimeExecutionTarget | null;
 	expectedServiceVersion: string | null;
 	isCheckingStatus: boolean;
 	isSavingAutomaticUpdates: boolean;
@@ -839,6 +845,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		input.setupCompleteRefreshPending && requiredServiceUpdate;
 	const computerSummaryStatus = resolveCurrentLocalRuntimeComputerSummaryStatus(
 		{
+			executionTarget: input.executionTarget,
 			readiness: input.currentLocalRuntimeReplyReadiness,
 		}
 	);
@@ -902,6 +909,12 @@ function CurrentLocalRuntimeServiceFacts(input: {
 								resolveOpenMeldServiceStatusDotClassName(display.tone)
 							)}
 						/>
+						{computerSummaryStatus?.localAgent ? (
+							<LocalAgentLogo
+								agentId={computerSummaryStatus.localAgent.agentId}
+								size="xs"
+							/>
+						) : null}
 						{display.statusLabel}
 					</p>
 					<p

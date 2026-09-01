@@ -10,6 +10,9 @@ import {
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const SPACE_ID = "a".repeat(64);
 const TARGET_WAKE_LIFECYCLE_ID = "twl_interrupted";
+type ResolveProfileByIdRpc = NonNullable<
+  NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>["resolveProfileById"]
+>;
 const CONTEXT: OpenMeldRequestContext = {
   activeOrganizationId: "org-1",
   actorContext: {
@@ -85,6 +88,47 @@ describe("Agent Profile work recovery Core RPC", () => {
     }
   });
 
+  it("fails closed before reading recovery state when Auth omits Organization scope", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub();
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({
+            authResolveProfileById: vi.fn(async () => ({
+              ok: true as const,
+              profile: {
+                ownerUserId: "owner-1",
+                profileHandle: "agent-one",
+                profileId: AGENT_PROFILE_ID,
+                profileKind: "agent" as const,
+                profileName: "Agent One",
+                status: "active" as const,
+              },
+            })),
+            db: harness.db,
+            runtimeTransportStub,
+          }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: { action: "approve_queued_work" },
+            context: CONTEXT,
+          }
+        )
+      ).rejects.toMatchObject({
+        cause: {
+          code: "agent_profile.unavailable",
+          status: 503,
+        },
+      });
+      expect(
+        runtimeTransportStub.rpcReadAgentProfileWorkRecovery
+      ).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it.each([
     {
       bodyAction: "approve_queued_work" as const,
@@ -126,12 +170,18 @@ describe("Agent Profile work recovery Core RPC", () => {
     }
   });
 
-  it("approves queued work through the owner Hub", async () => {
+  it("approves queued work from Auth scope despite a conflicting Core profile row", async () => {
     const harness = createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       recovery: buildAvailableRecovery({ action: "approve_queued_work" }),
     });
     try {
+      harness.run({
+        params: ["org-stale", "stale-owner", AGENT_PROFILE_ID],
+        sql: `UPDATE openmeld_profiles
+          SET organization_id = ?, owner_user_id = ?
+          WHERE profile_id = ?`,
+      });
       await expect(
         rpcExecuteAgentProfileWorkRecovery(
           createEnv({ db: harness.db, runtimeTransportStub }),
@@ -529,23 +579,27 @@ function createRuntimeTransportStub(input?: {
 }
 
 function createEnv(input: {
+  authResolveProfileById?: ResolveProfileByIdRpc;
   db: D1Database;
   runtimeTransportStub: ReturnType<typeof createRuntimeTransportStub>;
   spaceStub?: Record<string, unknown>;
 }): CoreBindings {
   return {
     OPENMELD_AUTH_WORKER: {
-      resolveProfileById: vi.fn(async () => ({
-        ok: true as const,
-        profile: {
-          ownerUserId: "owner-1",
-          profileHandle: "agent-one",
-          profileId: AGENT_PROFILE_ID,
-          profileKind: "agent" as const,
-          profileName: "Agent One",
-          status: "active" as const,
-        },
-      })),
+      resolveProfileById:
+        input.authResolveProfileById ??
+        vi.fn(async () => ({
+          ok: true as const,
+          profile: {
+            organizationId: "org-1",
+            ownerUserId: "owner-1",
+            profileHandle: "agent-one",
+            profileId: AGENT_PROFILE_ID,
+            profileKind: "agent" as const,
+            profileName: "Agent One",
+            status: "active" as const,
+          },
+        })),
     },
     OPENMELD_DB: input.db,
     OPENMELD_RUNTIME_TRANSPORT: {

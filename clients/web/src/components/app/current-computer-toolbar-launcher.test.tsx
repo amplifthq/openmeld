@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CurrentComputerToolbarLauncher } from "./current-computer-toolbar-launcher";
@@ -7,6 +7,14 @@ const useLocalRuntimeQueriesMock = vi.hoisted(() => vi.fn());
 const useOptionalAppOrganizationMock = vi.hoisted(() => vi.fn());
 const useStartFlowStateMock = vi.hoisted(() => vi.fn());
 const statusMock = vi.hoisted(() => vi.fn());
+const displaySnapshotQueryMock = vi.hoisted(() => vi.fn());
+const queryClientMock = vi.hoisted(() => ({ setQueryData: vi.fn() }));
+
+vi.mock("@tanstack/react-query", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tanstack/react-query")>()),
+	useQuery: displaySnapshotQueryMock,
+	useQueryClient: () => queryClientMock,
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to, ...props }: { children?: ReactNode; to: string }) => (
@@ -71,6 +79,8 @@ describe("CurrentComputerToolbarLauncher", () => {
 			.mockReset()
 			.mockReturnValue({ storageScope: "user-current" });
 		statusMock.mockReset().mockReturnValue(null);
+		displaySnapshotQueryMock.mockReset().mockReturnValue({ data: undefined });
+		queryClientMock.setQueryData.mockReset();
 		useLocalRuntimeQueriesMock.mockReset().mockReturnValue(
 			buildRuntimeQueries({
 				currentDeviceId: "device-current",
@@ -138,17 +148,43 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(screen.getByLabelText("Checking this Computer")).toBeTruthy();
 	});
 
-	it("does not offer setup when Computer inventory is unavailable", () => {
+	it("restores Computer attention while inventory reloads after a refresh", () => {
+		displaySnapshotQueryMock.mockReturnValue({
+			data: {
+				currentComputer: {
+					attention: {
+						reason: "agent_check_failed",
+						tone: "warning",
+					},
+					deviceId: "device-current",
+				},
+				version: 1,
+			},
+		});
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({ inventoryState: "pending" })
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(screen.getByTestId("current-computer-toolbar-status")).toBeTruthy();
+		expect(screen.getByLabelText("Computer, Couldn't check")).toBeTruthy();
+	});
+
+	it("opens Computers when Computer inventory cannot be loaded", () => {
 		useLocalRuntimeQueriesMock.mockReturnValue(
 			buildRuntimeQueries({ inventoryState: "failed" })
 		);
 
 		render(<CurrentComputerToolbarLauncher />);
 
-		expect(
-			screen.queryByRole("link", { name: "Connect this Computer" })
-		).toBeNull();
-		expect(screen.getByLabelText("Computer status unavailable")).toBeTruthy();
+		const launcher = screen.getByRole("link", {
+			name: "Open Computers; couldn’t load Computer status",
+		});
+		expect(launcher.getAttribute("href")).toBe("/o/acme/computers");
+		expect(screen.getByTestId("toolbar-tooltip").textContent).toContain(
+			"Couldn’t load Computer status"
+		);
 	});
 
 	it("ignores cached readiness for a Computer that is no longer in inventory", () => {
@@ -196,27 +232,19 @@ describe("CurrentComputerToolbarLauncher", () => {
 			"/o/acme/computers/device-current"
 		);
 		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget: null,
 			isReconcilingStatus: false,
 			readiness: null,
 		});
 	});
 
-	it("does not present cached ready status while current liveness is reconciling", () => {
-		statusMock.mockImplementation((input: { isReconcilingStatus: boolean }) =>
-			input.isReconcilingStatus
-				? {
-						label: "Checking OpenMeld Tools status",
-						reason: "checking",
-						showLabel: true,
-						tone: "checking",
-					}
-				: {
-						label: "OpenMeld Tools are ready",
-						reason: "ready",
-						showLabel: false,
-						tone: "ready",
-					}
-		);
+	it("keeps cached ready status while liveness refreshes in the background", () => {
+		statusMock.mockReturnValue({
+			label: "OpenMeld Tools are ready",
+			reason: "ready",
+			showLabel: false,
+			tone: "ready",
+		});
 		useLocalRuntimeQueriesMock.mockReturnValue(
 			buildRuntimeQueries({
 				currentDeviceId: "device-current",
@@ -230,15 +258,215 @@ describe("CurrentComputerToolbarLauncher", () => {
 
 		expect(
 			screen.getByRole("link", {
-				name: "Open Felix's MacBook Pro details, Checking OpenMeld Tools status",
+				name: "Open Felix's MacBook Pro details, OpenMeld Tools are ready",
 			})
 		).toBeTruthy();
+		expect(screen.queryByTestId("current-computer-toolbar-status")).toBeNull();
 		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget: null,
 			isReconcilingStatus: true,
 			readiness: {
 				deviceId: "device-current",
 				service: { connected: true },
 			},
+		});
+	});
+
+	it("uses the selected Computer execution target for status guidance", () => {
+		const executionTarget = {
+			isCurrent: true,
+			runtimeLane: "dev-local",
+		};
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Felix's MacBook Pro",
+				executionTargets: [executionTarget],
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget,
+			isReconcilingStatus: false,
+			readiness: null,
+		});
+	});
+
+	it("keeps warning attention visible while status refreshes in the background", () => {
+		statusMock.mockReturnValue({
+			label: "Couldn't check",
+			reason: "agent_check_failed",
+			showLabel: true,
+			tone: "warning",
+		});
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Felix's MacBook Pro",
+				readinessDeviceId: "device-current",
+				readinessIsFetching: true,
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(screen.getByTestId("current-computer-toolbar-status")).toBeTruthy();
+		expect(
+			screen.getByRole("link", {
+				name: "Open Felix's MacBook Pro details, Couldn't check",
+			})
+		).toBeTruthy();
+		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget: null,
+			isReconcilingStatus: true,
+			readiness: {
+				deviceId: "device-current",
+				service: { connected: true },
+			},
+		});
+	});
+
+	it("uses restored attention until the current Computer readiness arrives", () => {
+		displaySnapshotQueryMock.mockReturnValue({
+			data: {
+				currentComputer: {
+					attention: {
+						reason: "agent_check_failed",
+						tone: "warning",
+					},
+					deviceId: "device-current",
+				},
+				version: 1,
+			},
+		});
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Felix's MacBook Pro",
+				readinessIsFetching: true,
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(screen.getByTestId("current-computer-toolbar-status")).toBeTruthy();
+		expect(
+			screen.getByRole("link", {
+				name: "Open Felix's MacBook Pro details, Couldn't check",
+			})
+		).toBeTruthy();
+	});
+
+	it("does not apply restored attention to a different current Computer", () => {
+		displaySnapshotQueryMock.mockReturnValue({
+			data: {
+				currentComputer: {
+					attention: {
+						reason: "agent_check_failed",
+						tone: "warning",
+					},
+					deviceId: "device-previous",
+				},
+				version: 1,
+			},
+		});
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Current MacBook Pro",
+				readinessIsFetching: true,
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(screen.queryByTestId("current-computer-toolbar-status")).toBeNull();
+		expect(
+			screen.getByRole("link", {
+				name: "Open Current MacBook Pro details, Status unavailable",
+			})
+		).toBeTruthy();
+	});
+
+	it("stores only the coarse attention snapshot after live readiness resolves", async () => {
+		statusMock.mockReturnValue({
+			label: "Couldn't check",
+			reason: "agent_check_failed",
+			showLabel: true,
+			tone: "warning",
+		});
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Felix's MacBook Pro",
+				readinessDeviceId: "device-current",
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		await waitFor(() =>
+			expect(queryClientMock.setQueryData).toHaveBeenCalled()
+		);
+		const updater = queryClientMock.setQueryData.mock.calls[0]?.[1] as (
+			current: undefined
+		) => unknown;
+		expect(updater(undefined)).toEqual({
+			currentComputer: {
+				attention: {
+					reason: "agent_check_failed",
+					tone: "warning",
+				},
+				deviceId: "device-current",
+			},
+			version: 1,
+		});
+	});
+
+	it("clears restored attention after live readiness becomes healthy", async () => {
+		displaySnapshotQueryMock.mockReturnValue({
+			data: {
+				currentComputer: {
+					attention: {
+						reason: "agent_check_failed",
+						tone: "warning",
+					},
+					deviceId: "device-current",
+				},
+				version: 1,
+			},
+		});
+		statusMock.mockReturnValue({
+			label: "OpenMeld Tools are ready",
+			reason: "ready",
+			showLabel: false,
+			tone: "ready",
+		});
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Felix's MacBook Pro",
+				readinessDeviceId: "device-current",
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(screen.queryByTestId("current-computer-toolbar-status")).toBeNull();
+		await waitFor(() =>
+			expect(queryClientMock.setQueryData).toHaveBeenCalled()
+		);
+		const updater = queryClientMock.setQueryData.mock.calls[0]?.[1] as (
+			current: undefined
+		) => unknown;
+		expect(updater(undefined)).toEqual({
+			currentComputer: {
+				attention: null,
+				deviceId: "device-current",
+			},
+			version: 1,
 		});
 	});
 
@@ -267,12 +495,32 @@ describe("CurrentComputerToolbarLauncher", () => {
 			})
 		).toBeTruthy();
 		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget: null,
 			isReconcilingStatus: false,
 			readiness: {
 				deviceId: "device-current",
 				service: { connected: false },
 			},
 		});
+	});
+
+	it("pairs an exact local-agent status with its icon and accessible text", () => {
+		statusMock.mockReturnValue({
+			label: "Sign in to Claude Code",
+			localAgent: { agentId: "claude-code", displayName: "Claude Code" },
+			reason: "agent_sign_in_needed",
+			showLabel: true,
+			tone: "muted",
+		});
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(screen.getByTestId("local-agent-logo-claude-code")).toBeTruthy();
+		expect(
+			screen.getByRole("link", {
+				name: "Open Felix's MacBook Pro details, Sign in to Claude Code",
+			})
+		).toBeTruthy();
 	});
 
 	it("stays hidden before the app shell has an Organization context", () => {
@@ -289,6 +537,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 function buildRuntimeQueries(input: {
 	currentDeviceId?: string;
 	deviceDisplayName?: string;
+	executionTargets?: Array<{ isCurrent: boolean; runtimeLane: string }>;
 	inventoryState?: "failed" | "pending" | "ready";
 	readinessDeviceId?: string;
 	readinessIsFetching?: boolean;
@@ -300,6 +549,7 @@ function buildRuntimeQueries(input: {
 				{
 					deviceDisplayName: input.deviceDisplayName,
 					deviceId: input.currentDeviceId,
+					executionTargets: input.executionTargets ?? [],
 					isCurrent: true,
 				},
 			]
@@ -315,7 +565,10 @@ function buildRuntimeQueries(input: {
 					}
 				: null,
 			isFetchedAfterMount: true,
+			isError: false,
 			isFetching: input.readinessIsFetching ?? false,
+			isPending:
+				(input.readinessIsFetching ?? false) && !input.readinessDeviceId,
 		},
 		localRuntimesQuery: {
 			data:

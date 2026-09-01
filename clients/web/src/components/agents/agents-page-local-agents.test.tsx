@@ -721,7 +721,7 @@ describe("LocalAgentsCard", () => {
 		).toBeNull();
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		const row = screen.getByTestId("settings-local-agent-row-openclaw");
-		const setupLabel = within(row).getByText("Error");
+		const setupLabel = within(row).getByText("Can’t start");
 		expect(setupLabel.getAttribute("data-slot")).not.toBe("badge");
 		expect(setupLabel.className).toContain("text-destructive");
 		fireEvent.click(
@@ -729,7 +729,7 @@ describe("LocalAgentsCard", () => {
 		);
 		expect(
 			within(screen.getByRole("dialog")).getByText(
-				"OpenMeld found OpenClaw, but couldn't confirm a working launch command."
+				"OpenMeld found OpenClaw, but can’t start it. Open Details to review the installation."
 			)
 		).toBeTruthy();
 	});
@@ -754,13 +754,13 @@ describe("LocalAgentsCard", () => {
 		).toBeNull();
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		const row = screen.getByTestId("settings-local-agent-row-openclaw");
-		expect(within(row).getByText("Error")).toBeTruthy();
+		expect(within(row).getByText("Can’t start")).toBeTruthy();
 		fireEvent.click(
 			within(row).getByRole("button", { name: "OpenClaw details" })
 		);
 		expect(
 			within(screen.getByRole("dialog")).getByText(
-				"OpenMeld found OpenClaw, but couldn't confirm a working launch command."
+				"OpenMeld found OpenClaw, but can’t start it. Open Details to review the installation."
 			)
 		).toBeTruthy();
 	});
@@ -1122,7 +1122,7 @@ describe("LocalAgentsCard", () => {
 		});
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
-		const setupLabel = within(row).getByText("Error");
+		const setupLabel = within(row).getByText("Needs attention");
 		expect(setupLabel.getAttribute("data-slot")).not.toBe("badge");
 		expect(setupLabel.className).toContain("text-destructive");
 		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
@@ -1228,6 +1228,10 @@ describe("LocalAgentsCard", () => {
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		expect(within(row).getByText("Not signed in")).toBeTruthy();
+		expect(within(row).getByText("v0.38.0")).toBeTruthy();
+		expect(
+			within(row).queryByText("Not authenticated", { exact: false })
+		).toBeNull();
 		expect(within(row).queryByText("Error")).toBeNull();
 		expect(
 			within(row)
@@ -1246,6 +1250,62 @@ describe("LocalAgentsCard", () => {
 				"Codex CLI is installed, but this computer is not signed in to Codex."
 			).length
 		).toBeGreaterThan(0);
+	});
+
+	it("explains how to copy and run a local agent update command", () => {
+		renderLocalAgentsCard({
+			agentControllerVersionAdvisory: {
+				checkedAt: "2026-06-28T12:01:00.000Z",
+				currentVersion: "0.38.0",
+				latestVersion: "0.39.0",
+				message: "Update available.",
+				status: "behind_latest",
+				updateCommand: "codex update",
+			},
+			includeAgentControllerInterface: true,
+			setEnabledSupported: true,
+		});
+
+		const row = screen.getByTestId("settings-local-agent-row-codex");
+		expect(within(row).getByText("Update available")).toBeTruthy();
+		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
+		const dialog = screen.getByRole("dialog");
+		expect(
+			within(dialog).getByText(
+				"A newer version of Codex is available: v0.39.0."
+			)
+		).toBeTruthy();
+		expect(
+			within(dialog).getByText(
+				"Copy this command. Then open a terminal on this computer, paste the command, and press Enter."
+			)
+		).toBeTruthy();
+		expect(within(dialog).getAllByText("codex update").length).toBeGreaterThan(
+			0
+		);
+		expect(
+			within(dialog).getByRole("button", { name: "Copy command" })
+		).toBeTruthy();
+	});
+
+	it("tells a beginner what installation choice is required", () => {
+		renderLocalAgentsCard({
+			openClawEnabled: true,
+			openClawLaunchStatus: "needs_choice",
+			openClawSelectable: true,
+			setEnabledSupported: true,
+		});
+
+		const row = screen.getByTestId("settings-local-agent-row-openclaw");
+		expect(within(row).getByText("Choose installation")).toBeTruthy();
+		fireEvent.click(
+			within(row).getByRole("button", { name: "OpenClaw details" })
+		);
+		expect(
+			within(screen.getByRole("dialog")).getByText(
+				"OpenMeld found more than one OpenClaw installation. Choose which one to use."
+			)
+		).toBeTruthy();
 	});
 
 	it("shows a teammate provider blocker as unavailable with a muted identity", () => {
@@ -1434,12 +1494,17 @@ function renderLocalAgentsCard(input: {
 	agentControllerCheck?: AgentControllerInterfaceSnapshot["check"];
 	agentControllerMessage?: string | null;
 	agentControllerStatus?: AgentControllerInterfaceSnapshot["status"];
+	agentControllerVersionAdvisory?: AgentControllerInterfaceSnapshot["versionAdvisory"];
 	usageLimits?: AgentControllerInterfaceSnapshot["usageLimits"];
 	codexEnabled?: boolean;
 	includeAgentControllerInterface?: boolean;
 	installChoiceCount?: number;
 	openClawEnabled?: boolean;
-	openClawLaunchStatus?: "ready" | "needs_repair" | "not_available";
+	openClawLaunchStatus?:
+		| "ready"
+		| "needs_choice"
+		| "needs_repair"
+		| "not_available";
 	openClawLifecycleStatus?: "active" | "suspended";
 	openClawSelectable?: boolean;
 	localAgentCatalogEntries?: LocalRuntimeExecutionTarget["localAgentCatalog"]["entries"];
@@ -1460,6 +1525,7 @@ function renderLocalAgentsCard(input: {
 		agentControllerCheck: input.agentControllerCheck,
 		agentControllerMessage: input.agentControllerMessage,
 		agentControllerStatus: input.agentControllerStatus,
+		agentControllerVersionAdvisory: input.agentControllerVersionAdvisory,
 		usageLimits: input.usageLimits,
 		codexEnabled: input.codexEnabled ?? true,
 		includeAgentControllerInterface: input.includeAgentControllerInterface,
@@ -1530,6 +1596,7 @@ function buildExecutionTarget(input: {
 	agentControllerCheck?: AgentControllerInterfaceSnapshot["check"];
 	agentControllerMessage?: string | null;
 	agentControllerStatus?: AgentControllerInterfaceSnapshot["status"];
+	agentControllerVersionAdvisory?: AgentControllerInterfaceSnapshot["versionAdvisory"];
 	usageLimits?: AgentControllerInterfaceSnapshot["usageLimits"];
 	codexEnabled: boolean;
 	includeAgentControllerInterface?: boolean;
@@ -1537,7 +1604,11 @@ function buildExecutionTarget(input: {
 	localAgentCatalogEntries?: LocalRuntimeExecutionTarget["localAgentCatalog"]["entries"];
 	manageInstallationsSupported?: boolean;
 	openClawEnabled?: boolean;
-	openClawLaunchStatus?: "ready" | "needs_repair" | "not_available";
+	openClawLaunchStatus?:
+		| "ready"
+		| "needs_choice"
+		| "needs_repair"
+		| "not_available";
 	openClawLifecycleStatus?: "active" | "suspended";
 	openClawSelectable?: boolean;
 	refreshCatalogSupported?: boolean;
@@ -1615,6 +1686,9 @@ function buildExecutionTarget(input: {
 							schemaVersion: 1,
 							skills: [],
 							status: input.agentControllerStatus ?? "ready",
+							...(input.agentControllerVersionAdvisory
+								? { versionAdvisory: input.agentControllerVersionAdvisory }
+								: {}),
 							...(input.usageLimits ? { usageLimits: input.usageLimits } : {}),
 							version: "0.38.0",
 						}

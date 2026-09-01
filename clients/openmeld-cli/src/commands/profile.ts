@@ -55,6 +55,10 @@ import {
   resolveCreateProfileName,
 } from "../profile/create-flow";
 import {
+  type NormalizedModelSelectionInput,
+  normalizeModelSelectionInput,
+} from "../profile/model-selection-input";
+import {
   ensureOpenMeldManagedProfileWorkspace,
   setCustomProfileWorkspace,
   setOpenMeldManagedProfileWorkspace,
@@ -671,10 +675,6 @@ type ProfileCreateLocalAgentSelectionResolution =
   | {
       status: "cancelled";
     };
-
-type NormalizedModelSelectionInput = ReturnType<
-  typeof normalizeModelSelectionInput
->;
 
 async function resolvePromptedProfileCreateLocalAgentSelection(input: {
   allowBackToCaller: boolean;
@@ -3276,31 +3276,6 @@ function normalizeWorkspaceModeInput(
     return normalized;
   }
   throw new Error("--workspace-mode must be openmeld-managed|custom");
-}
-
-function normalizeModelSelectionInput(input: {
-  model?: string;
-  reasoningEffort?: string;
-}): {
-  hasAnyModelSelectionInput: boolean;
-  modelId?: string;
-  reasoningLevel?: string;
-} {
-  const modelId = normalizeOptionalString(input.model);
-  const reasoningLevel = normalizeOptionalString(input.reasoningEffort);
-  if (!(modelId || reasoningLevel)) {
-    return {
-      hasAnyModelSelectionInput: false,
-    };
-  }
-  if (!modelId) {
-    throw new Error("--reasoning-effort requires --model.");
-  }
-  return {
-    hasAnyModelSelectionInput: true,
-    modelId,
-    ...(reasoningLevel ? { reasoningLevel } : {}),
-  };
 }
 
 async function ensureProfileCommandAuthenticationOrCancel(input: {

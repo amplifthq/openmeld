@@ -184,6 +184,19 @@ describe("Codex CLI transport args", () => {
     );
   });
 
+  it("preserves an existing thread when no model selection is present", () => {
+    const args = buildCodexExecArgs({
+      threadId: "thread-existing-model",
+    });
+
+    assert.equal(args.includes("-m"), false);
+    assert.equal(
+      args.some((arg) => arg.startsWith("model_reasoning_effort=")),
+      false
+    );
+    assert.deepEqual(args.slice(-2), ["thread-existing-model", "-"]);
+  });
+
   it("maps Agent Controller Permission Mode to exact Codex CLI args", () => {
     assert.deepEqual(
       buildCodexExecArgs({

@@ -53,6 +53,7 @@ import {
 	buildWakeProblemSourceSignalIds,
 	resolveSpaceMessageWakeProgressFallbackEntries,
 	resolveSpaceMessageWakeProgressState,
+	type SpaceMessageWakeThinkingEntry,
 } from "#/lib/spaces/wake-progress-presentation";
 import {
 	buildSpaceWakeOutcomeIndex,
@@ -124,6 +125,7 @@ import {
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
+import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import {
@@ -1152,6 +1154,9 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	});
 	const isSelfMessage = input.item.actorProfileId === input.selfProfileId;
 	const messageAlign = resolveThreadMessageDirectionalAlign(isSelfMessage);
+	const showProgressInAnswerArea = shouldPlaceSpaceMessageProgressInAnswer(
+		input.item
+	);
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: isSelfMessage });
 	const messageContentPaddingClassName =
@@ -1160,6 +1165,14 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 		actionSignalId: input.computerSetupActionSignalId,
 		context: input.computerSetupContext,
 		itemId: input.item.id,
+	});
+	const progressStatus = renderThreadMessageProgressStatus({
+		align: messageAlign,
+		control: wakeStopControl,
+		entries: wakeThinkingEntries,
+		item: input.item,
+		messageDetailsItem,
+		onOpenMessageDetails: input.onOpenMessageDetails,
 	});
 	return (
 		<MessageScrollerItem messageId={input.item.id}>
@@ -1289,6 +1302,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								spaceReferencesById: input.spaceReferencesById,
 								targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 							})}
+							{showProgressInAnswerArea ? progressStatus : null}
 						</BubbleContent>
 					</Bubble>
 					{input.item.transientActivityPurpose === null ? (
@@ -1315,22 +1329,36 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							timestamp={THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
 						/>
 					) : null}
-					<SpaceMessageProgressStatus
-						align={messageAlign}
-						control={wakeStopControl}
-						entries={wakeThinkingEntries}
-						item={input.item}
-						onOpenMessageDetails={
-							messageDetailsItem
-								? () => input.onOpenMessageDetails(messageDetailsItem)
-								: undefined
-						}
-					/>
+					{showProgressInAnswerArea ? null : progressStatus}
 				</MessageContent>
 			</Message>
 		</MessageScrollerItem>
 	);
 });
+
+function renderThreadMessageProgressStatus(input: {
+	align: "start" | "end";
+	control: ReactNode;
+	entries: readonly SpaceMessageWakeThinkingEntry[];
+	item: SpaceTimelineItem;
+	messageDetailsItem: SpaceTimelineItem | null;
+	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+}): ReactNode {
+	const messageDetailsItem = input.messageDetailsItem;
+	return (
+		<SpaceMessageProgressStatus
+			align={input.align}
+			control={input.control}
+			entries={input.entries}
+			item={input.item}
+			onOpenMessageDetails={
+				messageDetailsItem
+					? () => input.onOpenMessageDetails(messageDetailsItem)
+					: undefined
+			}
+		/>
+	);
+}
 
 function useLatestCallback<Arguments extends unknown[], Result>(
 	callback: (...args: Arguments) => Result
@@ -1451,6 +1479,7 @@ function ThreadComposer(input: {
 	).length;
 	const composerHasContent =
 		readyFileCount > 0 || input.composerText.trim().length > 0;
+	const composerActionsDisabled = input.isSendingMessage;
 	const {
 		addFiles,
 		handleDragLeave,
@@ -1459,7 +1488,7 @@ function ThreadComposer(input: {
 		handlePaste,
 		isDraggingFiles,
 	} = useSpaceComposerFileInput({
-		disabled: input.isSendingMessage,
+		disabled: composerActionsDisabled,
 		onAddFiles: input.onAddComposerFiles,
 	});
 	const wakeTextHint = resolveThreadComposerWakeTextHint(input);
@@ -1525,16 +1554,17 @@ function ThreadComposer(input: {
 						text={input.composerText}
 					/>
 					<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
-						<div className="flex min-w-0 flex-1 items-center gap-1">
+						<div className="flex min-w-0 flex-1 items-center gap-0">
 							<SpaceComposerFileMenu
 								addFiles={addFiles}
-								disabled={input.isSendingMessage}
+								disabled={composerActionsDisabled}
 								limitReached={input.composerFileLimitReached}
 							/>
 							{showMentionButton ? (
 								<Button
 									aria-label="Mention a member"
 									className="size-8 text-base"
+									disabled={composerActionsDisabled}
 									onClick={input.onMentionButtonClick}
 									size="icon-sm"
 									type="button"

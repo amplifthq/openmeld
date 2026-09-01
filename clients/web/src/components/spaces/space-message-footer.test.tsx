@@ -52,7 +52,8 @@ describe("SpaceMessageFooter", () => {
 			'[data-slot="message-footer-primary-actions"]'
 		);
 		const footer = view.container.querySelector('[data-slot="message-footer"]');
-		expect(footer?.className).toContain("mt-1");
+		expect(footer?.className).toContain("mt-0.5");
+		expect(footer?.className).not.toContain("mt-1");
 		expect(primary).toBeTruthy();
 		expect(
 			within(primary as HTMLElement)
@@ -66,6 +67,9 @@ describe("SpaceMessageFooter", () => {
 			"Message details",
 			"More actions",
 		]);
+		expect(
+			screen.getByRole("button", { name: "More actions" }).className
+		).toContain("@min-[36rem]:hidden");
 
 		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
 		expect(screen.getByRole("menuitem", { name: "Reply" })).toBeTruthy();
@@ -77,13 +81,15 @@ describe("SpaceMessageFooter", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps a failed footer visible with Details first and calm failure copy", () => {
+	it("keeps a failed footer compact and moves every secondary action into More", () => {
 		const view = render(
 			<SpaceMessageFooter
-				addressingTargets={[]}
+				addressingTargets={[WAKE_TARGET]}
 				details={{ hasProblem: true, onSelect: vi.fn() }}
 				failureSummary="Review Codex couldn’t reply"
 				onCopy={vi.fn()}
+				reply={{ label: "Reply", onSelect: vi.fn() }}
+				thread={{ label: "Reply in thread", onSelect: vi.fn() }}
 				timestamp="11:45 PM"
 			/>
 		);
@@ -92,16 +98,33 @@ describe("SpaceMessageFooter", () => {
 		expect(footer?.getAttribute("data-persistent")).toBe("true");
 		expect(screen.getByText("Review Codex couldn’t reply")).toBeTruthy();
 		expect(screen.getByTestId("details-warning")).toBeTruthy();
+		const primary = view.container.querySelector(
+			'[data-slot="message-footer-primary-actions"]'
+		) as HTMLElement;
+		const primaryButtons = within(primary).getAllByRole("button");
 		expect(
-			within(
-				view.container.querySelector(
-					'[data-slot="message-footer-primary-actions"]'
-				) as HTMLElement
-			)
-				.getAllByRole("button")
-				.at(0)
-				?.getAttribute("aria-label")
-		).toBe("Message details");
+			primaryButtons.map((button) => button.getAttribute("aria-label"))
+		).toEqual(["Message details", "More actions"]);
+		for (const button of primaryButtons) {
+			expect(button.className).toContain("p-1.5");
+			expect(button.className).toContain("max-lg:min-h-7");
+			expect(button.className).toContain("max-lg:min-w-7");
+			expect(button.className).not.toContain("max-lg:min-h-11");
+			expect(button.className).not.toContain("max-lg:min-w-11");
+		}
+		expect(
+			screen.getByRole("button", { name: "More actions" }).className
+		).not.toContain("@min-[36rem]:hidden");
+
+		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+		expect(screen.getByRole("menuitem", { name: "Copy message" })).toBeTruthy();
+		expect(screen.getByRole("menuitem", { name: "Reply" })).toBeTruthy();
+		expect(
+			screen.getByRole("menuitem", { name: "Reply in thread" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("menuitem", { name: "Message addressing" })
+		).toBeTruthy();
 	});
 
 	it("opens structured Wake addressing from the footer", () => {

@@ -646,10 +646,13 @@ function resolveAgentSetupSummaryStatus(
   if (!shouldShowAgentSetupStatus(agent)) {
     return null;
   }
-  if (agent.launchStatus === "needs_choice") {
-    return { label: "Choose setup", tone: "warning" };
+  if (agent.launchStatus === "ready") {
+    return { label: "Turn on", tone: "warning" };
   }
-  return { label: "Needs setup", tone: "danger" };
+  if (agent.launchStatus === "needs_choice") {
+    return { label: "Choose installation", tone: "warning" };
+  }
+  return { label: "Can’t start", tone: "danger" };
 }
 
 function shouldShowAgentSetupStatus(agent: AgentView): boolean {
@@ -679,10 +682,10 @@ function resolveAgentSetupDescription(agent: AgentView): string {
     return `Turn on ${agent.displayName} to let OpenMeld launch it on this Mac.`;
   }
   if (agent.launchStatus === "needs_choice") {
-    return "Detected, but setup needs one more choice.";
+    return `OpenMeld found more than one ${agent.displayName} installation. Choose which one to use.`;
   }
   if (agent.launchStatus === "needs_repair") {
-    return "Detected, but setup needs repair.";
+    return `OpenMeld found ${agent.displayName}, but can’t start it. Open Details to review the installation.`;
   }
   return localAgentDescription(agent);
 }

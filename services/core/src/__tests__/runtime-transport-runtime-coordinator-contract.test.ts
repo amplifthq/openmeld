@@ -120,6 +120,34 @@ type RecordingDispatchAttemptAcceptanceRow = Record<string, unknown>;
 type RecordingRuntimeCoordinatorExecutionRow = Record<string, unknown>;
 type RecordingRuntimeAgentControllerReportRow = Record<string, unknown>;
 type RecordingAgentProfileRow = Record<string, unknown>;
+type ResolveProfileByIdRpc = NonNullable<
+  NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>["resolveProfileById"]
+>;
+type ResolveProfileByIdSuccess = Extract<
+  Awaited<ReturnType<ResolveProfileByIdRpc>>,
+  { ok: true }
+>;
+
+const buildResolvedAgentProfileAuthScope = (input?: {
+  organizationId?: string | null;
+  ownerUserId?: string;
+  profileId?: string;
+  profileKind?: "human" | "agent" | "system";
+  profileName?: string;
+  status?: "active" | "disabled";
+}): ResolveProfileByIdSuccess => ({
+  ok: true,
+  profile: {
+    organizationId:
+      input && "organizationId" in input ? input.organizationId : "org-one",
+    ownerUserId: input?.ownerUserId ?? "owner-1",
+    profileHandle: "codex-agent",
+    profileId: input?.profileId ?? TARGET_AGENT_PROFILE_ID,
+    profileKind: input?.profileKind ?? "agent",
+    profileName: input?.profileName ?? "Codex Agent",
+    status: input?.status ?? "active",
+  },
+});
 
 const createRecordingD1 = (input?: {
   agentProfileRow?: RecordingAgentProfileRow | null;
@@ -212,22 +240,15 @@ const createRecordingD1 = (input?: {
           }),
           first: vi.fn(() => {
             if (query.includes("FROM openmeld_profiles")) {
-              return {
-                managed_role: null,
-                organization_id: "org-one",
-                owner_user_id: "owner-1",
-                profile_kind: "agent",
-                profile_name: "Codex Agent",
-              };
-            }
-            if (
-              query.includes("organization_id,") &&
-              query.includes("owner_user_id,") &&
-              query.includes("profile_name,") &&
-              query.includes("managed_role") &&
-              query.includes("FROM openmeld_profiles")
-            ) {
-              return input?.agentProfileRow ?? null;
+              return (
+                input?.agentProfileRow ?? {
+                  managed_role: null,
+                  organization_id: "org-one",
+                  owner_user_id: "owner-1",
+                  profile_kind: "agent",
+                  profile_name: "Codex Agent",
+                }
+              );
             }
             if (
               query.includes("FROM space_index_spaces AS space") &&
@@ -803,6 +824,7 @@ const createHarness = (input?: {
   agentProfileRow?: RecordingAgentProfileRow | null;
   agentControllerReportRow?: RecordingRuntimeAgentControllerReportRow | null;
   attemptAcceptanceRow?: RecordingDispatchAttemptAcceptanceRow | null;
+  authResolveProfileById?: ResolveProfileByIdRpc;
   exhaustionAuthorityProjectionRaceStatus?:
     | "cancelled"
     | "failed_terminal_other"
@@ -850,6 +872,13 @@ const createHarness = (input?: {
     terminalProjectionWriteFailures:
       input?.terminalProjectionWriteFailures ?? 0,
   });
+  const authResolveProfileById =
+    input?.authResolveProfileById ??
+    vi.fn(async ({ openMeldProfileId }) =>
+      buildResolvedAgentProfileAuthScope({
+        profileId: openMeldProfileId ?? TARGET_AGENT_PROFILE_ID,
+      })
+    );
   const appliedFinalizationCommands: RuntimeCoordinatorFinalizationCommand[] =
     [];
   const appliedFailurePublicationCommands: RuntimeCoordinatorFailurePublicationCommand[] =
@@ -1212,6 +1241,9 @@ const createHarness = (input?: {
   Object.defineProperty(hub, "state", { value: state });
   Object.defineProperty(hub, "env", {
     value: {
+      OPENMELD_AUTH_WORKER: {
+        resolveProfileById: authResolveProfileById,
+      },
       OPENMELD_DB: recordingD1.db,
       OPENMELD_DAEMON_DISPATCH_QUEUE: {
         send: queueSend,
@@ -1304,6 +1336,7 @@ const createHarness = (input?: {
     hub,
     appliedFailurePublicationCommands,
     appliedFinalizationCommands,
+    authResolveProfileById,
     recordingD1,
     getMaxConcurrentArrayStorageGets: () => maxConcurrentArrayStorageGetCount,
     queuedObservationRedrives,
@@ -5582,6 +5615,162 @@ describe("runtime transport runtime coordinator transport contract", () => {
         source_kind: "agent_profile_work_recovery",
       }),
     ]);
+  });
+
+  it("projects recovery Inbox scope from Auth instead of a conflicting Core profile row", async () => {
+    const authResolveProfileById = vi.fn(async () =>
+      buildResolvedAgentProfileAuthScope({
+        organizationId: "org-auth",
+        profileName: "Current Auth Agent",
+      })
+    );
+    const { hub, recordingD1, storageRecords } = createHarness({
+      agentProfileRow: {
+        managed_role: null,
+        organization_id: "org-stale",
+        owner_user_id: "stale-owner",
+        profile_kind: "agent",
+        profile_name: "Stale Core Agent",
+      },
+      authResolveProfileById,
+    });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const identity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    storageRecords.set(
+      buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+        TARGET_AGENT_PROFILE_ID
+      ),
+      buildAgentProfileWorkRecoveryInboxProjectionIntent({
+        desiredStatus: "open",
+        occurredAtMs: 1_700_000_000_000,
+        stage: "review_interrupted_work",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        updatedAtMs: 1_700_000_000_000,
+      })
+    );
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+
+    expect([...recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({
+        context_label: "Current Auth Agent",
+        organization_id: "org-auth",
+        recipient_user_id: "owner-1",
+        resolution_status: "open",
+        source_kind: "agent_profile_work_recovery",
+      }),
+    ]);
+    expect(authResolveProfileById).toHaveBeenCalledWith({
+      openMeldProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    expect(
+      recordingD1.calls.some((call) =>
+        call.query.includes("FROM openmeld_profiles")
+      )
+    ).toBe(false);
+  });
+
+  it.each([
+    {
+      authResult: buildResolvedAgentProfileAuthScope({
+        organizationId: undefined,
+      }),
+      scenario: "missing Auth Organization scope",
+    },
+    {
+      authResult: buildResolvedAgentProfileAuthScope({
+        profileKind: "human",
+      }),
+      scenario: "wrong Auth profile kind",
+    },
+    {
+      authResult: buildResolvedAgentProfileAuthScope({ status: "disabled" }),
+      scenario: "disabled Auth profile",
+    },
+    {
+      authResult: buildResolvedAgentProfileAuthScope({
+        ownerUserId: "different-owner",
+      }),
+      scenario: "Auth owner mismatch with the RuntimeCoordinator head",
+    },
+  ])("defers recovery Inbox projection for $scenario", async ({
+    authResult,
+  }) => {
+    const { hub, recordingD1, storageRecords } = createHarness({
+      authResolveProfileById: vi.fn(async () => authResult),
+    });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const identity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    storageRecords.set(
+      buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+        TARGET_AGENT_PROFILE_ID
+      ),
+      buildAgentProfileWorkRecoveryInboxProjectionIntent({
+        desiredStatus: "open",
+        occurredAtMs: 1_700_000_000_000,
+        stage: "review_interrupted_work",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        updatedAtMs: 1_700_000_000_000,
+      })
+    );
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+
+    expect(recordingD1.interactionInboxRows.size).toBe(0);
+    expect(
+      [...storageRecords.values()].filter((value) =>
+        parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
+      )
+    ).toHaveLength(1);
+  });
+
+  it("projects a deferred recovery Inbox intent once after Auth recovers", async () => {
+    const authResolveProfileById = vi
+      .fn<ResolveProfileByIdRpc>()
+      .mockRejectedValueOnce(new Error("Auth temporarily unavailable"))
+      .mockResolvedValue(buildResolvedAgentProfileAuthScope());
+    const { hub, recordingD1, storageRecords } = createHarness({
+      authResolveProfileById,
+    });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const identity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    storageRecords.set(
+      buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+        TARGET_AGENT_PROFILE_ID
+      ),
+      buildAgentProfileWorkRecoveryInboxProjectionIntent({
+        desiredStatus: "open",
+        occurredAtMs: 1_700_000_000_000,
+        stage: "review_interrupted_work",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        updatedAtMs: 1_700_000_000_000,
+      })
+    );
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(recordingD1.interactionInboxRows.size).toBe(0);
+    expect(
+      [...storageRecords.values()].filter((value) =>
+        parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
+      )
+    ).toHaveLength(1);
+
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+
+    expect(recordingD1.interactionInboxRows.size).toBe(1);
+    expect(
+      [...storageRecords.values()].filter((value) =>
+        parseAgentProfileWorkRecoveryInboxProjectionIntent(value)
+      )
+    ).toHaveLength(0);
+    expect(authResolveProfileById).toHaveBeenCalledTimes(2);
   });
 
   it("bounds recovery Inbox projection work per housekeeping alarm", async () => {

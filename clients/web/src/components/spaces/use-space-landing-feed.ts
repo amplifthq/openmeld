@@ -172,6 +172,7 @@ async function drainSpaceUpdatesFromAnchor(
 export function useSpaceLandingFeed(input: {
 	spaceId: string;
 	openMeldProfileId: string;
+	participationEnabled: boolean;
 	statusReady: boolean;
 	statusRefetch: () => Promise<unknown>;
 	membersRefetch: () => Promise<unknown>;
@@ -335,11 +336,14 @@ export function useSpaceLandingFeed(input: {
 	// effect with a fresh socket. Used on tab-refocus and the manual retry control
 	// so a dropped stream never sits waiting out a (possibly throttled) timer.
 	const reconnectNow = useCallback(() => {
+		if (!input.participationEnabled) {
+			return;
+		}
 		clearReconnectTimer(reconnectTimerRef);
 		clearReconnectTimer(degradeTimerRef);
 		reconnectAttemptCountRef.current = 0;
 		advanceReconnectKey();
-	}, [advanceReconnectKey]);
+	}, [advanceReconnectKey, input.participationEnabled]);
 
 	// Reconcile the conversation against the durable store: pull everything after
 	// the latest persisted visible signal and merge it (deduped by signal id) into
@@ -722,28 +726,33 @@ export function useSpaceLandingFeed(input: {
 	]);
 
 	useEffect(() => {
-		// Connect on mount, in parallel with the bootstrap fetch: the WS chain
-		// (proxy hop + gateway auth + DO upgrade) costs hundreds of ms, and
-		// serializing it behind bootstrap delayed the first live frame by the
-		// full bootstrap round trip. Early live frames merge into the timeline
-		// by signal id, so the later history seed dedupes cleanly.
+		if (!input.participationEnabled) {
+			currentSocketAttemptKeyRef.current = null;
+			readySocketAttemptKeyRef.current = null;
+			clearReconnectTimer(reconnectTimerRef);
+			clearReconnectTimer(degradeTimerRef);
+			setLiveState("connected");
+			setLiveErrorMessage(null);
+			return () => {
+				clearReconnectTimer(reconnectTimerRef);
+				clearReconnectTimer(degradeTimerRef);
+			};
+		}
+
+		// Once canonical membership confirms participation, connect immediately:
+		// the WS chain (proxy hop + gateway auth + DO upgrade) costs hundreds of
+		// ms. Early live frames merge into the timeline by signal id, so a later
+		// history seed still dedupes cleanly.
 		const reconnectAttempt = reconnectKey;
 		reconnectKeyRef.current = reconnectAttempt;
 		const socketAttemptKey = `${input.spaceId}::${input.openMeldProfileId}::${String(reconnectAttempt)}`;
 		currentSocketAttemptKeyRef.current = socketAttemptKey;
 		let isDisposed = false;
 		let hasAcceptedLiveSession = false;
-		let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
-		// Tracks whether this attempt's socket has emitted at least one keepalive
-		// PING. The watchdog only judges silence as a half-open stall once a PING
-		// has gone out, so a freshly opened (but not-yet-pinged) socket is never
-		// torn down prematurely.
-		let hasSentKeepalivePing = false;
+		let clearKeepaliveTimer: () => void = () => undefined;
 		const stopKeepalive = () => {
-			if (keepaliveTimer !== null) {
-				clearInterval(keepaliveTimer);
-				keepaliveTimer = null;
-			}
+			clearKeepaliveTimer();
+			clearKeepaliveTimer = () => undefined;
 		};
 		const markSocketClosed = () => {
 			if (readySocketAttemptKeyRef.current === socketAttemptKey) {
@@ -813,32 +822,20 @@ export function useSpaceLandingFeed(input: {
 			// Core has not necessarily accepted the Space subscription yet, so
 			// product-level connectivity waits for system.hello.ack.
 			lastInboundFrameTsRef.current = Date.now();
-			hasSentKeepalivePing = false;
 
 			// Keep the (proxy-held) live-stream chain warm so a quiet Space's idle
 			// socket is never evicted; the Space DO auto-answers this PING. On the
 			// same cadence, run the pong-watchdog: if a PING has gone out but no
 			// inbound frame has arrived within WATCHDOG_DEADLINE_MS, the socket is
 			// half-open — tear it down and let the existing reconnect path rebuild.
-			keepaliveTimer = setInterval(() => {
-				try {
-					socket.send(SPACE_STREAM_KEEPALIVE_PING);
-					hasSentKeepalivePing = true;
-				} catch {
-					// Socket already closing; the close handler stops the timer.
-				}
-
-				const lastInboundFrameTs = lastInboundFrameTsRef.current;
-				if (
-					hasSentKeepalivePing &&
-					lastInboundFrameTs !== null &&
-					Date.now() - lastInboundFrameTs > WATCHDOG_DEADLINE_MS
-				) {
-					stopKeepalive();
+			clearKeepaliveTimer = startSpaceLiveKeepaliveTimer({
+				onStalled: () => {
 					socket.close();
 					scheduleReconnect();
-				}
-			}, SPACE_STREAM_KEEPALIVE_INTERVAL_MS);
+				},
+				readLastInboundFrameTs: () => lastInboundFrameTsRef.current,
+				socket,
+			});
 		};
 
 		const handleLiveSessionControlMessage = (
@@ -975,6 +972,7 @@ export function useSpaceLandingFeed(input: {
 	}, [
 		input.openMeldProfileId,
 		input.membersRefetch,
+		input.participationEnabled,
 		input.spaceId,
 		input.statusRefetch,
 		reconnectKey,
@@ -1025,6 +1023,45 @@ function resolveLiveReconnectDelayMs(attemptCount: number): number {
 		LIVE_RECONNECT_DELAYS_MS.at(-1) ??
 		30_000
 	);
+}
+
+function startSpaceLiveKeepaliveTimer(input: {
+	onStalled: () => void;
+	readLastInboundFrameTs: () => number | null;
+	socket: WebSocket;
+}): () => void {
+	let hasSentKeepalivePing = false;
+	let stopped = false;
+	let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+	const stop = () => {
+		if (stopped) {
+			return;
+		}
+		stopped = true;
+		if (keepaliveTimer !== null) {
+			clearInterval(keepaliveTimer);
+			keepaliveTimer = null;
+		}
+	};
+	keepaliveTimer = setInterval(() => {
+		try {
+			input.socket.send(SPACE_STREAM_KEEPALIVE_PING);
+			hasSentKeepalivePing = true;
+		} catch {
+			// Socket already closing; its close handler stops this timer.
+		}
+
+		const lastInboundFrameTs = input.readLastInboundFrameTs();
+		if (
+			hasSentKeepalivePing &&
+			lastInboundFrameTs !== null &&
+			Date.now() - lastInboundFrameTs > WATCHDOG_DEADLINE_MS
+		) {
+			stop();
+			input.onStalled();
+		}
+	}, SPACE_STREAM_KEEPALIVE_INTERVAL_MS);
+	return stop;
 }
 
 function clearReconnectTimer(timerRef: {

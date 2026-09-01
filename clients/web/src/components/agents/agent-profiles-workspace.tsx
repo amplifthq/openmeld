@@ -1,5 +1,6 @@
 "use client";
 
+import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import {
 	parseAgentControllerRef,
 	resolveAgentWakeAvailabilityDisplayCategory,
@@ -25,6 +26,7 @@ import {
 } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import { AgentProfileOperationalStatusText } from "#/components/agents/agent-profile-operational-status";
 import {
 	type AgentProfileSidebarGroup,
 	resolveAgentProfileSidebarGroups,
@@ -41,6 +43,10 @@ import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 
 const AGENT_REQUESTS_DESCRIPTION =
 	"Approve requests for Agents you’re being asked to own, and track requests you sent.";
+const EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID: ReadonlyMap<
+	string,
+	AgentProfileOperationalContextInput
+> = new Map();
 
 export type AgentProfilesWorkspaceProps = {
 	activeView: "agents" | "requests";
@@ -56,6 +62,10 @@ export type AgentProfilesWorkspaceProps = {
 	profiles: readonly AuthProfileView[];
 	profilesErrorMessage?: string;
 	profilesStatus?: "error" | "loading" | "ready";
+	operationalContextByProfileId?: ReadonlyMap<
+		string,
+		AgentProfileOperationalContextInput
+	>;
 	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
 	readinessErrorByProfileId?: ReadonlyMap<string, string>;
 	readinessPendingProfileIds?: ReadonlySet<string>;
@@ -173,7 +183,12 @@ function AgentProfilesWorkspaceSidebar(input: {
 				content: (
 					<AgentProfileSidebarList
 						activeProfileId={input.activeProfileId}
+						currentUserId={input.input.currentUserId}
 						onSelectProfile={input.input.onSelectProfile}
+						operationalContextByProfileId={
+							input.input.operationalContextByProfileId ??
+							EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID
+						}
 						profiles={group.profiles}
 						readinessByProfileId={input.input.readinessByProfileId}
 						readinessErrorByProfileId={
@@ -361,7 +376,12 @@ function AgentProfilesWorkspaceEmptyState(input: {
 
 function AgentProfileSidebarList(input: {
 	activeProfileId: string | null;
+	currentUserId: string;
 	onSelectProfile: (profileId: string) => void;
+	operationalContextByProfileId: ReadonlyMap<
+		string,
+		AgentProfileOperationalContextInput
+	>;
 	profiles: readonly AuthProfileView[];
 	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
 	readinessErrorByProfileId: ReadonlyMap<string, string>;
@@ -377,10 +397,16 @@ function AgentProfileSidebarList(input: {
 		>
 			{input.profiles.map((profile, index) => (
 				<AgentProfileSidebarItem
+					currentUserId={input.currentUserId}
 					index={index}
 					isActive={profile.openMeldProfileId === input.activeProfileId}
 					key={profile.openMeldProfileId}
 					onSelectProfile={input.onSelectProfile}
+					operationalContext={
+						input.operationalContextByProfileId.get(
+							profile.openMeldProfileId
+						) ?? null
+					}
 					profile={profile}
 					readiness={
 						input.readinessByProfileId.get(profile.openMeldProfileId) ?? null
@@ -399,9 +425,11 @@ function AgentProfileSidebarList(input: {
 }
 
 function AgentProfileSidebarItem(input: {
+	currentUserId: string;
 	index: number;
 	isActive: boolean;
 	onSelectProfile: (profileId: string) => void;
+	operationalContext: AgentProfileOperationalContextInput | null;
 	profile: AuthProfileView;
 	readiness: GetAgentExecutionReadinessResponse | null;
 	readinessErrorMessage: string | null;
@@ -414,6 +442,10 @@ function AgentProfileSidebarItem(input: {
 		isPending: input.readinessIsPending,
 		readiness: input.readiness,
 	});
+	const isOwner = input.profile.ownerUserId === input.currentUserId;
+	const hasReducedProminence =
+		presentation.availabilityCategory === "offline" ||
+		presentation.availabilityCategory === "unavailable";
 	return (
 		<FluidNavMenuItem
 			index={input.index}
@@ -437,17 +469,33 @@ function AgentProfileSidebarItem(input: {
 			>
 				<AgentProfileControllerAvatar
 					agentControllerRef={agentControllerRef}
-					className="shrink-0"
+					className={cn(
+						"shrink-0",
+						hasReducedProminence ? "opacity-55 grayscale" : null
+					)}
 					profileId={input.profile.openMeldProfileId}
 					size={32}
 				/>
 				<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
-					<span className="truncate font-medium text-sm">
-						{input.profile.profileName}
+					<span className="flex min-w-0 items-center justify-between gap-2">
+						<span
+							className={cn(
+								"min-w-0 truncate font-medium text-sm",
+								hasReducedProminence ? "text-muted-foreground" : null
+							)}
+						>
+							{input.profile.profileName}
+						</span>
+						<AgentProfileOperationalStatusText
+							className="shrink-0"
+							operationalContext={input.operationalContext}
+						/>
 					</span>
-					<span className="truncate text-muted-foreground text-xs">
-						{presentation.controllerModelSummary}
-					</span>
+					{isOwner ? (
+						<span className="truncate text-muted-foreground text-xs">
+							{presentation.controllerModelSummary}
+						</span>
+					) : null}
 					<Tooltip>
 						<TooltipTrigger
 							render={
@@ -477,6 +525,9 @@ function resolveAgentProfileSidebarPresentation(input: {
 	isPending: boolean;
 	readiness: GetAgentExecutionReadinessResponse | null;
 }): {
+	availabilityCategory: ReturnType<
+		typeof resolveAgentWakeAvailabilityDisplayCategory
+	> | null;
 	availabilityClassName: string;
 	availabilityLabel: string;
 	availabilityTooltip: string;
@@ -493,6 +544,7 @@ function resolveAgentProfileSidebarPresentation(input: {
 	if (input.errorMessage || !wakeAvailability) {
 		const availability = resolveMissingSidebarAvailability(input);
 		return {
+			availabilityCategory: availability.category,
 			availabilityClassName: availability.className,
 			availabilityLabel: availability.label,
 			availabilityTooltip: availability.tooltip,
@@ -504,6 +556,7 @@ function resolveAgentProfileSidebarPresentation(input: {
 	const category =
 		resolveAgentWakeAvailabilityDisplayCategory(wakeAvailability);
 	return {
+		availabilityCategory: category,
 		availabilityClassName: resolveAvailabilityClassName(category),
 		availabilityLabel: wakeAvailability.badgeLabel,
 		availabilityTooltip: wakeAvailability.tooltip,
@@ -529,19 +582,22 @@ function resolveMissingSidebarAvailability(input: {
 }) {
 	if (input.errorMessage) {
 		return {
-			className: resolveStatusToneTextClassName("warning"),
+			category: "unavailable" as const,
+			className: resolveStatusToneTextClassName("muted"),
 			label: "Unavailable",
 			tooltip: input.errorMessage,
 		};
 	}
 	if (input.isPending) {
 		return {
+			category: "checking" as const,
 			className: resolveStatusToneTextClassName("checking"),
 			label: "Checking",
 			tooltip: "Checking Wake availability",
 		};
 	}
 	return {
+		category: null,
 		className: "text-muted-foreground",
 		label: "Not checked",
 		tooltip: "Wake availability has not been checked yet",
@@ -557,7 +613,7 @@ function resolveAvailabilityClassName(
 		case "checking":
 			return resolveStatusToneTextClassName("checking");
 		case "unavailable":
-			return resolveStatusToneTextClassName("warning");
+			return resolveStatusToneTextClassName("muted");
 		case "offline":
 			return resolveStatusToneTextClassName("muted");
 		default:

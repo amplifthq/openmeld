@@ -248,6 +248,82 @@ describe("AgentProfilesWorkspace", () => {
 		);
 	});
 
+	it("shows owner and team-safe workload on their rows", () => {
+		renderWorkspace({
+			operationalContextByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						currentWorkLocation: "Launch planning",
+						queuedWorkLocations: ["Customer follow-up"],
+						recoveryAction: null,
+						status: "working",
+						waitingCount: 1,
+					},
+				],
+				[
+					"agent-other",
+					{
+						currentWorkLocation: null,
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "paused",
+						waitingCount: 2,
+					},
+				],
+			]),
+		});
+
+		const ownerItem = screen.getByRole("button", { name: "Open Felix Agent" });
+		const ownerStatus = within(ownerItem).getByTestId(
+			"agent-profile-operational-status"
+		);
+		expect(ownerStatus.getAttribute("data-agent-work-status")).toBe("working");
+		expect(ownerStatus.textContent).toContain("∞");
+		expect(within(ownerStatus).getByText("Working").className).toContain(
+			"shimmer-text"
+		);
+
+		const observerItem = screen.getByRole("button", {
+			name: "Open Other Agent",
+		});
+		const observerStatus = within(observerItem).getByTestId(
+			"agent-profile-operational-status"
+		);
+		expect(observerStatus.getAttribute("data-agent-work-status")).toBe(
+			"waiting"
+		);
+		expect(observerStatus.textContent).toContain("Waiting");
+		expect(observerItem.textContent).not.toContain("Needs attention");
+	});
+
+	it("uses a small static amber indicator for owner work that needs attention", () => {
+		renderWorkspace({
+			operationalContextByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						currentWorkLocation: null,
+						queuedWorkLocations: [],
+						recoveryAction: { kind: "skip_interrupted_work" },
+						status: "paused",
+						waitingCount: 0,
+					},
+				],
+			]),
+		});
+
+		const ownerItem = screen.getByRole("button", { name: "Open Felix Agent" });
+		const ownerStatus = within(ownerItem).getByTestId(
+			"agent-profile-operational-status"
+		);
+		expect(ownerStatus.textContent).toContain("Needs attention");
+		const indicator = ownerStatus.querySelector(
+			'[data-agent-needs-attention-indicator="true"]'
+		);
+		expect(indicator?.className).toContain("bg-amber-500");
+	});
+
 	it("shows a readiness refresh error before cached sidebar availability", () => {
 		renderWorkspace({
 			readinessErrorByProfileId: new Map([
@@ -260,6 +336,83 @@ describe("AgentProfilesWorkspace", () => {
 			"Core could not refresh Wake availability."
 		);
 		expect(within(item).queryByText("Available")).toBeNull();
+	});
+
+	it("keeps Offline and Unavailable rows static gray and less prominent for every viewer", () => {
+		const readiness = createReadiness();
+		renderWorkspace({
+			operationalContextByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						currentWorkLocation: null,
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "idle",
+						waitingCount: 0,
+					},
+				],
+			]),
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...readiness,
+						agentWakeAvailability: {
+							...readiness.agentWakeAvailability,
+							badgeLabel: "Unavailable",
+							category: "unavailable",
+							status: "unavailable_for_wake",
+							tooltip: "Provider account unavailable",
+						},
+					},
+				],
+				[
+					"agent-other",
+					{
+						...readiness,
+						agentControllerRef: null,
+						agentProfileId: "agent-other",
+						agentWakeAvailability: {
+							...readiness.agentWakeAvailability,
+							badgeLabel: "Offline",
+							category: "offline",
+							status: "unavailable_for_wake",
+							tooltip: "Offline for Wake",
+						},
+						ownerUserId: null,
+						primaryBinding: null,
+						profileName: null,
+					},
+				],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(within(item).getByText("Unavailable").className).toContain(
+			"text-muted-foreground"
+		);
+		expect(within(item).getByText("Felix Agent").className).toContain(
+			"text-muted-foreground"
+		);
+		const avatar = within(item).getByTestId(
+			"agent-profile-controller-avatar-agent-current"
+		);
+		expect(avatar.className).toContain("grayscale");
+		expect(avatar.className).toContain("opacity-55");
+
+		const observerItem = screen.getByRole("button", {
+			name: "Open Other Agent",
+		});
+		expect(within(observerItem).getByText("Other Agent").className).toContain(
+			"text-muted-foreground"
+		);
+		const observerAvatar = within(observerItem).getByTestId(
+			"agent-profile-controller-avatar-agent-other"
+		);
+		expect(observerAvatar.className).toContain("grayscale");
+		expect(observerAvatar.className).toContain("opacity-55");
+		expect(observerItem.textContent).not.toContain("No Controller connected");
 	});
 
 	it("switches the main content to Agent requests without creating another request state", () => {
