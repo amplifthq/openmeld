@@ -528,6 +528,66 @@ describe("Agent Profile creation request service", () => {
     });
   });
 
+  it("keeps a committed Profile retryable when its identity checkpoint hits an old database constraint", async () => {
+    repository.preference = {
+      existingSessionPolicy: "ask_every_time",
+      newSessionPolicy: "automatically_allow",
+    };
+    const agentProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    repository.identityCheckpointError = new Error(
+      "D1_ERROR: CHECK constraint failed: agent_profile_creation_requests: SQLITE_CONSTRAINT"
+    );
+    createAgentProfile.mockImplementationOnce(async (_request, checkpoint) => {
+      await checkpoint.checkpointCreatedAgentProfileId(agentProfileId);
+      return agentProfileId;
+    });
+    const errorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const service = createService();
+    const created = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+
+    expect(created.request).toMatchObject({
+      createdAgentProfileId: agentProfileId,
+      failureMessage:
+        "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely.",
+      status: "failed",
+      statusReason: "profile_created",
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      "[core.agent_profile_creation_request.execution_failed]",
+      expect.objectContaining({
+        error: expect.stringContaining("D1_ERROR"),
+        requestId: created.request.id,
+      })
+    );
+
+    await expect(
+      service.retry({
+        organizationId: "org-1",
+        requestId: created.request.id,
+        userId: "user-requester",
+      })
+    ).resolves.toMatchObject({
+      createdAgentProfileId: agentProfileId,
+      failureMessage: null,
+      status: "completed",
+      statusReason: "profile_created",
+    });
+    expect(createAgentProfile).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ createdAgentProfileId: agentProfileId }),
+      expect.any(Object)
+    );
+    errorLog.mockRestore();
+  });
+
   function createService() {
     const inboxProjection =
       createAgentProfileCreationRequestInboxProjectionService({
@@ -570,6 +630,7 @@ function deferred<T>() {
 }
 
 class InMemoryRepository implements AgentProfileCreationRequestRepository {
+  identityCheckpointError: Error | null = null;
   preference: {
     existingSessionPolicy: AgentProfileCreationApprovalPolicy;
     newSessionPolicy: AgentProfileCreationApprovalPolicy;
@@ -787,7 +848,16 @@ class InMemoryRepository implements AgentProfileCreationRequestRepository {
     inboxProjection?: AgentProfileCreationRequestInboxProjectionOperation;
     requestId: string;
     update: Partial<AgentProfileCreationRequestRecord>;
-  }) {
+  }): Promise<AgentProfileCreationRequestRecord | null> {
+    if (
+      this.identityCheckpointError &&
+      input.update.createdAgentProfileId &&
+      input.update.status === undefined
+    ) {
+      const error = this.identityCheckpointError;
+      this.identityCheckpointError = null;
+      return Promise.reject(error);
+    }
     const index = this.records.findIndex(
       (record) =>
         record.id === input.requestId &&

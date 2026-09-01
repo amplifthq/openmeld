@@ -18,6 +18,8 @@ import type {
 } from "@openmeld/schemas/types";
 
 const DEFAULT_APPROVAL_POLICY = "ask_every_time" as const;
+const INTERNAL_STORAGE_FAILURE_PATTERN =
+  /\bD1(?:_ERROR)?\b|\bSQL(?:ITE)?(?:_[A-Z_]+)?\b|constraint failed|no such (?:column|table)/iu;
 export const AGENT_PROFILE_CREATION_STALE_AFTER_MS = 30 * 60 * 1000;
 
 export type AgentProfileCreationRequestRecord = {
@@ -258,6 +260,7 @@ export function createAgentProfileCreationRequestService(input: {
       return toPublicRequest(await requireRequest(record));
     }
     let activeClaim = claimed;
+    let committedAgentProfileId = claimed.createdAgentProfileId;
     let createdAgentProfileId: string;
     try {
       createdAgentProfileId = await input.createAgentProfile(claimed, {
@@ -270,6 +273,7 @@ export function createAgentProfileCreationRequestService(input: {
             }
             return;
           }
+          committedAgentProfileId = agentProfileId;
           const checkpointedAtMs = Math.max(now(), activeClaim.updatedAtMs + 1);
           const checkpointed = await input.repository.transition({
             expectedProfileCreationAttempt: activeClaim.profileCreationAttempt,
@@ -298,8 +302,19 @@ export function createAgentProfileCreationRequestService(input: {
           : null;
       const createdAgentProfileId =
         executionError?.createdAgentProfileId ??
+        committedAgentProfileId ??
         activeClaim.createdAgentProfileId ??
         record.createdAgentProfileId;
+      if (isInternalStorageFailure(error)) {
+        console.error(
+          "[core.agent_profile_creation_request.execution_failed]",
+          {
+            error: readFailureMessage(error),
+            organizationId: record.organizationId,
+            requestId: record.id,
+          }
+        );
+      }
       const failed = await input.repository.transition({
         expectedProfileCreationAttempt: activeClaim.profileCreationAttempt,
         expectedStatuses: ["approved"],
@@ -307,7 +322,9 @@ export function createAgentProfileCreationRequestService(input: {
         requestId: record.id,
         update: {
           createdAgentProfileId,
-          failureMessage: normalizeFailureMessage(error),
+          failureMessage: normalizeFailureMessage(error, {
+            createdAgentProfileId,
+          }),
           status: "failed",
           statusReason: createdAgentProfileId
             ? "profile_created"
@@ -747,9 +764,25 @@ export function toPublicRequest(
   });
 }
 
-function normalizeFailureMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
+function normalizeFailureMessage(
+  error: unknown,
+  input: { createdAgentProfileId: string | null }
+): string {
+  const raw = readFailureMessage(error);
+  if (isInternalStorageFailure(error)) {
+    return input.createdAgentProfileId
+      ? "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely."
+      : "OpenMeld couldn't finish creating this Agent. Retry to continue safely.";
+  }
   const normalized =
     raw.trim() || "OpenMeld couldn't finish creating this Agent.";
   return normalized.slice(0, 1000);
+}
+
+function isInternalStorageFailure(error: unknown): boolean {
+  return INTERNAL_STORAGE_FAILURE_PATTERN.test(readFailureMessage(error));
+}
+
+function readFailureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
