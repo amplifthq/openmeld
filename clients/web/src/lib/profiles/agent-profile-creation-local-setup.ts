@@ -102,13 +102,10 @@ export async function continuePendingAgentProfileCreationLocalSetup(input: {
 	if (!pendingSetup) {
 		return { failureMessage: null, pending: false };
 	}
-	if (
-		input.request.status !== "completed" ||
-		!input.request.createdAgentProfileId
-	) {
+	const createdAgentProfileId = input.request.createdAgentProfileId;
+	if (!createdAgentProfileId) {
 		return { failureMessage: null, pending: true };
 	}
-	const createdAgentProfileId = input.request.createdAgentProfileId;
 	if (
 		pendingSetup.agentProfileId &&
 		createdAgentProfileId !== pendingSetup.agentProfileId
@@ -118,6 +115,27 @@ export async function continuePendingAgentProfileCreationLocalSetup(input: {
 				"OpenMeld couldn't match the saved working folder to the created Agent.",
 			pending: true,
 		};
+	}
+	if (!pendingSetup.agentProfileId) {
+		if (pendingSetup.workspacePath) {
+			rememberPendingAgentProfileCreationLocalSetup({
+				agentProfileId: createdAgentProfileId,
+				organizationId: input.organizationId,
+				requestId: input.request.id,
+				storageScope: input.storageScope,
+				workspacePath: pendingSetup.workspacePath,
+			});
+		} else {
+			rememberCommittedAgentProfileMarker({
+				agentProfileId: createdAgentProfileId,
+				organizationId: input.organizationId,
+				requestId: input.request.id,
+				storageScope: input.storageScope,
+			});
+		}
+	}
+	if (input.request.status !== "completed") {
+		return { failureMessage: null, pending: true };
 	}
 	if (!pendingSetup.workspacePath) {
 		rememberCommittedAgentProfileMarker({
