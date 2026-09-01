@@ -84,9 +84,11 @@ advances one ref per completed scope under
 append-only evidence chain whose latest record contains the exact released
 first-parent `main` commit and completion time. `release:status` combines those
 records with hosted release jobs and uses the latest completed event for each
-scope. A workstation release therefore cannot disappear merely because no
-GitHub deployment job ran, and an explicit rollback remains visible as the
-latest deployed source instead of being mistaken for a failed evidence write.
+scope. A successful redeploy of the same source SHA is still a new completed
+event and must advance that scope's evidence ref with its later completion time.
+A workstation release therefore cannot disappear merely because no GitHub
+deployment job ran, and an explicit rollback remains visible as the latest
+deployed source instead of being mistaken for a failed evidence write.
 
 `--deployed` remains a one-run diagnostic override for historical releases that
 predate these refs. It is not the normal completion path:
