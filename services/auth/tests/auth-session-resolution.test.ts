@@ -1655,6 +1655,7 @@ describe("auth session resolution", () => {
       profileHandle: "research-agent",
       profileName: "Research Agent",
       ownerUserId: "user-123",
+      organizationId: "org-123",
       status: "active",
       profileId: "agt_11111111-1111-4111-8111-111111111111",
     });
@@ -1668,6 +1669,7 @@ describe("auth session resolution", () => {
       ok: true,
       profile: {
         defaultProjectId: null,
+        organizationId: "org-123",
         ownerUserId: "user-123",
         profileHandle: "research-agent",
         profileId: "agt_11111111-1111-4111-8111-111111111111",
@@ -1684,6 +1686,7 @@ describe("auth session resolution", () => {
       profileHandle: "research-agent",
       profileName: "Research Agent",
       ownerUserId: "user-123",
+      organizationId: "org-123",
       status: "disabled",
       profileId: "agt_11111111-1111-4111-8111-111111111111",
     });
@@ -1697,6 +1700,7 @@ describe("auth session resolution", () => {
       ok: true,
       profile: {
         defaultProjectId: null,
+        organizationId: "org-123",
         ownerUserId: "user-123",
         profileHandle: "research-agent",
         profileId: "agt_11111111-1111-4111-8111-111111111111",

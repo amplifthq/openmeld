@@ -253,6 +253,7 @@ import {
   clearAgentExecutionReadinessImpactForExecutionRunning,
   writeAgentExecutionReadinessImpact,
 } from "../../../agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
+import { resolveAgentProfileWorkRecoveryAuthScope } from "../../../agent-profile/application/agent-profile-work-recovery-auth-scope";
 import { readLocalRuntimeExpectedRoutes } from "../../../agent-profile-binding/application/local-runtime-expected-routes-service";
 import { recordAndEnqueueAgentTaskNeedsAttentionObservation } from "../../../agent-task-coordination/application/agent-task-needs-attention-observation-service";
 import { recordAndEnqueueAgentTaskTerminalOutcome } from "../../../agent-task-coordination/application/agent-task-terminal-outcome-service";
@@ -262,7 +263,6 @@ import {
   recordRuntimeCoordinatorPublicationFailedTaskOutcome,
   recordRuntimeCoordinatorStoppedTaskOutcome,
 } from "../../../agent-task-coordination/application/runtime-coordinator-task-outcome";
-import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
   readDispatchAttemptExecutionOwnershipFact,
   readDispatchAttemptResultAcceptanceFact,
@@ -10321,17 +10321,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     intent: AgentProfileWorkRecoveryInboxProjectionIntent
   ): Promise<void> {
     try {
-      const profileDb = localStateDb(this.env);
       const targetInboxDb = inboxDb(this.env);
-      if (!(profileDb && targetInboxDb)) {
+      if (!targetInboxDb) {
         throw new Error(
           "runtime_coordinator.agent_profile_work_recovery_inbox.db_unavailable"
         );
       }
-      const [profile, interruptedHead] = await Promise.all([
-        readAgentProfileOrganizationContext({
+      const [profileScopeResult, interruptedHead] = await Promise.all([
+        resolveAgentProfileWorkRecoveryAuthScope({
           agentProfileId: intent.targetProfileId,
-          db: profileDb,
+          authWorker: this.env.OPENMELD_AUTH_WORKER,
         }),
         this.ctx.storage.get<unknown>(
           buildRuntimeCoordinatorHeadLifecycleStorageKey(
@@ -10340,10 +10339,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ),
       ]);
       if (
-        profile?.organizationId === null ||
-        profile?.profileKind !== "agent" ||
+        profileScopeResult.status !== "valid" ||
         !isRuntimeCoordinatorHeadLifecycleRecord(interruptedHead) ||
-        interruptedHead.ownerUserId !== profile.ownerUserId ||
+        interruptedHead.ownerUserId !== profileScopeResult.scope.ownerUserId ||
         interruptedHead.targetWakeLifecycleIdentity.targetProfileId !==
           intent.targetProfileId ||
         !interruptedHead.targetWakeLifecycleIdentity.clientMessageId
@@ -10352,6 +10350,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           "runtime_coordinator.agent_profile_work_recovery_inbox.context_unavailable"
         );
       }
+      const profile = profileScopeResult.scope;
       const interruptedClientMessageId =
         interruptedHead.targetWakeLifecycleIdentity.clientMessageId;
       if (intent.desiredStatus === "open") {

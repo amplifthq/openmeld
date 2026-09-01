@@ -189,6 +189,7 @@ type ResolveProfileByIdRpcResult =
         profileKind: AuthProfileKind;
         status: "active" | "disabled";
         ownerUserId: string;
+        organizationId: string | null;
         defaultProjectId?: string | null;
       };
     }
@@ -1273,6 +1274,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
           profileKind: profile.profileKind,
           status: profile.status,
           ownerUserId: profile.ownerUserId,
+          organizationId: normalizeOptionalText(profile.organizationId),
           ...(profile.profileKind === "agent" &&
           normalizeProfileManagedRole(profile.managedRole) === null
             ? {

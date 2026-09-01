@@ -706,6 +706,7 @@ import {
 } from "../agent-execution/application/agent-execution-readiness-service";
 import { acceptProviderConversationProofRecord } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
 import { projectOrganizationDirectoryAgentProfileOperationalContext } from "../agent-profile/application/agent-profile-operational-context";
+import { resolveAgentProfileWorkRecoveryAuthScope } from "../agent-profile/application/agent-profile-work-recovery-auth-scope";
 import {
   type AgentProfileBindingCommandResult,
   AgentProfileBindingModelSelectionValidationError,
@@ -4747,12 +4748,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       status: 400,
     });
   }
-  const { request } = await requireAgentProfileWorkspaceScope(env, input);
-  await assertAgentProfileOwnerMatchesRequest({
-    agentProfileId: request.agentProfileId,
-    env,
-    owner: request.owner,
-  });
+  const request = await requireAgentProfileWorkRecoveryScope(env, input);
 
   const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
   const recovery =
@@ -20515,6 +20511,70 @@ async function requireAgentProfileWorkspaceScope(
   }
 
   return { db, request };
+}
+
+async function requireAgentProfileWorkRecoveryScope(
+  env: CoreBindings,
+  input: {
+    agentProfileId: string;
+    context?: CoreRpcContextInput;
+  }
+): Promise<ReturnType<typeof requireAgentProfileBindingRequest>> {
+  const request = requireAgentProfileBindingRequest(input);
+  const activeOrganizationId = normalizeOptionalText(
+    request.context.activeOrganizationId
+  );
+  if (!activeOrganizationId) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.organization_context_missing",
+      reason: "Select a workspace before managing this Agent Profile.",
+      status: 403,
+    });
+  }
+
+  const profileScope = await resolveAgentProfileWorkRecoveryAuthScope({
+    agentProfileId: request.agentProfileId,
+    authWorker: env.OPENMELD_AUTH_WORKER,
+  });
+  if (profileScope.status === "unavailable") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.unavailable",
+      reason: "agent profile unavailable",
+      status: 503,
+    });
+  }
+  if (profileScope.status !== "valid") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.not_found",
+      reason: "agent profile not found",
+      status: 404,
+    });
+  }
+  if (profileScope.scope.organizationId !== activeOrganizationId) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.organization_mismatch",
+      reason:
+        "Agent Profile can only be managed in the workspace where it was created.",
+      status: 403,
+    });
+  }
+  if (
+    !ownersEqual(
+      {
+        id: profileScope.scope.ownerUserId,
+        kind: "owner_account",
+      },
+      request.owner
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile.not_found",
+      reason: "agent profile not found",
+      status: 404,
+    });
+  }
+
+  return request;
 }
 
 type ActiveOrganization = {
