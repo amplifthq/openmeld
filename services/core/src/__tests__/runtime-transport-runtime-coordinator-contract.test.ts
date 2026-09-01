@@ -872,6 +872,7 @@ const createHarness = (input?: {
   readinessImpactWriteError?: Error | null;
   replyPublishedAuthorityWriteFailures?: number;
   replyPublishedProjectionWriteFailures?: number;
+  runCommandStateWriteFailures?: number;
   storageSetAlarmFailures?: number;
   storageRecords?: Map<string, unknown>;
   taskTerminalOutcomeReadFailures?: number;
@@ -1082,12 +1083,24 @@ const createHarness = (input?: {
     input?.replyPublishedAuthorityWriteFailures ?? 0;
   let remainingExhaustionAuthorityWriteFailures =
     input?.exhaustionAuthorityWriteFailures ?? 0;
+  let remainingRunCommandStateWriteFailures =
+    input?.runCommandStateWriteFailures ?? 0;
   const storagePut = vi.fn((key: string, value: unknown) => {
     const terminalOutcome = (
       value as {
         terminalOutcome?: { reasonCode?: unknown; status?: unknown } | null;
       }
     )?.terminalOutcome;
+    if (
+      key.startsWith("runtime-coordinator:run-command-state:") &&
+      key !== "runtime-coordinator:run-command-state:index" &&
+      remainingRunCommandStateWriteFailures > 0
+    ) {
+      remainingRunCommandStateWriteFailures -= 1;
+      return Promise.reject(
+        new Error("runtime coordinator command state unavailable")
+      );
+    }
     if (
       key.includes("runtime-coordinator:execution-token-authority:") &&
       terminalOutcome?.status === "reply_published" &&
@@ -1225,14 +1238,24 @@ const createHarness = (input?: {
   const storageTransaction = vi.fn(
     async <T>(
       operation: (transaction: DurableObjectTransaction) => Promise<T>
-    ) =>
-      await operation({
-        delete: storageDelete,
-        get: storageGet,
-        list: storageList,
-        put: storageTransactionPut,
-        setAlarm: storageSetAlarm,
-      } as unknown as DurableObjectTransaction)
+    ) => {
+      const snapshot = new Map(storageRecords);
+      try {
+        return await operation({
+          delete: storageDelete,
+          get: storageGet,
+          list: storageList,
+          put: storageTransactionPut,
+          setAlarm: storageSetAlarm,
+        } as unknown as DurableObjectTransaction);
+      } catch (error) {
+        storageRecords.clear();
+        for (const [key, value] of snapshot) {
+          storageRecords.set(key, value);
+        }
+        throw error;
+      }
+    }
   );
   const waitUntilTasks: Promise<unknown>[] = [];
   const queuedObservationRedrives: unknown[] = [];
@@ -7101,6 +7124,89 @@ describe("runtime transport runtime coordinator transport contract", () => {
           waitingSinceMs: 1_700_000_360_000,
         },
       });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("normalizes a legacy promoted waiting boundary before its stale queue-age deadline can fire", async () => {
+    const createdAtMs = 1_700_000_000_000;
+    const promotedAtMs = 1_700_000_360_000;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(createdAtMs);
+    try {
+      const { hub, spaceFetchRequests, storageRecords } = createHarness();
+      const successorIdentity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-message-legacy-aged-successor",
+        dispatchId: "dispatch-legacy-aged-successor",
+        sourceSignalId: "signal-legacy-aged-successor",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      await acceptDefaultRuntimeCoordinatorHead(hub);
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        buildRuntimeCoordinatorHeadAcceptRequest({
+          dispatchId: "dispatch-legacy-aged-successor",
+          idempotencyKey: "idempotency-legacy-aged-successor",
+          targetWakeLifecycleIdentity: successorIdentity,
+        })
+      );
+
+      nowSpy.mockReturnValue(promotedAtMs);
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/pre-agent-stop",
+        buildRuntimeCoordinatorHeadPreAgentStopRequest()
+      );
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/waiting",
+        buildRuntimeCoordinatorHeadWaitingRequest({
+          dispatchId: "dispatch-legacy-aged-successor",
+          idempotencyKey: "idempotency-legacy-aged-successor",
+          observedAtMs: promotedAtMs,
+          targetWakeLifecycleIdentity: successorIdentity,
+        })
+      );
+
+      const storageKey = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        successorIdentity.targetWakeLifecycleId
+      );
+      const current = storageRecords.get(
+        storageKey
+      ) as RuntimeCoordinatorHeadLifecycleRecord;
+      expect(current.waitingBoundary).toBeDefined();
+      const { acceptedAtMs: _acceptedAtMs, ...legacyCurrent } = current;
+      storageRecords.set(storageKey, {
+        ...legacyCurrent,
+        waitingBoundary: {
+          ...current.waitingBoundary,
+          deadlineAtMs: createdAtMs + 300_000,
+          softDeadlineAtMs: createdAtMs + 20_000,
+          waitingSinceMs: createdAtMs,
+        },
+      });
+      spaceFetchRequests.length = 0;
+
+      await (
+        hub as unknown as {
+          processRuntimeCoordinatorHeadWaitingAlarm: (
+            nowMs: number
+          ) => Promise<void>;
+        }
+      ).processRuntimeCoordinatorHeadWaitingAlarm(promotedAtMs);
+
+      expect(storageRecords.get(storageKey)).toMatchObject({
+        acceptedAtMs: promotedAtMs,
+        status: "waiting",
+        waitingBoundary: {
+          deadlineAtMs: current.waitingBoundary?.deadlineAtMs,
+          softDeadlineAtMs: current.waitingBoundary?.softDeadlineAtMs,
+          waitingSinceMs: promotedAtMs,
+        },
+      });
+      expect(spaceFetchRequests).toEqual([]);
     } finally {
       nowSpy.mockRestore();
     }
@@ -14674,6 +14780,122 @@ describe("runtime transport runtime coordinator transport contract", () => {
           }
         ).resolveNextRuntimeCoordinatorWatchdogAlarmAtMs()
       ).resolves.toBeNull();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("atomically rejects pre-send preparation when command storage fails after the head is ready to link", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords } = createHarness({
+        runCommandStateWriteFailures: 1,
+      });
+      configureCompatibleRoute({ socket, state });
+      await acceptDefaultRuntimeCoordinatorHead(hub);
+
+      const firstResponse = await (
+        hub as unknown as {
+          handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+        }
+      ).handleDeliverDispatchRequest(
+        new Request("https://runtime-transport.test/deliver-dispatch", {
+          body: JSON.stringify(buildDeliverRequest()),
+          method: "POST",
+        })
+      );
+
+      expect(firstResponse.status).toBe(409);
+      await expect(firstResponse.json()).resolves.toMatchObject({
+        accepted: false,
+        reasonCode: "runtime_coordinator.execution_token_unavailable",
+        status: "rejected",
+      });
+      expect(sentFrames).toEqual([]);
+      expect(
+        findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+      ).toMatchObject({
+        executionLinkedAtMs: null,
+        runtimeCoordinatorExecutionId: null,
+        status: "accepted",
+      });
+      expect(
+        findRuntimeCoordinatorRunCommandState(storageRecords)
+      ).toBeUndefined();
+      expect(
+        findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+      ).toBeUndefined();
+
+      const retryResponse = await (
+        hub as unknown as {
+          handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+        }
+      ).handleDeliverDispatchRequest(
+        new Request("https://runtime-transport.test/deliver-dispatch", {
+          body: JSON.stringify(buildDeliverRequest()),
+          method: "POST",
+        })
+      );
+
+      expect(retryResponse.status).toBe(200);
+      await expect(retryResponse.json()).resolves.toMatchObject({
+        accepted: true,
+        status: "delivered",
+      });
+      expect(sentFrames).toHaveLength(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("atomically rejects pre-send preparation when its watchdog alarm cannot be stored", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const {
+        hub,
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+        storageSetAlarm,
+      } = createHarness();
+      configureCompatibleRoute({ socket, state });
+      await acceptDefaultRuntimeCoordinatorHead(hub);
+      storageSetAlarm.mockRejectedValueOnce(
+        new Error("durable object alarm unavailable")
+      );
+
+      const response = await (
+        hub as unknown as {
+          handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+        }
+      ).handleDeliverDispatchRequest(
+        new Request("https://runtime-transport.test/deliver-dispatch", {
+          body: JSON.stringify(buildDeliverRequest()),
+          method: "POST",
+        })
+      );
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({
+        accepted: false,
+        reasonCode: "runtime_coordinator.execution_token_unavailable",
+        status: "rejected",
+      });
+      expect(sentFrames).toEqual([]);
+      expect(
+        findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+      ).toMatchObject({
+        executionLinkedAtMs: null,
+        runtimeCoordinatorExecutionId: null,
+        status: "accepted",
+      });
+      expect(
+        findRuntimeCoordinatorRunCommandState(storageRecords)
+      ).toBeUndefined();
+      expect(
+        findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+      ).toBeUndefined();
     } finally {
       nowSpy.mockRestore();
     }

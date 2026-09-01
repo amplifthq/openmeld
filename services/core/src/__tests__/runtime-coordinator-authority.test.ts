@@ -5,6 +5,7 @@ import {
   isRuntimeCoordinatorFinalizationRetryParkLimitReached,
   isRuntimeCoordinatorHeadWaitingRecoveryCandidate,
   isRuntimeCoordinatorLateResultRecoverable,
+  normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming,
   parkRuntimeCoordinatorFinalizationRetryEntry,
   planRuntimeCoordinatorFinalizationRetryAlarmWork,
   planRuntimeCoordinatorHeadAcceptedHandoffAlarmWork,
@@ -730,12 +731,16 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
       nowMs: NOW_MS,
       records: [
         buildHeadLifecycleRecord({
+          acceptedAtMs:
+            NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 1000,
           createdAtMs:
             NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 1000,
           primaryDispatchId: "dispatch-accepted-input-first",
           status: "accepted",
         }),
         buildHeadLifecycleRecord({
+          acceptedAtMs:
+            NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS + 1000,
           createdAtMs:
             NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS + 1000,
           primaryDispatchId: "dispatch-accepted-future",
@@ -749,12 +754,16 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
           status: "execution_linked",
         }),
         buildHeadLifecycleRecord({
+          acceptedAtMs:
+            NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS,
           createdAtMs:
             NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS,
           primaryDispatchId: "dispatch-accepted-at-now",
           status: "accepted",
         }),
         buildHeadLifecycleRecord({
+          acceptedAtMs:
+            NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 2000,
           createdAtMs:
             NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 2000,
           primaryDispatchId: "dispatch-accepted-input-second",
@@ -768,6 +777,23 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
       "dispatch-accepted-at-now",
       "dispatch-accepted-input-second",
     ]);
+  });
+
+  it("normalizes a legacy accepted head from its latest authoritative transition", () => {
+    const promotedAtMs = NOW_MS - 1000;
+    const record = buildHeadLifecycleRecord({
+      createdAtMs:
+        NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 1000,
+      updatedAtMs: promotedAtMs,
+    });
+
+    expect(
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+    ).toMatchObject({
+      acceptedAtMs: promotedAtMs,
+      primaryDispatchId: record.primaryDispatchId,
+      status: "accepted",
+    });
   });
 
   it("plans due failure-publication retry records in record order", () => {

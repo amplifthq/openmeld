@@ -566,7 +566,7 @@ export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
 export type RuntimeCoordinatorHeadLifecycleRecord = {
   /**
    * When this Wake most recently became the profile's active FIFO head.
-   * Legacy records fall back to createdAtMs.
+   * Legacy records are normalized from their last authoritative transition.
    */
   acceptedAtMs?: number;
   acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
@@ -2181,12 +2181,37 @@ export const isAcceptedHeadAwaitingExecution = (
   !record.publicationIntent &&
   !record.waitingBoundary;
 
+export const normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming = (
+  record: RuntimeCoordinatorHeadLifecycleRecord
+): RuntimeCoordinatorHeadLifecycleRecord => {
+  if (record.acceptedAtMs !== undefined) {
+    return record;
+  }
+  const acceptedAtMs = Math.max(record.createdAtMs, record.updatedAtMs);
+  if (record.status !== "waiting" || !record.waitingBoundary) {
+    return { ...record, acceptedAtMs };
+  }
+  return {
+    ...record,
+    acceptedAtMs,
+    waitingBoundary: {
+      ...record.waitingBoundary,
+      deadlineAtMs:
+        acceptedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+      softDeadlineAtMs:
+        acceptedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+      waitingSinceMs: acceptedAtMs,
+    },
+  };
+};
+
 export const shouldEscalateAcceptedHeadToWaitingBoundary = (input: {
   nowMs: number;
   record: RuntimeCoordinatorHeadLifecycleRecord;
 }): boolean =>
   isAcceptedHeadAwaitingExecution(input.record) &&
-  (input.record.acceptedAtMs ?? input.record.createdAtMs) +
+  (input.record.acceptedAtMs ??
+    Math.max(input.record.createdAtMs, input.record.updatedAtMs)) +
     RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS <=
     input.nowMs;
 

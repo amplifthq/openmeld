@@ -307,6 +307,7 @@ import {
   markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention,
   markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy,
   markRuntimeCoordinatorAgentProfileWorkUsageAvailable,
+  prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission,
   RUNTIME_COORDINATOR_WAKE_STOP_REASON_CODE_PREFIX,
   readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
   readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
@@ -440,6 +441,7 @@ import {
   isRuntimeCoordinatorReevaluatableDecisionAction,
   isSameRuntimeCoordinatorHeadAuthority,
   minNullableTimestamp,
+  normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming,
   normalizeRuntimeCoordinatorHeadWaitingBoundary,
   omitRuntimeCoordinatorHeadPublicationRetry,
   parkRuntimeCoordinatorFinalizationRetryEntry,
@@ -10114,6 +10116,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const runtimeCoordinatorExecutionId =
       request.payload.runtimeCoordinatorExecutionId;
     try {
+      const nowMs = Date.now();
       const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
         clientMessageId: request.payload.sourceClientMessageId ?? null,
         dispatchId: request.dispatchId,
@@ -10121,26 +10124,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         spaceId: request.payload.spaceId,
         targetProfileId: request.payload.targetProfileId,
       });
-      const headLifecycle =
-        await this.readRuntimeCoordinatorHeadLifecycleRecord(
-          targetWakeLifecycleIdentity.targetWakeLifecycleId
-        );
-      if (headLifecycle?.status === "stopped_before_execution") {
-        console.info(
-          "[core.runtime_transport.runtime_coordinator_delivery_pre_agent_stopped]",
-          {
-            dispatchId: request.dispatchId,
-            runtimeCoordinatorExecutionId,
-            targetProfileId: request.payload.targetProfileId,
-            targetWakeLifecycleId:
-              targetWakeLifecycleIdentity.targetWakeLifecycleId,
-          }
-        );
-        return {
-          ok: false,
-          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
-        };
-      }
       const existingAuthority = await this.readRuntimeCoordinatorTokenAuthority(
         runtimeCoordinatorExecutionId
       );
@@ -10166,11 +10149,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           spaceId: request.payload.spaceId,
           targetProfileId: request.payload.targetProfileId,
         },
-        nowMs: Date.now(),
+        nowMs,
       });
-      if (!issued.reusedExistingRun) {
-        await this.writeRuntimeCoordinatorTokenAuthority(issued.authority);
-      }
       const acceptedRequest = {
         ...request,
         payload: {
@@ -10178,17 +10158,36 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           executionToken: issued.envelope,
         },
       };
-      const headLink =
-        await this.linkRuntimeCoordinatorHeadLifecycleToExecution({
-          nowMs: Date.now(),
+      const commandState =
+        await this.buildRuntimeCoordinatorRunCommandStateFromDelivery({
+          nowMs,
+          reasonCode: "runtime_coordinator.delivery_command_stored",
           request: acceptedRequest,
         });
-      if (!headLink.ok) {
+      const watchdogAtMs =
+        resolveRuntimeCoordinatorRunCommandStateWatchdogAtMs(commandState);
+      if (watchdogAtMs === null) {
+        throw new Error("runtime_coordinator.delivery_watchdog_unavailable");
+      }
+      const existingAlarmAtMs = await this.ctx.storage.getAlarm();
+      const alarmAtMs =
+        minNullableTimestamp(existingAlarmAtMs, watchdogAtMs) ?? watchdogAtMs;
+      const preparation =
+        await prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission({
+          alarmAtMs,
+          authority: issued.authority,
+          commandState,
+          nowMs,
+          storage: this.ctx.storage,
+          targetWakeLifecycleId:
+            targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        });
+      if (!preparation.ok) {
         console.warn(
           "[core.runtime_transport.runtime_coordinator_head_link_unavailable]",
           {
             dispatchId: request.dispatchId,
-            reasonCode: headLink.reasonCode,
+            reasonCode: preparation.reasonCode,
             runtimeCoordinatorExecutionId,
             targetProfileId: request.payload.targetProfileId,
           }
@@ -10196,7 +10195,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         return {
           ok: false,
           reasonCode:
-            headLink.reasonCode ===
+            preparation.reasonCode ===
             "runtime_coordinator.pre_agent_stop_requested"
               ? "runtime_coordinator.pre_agent_stop_requested"
               : "runtime_coordinator.head_execution_link_unavailable",
@@ -11295,11 +11294,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const waitingDecision = resolveRuntimeCoordinatorHeadWaitingDecision(
       request.reasonCode
     );
-    const existingBoundary = existing.waitingBoundary;
+    const existingWithAcceptanceTiming =
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(existing);
+    const existingBoundary = existingWithAcceptanceTiming.waitingBoundary;
     const waitingSinceMs =
       existingBoundary?.waitingSinceMs ??
-      existing.acceptedAtMs ??
-      existing.createdAtMs;
+      existingWithAcceptanceTiming.acceptedAtMs ??
+      existingWithAcceptanceTiming.createdAtMs;
     const softDeadlineAtMs =
       existingBoundary?.softDeadlineAtMs ??
       waitingSinceMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS;
@@ -11310,7 +11311,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       const nextRecord =
         buildRuntimeCoordinatorHeadPublicationIntentReadyRecord({
           decisionSource: "runtime_coordinator_head_waiting_deadline",
-          existing,
+          existing: existingWithAcceptanceTiming,
           nowMs,
           publicationCategory: waitingPolicy.waitingCategory,
           reasonCode: request.reasonCode,
@@ -11343,7 +11344,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ...waitingPolicy,
     };
     await this.writeRuntimeCoordinatorHeadLifecycleRecord({
-      ...existing,
+      ...existingWithAcceptanceTiming,
       runtimeCoordinatorExecutionId: null,
       status: "waiting",
       updatedAtMs: nowMs,
@@ -11721,7 +11722,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         escalateHeadWaitingDeadline: (input) =>
           this.escalateRuntimeCoordinatorHeadWaitingDeadline(input),
         readRecords: () =>
-          this.readRuntimeCoordinatorHeadLifecycleRecordsFromIndex(),
+          this.readRuntimeCoordinatorHeadLifecycleRecordsForWaitingAlarm(),
         reserveWorkUnit: () =>
           !run ||
           this.reserveHousekeepingAlarmWorkUnit(
@@ -11730,6 +11731,25 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           ),
       },
     });
+  }
+
+  private async readRuntimeCoordinatorHeadLifecycleRecordsForWaitingAlarm(): Promise<
+    RuntimeCoordinatorHeadLifecycleRecord[]
+  > {
+    const records =
+      await this.readRuntimeCoordinatorHeadLifecycleRecordsFromIndex();
+    const normalizedRecords: RuntimeCoordinatorHeadLifecycleRecord[] = [];
+    for (const record of records) {
+      const normalized =
+        record.status === "waiting"
+          ? normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+          : record;
+      if (normalized !== record) {
+        await this.writeRuntimeCoordinatorHeadLifecycleRecord(normalized);
+      }
+      normalizedRecords.push(normalized);
+    }
+    return normalizedRecords;
   }
 
   private async processRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm(
@@ -11845,122 +11865,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
 
-  private async linkRuntimeCoordinatorHeadLifecycleToExecution(input: {
-    nowMs: number;
-    request: RuntimeTransportDeliverDispatchRequest;
-  }): Promise<
-    | { ok: true }
-    | {
-        ok: false;
-        reasonCode:
-          | "runtime_coordinator.head_execution_link_mismatch"
-          | "runtime_coordinator.head_lifecycle_not_found"
-          | "runtime_coordinator.head_link_scope_mismatch"
-          | "runtime_coordinator.head_publication_intent_already_ready"
-          | "runtime_coordinator.pre_agent_stop_requested";
-      }
-  > {
-    const identity = projectTargetWakeLifecycleIdentity({
-      clientMessageId: input.request.payload.sourceClientMessageId ?? null,
-      dispatchId: input.request.dispatchId,
-      sourceSignalId: input.request.payload.sourceEventId,
-      spaceId: input.request.payload.spaceId,
-      targetProfileId: input.request.payload.targetProfileId,
-    });
-    const existing = await this.readRuntimeCoordinatorHeadLifecycleRecord(
-      identity.targetWakeLifecycleId
-    );
-    if (!existing) {
-      return {
-        ok: false,
-        reasonCode: "runtime_coordinator.head_lifecycle_not_found",
-      };
-    }
-    if (
-      existing.primaryDispatchId !== input.request.dispatchId ||
-      existing.ownerUserId !== input.request.ownerUserId
-    ) {
-      console.warn(
-        "[core.runtime_transport.runtime_coordinator_head_link_conflict]",
-        {
-          dispatchId: input.request.dispatchId,
-          existingPrimaryDispatchId: existing.primaryDispatchId,
-          reasonCode: "runtime_coordinator.head_link_scope_mismatch",
-          targetWakeLifecycleId: identity.targetWakeLifecycleId,
-          targetProfileId: identity.targetProfileId,
-        }
-      );
-      return {
-        ok: false,
-        reasonCode: "runtime_coordinator.head_link_scope_mismatch",
-      };
-    }
-    if (existing.status === "stopped_before_execution") {
-      console.warn(
-        "[core.runtime_transport.runtime_coordinator_head_link_conflict]",
-        {
-          dispatchId: input.request.dispatchId,
-          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
-          targetWakeLifecycleId: identity.targetWakeLifecycleId,
-          targetProfileId: identity.targetProfileId,
-        }
-      );
-      return {
-        ok: false,
-        reasonCode: "runtime_coordinator.pre_agent_stop_requested",
-      };
-    }
-    if (existing.status === "publication_intent_ready") {
-      console.warn(
-        "[core.runtime_transport.runtime_coordinator_head_link_conflict]",
-        {
-          dispatchId: input.request.dispatchId,
-          reasonCode:
-            "runtime_coordinator.head_publication_intent_already_ready",
-          targetWakeLifecycleId: identity.targetWakeLifecycleId,
-          targetProfileId: identity.targetProfileId,
-        }
-      );
-      return {
-        ok: false,
-        reasonCode: "runtime_coordinator.head_publication_intent_already_ready",
-      };
-    }
-    const runtimeCoordinatorExecutionId =
-      input.request.payload.runtimeCoordinatorExecutionId;
-    if (
-      existing.runtimeCoordinatorExecutionId &&
-      existing.runtimeCoordinatorExecutionId !== runtimeCoordinatorExecutionId
-    ) {
-      console.warn(
-        "[core.runtime_transport.runtime_coordinator_head_link_conflict]",
-        {
-          dispatchId: input.request.dispatchId,
-          existingRuntimeCoordinatorExecutionId:
-            existing.runtimeCoordinatorExecutionId,
-          reasonCode: "runtime_coordinator.head_execution_link_mismatch",
-          runtimeCoordinatorExecutionId,
-          targetWakeLifecycleId: identity.targetWakeLifecycleId,
-          targetProfileId: identity.targetProfileId,
-        }
-      );
-      return {
-        ok: false,
-        reasonCode: "runtime_coordinator.head_execution_link_mismatch",
-      };
-    }
-    await this.writeRuntimeCoordinatorHeadLifecycleRecord({
-      ...existing,
-      executionLinkedAtMs: existing.executionLinkedAtMs ?? input.nowMs,
-      runtimeCoordinatorExecutionId,
-      status: "execution_linked",
-      updatedAtMs: input.nowMs,
-      waitingBoundary: undefined,
-    });
-    return { ok: true };
-  }
-
-  private async writeRuntimeCoordinatorRunCommandStateFromDelivery(input: {
+  private async buildRuntimeCoordinatorRunCommandStateFromDelivery(input: {
     nowMs: number;
     reasonCode: string;
     request: RuntimeTransportDeliverDispatchRequest;
