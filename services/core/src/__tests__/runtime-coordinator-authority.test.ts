@@ -17,6 +17,8 @@ import {
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_MAX_AGE_MS,
   RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS,
   RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION,
+  RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+  RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
   RUNTIME_COORDINATOR_PRE_EXECUTION_HANDOFF_MODEL_VERSION,
   type RuntimeCoordinatorFinalizationRetryEntry,
   type RuntimeCoordinatorHeadLifecycleRecord,
@@ -798,7 +800,7 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
     });
   });
 
-  it("preserves a legacy waiting hard deadline that still follows its latest transition", () => {
+  it("reanchors a legacy waiting boundary that still carries queue age even before its old deadline", () => {
     const createdAtMs = NOW_MS - 120_000;
     const updatedAtMs = NOW_MS - 60_000;
     const waitingBoundary = buildWaitingBoundary({
@@ -806,6 +808,39 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
       observedAtMs: updatedAtMs,
       softDeadlineAtMs: createdAtMs + 20_000,
       waitingSinceMs: createdAtMs,
+    });
+    const record = buildHeadLifecycleRecord({
+      createdAtMs,
+      status: "waiting",
+      updatedAtMs,
+      waitingBoundary,
+    });
+
+    expect(
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+    ).toMatchObject({
+      acceptedAtMs: updatedAtMs,
+      status: "waiting",
+      waitingBoundary: {
+        deadlineAtMs:
+          updatedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+        softDeadlineAtMs:
+          updatedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+        waitingSinceMs: updatedAtMs,
+      },
+    });
+  });
+
+  it("preserves a legacy waiting boundary already anchored to its latest transition", () => {
+    const createdAtMs = NOW_MS - 120_000;
+    const updatedAtMs = NOW_MS - 60_000;
+    const waitingBoundary = buildWaitingBoundary({
+      deadlineAtMs:
+        updatedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+      observedAtMs: updatedAtMs,
+      softDeadlineAtMs:
+        updatedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+      waitingSinceMs: updatedAtMs,
     });
     const record = buildHeadLifecycleRecord({
       createdAtMs,

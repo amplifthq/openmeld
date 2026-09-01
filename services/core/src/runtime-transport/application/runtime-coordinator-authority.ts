@@ -2196,7 +2196,7 @@ export const normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming = (
   if (record.status !== "waiting" || !record.waitingBoundary) {
     return { ...record, acceptedAtMs };
   }
-  if (record.waitingBoundary.deadlineAtMs > acceptedAtMs) {
+  if (record.waitingBoundary.waitingSinceMs >= acceptedAtMs) {
     return { ...record, acceptedAtMs };
   }
   return {
