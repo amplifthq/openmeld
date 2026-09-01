@@ -227,10 +227,10 @@ change must leave those signals cleaner and less ambiguous.
 - Use focused checks while implementation or blocker-capable review can still
   change the code. Treat broad affected, integration, release-ready, and Final
   Candidate runs as closeout evidence after the practical scope is stable, not
-  as an iteration loop. A late cleanup-only suggestion such as a rename,
-  preferred abstraction, or theoretical edge case does not block delivery
-  unless it materially protects users, security, data, a supported compatibility
-  path, or the task's required product outcome.
+  as an iteration loop. For late findings, apply the value-and-scope boundary
+  in `developing/engineering/agent-native-delivery.md`: fix a high-value,
+  coherent finding when practical, and preserve separable follow-ups without
+  reopening the candidate.
 - Before declaring a user-, operator-, integrator-, or contributor-visible
   change done, decide whether it needs an OpenMeld Changelog entry and, when it
   does, follow `.agents/skills/openmeld-changelog/SKILL.md`.

@@ -81,13 +81,24 @@ when the responsible agent genuinely needs it to locate a cross-boundary bug;
 call that a diagnostic run, run only the boundary that can answer the question,
 and do not cascade into the remaining closeout gates yet.
 
-At closeout, fix findings that can materially harm users, security, privacy,
-data, supported compatibility, or the task's required product result. Do not
-delay delivery merely to rename an internal file, prefer another abstraction,
-polish a fixture, or perfect a theoretical edge case that the supported product
-does not exercise. Such cleanup may be included when it is truly trivial and
-does not reopen scope; otherwise state it briefly as deferred. This judgment
-does not require a new approval, checklist, ticket, reviewer count, or meeting.
+At closeout, a real finding is evidence, not automatic scope. Fix it in the
+current candidate when its user value is material and the correction remains
+small, coherent with the same owner and contract, and unlikely to delay the
+requested result or reopen broad risk. Also fix findings that block that result
+or materially protect a common or high-harm, irreversible, security-, privacy-,
+data-, or supported-compatibility path. Outside those mandatory cases, a finding
+that introduces a separate owner, source of truth, contract, or user journey
+defaults to a follow-up unless the current correction would otherwise be
+incomplete or unsafe.
+
+Preserve a deferred finding when it is useful enough to revisit. Record the
+symptom, impact, available evidence, and reason for deferral in the repository's
+appropriate issue or feedback system, or in authorized persistent task memory
+when that is the durable surface available to future agents. Beyond the required
+Agent Experience occurrence record below, do not create separate tracking work
+for a trivial observation, and do not let recording reopen the current
+candidate. This judgment does not require a new approval, checklist, ticket,
+reviewer count, or meeting.
 
 Inspect the transparent candidate plan at any time:
 
