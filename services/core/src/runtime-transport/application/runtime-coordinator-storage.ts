@@ -120,7 +120,7 @@ export const readRuntimeCoordinatorFinalizationRetriesFromStorage = async (
 };
 
 export const readRuntimeCoordinatorTokenAuthorityFromStorage = async (
-  storage: RuntimeCoordinatorStorage,
+  storage: Pick<DurableObjectStorage, "get">,
   runtimeCoordinatorExecutionId: string
 ): Promise<RuntimeCoordinatorExecutionTokenAuthorityRecord | null> => {
   const raw = await storage.get<unknown>(
@@ -151,7 +151,7 @@ export const writeRuntimeCoordinatorTokenAuthorityToStorage = async (
 };
 
 export const readRuntimeCoordinatorRunCommandStateFromStorage = async (
-  storage: RuntimeCoordinatorStorage,
+  storage: Pick<DurableObjectStorage, "get">,
   runtimeCoordinatorExecutionId: string
 ): Promise<RuntimeCoordinatorRunCommandState | null> => {
   const raw = await storage.get<unknown>(

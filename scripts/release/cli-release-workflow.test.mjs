@@ -181,6 +181,21 @@ test("fails closed when the migration probe contradicts itself", () => {
   );
 });
 
+test("fails closed when migration evidence contradicts across output streams", () => {
+  assert.throws(
+    () =>
+      requireProductionDatabaseCurrent({
+        cwd: "/release-source",
+        runCommand: () => ({
+          status: 0,
+          stderr: "Migrations to be applied:\n0149_rapid_venus.sql\n",
+          stdout: "No migrations to apply.\n",
+        }),
+      }),
+    PENDING_DATABASE_ERROR_PATTERN
+  );
+});
+
 test("blocks CLI/Core publication when Production D1 is behind", () => {
   assert.throws(
     () =>

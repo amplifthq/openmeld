@@ -31,13 +31,15 @@ export function requireProductionDatabaseCurrent(input = {}) {
     cwd,
   };
   const result = (input.runCommand ?? runCommand)(command);
-  const hasPendingMigrations = PENDING_D1_MIGRATIONS_PATTERN.test(
-    result.stdout
-  );
+  const combinedEvidence = [result.stdout, result.stderr]
+    .map((value) => String(value ?? ""))
+    .join("\n");
+  const hasPendingMigrations =
+    PENDING_D1_MIGRATIONS_PATTERN.test(combinedEvidence);
   if (
     result.status === 0 &&
     !hasPendingMigrations &&
-    NO_PENDING_D1_MIGRATIONS_PATTERN.test(result.stdout)
+    NO_PENDING_D1_MIGRATIONS_PATTERN.test(combinedEvidence)
   ) {
     return {
       status: "current",

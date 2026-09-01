@@ -154,6 +154,7 @@ const buildResolvedAgentProfileAuthScope = (input?: {
 const createRecordingD1 = (input?: {
   agentProfileRow?: RecordingAgentProfileRow | null;
   agentControllerReportRow?: RecordingRuntimeAgentControllerReportRow | null;
+  agentControllerReportReadGate?: Promise<void>;
   attemptAcceptanceRow?: RecordingDispatchAttemptAcceptanceRow | null;
   executionRow?: RecordingRuntimeCoordinatorExecutionRow | null;
   interactionInboxResolveFailures?: number;
@@ -164,6 +165,7 @@ const createRecordingD1 = (input?: {
   taskTerminalOutcomeReadFailures?: number;
   taskTerminalOutcomeWriteFailures?: number;
   terminalProjectionWriteFailures?: number;
+  onAgentControllerReportRead?: () => void;
 }) => {
   const calls: RecordingD1Call[] = [];
   const eventRows = new Map<string, Record<string, unknown>>();
@@ -339,7 +341,12 @@ const createRecordingD1 = (input?: {
                 "FROM openMeldDaemon_runtime_agent_controller_reports"
               )
             ) {
-              return input?.agentControllerReportRow ?? null;
+              input?.onAgentControllerReportRead?.();
+              return input?.agentControllerReportReadGate
+                ? input.agentControllerReportReadGate.then(
+                    () => input.agentControllerReportRow ?? null
+                  )
+                : (input?.agentControllerReportRow ?? null);
             }
             if (
               query.includes("FROM openMeldDaemon_dispatch_attempts") &&
@@ -825,6 +832,7 @@ const createRecordingD1 = (input?: {
 const createHarness = (input?: {
   agentProfileRow?: RecordingAgentProfileRow | null;
   agentControllerReportRow?: RecordingRuntimeAgentControllerReportRow | null;
+  agentControllerReportReadGate?: Promise<void>;
   attemptAcceptanceRow?: RecordingDispatchAttemptAcceptanceRow | null;
   authResolveProfileById?: ResolveProfileByIdRpc;
   exhaustionAuthorityProjectionRaceStatus?:
@@ -847,6 +855,7 @@ const createHarness = (input?: {
   taskTerminalOutcomeWriteFailures?: number;
   taskNeedsAttentionObservationWriteFailures?: number;
   terminalProjectionWriteFailures?: number;
+  onAgentControllerReportRead?: () => void;
 }) => {
   const state = createRuntimeTransportMutableState();
   state.pendingDispatches.set(
@@ -857,6 +866,7 @@ const createHarness = (input?: {
   const recordingD1 = createRecordingD1({
     agentProfileRow: input?.agentProfileRow ?? null,
     agentControllerReportRow: input?.agentControllerReportRow ?? null,
+    agentControllerReportReadGate: input?.agentControllerReportReadGate,
     attemptAcceptanceRow: input?.attemptAcceptanceRow ?? null,
     executionRow: input?.executionRow ?? null,
     interactionInboxResolveFailures:
@@ -873,6 +883,7 @@ const createHarness = (input?: {
       input?.taskTerminalOutcomeWriteFailures ?? 0,
     terminalProjectionWriteFailures:
       input?.terminalProjectionWriteFailures ?? 0,
+    onAgentControllerReportRead: input?.onAgentControllerReportRead,
   });
   const authResolveProfileById =
     input?.authResolveProfileById ??
@@ -9396,6 +9407,94 @@ describe("runtime transport runtime coordinator transport contract", () => {
         (call) => call.params[2] === "cancellation_requested"
       )
     ).toHaveLength(1);
+  });
+
+  it("fences Wake Stop before controller lookup so send rollback cannot revive the Wake", async () => {
+    let releaseControllerReport: (() => void) | undefined;
+    const controllerReportGate = new Promise<void>((resolve) => {
+      releaseControllerReport = resolve;
+    });
+    let markControllerReportReadStarted: (() => void) | undefined;
+    const controllerReportReadStarted = new Promise<void>((resolve) => {
+      markControllerReportReadStarted = resolve;
+    });
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness({
+      agentControllerReportReadGate: controllerReportGate,
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      onAgentControllerReportRead: () => markControllerReportReadStarted?.(),
+    });
+    await issueDeliveryToken({ hub, sentFrames, socket, state });
+    enableWakeStopControl(state, "cancel");
+    const headLifecycle =
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords);
+    if (!headLifecycle) {
+      throw new Error("Expected linked RuntimeCoordinator head lifecycle.");
+    }
+
+    const stopResponsePromise = requestRuntimeCoordinatorWakeStop(hub);
+    await controllerReportReadStarted;
+
+    await expect(
+      rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission({
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        nowMs: 1_700_000_002_000,
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        storage: (hub as unknown as { ctx: DurableObjectState }).ctx.storage,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: headLifecycle.targetWakeLifecycleId,
+      })
+    ).resolves.toBe("not_eligible");
+    expect(findRuntimeCoordinatorRunCommandState(storageRecords)).toMatchObject(
+      {
+        lastCommandReasonCode: "runtime_coordinator.wake_stop_requested",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      }
+    );
+    expect(
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+    ).toMatchObject({
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      status: "execution_linked",
+    });
+
+    releaseControllerReport?.();
+    const stopResponse = await stopResponsePromise;
+    expect(stopResponse.status).toBe(200);
+    await expect(stopResponse.json()).resolves.toMatchObject({
+      ok: true,
+      status: "cancellation_requested",
+    });
+  });
+
+  it("does not recreate a Wake command removed after the Stop fence", async () => {
+    let releaseControllerReport: (() => void) | undefined;
+    const controllerReportGate = new Promise<void>((resolve) => {
+      releaseControllerReport = resolve;
+    });
+    let markControllerReportReadStarted: (() => void) | undefined;
+    const controllerReportReadStarted = new Promise<void>((resolve) => {
+      markControllerReportReadStarted = resolve;
+    });
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness({
+      agentControllerReportReadGate: controllerReportGate,
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      onAgentControllerReportRead: () => markControllerReportReadStarted?.(),
+    });
+    await issueDeliveryToken({ hub, sentFrames, socket, state });
+    enableWakeStopControl(state, "cancel");
+
+    const stopResponsePromise = requestRuntimeCoordinatorWakeStop(hub);
+    await controllerReportReadStarted;
+    const commandStateKey = buildRuntimeCoordinatorRunCommandStateStorageKey(
+      RUNTIME_COORDINATOR_EXECUTION_ID
+    );
+    storageRecords.delete(commandStateKey);
+
+    releaseControllerReport?.();
+    const stopResponse = await stopResponsePromise;
+    expect(stopResponse.status).toBe(200);
+    expect(storageRecords.has(commandStateKey)).toBe(false);
   });
 
   it("records Wake Stop through interrupt delivery for interrupt-only RuntimeCoordinator executions", async () => {
