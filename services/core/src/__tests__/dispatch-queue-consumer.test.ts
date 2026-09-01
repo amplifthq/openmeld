@@ -10733,6 +10733,11 @@ describe("handleDispatchQueueBatch", () => {
     expect(claimDispatchAttempt).toHaveBeenCalledTimes(1);
     expect(rpcPostSystemNoticeSignal).toHaveBeenCalledTimes(2);
     expect(vi.mocked(rpcPostSystemNoticeSignal).mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        finalOutcomeAuthority: "runtime_coordinator_failure_publication",
+      })
+    );
+    expect(vi.mocked(rpcPostSystemNoticeSignal).mock.calls[1]?.[1]).toEqual(
       vi.mocked(rpcPostSystemNoticeSignal).mock.calls[0]?.[1]
     );
     expect(writeDispatchDlq).toHaveBeenCalledTimes(1);
