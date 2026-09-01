@@ -67,7 +67,11 @@ import {
 	resolveSpaceComposerSendErrorMessage,
 	runSpaceComposerIdempotentRequestWithRetry,
 } from "#/lib/spaces/errors";
-import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
+import {
+	applySpaceBootstrapSnapshotToCache,
+	enrichSpaceHistoryAgentControllerPresentation,
+	resolveSpaceMembersPresentationSnapshot,
+} from "#/lib/spaces/member-cache";
 import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
 import {
@@ -102,7 +106,9 @@ import {
 	spaceConversationDisplaySnapshotQueryOptions,
 } from "#/query/spaces/display-snapshot";
 import {
+	mergeSpaceHistorySnapshots,
 	readEarlierSpaceHistory,
+	type SpaceHistorySnapshot,
 	spaceHistoryDateWindowQueryOptions,
 	spaceHistoryQueryOptions,
 } from "#/query/spaces/history";
@@ -733,6 +739,20 @@ export async function hardRefreshSpaceStatusAndMembers(input: {
 	]);
 }
 
+function resolveSpaceLandingHistorySnapshot(input: {
+	bootstrap: SpaceBootstrapSnapshot;
+	history: SpaceHistorySnapshot | undefined;
+	members: SpaceMembersSnapshot;
+}): SpaceHistorySnapshot | null {
+	return mergeSpaceHistorySnapshots({
+		current: input.history,
+		incoming: enrichSpaceHistoryAgentControllerPresentation({
+			history: input.bootstrap.history,
+			members: input.members,
+		}),
+	});
+}
+
 function useSpaceLandingBootstrapState(input: {
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
@@ -799,6 +819,12 @@ function useSpaceLandingBootstrapState(input: {
 		})
 	);
 	const membersSnapshot = membersQuery.data ?? null;
+	const presentationMembersSnapshot = bootstrapQuery.data
+		? resolveSpaceMembersPresentationSnapshot({
+				bootstrap: bootstrapQuery.data.members,
+				current: membersSnapshot,
+			})
+		: membersSnapshot;
 	const historyQuery = useQuery(
 		spaceHistoryQueryOptions({
 			spaceId: input.spaceId,
@@ -806,8 +832,19 @@ function useSpaceLandingBootstrapState(input: {
 			enabled: false,
 		})
 	);
-	const historySnapshot =
-		historyQuery.data ?? bootstrapQuery.data?.history ?? null;
+	const historySnapshot = useMemo(() => {
+		if (!bootstrapQuery.data) {
+			return historyQuery.data ?? null;
+		}
+		if (!presentationMembersSnapshot) {
+			return null;
+		}
+		return resolveSpaceLandingHistorySnapshot({
+			bootstrap: bootstrapQuery.data,
+			history: historyQuery.data,
+			members: presentationMembersSnapshot,
+		});
+	}, [bootstrapQuery.data, historyQuery.data, presentationMembersSnapshot]);
 	const restoredDisplayStatus =
 		currentAccessRejection === null &&
 		currentStatusSnapshot === null &&
@@ -853,6 +890,7 @@ function useSpaceLandingBootstrapState(input: {
 		membersQuery,
 		membersReady: membersSnapshot !== null || membersQuery.isSuccess,
 		membersSnapshot,
+		presentationMembersSnapshot,
 		statusQuery,
 		statusReady: currentStatusSnapshot !== null,
 		statusSnapshot,
@@ -996,6 +1034,7 @@ export type SpaceLandingController =
 			onReconnectLiveUpdates: () => void;
 			membersError: StructuredApiClientFailure | null;
 			membersSnapshot: SpaceMembersSnapshot | null;
+			presentationMembersSnapshot: SpaceMembersSnapshot | null;
 			mode: "ready";
 			onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onClearComposerReplyTo: () => void;
@@ -1380,6 +1419,7 @@ export function useSpaceLandingController(input: {
 		membersQuery,
 		membersReady,
 		membersSnapshot,
+		presentationMembersSnapshot,
 		statusQuery,
 		statusReady,
 		statusSnapshot,
@@ -1922,12 +1962,12 @@ export function useSpaceLandingController(input: {
 				agentStreams: agentStreamProjections,
 				agentStreamScope: { kind: "main" },
 				envelopes: timelinePresentationEnvelopes,
-				membersSnapshot,
+				membersSnapshot: presentationMembersSnapshot,
 				pendingFilePreviewUrlsById,
 			}),
 		[
 			agentStreamProjections,
-			membersSnapshot,
+			presentationMembersSnapshot,
 			pendingFilePreviewUrlsById,
 			timelinePresentationEnvelopes,
 		]
@@ -2089,6 +2129,7 @@ export function useSpaceLandingController(input: {
 		onReconnectLiveUpdates: reconnectNow,
 		membersError,
 		membersSnapshot,
+		presentationMembersSnapshot,
 		mode: "ready",
 		onComposerEditorChange: (change) => {
 			mentionAuthoring.onComposerEditorChange(change);

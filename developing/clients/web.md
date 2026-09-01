@@ -2260,6 +2260,15 @@ timed-out restore hydrates an isolated cache first and may merge into the app
 cache only while its original segment is still current; it rechecks that fact
 before subscribing, so a late old-account restore is discarded.
 
+When one current bootstrap contains both the bounded history and the current
+member presentation, Web may fill a missing Agent `agentControllerRef` on only
+those Agent signal profiles already present in that same bounded history before
+the existing history query is persisted. This is a display-only repair for
+legacy messages so a returning view can paint the bound Agent Controller icon
+without first presenting the generic unbound icon. It does not persist the
+members query, add profiles that are absent from the history, or establish
+membership, readiness, Binding, or mutation authority.
+
 When a saved Space list is visible and background refresh fails, Web keeps that
 list visible, labels it as the last saved browser view, and offers Retry. Actions
 that would change server state, such as joining a Space, remain disabled until a
@@ -2587,6 +2596,18 @@ seed. Authenticated Space surfaces resolve the Center Agent from the current
 Organization's designation or Direct Message projection. Public Space surfaces
 use the optional Center Agent identity from the Space status projection. No
 surface may infer that identity from a Profile name or the Space kind.
+
+The first bootstrap-backed conversation frame resolves Agent presentation from
+the members included in that same bootstrap instead of waiting for a second
+cache-notification render. If saved legacy history becomes visible before the
+current bootstrap, a static reserved icon placeholder represents the unresolved
+controller; Web must not present the generic unbound icon until current members
+confirm that the Agent is actually unbound or unknown. After bootstrap, a newer
+members presentation replaces any older per-message controller snapshot so
+rebinding updates the icon and unbinding clears the previous controller mark.
+Re-entering a Space must not let an older cached bootstrap patch a newer members
+generation; bootstrap history enrichment uses the newer of those two identity
+presentations.
 
 It should keep the familiar conversation model clear:
 

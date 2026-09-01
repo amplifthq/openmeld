@@ -1197,6 +1197,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				>
 					<MessageHeader className="flex-wrap gap-x-1.5 gap-y-1 px-0">
 						<SpaceMessageProfileAvatar
+							agentControllerPending={input.item.actorAgentControllerPending}
 							agentControllerRef={input.item.actorAgentControllerRef}
 							avatarImageUrl={resolveThreadMessageAvatarImageUrl({
 								item: input.item,

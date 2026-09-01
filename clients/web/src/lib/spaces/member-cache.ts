@@ -1,5 +1,6 @@
 import type {
 	PostSpaceMembersResponse,
+	SignalEnvelope,
 	SpaceMemberAgentSnapshot,
 	SpaceMemberHumanSnapshot,
 	SpaceMembersSnapshot,
@@ -72,32 +73,109 @@ export function applySpaceBootstrapSnapshotToCache(input: {
 	spaceId: string;
 	viewerProfileId: string;
 }): void {
+	const membersQueryKey = spaceQueryKeys.members(
+		input.spaceId,
+		input.viewerProfileId
+	);
+	let presentationMembers = input.bootstrap.members;
 	input.queryClient.setQueryData(
 		spaceQueryKeys.status(input.spaceId, input.viewerProfileId),
 		input.bootstrap.status
 	);
 	input.queryClient.setQueryData<SpaceMembersSnapshot>(
-		spaceQueryKeys.members(input.spaceId, input.viewerProfileId),
-		(current) =>
-			current
-				? mergeSpaceMembersSnapshot(
-						current,
-						listSpaceMemberSnapshotItems(input.bootstrap.members)
-					)
-				: input.bootstrap.members
+		membersQueryKey,
+		(current) => {
+			presentationMembers = resolveSpaceMembersPresentationSnapshot({
+				bootstrap: input.bootstrap.members,
+				current: current ?? null,
+			});
+			if (current && presentationMembers === current) {
+				return current;
+			}
+			if (!current) {
+				return input.bootstrap.members;
+			}
+			return {
+				...mergeSpaceMembersSnapshot(
+					current,
+					listSpaceMemberSnapshotItems(input.bootstrap.members)
+				),
+				generatedAt: input.bootstrap.members.generatedAt,
+			};
+		}
 	);
 	input.queryClient.setQueryData<SpaceBootstrapSnapshot["history"]>(
 		spaceQueryKeys.history(input.spaceId, input.viewerProfileId),
 		(current) =>
 			mergeSpaceHistorySnapshots({
 				current,
-				incoming: input.bootstrap.history,
+				incoming: enrichSpaceHistoryAgentControllerPresentation({
+					history: input.bootstrap.history,
+					members: presentationMembers,
+				}),
 			})
 	);
 	input.queryClient.setQueryData(
 		spaceQueryKeys.threads(input.spaceId, input.viewerProfileId),
 		input.bootstrap.threads
 	);
+}
+
+export function resolveSpaceMembersPresentationSnapshot(input: {
+	bootstrap: SpaceMembersSnapshot;
+	current: SpaceMembersSnapshot | null;
+}): SpaceMembersSnapshot {
+	if (input.current === null) {
+		return input.bootstrap;
+	}
+
+	return Date.parse(input.current.generatedAt) >
+		Date.parse(input.bootstrap.generatedAt)
+		? input.current
+		: input.bootstrap;
+}
+
+export function enrichSpaceHistoryAgentControllerPresentation(input: {
+	history: SpaceBootstrapSnapshot["history"];
+	members: SpaceMembersSnapshot;
+}): SpaceBootstrapSnapshot["history"] {
+	// Keep this display-only: enrich profiles already present in the bounded
+	// history without persisting the membership or any authority it carries.
+	const controllerRefByProfileId = new Map<string, string | null>();
+	for (const agent of input.members.agents) {
+		controllerRefByProfileId.set(
+			agent.profileId,
+			agent.agentControllerRef?.trim() || null
+		);
+	}
+
+	let changed = false;
+	const envelopes = input.history.envelopes.map((envelope): SignalEnvelope => {
+		if (
+			envelope.profile.kind !== "agent" ||
+			!controllerRefByProfileId.has(envelope.profile.profileId)
+		) {
+			return envelope;
+		}
+		const agentControllerRef =
+			controllerRefByProfileId.get(envelope.profile.profileId) ?? null;
+		if (
+			(envelope.profile.agentControllerRef?.trim() || null) ===
+			agentControllerRef
+		) {
+			return envelope;
+		}
+		changed = true;
+		return {
+			...envelope,
+			profile: {
+				...envelope.profile,
+				agentControllerRef: agentControllerRef ?? undefined,
+			},
+		};
+	});
+
+	return changed ? { ...input.history, envelopes } : input.history;
 }
 
 export function applySpaceMemberRemovalToCache(input: {

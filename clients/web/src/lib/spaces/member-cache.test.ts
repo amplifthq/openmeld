@@ -185,6 +185,121 @@ describe("mergeSpaceMembersSnapshot", () => {
 		}
 	});
 
+	it("does not let an older bootstrap regress current members or persisted history identity", () => {
+		const queryClient = new QueryClient();
+		const profileId = "agt_22222222-2222-4222-8222-222222222222";
+		const currentMembers = createSpaceMembersSnapshot({
+			agents: [
+				createAgentMember({
+					agentControllerRef: "builtin:claude",
+					profileId,
+				}),
+			],
+			generatedAt: "2026-07-01T00:00:02.000Z",
+			humans: [createHumanMember()],
+		});
+		const staleSignal = {
+			...createHistorySignal({ id: "sig-agent", ts: 10 }),
+			profile: {
+				agentControllerRef: "builtin:codex",
+				kind: "agent",
+				profileId,
+				profileName: "Agent",
+			},
+		} as SignalEnvelope;
+
+		try {
+			queryClient.setQueryData(
+				spaceQueryKeys.members("space-123", "viewer-profile"),
+				currentMembers
+			);
+
+			applySpaceBootstrapSnapshotToCache({
+				bootstrap: createBootstrapSnapshot({
+					history: { envelopes: [staleSignal], nextCursor: null },
+					members: createSpaceMembersSnapshot({
+						agents: [
+							createAgentMember({
+								agentControllerRef: "builtin:codex",
+								profileId,
+							}),
+						],
+						generatedAt: "2026-07-01T00:00:01.000Z",
+						humans: [createHumanMember()],
+					}),
+				}),
+				queryClient,
+				spaceId: "space-123",
+				viewerProfileId: "viewer-profile",
+			});
+
+			const cachedMembers = queryClient.getQueryData<SpaceMembersSnapshot>(
+				spaceQueryKeys.members("space-123", "viewer-profile")
+			);
+			const cachedHistory = queryClient.getQueryData<{
+				envelopes: readonly SignalEnvelope[];
+			}>(spaceQueryKeys.history("space-123", "viewer-profile"));
+			expect(cachedMembers?.generatedAt).toBe("2026-07-01T00:00:02.000Z");
+			expect(cachedMembers?.agents[0]?.agentControllerRef).toBe(
+				"builtin:claude"
+			);
+			expect(cachedHistory?.envelopes[0]?.profile.agentControllerRef).toBe(
+				"builtin:claude"
+			);
+		} finally {
+			queryClient.clear();
+		}
+	});
+
+	it("stamps members cache with the newer bootstrap generation", () => {
+		const queryClient = new QueryClient();
+		const profileId = "agt_22222222-2222-4222-8222-222222222222";
+
+		try {
+			queryClient.setQueryData(
+				spaceQueryKeys.members("space-123", "viewer-profile"),
+				createSpaceMembersSnapshot({
+					agents: [
+						createAgentMember({
+							agentControllerRef: "builtin:codex",
+							profileId,
+						}),
+					],
+					generatedAt: "2026-07-01T00:00:01.000Z",
+					humans: [createHumanMember()],
+				})
+			);
+
+			applySpaceBootstrapSnapshotToCache({
+				bootstrap: createBootstrapSnapshot({
+					members: createSpaceMembersSnapshot({
+						agents: [
+							createAgentMember({
+								agentControllerRef: "builtin:claude",
+								profileId,
+							}),
+						],
+						generatedAt: "2026-07-01T00:00:02.000Z",
+						humans: [createHumanMember()],
+					}),
+				}),
+				queryClient,
+				spaceId: "space-123",
+				viewerProfileId: "viewer-profile",
+			});
+
+			const cachedMembers = queryClient.getQueryData<SpaceMembersSnapshot>(
+				spaceQueryKeys.members("space-123", "viewer-profile")
+			);
+			expect(cachedMembers?.generatedAt).toBe("2026-07-01T00:00:02.000Z");
+			expect(cachedMembers?.agents[0]?.agentControllerRef).toBe(
+				"builtin:claude"
+			);
+		} finally {
+			queryClient.clear();
+		}
+	});
+
 	it("does not let an older bootstrap history replace newer cached signals", () => {
 		const queryClient = new QueryClient();
 		const olderSignal = createHistorySignal({ id: "sig-1", ts: 10 });
@@ -222,6 +337,127 @@ describe("mergeSpaceMembersSnapshot", () => {
 					)
 					?.envelopes.map((signal) => signal.id)
 			).toEqual(["sig-1", "sig-2"]);
+		} finally {
+			queryClient.clear();
+		}
+	});
+
+	it("persists the resolved Agent controller with bootstrap history", () => {
+		const queryClient = new QueryClient();
+		const agent = createAgentMember({
+			agentControllerRef: "builtin:codex",
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+		});
+		const signal = {
+			...createHistorySignal({ id: "sig-agent", ts: 10 }),
+			profile: {
+				kind: "agent",
+				profileId: agent.profileId,
+				profileName: agent.profileName,
+			},
+		} as SignalEnvelope;
+
+		try {
+			applySpaceBootstrapSnapshotToCache({
+				bootstrap: createBootstrapSnapshot({
+					history: { envelopes: [signal], nextCursor: null },
+					members: createSpaceMembersSnapshot({
+						agents: [agent],
+						humans: [createHumanMember()],
+					}),
+				}),
+				queryClient,
+				spaceId: "space-123",
+				viewerProfileId: "viewer-profile",
+			});
+
+			const cached = queryClient.getQueryData<{
+				envelopes: readonly SignalEnvelope[];
+			}>(spaceQueryKeys.history("space-123", "viewer-profile"));
+			expect(cached?.envelopes[0]?.profile).toMatchObject({
+				agentControllerRef: "builtin:codex",
+				profileId: agent.profileId,
+			});
+		} finally {
+			queryClient.clear();
+		}
+	});
+
+	it("replaces a stale persisted Agent controller with the current bootstrap binding", () => {
+		const queryClient = new QueryClient();
+		const agent = createAgentMember({
+			agentControllerRef: "builtin:claude",
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+		});
+		const signal = {
+			...createHistorySignal({ id: "sig-agent", ts: 10 }),
+			profile: {
+				agentControllerRef: "builtin:codex",
+				kind: "agent",
+				profileId: agent.profileId,
+				profileName: agent.profileName,
+			},
+		} as SignalEnvelope;
+
+		try {
+			applySpaceBootstrapSnapshotToCache({
+				bootstrap: createBootstrapSnapshot({
+					history: { envelopes: [signal], nextCursor: null },
+					members: createSpaceMembersSnapshot({
+						agents: [agent],
+						humans: [createHumanMember()],
+					}),
+				}),
+				queryClient,
+				spaceId: "space-123",
+				viewerProfileId: "viewer-profile",
+			});
+
+			const cached = queryClient.getQueryData<{
+				envelopes: readonly SignalEnvelope[];
+			}>(spaceQueryKeys.history("space-123", "viewer-profile"));
+			expect(cached?.envelopes[0]?.profile.agentControllerRef).toBe(
+				"builtin:claude"
+			);
+		} finally {
+			queryClient.clear();
+		}
+	});
+
+	it("clears a stale persisted Agent controller when the current bootstrap member is unbound", () => {
+		const queryClient = new QueryClient();
+		const agent = createAgentMember({
+			agentControllerRef: null,
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+		});
+		const signal = {
+			...createHistorySignal({ id: "sig-agent", ts: 10 }),
+			profile: {
+				agentControllerRef: "builtin:codex",
+				kind: "agent",
+				profileId: agent.profileId,
+				profileName: agent.profileName,
+			},
+		} as SignalEnvelope;
+
+		try {
+			applySpaceBootstrapSnapshotToCache({
+				bootstrap: createBootstrapSnapshot({
+					history: { envelopes: [signal], nextCursor: null },
+					members: createSpaceMembersSnapshot({
+						agents: [agent],
+						humans: [createHumanMember()],
+					}),
+				}),
+				queryClient,
+				spaceId: "space-123",
+				viewerProfileId: "viewer-profile",
+			});
+
+			const cached = queryClient.getQueryData<{
+				envelopes: readonly SignalEnvelope[];
+			}>(spaceQueryKeys.history("space-123", "viewer-profile"));
+			expect(cached?.envelopes[0]?.profile.agentControllerRef).toBeUndefined();
 		} finally {
 			queryClient.clear();
 		}
@@ -397,11 +633,12 @@ describe("mergeSpaceMembersSnapshot", () => {
 
 function createSpaceMembersSnapshot(input: {
 	agents: readonly SpaceMemberAgentSnapshot[];
+	generatedAt?: string;
 	humans: readonly SpaceMemberHumanSnapshot[];
 }): SpaceMembersSnapshot {
 	return {
 		spaceId: "space-123",
-		generatedAt: "2026-07-01T00:00:00.000Z",
+		generatedAt: input.generatedAt ?? "2026-07-01T00:00:00.000Z",
 		humans: [...input.humans],
 		agents: [...input.agents],
 		summary: {

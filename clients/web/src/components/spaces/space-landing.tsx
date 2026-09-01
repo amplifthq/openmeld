@@ -1867,7 +1867,7 @@ function SpaceLandingConversation({
 			isLoadingEarlierHistory={controller.isLoadingEarlierHistory}
 			isPersonalContext={input.isPersonalContext === true}
 			isSendingMessage={controller.isSendingMessage}
-			membersSnapshot={controller.membersSnapshot}
+			membersSnapshot={controller.presentationMembersSnapshot}
 			modelCatalog={modelCatalog}
 			onAddComposerFiles={controller.onAddComposerFiles}
 			onAgentInteractionResponse={controller.onAgentInteractionResponse}
@@ -2171,7 +2171,7 @@ function SpaceLandingSecondaryPanels({
 				isDiagnosticReportSent={controller.isDiagnosticReportSent}
 				isPersonalContext={input.isPersonalContext === true}
 				isSendingMessage={controller.isSendingThreadMessage}
-				membersSnapshot={controller.membersSnapshot}
+				membersSnapshot={controller.presentationMembersSnapshot}
 				onAddComposerFiles={controller.onAddThreadComposerFiles}
 				onAgentInteractionResponse={controller.onAgentInteractionResponse}
 				onAgentRecoveryAction={handleAgentRecoveryAction}

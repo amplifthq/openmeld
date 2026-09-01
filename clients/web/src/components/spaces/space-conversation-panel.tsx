@@ -2127,6 +2127,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 	const speakerHeaderContent = (
 		<>
 			<SpaceMessageProfileAvatar
+				agentControllerPending={input.run.speaker.agentControllerPending}
 				agentControllerRef={input.run.speaker.agentControllerRef}
 				avatarImageUrl={
 					input.run.speaker.avatarImageUrl ??
