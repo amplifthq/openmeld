@@ -11,7 +11,10 @@ describe("release-triggered OpenMeld Tools updates", () => {
       resolveReleaseTriggeredOpenMeldToolsUpdate({
         capabilities: {
           localComponents: createLocalComponentsStatus(),
-          openMeldToolsControl: { requestUpdate: true },
+          openMeldToolsControl: {
+            requestAutomaticUpdate: true,
+            requestUpdate: true,
+          },
         },
         generatedAt: "2026-09-01T13:00:00.000Z",
         lane: "prod",
@@ -27,7 +30,7 @@ describe("release-triggered OpenMeld Tools updates", () => {
     });
   });
 
-  it("does not send the new automatic request shape to an older Service", () => {
+  it("does not send an automatic request when the Service did not advertise support", () => {
     expect(
       resolveReleaseTriggeredOpenMeldToolsUpdate({
         capabilities: {
@@ -37,7 +40,7 @@ describe("release-triggered OpenMeld Tools updates", () => {
         generatedAt: "2026-09-01T13:00:00.000Z",
         lane: "prod",
         releaseManifest: createReleaseManifest(),
-        serviceVersion: "0.3.138",
+        serviceVersion: "0.3.139",
       })
     ).toBeNull();
   });
@@ -49,7 +52,10 @@ describe("release-triggered OpenMeld Tools updates", () => {
           localComponents: createLocalComponentsStatus({
             automaticUpdatesEnabled: false,
           }),
-          openMeldToolsControl: { requestUpdate: true },
+          openMeldToolsControl: {
+            requestAutomaticUpdate: true,
+            requestUpdate: true,
+          },
         },
         generatedAt: "2026-09-01T13:00:00.000Z",
         lane: "prod",
@@ -66,7 +72,10 @@ describe("release-triggered OpenMeld Tools updates", () => {
           localComponents: createLocalComponentsStatus({
             includeUpdateOperation: true,
           }),
-          openMeldToolsControl: { requestUpdate: true },
+          openMeldToolsControl: {
+            requestAutomaticUpdate: true,
+            requestUpdate: true,
+          },
         },
         generatedAt: "2026-09-01T13:00:00.000Z",
         lane: "prod",
@@ -84,7 +93,10 @@ describe("release-triggered OpenMeld Tools updates", () => {
       resolveReleaseTriggeredOpenMeldToolsUpdate({
         capabilities: {
           localComponents: createLocalComponentsStatus(),
-          openMeldToolsControl: { requestUpdate: true },
+          openMeldToolsControl: {
+            requestAutomaticUpdate: true,
+            requestUpdate: true,
+          },
         },
         generatedAt: "2026-09-01T13:00:00.000Z",
         lane,

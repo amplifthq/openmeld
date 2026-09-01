@@ -765,6 +765,7 @@ type CurrentDeviceOperationWaiter = {
   isExpectedPayload: (payload: unknown) => boolean;
   reject: (error: Error) => void;
   resolve: (payload: unknown) => void;
+  socket: WebSocket;
   timeoutId: ReturnType<typeof setTimeout>;
 };
 
@@ -8820,6 +8821,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       wasClean,
     });
     safeCloseSocket(webSocket, code, reason);
+    this.failCurrentDeviceOperationWaitersForSocket(webSocket);
     const daemonSessionId = this.state.sessionIdBySocket.get(webSocket);
     const readinessProfileIds = collectReadinessProfileIdsForSession(
       daemonSessionId ? this.state.sessionsById.get(daemonSessionId) : null
@@ -8860,6 +8862,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       wasClean: false,
     });
     safeCloseSocket(webSocket, 1011, "socket_error");
+    this.failCurrentDeviceOperationWaitersForSocket(webSocket);
     const daemonSessionId = this.state.sessionIdBySocket.get(webSocket);
     const readinessProfileIds = collectReadinessProfileIdsForSession(
       daemonSessionId ? this.state.sessionsById.get(daemonSessionId) : null
@@ -18368,6 +18371,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         isExpectedPayload: input.isExpectedPayload,
         reject,
         resolve: (payload) => resolve(payload as T),
+        socket: input.session.socket,
         timeoutId,
       });
       try {
@@ -18388,6 +18392,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         );
       }
     });
+  }
+
+  private failCurrentDeviceOperationWaitersForSocket(socket: WebSocket): void {
+    for (const [requestId, waiter] of this.currentDeviceOperationWaiters) {
+      if (waiter.socket !== socket) {
+        continue;
+      }
+      clearTimeout(waiter.timeoutId);
+      this.currentDeviceOperationWaiters.delete(requestId);
+      waiter.reject(
+        new CurrentDeviceOperationError(
+          "send_failed",
+          "The local OpenMeld Service disconnected before it responded."
+        )
+      );
+    }
   }
 
   private handleLocalProjectControlResultFrame(

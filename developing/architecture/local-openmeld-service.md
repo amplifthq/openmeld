@@ -1786,13 +1786,15 @@ preference, while an explicit user request still runs when automation is off.
 For a Service that supports release-triggered maintenance, Core uses the
 existing Runtime Transport connection to request one automatic recheck when
 the current release manifest first becomes actionable for that computer. The
-request is capability- and version-gated, obeys the Service-owned automatic
-update preference, and coalesces by computer and release target. It never adds
-a second updater or a faster polling loop. The published Service still checks
-the release channel after startup and every hour as the missed-signal fallback,
-bypassing the normal CLI command cache for this maintenance check. An explicit
-update request also refreshes the release channel before deciding that the
-computer is current.
+request requires the Service's explicit `requestAutomaticUpdate` capability,
+obeys the Service-owned automatic update preference, and coalesces by computer
+and release target. A disconnected request is failed immediately so a
+replacement Service can retry instead of waiting for the control timeout. It
+never adds a second updater or a faster polling loop. The published Service
+still checks the release channel after startup and every hour as the
+missed-signal fallback, bypassing the normal CLI command cache for this
+maintenance check. An explicit update request also refreshes the release
+channel before deciding that the computer is current.
 The Service resumes a saved attempt immediately after restart and never waits
 for the downloader when the Service itself must stop. Dev and canary lanes do
 not check or install the published channel.
@@ -1804,7 +1806,8 @@ CLI and automatic maintenance. The request may start an update or change the
 computer's saved automatic-update preference; it cannot run arbitrary shell or
 target another member's computer. An explicit update remains available when
 automatic updates are off. Older Services that do not advertise the control
-capability fail explicitly and keep Setup/Reconnect as the recovery path.
+capability fail explicitly and keep Setup/Reconnect as the recovery path. Core
+never infers automatic-request support from a package version.
 
 For an `available` update, the current Service keeps admitting new Wake work
 while the prepared replacement waits for a safe switch. For a `required`

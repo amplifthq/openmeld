@@ -56,6 +56,7 @@ export const openMeldToolsMaintenanceProjectionSchema = z.strictObject({
 });
 
 export const openMeldToolsControlCapabilitySchema = z.strictObject({
+  requestAutomaticUpdate: z.literal(true).optional(),
   requestUpdate: z.literal(true).optional(),
   setAutomaticUpdates: z.literal(true).optional(),
 });

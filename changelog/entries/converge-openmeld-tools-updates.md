@@ -12,6 +12,7 @@ automatically, and the Computer page keeps the active update visible after a
 refresh.
 
 Automatic updates can also respond to a newly available release over the
-Service's existing connection. Startup, reconnect, and hourly checks remain as
-fallbacks, and active Agent work still finishes before OpenMeld switches the
-Service version.
+Service's existing connection when that Service explicitly supports the
+request. Startup, reconnect, and hourly checks remain as fallbacks, failed
+connections can retry promptly, and active Agent work still finishes before
+OpenMeld switches the Service version.

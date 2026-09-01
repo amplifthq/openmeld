@@ -2219,6 +2219,15 @@ describe("runtime transport schema", () => {
     expect(
       runtimeTransportCapabilitiesSchema.safeParse({
         openMeldToolsControl: {
+          requestAutomaticUpdate: true,
+          requestUpdate: true,
+          setAutomaticUpdates: true,
+        },
+      }).success
+    ).toBe(true);
+    expect(
+      runtimeTransportCapabilitiesSchema.safeParse({
+        openMeldToolsControl: {
           requestUpdate: true,
           setAutomaticUpdates: true,
         },

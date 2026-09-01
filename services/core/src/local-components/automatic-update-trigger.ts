@@ -6,11 +6,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { resolveLocalComponentUpdateProjection } from "./update-projection";
 
-// 0.3.139 is the first strict control receiver that accepts the automatic
-// request source. Older Services must never receive the additive request shape.
-const RELEASE_TRIGGERED_UPDATE_MINIMUM_SERVICE_VERSION = "0.3.139";
-const SEMVER_CORE_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)(?:-([^+]+))?(?:\+.+)?$/u;
-
 export type ReleaseTriggeredOpenMeldToolsUpdate = {
   request: OpenMeldToolsControlRequest & { operation: "request_update" };
   targetVersion: string;
@@ -25,10 +20,7 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdate(input: {
 }): ReleaseTriggeredOpenMeldToolsUpdate | null {
   if (
     input.lane !== "prod" ||
-    !isServiceVersionAtLeast(
-      input.serviceVersion,
-      RELEASE_TRIGGERED_UPDATE_MINIMUM_SERVICE_VERSION
-    ) ||
+    input.capabilities.openMeldToolsControl?.requestAutomaticUpdate !== true ||
     input.capabilities.openMeldToolsControl?.requestUpdate !== true
   ) {
     return null;
@@ -69,43 +61,5 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdate(input: {
       requestSource: "automatic",
     },
     targetVersion,
-  };
-}
-
-function isServiceVersionAtLeast(
-  candidate: string | null,
-  minimum: string
-): boolean {
-  const parsedCandidate = parseSemverCore(candidate);
-  const parsedMinimum = parseSemverCore(minimum);
-  if (!(parsedCandidate && parsedMinimum)) {
-    return false;
-  }
-  for (let index = 0; index < parsedCandidate.parts.length; index += 1) {
-    const difference =
-      (parsedCandidate.parts[index] ?? 0) - (parsedMinimum.parts[index] ?? 0);
-    if (difference !== 0) {
-      return difference > 0;
-    }
-  }
-  return (
-    parsedMinimum.prerelease !== null || parsedCandidate.prerelease === null
-  );
-}
-
-function parseSemverCore(value: string | null): {
-  parts: [number, number, number];
-  prerelease: string | null;
-} | null {
-  if (!value) {
-    return null;
-  }
-  const match = SEMVER_CORE_PATTERN.exec(value.trim());
-  if (!match) {
-    return null;
-  }
-  return {
-    parts: [Number(match[1]), Number(match[2]), Number(match[3])],
-    prerelease: match[4] ?? null,
   };
 }
