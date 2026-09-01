@@ -18,8 +18,6 @@ import type {
 } from "@openmeld/schemas/types";
 
 const DEFAULT_APPROVAL_POLICY = "ask_every_time" as const;
-const INTERNAL_STORAGE_FAILURE_PATTERN =
-  /\bD1(?:_ERROR)?\b|\bSQL(?:ITE)?(?:_[A-Z_]+)?\b|constraint failed|no such (?:column|table)/iu;
 export const AGENT_PROFILE_CREATION_STALE_AFTER_MS = 30 * 60 * 1000;
 
 export type AgentProfileCreationRequestRecord = {
@@ -192,6 +190,13 @@ export class AgentProfileCreationRequestExecutionError extends Error {
   }
 }
 
+class AgentProfileCreationRequestCheckpointStorageError extends Error {
+  constructor(cause: unknown) {
+    super("Agent Profile creation checkpoint storage failed.", { cause });
+    this.name = "AgentProfileCreationRequestCheckpointStorageError";
+  }
+}
+
 export async function failStaleAgentProfileCreationRequests(input: {
   limit?: number;
   nowMs: number;
@@ -275,17 +280,24 @@ export function createAgentProfileCreationRequestService(input: {
           }
           committedAgentProfileId = agentProfileId;
           const checkpointedAtMs = Math.max(now(), activeClaim.updatedAtMs + 1);
-          const checkpointed = await input.repository.transition({
-            expectedProfileCreationAttempt: activeClaim.profileCreationAttempt,
-            expectedStatuses: ["approved"],
-            expectedUpdatedAtMs: activeClaim.updatedAtMs,
-            requestId: activeClaim.id,
-            update: {
-              createdAgentProfileId: agentProfileId,
-              statusReason: "profile_created",
-              updatedAtMs: checkpointedAtMs,
-            },
-          });
+          const checkpointed = await input.repository
+            .transition({
+              expectedProfileCreationAttempt:
+                activeClaim.profileCreationAttempt,
+              expectedStatuses: ["approved"],
+              expectedUpdatedAtMs: activeClaim.updatedAtMs,
+              requestId: activeClaim.id,
+              update: {
+                createdAgentProfileId: agentProfileId,
+                statusReason: "profile_created",
+                updatedAtMs: checkpointedAtMs,
+              },
+            })
+            .catch((cause) => {
+              throw new AgentProfileCreationRequestCheckpointStorageError(
+                cause
+              );
+            });
           if (!checkpointed) {
             throw new AgentProfileCreationRequestStateError(
               "This Agent Profile setup attempt was superseded."
@@ -305,11 +317,11 @@ export function createAgentProfileCreationRequestService(input: {
         committedAgentProfileId ??
         activeClaim.createdAgentProfileId ??
         record.createdAgentProfileId;
-      if (isInternalStorageFailure(error)) {
+      if (error instanceof AgentProfileCreationRequestCheckpointStorageError) {
         console.error(
           "[core.agent_profile_creation_request.execution_failed]",
           {
-            error: readFailureMessage(error),
+            error: readFailureMessage(error.cause),
             organizationId: record.organizationId,
             requestId: record.id,
           }
@@ -769,7 +781,7 @@ function normalizeFailureMessage(
   input: { createdAgentProfileId: string | null }
 ): string {
   const raw = readFailureMessage(error);
-  if (isInternalStorageFailure(error)) {
+  if (error instanceof AgentProfileCreationRequestCheckpointStorageError) {
     return input.createdAgentProfileId
       ? "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely."
       : "OpenMeld couldn't finish creating this Agent. Retry to continue safely.";
@@ -777,10 +789,6 @@ function normalizeFailureMessage(
   const normalized =
     raw.trim() || "OpenMeld couldn't finish creating this Agent.";
   return normalized.slice(0, 1000);
-}
-
-function isInternalStorageFailure(error: unknown): boolean {
-  return INTERNAL_STORAGE_FAILURE_PATTERN.test(readFailureMessage(error));
 }
 
 function readFailureMessage(error: unknown): string {
