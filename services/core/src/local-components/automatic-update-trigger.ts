@@ -6,6 +6,8 @@ import type {
 } from "@openmeld/schemas/types";
 import { resolveLocalComponentUpdateProjection } from "./update-projection";
 
+// 0.3.139 is the first strict control receiver that accepts the automatic
+// request source. Older Services must never receive the additive request shape.
 const RELEASE_TRIGGERED_UPDATE_MINIMUM_SERVICE_VERSION = "0.3.139";
 const SEMVER_CORE_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)(?:-([^+]+))?(?:\+.+)?$/u;
 
