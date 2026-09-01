@@ -1,5 +1,10 @@
 "use client";
 
+import type {
+	CurrentLocalRuntimeReplyReadinessResponse,
+	LocalRuntimeComputer,
+	LocalRuntimesResponse,
+} from "@openmeld/schemas/types";
 import { buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Tooltip,
@@ -9,16 +14,26 @@ import {
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { DesktopTowerIcon } from "@phosphor-icons/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { useLocalRuntimeQueries } from "#/components/agents/use-local-runtime-queries";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import {
+	type ComputerSummaryStatus,
 	resolveCurrentLocalRuntimeComputerSummaryStatus,
 	resolveCurrentLocalRuntimeSubjectDeviceId,
 } from "#/lib/computer-summary-status";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
+import {
+	type CurrentComputerToolbarDisplaySnapshot,
+	createCurrentComputerToolbarDisplaySnapshot,
+	currentComputerToolbarDisplaySnapshotQueryOptions,
+	readCurrentComputerToolbarAttention,
+} from "#/query/connect/current-computer-toolbar-display-snapshot";
+import { startQueryKeys } from "#/query/query-keys";
 
 export function CurrentComputerToolbarLauncher() {
 	const organizationContext = useOptionalAppOrganization();
@@ -34,50 +49,52 @@ export function CurrentComputerToolbarLauncher() {
 
 function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 	const { storageScope } = useStartFlowState();
+	const displaySnapshotQuery = useQuery(
+		currentComputerToolbarDisplaySnapshotQueryOptions({ storageScope })
+	);
 	const runtimeQueries = useLocalRuntimeQueries({ storageScope });
 
 	const readinessQuery = runtimeQueries.currentLocalRuntimeReplyReadinessQuery;
 	const inventory = runtimeQueries.localRuntimesQuery.data;
+	const { computer, deviceId, readiness } =
+		resolveCurrentComputerToolbarSubject({
+			inventory,
+			readiness: readinessQuery.data,
+		});
+	const liveStatus = resolveCurrentLocalRuntimeComputerSummaryStatus({
+		readiness,
+	});
+	const restoredCurrentComputer =
+		displaySnapshotQuery.data?.currentComputer ?? null;
+	const restoredStatus = readCurrentComputerToolbarAttention(
+		displaySnapshotQuery.data
+	);
+	const canUseRestoredStatus = shouldUseRestoredCurrentComputerStatus({
+		deviceId,
+		hasLiveReadiness: Boolean(readiness),
+		isReadinessError: readinessQuery.isError,
+		isReadinessLoading: readinessQuery.isPending || readinessQuery.isFetching,
+		restoredDeviceId: restoredCurrentComputer?.deviceId ?? null,
+	});
+	const status = liveStatus ?? (canUseRestoredStatus ? restoredStatus : null);
+	usePersistCurrentComputerToolbarDisplaySnapshot({
+		deviceId,
+		hasLiveReadiness: Boolean(readiness),
+		inventoryResolved: runtimeQueries.localRuntimesQuery.isSuccess,
+		status: liveStatus,
+		storageScope,
+	});
+
 	if (!inventory) {
 		return (
 			<UnresolvedCurrentComputerToolbarStatus
+				attention={
+					runtimeQueries.localRuntimesQuery.isError ? null : restoredStatus
+				}
 				inventoryFailed={runtimeQueries.localRuntimesQuery.isError}
 			/>
 		);
 	}
-	const readinessDeviceId = resolveCurrentLocalRuntimeSubjectDeviceId(
-		readinessQuery.data
-	);
-	const readinessComputer = readinessDeviceId
-		? (inventory?.localRuntimes.find(
-				(candidate) => candidate.deviceId === readinessDeviceId
-			) ?? null)
-		: null;
-	const inventoryCurrentComputer = inventory?.currentDeviceId
-		? (inventory.localRuntimes.find(
-				(candidate) => candidate.deviceId === inventory.currentDeviceId
-			) ?? null)
-		: null;
-	const deviceId =
-		readinessComputer?.deviceId ??
-		inventoryCurrentComputer?.deviceId ??
-		inventory?.localRuntimes.find((computer) => computer.isCurrent)?.deviceId ??
-		null;
-	const computer = deviceId
-		? (inventory?.localRuntimes.find(
-				(candidate) => candidate.deviceId === deviceId
-			) ?? null)
-		: null;
-	const readiness = readinessDeviceId === deviceId ? readinessQuery.data : null;
-	const isReconciling = Boolean(
-		runtimeQueries.localRuntimesQuery.isFetching ||
-			(readinessQuery.isFetching &&
-				(!readiness || readiness.service.connected === true))
-	);
-	const status = resolveCurrentLocalRuntimeComputerSummaryStatus({
-		isReconcilingStatus: isReconciling,
-		readiness,
-	});
 	const destination = deviceId
 		? buildOrganizationComputerPath({
 				deviceId,
@@ -111,16 +128,7 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 			>
 				<DesktopTowerIcon aria-hidden="true" className="size-3.5" />
 				<span>Computer</span>
-				{status?.tone === "warning" || status?.tone === "danger" ? (
-					<span
-						aria-hidden="true"
-						className={cn(
-							"size-2 shrink-0 rounded-full ring-2 ring-background",
-							resolveStatusToneIndicatorClassName(status.tone, "quiet")
-						)}
-						data-testid="current-computer-toolbar-status"
-					/>
-				) : null}
+				<CurrentComputerAttentionIndicator status={status} />
 			</TooltipTrigger>
 			<TooltipContent align="start" className="text-left" side="top">
 				{deviceLabel} · {statusLabel}
@@ -129,25 +137,80 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 	);
 }
 
+function resolveCurrentComputerToolbarSubject(input: {
+	inventory: LocalRuntimesResponse | undefined;
+	readiness: CurrentLocalRuntimeReplyReadinessResponse | undefined;
+}): {
+	computer: LocalRuntimeComputer | null;
+	deviceId: string | null;
+	readiness: CurrentLocalRuntimeReplyReadinessResponse | null;
+} {
+	const readinessDeviceId = resolveCurrentLocalRuntimeSubjectDeviceId(
+		input.readiness
+	);
+	const readinessComputer = readinessDeviceId
+		? (input.inventory?.localRuntimes.find(
+				(candidate) => candidate.deviceId === readinessDeviceId
+			) ?? null)
+		: null;
+	const inventoryCurrentComputer = input.inventory?.currentDeviceId
+		? (input.inventory.localRuntimes.find(
+				(candidate) => candidate.deviceId === input.inventory?.currentDeviceId
+			) ?? null)
+		: null;
+	const deviceId =
+		readinessComputer?.deviceId ??
+		inventoryCurrentComputer?.deviceId ??
+		input.inventory?.localRuntimes.find((computer) => computer.isCurrent)
+			?.deviceId ??
+		null;
+	const computer = deviceId
+		? (input.inventory?.localRuntimes.find(
+				(candidate) => candidate.deviceId === deviceId
+			) ?? null)
+		: null;
+	return {
+		computer,
+		deviceId,
+		readiness:
+			readinessDeviceId === deviceId ? (input.readiness ?? null) : null,
+	};
+}
+
 function UnresolvedCurrentComputerToolbarStatus(input: {
+	attention: ComputerSummaryStatus | null;
 	inventoryFailed: boolean;
 }) {
+	const accessibleLabel =
+		resolveUnresolvedCurrentComputerAccessibleLabel(input);
+	const statusLabel =
+		input.attention?.label ??
+		(input.inventoryFailed ? "Status unavailable" : "Checking status");
 	return (
 		<CurrentComputerToolbarStatus
-			accessibleLabel={
-				input.inventoryFailed
-					? "Computer status unavailable"
-					: "Checking this Computer"
-			}
-			statusLabel={
-				input.inventoryFailed ? "Status unavailable" : "Checking status"
-			}
+			accessibleLabel={accessibleLabel}
+			attention={input.attention}
+			statusLabel={statusLabel}
 		/>
 	);
 }
 
+function resolveUnresolvedCurrentComputerAccessibleLabel(input: {
+	attention: ComputerSummaryStatus | null;
+	inventoryFailed: boolean;
+}): string {
+	if (input.attention) {
+		return `Computer, ${input.attention.label}`;
+	}
+	if (input.inventoryFailed) {
+		return "Computer status unavailable";
+	}
+	return "Checking this Computer";
+}
+
 function CurrentComputerToolbarStatus(input: {
 	accessibleLabel: string;
+	attention: ComputerSummaryStatus | null;
 	statusLabel: string;
 }) {
 	return (
@@ -166,10 +229,97 @@ function CurrentComputerToolbarStatus(input: {
 			>
 				<DesktopTowerIcon aria-hidden="true" className="size-3.5" />
 				<span>Computer</span>
+				<CurrentComputerAttentionIndicator status={input.attention} />
 			</TooltipTrigger>
 			<TooltipContent align="start" className="text-left" side="top">
 				Computer · {input.statusLabel}
 			</TooltipContent>
 		</Tooltip>
+	);
+}
+
+function CurrentComputerAttentionIndicator(input: {
+	status: ComputerSummaryStatus | null;
+}) {
+	if (input.status?.tone !== "warning" && input.status?.tone !== "danger") {
+		return null;
+	}
+	return (
+		<span
+			aria-hidden="true"
+			className={cn(
+				"size-2 shrink-0 rounded-full ring-2 ring-background",
+				resolveStatusToneIndicatorClassName(input.status.tone, "quiet")
+			)}
+			data-testid="current-computer-toolbar-status"
+		/>
+	);
+}
+
+function areCurrentComputerToolbarSnapshotsEqual(
+	left: CurrentComputerToolbarDisplaySnapshot | undefined,
+	right: CurrentComputerToolbarDisplaySnapshot
+): boolean {
+	if (left?.currentComputer === null || right.currentComputer === null) {
+		return left?.currentComputer === right.currentComputer;
+	}
+	return (
+		left?.currentComputer?.deviceId === right.currentComputer.deviceId &&
+		left.currentComputer.attention?.reason ===
+			right.currentComputer.attention?.reason &&
+		left.currentComputer.attention?.tone ===
+			right.currentComputer.attention?.tone
+	);
+}
+
+function usePersistCurrentComputerToolbarDisplaySnapshot(input: {
+	deviceId: string | null;
+	hasLiveReadiness: boolean;
+	inventoryResolved: boolean;
+	status: ComputerSummaryStatus | null;
+	storageScope: string;
+}) {
+	const queryClient = useQueryClient();
+	useEffect(() => {
+		if (!input.inventoryResolved) {
+			return;
+		}
+		if (input.deviceId && !input.hasLiveReadiness) {
+			return;
+		}
+		const nextSnapshot = createCurrentComputerToolbarDisplaySnapshot({
+			deviceId: input.deviceId,
+			status: input.status,
+		});
+		queryClient.setQueryData<CurrentComputerToolbarDisplaySnapshot>(
+			startQueryKeys.currentComputerToolbarDisplaySnapshot(input.storageScope),
+			(currentSnapshot) =>
+				areCurrentComputerToolbarSnapshotsEqual(currentSnapshot, nextSnapshot)
+					? currentSnapshot
+					: nextSnapshot
+		);
+	}, [
+		input.deviceId,
+		input.hasLiveReadiness,
+		input.inventoryResolved,
+		input.status,
+		input.storageScope,
+		queryClient,
+	]);
+}
+
+function shouldUseRestoredCurrentComputerStatus(input: {
+	deviceId: string | null;
+	hasLiveReadiness: boolean;
+	isReadinessError: boolean;
+	isReadinessLoading: boolean;
+	restoredDeviceId: string | null;
+}): boolean {
+	return Boolean(
+		input.deviceId &&
+			input.restoredDeviceId === input.deviceId &&
+			!input.hasLiveReadiness &&
+			!input.isReadinessError &&
+			input.isReadinessLoading
 	);
 }

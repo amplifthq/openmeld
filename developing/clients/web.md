@@ -2162,9 +2162,13 @@ client read-cache API. Dexie is the IndexedDB storage engine underneath the
 official TanStack Query persistence protocol; routes and components must not
 read Dexie directly or create a second browser data model.
 
-The persistence allowlist contains exactly six successful query families:
+The persistence allowlist contains exactly seven successful query families:
 
 - `startQueryKeys.profilesForStorageScope(accountId)` for the confirmed account;
+- `startQueryKeys.currentComputerToolbarDisplaySnapshot(accountId)` for a
+  versioned current-Computer toolbar hint containing only an opaque device id
+  and a validated warning or danger reason/tone. It excludes the Computer name,
+  inventory, readiness payload, diagnostics, paths, accounts, and actions;
 - `organizationQueryKeys.spaces(organizationId)` for one confirmed account and
   Organization pair;
 - `organizationAppConnectionQueryKeys.statusSummary(organizationId)` for a
@@ -2185,8 +2189,11 @@ query requires an explicit allowlist change, privacy and authority review, and a
 test that proves unrelated queries remain absent. Organization scope,
 activation, directories, Center Agent designation and open-command state, Space
 bootstrap and current status, Thread lists and Thread signals, membership
-authority, readiness, current-device facts, Wake state, diagnostics, errors,
-and every mutation remain excluded. The
+authority, raw readiness and current-device projections, Wake state,
+diagnostics, errors, and every mutation remain excluded. The toolbar snapshot's
+opaque device id is only a stale-hint rejection key after live inventory
+arrives; it never renders Computer identity or establishes which device is
+current. The
 full App catalog response and per-service connection responses remain excluded;
 member names, user ids, provider connection names, and connection records must
 never enter the persisted App summary. That summary may avoid a false
@@ -3592,6 +3599,14 @@ completed outcome. A completed `check_status` verdict uses the same amber
 **Couldn't check** outcome on the affected local-agent row, the current Computer
 summary, and current-Computer toolbar attention. It never becomes a red repair
 alert or setup action.
+
+The current-Computer toolbar keeps that coarse warning or danger attention
+stable while page navigation or a full browser refresh revalidates current
+inventory and readiness. During a cold reload it may paint the validated
+account-scoped display snapshot, but it must not create a Computer detail link
+from that snapshot. Live inventory must match the snapshot's opaque device id
+before the hint can bridge the readiness load; a device mismatch or read error
+removes the hint, and the next successful Core readiness result replaces it.
 
 Computers applies the same severity boundary to controller account states.
 Signed out and provider access unavailable are non-runnable `Unavailable`

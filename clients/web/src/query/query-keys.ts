@@ -25,6 +25,12 @@ export const startQueryKeys = {
 			"current-local-runtime-reply-readiness",
 			normalizeQueryScope(storageScope),
 		] as const,
+	currentComputerToolbarDisplaySnapshot: (storageScope: string) =>
+		[
+			"start",
+			"current-computer-toolbar-display-snapshot",
+			normalizeQueryScope(storageScope),
+		] as const,
 	prepareSession: (storageScope: string, prepareSessionId: string) =>
 		[
 			"start",

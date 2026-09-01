@@ -7,6 +7,7 @@ import { dehydrate, QueryClient } from "@tanstack/react-query";
 import { IDBKeyRange, indexedDB } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { computerFileAccessQueryKeys } from "#/query/connect/computer-file-access";
+import { createCurrentComputerToolbarDisplaySnapshot } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import { organizationAppConnectionQueryKeys } from "#/query/organizations/app-connections";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -76,6 +77,20 @@ describe("BrowserQueryPersistenceController", () => {
 					revision: 1,
 					updatedAtMs: 1,
 				},
+			}
+		);
+		queryClient.setQueryData(
+			startQueryKeys.currentComputerToolbarDisplaySnapshot("account-a"),
+			{
+				currentComputer: {
+					attention: {
+						reason: "agent_check_failed",
+						tone: "warning",
+					},
+					deviceId: "device-a",
+					privatePath: "/Users/felix/Private",
+				},
+				version: 1,
 			}
 		);
 		await new Promise((resolve) => setTimeout(resolve, 5));
@@ -522,10 +537,33 @@ describe("BrowserQueryPersistenceController", () => {
 				lastJoinedAt: null,
 			})),
 		};
+		const computerToolbarSnapshot = createCurrentComputerToolbarDisplaySnapshot(
+			{
+				deviceId: "device-current",
+				status: {
+					label: "Couldn't check",
+					reason: "agent_check_failed",
+					showLabel: true,
+					tone: "warning",
+				},
+			}
+		);
 		sourceQueryClient.setQueryData(
 			startQueryKeys.profilesForStorageScope("account-a"),
 			[profile]
 		);
+		sourceQueryClient.setQueryData(
+			startQueryKeys.currentComputerToolbarDisplaySnapshot("account-a"),
+			computerToolbarSnapshot
+		);
+		sourceQueryClient.setQueryData(startQueryKeys.localRuntimes("account-a"), {
+			localRuntimes: [
+				{
+					deviceId: "device-current",
+					privatePath: "/Users/felix/Must Not Persist",
+				},
+			],
+		});
 		sourceQueryClient.setQueryData(
 			organizationQueryKeys.spaces("organization-a"),
 			organizationSpaces
@@ -564,6 +602,15 @@ describe("BrowserQueryPersistenceController", () => {
 					scopeId: "account-a",
 					scopeKind: "account",
 				}),
+				startQueryKeys.currentComputerToolbarDisplaySnapshot("account-a")
+			),
+			waitForStoredQuery(
+				store.createStorage({
+					ownerAccountId: "account-a",
+					scopeAlias: "account-a",
+					scopeId: "account-a",
+					scopeKind: "account",
+				}),
 				startQueryKeys.profilesForStorageScope("account-a")
 			),
 			waitForStoredQuery(
@@ -585,6 +632,15 @@ describe("BrowserQueryPersistenceController", () => {
 				organizationAppConnectionQueryKeys.statusSummary("organization-a")
 			),
 		]);
+		const accountPayload = await store
+			.createStorage({
+				ownerAccountId: "account-a",
+				scopeAlias: "account-a",
+				scopeId: "account-a",
+				scopeKind: "account",
+			})
+			.getItem("tanstack-query-cache");
+		expect(accountPayload).not.toContain("Must Not Persist");
 		const organizationPayload = await store
 			.createStorage({
 				ownerAccountId: "account-a",
@@ -621,6 +677,21 @@ describe("BrowserQueryPersistenceController", () => {
 				startQueryKeys.profilesForStorageScope("account-a")
 			)?.isInvalidated
 		).toBe(true);
+		expect(
+			restoredQueryClient.getQueryData(
+				startQueryKeys.currentComputerToolbarDisplaySnapshot("account-a")
+			)
+		).toEqual(computerToolbarSnapshot);
+		expect(
+			restoredQueryClient.getQueryState(
+				startQueryKeys.currentComputerToolbarDisplaySnapshot("account-a")
+			)?.isInvalidated
+		).toBe(true);
+		expect(
+			restoredQueryClient.getQueryData(
+				startQueryKeys.localRuntimes("account-a")
+			)
+		).toBeUndefined();
 		expect(
 			restoredQueryClient.getQueryData(
 				organizationAppConnectionQueryKeys.statusSummary("organization-a")

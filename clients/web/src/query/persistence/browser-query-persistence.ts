@@ -18,6 +18,7 @@ import {
 	persistQueryClientSave,
 } from "@tanstack/react-query-persist-client";
 import { z } from "zod/v4";
+import { currentComputerToolbarDisplaySnapshotSchema } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import {
 	organizationAppConnectionQueryKeys,
 	organizationAppConnectionStatusSummarySchema,
@@ -436,6 +437,9 @@ export function createBrowserQueryPersistenceController(
 						scopeKind: "account",
 						targetQueryKeys: [
 							startQueryKeys.profilesForStorageScope(ownerAccountId),
+							startQueryKeys.currentComputerToolbarDisplaySnapshot(
+								ownerAccountId
+							),
 						],
 					}),
 					activateSegment({
@@ -878,17 +882,37 @@ function isApprovedSuccessfulQuery(
 	);
 	const approved =
 		query.state.status === "success" && targetQueryKey !== undefined;
-	if (!(approved && scopeKind === "space")) {
-		return approved;
+	if (!approved) {
+		return false;
 	}
-	if (targetQueryKey[1] === "history") {
-		return spaceHistorySnapshotSchema.safeParse(query.state.data).success;
+	switch (scopeKind) {
+		case "account":
+			if (targetQueryKey[1] === "profiles") {
+				return true;
+			}
+			if (targetQueryKey[1] === "current-computer-toolbar-display-snapshot") {
+				return currentComputerToolbarDisplaySnapshotSchema.safeParse(
+					query.state.data
+				).success;
+			}
+			return false;
+		case "organization":
+			return true;
+		case "space":
+			if (targetQueryKey[1] === "history") {
+				return spaceHistorySnapshotSchema.safeParse(query.state.data).success;
+			}
+			if (targetQueryKey[1] === "display-snapshot") {
+				return spaceConversationDisplaySnapshotSchema.safeParse(
+					query.state.data
+				).success;
+			}
+			return false;
+		default: {
+			const unhandled: never = scopeKind;
+			return unhandled;
+		}
 	}
-	if (targetQueryKey[1] === "display-snapshot") {
-		return spaceConversationDisplaySnapshotSchema.safeParse(query.state.data)
-			.success;
-	}
-	return false;
 }
 
 function createObservedPersister(input: {
