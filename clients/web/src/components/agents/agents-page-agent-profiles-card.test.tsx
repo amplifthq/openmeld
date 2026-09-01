@@ -32,6 +32,7 @@ import {
 const AGENT_PROFILE_ID = "agt-codex";
 const CREATE_AN_AGENT_PROFILE_NAME = /Create an Agent/;
 const PERMISSIONS_MODE_NAME_PATTERN = /permissions mode/i;
+const REPAIR_OR_RECONNECT_ACTION_NAME_PATTERN = /repair|reconnect/i;
 const WAKE_ACCESS_LABEL_PATTERN = /Wake access:/i;
 const ORGANIZATION_WAKE_ACCESS_SWITCH_PATTERN = /organization.*Wake access/i;
 
@@ -639,6 +640,49 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		await waitFor(() => {
 			expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
 		});
+	});
+
+	it("does not turn team-safe null Binding readiness into an owner setup or repair action", async () => {
+		const privateBinding =
+			createPrimaryBindingResponse("codex:approveForMe").binding;
+		const ownerReadiness = createReadinessResponseWithPrimaryBinding(
+			privateBinding
+		) as unknown as GetAgentExecutionReadinessResponse;
+		const teamSafeReadiness = {
+			...ownerReadiness,
+			agentControllerRef: null,
+			agentExecutionReadiness: {
+				...ownerReadiness.agentExecutionReadiness,
+				primaryAction: "none",
+				reasonCodes: [],
+			},
+			agentWakeAvailability: {
+				...ownerReadiness.agentWakeAvailability,
+				action: "none",
+				phase: "unavailable",
+				reasonCode: null,
+			},
+			ownerUserId: null,
+			primaryActionPlan: { action: "none", target: null },
+			primaryBinding: null,
+			profileName: null,
+		} as GetAgentExecutionReadinessResponse;
+
+		const { container } = renderAgentProfilesCard({}, null, {
+			agentExecutionReadinessByProfileId: new Map([
+				[AGENT_PROFILE_ID, teamSafeReadiness],
+			]),
+			canManageProfile: () => false,
+			presentation: "detail",
+		});
+
+		expect(await screen.findByText("Research Agent")).toBeTruthy();
+		expect(container.querySelector('a[href="/app/connect"]')).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: REPAIR_OR_RECONNECT_ACTION_NAME_PATTERN,
+			})
+		).toBeNull();
 	});
 
 	it("keeps a readiness failure and its diagnostic visible in detail", async () => {

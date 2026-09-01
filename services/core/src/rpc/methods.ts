@@ -42,6 +42,7 @@ import {
   CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
   CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   canonicalizeAgentControllerRef,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
@@ -6208,10 +6209,12 @@ export async function rpcGetCurrentOrganizationDirectory(
             ...agent,
             isCenterAgent:
               centerAgentDesignation?.agentProfileId === agent.profileId,
-            readiness: buildGetAgentExecutionReadinessResponse({
-              generatedAt,
-              readiness,
-            }),
+            readiness:
+              buildOrganizationDirectoryAgentExecutionReadinessResponse({
+                generatedAt,
+                isOwner: agent.ownerUserId === activeOrganization.userId,
+                readiness,
+              }),
           };
         })
       ),
@@ -22902,6 +22905,231 @@ function buildGetAgentExecutionReadinessResponse(input: {
     );
   }
   return validated.data;
+}
+
+function buildOrganizationDirectoryAgentExecutionReadinessResponse(input: {
+  generatedAt: string;
+  isOwner: boolean;
+  readiness: CoreAgentExecutionReadiness;
+}): GetAgentExecutionReadinessResponse {
+  const ownerResponse = buildGetAgentExecutionReadinessResponse(input);
+  if (input.isOwner) {
+    return ownerResponse;
+  }
+
+  return projectTeamSafeOrganizationDirectoryReadiness(ownerResponse);
+}
+
+export function projectTeamSafeOrganizationDirectoryReadiness(
+  ownerResponse: GetAgentExecutionReadinessResponse
+): GetAgentExecutionReadinessResponse {
+  const agentWakeAvailability =
+    projectTeamSafeOrganizationDirectoryWakeAvailability(
+      ownerResponse.agentWakeAvailability
+    );
+  const response = {
+    agentExecutionReadiness: {
+      agentProfileId: ownerResponse.agentProfileId,
+      displayState: resolveTeamSafeOrganizationDirectoryDisplayState(
+        agentWakeAvailability.category
+      ),
+      facts: {
+        profile: {
+          active: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        binding: {
+          reasonCodes: [],
+          routable: false,
+          source: "not_checked",
+        },
+        claim: {
+          executionBlocked: false,
+          grantsClaimSuccess: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        providerAccount: {
+          blocked: false,
+          expiresAtMs: null,
+          observedAtMs: null,
+          provider: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        providerConversation: {
+          agentControllerConversationId: null,
+          errorCode: null,
+          errorMessage: null,
+          errorType: null,
+          expiresAtMs: null,
+          method: null,
+          observedAtMs: null,
+          provider: null,
+          ready: false,
+          reasonCodes: [],
+          required: false,
+          source: "unavailable",
+          status: "unavailable",
+        },
+        readinessImpact: {
+          blocked: false,
+          expiresAtMs: null,
+          impactKind: null,
+          observedAtMs: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        localService: {
+          reachable: false,
+          refreshable: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        service: {
+          executionCompatible: false,
+          expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+          observedEpoch: null,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        route: {
+          deviceId: null,
+          lane: null,
+          observedAt: null,
+          online: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+        runtime: {
+          ready: false,
+          reasonCodes: [],
+          source: "not_checked",
+        },
+      },
+      primaryAction: "none",
+      reasonCodes: [],
+    },
+    agentWakeAvailability,
+    agentWakeRouteRegistration: {
+      status: "unavailable",
+      reasonCode: null,
+      reportedAtMs: null,
+      daemonSessionId: null,
+      deviceId: null,
+      lane: null,
+      serviceVersion: null,
+    },
+    agentProfileId: ownerResponse.agentProfileId,
+    agentControllerRef: null,
+    generatedAt: ownerResponse.generatedAt,
+    ownerUserId: null,
+    primaryBinding: null,
+    primaryActionPlan: {
+      action: "none",
+      target: null,
+    },
+    profileName: null,
+    routeDeviceId: null,
+    routeLane: null,
+    runtimeDeviceDisplayName: null,
+    wakeRouteEvidence: {
+      observedAt: ownerResponse.generatedAt,
+      reasonCode: "not_requested",
+      status: "unavailable",
+    },
+    wakeRouteStatus: {
+      status: "unavailable",
+    },
+  } satisfies GetAgentExecutionReadinessResponse;
+  const validated =
+    getAgentExecutionReadinessResponseSchema.safeParse(response);
+  if (!validated.success) {
+    throw new Error(
+      `failed to build team-safe Organization Directory readiness response: ${validated.error.message}`
+    );
+  }
+  return validated.data;
+}
+
+function projectTeamSafeOrganizationDirectoryWakeAvailability(
+  availability: GetAgentExecutionReadinessResponse["agentWakeAvailability"]
+): GetAgentExecutionReadinessResponse["agentWakeAvailability"] {
+  const shared = {
+    action: "none" as const,
+    category: availability.category,
+    reasonCode: null,
+    status: availability.status,
+  };
+  switch (availability.category) {
+    case "available":
+      return {
+        ...shared,
+        badgeLabel: "Available",
+        isRefreshing: false,
+        label: "Available for Wake",
+        phase: "available",
+        summary: "This Agent is available for Wake.",
+        tooltip: "Available for Wake",
+      };
+    case "checking":
+      return {
+        ...shared,
+        badgeLabel: "Checking",
+        isRefreshing: true,
+        label: "Checking Wake availability",
+        phase: "checking_status",
+        summary: "Checking whether this Agent is available for Wake.",
+        tooltip: "Checking Wake availability",
+      };
+    case "offline":
+      return {
+        ...shared,
+        badgeLabel: "Offline",
+        isRefreshing: false,
+        label: "Offline for Wake",
+        phase: "offline",
+        summary: "This Agent is offline for Wake.",
+        tooltip: "Offline for Wake",
+      };
+    case "unavailable":
+      return {
+        ...shared,
+        badgeLabel: "Unavailable",
+        isRefreshing: false,
+        label: "Unavailable for Wake",
+        phase: "unavailable",
+        summary: "This Agent is unavailable for Wake.",
+        tooltip: "Unavailable for Wake",
+      };
+    default: {
+      const exhaustiveCategory: never = availability.category;
+      throw new Error(
+        `unsupported Organization Directory Wake availability category: ${exhaustiveCategory}`
+      );
+    }
+  }
+}
+
+function resolveTeamSafeOrganizationDirectoryDisplayState(
+  category: GetAgentExecutionReadinessResponse["agentWakeAvailability"]["category"]
+): GetAgentExecutionReadinessResponse["agentExecutionReadiness"]["displayState"] {
+  switch (category) {
+    case "available":
+      return "ready";
+    case "checking":
+      return "unknown";
+    case "offline":
+    case "unavailable":
+      return "not_ready";
+    default: {
+      const exhaustiveCategory: never = category;
+      throw new Error(
+        `unsupported Organization Directory Wake availability category: ${exhaustiveCategory}`
+      );
+    }
+  }
 }
 
 function resolveHttpAgentWakeAvailability(

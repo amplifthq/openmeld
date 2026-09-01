@@ -29,6 +29,7 @@ import * as organizationComputersService from "../src/organizations/organization
 import * as slackFinalReplyPresentation from "../src/remote-agent/application/slack-final-reply-presentation";
 import { encryptSlackSearchAuthorization } from "../src/remote-agent/application/slack-search-authorization";
 import {
+  projectTeamSafeOrganizationDirectoryReadiness,
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAddSpaceMembers,
@@ -428,6 +429,290 @@ describe("organization Core RPC", () => {
       response.agentProfiles[0]?.readiness.agentExecutionReadiness
         .agentProfileId
     ).toBe(AGENT_PROFILE_ID);
+  });
+
+  it("keeps owner readiness details while projecting team-safe readiness for another active member", async () => {
+    const env = buildEnv({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "owner"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+      authWorker: {
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: {
+            ownerUserId: "user-a",
+            profileHandle: "codex",
+            profileId: AGENT_PROFILE_ID,
+            profileKind: "agent",
+            profileName: "Codex",
+            status: "active",
+          },
+        }),
+      },
+    });
+
+    const ownerDirectory = await rpcGetCurrentOrganizationDirectory(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+    const memberDirectory = await rpcGetCurrentOrganizationDirectory(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-b",
+      }),
+    });
+    const ownerReadiness = ownerDirectory.agentProfiles[0]?.readiness;
+    const memberReadiness = memberDirectory.agentProfiles[0]?.readiness;
+
+    expect(ownerReadiness).toMatchObject({
+      agentControllerRef: "builtin:codex",
+      ownerUserId: "user-a",
+      primaryBinding: {
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: `binding-${AGENT_PROFILE_ID}`,
+      },
+      profileName: "Codex",
+    });
+    expect(memberReadiness?.agentWakeAvailability).toMatchObject({
+      action: "none",
+      category: ownerReadiness?.agentWakeAvailability.category,
+      reasonCode: null,
+      status: ownerReadiness?.agentWakeAvailability.status,
+    });
+    expect(memberReadiness).toMatchObject({
+      agentControllerRef: null,
+      agentExecutionReadiness: {
+        facts: {
+          binding: {
+            reasonCodes: [],
+            routable: false,
+            source: "not_checked",
+          },
+          claim: {
+            executionBlocked: false,
+            grantsClaimSuccess: false,
+            reasonCodes: [],
+            source: "not_checked",
+          },
+          localService: {
+            reachable: false,
+            reasonCodes: [],
+            refreshable: false,
+            source: "not_checked",
+          },
+          profile: {
+            active: false,
+            reasonCodes: [],
+            source: "not_checked",
+          },
+          providerAccount: {
+            blocked: false,
+            expiresAtMs: null,
+            observedAtMs: null,
+            provider: null,
+            reasonCodes: [],
+            source: "not_checked",
+          },
+          providerConversation: {
+            agentControllerConversationId: null,
+            errorCode: null,
+            errorMessage: null,
+            errorType: null,
+            expiresAtMs: null,
+            method: null,
+            observedAtMs: null,
+            provider: null,
+            ready: false,
+            reasonCodes: [],
+            required: false,
+            source: "unavailable",
+            status: "unavailable",
+          },
+          readinessImpact: {
+            blocked: false,
+            expiresAtMs: null,
+            impactKind: null,
+            observedAtMs: null,
+            reasonCodes: [],
+            source: "not_checked",
+          },
+          route: {
+            deviceId: null,
+            lane: null,
+            observedAt: null,
+            online: false,
+            reasonCodes: [],
+            source: "not_checked",
+          },
+          runtime: {
+            ready: false,
+            reasonCodes: [],
+            source: "not_checked",
+          },
+          service: {
+            executionCompatible: false,
+            observedEpoch: null,
+            reasonCodes: [],
+            source: "not_checked",
+          },
+        },
+        primaryAction: "none",
+        reasonCodes: [],
+      },
+      agentWakeRouteRegistration: {
+        daemonSessionId: null,
+        deviceId: null,
+        lane: null,
+        reasonCode: null,
+        reportedAtMs: null,
+        serviceVersion: null,
+        status: "unavailable",
+      },
+      ownerUserId: null,
+      primaryActionPlan: { action: "none", target: null },
+      primaryBinding: null,
+      profileName: null,
+      routeDeviceId: null,
+      routeLane: null,
+      runtimeDeviceDisplayName: null,
+      wakeRouteEvidence: {
+        reasonCode: "not_requested",
+        status: "unavailable",
+      },
+      wakeRouteStatus: { status: "unavailable" },
+    });
+
+    const privateOwnerReadiness = structuredClone(ownerReadiness);
+    if (!privateOwnerReadiness) {
+      throw new Error("owner readiness fixture was not returned");
+    }
+    privateOwnerReadiness.agentExecutionReadiness.facts.providerAccount = {
+      blocked: true,
+      expiresAtMs: 1_800_000_000_000,
+      observedAtMs: 1_790_000_000_000,
+      provider: "codex",
+      reasonCodes: ["provider.account.private"],
+      source: "wake_failure",
+    };
+    privateOwnerReadiness.agentExecutionReadiness.facts.providerConversation = {
+      agentControllerConversationId: "conversation-private",
+      errorCode: "provider.private_error",
+      errorMessage: "Private provider failure details",
+      errorType: "provider.private_type",
+      expiresAtMs: 1_800_000_000_000,
+      method: "codex_app_server_thread_resume",
+      observedAtMs: 1_790_000_000_000,
+      provider: "codex",
+      ready: false,
+      reasonCodes: ["provider.conversation.private"],
+      required: true,
+      source: "runtime_reporting",
+      status: "failed",
+    };
+    privateOwnerReadiness.agentExecutionReadiness.facts.readinessImpact = {
+      blocked: true,
+      expiresAtMs: 1_800_000_000_000,
+      impactKind: "local_execution",
+      observedAtMs: 1_790_000_000_000,
+      reasonCodes: ["readiness.impact.private"],
+      source: "wake_failure",
+    };
+    privateOwnerReadiness.agentExecutionReadiness.facts.route = {
+      deviceId: "device-private",
+      lane: "dev-local",
+      observedAt: "2026-07-08T00:00:00.000Z",
+      online: true,
+      reasonCodes: ["route.private"],
+      source: "daemon_route",
+    };
+    privateOwnerReadiness.agentExecutionReadiness.facts.service = {
+      ...privateOwnerReadiness.agentExecutionReadiness.facts.service,
+      executionCompatible: false,
+      observedEpoch: "private-service-epoch",
+      reasonCodes: ["service.private"],
+      source: "runtime_transport",
+    };
+    privateOwnerReadiness.agentExecutionReadiness.facts.runtime = {
+      ready: false,
+      reasonCodes: ["runtime.private"],
+      source: "prepare_readiness",
+    };
+    privateOwnerReadiness.agentExecutionReadiness.primaryAction =
+      "fix_provider_account";
+    privateOwnerReadiness.agentExecutionReadiness.reasonCodes = [
+      "readiness.private",
+    ];
+    privateOwnerReadiness.agentWakeAvailability = {
+      action: "fix_provider_account",
+      badgeLabel: "Private provider state",
+      category: "unavailable",
+      isRefreshing: false,
+      label: "Private provider repair",
+      phase: "provider_blocked",
+      reasonCode: "provider.private",
+      status: "unavailable_for_wake",
+      summary: "Private provider repair summary",
+      tooltip: "Private provider repair tooltip",
+    };
+    privateOwnerReadiness.agentWakeRouteRegistration = {
+      daemonSessionId: "daemon-session-private",
+      deviceId: "device-private",
+      lane: "dev-local",
+      reasonCode: "registration.private",
+      reportedAtMs: 1_790_000_000_000,
+      serviceVersion: "private-service-version",
+      status: "registered",
+    };
+    privateOwnerReadiness.primaryActionPlan = {
+      action: "fix_provider_account",
+      target: { kind: "provider_account", provider: "codex" },
+    };
+    privateOwnerReadiness.routeDeviceId = "device-private";
+    privateOwnerReadiness.routeLane = "dev-local";
+    privateOwnerReadiness.runtimeDeviceDisplayName = "Private computer";
+    privateOwnerReadiness.wakeRouteEvidence = {
+      observedAt: "2026-07-08T00:00:00.000Z",
+      reasonCode: "online",
+      status: "online",
+    };
+    privateOwnerReadiness.wakeRouteStatus = {
+      connectionGeneration: 7,
+      daemonSessionId: "daemon-session-private",
+      deviceId: "device-private",
+      lane: "dev-local",
+      lastHeartbeatMs: 1_790_000_000_000,
+      leaseEpoch: 3,
+      status: "ready",
+    };
+
+    const projectedReadiness = projectTeamSafeOrganizationDirectoryReadiness(
+      privateOwnerReadiness
+    );
+    const serializedProjection = JSON.stringify(projectedReadiness);
+    expect(projectedReadiness.agentWakeAvailability).toMatchObject({
+      action: "none",
+      category: "unavailable",
+      phase: "unavailable",
+      reasonCode: null,
+      status: "unavailable_for_wake",
+    });
+    expect(serializedProjection).not.toContain("private");
+    expect(serializedProjection).not.toContain("builtin:codex");
+    expect(serializedProjection).not.toContain("binding-");
+    expect(serializedProjection).not.toContain("user-a");
   });
 
   it("pages the narrow Center Agent member list without resolving Agent Profiles", async () => {
