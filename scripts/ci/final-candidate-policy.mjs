@@ -162,7 +162,7 @@ export function createFinalCandidatePlan(input) {
   }
 
   selectPrimaryChecks(context, selectedChecks, skippedChecks);
-  selectIntegrationCheck(context, selectedChecks, skippedChecks);
+  selectIntegrationCheck(context, skippedChecks);
   selectDatabaseCheck(context, selectedChecks, skippedChecks);
   selectReleaseReadyCheck(context, selectedChecks, skippedChecks);
   skippedChecks.push(
@@ -255,25 +255,17 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
     );
     return;
   }
-  if (context.deliveryInfrastructureOnly) {
-    skippedChecks.push(
-      skipped(
-        "affected-checks-and-unit-tests",
-        "Delivery infrastructure is covered by its behavioral contract suite; no product workspace changed."
-      )
-    );
-    return;
-  }
-  selectedChecks.push(
-    check(
+  skippedChecks.push(
+    skipped(
       "affected-checks-and-unit-tests",
-      ["pnpm", "run", "verify:pr"],
-      "Unit tests have independent defect-finding value and the changed workspaces need type and behavior checks."
+      context.deliveryInfrastructureOnly
+        ? "Delivery infrastructure is covered by its behavioral contract suite during development and review; no product workspace changed."
+        : "Focused and affected behavior validation belongs to development and review; standard Final Candidate does not repeat the broad workspace lane. Use full confidence when that extra repository-wide closeout is worth the latency."
     )
   );
 }
 
-function selectIntegrationCheck(context, selectedChecks, skippedChecks) {
+function selectIntegrationCheck(context, skippedChecks) {
   if (context.confidence === "full") {
     skippedChecks.push(
       skipped(
@@ -283,27 +275,12 @@ function selectIntegrationCheck(context, selectedChecks, skippedChecks) {
     );
     return;
   }
-  if (!context.boundaryChange) {
-    skippedChecks.push(
-      skipped(
-        "affected-integration-tests",
-        "No shared, service, runtime, or persistence boundary changed."
-      )
-    );
-    return;
-  }
-  selectedChecks.push(
-    check(
+  skippedChecks.push(
+    skipped(
       "affected-integration-tests",
-      [
-        "pnpm",
-        "run",
-        "test:integration:affected",
-        "--",
-        "--concurrency=1",
-        "--output-logs=errors-only",
-      ],
-      "A shared, service, runtime, or persistence boundary changed."
+      context.boundaryChange
+        ? "Cross-boundary integration validation belongs to development and review; standard Final Candidate does not repeat the broad integration lane. Use full confidence when the exact candidate still needs repository-wide integration coverage."
+        : "No shared, service, runtime, or persistence boundary changed; focused validation remains owned by development and review."
     )
   );
 }

@@ -231,6 +231,11 @@ change must leave those signals cleaner and less ambiguous.
   in `developing/engineering/agent-native-delivery.md`: fix a high-value,
   coherent finding when practical, and preserve separable follow-ups without
   reopening the candidate.
+- Standard Final Candidate is lightweight exact-candidate certification. It
+  must not repeat `verify:pr`, `verify:pr:full`, or
+  `test:integration:affected`; run the smallest useful focused or affected
+  validation during development and review. Use explicit full confidence only
+  when the remaining risk makes a repository-wide rerun worth its latency.
 - Before declaring a user-, operator-, integrator-, or contributor-visible
   change done, decide whether it needs an OpenMeld Changelog entry and, when it
   does, follow `.agents/skills/openmeld-changelog/SKILL.md`.
