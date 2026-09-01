@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-27T00:00:00.000Z",
+  "updatedAt": "2026-09-01T00:00:00.000Z",
   "agentControllers": {
     "codex": {
       "defaultModelId": "gpt-5.5",
@@ -763,6 +763,13 @@
           "displayName": "Qwen3.7 Plus",
           "unavailable": false,
           "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/qwen3.8-flash",
+          "displayName": "Qwen3.8 Flash",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "xhigh"],
           "minCliVersion": null
         },
         {
