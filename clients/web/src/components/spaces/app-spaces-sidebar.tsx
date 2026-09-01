@@ -57,7 +57,10 @@ import {
 	spaceWakeProgressPresentationQueryOptions,
 } from "#/query/spaces/active-wake-progress";
 import {
+	isNewlyJoinedAccountSpace,
+	prioritizeNewlyJoinedAccountSpaces,
 	resolveAccountSpaceTrailingStatus,
+	resolveAccountSpaceViewerProfileId,
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
@@ -224,15 +227,27 @@ export function AppSpacesSidebar(input: {
 		currentProfileId: input.currentProfileId,
 	});
 	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
-	const sidebarSections = selectAccountSpaceSections({
+	const selectedSections = selectAccountSpaceSections({
 		currentOrganizationId,
 		sections,
 		unreadBySpaceId,
 	});
+	const sidebarSections = {
+		...selectedSections,
+		pinnedItems: prioritizeNewlyJoinedAccountSpaces(
+			selectedSections.pinnedItems
+		),
+		spaceItems: prioritizeNewlyJoinedAccountSpaces(selectedSections.spaceItems),
+	};
 	const resolveSpaceRoutePath = (item: AccountSpaceItem) =>
 		buildOrganizationSpacePath({
 			orgSlug,
-			search: { profileId: input.currentProfileId },
+			search: {
+				profileId: resolveAccountSpaceViewerProfileId({
+					currentProfileId: input.currentProfileId,
+					item,
+				}),
+			},
 			spaceId: item.spaceId,
 		});
 	const openSpace = (routePath: string) => {
@@ -250,6 +265,7 @@ export function AppSpacesSidebar(input: {
 	}) => (
 		<SidebarSpacesList
 			activeWakeSummaryBySpaceId={activeWakeSummaryBySpaceId}
+			currentProfileId={input.currentProfileId}
 			currentSpaceId={input.currentSpaceId}
 			isError={listInput.isError ?? false}
 			isPending={listInput.isPending ?? false}
@@ -264,7 +280,6 @@ export function AppSpacesSidebar(input: {
 				});
 			}}
 			onTogglePinned={pinMutation.toggle}
-			openMeldProfileId={input.currentProfileId}
 			prefetchSpaceConversation={prefetchSpaceConversation}
 			resolveRoutePath={resolveSpaceRoutePath}
 			routeIntentPrefetch={routeIntentPrefetch}
@@ -299,7 +314,7 @@ export function AppSpacesSidebar(input: {
 	sidebarGroups.push({
 		ariaLabel: "Workspace Spaces",
 		content: renderSpacesList({
-			isError: spacesQuery.isError,
+			isError: spacesQuery.isError && spacesQuery.data === undefined,
 			isPending: spacesQuery.isPending,
 			items: sidebarSections.spaceItems,
 			navigationLabel: "Spaces",
@@ -391,7 +406,7 @@ function SidebarSpacesList(input: {
 	resolveRoutePath: (item: AccountSpaceItem) => string;
 	routeIntentPrefetch: RouteIntentPrefetchController;
 	unreadBySpaceId: SpaceUnreadById;
-	openMeldProfileId: string;
+	currentProfileId: string;
 }) {
 	if (input.isPending) {
 		return (
@@ -442,6 +457,10 @@ function SidebarSpacesList(input: {
 			{input.items.map((item, index) => {
 				const isActive = item.spaceId === input.currentSpaceId;
 				const unread = input.unreadBySpaceId.get(item.spaceId);
+				const viewerProfileId = resolveAccountSpaceViewerProfileId({
+					currentProfileId: input.currentProfileId,
+					item,
+				});
 				return (
 					<SpaceSidebarMenuItem
 						activeWakeSummary={input.activeWakeSummaryBySpaceId.get(
@@ -455,7 +474,7 @@ function SidebarSpacesList(input: {
 						lastJoinedAtFormatter={input.lastJoinedAtFormatter}
 						onOpenSpace={input.onOpenSpace}
 						onTogglePinned={input.onTogglePinned}
-						openMeldProfileId={input.openMeldProfileId}
+						openMeldProfileId={viewerProfileId}
 						prefetchSpaceConversation={input.prefetchSpaceConversation}
 						routeIntentPrefetch={input.routeIntentPrefetch}
 						routePath={input.resolveRoutePath(item)}
@@ -491,19 +510,18 @@ function SpaceSidebarMenuItem(input: {
 		? `Unpin ${input.item.spaceName}`
 		: `Pin ${input.item.spaceName}`;
 	const hasUnread = input.unreadCount > 0;
+	const isNewSpace = isNewlyJoinedAccountSpace(input.item);
 	const trailingStatus = resolveAccountSpaceTrailingStatus({
 		hasActiveWake,
 		hasUnread,
 		isPinned,
 	});
-	const openLabelStatuses = [
-		hasUnread ? "unread messages" : null,
-		hasActiveWake ? "agent working" : null,
-	].filter(Boolean);
-	const openLabel =
-		openLabelStatuses.length > 0
-			? `${input.item.spaceName}, ${openLabelStatuses.join(", ")}`
-			: input.item.spaceName;
+	const openLabel = buildSpaceSidebarOpenLabel({
+		hasActiveWake,
+		hasUnread,
+		isNewSpace,
+		spaceName: input.item.spaceName,
+	});
 	const prefetchConversationData = () =>
 		input.prefetchSpaceConversation({
 			spaceId: input.item.spaceId,
@@ -530,10 +548,10 @@ function SpaceSidebarMenuItem(input: {
 						render={
 							<button
 								aria-label={openLabel}
-								className={cn(
-									"flex min-w-0 flex-1 items-center gap-2 px-1 py-1.5 text-left outline-none",
-									hasUnread ? "font-semibold text-sidebar-foreground" : null
-								)}
+								className={resolveSpaceSidebarOpenButtonClassName({
+									hasUnread,
+									isNewSpace,
+								})}
 								onClick={() => input.onOpenSpace(input.routePath)}
 								onFocus={
 									input.isActive
@@ -675,6 +693,33 @@ function SpaceSidebarMenuItem(input: {
 				) : null}
 			</div>
 		</FluidNavMenuItem>
+	);
+}
+
+function buildSpaceSidebarOpenLabel(input: {
+	hasActiveWake: boolean;
+	hasUnread: boolean;
+	isNewSpace: boolean;
+	spaceName: string;
+}): string {
+	const statuses = [
+		input.isNewSpace ? "New Space" : null,
+		input.hasUnread ? "unread messages" : null,
+		input.hasActiveWake ? "agent working" : null,
+	].filter(Boolean);
+	return statuses.length > 0
+		? `${input.spaceName}, ${statuses.join(", ")}`
+		: input.spaceName;
+}
+
+function resolveSpaceSidebarOpenButtonClassName(input: {
+	hasUnread: boolean;
+	isNewSpace: boolean;
+}): string {
+	return cn(
+		"flex min-w-0 flex-1 items-center gap-2 px-1 py-1.5 text-left outline-none",
+		input.hasUnread ? "font-semibold text-sidebar-foreground" : null,
+		input.isNewSpace ? "font-semibold text-primary" : null
 	);
 }
 

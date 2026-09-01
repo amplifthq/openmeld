@@ -414,6 +414,21 @@ The Spaces secondary sidebar consumes the Core-owned grouped unread Space
 message summary alongside the Account Space Index. It shows one static amber
 dot and an accessible unread label on visible Space rows. Unpinned unread Spaces
 appear first by newest unread Signal occurrence; pinned order remains member-controlled.
+While the Web document is in the foreground, the Account Space Index refreshes
+every 15 seconds and refreshes immediately when the window regains focus. An
+ordinary Space is temporarily presented as a **New Space** when the Index says
+its `lastSeenTs` is null, meaning the member has not opened it before. New
+Spaces move to the start of their existing Pinned or Spaces group
+without changing pin state. Their title uses the primary color and semibold
+weight, and the row's accessible name includes `New Space`; an unread New Space
+keeps the same amber unread indicator and unread semantics.
+Rendering, refreshing, hovering, focusing, and prefetching a row do not clear
+this state. It clears only after the member opens the Space, status and
+membership have both loaded successfully, Core confirms that the current
+Profile is active, and the existing Profile Space history writer records a
+non-null `lastSeenTs`. The next Account Space Index read then restores explicit
+pin order or the normal unread-first and recency order. Web does not create a
+second local read-position, membership, or Inbox source for this presentation.
 The Direct Messages secondary sidebar consumes the same Core-owned grouped
 summary and shows the indicator on the exact unread conversation row. It does
 not derive unread state from route activity or a browser-only counter.

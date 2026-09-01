@@ -312,8 +312,10 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 
 	if (screen === "space") {
 		return renderWelcomeSpaceStep({
-			accountSpacesIsError,
-			accountSpacesIsSuccess,
+			accountSpacesIsError:
+				accountSpacesIsError && accountSpaceSections === undefined,
+			accountSpacesIsSuccess:
+				accountSpacesIsSuccess || accountSpaceSections !== undefined,
 			centerAgentPath: buildOrganizationCenterAgentChatPath(orgSlug),
 			contextKind:
 				currentOrganization.isPersonal === true ? "personal" : "organization",

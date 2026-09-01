@@ -1,8 +1,10 @@
 import type { OrganizationSpaceDirectoryWithMemberCountsResponse } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { useSpaceMessageReferences } from "./use-space-message-references";
 
 const { listAccountSpaceItemsMock, listCurrentOrganizationSpacesMock } =
@@ -100,6 +102,58 @@ describe("useSpaceMessageReferences", () => {
 		});
 	});
 
+	it("keeps a cached account Space name when its refresh fails", async () => {
+		const onCommit = vi.fn();
+		listCurrentOrganizationSpacesMock.mockResolvedValue({
+			...createDirectoryResponse(),
+			spaces: [],
+		});
+		listAccountSpaceItemsMock
+			.mockResolvedValueOnce({
+				...createEmptyAccountSpaces(),
+				spaceItems: [createAccountSpaceItem()],
+			})
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Account Space refresh failed"), {
+					code: "gateway.invalid_response",
+				})
+			);
+		const queryClient = createTestQueryClient();
+
+		renderReferenceHarness(
+			{
+				messageTexts: [`Target /spaces/${REFERENCED_SPACE_ID}`],
+				onCommit,
+			},
+			queryClient
+		);
+		await waitFor(() => {
+			expect(screen.getByTestId(REFERENCED_SPACE_ID).textContent).toBe(
+				"Launch Planning"
+			);
+		});
+		const commitCountBeforeRefresh = onCommit.mock.calls.length;
+
+		await act(async () => {
+			await queryClient.refetchQueries({
+				queryKey: accountSpaceQueryKeys.items("profile-1", "account"),
+			});
+		});
+		expect(
+			queryClient.getQueryState(
+				accountSpaceQueryKeys.items("profile-1", "account")
+			)?.status
+		).toBe("error");
+		await waitFor(() => {
+			expect(onCommit.mock.calls.length).toBeGreaterThan(
+				commitCountBeforeRefresh
+			);
+		});
+		expect(screen.getByTestId(REFERENCED_SPACE_ID).textContent).toBe(
+			"Launch Planning"
+		);
+	});
+
 	it("refreshes a cached directory at most once for new missing references inside the cooldown", async () => {
 		const queryClient = createTestQueryClient();
 		const emptyDirectory = {
@@ -127,6 +181,41 @@ describe("useSpaceMessageReferences", () => {
 			`Another /spaces/${OTHER_REFERENCED_SPACE_ID}`,
 		]);
 		await Promise.resolve();
+
+		expect(listCurrentOrganizationSpacesMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not refresh the directory again for the same unresolved reference after polling", async () => {
+		let now = Date.parse("2026-08-31T20:00:00.000Z");
+		vi.spyOn(Date, "now").mockImplementation(() => now);
+		const queryClient = createTestQueryClient();
+		const emptyDirectory = {
+			...createDirectoryResponse(),
+			spaces: [],
+		};
+		queryClient.setQueryData(
+			organizationQueryKeys.spaces(ORGANIZATION_ID),
+			emptyDirectory
+		);
+		listCurrentOrganizationSpacesMock.mockResolvedValue(emptyDirectory);
+
+		renderReferenceHarness(
+			{ messageTexts: [`Target /spaces/${REFERENCED_SPACE_ID}`] },
+			queryClient
+		);
+		await waitFor(() => {
+			expect(listCurrentOrganizationSpacesMock).toHaveBeenCalledTimes(1);
+		});
+
+		now += 15_000;
+		await act(async () => {
+			await queryClient.refetchQueries({
+				queryKey: accountSpaceQueryKeys.items("profile-1", "account"),
+			});
+		});
+		await waitFor(() => {
+			expect(listAccountSpaceItemsMock).toHaveBeenCalledTimes(2);
+		});
 
 		expect(listCurrentOrganizationSpacesMock).toHaveBeenCalledTimes(1);
 	});
@@ -203,8 +292,12 @@ describe("useSpaceMessageReferences", () => {
 function ReferenceHarness(input: {
 	accountProfileId: string | null;
 	messageTexts: readonly string[];
+	onCommit?: () => void;
 	organizationId: string | null;
 }) {
+	useEffect(() => {
+		input.onCommit?.();
+	});
 	const references = useSpaceMessageReferences({
 		accountProfileId: input.accountProfileId,
 		currentSpace: { name: "Current Space", spaceId: CURRENT_SPACE_ID },
@@ -232,6 +325,7 @@ function renderReferenceHarness(
 	input: {
 		accountProfileId?: string | null;
 		messageTexts: readonly string[];
+		onCommit?: () => void;
 		organizationId?: string | null;
 	},
 	queryClient = createTestQueryClient()
@@ -245,6 +339,7 @@ function renderReferenceHarness(
 			<ReferenceHarness
 				accountProfileId={accountProfileId}
 				messageTexts={messageTexts}
+				onCommit={input.onCommit}
 				organizationId={organizationId}
 			/>
 		</QueryClientProvider>

@@ -84,6 +84,7 @@ describe("space index AccountSpaces read model", () => {
       expect(accountLimited.spaceItems).toHaveLength(0);
       expect(accountLimited.pinnedItems[0]).toMatchObject({
         lastJoinedAt: "2026-04-12T00:00:00.000Z",
+        lastSeenTs: null,
         openProfileId: "agent-1",
         openProfileName: "Codex",
         pinnedAt: "2026-04-13T00:00:00.000Z",

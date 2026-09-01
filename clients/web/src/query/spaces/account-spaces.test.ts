@@ -1,11 +1,20 @@
 import { ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS } from "@openmeld/schemas";
 import type { AccountSpaceActiveWakeSummaryResponse } from "@openmeld/schemas/types";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS,
+	accountSpaceItemsQueryOptions,
 	selectUsableAccountSpaceActiveWakeSummaryItems,
 	useUsableAccountSpaceActiveWakeSummaryItems,
 } from "./account-spaces";
+
+const listAccountSpaceItemsMock = vi.hoisted(() => vi.fn());
+
+vi.mock("#/lib/spaces/account-spaces", () => ({
+	listAccountSpaceItems: listAccountSpaceItemsMock,
+}));
 
 const CORE_NOW_MS = Date.parse("2026-08-09T00:00:00.000Z");
 const ITEMS: AccountSpaceActiveWakeSummaryResponse["items"] = [
@@ -15,6 +24,42 @@ const ITEMS: AccountSpaceActiveWakeSummaryResponse["items"] = [
 afterEach(() => {
 	vi.useRealTimers();
 	vi.restoreAllMocks();
+});
+
+describe("account Space Index refresh", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		listAccountSpaceItemsMock.mockReset().mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [],
+		});
+	});
+
+	it("polls only in the foreground and revalidates immediately on focus", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const options = accountSpaceItemsQueryOptions({
+			enabled: true,
+			profileId: "human-1",
+		});
+
+		expect(options.refetchInterval).toBe(ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS);
+		expect(options.refetchIntervalInBackground).toBe(false);
+		expect(options.refetchOnWindowFocus).toBe("always");
+
+		const observer = new QueryObserver(queryClient, options);
+		const unsubscribe = observer.subscribe(() => undefined);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(listAccountSpaceItemsMock).toHaveBeenCalledOnce();
+		await vi.advanceTimersByTimeAsync(ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS - 1);
+		expect(listAccountSpaceItemsMock).toHaveBeenCalledOnce();
+		await vi.advanceTimersByTimeAsync(1);
+		expect(listAccountSpaceItemsMock).toHaveBeenCalledTimes(2);
+
+		unsubscribe();
+		queryClient.clear();
+	});
 });
 
 describe("account Space active Wake summary", () => {

@@ -18,8 +18,10 @@ export function useSpaceMessageReferences(input: {
 	organizationId: string | null;
 	organizationSlug: string | null;
 }): SpaceMessageReferencesById {
+	const attemptedDirectoryRefreshSpaceIdsRef = useRef<Set<string>>(new Set());
 	const lastDirectoryRefreshAtRef = useRef<number | null>(null);
-	const previousOrganizationIdRef = useRef(input.organizationId);
+	const accessContextKey = `${input.organizationId ?? ""}\u0000${input.accountProfileId ?? ""}`;
+	const previousAccessContextKeyRef = useRef(accessContextKey);
 	const currentSpaceId = input.currentSpace?.spaceId ?? null;
 	const currentSpaceName = input.currentSpace?.name ?? null;
 	const referencedSpaceIds = useMemo(
@@ -47,6 +49,8 @@ export function useSpaceMessageReferences(input: {
 			scope: "account",
 		})
 	);
+	const accountSpaceSections =
+		input.accountProfileId === null ? undefined : accountSpacesQuery.data;
 	const directorySpaceIds = useMemo(
 		() =>
 			new Set(
@@ -59,27 +63,24 @@ export function useSpaceMessageReferences(input: {
 	const accountSpaceIds = useMemo(
 		() =>
 			new Set(
-				input.accountProfileId !== null && accountSpacesQuery.isSuccess
+				accountSpaceSections
 					? [
-							...accountSpacesQuery.data.pinnedItems,
-							...accountSpacesQuery.data.spaceItems,
+							...accountSpaceSections.pinnedItems,
+							...accountSpaceSections.spaceItems,
 						].map((space) => space.spaceId)
 					: []
 			),
-		[
-			accountSpacesQuery.data,
-			accountSpacesQuery.isSuccess,
-			input.accountProfileId,
-		]
+		[accountSpaceSections]
 	);
 
 	useEffect(() => {
-		if (previousOrganizationIdRef.current === input.organizationId) {
+		if (previousAccessContextKeyRef.current === accessContextKey) {
 			return;
 		}
-		previousOrganizationIdRef.current = input.organizationId;
+		previousAccessContextKeyRef.current = accessContextKey;
+		attemptedDirectoryRefreshSpaceIdsRef.current = new Set();
 		lastDirectoryRefreshAtRef.current = null;
-	}, [input.organizationId]);
+	}, [accessContextKey]);
 
 	useEffect(() => {
 		if (
@@ -91,13 +92,17 @@ export function useSpaceMessageReferences(input: {
 			return;
 		}
 
-		const hasMissingSpaceReference = referencedSpaceIds.some(
+		const missingSpaceReferenceIds = referencedSpaceIds.filter(
 			(spaceId) =>
 				spaceId !== currentSpaceId &&
 				!directorySpaceIds.has(spaceId) &&
 				!accountSpaceIds.has(spaceId)
 		);
-		if (!hasMissingSpaceReference) {
+		if (
+			!missingSpaceReferenceIds.some(
+				(spaceId) => !attemptedDirectoryRefreshSpaceIdsRef.current.has(spaceId)
+			)
+		) {
 			return;
 		}
 
@@ -110,6 +115,9 @@ export function useSpaceMessageReferences(input: {
 			return;
 		}
 		lastDirectoryRefreshAtRef.current = now;
+		for (const spaceId of missingSpaceReferenceIds) {
+			attemptedDirectoryRefreshSpaceIdsRef.current.add(spaceId);
+		}
 
 		directoryQuery.refetch({ throwOnError: true }).catch((error: unknown) => {
 			console.warn("Failed to refresh Space references.", error);
@@ -129,14 +137,8 @@ export function useSpaceMessageReferences(input: {
 	return useMemo(() => {
 		return buildSpaceMessageReferences({
 			accountProfileId: input.accountProfileId,
-			accountPinnedSpaces:
-				input.accountProfileId !== null && accountSpacesQuery.isSuccess
-					? accountSpacesQuery.data.pinnedItems
-					: [],
-			accountSpaces:
-				input.accountProfileId !== null && accountSpacesQuery.isSuccess
-					? accountSpacesQuery.data.spaceItems
-					: [],
+			accountPinnedSpaces: accountSpaceSections?.pinnedItems ?? [],
+			accountSpaces: accountSpaceSections?.spaceItems ?? [],
 			currentSpaceId,
 			currentSpaceName,
 			directorySpaces:
@@ -147,8 +149,7 @@ export function useSpaceMessageReferences(input: {
 			referencedSpaceIdSet,
 		});
 	}, [
-		accountSpacesQuery.data,
-		accountSpacesQuery.isSuccess,
+		accountSpaceSections,
 		directoryQuery.data,
 		directoryQuery.isSuccess,
 		currentSpaceId,

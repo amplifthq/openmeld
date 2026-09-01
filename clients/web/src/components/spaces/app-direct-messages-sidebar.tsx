@@ -29,7 +29,10 @@ import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organiza
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { spaceMembersQueryOptions } from "#/query/spaces/members";
-import { selectAccountSpaceSections } from "./account-space-sections";
+import {
+	resolveAccountSpaceViewerProfileId,
+	selectAccountSpaceSections,
+} from "./account-space-sections";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { useSpaceInboxUnreadById } from "./use-account-space-indicators";
 import {
@@ -239,7 +242,7 @@ function DirectMessageSidebarItem(input: {
 	routeIntentPrefetch: RouteIntentPrefetchController;
 	unreadCount: number;
 }) {
-	const viewerProfileId = resolveDirectMessageViewerProfileId({
+	const viewerProfileId = resolveAccountSpaceViewerProfileId({
 		currentProfileId: input.currentProfileId,
 		item: input.item,
 	});
@@ -357,17 +360,6 @@ function DirectMessageSidebarItem(input: {
 			</Tooltip>
 		</FluidNavMenuItem>
 	);
-}
-
-function resolveDirectMessageViewerProfileId(input: {
-	currentProfileId: string;
-	item: AccountSpaceItem;
-}): string {
-	return input.item.joinedProfiles.some(
-		(profile) => profile.profileId === input.currentProfileId
-	)
-		? input.currentProfileId
-		: input.item.openProfileId;
 }
 
 function resolveDirectMessagePeer(input: {

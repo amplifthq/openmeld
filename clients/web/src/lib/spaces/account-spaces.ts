@@ -19,6 +19,9 @@ export type AccountSpaceJoinedProfile = {
 export type AccountSpaceItem = {
 	joinedProfiles: readonly AccountSpaceJoinedProfile[];
 	lastJoinedAt: string;
+	// Optional only for older persisted query-cache entries created before this
+	// projection was preserved by the Web adapter. Fresh owner responses include it.
+	lastSeenTs?: number | null;
 	openProfileId: string;
 	openProfileName: string;
 	organizationId: string;
@@ -126,6 +129,7 @@ function toAccountSpaceItem(item: AccountSpaceIndexItem): AccountSpaceItem {
 	return {
 		joinedProfiles: item.joinedProfiles,
 		lastJoinedAt: item.lastJoinedAt,
+		lastSeenTs: item.lastSeenTs,
 		openProfileId: item.openProfileId,
 		openProfileName: item.openProfileName,
 		organizationId: item.organizationId,

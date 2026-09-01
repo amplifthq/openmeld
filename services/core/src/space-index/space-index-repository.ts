@@ -1846,9 +1846,9 @@ function mergeAccountSpaceItemDraft(input: {
       input.existing.lastJoinedAt,
       input.joinedProfile.lastJoinedAt
     ),
-    lastSeenTs: Math.max(
-      input.existing.lastSeenTs ?? 0,
-      input.row.overlay_last_seen_ts ?? input.row.last_entered_at_ms ?? 0
+    lastSeenTs: resolveLatestNullableTimestamp(
+      input.existing.lastSeenTs,
+      input.row.overlay_last_seen_ts ?? input.row.last_entered_at_ms
     ),
     openProfileRankMs: Math.max(
       input.existing.openProfileRankMs,
@@ -1876,6 +1876,16 @@ function mergeAccountSpaceItemDraft(input: {
       timestampMsToIso(input.updatedAtMs)
     ),
   };
+}
+
+function resolveLatestNullableTimestamp(
+  left: number | null,
+  right: number | null
+): number | null {
+  if (left === null || right === null) {
+    return left ?? right;
+  }
+  return Math.max(left, right);
 }
 
 function partitionAccountSpaceIndexItems(
