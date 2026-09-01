@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION } from "@openmeld/agent-runtime";
+import {
+  createAgentProfileBindingDisplayProjection,
+  resolveAgentExecutionStatus,
+} from "@openmeld/agent-runtime";
 import { MAX_TEXT_LENGTH } from "@openmeld/protocol";
 import {
   buildRuntimeCoordinatorExecutionId,
@@ -17,6 +20,9 @@ import type {
   RuntimeTransportDispatchLifecycleSnapshot,
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CoreAgentExecutionReadiness } from "../agent-execution/application/agent-execution-readiness-service";
+// biome-ignore lint/performance/noNamespaceImport: Needed to verify dispatch admission consumes the canonical Core readiness owner.
+import * as agentExecutionReadinessService from "../agent-execution/application/agent-execution-readiness-service";
 import { buildAcceptedDispatchSnapshot } from "../dispatch/application/accepted-dispatch-snapshot";
 import {
   applyEffectiveTargetBindingSnapshotToMessage,
@@ -668,6 +674,113 @@ describe("handleDispatchQueueBatch", () => {
               }),
           }),
     } as const;
+  };
+
+  const createCanonicalWorkstationReadiness = (input: {
+    agentControllerRef?: string;
+    providerAccountReasonCode?: "usage_exhausted";
+    runtimeReasonCode?:
+      | "controller.registry.disabled"
+      | "service.update_required"
+      | "usage_checking"
+      | "usage_exhausted";
+    targetProfileId: string;
+  }): CoreAgentExecutionReadiness => {
+    const agentControllerRef = input.agentControllerRef ?? "builtin:codex";
+    const binding = createAgentProfileBindingDisplayProjection({
+      agentProfileId: input.targetProfileId,
+      bindingId: `binding-${input.targetProfileId}`,
+      bindingState: "enabled_primary",
+      executionTarget: {
+        agentControllerRef,
+        openMeldServiceRuntimeId: `runtime-${input.targetProfileId}`,
+      },
+    });
+    const agentExecutionReadiness = resolveAgentExecutionStatus({
+      agentProfileId: input.targetProfileId,
+      binding,
+      ...(input.providerAccountReasonCode
+        ? {
+            providerAccount: {
+              blocked: true,
+              expiresAtMs: Date.now() + 60_000,
+              observedAtMs: Date.now(),
+              provider: "codex" as const,
+              reasonCodes: [input.providerAccountReasonCode],
+              source: "wake_failure" as const,
+            },
+          }
+        : {}),
+      route: {
+        deviceId: "daemon-device-1",
+        lane: "dev-local",
+        observedAt: new Date().toISOString(),
+        status: "online",
+      },
+      localService: {
+        reachable: true,
+        reasonCodes: [],
+        refreshable: true,
+        source: "runtime_transport",
+      },
+      runtimeReadiness: input.runtimeReasonCode
+        ? {
+            displayState: "needs_prepare",
+            ready: false,
+            reasonCodes: [input.runtimeReasonCode],
+          }
+        : {
+            displayState: "ready",
+            ready: true,
+            reasonCodes: ["runtime.ready"],
+          },
+    });
+
+    return {
+      agentControllerRef,
+      agentExecutionReadiness,
+      agentWakeRouteRegistration: input.runtimeReasonCode
+        ? {
+            daemonSessionId: "daemon-session-1",
+            deviceId: "daemon-device-1",
+            lane: "dev-local",
+            reasonCode: input.runtimeReasonCode,
+            reportedAtMs: Date.now(),
+            serviceVersion: "999.0.0",
+            status: "skipped",
+          }
+        : {
+            daemonSessionId: "daemon-session-1",
+            deviceId: "daemon-device-1",
+            lane: "dev-local",
+            reasonCode: null,
+            reportedAtMs: Date.now(),
+            serviceVersion: "999.0.0",
+            status: "registered",
+          },
+      daemonRouteObservation: {
+        observedAt: new Date().toISOString(),
+        reasonCode: "online",
+        status: "online",
+      },
+      ownerUserId: "owner-default",
+      primaryBinding: binding,
+      profileName: "Codex",
+      routeDeviceId: "daemon-device-1",
+      routeLane: "dev-local",
+      runtimeDeviceDisplayName: "Test Mac",
+      spaceMemberAgentExecutionReadiness:
+        agentExecutionReadiness as CoreAgentExecutionReadiness["spaceMemberAgentExecutionReadiness"],
+      wakeRouteStatus: {
+        connectionGeneration: 1,
+        daemonSessionId: "daemon-session-1",
+        deviceId: "daemon-device-1",
+        lane: "dev-local",
+        lastHeartbeatMs: Date.now(),
+        leaseEpoch: 1,
+        status: "ready",
+      },
+    };
   };
 
   it("redelivers a durable Agent Task observation through the owner Runtime Transport shard", async () => {
@@ -2105,6 +2218,14 @@ describe("handleDispatchQueueBatch", () => {
     // vitest-pool-workers (src/index.ts already loaded these modules in the
     // same isolate), so per-test spies on the shared module namespaces are the
     // only mocking mechanism that actually intercepts the dispatch pipeline.
+    vi.spyOn(
+      agentExecutionReadinessService,
+      "resolveCoreAgentExecutionReadinessForProfile"
+    ).mockImplementation(({ profileId }) =>
+      Promise.resolve(
+        createCanonicalWorkstationReadiness({ targetProfileId: profileId })
+      )
+    );
     vi.spyOn(dispatchLedgerD1, "claimDispatchAttempt").mockImplementation(
       ({ message, attempt }) =>
         Promise.resolve(
@@ -8364,6 +8485,279 @@ describe("handleDispatchQueueBatch", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("rejects a fresh Wake while its local agent is turned off and never starts it after re-enable", async () => {
+    const dispatchBody = createDispatchBody({
+      dispatchId: "dispatch-controller-disabled-fresh-1",
+      sourceEventId: "evt-controller-disabled-fresh-1",
+      targetProfileId: "agt-controller-disabled-fresh-1",
+      visitedProfileIdsHash: "stable32:controller-disabled-fresh-1",
+    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeReasonCode: "controller.registry.disabled",
+        targetProfileId: dispatchBody.targetProfileId,
+      })
+    );
+    vi.mocked(claimDispatchAttempt)
+      .mockResolvedValueOnce(
+        buildClaimedAttempt({
+          attempt: 1,
+          dispatchId: dispatchBody.dispatchId,
+        })
+      )
+      .mockResolvedValueOnce({ status: "deduped" });
+    vi.spyOn(
+      runtimeCoordinatorClient,
+      "readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace"
+    ).mockImplementation(async ({ request }) => ({
+      ok: true,
+      readStatus: "missing",
+      reasonCode: "runtime_coordinator.head_lifecycle_not_found",
+      targetWakeLifecycleId:
+        request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
+
+    const disabledDelivery = createQueueMessage(dispatchBody, 1);
+    await handleDispatchQueueBatch({
+      batch: {
+        messages: [disabledDelivery],
+      } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: "controller.registry.disabled",
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      })
+    );
+    expect(disabledDelivery.ack).toHaveBeenCalledOnce();
+    expect(disabledDelivery.retry).not.toHaveBeenCalled();
+
+    const redeliveryAfterReEnable = createQueueMessage(dispatchBody, 2);
+    await handleDispatchQueueBatch({
+      batch: {
+        messages: [redeliveryAfterReEnable],
+      } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(redeliveryAfterReEnable.ack).toHaveBeenCalledOnce();
+    expect(redeliveryAfterReEnable.retry).not.toHaveBeenCalled();
+  });
+
+  it("terminalizes an accepted head when its local agent is turned off and never revives it after re-enable", async () => {
+    const dispatchBody = createDispatchBody({
+      dispatchId: "dispatch-controller-disabled-accepted-head-1",
+      sourceEventId: "evt-controller-disabled-accepted-head-1",
+      targetProfileId: "agt-controller-disabled-accepted-head-1",
+      visitedProfileIdsHash: "stable32:controller-disabled-accepted-head-1",
+    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeReasonCode: "controller.registry.disabled",
+        targetProfileId: dispatchBody.targetProfileId,
+      })
+    );
+    vi.mocked(claimDispatchAttempt)
+      .mockResolvedValueOnce(
+        buildClaimedAttempt({
+          attempt: 1,
+          dispatchId: dispatchBody.dispatchId,
+        })
+      )
+      .mockResolvedValueOnce({ status: "deduped" });
+    vi.spyOn(
+      runtimeCoordinatorClient,
+      "readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace"
+    ).mockImplementation(async ({ request }) => ({
+      lifecycle: {
+        createdAtMs: 1_700_000_000_000,
+        duplicateDispatchCount: 0,
+        executionLinkedAtMs: null,
+        modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+        noExecutionDecision: null,
+        ownerUserId: "owner-default",
+        primaryDispatchId: dispatchBody.dispatchId,
+        publicationIntent: null,
+        runtimeCoordinatorExecutionId: null,
+        status: "accepted",
+        targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+        targetWakeLifecycleId:
+          request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        updatedAtMs: 1_700_000_000_000,
+        waitingBoundary: null,
+      },
+      ok: true,
+      readStatus: "found",
+    }));
+
+    const disabledDelivery = createQueueMessage(dispatchBody, 1);
+    await handleDispatchQueueBatch({
+      batch: {
+        messages: [disabledDelivery],
+      } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        noExecution: expect.objectContaining({
+          dispatchId: dispatchBody.dispatchId,
+          reasonCode: "controller.registry.disabled",
+        }),
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(disabledDelivery.ack).toHaveBeenCalledOnce();
+    expect(disabledDelivery.retry).not.toHaveBeenCalled();
+
+    const redeliveryAfterReEnable = createQueueMessage(dispatchBody, 2);
+    await handleDispatchQueueBatch({
+      batch: {
+        messages: [redeliveryAfterReEnable],
+      } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(redeliveryAfterReEnable.ack).toHaveBeenCalledOnce();
+    expect(redeliveryAfterReEnable.retry).not.toHaveBeenCalled();
+  });
+
+  it("terminalizes an accepted head for every canonical unavailable blocker", async () => {
+    const dispatchBody = createDispatchBody({
+      dispatchId: "dispatch-canonical-service-update-accepted-head-1",
+      sourceEventId: "evt-canonical-service-update-accepted-head-1",
+      targetProfileId: "agt-canonical-service-update-accepted-head-1",
+      visitedProfileIdsHash: "stable32:canonical-service-update-head-1",
+    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeReasonCode: "service.update_required",
+        targetProfileId: dispatchBody.targetProfileId,
+      })
+    );
+    vi.mocked(claimDispatchAttempt).mockResolvedValueOnce(
+      buildClaimedAttempt({
+        attempt: 1,
+        dispatchId: dispatchBody.dispatchId,
+      })
+    );
+    vi.spyOn(
+      runtimeCoordinatorClient,
+      "readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace"
+    ).mockImplementation(async ({ request }) => ({
+      lifecycle: {
+        createdAtMs: 1_700_000_000_000,
+        duplicateDispatchCount: 0,
+        executionLinkedAtMs: null,
+        modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+        noExecutionDecision: null,
+        ownerUserId: "owner-default",
+        primaryDispatchId: dispatchBody.dispatchId,
+        publicationIntent: null,
+        runtimeCoordinatorExecutionId: null,
+        status: "accepted",
+        targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+        targetWakeLifecycleId:
+          request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        updatedAtMs: 1_700_000_000_000,
+        waitingBoundary: null,
+      },
+      ok: true,
+      readStatus: "found",
+    }));
+
+    const message = createQueueMessage(dispatchBody, 1);
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        noExecution: expect.objectContaining({
+          dispatchId: dispatchBody.dispatchId,
+          publicationCategory: "update_required",
+          reasonCode: "service.update_required",
+          userRecoveryAction: "update_openmeld_service",
+        }),
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(message.retry).not.toHaveBeenCalled();
+  });
+
+  it("accepts and delivers one normal available Wake exactly once", async () => {
+    const dispatchBody = createDispatchBody({
+      dispatchId: "dispatch-canonical-ready-once-1",
+      sourceEventId: "evt-canonical-ready-once-1",
+      targetProfileId: "agt-canonical-ready-once-1",
+      visitedProfileIdsHash: "stable32:canonical-ready-once-1",
+    });
+    vi.spyOn(
+      runtimeCoordinatorClient,
+      "readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace"
+    ).mockImplementation(async ({ request }) => ({
+      ok: true,
+      readStatus: "missing",
+      reasonCode: "runtime_coordinator.head_lifecycle_not_found",
+      targetWakeLifecycleId:
+        request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
+    const message = createQueueMessage(dispatchBody, 1);
+
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).toHaveBeenCalledOnce();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).toHaveBeenCalledOnce();
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(message.retry).not.toHaveBeenCalled();
+  });
+
   it("hydrates controller snapshot from OPENMELD_DB before runtime execution", async () => {
     const infoSpy = vi
       .spyOn(console, "info")
@@ -9258,59 +9652,18 @@ describe("handleDispatchQueueBatch", () => {
       targetProfileId: "agt-usage-exhausted-1",
       visitedProfileIdsHash: "stable32:usage-exhausted-1",
     });
-    const observedAt = new Date().toISOString();
-    const db = createOpenMeldDbWithProfileRow({
-      agentControllerRef: "builtin:codex",
-      controllerEnabled: 1,
-      openMeldServiceRuntimeId: "runtime-usage-wakeability",
-      profileKind: "agent",
-      profileStatus: "active",
-      runtimeAgentControllerInterfaceJson: JSON.stringify({
-        agentControllerRef: "builtin:codex",
-        auth: { status: "authenticated" },
-        capabilities: {
-          approvals: true,
-          cancel: true,
-          interrupt: true,
-          modelSelection: true,
-          nativeEventStream: true,
-          permissionModes: true,
-          structuredUserInput: true,
-        },
-        checkedAt: observedAt,
-        controllerId: "codex",
-        displayName: "Codex",
-        launch: {
-          argsPrefix: [],
-          commandPath: "/opt/openmeld/codex",
-          installChoiceCount: 1,
-          status: "ready",
-        },
-        message: null,
-        models: [],
-        nativeInterface: "codex-app-server",
-        schemaVersion: 1,
-        skills: [],
-        status: "ready",
-        usageLimitsSupportMatrixVersion:
-          AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
-        usageLimits: [
-          {
-            key: "five_hour",
-            label: "5-hour Usage Limit",
-            observedAt,
-            resetsAt: new Date(Date.now() + 60 * 60_000).toISOString(),
-            status: "exhausted",
-            usedPercent: 100,
-          },
-        ],
-        version: "1.0.0",
-      }),
-    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeReasonCode: "usage_exhausted",
+        targetProfileId: message.targetProfileId,
+      })
+    );
 
     await expect(
       runDispatchExecutionPreflightGate({
-        env: makeEnvWithBindings(db),
+        env: makeEnvWithBindings(),
         message,
       })
     ).resolves.toMatchObject({
@@ -9320,6 +9673,101 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
+  it("rejects fresh Wake admission from canonical accepted-Wake Usage exhaustion evidence", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-canonical-usage-exhausted-1",
+      sourceEventId: "evt-canonical-usage-exhausted-1",
+      targetProfileId: "agt-canonical-usage-exhausted-1",
+      visitedProfileIdsHash: "stable32:canonical-usage-exhausted-1",
+    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        providerAccountReasonCode: "usage_exhausted",
+        targetProfileId: message.targetProfileId,
+      })
+    );
+
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(),
+        message,
+      })
+    ).resolves.toMatchObject({
+      errorCode: "usage_exhausted",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      ok: false,
+    });
+    expect(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).toHaveBeenCalledOnce();
+    expect(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ includeRuntimeDeviceDisplayName: false })
+    );
+  });
+
+  it("rejects fresh Wake admission when canonical readiness says the local agent is turned off", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-canonical-controller-disabled-1",
+      sourceEventId: "evt-canonical-controller-disabled-1",
+      targetProfileId: "agt-canonical-controller-disabled-1",
+      visitedProfileIdsHash: "stable32:canonical-controller-disabled-1",
+    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeReasonCode: "controller.registry.disabled",
+        targetProfileId: message.targetProfileId,
+      })
+    );
+
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(),
+        message,
+      })
+    ).resolves.toMatchObject({
+      errorCode: "controller.registry.disabled",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      ok: false,
+    });
+  });
+
+  it("does not reject fresh Wake admission when canonical readiness excludes unsupported Usage", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-canonical-usage-unsupported-1",
+      sourceEventId: "evt-canonical-usage-unsupported-1",
+      targetProfileId: "agt-canonical-usage-unsupported-1",
+      visitedProfileIdsHash: "stable32:canonical-usage-unsupported-1",
+    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        agentControllerRef: "builtin:opencode",
+        targetProfileId: message.targetProfileId,
+      })
+    );
+
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(
+          createOpenMeldDbWithProfileRow({
+            agentControllerRef: "builtin:opencode",
+            controllerEnabled: 1,
+            profileKind: "agent",
+            profileStatus: "active",
+          })
+        ),
+        message,
+      })
+    ).resolves.toMatchObject({ ok: true });
+  });
+
   it("does not accept workstation Wake while supported Usage is unavailable", async () => {
     const message = createDispatchBody({
       dispatchId: "dispatch-usage-checking-1",
@@ -9327,59 +9775,18 @@ describe("handleDispatchQueueBatch", () => {
       targetProfileId: "agt-usage-checking-1",
       visitedProfileIdsHash: "stable32:usage-checking-1",
     });
-    const observedAt = new Date().toISOString();
-    const db = createOpenMeldDbWithProfileRow({
-      agentControllerRef: "builtin:codex",
-      controllerEnabled: 1,
-      openMeldServiceRuntimeId: "runtime-usage-wakeability",
-      profileKind: "agent",
-      profileStatus: "active",
-      runtimeAgentControllerInterfaceJson: JSON.stringify({
-        agentControllerRef: "builtin:codex",
-        auth: { status: "authenticated" },
-        capabilities: {
-          approvals: true,
-          cancel: true,
-          interrupt: true,
-          modelSelection: true,
-          nativeEventStream: true,
-          permissionModes: true,
-          structuredUserInput: true,
-        },
-        checkedAt: observedAt,
-        controllerId: "codex",
-        displayName: "Codex",
-        launch: {
-          argsPrefix: [],
-          commandPath: "/opt/openmeld/codex",
-          installChoiceCount: 1,
-          status: "ready",
-        },
-        message: null,
-        models: [],
-        nativeInterface: "codex-app-server",
-        schemaVersion: 1,
-        skills: [],
-        status: "ready",
-        usageLimitsSupportMatrixVersion:
-          AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
-        usageLimits: [
-          {
-            key: "five_hour",
-            label: "5-hour Usage Limit",
-            observedAt,
-            resetsAt: null,
-            status: "unavailable",
-            usedPercent: null,
-          },
-        ],
-        version: "1.0.0",
-      }),
-    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeReasonCode: "usage_checking",
+        targetProfileId: message.targetProfileId,
+      })
+    );
 
     await expect(
       runDispatchExecutionPreflightGate({
-        env: makeEnvWithBindings(db),
+        env: makeEnvWithBindings(),
         message,
       })
     ).resolves.toMatchObject({
@@ -9396,18 +9803,18 @@ describe("handleDispatchQueueBatch", () => {
       targetProfileId: "agt-usage-report-missing-1",
       visitedProfileIdsHash: "stable32:usage-report-missing-1",
     });
-    const db = createOpenMeldDbWithProfileRow({
-      agentControllerRef: "builtin:codex",
-      controllerEnabled: 1,
-      openMeldServiceRuntimeId: "runtime-usage-wakeability",
-      profileKind: "agent",
-      profileStatus: "active",
-      runtimeAgentControllerInterfaceJson: null,
-    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeReasonCode: "usage_checking",
+        targetProfileId: message.targetProfileId,
+      })
+    );
 
     await expect(
       runDispatchExecutionPreflightGate({
-        env: makeEnvWithBindings(db),
+        env: makeEnvWithBindings(),
         message,
       })
     ).resolves.toMatchObject({

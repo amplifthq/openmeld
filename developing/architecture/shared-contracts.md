@@ -5182,6 +5182,19 @@ setting may save for later work without changing the current execution. An
 older shard that lacks the dedicated future-settings RPC rejects the setting
 write before D1 mutation; ordinary Wakes continue on the unchanged hot path.
 
+The RuntimeCoordinator head no-execution contract is also the durable boundary
+for a canonical readiness block found after a Wake already owns the Profile
+head. One shared mapping converts every canonical blocking reason into its
+exact reason code plus a bounded publication category and recovery action;
+this includes disabled Local Agent, reliable Usage `Checking` or exhausted
+outcomes, and the wider Profile, Binding, workspace, controller, route,
+Service, and provider-access blocker families. A fresh Wake with one of those
+facts is rejected before head admission; an existing matching head is settled
+through the no-execution request without a second accept call. The exact reason
+code selects shared public copy, while the bounded recovery action gives the
+user one next step. Raw provider text remains only in Message Details and never
+selects admission behavior.
+
 The owner-only Organization directory projection may add the interrupted
 target-Wake lifecycle id beside a paused recovery action. Web accepts the field
 additively, requires it before sending `skip_interrupted_work`, and asks the user
@@ -5432,16 +5445,24 @@ maintainability without weakening UX.
 `packages/schemas/src/schemas/http/space-dispatch-trace.ts` owns both the
 legacy and current strict trace response schemas. A caller requests the current
 contract by sending
-`x-openmeld-space-dispatch-trace-response-version: 2`. Without that header,
-Core projects the legacy subset and must omit current-only RuntimeCoordinator
-head values instead of sending a payload an already-published CLI cannot parse.
+`x-openmeld-space-dispatch-trace-response-version: 3`. Core also accepts the
+frozen version `2`; without the header, Core projects the legacy version `1`
+subset. Version `2` omits every version-3-only head no-execution detail,
+including disabled-Local-Agent, reliable Usage, and newer canonical blocker
+families, while retaining the surrounding generic dispatch and attempt
+evidence. These projections validate each detail against the frozen version-2
+schema and omit newer values instead of substituting a misleading historical
+Binding reason or sending a payload an already-published strict CLI cannot
+parse.
 
 The current schema accepts the legacy subset, so a new CLI remains compatible
 with an older Core that ignores the header. A new Core remains compatible with
-an older CLI because the missing header selects the legacy projection. This
-negotiation permits either rollout order and rollback; clients must not rebuild
-current waiting truth from historical dispatch attempts when the current head
-projection is absent.
+an older CLI because an explicit version `2` request receives the frozen
+projection and a missing header selects version `1`. Deploy Core and Gateway
+receivers before a new CLI starts requesting version `3`; rollback to a
+version-2 CLI remains safe while those cloud receivers continue accepting both
+versions. Clients must not rebuild current waiting truth from historical
+dispatch attempts when the current head projection is absent.
 
 ## OpenMeld Request Context Header Text Encoding
 

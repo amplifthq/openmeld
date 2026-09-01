@@ -38,7 +38,9 @@ import type {
   RuntimeTransportRuntimeCoordinatorDecisionRequest,
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
   RuntimeTransportRuntimeCoordinatorHeadAcceptRequest,
+  RuntimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategory,
   RuntimeTransportRuntimeCoordinatorHeadNoExecutionReasonCode,
+  RuntimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryAction,
   RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest,
   RuntimeTransportRuntimeCoordinatorHeadPreAgentStopReasonCode,
   RuntimeTransportRuntimeCoordinatorHeadPreAgentStopRequest,
@@ -405,50 +407,24 @@ export type RuntimeCoordinatorHeadLifecycleDuplicateObservation = {
 
 export type RuntimeCoordinatorHeadNoExecutionDecision = {
   decidedAtMs: number;
-  publicationCategory:
-    | "binding_required"
-    | "local_connection_mismatch"
-    | "service_not_connected"
-    | "update_required"
-    | "wake_route_registration_pending";
+  publicationCategory: RuntimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategory;
   reasonCode: RuntimeTransportRuntimeCoordinatorHeadNoExecutionReasonCode;
   source:
     | "dispatch_preflight"
     | "dispatch_delivery_pre_execution"
     | "runtime_coordinator_head_waiting_deadline";
-  userRecoveryAction:
-    | "set_up_agent_binding"
-    | "enable_agent_binding"
-    | "repair_agent_binding"
-    | "authorize_agent_binding_for_organization"
-    | "reconnect_agent_binding"
-    | "start_or_restart_openmeld_service"
-    | "update_openmeld_service"
-    | "wait_for_wake_route_report";
+  userRecoveryAction: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryAction;
 };
 
 export type RuntimeCoordinatorHeadPublicationIntent =
   | {
       intentId: string;
       kind: "no_execution_failure";
-      publicationCategory:
-        | "binding_required"
-        | "local_connection_mismatch"
-        | "service_not_connected"
-        | "update_required"
-        | "wake_route_registration_pending";
+      publicationCategory: RuntimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategory;
       readyAtMs: number;
       reasonCode: RuntimeTransportRuntimeCoordinatorHeadNoExecutionReasonCode;
       status: "ready_for_phase_6";
-      userRecoveryAction:
-        | "set_up_agent_binding"
-        | "enable_agent_binding"
-        | "repair_agent_binding"
-        | "authorize_agent_binding_for_organization"
-        | "reconnect_agent_binding"
-        | "start_or_restart_openmeld_service"
-        | "update_openmeld_service"
-        | "wait_for_wake_route_report";
+      userRecoveryAction: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryAction;
     }
   | {
       intentId: string;

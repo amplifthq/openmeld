@@ -3,6 +3,8 @@ import {
   classifyAgentWakeAvailabilityReason,
   createAgentProfileBindingDisplayProjection,
   resolveAgentExecutionStatus,
+  resolveAgentWakeAdmissionBlockReasonCode,
+  resolveAgentWakeAdmissionTerminalDecision,
   resolveAgentWakeAvailability,
   resolveAgentWakeAvailabilityDisplayCategory,
   resolveHostedAgentWakeAvailability,
@@ -907,12 +909,15 @@ describe("agent wake availability", () => {
       badgeLabel: "Turned off",
       category: "unavailable",
       phase: "connect_local_agent",
-      reasonCode: "agent_profile_binding.enabled_primary",
+      reasonCode: "controller.registry.disabled",
       status: "unavailable_for_wake",
       summary:
         "This local agent is turned off in OpenMeld on this computer. Turn it on before this profile can reply.",
       tooltip: "This local agent is turned off in OpenMeld on this computer.",
     });
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "controller.registry.disabled"
+    );
   });
 
   it("projects controller conversation conflicts as unavailable for Wake", () => {
@@ -951,6 +956,51 @@ describe("agent wake availability", () => {
       status: "unavailable_for_wake",
       tooltip: "Duplicate reply conversation",
     });
+  });
+
+  it.each([
+    ["service.update_required", "update_required", "update_openmeld_service"],
+    [
+      "agent_profile_binding.controller_conversation_conflict",
+      "binding_required",
+      "repair_agent_binding",
+    ],
+    ["workspace.invalid", "workspace_unavailable", "review_agent_settings"],
+    [
+      "provider_account.organization_access_disabled",
+      "provider_access_unavailable",
+      "review_agent_settings",
+    ],
+    [
+      "controller.launch.needs_repair",
+      "local_agent_unavailable",
+      "connect_local_agent",
+    ],
+    [
+      "daemon.runtime_contract.missing",
+      "update_required",
+      "update_openmeld_service",
+    ],
+    ["profile.inactive", "agent_profile_unavailable", "review_agent_settings"],
+    [
+      "agent_execution.route_unavailable",
+      "service_not_connected",
+      "start_or_restart_openmeld_service",
+    ],
+  ] as const)("maps canonical blocker %s to one durable terminal projection", (reasonCode, publicationCategory, userRecoveryAction) => {
+    expect(resolveAgentWakeAdmissionTerminalDecision(reasonCode)).toEqual({
+      publicationCategory,
+      reasonCode,
+      userRecoveryAction,
+    });
+  });
+
+  it("keeps transient controller checks out of durable admission terminals", () => {
+    expect(
+      resolveAgentWakeAdmissionTerminalDecision(
+        "controller.interface.check_failed"
+      )
+    ).toBeNull();
   });
 
   it("keeps a registered Wake route available when local controller evidence is stale", () => {

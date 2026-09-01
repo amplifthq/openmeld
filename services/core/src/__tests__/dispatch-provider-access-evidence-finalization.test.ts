@@ -79,6 +79,14 @@ const codexDispatchMessage = {
   },
 } satisfies OpenMeldDaemonDispatchQueueMessage;
 
+const opencodeDispatchMessage = {
+  ...dispatchMessage,
+  controllerSnapshot: {
+    ...dispatchMessage.controllerSnapshot,
+    agentControllerRef: "builtin:opencode",
+  },
+} satisfies OpenMeldDaemonDispatchQueueMessage;
+
 const successTaskResult = {
   v: 4,
   code: "service.task_result",
@@ -160,6 +168,45 @@ const codexFailedTaskResult = {
     sourceEventId: "signal-source-1",
     status: "failed",
     taskId: "task-provider-access-1",
+  },
+} satisfies OpenMeldDaemonTaskResultEnvelope;
+
+const codexStructuredUsageExhaustedTaskResult = {
+  v: 4,
+  code: "service.task_result",
+  payload: {
+    agentId: AGENT_PROFILE_ID,
+    attemptId: "attempt-provider-access-1",
+    agentControllerRef: "builtin:codex",
+    deduped: false,
+    errorCode: "usage_exhausted",
+    errorMessage: "Codex usage is exhausted.",
+    errorType: "adapter",
+    originalError: "You've hit your usage limit. Try again at 2:03 AM.",
+    sourceEventId: "signal-source-1",
+    status: "failed",
+    taskId: "task-provider-access-1",
+  },
+} satisfies OpenMeldDaemonTaskResultEnvelope;
+
+const opencodeStructuredUsageExhaustedTaskResult = {
+  ...codexStructuredUsageExhaustedTaskResult,
+  payload: {
+    ...codexStructuredUsageExhaustedTaskResult.payload,
+    agentControllerRef: "builtin:opencode",
+  },
+} satisfies OpenMeldDaemonTaskResultEnvelope;
+
+const opencodeReportedUsageExhaustedTaskResult = {
+  ...opencodeStructuredUsageExhaustedTaskResult,
+  payload: {
+    ...opencodeStructuredUsageExhaustedTaskResult.payload,
+    providerAccessEvidence: {
+      observedAtMs: 1_700_000_000_050,
+      provider: "opencode",
+      reasonCode: "usage_exhausted",
+      source: "wake_failure",
+    },
   },
 } satisfies OpenMeldDaemonTaskResultEnvelope;
 
@@ -484,6 +531,118 @@ describe("dispatch provider access evidence finalization", () => {
       sourceAttemptId: "attempt-provider-access-1",
       sourceDispatchId: "dispatch-provider-access-1",
     });
+  });
+
+  it("writes minimum Codex Usage evidence from an accepted structured usage exhaustion", async () => {
+    vi.mocked(readDispatchAttemptExecutionOwnershipFact).mockResolvedValueOnce({
+      status: "found",
+      attemptId: "attempt-provider-access-1",
+      bindingId: "binding-codex-1",
+      agentControllerRef: "builtin:codex",
+      dispatchId: "dispatch-provider-access-1",
+      openMeldServiceRuntimeId: "runtime-office-mac-1",
+      targetProfileId: AGENT_PROFILE_ID,
+      taskId: "task-provider-access-1",
+    });
+
+    await expect(
+      finalizeAcceptedDispatchResult({
+        db: {} as D1Database,
+        dispatchMessage: codexDispatchMessage,
+        env: buildEnv(),
+        inboxRecord: buildInboxRecord(codexStructuredUsageExhaustedTaskResult),
+        recordPublicationProjection: false,
+        targetOwnerUserId: "owner-1",
+        targetProfileMentionLabel: "Codex",
+        targetProfileName: "Codex",
+      })
+    ).resolves.toMatchObject({
+      publishState: "reply_published",
+      status: "finalized",
+    });
+
+    expect(writeAcceptedProviderAccessFailureEvidence).toHaveBeenCalledWith({
+      agentProfileId: AGENT_PROFILE_ID,
+      db: {},
+      evidence: {
+        observedAtMs: 1_700_000_000_100,
+        provider: "codex",
+        reasonCode: "usage_exhausted",
+        source: "wake_failure",
+      },
+      executionIdentity: {
+        bindingId: "binding-codex-1",
+        agentControllerRef: "builtin:codex",
+        openMeldServiceRuntimeId: "runtime-office-mac-1",
+      },
+      observedAtMs: 1_700_000_000_100,
+      sourceAttemptId: "attempt-provider-access-1",
+      sourceDispatchId: "dispatch-provider-access-1",
+    });
+  });
+
+  it("does not turn structured Usage exhaustion into admission evidence for an unsupported controller", async () => {
+    vi.mocked(readDispatchAttemptExecutionOwnershipFact).mockResolvedValueOnce({
+      status: "found",
+      attemptId: "attempt-provider-access-1",
+      bindingId: "binding-opencode-1",
+      agentControllerRef: "builtin:opencode",
+      dispatchId: "dispatch-provider-access-1",
+      openMeldServiceRuntimeId: "runtime-office-mac-1",
+      targetProfileId: AGENT_PROFILE_ID,
+      taskId: "task-provider-access-1",
+    });
+
+    await expect(
+      finalizeAcceptedDispatchResult({
+        db: {} as D1Database,
+        dispatchMessage: opencodeDispatchMessage,
+        env: buildEnv(),
+        inboxRecord: buildInboxRecord(
+          opencodeStructuredUsageExhaustedTaskResult
+        ),
+        recordPublicationProjection: false,
+        targetOwnerUserId: "owner-1",
+        targetProfileMentionLabel: "OpenCode",
+        targetProfileName: "OpenCode",
+      })
+    ).resolves.toMatchObject({
+      publishState: "reply_published",
+      status: "finalized",
+    });
+
+    expect(writeAcceptedProviderAccessFailureEvidence).not.toHaveBeenCalled();
+  });
+
+  it("does not let reported Usage exhaustion block future Wakes for an unsupported controller", async () => {
+    vi.mocked(readDispatchAttemptExecutionOwnershipFact).mockResolvedValueOnce({
+      status: "found",
+      attemptId: "attempt-provider-access-1",
+      bindingId: "binding-opencode-1",
+      agentControllerRef: "builtin:opencode",
+      dispatchId: "dispatch-provider-access-1",
+      openMeldServiceRuntimeId: "runtime-office-mac-1",
+      targetProfileId: AGENT_PROFILE_ID,
+      taskId: "task-provider-access-1",
+    });
+
+    await expect(
+      finalizeAcceptedDispatchResult({
+        db: {} as D1Database,
+        dispatchMessage: opencodeDispatchMessage,
+        env: buildEnv(),
+        inboxRecord: buildInboxRecord(opencodeReportedUsageExhaustedTaskResult),
+        recordPublicationProjection: false,
+        targetOwnerUserId: "owner-1",
+        targetProfileMentionLabel: "OpenCode",
+        targetProfileName: "OpenCode",
+      })
+    ).resolves.toMatchObject({
+      publishState: "reply_published",
+      status: "finalized",
+    });
+
+    expect(writeAcceptedProviderAccessFailureEvidence).not.toHaveBeenCalled();
   });
 
   it("does not let a legacy wording-derived capacity classification change Wakeability", async () => {

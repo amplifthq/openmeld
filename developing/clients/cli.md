@@ -1471,11 +1471,15 @@ CLI trace reads the shared observability model. It must not become a direct D1
 reader, direct Durable Object reader, or second trace system.
 
 The current CLI explicitly requests dispatch-trace response contract version
-`2`. Its default Agent View surfaces an authoritative RuntimeCoordinator
+`3`. Its default Agent View surfaces an authoritative RuntimeCoordinator
 head-waiting reason, hard deadline, wait target, and recovery action before it
 considers historical attempt errors. An older Core may return the legacy
 subset; the CLI must still parse that response and report only the evidence it
-contains.
+contains. Core and Gateway continue accepting the frozen version `2` request
+used by already-published CLIs. That projection omits version-3-only disabled
+Local Agent and reliable Usage head no-execution details while retaining
+parseable generic dispatch and attempt evidence; the CLI must not infer the
+missing exact reason from those historical facts.
 
 An authoritative pre-result RuntimeCoordinator status such as `running` or
 `completed_local` also takes precedence over the generic absence-of-final-message

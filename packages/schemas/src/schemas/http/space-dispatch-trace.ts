@@ -22,17 +22,27 @@ const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS = 604_800_000;
 const SPACE_DISPATCH_TRACE_PROMPT_LENGTH_MAX = 1_000_000 as const;
 export const SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS = 1200 as const;
-export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 2 as const;
+export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 3 as const;
+export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS =
+  2 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER =
   "x-openmeld-space-dispatch-trace-response-version";
 const SPACE_DISPATCH_TRACE_INVALID_OUTPUT_PREVIEW_MAX_CHARS = 180 as const;
 
-export const spaceDispatchTraceResponseContractVersionSchema = z.literal(
-  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
-);
+export const spaceDispatchTraceResponseContractVersionSchema = z.union([
+  z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
+  z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
+]);
 export const spaceDispatchTraceResponseContractVersionHeaderSchema = z
-  .literal(String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION))
-  .transform(() => SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION);
+  .enum([
+    String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
+    String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
+  ])
+  .transform((value) =>
+    value === String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION)
+      ? SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+      : SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
+  );
 
 const boundedNullableTrimmedStringSchema = (maxLength: number) =>
   z.union([trimmedNonEmptyStringSchema.max(maxLength), z.null()]);
@@ -457,14 +467,14 @@ const legacyPublishedRuntimeCoordinatorHeadRecoveryActionSchema = z.enum([
   "update_openmeld_service",
 ]);
 
-const currentPublishedRuntimeCoordinatorHeadPublicationCategorySchema = z.enum([
+const publishedRuntimeCoordinatorHeadPublicationCategoryV2Schema = z.enum([
   "binding_required",
   "local_connection_mismatch",
   "service_not_connected",
   "update_required",
   "wake_route_registration_pending",
 ]);
-const currentPublishedRuntimeCoordinatorHeadReasonCodeSchema = z.enum([
+const publishedRuntimeCoordinatorHeadReasonCodeV2Schema = z.enum([
   "agent_profile_binding.missing",
   "agent_profile_binding.disabled",
   "agent_profile_binding.owner_mismatch",
@@ -474,7 +484,7 @@ const currentPublishedRuntimeCoordinatorHeadReasonCodeSchema = z.enum([
   "daemon.profile.pending_first_report",
   "service.update_required",
 ]);
-const currentPublishedRuntimeCoordinatorHeadRecoveryActionSchema = z.enum([
+const publishedRuntimeCoordinatorHeadRecoveryActionV2Schema = z.enum([
   "set_up_agent_binding",
   "enable_agent_binding",
   "repair_agent_binding",
@@ -482,6 +492,40 @@ const currentPublishedRuntimeCoordinatorHeadRecoveryActionSchema = z.enum([
   "reconnect_agent_binding",
   "start_or_restart_openmeld_service",
   "update_openmeld_service",
+  "wait_for_wake_route_report",
+]);
+
+const currentPublishedRuntimeCoordinatorHeadPublicationCategorySchema = z.enum([
+  "binding_required",
+  "agent_profile_unavailable",
+  "local_agent_unavailable",
+  "local_connection_mismatch",
+  "provider_access_unavailable",
+  "provider_usage_unavailable",
+  "service_not_connected",
+  "update_required",
+  "wake_route_registration_pending",
+  "workspace_unavailable",
+]);
+const currentPublishedRuntimeCoordinatorHeadReasonCodeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(160);
+const currentPublishedRuntimeCoordinatorHeadRecoveryActionSchema = z.enum([
+  "set_up_agent_binding",
+  "enable_agent_binding",
+  "repair_agent_binding",
+  "authorize_agent_binding_for_organization",
+  "check_status",
+  "connect_local_agent",
+  "enable_local_agent",
+  "reconnect_agent_binding",
+  "review_agent_settings",
+  "start_or_restart_openmeld_service",
+  "update_openmeld_service",
+  "wait_for_usage_report",
+  "wait_for_usage_reset",
   "wait_for_wake_route_report",
 ]);
 
@@ -494,6 +538,16 @@ const spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionV1Schema =
     source: publishedRuntimeCoordinatorHeadDecisionSourceSchema,
     userRecoveryAction:
       legacyPublishedRuntimeCoordinatorHeadRecoveryActionSchema,
+  });
+
+export const spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionV2Schema =
+  z.strictObject({
+    decidedAt: ISO_DATE_TIME_SCHEMA,
+    publicationCategory:
+      publishedRuntimeCoordinatorHeadPublicationCategoryV2Schema,
+    reasonCode: publishedRuntimeCoordinatorHeadReasonCodeV2Schema,
+    source: publishedRuntimeCoordinatorHeadDecisionSourceSchema,
+    userRecoveryAction: publishedRuntimeCoordinatorHeadRecoveryActionV2Schema,
   });
 
 const spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionSchema =
@@ -519,6 +573,27 @@ const spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentV1Schema =
       status: z.literal("ready_for_phase_6"),
       userRecoveryAction:
         legacyPublishedRuntimeCoordinatorHeadRecoveryActionSchema,
+    }),
+    z.strictObject({
+      intentId: trimmedNonEmptyStringSchema.max(4096),
+      kind: z.literal("stopped_notice"),
+      readyAt: ISO_DATE_TIME_SCHEMA,
+      reasonCode: z.literal("runtime_coordinator.pre_agent_stop_requested"),
+      status: z.literal("ready_for_phase_6"),
+    }),
+  ]);
+
+export const spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentV2Schema =
+  z.union([
+    z.strictObject({
+      intentId: trimmedNonEmptyStringSchema.max(4096),
+      kind: z.literal("no_execution_failure"),
+      publicationCategory:
+        publishedRuntimeCoordinatorHeadPublicationCategoryV2Schema,
+      readyAt: ISO_DATE_TIME_SCHEMA,
+      reasonCode: publishedRuntimeCoordinatorHeadReasonCodeV2Schema,
+      status: z.literal("ready_for_phase_6"),
+      userRecoveryAction: publishedRuntimeCoordinatorHeadRecoveryActionV2Schema,
     }),
     z.strictObject({
       intentId: trimmedNonEmptyStringSchema.max(4096),
@@ -685,6 +760,27 @@ export const spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema =
     spaceDispatchTraceRuntimeCoordinatorHeadAuthorityUnavailableSchema,
   ]);
 
+export const spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema =
+  z.discriminatedUnion("readStatus", [
+    z.strictObject({
+      ...spaceDispatchTraceRuntimeCoordinatorHeadFoundCommonShape,
+      noExecutionDecision: z.union([
+        spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionV2Schema,
+        z.null(),
+      ]),
+      publicationIntent: z.union([
+        spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentV2Schema,
+        z.null(),
+      ]),
+      waitingBoundary: z.union([
+        spaceDispatchTraceRuntimeCoordinatorHeadWaitingBoundarySchema,
+        z.null(),
+      ]),
+    }),
+    spaceDispatchTraceRuntimeCoordinatorHeadMissingSchema,
+    spaceDispatchTraceRuntimeCoordinatorHeadAuthorityUnavailableSchema,
+  ]);
+
 export const spaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema =
   z.discriminatedUnion("readStatus", [
     z.strictObject({
@@ -806,6 +902,14 @@ export const spaceDispatchTraceSnapshotV1Schema =
   spaceDispatchTraceSnapshotSchema.extend({
     runtimeCoordinatorHeadLifecycle: z.union([
       spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema,
+      z.null(),
+    ]),
+  });
+
+export const spaceDispatchTraceSnapshotV2Schema =
+  spaceDispatchTraceSnapshotSchema.extend({
+    runtimeCoordinatorHeadLifecycle: z.union([
+      spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema,
       z.null(),
     ]),
   });
@@ -1167,6 +1271,11 @@ export const spaceDispatchTraceResponseSchema = z
 export const spaceDispatchTraceResponseV1Schema =
   spaceDispatchTraceResponseSchema.safeExtend({
     trace: z.union([spaceDispatchTraceSnapshotV1Schema, z.null()]),
+  });
+
+export const spaceDispatchTraceResponseV2Schema =
+  spaceDispatchTraceResponseSchema.safeExtend({
+    trace: z.union([spaceDispatchTraceSnapshotV2Schema, z.null()]),
   });
 
 type SpaceDispatchTraceSnapshotValue = zod.infer<

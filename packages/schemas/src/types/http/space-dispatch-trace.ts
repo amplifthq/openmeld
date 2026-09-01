@@ -16,6 +16,8 @@ type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema"];
 type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema"];
+type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema =
+  typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema"];
 type SpaceDispatchTraceClaimLeaseSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceClaimLeaseSchema"];
 type SpaceDispatchTraceDispatchSchema =
@@ -52,6 +54,8 @@ type SpaceDispatchTraceResponseSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceResponseSchema"];
 type SpaceDispatchTraceResponseV1Schema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceResponseV1Schema"];
+type SpaceDispatchTraceResponseV2Schema =
+  typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceResponseV2Schema"];
 type SpaceDispatchTraceResponseContractVersionSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceResponseContractVersionSchema"];
 type SpaceDispatchTraceResultInboxPublishStateSchema =
@@ -64,6 +68,8 @@ type SpaceDispatchTraceSnapshotSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceSnapshotSchema"];
 type SpaceDispatchTraceSnapshotV1Schema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceSnapshotV1Schema"];
+type SpaceDispatchTraceSnapshotV2Schema =
+  typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceSnapshotV2Schema"];
 type SpaceDispatchTraceStreamingSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceStreamingSchema"];
 
@@ -83,6 +89,8 @@ export type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycle =
   z.infer<SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema>;
 export type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1 =
   z.infer<SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema>;
+export type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2 =
+  z.infer<SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema>;
 export type SpaceDispatchTraceClaimLease =
   z.infer<SpaceDispatchTraceClaimLeaseSchema>;
 export type SpaceDispatchTraceDispatch =
@@ -118,6 +126,8 @@ export type SpaceDispatchTraceResponse =
   z.infer<SpaceDispatchTraceResponseSchema>;
 export type SpaceDispatchTraceResponseV1 =
   z.infer<SpaceDispatchTraceResponseV1Schema>;
+export type SpaceDispatchTraceResponseV2 =
+  z.infer<SpaceDispatchTraceResponseV2Schema>;
 export type SpaceDispatchTraceResponseContractVersion =
   z.infer<SpaceDispatchTraceResponseContractVersionSchema>;
 export type SpaceDispatchTraceResultInboxPublishState =
@@ -129,5 +139,7 @@ export type SpaceDispatchTraceSnapshot =
   z.infer<SpaceDispatchTraceSnapshotSchema>;
 export type SpaceDispatchTraceSnapshotV1 =
   z.infer<SpaceDispatchTraceSnapshotV1Schema>;
+export type SpaceDispatchTraceSnapshotV2 =
+  z.infer<SpaceDispatchTraceSnapshotV2Schema>;
 export type SpaceDispatchTraceStreaming =
   z.infer<SpaceDispatchTraceStreamingSchema>;

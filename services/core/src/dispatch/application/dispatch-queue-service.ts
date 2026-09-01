@@ -1,3 +1,4 @@
+import { resolveAgentWakeAdmissionTerminalDecision } from "@openmeld/agent-runtime";
 import {
   buildAgentControllerRoutingKey,
   buildRuntimeCoordinatorExecutionId,
@@ -1990,6 +1991,34 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
       return { handled: false, shouldAck: true };
     }
 
+    const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: input.dispatchMessage.sourceClientMessageId ?? null,
+      dispatchId: input.dispatchMessage.dispatchId,
+      sourceSignalId: input.dispatchMessage.sourceEventId,
+      spaceId: input.dispatchMessage.spaceId,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
+    const requiresExistingHead =
+      input.preflightCheck.canonicalAdmissionBlock === true;
+    if (requiresExistingHead) {
+      const admissionBlockOutcome =
+        await resolveFreshAdmissionReadinessBlockOutcome({
+          db: input.db,
+          dispatchMessage: input.dispatchMessage,
+          env: input.env,
+          executionAttemptId: input.executionAttemptId,
+          message: input.message,
+          noExecutionDecision,
+          nowMs: input.nowMs,
+          preflightCheck: input.preflightCheck,
+          queueAttempt: input.queueAttempt,
+          targetWakeLifecycleIdentity,
+        });
+      if (admissionBlockOutcome) {
+        return admissionBlockOutcome;
+      }
+    }
+
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
       attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
@@ -2002,57 +2031,51 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
       status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
     });
 
-    const headAcceptance =
-      await acceptRuntimeCoordinatorHeadBeforeFreshExecution({
-        allowPublicationIntentReconcile: true,
-        db: input.db,
-        dispatchMessage: input.dispatchMessage,
-        env: input.env,
-        executionAttemptId: input.executionAttemptId,
-        nowMs: input.nowMs,
-        targetOwnerUserId: noExecutionDecision.ownerUserId,
-      });
-    if (headAcceptance.status === "retry") {
-      retryQueueMessageWithBackoff(
-        input.message,
-        input.queueAttempt,
-        headAcceptance.reasonCode
-      );
-      return { handled: true, shouldAck: false };
-    }
-    if (headAcceptance.status === "profile_queue_waiting") {
-      return { handled: true, shouldAck: true };
-    }
-    if (
-      headAcceptance.status === "queue_full" ||
-      headAcceptance.status === "recovery_needs_attention"
-    ) {
-      return {
-        handled: true,
-        shouldAck: await settleVisiblePreHeadFailure({
+    if (!requiresExistingHead) {
+      const headAcceptance =
+        await acceptRuntimeCoordinatorHeadBeforeFreshExecution({
+          allowPublicationIntentReconcile: true,
           db: input.db,
           dispatchMessage: input.dispatchMessage,
           env: input.env,
-          errorCode: headAcceptance.reasonCode,
-          errorMessage: headAcceptance.errorMessage,
           executionAttemptId: input.executionAttemptId,
-          finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
-          message: input.message,
           nowMs: input.nowMs,
-        }),
-      };
+          targetOwnerUserId: noExecutionDecision.ownerUserId,
+        });
+      if (headAcceptance.status === "retry") {
+        retryQueueMessageWithBackoff(
+          input.message,
+          input.queueAttempt,
+          headAcceptance.reasonCode
+        );
+        return { handled: true, shouldAck: false };
+      }
+      if (headAcceptance.status === "profile_queue_waiting") {
+        return { handled: true, shouldAck: true };
+      }
+      if (
+        headAcceptance.status === "queue_full" ||
+        headAcceptance.status === "recovery_needs_attention"
+      ) {
+        return {
+          handled: true,
+          shouldAck: await settleVisiblePreHeadFailure({
+            db: input.db,
+            dispatchMessage: input.dispatchMessage,
+            env: input.env,
+            errorCode: headAcceptance.reasonCode,
+            errorMessage: headAcceptance.errorMessage,
+            executionAttemptId: input.executionAttemptId,
+            finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+            message: input.message,
+            nowMs: input.nowMs,
+          }),
+        };
+      }
+      if (headAcceptance.status === "skip_duplicate") {
+        return { handled: true, shouldAck: true };
+      }
     }
-    if (headAcceptance.status === "skip_duplicate") {
-      return { handled: true, shouldAck: true };
-    }
-
-    const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
-      clientMessageId: input.dispatchMessage.sourceClientMessageId ?? null,
-      dispatchId: input.dispatchMessage.dispatchId,
-      sourceSignalId: input.dispatchMessage.sourceEventId,
-      spaceId: input.dispatchMessage.spaceId,
-      targetProfileId: input.dispatchMessage.targetProfileId,
-    });
     const response =
       await recordRuntimeTransportRuntimeCoordinatorHeadNoExecution({
         env: input.env,
@@ -2169,65 +2192,114 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
     return { handled: true, shouldAck: true };
   };
 
+const resolveFreshAdmissionReadinessBlockOutcome = async (input: {
+  db: D1Database;
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  executionAttemptId: string;
+  message: QueueBatchMessage;
+  noExecutionDecision: NonNullable<
+    ReturnType<typeof resolveRuntimeCoordinatorHeadNoExecutionDecision>
+  >;
+  nowMs: number;
+  preflightCheck: Extract<
+    Awaited<ReturnType<typeof runDispatchExecutionPreflightGate>>,
+    { ok: false }
+  >;
+  queueAttempt: number;
+  targetWakeLifecycleIdentity: ReturnType<
+    typeof projectTargetWakeLifecycleIdentity
+  >;
+}): Promise<{ handled: boolean; shouldAck: boolean } | null> => {
+  const trace = await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
+    env: input.env,
+    ownerUserId: input.noExecutionDecision.ownerUserId,
+    request: {
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      targetWakeLifecycleIdentity: input.targetWakeLifecycleIdentity,
+    },
+  }).catch((error) => {
+    console.warn(
+      "[core.openMeldDaemon.dispatch_queue.admission_block_head_read_failed]",
+      {
+        dispatchId: input.dispatchMessage.dispatchId,
+        error: toErrorMessage(error),
+        reasonCode: input.noExecutionDecision.reasonCode,
+        targetProfileId: input.dispatchMessage.targetProfileId,
+        targetWakeLifecycleId:
+          input.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      }
+    );
+    return null;
+  });
+  if (!trace?.ok) {
+    retryQueueMessageWithBackoff(
+      input.message,
+      input.queueAttempt,
+      trace?.reasonCode ??
+        "runtime_coordinator.head_lifecycle_trace_unavailable"
+    );
+    return { handled: true, shouldAck: false };
+  }
+  if (trace.readStatus === "missing") {
+    return {
+      handled: true,
+      shouldAck: await settleVisiblePreHeadFailure({
+        db: input.db,
+        dispatchMessage: input.dispatchMessage,
+        env: input.env,
+        errorCode: input.preflightCheck.errorCode,
+        errorMessage: input.preflightCheck.errorMessage,
+        executionAttemptId: input.executionAttemptId,
+        finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+        message: input.message,
+        nowMs: input.nowMs,
+      }),
+    };
+  }
+  if (trace.lifecycle.primaryDispatchId !== input.dispatchMessage.dispatchId) {
+    retryQueueMessageWithBackoff(
+      input.message,
+      input.queueAttempt,
+      "runtime_coordinator.head_no_execution_authority_conflict"
+    );
+    return { handled: true, shouldAck: false };
+  }
+  return null;
+};
+
 const resolveRuntimeCoordinatorHeadNoExecutionDecision = (
   preflightCheck: Extract<
     Awaited<ReturnType<typeof runDispatchExecutionPreflightGate>>,
     { ok: false }
   >
-): {
-  ownerUserId: string;
-  publicationCategory: "binding_required";
-  reasonCode:
-    | "agent_profile_binding.missing"
-    | "agent_profile_binding.disabled"
-    | "agent_profile_binding.owner_mismatch"
-    | "organization_binding_authorization.required";
-  userRecoveryAction:
-    | "set_up_agent_binding"
-    | "enable_agent_binding"
-    | "repair_agent_binding"
-    | "authorize_agent_binding_for_organization";
-} | null => {
+):
+  | ({ ownerUserId: string } & NonNullable<
+      ReturnType<typeof resolveAgentWakeAdmissionTerminalDecision>
+    >)
+  | null => {
   const ownerUserId = normalizeOptionalText(preflightCheck.targetOwnerUserId);
   if (!ownerUserId) {
     return null;
   }
-  if (preflightCheck.errorCode === "agent_profile_binding.missing") {
-    return {
-      ownerUserId,
-      publicationCategory: "binding_required",
-      reasonCode: "agent_profile_binding.missing",
-      userRecoveryAction: "set_up_agent_binding",
-    };
-  }
-  if (preflightCheck.errorCode === "agent_profile_binding.disabled") {
-    return {
-      ownerUserId,
-      publicationCategory: "binding_required",
-      reasonCode: "agent_profile_binding.disabled",
-      userRecoveryAction: "enable_agent_binding",
-    };
-  }
-  if (preflightCheck.errorCode === "agent_profile_binding.owner_mismatch") {
-    return {
-      ownerUserId,
-      publicationCategory: "binding_required",
-      reasonCode: "agent_profile_binding.owner_mismatch",
-      userRecoveryAction: "repair_agent_binding",
-    };
-  }
   if (
-    preflightCheck.errorCode === "organization_binding_authorization.required"
+    preflightCheck.canonicalAdmissionBlock !== true &&
+    !legacyPreflightHeadNoExecutionReasonCodes.has(preflightCheck.errorCode)
   ) {
-    return {
-      ownerUserId,
-      publicationCategory: "binding_required",
-      reasonCode: "organization_binding_authorization.required",
-      userRecoveryAction: "authorize_agent_binding_for_organization",
-    };
+    return null;
   }
-  return null;
+  const decision = resolveAgentWakeAdmissionTerminalDecision(
+    preflightCheck.errorCode
+  );
+  return decision ? { ...decision, ownerUserId } : null;
 };
+
+const legacyPreflightHeadNoExecutionReasonCodes = new Set([
+  "agent_profile_binding.missing",
+  "agent_profile_binding.disabled",
+  "agent_profile_binding.owner_mismatch",
+  "organization_binding_authorization.required",
+]);
 
 const handleHostedFinalOutcomeClaimBeforeDeliveryIfNeeded = async (input: {
   db: D1Database;

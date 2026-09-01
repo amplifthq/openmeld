@@ -155,6 +155,23 @@ silently adopting or discarding the snapshot.
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
 
+Core gates fresh Work Coordinator admission with the same canonical
+`AgentExecutionReadiness` used by product surfaces. A current blocking fact
+ends as a visible pre-head no-execution outcome; it must not create a current or
+queued Coordinator item. The gate reads current Core-held facts only. It does
+not poll the Local Service, call a provider, scan Profiles, enumerate
+owner-wide device inventories for presentation enrichment, sleep, or add a
+second readiness projection to the dispatch path.
+
+Before any accepted or promoted head can create a local execution, Core reruns
+the canonical readiness and accepted-identity checks against current Profile
+access, Binding, Agent Controller and configuration, workspace, Local Agent
+enabled state, route, and availability. A blocking result records a durable
+terminal no-execution decision for the exact existing head. It never calls head
+accept again, and later reconnect, recovery, or re-enabling cannot revive that
+settled Wake. Terminal promotion applies the same check to each next head, so
+disabled work cannot remain hidden in FIFO and run later.
+
 User-facing Wake progress may project explicit Profile FIFO `queued` copy only
 from the Coordinator-owned head lifecycle `queued` state. Space outbox status,
 Dispatch lookup status, and RuntimeCoordinator `created` or `delivery_pending`

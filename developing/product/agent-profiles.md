@@ -671,6 +671,23 @@ stopped, failed, or terminal. The Space outbox still owns the complete Wake
 payload. Agent Activity still owns provider-observed coding-session awareness.
 The Coordinator must not duplicate any of those truths.
 
+Before a fresh workstation Wake can become the current or a queued Work
+Coordinator item, Core consumes the canonical `AgentExecutionReadiness` for
+that Profile. A blocking current fact rejects the Wake before Coordinator
+admission and produces a visible no-execution outcome with one recovery action.
+In particular, disabling the selected Local Agent means no new work: rejected
+Wakes are not retained as a hidden backlog that can start after the Local Agent
+is enabled again.
+
+Every accepted head is checked again immediately before local execution. This
+check uses current Profile access, Binding, controller and configuration,
+workspace, Local Agent enabled state, and canonical availability rather than
+the facts captured when the Wake first entered FIFO. If a promoted or redriven
+head is now blocked, RuntimeCoordinator records a durable terminal no-execution
+outcome for that exact head and the Work Coordinator continues normal terminal
+promotion. Reconnect, recovery, or later re-enabling cannot revive that settled
+Wake.
+
 One Agent Profile may have one current Wake and at most 50 waiting Wakes. FIFO
 order is the owner-shard transaction acceptance order across every Space and
 Direct Message that targets that Profile. There is no priority system in this
@@ -717,6 +734,13 @@ not add a provider call to the Wake hot path. Core and the Local Service consume
 the same matrix from `@openmeld/agent-runtime`; a Local Agent upgrade changes
 this behavior only through one reviewed matrix update backed by official
 provider evidence and a real smoke test.
+
+A structured Wake failure may update future Usage admission only when the
+accepted execution's exact Agent Controller has native Usage support in that
+same matrix. A passive, unsupported, or not-evaluated controller may still
+report `usage_exhausted` for the current Wake and preserve its raw provider
+detail in Message Details, but that result must not create blocking evidence
+for a later Wake.
 
 If a running Wake reports a structured `usage_exhausted` outcome, that Wake ends
 as a visible failure and the Coordinator holds every later Wake. When fresh

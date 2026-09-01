@@ -59,7 +59,7 @@ describe("Space dispatch trace API", () => {
       expect.objectContaining({
         headers: {
           authorization: "Bearer test-token",
-          "x-openmeld-space-dispatch-trace-response-version": "2",
+          "x-openmeld-space-dispatch-trace-response-version": "3",
         },
       })
     );

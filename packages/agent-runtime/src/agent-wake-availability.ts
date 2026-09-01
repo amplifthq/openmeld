@@ -1,4 +1,8 @@
 import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
+import type {
+  RuntimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategory,
+  RuntimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryAction,
+} from "@openmeld/schemas/types";
 import { parseAgentControllerRef } from "./agent-controller-ref";
 import type { AgentExecutionStatusProjection } from "./agent-execution-status";
 
@@ -67,6 +71,189 @@ export type AgentWakeAvailability = {
   summary: string;
   tooltip: string;
 };
+
+export type AgentWakeAdmissionTerminalDecision = {
+  publicationCategory: RuntimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategory;
+  reasonCode: string;
+  userRecoveryAction: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryAction;
+};
+
+const exactWakeAdmissionTerminalDecisions: Readonly<
+  Record<string, Omit<AgentWakeAdmissionTerminalDecision, "reasonCode">>
+> = {
+  "agent_profile_binding.missing": {
+    publicationCategory: "binding_required",
+    userRecoveryAction: "set_up_agent_binding",
+  },
+  "agent_profile_binding.disabled": {
+    publicationCategory: "binding_required",
+    userRecoveryAction: "enable_agent_binding",
+  },
+  "agent_profile_binding.owner_mismatch": {
+    publicationCategory: "binding_required",
+    userRecoveryAction: "repair_agent_binding",
+  },
+  "organization_binding_authorization.required": {
+    publicationCategory: "binding_required",
+    userRecoveryAction: "authorize_agent_binding_for_organization",
+  },
+  "controller.registry.disabled": {
+    publicationCategory: "local_agent_unavailable",
+    userRecoveryAction: "enable_local_agent",
+  },
+  usage_exhausted: {
+    publicationCategory: "provider_usage_unavailable",
+    userRecoveryAction: "wait_for_usage_reset",
+  },
+  usage_checking: {
+    publicationCategory: "provider_usage_unavailable",
+    userRecoveryAction: "wait_for_usage_report",
+  },
+  "local_service.identity_mismatch": {
+    publicationCategory: "local_connection_mismatch",
+    userRecoveryAction: "reconnect_agent_binding",
+  },
+  "daemon.profile.offline": {
+    publicationCategory: "service_not_connected",
+    userRecoveryAction: "start_or_restart_openmeld_service",
+  },
+  "daemon.profile.pending_first_report": {
+    publicationCategory: "wake_route_registration_pending",
+    userRecoveryAction: "wait_for_wake_route_report",
+  },
+  "service.update_required": {
+    publicationCategory: "update_required",
+    userRecoveryAction: "update_openmeld_service",
+  },
+};
+
+/**
+ * One durable terminal projection for every authoritative Wake-admission
+ * blocker. Fresh Wakes use the same mapping as accepted RuntimeCoordinator
+ * heads, so adding a blocker cannot silently create a resumable backlog.
+ */
+export function resolveAgentWakeAdmissionTerminalDecision(
+  reasonCode: string
+): AgentWakeAdmissionTerminalDecision | null {
+  const normalizedReasonCode = reasonCode.trim().toLowerCase();
+  if (!(normalizedReasonCode && normalizedReasonCode.length <= 160)) {
+    return null;
+  }
+  if (normalizedReasonCode === "controller.interface.check_failed") {
+    return null;
+  }
+  const exact = exactWakeAdmissionTerminalDecisions[normalizedReasonCode];
+  if (exact) {
+    return { ...exact, reasonCode: normalizedReasonCode };
+  }
+  if (
+    isPublicUnavailableAgentProfileBindingReason(normalizedReasonCode) ||
+    isPublicUnavailableClaimEligibilityReason(normalizedReasonCode)
+  ) {
+    return {
+      publicationCategory: "binding_required",
+      reasonCode: normalizedReasonCode,
+      userRecoveryAction: "repair_agent_binding",
+    };
+  }
+  if (
+    normalizedReasonCode === "profile.unbound" ||
+    normalizedReasonCode === "profile.inactive"
+  ) {
+    return {
+      publicationCategory: "agent_profile_unavailable",
+      reasonCode: normalizedReasonCode,
+      userRecoveryAction: "review_agent_settings",
+    };
+  }
+  if (
+    isAgentProfileWorkspaceBlockerReasonCode(normalizedReasonCode) ||
+    normalizedReasonCode.startsWith("workspace.")
+  ) {
+    return {
+      publicationCategory: "workspace_unavailable",
+      reasonCode: normalizedReasonCode,
+      userRecoveryAction: "review_agent_settings",
+    };
+  }
+  if (normalizedReasonCode.startsWith("provider_account.")) {
+    return {
+      publicationCategory: "provider_access_unavailable",
+      reasonCode: normalizedReasonCode,
+      userRecoveryAction: "review_agent_settings",
+    };
+  }
+  if (normalizedReasonCode.startsWith("controller.")) {
+    return {
+      publicationCategory: "local_agent_unavailable",
+      reasonCode: normalizedReasonCode,
+      userRecoveryAction: "connect_local_agent",
+    };
+  }
+  if (
+    normalizedReasonCode.startsWith("daemon.runtime_contract.") ||
+    normalizedReasonCode === "service.not_installed" ||
+    normalizedReasonCode === "service.drifted" ||
+    normalizedReasonCode === "background_helper.update_required"
+  ) {
+    return {
+      publicationCategory: "update_required",
+      reasonCode: normalizedReasonCode,
+      userRecoveryAction: "update_openmeld_service",
+    };
+  }
+  if (
+    normalizedReasonCode === "route.unavailable" ||
+    normalizedReasonCode === "agent_execution.route_unavailable"
+  ) {
+    return {
+      publicationCategory: "service_not_connected",
+      reasonCode: normalizedReasonCode,
+      userRecoveryAction: "start_or_restart_openmeld_service",
+    };
+  }
+  if (
+    normalizedReasonCode.startsWith("agent_profile.") ||
+    normalizedReasonCode.startsWith("organization_binding_authorization.")
+  ) {
+    return {
+      publicationCategory: "agent_profile_unavailable",
+      reasonCode: normalizedReasonCode,
+      userRecoveryAction: "review_agent_settings",
+    };
+  }
+  return {
+    publicationCategory: "agent_profile_unavailable",
+    reasonCode: normalizedReasonCode,
+    userRecoveryAction: "check_status",
+  };
+}
+
+export function resolveAgentWakeAdmissionBlockReasonCode(
+  readiness: AgentExecutionStatusProjection
+): string | null {
+  const reasonCodes = collectReasonCodes(readiness);
+  for (const reasonCode of [
+    "controller.registry.disabled",
+    "usage_exhausted",
+    "usage_checking",
+  ]) {
+    if (
+      reasonCodes.includes(reasonCode) &&
+      resolveAgentWakeAdmissionTerminalDecision(reasonCode)
+    ) {
+      return reasonCode;
+    }
+  }
+  return (
+    reasonCodes.find(
+      (reasonCode) =>
+        classifyAgentWakeAvailabilityReason(reasonCode) ===
+          "blocking_unavailable" &&
+        resolveAgentWakeAdmissionTerminalDecision(reasonCode) !== null
+    ) ?? null
+  );
+}
 
 export type WakeRouteStatus =
   | {
@@ -734,6 +921,13 @@ function createUnavailableWakeAvailability(
       return createControllerSignInNeededAvailability(agentControllerRef);
     }
 
+    const controllerBlockerReasonCode = pickKnownReasonCode(readiness, [
+      "controller.registry.disabled",
+      "controller.bootstrap.failed",
+      "controller.gateway.unhealthy",
+      "agent_profile_binding.agent_controller_report_missing",
+      "agent_profile_binding.agent_controller_report_stale",
+    ]);
     return createAvailability(
       readiness,
       {
@@ -742,21 +936,17 @@ function createUnavailableWakeAvailability(
         isRefreshing: false,
         label: "Connect local agent",
         phase: "connect_local_agent",
-        reasonCode: pickReasonCode(readiness, [
-          "agent_profile_binding.missing",
-          "profile.unbound",
-          "claim_eligibility.binding_missing",
-        ]),
+        reasonCode:
+          controllerBlockerReasonCode ??
+          pickReasonCode(readiness, [
+            "agent_profile_binding.missing",
+            "profile.unbound",
+            "claim_eligibility.binding_missing",
+          ]),
         status: "unavailable_for_wake",
       },
       {
-        copyReasonCode: pickKnownReasonCode(readiness, [
-          "controller.registry.disabled",
-          "controller.bootstrap.failed",
-          "controller.gateway.unhealthy",
-          "agent_profile_binding.agent_controller_report_missing",
-          "agent_profile_binding.agent_controller_report_stale",
-        ]),
+        copyReasonCode: controllerBlockerReasonCode,
       }
     );
   }

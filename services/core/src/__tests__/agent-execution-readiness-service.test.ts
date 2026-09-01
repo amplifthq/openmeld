@@ -1263,6 +1263,30 @@ describe("Core Agent Execution Readiness", () => {
     });
   });
 
+  it("skips owner-wide computer inventory when runtime display enrichment is not requested", async () => {
+    mockReadyBindingAndRuntime("agt_without_runtime_display");
+    mockOnlineRoute("device-1");
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId: "agt_without_runtime_display",
+            profileName: "Wake Admission Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      includeRuntimeDeviceDisplayName: false,
+      profileId: "agt_without_runtime_display",
+    });
+
+    expect(readiness.runtimeDeviceDisplayName).toBeNull();
+    expect(listOwnedDeviceRegistryRecords).not.toHaveBeenCalled();
+    expect(listOwnedDeviceExecutionTargetRecords).not.toHaveBeenCalled();
+  });
+
   it("projects fresh exhausted Usage as unavailable Wakeability before a Wake", async () => {
     mockReadyBindingAndRuntime("agt_usage_exhausted", "builtin:codex");
     mockOnlineRoute("device-1");

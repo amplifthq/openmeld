@@ -155,6 +155,8 @@ export {
   type AgentWakeRouteRegistrationStatus,
   classifyAgentWakeAvailabilityReason,
   isAgentProfileWorkspaceBlockerReasonCode,
+  resolveAgentWakeAdmissionBlockReasonCode,
+  resolveAgentWakeAdmissionTerminalDecision,
   resolveAgentWakeAvailability,
   resolveAgentWakeAvailabilityDisplayCategory,
   resolveHostedAgentWakeAvailability,
