@@ -2046,6 +2046,7 @@ export {
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS,
   spaceDispatchTraceAttemptStatusSchema,
   spaceDispatchTraceClaimLeaseSchema,
   spaceDispatchTraceDispatchExecutionSchema,
@@ -2069,6 +2070,7 @@ export {
   spaceDispatchTraceResponseContractVersionSchema,
   spaceDispatchTraceResponseSchema,
   spaceDispatchTraceResponseV1Schema,
+  spaceDispatchTraceResponseV2Schema,
   spaceDispatchTraceResultInboxPublishStateSchema,
   spaceDispatchTraceResultInboxSchema,
   spaceDispatchTraceResultSchema,
@@ -2077,8 +2079,12 @@ export {
   spaceDispatchTraceRuntimeCoordinatorExecutionSchema,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema,
+  spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema,
+  spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionV2Schema,
+  spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentV2Schema,
   spaceDispatchTraceSnapshotSchema,
   spaceDispatchTraceSnapshotV1Schema,
+  spaceDispatchTraceSnapshotV2Schema,
   spaceDispatchTraceStreamingSchema,
 } from "./http/space-dispatch-trace";
 export {

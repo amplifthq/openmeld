@@ -1361,24 +1361,20 @@ export const runtimeTransportRuntimeCoordinatorHeadLifecycleStatusSchema =
   ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema =
-  z.enum([
-    "agent_profile_binding.missing",
-    "agent_profile_binding.disabled",
-    "agent_profile_binding.owner_mismatch",
-    "organization_binding_authorization.required",
-    "local_service.identity_mismatch",
-    "daemon.profile.offline",
-    "daemon.profile.pending_first_report",
-    "service.update_required",
-  ]);
+  z.string().trim().min(1).max(160);
 
 export const runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategorySchema =
   z.enum([
     "binding_required",
+    "agent_profile_unavailable",
+    "local_agent_unavailable",
     "local_connection_mismatch",
+    "provider_access_unavailable",
+    "provider_usage_unavailable",
     "service_not_connected",
     "update_required",
     "wake_route_registration_pending",
+    "workspace_unavailable",
   ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema =
@@ -1387,9 +1383,15 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSche
     "enable_agent_binding",
     "repair_agent_binding",
     "authorize_agent_binding_for_organization",
+    "check_status",
+    "connect_local_agent",
+    "enable_local_agent",
     "reconnect_agent_binding",
+    "review_agent_settings",
     "start_or_restart_openmeld_service",
     "update_openmeld_service",
+    "wait_for_usage_report",
+    "wait_for_usage_reset",
     "wait_for_wake_route_report",
   ]);
 

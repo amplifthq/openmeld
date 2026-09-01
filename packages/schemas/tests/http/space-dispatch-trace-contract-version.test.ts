@@ -3,6 +3,7 @@ import {
   spaceDispatchTraceResponseContractVersionHeaderSchema,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema,
+  spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema,
 } from "../../src/schemas/http/space-dispatch-trace";
 
 const PENDING_ROUTE_HEAD = {
@@ -45,6 +46,28 @@ const PENDING_ROUTE_HEAD = {
   },
 } as const;
 
+const DISABLED_LOCAL_AGENT_HEAD = {
+  ...PENDING_ROUTE_HEAD,
+  noExecutionDecision: {
+    decidedAt: "2026-03-09T00:00:01.400Z",
+    publicationCategory: "local_agent_unavailable",
+    reasonCode: "controller.registry.disabled",
+    source: "dispatch_preflight",
+    userRecoveryAction: "enable_local_agent",
+  },
+  publicationIntent: {
+    intentId: "disabled-local-agent-intent-1",
+    kind: "no_execution_failure",
+    publicationCategory: "local_agent_unavailable",
+    readyAt: "2026-03-09T00:00:01.400Z",
+    reasonCode: "controller.registry.disabled",
+    status: "ready_for_phase_6",
+    userRecoveryAction: "enable_local_agent",
+  },
+  status: "publication_intent_ready",
+  waitingBoundary: null,
+} as const;
+
 describe("Space dispatch trace response contract versions", () => {
   it("accepts pending route evidence only in the negotiated current contract", () => {
     expect(
@@ -59,12 +82,37 @@ describe("Space dispatch trace response contract versions", () => {
     ).toBe(false);
   });
 
-  it("parses only the current response version header", () => {
+  it("keeps disabled Local Agent outcomes out of the strict v2 trace contract", () => {
+    expect(
+      spaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema.safeParse(
+        DISABLED_LOCAL_AGENT_HEAD
+      ).success
+    ).toBe(true);
+    expect(
+      spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema.safeParse(
+        DISABLED_LOCAL_AGENT_HEAD
+      ).success
+    ).toBe(false);
+    expect(
+      spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema.safeParse(
+        DISABLED_LOCAL_AGENT_HEAD
+      ).success
+    ).toBe(false);
+  });
+
+  it("parses the current and previous response version headers", () => {
+    expect(
+      spaceDispatchTraceResponseContractVersionHeaderSchema.parse("3")
+    ).toBe(3);
     expect(
       spaceDispatchTraceResponseContractVersionHeaderSchema.parse("2")
     ).toBe(2);
     expect(
-      spaceDispatchTraceResponseContractVersionHeaderSchema.safeParse("3")
+      spaceDispatchTraceResponseContractVersionHeaderSchema.safeParse("1")
+        .success
+    ).toBe(false);
+    expect(
+      spaceDispatchTraceResponseContractVersionHeaderSchema.safeParse("4")
         .success
     ).toBe(false);
   });

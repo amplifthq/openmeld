@@ -14,6 +14,7 @@ import {
   createAuthorityOpenMeldServiceRuntimeId,
   type PrepareReadinessSummary,
   parseAgentControllerRef,
+  resolveAgentControllerUsageLimitSupport,
   resolveAgentExecutionStatus,
   resolveAgentProfileUsageWakeability,
   resolvePrepareReadinessFromAgentControllerReports,
@@ -102,6 +103,7 @@ export type AgentExecutionReadinessProfileInput = {
   activeOrganizationId?: string | null;
   env: CoreBindings;
   generatedAt?: string;
+  includeRuntimeDeviceDisplayName?: boolean;
   // Batch callers prefetch all routes in one RuntimeTransport round trip and hand
   // each profile its slice here; per-profile callers leave it undefined and
   // the live lookup runs as before.
@@ -165,6 +167,7 @@ type ResolveAgentBindingSnapshotInput = {
   agent: AgentExecutionReadinessAgentInput;
   env: CoreBindings;
   generatedAt: string;
+  includeRuntimeDeviceDisplayName: boolean;
   targetRuntime: AgentExecutionTargetRuntimeContext | null;
   timing: ReadinessTimingRecorder;
 };
@@ -228,6 +231,8 @@ export function resolveCoreAgentExecutionReadinessForProfile(
     },
     env: input.env,
     generatedAt: input.generatedAt ?? new Date().toISOString(),
+    includeRuntimeDeviceDisplayName:
+      input.includeRuntimeDeviceDisplayName ?? true,
     ...(input.preloadedDaemonRoute === undefined
       ? {}
       : { preloadedDaemonRoute: input.preloadedDaemonRoute }),
@@ -243,6 +248,7 @@ export async function resolveCoreAgentExecutionReadiness(input: {
   agent: AgentExecutionReadinessAgentInput;
   env: CoreBindings;
   generatedAt: string;
+  includeRuntimeDeviceDisplayName?: boolean;
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse;
   targetRuntime?: AgentExecutionTargetRuntimeContext | null;
@@ -254,6 +260,8 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     agent: input.agent,
     env: input.env,
     generatedAt: input.generatedAt,
+    includeRuntimeDeviceDisplayName:
+      input.includeRuntimeDeviceDisplayName ?? true,
     ...(input.preloadedDaemonRoute === undefined
       ? {}
       : { preloadedDaemonRoute: input.preloadedDaemonRoute }),
@@ -430,6 +438,8 @@ function createEnrichAgentBindingSnapshotInput(input: {
     agent: input.input.agent,
     env: input.input.env,
     generatedAt: input.input.generatedAt,
+    includeRuntimeDeviceDisplayName:
+      input.input.includeRuntimeDeviceDisplayName,
     snapshot: input.snapshot,
     targetRuntime: input.input.targetRuntime,
     timing: input.input.timing,
@@ -577,6 +587,7 @@ async function enrichAgentBindingSnapshot(input: {
   agent: AgentExecutionReadinessAgentInput;
   env: CoreBindings;
   generatedAt: string;
+  includeRuntimeDeviceDisplayName: boolean;
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse;
   snapshot: ProfileIdentitySnapshot;
@@ -650,6 +661,8 @@ async function enrichAgentBindingSnapshot(input: {
       ? await resolveRuntimeRouteSnapshot({
           env: input.env,
           generatedAt: input.generatedAt,
+          includeRuntimeDeviceDisplayName:
+            input.includeRuntimeDeviceDisplayName,
           ownerUserId: input.snapshot.ownerUserId,
           ...(input.preloadedDaemonRoute === undefined
             ? {}
@@ -1204,6 +1217,14 @@ async function resolveAgentProviderAccountEvidence(input: {
       // Mixed-version services may still submit the legacy wording-derived
       // classification. It is diagnostic compatibility only; only the exact
       // structured Usage classification can change Wakeability.
+      return null;
+    }
+    if (
+      evidence.reasonCode === "usage_exhausted" &&
+      resolveAgentControllerUsageLimitSupport(
+        executionTarget.agentControllerRef
+      ) !== "native"
+    ) {
       return null;
     }
     // This fresh, accepted Wake failure is bound to the exact execution
@@ -2288,6 +2309,7 @@ function createUnavailableAgentWakeRouteRegistrationFromLookup(input: {
 async function resolveRuntimeRouteSnapshot(input: {
   env: CoreBindings;
   generatedAt: string;
+  includeRuntimeDeviceDisplayName: boolean;
   ownerUserId: string;
   preloadedResult?: RuntimeTransportLookupRouteResponse;
   profileId: string;
@@ -2307,18 +2329,20 @@ async function resolveRuntimeRouteSnapshot(input: {
     if (result.online) {
       const agentWakeRouteRegistration =
         createRegisteredAgentWakeRouteRegistration(result);
-      const runtimeDeviceDisplayName = await measureReadinessStep(
-        input.timing,
-        "runtime_device_display_read",
-        () =>
-          readRuntimeDeviceDisplayName({
-            deviceId: result.deviceId,
-            env: input.env,
-            ownerUserId: input.ownerUserId,
-            profileId: input.profileId,
-            runtimeLane: result.lane,
-          })
-      );
+      const runtimeDeviceDisplayName = input.includeRuntimeDeviceDisplayName
+        ? await measureReadinessStep(
+            input.timing,
+            "runtime_device_display_read",
+            () =>
+              readRuntimeDeviceDisplayName({
+                deviceId: result.deviceId,
+                env: input.env,
+                ownerUserId: input.ownerUserId,
+                profileId: input.profileId,
+                runtimeLane: result.lane,
+              })
+          )
+        : null;
       return {
         daemonRouteObservation: createDaemonRouteObservation({
           observedAt: input.generatedAt,

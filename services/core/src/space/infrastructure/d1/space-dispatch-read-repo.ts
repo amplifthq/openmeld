@@ -10,7 +10,11 @@ import {
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema,
+  spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema,
+  spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionV2Schema,
+  spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentV2Schema,
 } from "@openmeld/schemas";
 import type {
   DispatchResult,
@@ -476,10 +480,10 @@ export const readSpaceDispatchTrace = async (input: {
       finalVisibleOutcome: projectSpaceDispatchTraceFinalVisibleOutcome(trace),
     },
   };
-  return input.responseContractVersion ===
-    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
-    ? response
-    : projectSpaceDispatchTraceResponseV1(response);
+  return projectSpaceDispatchTraceResponseForContractVersion({
+    response,
+    responseContractVersion: input.responseContractVersion,
+  });
 };
 
 export const readDispatchResultConversationFacts = async (input: {
@@ -1123,9 +1127,10 @@ function projectRuntimeCoordinatorHeadWaitingBoundary(
 function projectSpaceDispatchTraceResponseV1(
   response: SpaceDispatchTraceResponse
 ): SpaceDispatchTraceResponse {
-  const headLifecycle = response.trace?.runtimeCoordinatorHeadLifecycle;
+  const v2Response = projectSpaceDispatchTraceResponseV2(response);
+  const headLifecycle = v2Response.trace?.runtimeCoordinatorHeadLifecycle;
   if (headLifecycle?.readStatus !== "found") {
-    return response;
+    return v2Response;
   }
   const noExecutionDecision = headLifecycle.noExecutionDecision;
   const publicationIntent = headLifecycle.publicationIntent;
@@ -1155,11 +1160,68 @@ function projectSpaceDispatchTraceResponseV1(
           : null,
     });
   return {
+    ...v2Response,
+    trace: v2Response.trace
+      ? {
+          ...v2Response.trace,
+          runtimeCoordinatorHeadLifecycle: legacyHeadLifecycle,
+        }
+      : null,
+  };
+}
+
+function projectSpaceDispatchTraceResponseForContractVersion(input: {
+  response: SpaceDispatchTraceResponse;
+  responseContractVersion?: SpaceDispatchTraceResponseContractVersion;
+}): SpaceDispatchTraceResponse {
+  if (
+    input.responseContractVersion ===
+    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+  ) {
+    return input.response;
+  }
+  if (
+    input.responseContractVersion ===
+    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
+  ) {
+    return projectSpaceDispatchTraceResponseV2(input.response);
+  }
+  return projectSpaceDispatchTraceResponseV1(input.response);
+}
+
+function projectSpaceDispatchTraceResponseV2(
+  response: SpaceDispatchTraceResponse
+): SpaceDispatchTraceResponse {
+  const headLifecycle = response.trace?.runtimeCoordinatorHeadLifecycle;
+  if (headLifecycle?.readStatus !== "found") {
+    return response;
+  }
+  const noExecutionDecision = headLifecycle.noExecutionDecision;
+  const publicationIntent = headLifecycle.publicationIntent;
+  const v2HeadLifecycle =
+    spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema.parse({
+      ...headLifecycle,
+      noExecutionDecision:
+        noExecutionDecision &&
+        spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionV2Schema.safeParse(
+          noExecutionDecision
+        ).success
+          ? noExecutionDecision
+          : null,
+      publicationIntent:
+        publicationIntent?.kind === "no_execution_failure" &&
+        !spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentV2Schema.safeParse(
+          publicationIntent
+        ).success
+          ? null
+          : publicationIntent,
+    });
+  return {
     ...response,
     trace: response.trace
       ? {
           ...response.trace,
-          runtimeCoordinatorHeadLifecycle: legacyHeadLifecycle,
+          runtimeCoordinatorHeadLifecycle: v2HeadLifecycle,
         }
       : null,
   };

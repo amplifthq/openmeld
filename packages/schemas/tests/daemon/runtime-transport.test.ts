@@ -1288,6 +1288,55 @@ describe("runtime transport schema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it.each([
+    {
+      publicationCategory: "local_agent_unavailable",
+      reasonCode: "controller.registry.disabled",
+      userRecoveryAction: "enable_local_agent",
+    },
+    {
+      publicationCategory: "provider_usage_unavailable",
+      reasonCode: "usage_exhausted",
+      userRecoveryAction: "wait_for_usage_reset",
+    },
+    {
+      publicationCategory: "provider_usage_unavailable",
+      reasonCode: "usage_checking",
+      userRecoveryAction: "wait_for_usage_report",
+    },
+    {
+      publicationCategory: "workspace_unavailable",
+      reasonCode: "workspace.invalid",
+      userRecoveryAction: "review_agent_settings",
+    },
+  ] as const)("accepts $reasonCode as an exact RuntimeCoordinator no-execution reason", ({
+    publicationCategory,
+    reasonCode,
+    userRecoveryAction,
+  }) => {
+    const identity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-readiness-blocked-1",
+      dispatchId: "dispatch-readiness-blocked-1",
+      sourceSignalId: "signal-readiness-blocked-1",
+      spaceId: "space-1",
+      targetProfileId: "agent-1",
+    });
+
+    expect(
+      runtimeTransportRuntimeCoordinatorHeadNoExecutionRequestSchema.safeParse({
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        decisionSource: "dispatch_preflight",
+        dispatchId: "dispatch-readiness-blocked-1",
+        idempotencyKey: "signal-readiness-blocked-1::agent-1",
+        ownerUserId: "owner-1",
+        publicationCategory,
+        reasonCode,
+        targetWakeLifecycleIdentity: identity,
+        userRecoveryAction,
+      }).success
+    ).toBe(true);
+  });
+
   it("accepts RuntimeCoordinator head waiting boundary requests", () => {
     const identity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-1",

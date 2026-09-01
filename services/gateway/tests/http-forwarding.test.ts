@@ -2350,6 +2350,27 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
+          "x-openmeld-space-dispatch-trace-response-version": "3",
+        },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    expect(rpc.getSpaceDispatchTrace).toHaveBeenCalledWith({
+      context: EXPECTED_CORE_CONTEXT,
+      dispatchId: "dispatch-1",
+      responseContractVersion: 3,
+      spaceId: "demo",
+    });
+  });
+
+  it("keeps the previous dispatch trace response contract available to published clients", async () => {
+    const { env, rpc } = makeEnv();
+    const response = await app.fetch(
+      new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
+        headers: {
           "x-openmeld-space-dispatch-trace-response-version": "2",
         },
       }),
@@ -2371,7 +2392,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "3",
+          "x-openmeld-space-dispatch-trace-response-version": "4",
         },
       }),
       env,

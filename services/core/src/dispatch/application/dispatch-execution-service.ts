@@ -5,7 +5,8 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   hasRuntimeAdapterCapabilityForRef,
   parseAgentControllerRef,
-  resolveAgentProfileUsageWakeability,
+  resolveAgentControllerUsageLimitSupport,
+  resolveAgentWakeAdmissionBlockReasonCode,
 } from "@openmeld/agent-runtime";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -16,8 +17,10 @@ import {
   LEGACY_RUNTIME_DISPATCH_POLICY,
   normalizeKnownBuiltinAgentControllerId,
   normalizeOptionalWorkingDirectory,
+  openMeldDaemonProviderAccessEvidenceProviderSchema,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   resolveBuiltinAgentControllerConversationKind,
+  resolvePublicAgentAvailabilityCopy,
 } from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
@@ -29,11 +32,13 @@ import type {
   MessageEnvelope,
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
+  OpenMeldDaemonProviderAccessEvidence,
   OpenMeldDaemonTaskResultEnvelope,
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDeliveryExecutionIdentity,
   RuntimeTransportDispatchLifecycleSnapshot,
 } from "@openmeld/schemas/types";
+import { resolveCoreAgentExecutionReadinessForProfile } from "../../agent-execution/application/agent-execution-readiness-service";
 import {
   clearAgentExecutionReadinessImpactForExecutionSuccess,
   resolveAcceptedAgentExecutionReadinessImpactReasonCode,
@@ -68,7 +73,6 @@ import {
   emitSpaceSystemNoticeSignal,
   emitSpaceTextSignal,
 } from "../../rpc/space-signal-emitter";
-import { readCurrentRuntimeAgentControllerReport } from "../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
 import {
   readRuntimeDeviceDisplayNameByRuntimeId,
   readRuntimeRegistryRecordByRuntimeId,
@@ -347,6 +351,7 @@ export type DispatchExecutionPreflightResult =
     }
   | {
       ok: false;
+      canonicalAdmissionBlock?: true;
       errorCode: string;
       errorMessage: string;
       finalStatus:
@@ -1751,15 +1756,17 @@ async function recordProviderAccessEvidenceFromAcceptedFailure(input: {
   if (payload.status !== "failed") {
     return;
   }
-  const providerAccessEvidence =
+  const reportedProviderAccessEvidence =
     "providerAccessEvidence" in payload
       ? payload.providerAccessEvidence
       : undefined;
-  if (!providerAccessEvidence) {
+  const structuredUsageExhausted = payload.errorCode === "usage_exhausted";
+  if (!(reportedProviderAccessEvidence || structuredUsageExhausted)) {
     return;
   }
   if (
-    providerAccessEvidence.reasonCode === "provider_account.capacity_exhausted"
+    reportedProviderAccessEvidence?.reasonCode ===
+    "provider_account.capacity_exhausted"
   ) {
     // Older adapters inferred this classification from provider wording.
     // Preserve schema compatibility without letting raw text change future
@@ -1771,8 +1778,9 @@ async function recordProviderAccessEvidenceFromAcceptedFailure(input: {
   const executionIdentity = await readMatchingDispatchAttemptExecutionIdentity({
     db: input.db,
     diagnostic: {
-      provider: providerAccessEvidence.provider,
-      reasonCode: providerAccessEvidence.reasonCode,
+      provider: reportedProviderAccessEvidence?.provider ?? null,
+      reasonCode:
+        reportedProviderAccessEvidence?.reasonCode ?? "usage_exhausted",
       subject: "provider_access_evidence",
     },
     dispatchMessage: input.dispatchMessage,
@@ -1780,6 +1788,17 @@ async function recordProviderAccessEvidenceFromAcceptedFailure(input: {
     operation: "write",
   });
   if (!executionIdentity) {
+    return;
+  }
+  const providerAccessEvidence =
+    reportedProviderAccessEvidence?.reasonCode === "usage_exhausted" ||
+    !reportedProviderAccessEvidence
+      ? createStructuredUsageExhaustedEvidence({
+          agentControllerRef: executionIdentity.agentControllerRef,
+          observedAtMs: input.inboxRecord.acceptedAtMs,
+        })
+      : reportedProviderAccessEvidence;
+  if (!providerAccessEvidence) {
     return;
   }
 
@@ -1814,6 +1833,33 @@ async function recordProviderAccessEvidenceFromAcceptedFailure(input: {
       }
     );
   }
+}
+
+function createStructuredUsageExhaustedEvidence(input: {
+  agentControllerRef: string;
+  observedAtMs: number;
+}): OpenMeldDaemonProviderAccessEvidence | null {
+  const agentControllerRef = parseAgentControllerRef(input.agentControllerRef);
+  if (agentControllerRef?.kind !== "builtin") {
+    return null;
+  }
+  if (
+    resolveAgentControllerUsageLimitSupport(agentControllerRef.ref) !== "native"
+  ) {
+    return null;
+  }
+  const provider = openMeldDaemonProviderAccessEvidenceProviderSchema.safeParse(
+    agentControllerRef.id
+  );
+  if (!provider.success) {
+    return null;
+  }
+  return {
+    observedAtMs: input.observedAtMs,
+    provider: provider.data,
+    reasonCode: "usage_exhausted",
+    source: "wake_failure",
+  };
 }
 
 async function clearProviderAccessEvidenceFromAcceptedSuccess(input: {
@@ -3177,11 +3223,33 @@ export const runDispatchExecutionPreflightGate = async (input: {
     };
   }
 
-  const organizationScope = await resolveTargetBindingOrganizationScope({
-    bindingId: targetBindingSnapshot.bindingId,
-    env: input.env,
-    message,
-  });
+  const canonicalReadinessPromise =
+    targetBindingSnapshot.runtimeKind === "openmeld_service"
+      ? measureDispatchTiming({
+          description: "Resolve canonical Core AgentExecutionReadiness",
+          name: "openmeld_dispatch_agent_execution_readiness",
+          read: () =>
+            resolveCoreAgentExecutionReadinessForProfile({
+              activeOrganizationId: message.organizationId ?? null,
+              env: input.env,
+              generatedAt: new Date().toISOString(),
+              includeRuntimeDeviceDisplayName: false,
+              profileId: message.targetProfileId,
+            }),
+          timing: input.timing,
+        }).then(
+          (readiness) => ({ ok: true as const, readiness }),
+          (error: unknown) => ({ error, ok: false as const })
+        )
+      : Promise.resolve(null);
+  const [organizationScope, canonicalReadinessResult] = await Promise.all([
+    resolveTargetBindingOrganizationScope({
+      bindingId: targetBindingSnapshot.bindingId,
+      env: input.env,
+      message,
+    }),
+    canonicalReadinessPromise,
+  ]);
   if (!organizationScope.ok) {
     return {
       ok: false,
@@ -3192,23 +3260,34 @@ export const runDispatchExecutionPreflightGate = async (input: {
       targetOwnerUserId: targetBindingSnapshot.ownerUserId,
     };
   }
-
-  const usageWakeability = await resolveTargetUsageWakeability({
-    db: localStateDb(input.env),
-    targetBindingSnapshot,
-  });
-  if (usageWakeability.blocksNewWork) {
+  if (canonicalReadinessResult && !canonicalReadinessResult.ok) {
     return {
       ok: false,
-      errorCode: usageWakeability.reasonCode,
-      errorMessage:
-        usageWakeability.status === "checking"
-          ? "OpenMeld is still checking this Agent Profile's current Usage. Wait a moment, then wake it again."
-          : "This Agent Profile has reached a current Usage Limit and cannot start new work.",
-      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      errorCode: "agent_execution.readiness_lookup_failed",
+      errorMessage: `The Agent Profile's current Wake availability could not be checked: ${toErrorMessage(canonicalReadinessResult.error)}`,
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
       bindingSource: targetBindingResolution.source,
       targetOwnerUserId: targetBindingSnapshot.ownerUserId,
     };
+  }
+  if (canonicalReadinessResult) {
+    const blockReasonCode = resolveAgentWakeAdmissionBlockReasonCode(
+      canonicalReadinessResult.readiness.agentExecutionReadiness
+    );
+    if (blockReasonCode) {
+      return {
+        ok: false,
+        canonicalAdmissionBlock: true,
+        errorCode: blockReasonCode,
+        errorMessage:
+          resolvePublicAgentAvailabilityCopy(blockReasonCode)
+            ?.availabilitySummary ??
+          "This Agent Profile is unavailable for a new Wake right now.",
+        finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+        bindingSource: targetBindingResolution.source,
+        targetOwnerUserId: targetBindingSnapshot.ownerUserId,
+      };
+    }
   }
 
   // Auto-relay revisits are allowed by policy: agents may loop
@@ -3234,59 +3313,6 @@ export const runDispatchExecutionPreflightGate = async (input: {
     bindingSource: targetBindingResolution.source,
   };
 };
-
-async function resolveTargetUsageWakeability(input: {
-  db?: D1Database;
-  targetBindingSnapshot: EffectiveTargetBindingSnapshot;
-}) {
-  const { targetBindingSnapshot } = input;
-  if (
-    !input.db ||
-    targetBindingSnapshot.runtimeKind !== "openmeld_service" ||
-    !targetBindingSnapshot.openMeldServiceRuntimeId ||
-    !targetBindingSnapshot.agentControllerRef
-  ) {
-    return resolveAgentProfileUsageWakeability({
-      agentControllerRef: targetBindingSnapshot.agentControllerRef ?? "",
-      nowMs: Date.now(),
-      report: null,
-    });
-  }
-
-  try {
-    const report = await readCurrentRuntimeAgentControllerReport({
-      agentControllerRef: targetBindingSnapshot.agentControllerRef,
-      db: input.db,
-      openMeldServiceRuntimeId: {
-        value: targetBindingSnapshot.openMeldServiceRuntimeId,
-      },
-    });
-    return resolveAgentProfileUsageWakeability({
-      agentControllerRef: targetBindingSnapshot.agentControllerRef,
-      nowMs: Date.now(),
-      report: report
-        ? {
-            expiresAtMs: report.expiresAtMs,
-            status: report.status,
-            usageLimits: report.agentControllerInterface?.usageLimits,
-            usageLimitsSupportMatrixVersion:
-              report.agentControllerInterface?.usageLimitsSupportMatrixVersion,
-          }
-        : null,
-    });
-  } catch (error) {
-    console.warn("[core.agent_execution.usage_wakeability_read_failed]", {
-      agentControllerRef: targetBindingSnapshot.agentControllerRef,
-      errorMessage: toErrorMessage(error),
-      openMeldServiceRuntimeId: targetBindingSnapshot.openMeldServiceRuntimeId,
-    });
-    return resolveAgentProfileUsageWakeability({
-      agentControllerRef: targetBindingSnapshot.agentControllerRef,
-      nowMs: Date.now(),
-      report: null,
-    });
-  }
-}
 
 export const applyEffectiveTargetBindingSnapshotToMessage = (input: {
   message: OpenMeldDaemonDispatchQueueMessage;

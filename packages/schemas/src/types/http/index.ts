@@ -1038,6 +1038,7 @@ export type {
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceResponseContractVersion,
   SpaceDispatchTraceResponseV1,
+  SpaceDispatchTraceResponseV2,
   SpaceDispatchTraceResult,
   SpaceDispatchTraceResultInbox,
   SpaceDispatchTraceResultInboxPublishState,
@@ -1046,8 +1047,10 @@ export type {
   SpaceDispatchTraceRuntimeCoordinatorExecution,
   SpaceDispatchTraceRuntimeCoordinatorHeadLifecycle,
   SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1,
+  SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2,
   SpaceDispatchTraceSnapshot,
   SpaceDispatchTraceSnapshotV1,
+  SpaceDispatchTraceSnapshotV2,
 } from "./space-dispatch-trace";
 export type {
   CommitSpaceFileWriteInput,

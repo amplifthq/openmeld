@@ -1,6 +1,7 @@
 import {
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
 } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -1238,6 +1239,96 @@ describe("space dispatch read repo", () => {
       readStatus: "found",
       status: "publication_intent_ready",
       waitingBoundary: null,
+    });
+  });
+
+  it("down-projects current-only readiness no-execution facts for strict v2 and legacy trace clients", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const readRuntimeCoordinatorHeadLifecycleTrace = vi
+      .fn()
+      .mockImplementation(({ request }) =>
+        Promise.resolve({
+          lifecycle: {
+            createdAtMs: 1_700_000_001_100,
+            duplicateDispatchCount: 0,
+            executionLinkedAtMs: null,
+            modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+            noExecutionDecision: {
+              decidedAtMs: 1_700_000_001_400,
+              publicationCategory: "workspace_unavailable",
+              reasonCode: "workspace.invalid",
+              source: "dispatch_preflight",
+              userRecoveryAction: "review_agent_settings",
+            },
+            ownerUserId: "owner-1",
+            primaryDispatchId: "dispatch-1",
+            publicationIntent: {
+              intentId: "workspace-unavailable-intent-1",
+              kind: "no_execution_failure",
+              publicationCategory: "workspace_unavailable",
+              readyAtMs: 1_700_000_001_400,
+              reasonCode: "workspace.invalid",
+              status: "ready_for_phase_6",
+              userRecoveryAction: "review_agent_settings",
+            },
+            runtimeCoordinatorExecutionId: null,
+            status: "publication_intent_ready",
+            targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+            targetWakeLifecycleId:
+              request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+            updatedAtMs: 1_700_000_001_400,
+            waitingBoundary: null,
+          },
+          ok: true,
+          readStatus: "found",
+        })
+      );
+    const commonInput = {
+      db: createTraceDb({ runtimeCoordinatorExecutionRow: undefined }),
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      readRuntimeCoordinatorHeadLifecycleTrace,
+      spaceId: "space-1",
+    };
+
+    const previousResult = await readSpaceDispatchTrace({
+      ...commonInput,
+      responseContractVersion: 2,
+    });
+    expect(previousResult.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject(
+      {
+        noExecutionDecision: null,
+        publicationIntent: null,
+        readStatus: "found",
+        status: "publication_intent_ready",
+      }
+    );
+
+    const legacyResult = await readSpaceDispatchTrace(commonInput);
+    expect(legacyResult.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
+      noExecutionDecision: null,
+      publicationIntent: null,
+      readStatus: "found",
+      status: "publication_intent_ready",
+    });
+
+    const currentResult = await readSpaceDispatchTrace({
+      ...commonInput,
+      responseContractVersion: SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+    });
+    expect(currentResult.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
+      noExecutionDecision: {
+        publicationCategory: "workspace_unavailable",
+        reasonCode: "workspace.invalid",
+        userRecoveryAction: "review_agent_settings",
+      },
+      publicationIntent: {
+        publicationCategory: "workspace_unavailable",
+        reasonCode: "workspace.invalid",
+        userRecoveryAction: "review_agent_settings",
+      },
+      readStatus: "found",
+      status: "publication_intent_ready",
     });
   });
 
