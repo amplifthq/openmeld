@@ -30,7 +30,7 @@ export function MessageDetailsActionButton(input: {
 			<Button
 				aria-label="Message details"
 				className={cn(
-					"size-8 shadow-sm",
+					"size-7 p-1.5 shadow-none max-lg:min-h-7 max-lg:min-w-7",
 					input.buttonClassName,
 					resolveMessageDetailsButtonClassName({
 						hasWakeProblem: input.hasWakeProblem,
@@ -39,7 +39,7 @@ export function MessageDetailsActionButton(input: {
 				onClick={input.onClick}
 				size="icon-sm"
 				type="button"
-				variant="outline"
+				variant="ghost"
 			>
 				{input.hasWakeProblem ? (
 					<WarningCircleIcon aria-hidden="true" />
@@ -55,8 +55,8 @@ function resolveMessageDetailsButtonClassName(input: {
 	hasWakeProblem: boolean;
 }): string {
 	if (input.hasWakeProblem) {
-		return "border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive";
+		return "bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive dark:bg-transparent dark:hover:bg-destructive/15";
 	}
 
-	return "border-0 bg-transparent shadow-none hover:bg-muted";
+	return "bg-transparent shadow-none hover:bg-muted dark:bg-transparent";
 }

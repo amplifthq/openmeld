@@ -161,6 +161,7 @@ import {
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
+import { shouldPlaceSpaceMessageProgressInAnswer } from "./space-message-progress-placement";
 import { SpaceMessageProgressStatus } from "./space-message-progress-status";
 import {
 	EMPTY_SPACE_MESSAGE_REFERENCES,
@@ -1414,7 +1415,8 @@ function SpaceComposerSection(input: {
 	const fileUploadInProgress = panel.composerFiles.some(
 		isSpaceComposerFileInProgress
 	);
-	const fileActionsDisabled = panel.isSendingMessage || !input.canSendMessage;
+	const composerActionsDisabled =
+		panel.isSendingMessage || !input.canSendMessage;
 	const {
 		addFiles,
 		handleDragLeave,
@@ -1423,7 +1425,7 @@ function SpaceComposerSection(input: {
 		handlePaste,
 		isDraggingFiles,
 	} = useSpaceComposerFileInput({
-		disabled: fileActionsDisabled,
+		disabled: composerActionsDisabled,
 		onAddFiles: panel.onAddComposerFiles,
 	});
 	const fileHint = resolveSpaceComposerFileHint({
@@ -1505,10 +1507,10 @@ function SpaceComposerSection(input: {
 							text={panel.composerText}
 						/>
 						<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
-							<div className="flex min-w-0 flex-1 items-center gap-1">
+							<div className="flex min-w-0 flex-1 items-center gap-0">
 								<SpaceComposerFileMenu
 									addFiles={addFiles}
-									disabled={fileActionsDisabled}
+									disabled={composerActionsDisabled}
 									limitReached={panel.composerFileLimitReached}
 								/>
 								{panel.isCenterAgentDirectMessage ||
@@ -1516,6 +1518,7 @@ function SpaceComposerSection(input: {
 									<Button
 										aria-label="Mention a member"
 										className="size-8 text-base"
+										disabled={composerActionsDisabled}
 										onClick={panel.onMentionButtonClick}
 										size="icon-sm"
 										type="button"
@@ -2222,7 +2225,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 						isSelf: input.run.isSelf,
 					});
 				const showProgressInAnswerArea =
-					shouldShowSpaceMessageProgressInAnswerArea(item);
+					shouldPlaceSpaceMessageProgressInAnswer(item);
 				const messageBubbleVisibilityClassName =
 					resolveSpaceMessageBubbleVisibilityClassName({
 						item,
@@ -2336,7 +2339,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													onJumpToMessage={input.onJumpToMessage}
 													spaceReferencesById={input.spaceReferencesById}
 												/>
-												{answerProgressStatus}
 												<SpaceMessageBody
 													computerSetupContext={
 														computerSetupPresentation.context
@@ -2352,6 +2354,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													}
 													spaceReferencesById={input.spaceReferencesById}
 												/>
+												{answerProgressStatus}
 												<SpaceMessageInteractionSource
 													source={item.centerAgentInteractionSource}
 												/>
@@ -2504,12 +2507,6 @@ function resolveSpaceMessageBubbleVisibilityClassName(input: {
 		(input.item.files?.length ?? 0) > 0
 		? undefined
 		: "hidden";
-}
-
-function shouldShowSpaceMessageProgressInAnswerArea(
-	item: SpaceTimelineItem
-): boolean {
-	return item.optimisticAgentReplyState !== undefined;
 }
 
 function resolveSpaceMessageWakePresentationItem(input: {

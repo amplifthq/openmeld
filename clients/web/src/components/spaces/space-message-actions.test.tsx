@@ -7,6 +7,8 @@ vi.mock("@phosphor-icons/react", () => ({
 	WarningCircleIcon: () => <span data-testid="message-details-warning-icon" />,
 }));
 
+const WHITESPACE_PATTERN = /\s+/;
+
 describe("MessageDetailsActionButton", () => {
 	afterEach(() => {
 		cleanup();
@@ -28,5 +30,11 @@ describe("MessageDetailsActionButton", () => {
 
 		expect(screen.getByTestId("message-details-warning-icon")).toBeTruthy();
 		expect(screen.queryByTestId("message-details-info-icon")).toBeNull();
+		const buttonClasses = screen
+			.getByRole("button", { name: "Message details" })
+			.className.split(WHITESPACE_PATTERN);
+		expect(buttonClasses).toContain("bg-transparent");
+		expect(buttonClasses).not.toContain("bg-destructive/10");
+		expect(buttonClasses).toContain("hover:bg-destructive/10");
 	});
 });

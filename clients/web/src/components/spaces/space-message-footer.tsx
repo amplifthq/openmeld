@@ -86,7 +86,7 @@ type SpaceMessageFooterDetailsAction = {
 };
 
 const FOOTER_BUTTON_CLASS_NAME =
-	"size-7 border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground focus-visible:border-0";
+	"size-7 border-0 bg-transparent p-1.5 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground focus-visible:border-0 max-lg:min-h-7 max-lg:min-w-7";
 
 export function SpaceMessageFooter(input: {
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
@@ -99,9 +99,9 @@ export function SpaceMessageFooter(input: {
 	timestamp: string;
 }) {
 	const persistent = Boolean(input.failureSummary);
-	const hasOverflowActions = Boolean(
-		input.reply || input.thread || input.addressingTargets.length > 0
-	);
+	const hasOverflowActions =
+		persistent ||
+		Boolean(input.reply || input.thread || input.addressingTargets.length > 0);
 	const detailsButton = input.details ? (
 		<MessageDetailsActionButton
 			buttonClassName={FOOTER_BUTTON_CLASS_NAME}
@@ -113,7 +113,7 @@ export function SpaceMessageFooter(input: {
 	return (
 		<div
 			className={cn(
-				"@container mt-1 flex min-h-7 w-full min-w-0 items-center",
+				"@container mt-0.5 flex min-h-7 w-full min-w-0 items-center",
 				input.align === "end" ? "justify-end" : "justify-start"
 			)}
 			data-persistent={persistent ? "true" : undefined}
@@ -135,12 +135,14 @@ export function SpaceMessageFooter(input: {
 						{input.failureSummary}
 					</span>
 				) : null}
-				<MessageFooterIconAction
-					icon={<CopyIcon aria-hidden="true" />}
-					label="Copy message"
-					onSelect={input.onCopy}
-				/>
-				{input.reply ? (
+				{persistent ? null : (
+					<MessageFooterIconAction
+						icon={<CopyIcon aria-hidden="true" />}
+						label="Copy message"
+						onSelect={input.onCopy}
+					/>
+				)}
+				{input.reply && !persistent ? (
 					<MessageFooterIconAction
 						className="@max-[36rem]:hidden"
 						disabled={input.reply.disabled}
@@ -149,7 +151,7 @@ export function SpaceMessageFooter(input: {
 						onSelect={input.reply.onSelect}
 					/>
 				) : null}
-				{input.thread ? (
+				{input.thread && !persistent ? (
 					<MessageFooterIconAction
 						className="@max-[36rem]:hidden"
 						disabled={input.thread.disabled}
@@ -158,7 +160,7 @@ export function SpaceMessageFooter(input: {
 						onSelect={input.thread.onSelect}
 					/>
 				) : null}
-				{input.addressingTargets.length > 0 ? (
+				{input.addressingTargets.length > 0 && !persistent ? (
 					<MessageAddressingPopover
 						className="@max-[36rem]:hidden"
 						targets={input.addressingTargets}
@@ -168,6 +170,8 @@ export function SpaceMessageFooter(input: {
 				{hasOverflowActions ? (
 					<MessageFooterMoreMenu
 						addressingTargets={input.addressingTargets}
+						alwaysVisible={persistent}
+						onCopy={persistent ? input.onCopy : undefined}
 						reply={input.reply}
 						thread={input.thread}
 					/>
@@ -227,6 +231,8 @@ function MessageAddressingPopover(input: {
 
 function MessageFooterMoreMenu(input: {
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
+	alwaysVisible?: boolean;
+	onCopy?: () => void;
 	reply?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
 }) {
@@ -235,7 +241,10 @@ function MessageFooterMoreMenu(input: {
 			<MessageActionTooltip label="More actions">
 				<DropdownMenuTrigger
 					aria-label="More actions"
-					className={cn(FOOTER_BUTTON_CLASS_NAME, "@min-[36rem]:hidden")}
+					className={cn(
+						FOOTER_BUTTON_CLASS_NAME,
+						input.alwaysVisible ? null : "@min-[36rem]:hidden"
+					)}
 					render={<Button size="icon-sm" type="button" variant="ghost" />}
 				>
 					<DotsThreeIcon aria-hidden="true" />
@@ -243,6 +252,12 @@ function MessageFooterMoreMenu(input: {
 			</MessageActionTooltip>
 			<DropdownMenuContent align="start" className="w-52" sideOffset={6}>
 				<DropdownMenuGroup>
+					{input.onCopy ? (
+						<DropdownMenuItem onClick={input.onCopy}>
+							<CopyIcon aria-hidden="true" />
+							Copy message
+						</DropdownMenuItem>
+					) : null}
 					{input.reply ? (
 						<DropdownMenuItem
 							disabled={input.reply.disabled}

@@ -126,18 +126,20 @@ function SpaceMessageAgentMention(input: {
 }) {
 	return (
 		<span data-slot="space-message-agent-mention">
-			<span aria-hidden="true">@</span>
+			<span aria-hidden="true" className="me-1.5">
+				@
+			</span>
 			<SpaceProfileIcon
 				agentControllerRef={input.profile.agentControllerRef}
 				avatarImageUrl={input.profile.avatarImageUrl}
-				className="inline-flex align-[-0.125em]"
+				className="me-1 inline-flex align-[-0.125em]"
 				isCenterAgent={input.profile.isCenterAgent}
 				profileId={input.profile.profileId}
 				profileKind={input.profile.profileKind}
 				profileName={input.profile.profileName}
 				size="inline"
 			/>
-			<strong className="font-bold">{input.profile.profileName}</strong>
+			<strong className="font-semibold">{input.profile.profileName}</strong>
 		</span>
 	);
 }

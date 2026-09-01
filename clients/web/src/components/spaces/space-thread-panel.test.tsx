@@ -143,8 +143,8 @@ describe("SpaceThreadPanel", () => {
 		);
 	});
 
-	it("uses Thread-specific placeholder copy and keeps the @ button", () => {
-		renderThreadPanel();
+	it("keeps the Thread composer actions flush and aligned while sending", () => {
+		const view = renderThreadPanel();
 
 		expect(
 			screen
@@ -154,7 +154,19 @@ describe("SpaceThreadPanel", () => {
 		const mentionButton = screen.getByRole("button", {
 			name: "Mention a member",
 		});
-		expect(mentionButton.parentElement?.className).toContain("gap-1");
+		const addButton = screen.getByRole("button", { name: "Add to message" });
+		expect(mentionButton.parentElement?.className).toContain("gap-0");
+		expect(addButton).toHaveProperty("disabled", false);
+		expect(mentionButton).toHaveProperty("disabled", false);
+
+		view.rerenderThreadPanel({ isSendingMessage: true });
+
+		expect(
+			screen.getByRole("button", { name: "Add to message" })
+		).toHaveProperty("disabled", true);
+		expect(
+			screen.getByRole("button", { name: "Mention a member" })
+		).toHaveProperty("disabled", true);
 	});
 
 	it("hides redundant mention guidance in an Agent DM thread", () => {
@@ -248,6 +260,24 @@ describe("SpaceThreadPanel", () => {
 				},
 			],
 		});
+		const activityTrigger = screen.getByRole("button", {
+			name: "Agent is working. Work summary: Reviewing source files…",
+		});
+		expect(activityTrigger.getAttribute("aria-expanded")).toBe("false");
+		const progressRow = activityTrigger.closest(
+			'[data-slot="space-message-progress-row"]'
+		);
+		const bubbleContent = activityTrigger.closest(
+			'[data-slot="bubble-content"]'
+		);
+		const messageRow = activityTrigger.closest("[data-message-row-id]");
+		const footer = messageRow?.querySelector('[data-slot="message-footer"]');
+		expect(progressRow).not.toBeNull();
+		expect(bubbleContent?.contains(progressRow)).toBe(true);
+		expect(footer).not.toBeNull();
+		expect(progressRow?.compareDocumentPosition(footer as Node)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "Open message details" })
@@ -509,11 +539,11 @@ describe("SpaceThreadPanel", () => {
 			.getByText("Second consecutive thread message")
 			.closest("[data-slot='message']");
 
-		expect(firstMessage?.className).toContain("pt-2");
+		expect(firstMessage?.className).toContain("pt-1.5");
 		expect(firstMessage?.className).toContain("pb-0");
 		expect(firstMessage?.className).not.toContain("py-2");
-		expect(secondMessage?.className).toContain("pt-0");
-		expect(secondMessage?.className).toContain("pb-2");
+		expect(secondMessage?.className).toContain("pt-1");
+		expect(secondMessage?.className).toContain("pb-1.5");
 		expect(secondMessage?.className).not.toContain("py-2");
 	});
 

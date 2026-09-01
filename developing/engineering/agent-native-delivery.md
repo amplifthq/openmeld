@@ -43,6 +43,11 @@ unrelated agents to wait.
    certification, not a development, debugging, or review-discovery loop. Use
    one practical test: if a green result would not make merge the next action,
    keep using the smallest focused or affected checks that prove the work.
+   When known predecessor pull requests still need to enter `main`, wait for
+   that merge order instead of starting a paid run that cannot certify the
+   eventual merge. Keep the branch moving with focused or affected checks,
+   then sync current `main` once and run the one Final Candidate that can lead
+   directly to merge.
 2. Candidate evidence identifies one exact `head SHA + validation base SHA +
    tree SHA`, plus candidate kind (`pull-request` or `merge-group`). Evidence
    never transfers to another identity.
@@ -52,7 +57,11 @@ unrelated agents to wait.
    the completed evidence remains truthful evidence for its original base; it
    is not evidence for the newer merge. Merge queue validates the exact
    merge-group when available. Otherwise, strict up-to-date protection requires
-   a current-base candidate before merge.
+   a current-base candidate before merge. Call the completed old-base run
+   prevalidation: it may still inform review or diagnosis, but it is not
+   current-main merge evidence. When the branch reaches the front of its merge
+   order, sync current `main` once and form one new exact-current-main
+   candidate; do not rerun or relabel the old-base result as merge-valid.
 5. Test selection follows changed risk. Unit, integration, database, contract,
    local-component, signing, migration, health, and smoke checks run only where
    their boundary makes them useful.

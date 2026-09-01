@@ -4,6 +4,11 @@ import {
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
+import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
@@ -144,12 +149,12 @@ export function SpaceComposerFileTray(input: {
 	return (
 		<fieldset
 			aria-label="Files to send"
-			className="m-0 grid min-w-0 grid-cols-1 gap-2 border-0 border-border border-b px-1 pt-1 pb-3 sm:grid-cols-2"
+			className="m-0 flex min-w-0 flex-nowrap gap-2 overflow-x-auto overscroll-x-contain border-0 border-border border-b px-1 pt-1 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 		>
 			{input.files.map((file) => (
 				<div
 					className={cn(
-						"flex min-w-0 items-center gap-2 rounded-md border bg-muted/50 p-2",
+						"flex w-40 flex-none items-center gap-2 rounded-md border bg-muted/50 p-2",
 						file.status === "failed"
 							? "border-destructive bg-destructive/5"
 							: "border-border"
@@ -170,7 +175,19 @@ export function SpaceComposerFileTray(input: {
 						</div>
 					)}
 					<div className="min-w-0 flex-1">
-						<p className="truncate font-medium text-xs">{file.fileName}</p>
+						<Tooltip>
+							<TooltipTrigger
+								render={<p className="truncate font-medium text-xs" />}
+							>
+								{file.fileName}
+							</TooltipTrigger>
+							<TooltipContent
+								className="max-w-80 break-all text-left"
+								side="top"
+							>
+								{file.fileName}
+							</TooltipContent>
+						</Tooltip>
 						<p
 							className={cn(
 								"mt-0.5 text-[11px] leading-4",

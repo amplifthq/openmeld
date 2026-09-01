@@ -35,7 +35,7 @@ describe("SpaceAgentToolActivity", () => {
 		const trigger = screen.getByRole("button", {
 			name: "Agent is working. Work summary: Searching GitHub issues…",
 		});
-		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
 		expect(trigger.getAttribute("aria-busy")).toBe("true");
 		expect(trigger.classList.contains("px-0")).toBe(true);
 		expect(trigger.textContent).toContain("Agent is working");
@@ -46,6 +46,8 @@ describe("SpaceAgentToolActivity", () => {
 				?.getAttribute("data-space-agent-orb-state")
 		).toBe("searching");
 
+		expect(screen.queryByRole("list", { name: "Work steps" })).toBeNull();
+		fireEvent.click(trigger);
 		const viewport = screen.getByRole("list", { name: "Work steps" });
 		expect(
 			viewport
@@ -139,6 +141,7 @@ describe("SpaceAgentToolActivity", () => {
 				}}
 			/>
 		);
+		fireEvent.click(screen.getByTestId("space-agent-tool-activity"));
 
 		expect(
 			screen.getByText("Reviewed source files · 2 steps", {
@@ -165,6 +168,7 @@ describe("SpaceAgentToolActivity", () => {
 				}}
 			/>
 		);
+		fireEvent.click(screen.getByTestId("space-agent-tool-activity"));
 		const viewport = screen.getByRole("list", { name: "Work steps" });
 		Object.defineProperty(viewport, "clientHeight", {
 			configurable: true,
@@ -262,6 +266,7 @@ describe("SpaceAgentToolActivity", () => {
 				}}
 			/>
 		);
+		fireEvent.click(screen.getByTestId("space-agent-tool-activity"));
 
 		expect(screen.getByText("Searched the codebase")).toBeTruthy();
 		expect(
