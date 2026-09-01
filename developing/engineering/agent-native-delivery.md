@@ -86,17 +86,19 @@ current candidate when its user value is material and the correction remains
 small, coherent with the same owner and contract, and unlikely to delay the
 requested result or reopen broad risk. Also fix findings that block that result
 or materially protect a common or high-harm, irreversible, security-, privacy-,
-data-, or supported-compatibility path. A finding that introduces a separate
-owner, source of truth, contract, or user journey defaults to a follow-up unless
-the current correction would otherwise be incomplete or unsafe.
+data-, or supported-compatibility path. Outside those mandatory cases, a finding
+that introduces a separate owner, source of truth, contract, or user journey
+defaults to a follow-up unless the current correction would otherwise be
+incomplete or unsafe.
 
 Preserve a deferred finding when it is useful enough to revisit. Record the
 symptom, impact, available evidence, and reason for deferral in the repository's
 appropriate issue or feedback system, or in authorized persistent task memory
-when that is the durable surface available to future agents. Do not create
-tracking work for a trivial observation, and do not let recording reopen the
-current candidate. This judgment does not require a new approval, checklist,
-ticket, reviewer count, or meeting.
+when that is the durable surface available to future agents. Beyond the required
+Agent Experience occurrence record below, do not create separate tracking work
+for a trivial observation, and do not let recording reopen the current
+candidate. This judgment does not require a new approval, checklist, ticket,
+reviewer count, or meeting.
 
 Inspect the transparent candidate plan at any time:
 
