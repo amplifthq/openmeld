@@ -1641,11 +1641,12 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 		return "Checking…";
 	}
 	if (
-		input.operation?.phase === "updated" &&
 		input.targetObserved &&
-		input.nextUpdateAvailable
+		(input.operation?.phase === "updated" ||
+			input.operation?.phase === "restored" ||
+			input.operation?.phase === "needs_help")
 	) {
-		return null;
+		return input.nextUpdateAvailable ? null : "Up to date";
 	}
 	return input.operation
 		? formatOpenMeldToolsUpdatePhase({
