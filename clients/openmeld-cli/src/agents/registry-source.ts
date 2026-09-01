@@ -60,6 +60,7 @@ export type AgentsRegistryLifecycle = {
 
 export type AgentsRegistryOriginLaunch = {
   commandTemplate: string;
+  unselectedModelCommandTemplate?: string;
 };
 
 export type AgentsRegistryRuntimeAdapterMatch = {
@@ -413,8 +414,17 @@ export function resolveRegistryOriginLaunchCommand(input: {
   const matchedBuiltinAgent = listBuiltinAgentsRegistryEntries().find(
     (agent) => agent.id === runtimeAdapterMatch.agentId
   );
+  const explicitModel = normalizeOptionalRegistryOriginValue(
+    "model",
+    input.model
+  );
+  const unselectedModelCommandTemplate = String(
+    matchedBuiltinAgent?.originLaunch?.unselectedModelCommandTemplate ?? ""
+  ).trim();
   const commandTemplate = String(
-    matchedBuiltinAgent?.originLaunch?.commandTemplate ?? ""
+    !explicitModel && unselectedModelCommandTemplate
+      ? unselectedModelCommandTemplate
+      : (matchedBuiltinAgent?.originLaunch?.commandTemplate ?? "")
   ).trim();
   if (!commandTemplate) {
     return null;
@@ -424,10 +434,12 @@ export function resolveRegistryOriginLaunchCommand(input: {
     originFacts: {
       agentControllerConversationId: input.agentControllerConversationId,
       model:
-        input.model ??
-        resolveDefaultOriginLaunchModel({
-          agentId: runtimeAdapterMatch.agentId,
-        }),
+        explicitModel ??
+        (unselectedModelCommandTemplate
+          ? null
+          : resolveDefaultOriginLaunchModel({
+              agentId: runtimeAdapterMatch.agentId,
+            })),
       workingDirectory: input.workingDirectory,
     },
   });
@@ -864,23 +876,47 @@ function parseOptionalOriginLaunch(
     objectValue.commandTemplate,
     `${context}.commandTemplate`
   );
+  const unselectedModelCommandTemplate =
+    objectValue.unselectedModelCommandTemplate === undefined
+      ? null
+      : readStringValue(
+          objectValue.unselectedModelCommandTemplate,
+          `${context}.unselectedModelCommandTemplate`
+        );
+  validateOriginLaunchCommandTemplate(
+    commandTemplate,
+    `${context}.commandTemplate`
+  );
+  if (unselectedModelCommandTemplate) {
+    validateOriginLaunchCommandTemplate(
+      unselectedModelCommandTemplate,
+      `${context}.unselectedModelCommandTemplate`
+    );
+  }
+  return {
+    commandTemplate,
+    ...(unselectedModelCommandTemplate
+      ? { unselectedModelCommandTemplate }
+      : {}),
+  };
+}
+
+function validateOriginLaunchCommandTemplate(
+  commandTemplate: string,
+  context: string
+): void {
   const placeholderMatches = [...commandTemplate.matchAll(ANY_BRACE_TOKEN_RE)];
   if (placeholderMatches.length === 0) {
-    throw new Error(
-      `Expected origin launch placeholder token at ${context}.commandTemplate`
-    );
+    throw new Error(`Expected origin launch placeholder token at ${context}`);
   }
   for (const match of placeholderMatches) {
     const token = match[1];
     if (!(token && isSupportedOriginLaunchToken(token))) {
       throw new Error(
-        `Unsupported origin launch token '${match[0]}' at ${context}.commandTemplate`
+        `Unsupported origin launch token '${match[0]}' at ${context}`
       );
     }
   }
-  return {
-    commandTemplate,
-  };
 }
 
 function normalizeOptionalRegistryOriginValue(

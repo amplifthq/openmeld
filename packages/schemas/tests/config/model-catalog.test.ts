@@ -15,8 +15,13 @@ describe("model catalog schema", () => {
       expect(result.data.schemaVersion).toBe(MODEL_CATALOG_SCHEMA_VERSION);
       expect(result.data.updatedAt).toBe("2026-09-01T00:00:00.000Z");
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
-        "gpt-5.5"
+        "gpt-5.6-sol"
       );
+      expect(
+        result.data.agentControllers.codex?.models.some(
+          (model) => model.id === "gpt-5.5" && !model.unavailable
+        )
+      ).toBe(true);
       expect(result.data.agentControllers["grok-build"]).toMatchObject({
         defaultModelId: "grok-4.6",
         models: [

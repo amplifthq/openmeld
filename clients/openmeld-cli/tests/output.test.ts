@@ -652,7 +652,7 @@ describe("output", () => {
     );
     expect(ansiLines[1]).toContain(pc.dim("added by: Felix"));
     expect(plainLines[2]).toBe(
-      "origin: cd /tmp/mira-codex-workspace && codex resume -m gpt-5.5 thread-ctx-7"
+      "origin: cd /tmp/mira-codex-workspace && codex resume thread-ctx-7"
     );
   });
 
@@ -703,7 +703,7 @@ describe("output", () => {
       "agent via codex · owner: OpenMeld Dev Local Test · added by: OpenMeld Dev Local Test"
     );
     expect(plainLines[2]).toBe(
-      "origin: cd /tmp/my-codex-workspace && codex resume -m gpt-5.5 sess-my-codex-1"
+      "origin: cd /tmp/my-codex-workspace && codex resume sess-my-codex-1"
     );
   });
 

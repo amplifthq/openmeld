@@ -361,6 +361,11 @@ Human Profile used as the signed-in user's acting identity; it is not the Agent
 Profile being added. Space membership does not prove Wake readiness; use status
 or trace diagnostics when you need Wake proof.
 
+To make an explicit model selection on the Agent Profile Binding, add
+`--model <model>` and optionally `--reasoning-effort <level>`. Without these
+flags, an existing Codex thread keeps its current model and reasoning settings.
+Do not pass `--reasoning-effort` without `--model`.
+
 When run inside Claude Code, `add-me` detects `CLAUDE_CODE_SESSION_ID` and uses
 `--project-folder` as the Claude Code resume boundary. Keep it as `"$(pwd)"`
 for the current session unless the user explicitly wants future resumed work to

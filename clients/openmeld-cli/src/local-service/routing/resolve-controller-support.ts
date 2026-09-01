@@ -443,6 +443,7 @@ function buildAcceptedLocalDaemonRouteCandidate(input: {
   );
   const conversationPolicyResolution =
     resolveConversationPolicyFromModelSelection({
+      agentControllerConversationId: input.agentControllerConversationId,
       agentControllerRef: input.agentControllerRef,
       catalog: input.modelCatalog,
       modelSelection: input.modelSelection,

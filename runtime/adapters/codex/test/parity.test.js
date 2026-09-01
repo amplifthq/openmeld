@@ -730,9 +730,9 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    }",
       "    const hangingResumeAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_RESUME_ATTEMPTS ?? '0');",
       "    if (startupAttempt <= hangingResumeAttempts) return;",
-      "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: 'gpt-5' };",
+      "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_MODEL ?? 'gpt-5' };",
       "    const threadSource = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user';",
-      "    const respond = () => write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread(message.params.threadId, threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: null } });",
+      "    const respond = () => write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread(message.params.threadId, threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_REASONING_EFFORT ?? null } });",
       "    const resumeResponseDelayMs = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_RESUME_RESPONSE_DELAY_MS ?? '0');",
       "    if (resumeResponseDelayMs > 0) setTimeout(respond, resumeResponseDelayMs); else respond();",
       "    return;",
@@ -1251,6 +1251,8 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
       env: {
         OPENMELD_FAKE_CODEX_APP_SERVER_CONTEXT_COMPACTION: "1",
         OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_MODEL: "gpt-5.5",
+        OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_REASONING_EFFORT: "xhigh",
         OPENMELD_FAKE_CODEX_APP_SERVER_TOKEN_USAGE: JSON.stringify({
           last: {
             cacheWriteInputTokens: 0,
@@ -1324,6 +1326,11 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
       true
     );
     assert.equal(
+      "model" in
+        messages.find((message) => message.method === "thread/resume").params,
+      false
+    );
+    assert.equal(
       messages.find((message) => message.method === "turn/start").params
         .approvalPolicy,
       "on-request"
@@ -1332,6 +1339,11 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
       messages.find((message) => message.method === "turn/start").params.cwd,
       dispatchDir
     );
+    const turnStartParams = messages.find(
+      (message) => message.method === "turn/start"
+    ).params;
+    assert.equal("model" in turnStartParams, false);
+    assert.equal("effort" in turnStartParams, false);
     assert.deepEqual(
       runtimeEvents
         .filter((event) => event.phase === "provider_conversation_observed")

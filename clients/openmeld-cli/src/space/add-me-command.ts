@@ -9,6 +9,10 @@ import {
 } from "../config/openmeld-profiles-api";
 import { submitRuntimeAgentControllerReport } from "../local-service/reporting/runtime-agent-controller-reporting-submission";
 import { resolveAgentControllerPermissionModeInput } from "../profile/controller-permission-mode-input";
+import {
+  type NormalizedModelSelectionInput,
+  normalizeModelSelectionInput,
+} from "../profile/model-selection-input";
 import { describeProfileWorkspacePathValidationFailure } from "../profile-workspace/custom-path";
 import {
   normalizeCustomProfileWorkspacePath,
@@ -21,6 +25,7 @@ import { formatOpenMeldCliCommand } from "../runtime/cli-entry-command";
 import { canUseInteractivePrompts } from "../runtime/interaction";
 import type { Presenter } from "../runtime/presenter";
 import { updateAgentProfilePrimaryBindingAgentControllerPermissionMode } from "../system/agent-profile-binding-agent-controller-permission-mode";
+import { updateAgentProfilePrimaryBindingModelSelection } from "../system/agent-profile-binding-model-selection";
 import {
   type AgentProfilePrimaryAgentControllerReport,
   resolveAgentProfilePrimaryAgentControllerReport,
@@ -81,13 +86,19 @@ export async function runSpaceAddMe(input: {
   entryChecksHandled?: boolean;
   env?: NodeJS.ProcessEnv;
   json?: boolean;
+  model?: string;
   password?: string;
   profile?: string;
   projectFolders?: SpaceAddMeProjectFolderInput;
+  reasoningEffort?: string;
   space: string;
   view?: string;
   workingDirectory?: string;
 }): Promise<SpaceCommandNavigationStatus> {
+  const modelSelection = normalizeModelSelectionInput({
+    model: input.model,
+    reasoningEffort: input.reasoningEffort,
+  });
   const target = parseSpaceAddMeTarget(input.space, { baseUrl: input.baseUrl });
   const profile = resolveSpaceAddMeActingProfileId({
     cliProfileId: input.profile,
@@ -130,6 +141,11 @@ export async function runSpaceAddMe(input: {
   const addMembers = input.addMembers ?? runDefaultSpaceAddMeMembership;
 
   if (detectedSubject.kind === "human") {
+    if (modelSelection.hasAnyModelSelectionInput) {
+      throw new Error(
+        "--model is only used when OpenMeld detects a local agent controller. Human Profile membership does not use a model selection."
+      );
+    }
     const projectFolderInput = collectProjectFolderCandidates(
       input.projectFolders
     );
@@ -214,6 +230,7 @@ export async function runSpaceAddMe(input: {
         controllerPermissionMode:
           controllerPermissionMode.agentControllerPermissionMode ?? null,
         detectedSubject,
+        modelSelection,
         projectFolder,
         spaceId: target.spaceId,
       }),
@@ -328,6 +345,7 @@ async function ensureCurrentAgentProfile(input: {
   baseUrl: string;
   controllerPermissionMode: AgentControllerPermissionMode | null;
   detectedSubject: Extract<SpaceAddMeDetectedSubject, { kind: "agent" }>;
+  modelSelection: NormalizedModelSelectionInput;
   projectFolder: NormalizedProjectFolder;
   spaceId: string;
 }): Promise<AgentProfileResolution> {
@@ -352,15 +370,14 @@ async function ensureCurrentAgentProfile(input: {
       profile: match.profile,
       projectFolder: input.projectFolder.path,
     });
-    if (input.controllerPermissionMode) {
-      await updateAgentProfilePrimaryBindingAgentControllerPermissionMode({
-        agentControllerPermissionMode: input.controllerPermissionMode,
-        profile: match.profile,
-      });
-    }
+    const bindingUpdate = await updateExistingAgentProfileBinding({
+      controllerPermissionMode: input.controllerPermissionMode,
+      modelSelection: input.modelSelection,
+      profile: match.profile,
+    });
     return {
-      bindingOutcome: input.controllerPermissionMode ? "updated" : "reused",
-      bindingStatus: match.report.bindingState,
+      bindingOutcome: bindingUpdate.updated ? "updated" : "reused",
+      bindingStatus: bindingUpdate.status ?? match.report.bindingState,
       profile: match.profile,
       profileAction: "reused",
       projectFolderAction,
@@ -390,6 +407,14 @@ async function ensureCurrentAgentProfile(input: {
     ...(input.controllerPermissionMode
       ? { agentControllerPermissionMode: input.controllerPermissionMode }
       : {}),
+    ...(input.modelSelection.modelId
+      ? {
+          modelId: input.modelSelection.modelId,
+          ...(input.modelSelection.reasoningLevel
+            ? { reasoningLevel: input.modelSelection.reasoningLevel }
+            : {}),
+        }
+      : {}),
     confirmLocalExecutionEvidence: false,
     profile,
     runtimeReportSubmission,
@@ -405,6 +430,39 @@ async function ensureCurrentAgentProfile(input: {
     profile,
     profileAction: "created",
     projectFolderAction: "created",
+  };
+}
+
+async function updateExistingAgentProfileBinding(input: {
+  controllerPermissionMode: AgentControllerPermissionMode | null;
+  modelSelection: NormalizedModelSelectionInput;
+  profile: OpenMeldProfile;
+}): Promise<{ status: string | null; updated: boolean }> {
+  if (input.controllerPermissionMode) {
+    await updateAgentProfilePrimaryBindingAgentControllerPermissionMode({
+      agentControllerPermissionMode: input.controllerPermissionMode,
+      profile: input.profile,
+    });
+  }
+  if (!input.modelSelection.modelId) {
+    return {
+      status: null,
+      updated: Boolean(input.controllerPermissionMode),
+    };
+  }
+  const binding = await updateAgentProfilePrimaryBindingModelSelection({
+    modelId: input.modelSelection.modelId,
+    profile: input.profile,
+    reasoningLevel: input.modelSelection.reasoningLevel,
+  });
+  if (binding.status !== "accepted") {
+    throw new Error(
+      `Agent Profile Binding model update failed: ${binding.reasonCodes.join(", ")}`
+    );
+  }
+  return {
+    status: binding.status,
+    updated: true,
   };
 }
 

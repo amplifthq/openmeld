@@ -6,6 +6,18 @@ const CATALOG: ModelCatalog = {
   schemaVersion: 1,
   updatedAt: "2026-06-18T00:00:00.000Z",
   agentControllers: {
+    "claude-code": {
+      defaultModelId: "claude-opus-4-8",
+      models: [
+        {
+          id: "claude-opus-4-8",
+          displayName: "Claude Opus 4.8",
+          unavailable: false,
+          supportedReasoningLevels: ["low", "medium", "high"],
+          minCliVersion: null,
+        },
+      ],
+    },
     codex: {
       defaultModelId: "gpt-5.5",
       models: [
@@ -70,9 +82,55 @@ describe("resolveConversationPolicyFromModelSelection", () => {
     });
   });
 
+  it("preserves an existing Codex thread when the Binding has no explicit selection", () => {
+    expect(
+      resolveConversationPolicyFromModelSelection({
+        agentControllerConversationId: "codex-thread",
+        agentControllerRef: "builtin:codex",
+        catalog: CATALOG,
+      })
+    ).toEqual({
+      status: "accepted",
+      conversationPolicy: {},
+    });
+  });
+
+  it("keeps late-binding the catalog default for an existing non-Codex session", () => {
+    expect(
+      resolveConversationPolicyFromModelSelection({
+        agentControllerConversationId: "claude-session",
+        agentControllerRef: "builtin:claude-code",
+        catalog: CATALOG,
+      })
+    ).toEqual({
+      status: "accepted",
+      conversationPolicy: {
+        fallbackModel: "claude-opus-4-8",
+        model: "claude-opus-4-8",
+      },
+    });
+  });
+
+  it("does not apply builtin Codex resume semantics to a custom controller", () => {
+    expect(
+      resolveConversationPolicyFromModelSelection({
+        agentControllerConversationId: "custom-session",
+        agentControllerRef: "custom:codex",
+        catalog: CATALOG,
+      })
+    ).toEqual({
+      status: "accepted",
+      conversationPolicy: {
+        fallbackModel: "gpt-5.5",
+        model: "gpt-5.5",
+      },
+    });
+  });
+
   it("uses selected model and reasoning when the catalog supports them", () => {
     expect(
       resolveConversationPolicyFromModelSelection({
+        agentControllerConversationId: "codex-thread",
         agentControllerRef: "builtin:codex",
         catalog: CATALOG,
         modelSelection: {

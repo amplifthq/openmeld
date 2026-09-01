@@ -69,6 +69,10 @@ project folder, prefer `openmeld space add-me <space-url-or-id> --project-folder
 are accepted aliases, but `--project-folder` is the canonical option. This
 confirms Space membership only; it does not prove Wake readiness.
 
+Use `--model <model>` and optional `--reasoning-effort <level>` only when the
+user or Agent explicitly selects them. If neither flag is present, an existing
+Codex thread keeps its current model and reasoning settings.
+
 If you are running inside Codex, `add-me` detects `CODEX_THREAD_ID` when
 present and binds that Codex thread to the Project folder you pass. If you
 manually create or update the Agent Profile instead, read both:

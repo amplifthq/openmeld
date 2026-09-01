@@ -9,6 +9,7 @@ type OrgCommandModule = typeof import("../src/org/command");
 type ProfileCreationRequestCommandModule =
   typeof import("../src/profile-creation-request/command");
 type SpaceBoardCommandModule = typeof import("../src/space/board-command");
+type SpaceAddMeCommandModule = typeof import("../src/space/add-me-command");
 type SpaceCommandModule = typeof import("../src/space/command");
 type SpaceMembersCommandModule = typeof import("../src/space/members-command");
 type SpaceOrganizationCommandModule =
@@ -49,6 +50,9 @@ const runMocks = vi.hoisted(() => ({
   ),
   runSpaceBoard: vi.fn<SpaceBoardCommandModule["runSpaceBoard"]>(
     async () => undefined
+  ),
+  runSpaceAddMe: vi.fn<SpaceAddMeCommandModule["runSpaceAddMe"]>(
+    async () => "completed"
   ),
   runSpaceHistory: vi.fn<SpaceCommandModule["runSpaceHistory"]>(
     async () => undefined
@@ -195,6 +199,14 @@ vi.mock("../src/space/board-command", async (importOriginal) => {
   return {
     ...actual,
     runSpaceBoard: runMocks.runSpaceBoard,
+  };
+});
+
+vi.mock("../src/space/add-me-command", async (importOriginal) => {
+  const actual = await importOriginal<SpaceAddMeCommandModule>();
+  return {
+    ...actual,
+    runSpaceAddMe: runMocks.runSpaceAddMe,
   };
 });
 
@@ -432,6 +444,30 @@ describe("command entry CLI wiring", () => {
         profile: "url-profile",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      })
+    );
+  });
+
+  it("forwards add-me model selection flags to the Binding workflow", async () => {
+    const spaceId =
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    await runCli([
+      "space",
+      "add-me",
+      spaceId,
+      "--model",
+      "gpt-5.5",
+      "--reasoning-effort",
+      "xhigh",
+    ]);
+
+    expect(runMocks.runSpaceAddMe).toHaveBeenCalledOnce();
+    expect(runMocks.runSpaceAddMe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-5.5",
+        reasoningEffort: "xhigh",
+        space: spaceId,
       })
     );
   });

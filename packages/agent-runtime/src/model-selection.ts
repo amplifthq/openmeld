@@ -11,6 +11,7 @@ export type ConversationPolicyResolution = {
 };
 
 export function resolveConversationPolicyFromModelSelection(input: {
+  agentControllerConversationId?: string | null;
   agentControllerRef: string;
   catalog: ModelCatalog;
   modelSelection?: AgentProfileBindingModelSelectionInput | null;
@@ -48,6 +49,16 @@ export function resolveConversationPolicyFromModelSelection(input: {
   }
 
   if (!selection) {
+    if (
+      parsedRef.kind === "builtin" &&
+      parsedRef.id === "codex" &&
+      normalizeOptionalText(input.agentControllerConversationId)
+    ) {
+      return {
+        status: "accepted",
+        conversationPolicy: {},
+      };
+    }
     return {
       status: "accepted",
       conversationPolicy: {
@@ -75,4 +86,11 @@ export function resolveConversationPolicyFromModelSelection(input: {
       ...(reasoningLevel ? { reasoningLevel } : {}),
     },
   };
+}
+
+function normalizeOptionalText(
+  value: string | null | undefined
+): string | null {
+  const normalized = String(value ?? "").trim();
+  return normalized.length > 0 ? normalized : null;
 }

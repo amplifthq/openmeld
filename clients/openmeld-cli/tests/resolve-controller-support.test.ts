@@ -92,6 +92,49 @@ describe("resolveLocalDaemonRouteCandidate", () => {
     });
   });
 
+  it("preserves an existing Codex thread when its Binding has no explicit model selection", () => {
+    const result = resolveLocalDaemonRouteCandidate({
+      localAdapterContainer: {
+        getAdapter: () => ({
+          adapter: {},
+          adapterId: "codex",
+        }),
+      } as never,
+      localControllers: new Map<string, RuntimeAgentControllerState>([
+        ["codex", createLocalController()],
+      ]),
+      modelCatalog: TEST_MODEL_CATALOG,
+      ownerUserId: "user-1",
+      primaryBinding: createPrimaryBinding({
+        executionTarget: {
+          agentControllerConversationId: "codex-thread",
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: {
+            source: "runtime_registry_authority",
+            value: "runtime-codex",
+          },
+        },
+      }),
+      profile: createAgentProfile(),
+    });
+
+    expect(result).toMatchObject({
+      route: {
+        agentControllerConversationId: "codex-thread",
+        conversationPolicy: {
+          collaborationMode: "default",
+        },
+      },
+      status: "accepted",
+    });
+    expect(
+      result.status === "accepted" ? result.route.conversationPolicy : {}
+    ).not.toHaveProperty("model");
+    expect(
+      result.status === "accepted" ? result.route.conversationPolicy : {}
+    ).not.toHaveProperty("reasoningLevel");
+  });
+
   it("migrates stale Codex local-cli controller state to the supported App Server route transport", () => {
     const result = resolveLocalDaemonRouteCandidate({
       localAdapterContainer: {
