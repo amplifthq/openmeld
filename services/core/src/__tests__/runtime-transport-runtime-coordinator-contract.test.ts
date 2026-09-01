@@ -75,10 +75,15 @@ import {
 import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
 
-const RUNTIME_COORDINATOR_EXECUTION_ID = "rce-dispatch-1";
-const WRONG_RUNTIME_COORDINATOR_EXECUTION_ID = "rce-wrong-dispatch";
 const HEX_SPACE_ID = "a".repeat(64);
 const TARGET_AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
+const OTHER_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
+const RUNTIME_COORDINATOR_EXECUTION_ID = buildRuntimeCoordinatorExecutionId({
+  dispatchId: "dispatch-1",
+  spaceId: HEX_SPACE_ID,
+  targetProfileId: TARGET_AGENT_PROFILE_ID,
+});
+const WRONG_RUNTIME_COORDINATOR_EXECUTION_ID = "rce-wrong-dispatch";
 const EXECUTION_TOKEN_PATTERN = /^rcet_v1_[a-f0-9]{64}$/;
 const RUN_ID_PATTERN = /^rctr_/;
 const SQL_SELECT_PATTERN = /^\s*SELECT\b/i;
@@ -14692,6 +14697,120 @@ describe("runtime transport runtime coordinator transport contract", () => {
     } finally {
       nowSpy.mockRestore();
     }
+  });
+
+  it("rejects a delivery that selects one Profile route for another Profile's Wake", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    configureCompatibleRoute({ socket, state });
+    const session = state.sessionsById.get("daemon-session-1");
+    const targetLease = state.profileLeasesByProfileId.get(
+      TARGET_AGENT_PROFILE_ID
+    );
+    if (!(session && targetLease)) {
+      throw new Error("Expected the compatible target route.");
+    }
+    session.profileIds.add(OTHER_AGENT_PROFILE_ID);
+    state.profileLeasesByProfileId.set(OTHER_AGENT_PROFILE_ID, {
+      ...targetLease,
+      profileId: OTHER_AGENT_PROFILE_ID,
+    });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const request = buildDeliverRequest();
+    request.profileId = OTHER_AGENT_PROFILE_ID;
+
+    const response = await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(request),
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      accepted: false,
+      reasonCode: "runtime_coordinator.head_execution_link_unavailable",
+      status: "rejected",
+    });
+    expect(sentFrames).toEqual([]);
+    expect(
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+    ).toMatchObject({
+      executionLinkedAtMs: null,
+      runtimeCoordinatorExecutionId: null,
+      status: "accepted",
+    });
+    expect(
+      findRuntimeCoordinatorRunCommandState(storageRecords)
+    ).toBeUndefined();
+    expect(
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+    ).toBeUndefined();
+  });
+
+  it.each([
+    {
+      label: "attempt identity",
+      mutate: (request: ReturnType<typeof buildDeliverRequest>) => {
+        request.payload.attemptId = "attempt-other";
+      },
+    },
+    {
+      label: "dispatch identity",
+      mutate: (request: ReturnType<typeof buildDeliverRequest>) => {
+        request.payload.dispatchId = "dispatch-other";
+      },
+    },
+    {
+      label: "deterministic execution identity",
+      mutate: (request: ReturnType<typeof buildDeliverRequest>) => {
+        request.payload.runtimeCoordinatorExecutionId =
+          WRONG_RUNTIME_COORDINATOR_EXECUTION_ID;
+      },
+    },
+  ])("rejects mismatched $label before delivery authority is created", async ({
+    mutate,
+  }) => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    configureCompatibleRoute({ socket, state });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const request = buildDeliverRequest();
+    mutate(request);
+
+    const response = await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(request),
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      accepted: false,
+      reasonCode: "runtime_coordinator.head_execution_link_unavailable",
+      status: "rejected",
+    });
+    expect(sentFrames).toEqual([]);
+    expect(
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+    ).toMatchObject({
+      executionLinkedAtMs: null,
+      runtimeCoordinatorExecutionId: null,
+      status: "accepted",
+    });
+    expect(
+      findRuntimeCoordinatorRunCommandState(storageRecords)
+    ).toBeUndefined();
+    expect(
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+    ).toBeUndefined();
   });
 
   it("does not let a pre-send RuntimeCoordinator command state create a second fact when daemon delivery fails", async () => {

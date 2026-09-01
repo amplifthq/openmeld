@@ -798,6 +798,31 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
     });
   });
 
+  it("preserves a legacy waiting hard deadline that still follows its latest transition", () => {
+    const createdAtMs = NOW_MS - 120_000;
+    const updatedAtMs = NOW_MS - 60_000;
+    const waitingBoundary = buildWaitingBoundary({
+      deadlineAtMs: createdAtMs + 300_000,
+      observedAtMs: updatedAtMs,
+      softDeadlineAtMs: createdAtMs + 20_000,
+      waitingSinceMs: createdAtMs,
+    });
+    const record = buildHeadLifecycleRecord({
+      createdAtMs,
+      status: "waiting",
+      updatedAtMs,
+      waitingBoundary,
+    });
+
+    expect(
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+    ).toMatchObject({
+      acceptedAtMs: updatedAtMs,
+      status: "waiting",
+      waitingBoundary,
+    });
+  });
+
   it("plans due failure-publication retry records in record order", () => {
     const workItems =
       planRuntimeCoordinatorHeadFailurePublicationRetryAlarmWork({

@@ -1815,19 +1815,52 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
 
     const executionId = input.authority.runtimeCoordinatorExecutionId;
     const targetProfileId = input.authority.executionScope.targetProfileId;
+    const deliveryRequest = input.commandState.sanitizedDeliveryRequest;
+    const deliveryPayload = deliveryRequest.payload;
+    const deliveryIdentity = deliveryPayload.executionIdentity.core;
+    const expectedExecutionId = buildRuntimeCoordinatorExecutionId({
+      dispatchId: rawHead.primaryDispatchId,
+      spaceId: rawHead.targetWakeLifecycleIdentity.spaceId,
+      targetProfileId: rawHead.targetWakeLifecycleIdentity.targetProfileId,
+    });
     if (
       rawHead.primaryDispatchId !== input.authority.executionScope.dispatchId ||
       rawHead.ownerUserId !== input.commandState.ownerUserId ||
+      rawHead.ownerUserId !== deliveryRequest.ownerUserId ||
       rawHead.targetWakeLifecycleId !== input.targetWakeLifecycleId ||
       rawHead.targetWakeLifecycleIdentity.spaceId !==
         input.authority.executionScope.spaceId ||
       rawHead.targetWakeLifecycleIdentity.targetProfileId !== targetProfileId ||
+      executionId !== expectedExecutionId ||
       input.authority.executionScope.runtimeCoordinatorExecutionId !==
         executionId ||
+      input.authority.executionScope.sourceClientMessageId !==
+        input.commandState.sourceClientMessageId ||
       input.commandState.dispatchId !==
         input.authority.executionScope.dispatchId ||
+      input.commandState.dispatchId !== deliveryRequest.dispatchId ||
+      deliveryRequest.dispatchId !== deliveryPayload.dispatchId ||
+      input.commandState.attemptId !== deliveryRequest.attemptId ||
+      deliveryRequest.attemptId !== deliveryPayload.attemptId ||
+      input.commandState.profileId !== targetProfileId ||
+      deliveryRequest.profileId !== targetProfileId ||
       input.commandState.runtimeCoordinatorExecutionId !== executionId ||
-      input.commandState.targetProfileId !== targetProfileId
+      deliveryPayload.runtimeCoordinatorExecutionId !== executionId ||
+      input.commandState.targetProfileId !== targetProfileId ||
+      deliveryPayload.targetProfileId !== targetProfileId ||
+      deliveryPayload.spaceId !== input.authority.executionScope.spaceId ||
+      (deliveryPayload.sourceClientMessageId ?? null) !==
+        input.authority.executionScope.sourceClientMessageId ||
+      deliveryIdentity.dispatchId !==
+        input.authority.executionScope.dispatchId ||
+      deliveryIdentity.spaceId !== input.authority.executionScope.spaceId ||
+      deliveryIdentity.targetProfileId !== targetProfileId ||
+      input.commandState.lastDeliveryProvenance.daemonSessionId !==
+        deliveryRequest.daemonSessionId ||
+      input.commandState.lastDeliveryProvenance.connectionGeneration !==
+        deliveryRequest.connectionGeneration ||
+      input.commandState.lastDeliveryProvenance.leaseEpoch !==
+        deliveryRequest.leaseEpoch
     ) {
       return {
         ok: false,
