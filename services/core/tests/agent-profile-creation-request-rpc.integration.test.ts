@@ -25,8 +25,9 @@ describe("Agent Profile creation request RPC", () => {
       .spyOn(rpcMethods, "rpcAddOrganizationDirectoryProfilesToSpace")
       .mockRejectedValueOnce(new Error("The Space is temporarily unavailable."))
       .mockResolvedValueOnce({
-        addedProfileIds: [createdAgentProfileId],
-        alreadyMemberProfileIds: [],
+        addedMemberIds: [createdAgentProfileId],
+        alreadyMemberIds: [],
+        items: [],
       });
     const bindings = {
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
