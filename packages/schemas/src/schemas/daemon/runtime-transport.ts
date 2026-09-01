@@ -59,6 +59,7 @@ import {
   runtimeTransportModeSchema,
 } from "./controller-contract";
 import {
+  openMeldDaemonAcceptedDispatchSnapshotSchema,
   openMeldDaemonDispatchContinuitySnapshotSchema,
   openMeldDaemonDispatchControllerSnapshotSchema,
   openMeldDaemonDispatchDeliveryRecoveryReasonSchema,
@@ -1288,6 +1289,8 @@ export const runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema =
     ownerUserId: z.string().min(1),
     dispatchId: z.string().min(1),
     idempotencyKey: z.string().min(1).max(512),
+    acceptedDispatchSnapshot:
+      openMeldDaemonAcceptedDispatchSnapshotSchema.optional(),
     targetProfileMentionLabel: spaceMentionLabelSchema.optional(),
     targetProfileName: z
       .string()
@@ -1300,6 +1303,8 @@ export const runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema =
 export const runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
+      acceptedDispatchSnapshot:
+        openMeldDaemonAcceptedDispatchSnapshotSchema.optional(),
       action: runtimeTransportRuntimeCoordinatorHeadAcceptActionSchema,
       ok: z.literal(true),
       primaryDispatchId: z.string().min(1),
@@ -1316,6 +1321,8 @@ export const runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema =
       targetWakeLifecycleId: z.string().min(1).max(2048),
     }),
     z.strictObject({
+      acceptedDispatchSnapshot:
+        openMeldDaemonAcceptedDispatchSnapshotSchema.optional(),
       action: z.literal("wait_in_queue"),
       ok: z.literal(true),
       primaryDispatchId: z.string().min(1),

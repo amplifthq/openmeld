@@ -27,6 +27,7 @@ import type {
   DispatchResult,
   HostedCenterAgentRuntimeIdentity,
   MessageEnvelope,
+  OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
   OpenMeldDaemonTaskResultEnvelope,
   RuntimeTransportDeliverDispatchResponse,
@@ -484,6 +485,7 @@ const resolveLocalStateDbHandleOrThrow = (
 };
 
 export const deliverDispatchMessageToDaemon = async (input: {
+  acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   attemptId: string;
   db: D1Database;
   env: CoreBindings;
@@ -721,9 +723,11 @@ export const deliverDispatchMessageToDaemon = async (input: {
     name: "openmeld_dispatch_deliver_binding_match",
     read: () =>
       assertDaemonRouteMatchesPrimaryBinding({
+        acceptedDispatchSnapshot: input.acceptedDispatchSnapshot,
         db: localStateDbHandle,
         executionContext: routeExecutionContext,
         executionLogBase,
+        message: input.message,
         ownerUserId: input.targetOwnerUserId,
         route,
         spaceId: input.message.spaceId,
@@ -988,9 +992,11 @@ type OnlineRuntimeTransportRoute = Extract<
 >;
 
 const assertDaemonRouteMatchesPrimaryBinding = async (input: {
+  acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   db: D1Database;
   executionContext: DispatchExecutionContext;
   executionLogBase: DispatchExecutionLogBase;
+  message: OpenMeldDaemonDispatchQueueMessage;
   ownerUserId: string;
   route: OnlineRuntimeTransportRoute;
   spaceId: string;
@@ -1033,6 +1039,48 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
     });
   }
 
+  const acceptedControllerSnapshot =
+    input.acceptedDispatchSnapshot?.controllerSnapshot ??
+    input.message.controllerSnapshot;
+  const acceptedBindingId = normalizeOptionalText(
+    acceptedControllerSnapshot.bindingId
+  );
+  const acceptedOpenMeldServiceRuntimeId = normalizeOptionalText(
+    input.acceptedDispatchSnapshot?.openMeldServiceRuntimeId
+  );
+  const acceptedAgentControllerRef = normalizeOptionalText(
+    acceptedControllerSnapshot.agentControllerRef
+  );
+  const acceptedIdentityMismatch =
+    (acceptedBindingId && acceptedBindingId !== binding.bindingId) ||
+    (acceptedOpenMeldServiceRuntimeId &&
+      acceptedOpenMeldServiceRuntimeId !== binding.openMeldServiceRuntimeId) ||
+    (acceptedAgentControllerRef &&
+      parseAgentControllerRef(acceptedAgentControllerRef)?.ref !==
+        parseAgentControllerRef(binding.agentControllerRef)?.ref);
+  if (acceptedIdentityMismatch) {
+    console.warn(
+      "[core.openMeldDaemon.dispatch_execution.accepted_binding_identity_mismatch]",
+      {
+        acceptedAgentControllerRef,
+        acceptedBindingId,
+        acceptedOpenMeldServiceRuntimeId,
+        bindingAgentControllerRef: binding.agentControllerRef,
+        bindingId: binding.bindingId,
+        bindingOpenMeldServiceRuntimeId: binding.openMeldServiceRuntimeId,
+        event:
+          "core.openMeldDaemon.dispatch_execution.accepted_binding_identity_mismatch",
+        ...input.executionLogBase,
+      }
+    );
+    throw buildDispatchExecutionValidationError({
+      code: "local_service.identity_mismatch",
+      message:
+        "current Core primary Binding does not match the RuntimeCoordinator accepted execution identity",
+      executionContext: input.executionContext,
+    });
+  }
+
   const agentControllerRef = parseAgentControllerRef(
     binding.agentControllerRef
   );
@@ -1047,7 +1095,8 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
 
   const runtimeResult = await readRuntimeRegistryRecordByRuntimeId({
     db: input.db,
-    openMeldServiceRuntimeId: binding.openMeldServiceRuntimeId,
+    openMeldServiceRuntimeId:
+      acceptedOpenMeldServiceRuntimeId ?? binding.openMeldServiceRuntimeId,
   });
   if (runtimeResult.status !== "found") {
     throw buildDispatchExecutionValidationError({
@@ -1091,7 +1140,8 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
   }
 
   assertDaemonRouteHasLiveBindingCapability({
-    bindingAgentControllerRef: binding.agentControllerRef,
+    bindingAgentControllerRef:
+      acceptedAgentControllerRef ?? binding.agentControllerRef,
     executionContext: input.executionContext,
     executionLogBase: input.executionLogBase,
     route: input.route,
@@ -1108,10 +1158,13 @@ const assertDaemonRouteMatchesPrimaryBinding = async (input: {
         targetProfileId: input.targetProfileId,
         openMeldServiceRuntimeId: {
           source: "runtime_registry_authority",
-          value: binding.openMeldServiceRuntimeId,
+          value:
+            acceptedOpenMeldServiceRuntimeId ??
+            binding.openMeldServiceRuntimeId,
         },
-        bindingId: binding.bindingId,
-        agentControllerRef: binding.agentControllerRef,
+        bindingId: acceptedBindingId ?? binding.bindingId,
+        agentControllerRef:
+          acceptedAgentControllerRef ?? binding.agentControllerRef,
       },
     },
   };

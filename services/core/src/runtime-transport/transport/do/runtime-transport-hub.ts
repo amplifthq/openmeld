@@ -1172,6 +1172,13 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
       };
     case "queued":
       return {
+        ...(input.request.acceptedDispatchSnapshot &&
+        input.admission.effectiveRecord.acceptedDispatchSnapshot
+          ? {
+              acceptedDispatchSnapshot:
+                input.admission.effectiveRecord.acceptedDispatchSnapshot,
+            }
+          : {}),
         action: "wait_in_queue",
         ok: true,
         primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
@@ -1185,6 +1192,13 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
       };
     case "started":
       return {
+        ...(input.request.acceptedDispatchSnapshot &&
+        input.admission.effectiveRecord.acceptedDispatchSnapshot
+          ? {
+              acceptedDispatchSnapshot:
+                input.admission.effectiveRecord.acceptedDispatchSnapshot,
+            }
+          : {}),
         action: "create_execution",
         ok: true,
         primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
@@ -1243,6 +1257,10 @@ function resolveExistingRuntimeCoordinatorHeadAdmissionResponse(input: {
         : "runtime_coordinator.head_primary_reaccepted";
   }
   return {
+    ...(input.request.acceptedDispatchSnapshot &&
+    existing.acceptedDispatchSnapshot
+      ? { acceptedDispatchSnapshot: existing.acceptedDispatchSnapshot }
+      : {}),
     action:
       existing.status === "execution_linked" || !isPrimaryDispatch
         ? "skip_duplicate"
@@ -10808,6 +10826,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const nowMs = Date.now();
     const identity = request.targetWakeLifecycleIdentity;
     const nextRecord: RuntimeCoordinatorHeadLifecycleRecord = {
+      ...(request.acceptedDispatchSnapshot
+        ? { acceptedDispatchSnapshot: request.acceptedDispatchSnapshot }
+        : {}),
       createdAtMs: nowMs,
       duplicateDispatches: [],
       executionLinkedAtMs: null,

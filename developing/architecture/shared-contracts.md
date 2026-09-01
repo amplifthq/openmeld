@@ -590,6 +590,16 @@ diagnostics, and shared external error contracts.
 Shared types must derive from schemas, usually through `z.infer`. Do not create
 a separate hand-written shared type that can drift from the runtime schema.
 
+`openMeldDaemonAcceptedDispatchSnapshotSchema` is the additive internal Core
+contract carried by RuntimeCoordinator head acceptance. It contains only the
+accepted workstation execution-target identity and the fingerprint of the
+Space-owned dispatch payload; it never duplicates prompt text, attachments,
+reply placement, or thread context. Head reacceptance returns the original
+snapshot, and a same-lifecycle request with a different payload fingerprint
+fails closed. These fields are not added to the Service delivery controller
+snapshot, so an older strict Service continues to receive the established
+dispatch shape during a Core rollout.
+
 ### Delivery Evidence And Production Lease Contracts
 
 `packages/schemas/src/schemas/ci/final-candidate.ts` owns the strict versioned

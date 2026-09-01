@@ -17,6 +17,7 @@ import type {
   RuntimeTransportDispatchLifecycleSnapshot,
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildAcceptedDispatchSnapshot } from "../dispatch/application/accepted-dispatch-snapshot";
 import {
   applyEffectiveTargetBindingSnapshotToMessage,
   type EffectiveTargetBindingSnapshot,
@@ -2321,6 +2322,9 @@ describe("handleDispatchQueueBatch", () => {
       runtimeCoordinatorClient,
       "acceptRuntimeTransportRuntimeCoordinatorHead"
     ).mockImplementation(async (input) => ({
+      ...(input.head.acceptedDispatchSnapshot
+        ? { acceptedDispatchSnapshot: input.head.acceptedDispatchSnapshot }
+        : {}),
       action: "create_execution",
       ok: true,
       primaryDispatchId: input.head.dispatchId,
@@ -3191,6 +3195,187 @@ describe("handleDispatchQueueBatch", () => {
       bindingId: "binding-configuration-revision-1",
       configurationRevision: 7,
     });
+  });
+
+  it("delivers the RuntimeCoordinator accepted prompt and configuration after a later Binding revision", async () => {
+    const message = createDispatchQueueMessage({
+      attempts: 2,
+      dispatchId: "dispatch-accepted-redrive-a",
+      replyToSnapshot: TEST_REPLY_TO_SNAPSHOT,
+      sourceClientMessageId: "client-accepted-redrive-a",
+      sourceEventId: "evt-accepted-redrive-a",
+      sourceText: "PROMPT_FINGERPRINT_A",
+      targetProfileId: "agt-accepted-redrive-a",
+      threadContext: TEST_THREAD_CONTEXT,
+      visitedProfileIdsHash: "stable32:accepted-redrive-a",
+    });
+    const body = message.body as OpenMeldDaemonDispatchQueueMessage;
+    body.deliveryRecoveryReason = "route_lost";
+    const bindingId = `binding-${body.targetProfileId}`;
+    const openMeldServiceRuntimeId = `runtime-${body.targetProfileId}`;
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockImplementationOnce((input) => {
+      const currentSnapshot = input.head.acceptedDispatchSnapshot;
+      if (!currentSnapshot) {
+        throw new Error("expected accepted dispatch snapshot");
+      }
+      expect(currentSnapshot.controllerSnapshot).toMatchObject({
+        bindingId,
+        configurationRevision: 8,
+      });
+      expect(currentSnapshot.openMeldServiceRuntimeId).toBe(
+        openMeldServiceRuntimeId
+      );
+      return Promise.resolve({
+        acceptedDispatchSnapshot: {
+          ...currentSnapshot,
+          controllerSnapshot: {
+            ...currentSnapshot.controllerSnapshot,
+            configurationRevision: 7,
+          },
+        },
+        action: "create_execution",
+        ok: true,
+        primaryDispatchId: input.head.dispatchId,
+        reasonCode: "runtime_coordinator.head_primary_reaccepted",
+        runtimeCoordinatorExecutionId: null,
+        status: "already_accepted",
+        targetWakeLifecycleId:
+          input.head.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      });
+    });
+
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(
+        createOpenMeldDbWithProfileRow({
+          agentControllerRef: "builtin:codex",
+          bindingId,
+          configurationRevision: 8,
+          controllerEnabled: 1,
+          openMeldServiceRuntimeId,
+          profileKind: "agent",
+          profileStatus: "active",
+        })
+      ),
+    });
+
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatch: expect.objectContaining({
+          payload: expect.objectContaining({
+            controllerSnapshot: expect.objectContaining({
+              bindingId,
+              configurationRevision: 7,
+            }),
+            deliveryRecoveryReason: "route_lost",
+            executionIdentity: expect.objectContaining({
+              core: expect.objectContaining({
+                openMeldServiceRuntimeId: expect.objectContaining({
+                  value: openMeldServiceRuntimeId,
+                }),
+              }),
+            }),
+            replyToSnapshot: TEST_REPLY_TO_SNAPSHOT,
+            sourceSignalSnapshot: expect.objectContaining({
+              text: "PROMPT_FINGERPRINT_A",
+            }),
+            threadContext: TEST_THREAD_CONTEXT,
+          }),
+        }),
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).toHaveBeenCalledTimes(1);
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(message.retry).not.toHaveBeenCalled();
+  });
+
+  it("fingerprints prompt, attachments, files, reply, and thread ownership as immutable Wake payload", async () => {
+    const original = createDispatchBody({
+      dispatchId: "dispatch-payload-fingerprint-a",
+      replyToSnapshot: TEST_REPLY_TO_SNAPSHOT,
+      sourceClientMessageId: "client-payload-fingerprint-a",
+      sourceEventId: "evt-payload-fingerprint-a",
+      sourceText: "PROMPT_FINGERPRINT_A",
+      targetProfileId: "agt-payload-fingerprint-a",
+      threadContext: TEST_THREAD_CONTEXT,
+      visitedProfileIdsHash: "stable32:payload-fingerprint-a",
+    });
+    original.controllerSnapshot = {
+      ...original.controllerSnapshot,
+      agentControllerRef: "builtin:codex",
+      bindingId: "binding-payload-fingerprint-a",
+      configurationRevision: 7,
+    };
+    if (!original.sourceSignalSnapshot) {
+      throw new Error("expected source signal snapshot");
+    }
+    original.sourceSignalSnapshot.attachments = [
+      {
+        id: "attachment-fingerprint-a",
+        mimeType: "image/png",
+        sizeBytes: 128,
+      },
+    ];
+    original.sourceSignalSnapshot.files = [
+      {
+        fileId: "file-fingerprint-a",
+        mimeType: "text/plain",
+        name: "fingerprint-a.txt",
+        revision: 1,
+        sizeBytes: 64,
+      },
+    ];
+
+    const promptChanged = structuredClone(original);
+    const attachmentChanged = structuredClone(original);
+    const fileChanged = structuredClone(original);
+    const replyChanged = structuredClone(original);
+    const threadChanged = structuredClone(original);
+    if (
+      !(
+        promptChanged.sourceSignalSnapshot &&
+        attachmentChanged.sourceSignalSnapshot?.attachments?.[0] &&
+        fileChanged.sourceSignalSnapshot?.files?.[0] &&
+        replyChanged.replyToSnapshot &&
+        threadChanged.threadContext
+      )
+    ) {
+      throw new Error("expected complete immutable payload fixtures");
+    }
+    promptChanged.sourceSignalSnapshot.text = "PROMPT_FINGERPRINT_B";
+    attachmentChanged.sourceSignalSnapshot.attachments[0].id =
+      "attachment-fingerprint-b";
+    fileChanged.sourceSignalSnapshot.files[0].revision = 2;
+    replyChanged.replyToSnapshot.signalId = "signal-fingerprint-b";
+    threadChanged.threadContext.threadId = "thread-fingerprint-b";
+
+    const snapshots = await Promise.all(
+      [
+        original,
+        promptChanged,
+        attachmentChanged,
+        fileChanged,
+        replyChanged,
+        threadChanged,
+      ].map((messageBody) =>
+        buildAcceptedDispatchSnapshot({
+          message: messageBody,
+          openMeldServiceRuntimeId: "runtime-payload-fingerprint-a",
+          runtimeKind: "openmeld_service",
+        })
+      )
+    );
+
+    expect(snapshots.every(Boolean)).toBe(true);
+    expect(
+      new Set(snapshots.map((snapshot) => snapshot?.payloadFingerprint)).size
+    ).toBe(6);
   });
 
   it("acks same-idempotency messages once per batch across controller workers", async () => {

@@ -13,6 +13,7 @@ import {
 import type {
   AgentTaskContinuationQueueMessage,
   AgentTaskObservationRedriveQueueMessage,
+  OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
@@ -109,6 +110,10 @@ import {
   type ReplyingHintTransition,
   resolveReplyingHintFinalizeDecision,
 } from "../rules/replying-hint-lifecycle";
+import {
+  applyAcceptedDispatchSnapshotToMessage,
+  buildAcceptedDispatchSnapshot,
+} from "./accepted-dispatch-snapshot";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
 import {
   applyEffectiveTargetBindingSnapshotToMessage,
@@ -1346,6 +1351,10 @@ const processDispatchQueueMessageExecution = async (input: {
         env: input.env,
         executionAttemptId,
         nowMs: input.nowMs,
+        openMeldServiceRuntimeId:
+          preflightCheck.effectiveTargetBindingSnapshot
+            .openMeldServiceRuntimeId,
+        runtimeKind: preflightCheck.effectiveTargetBindingSnapshot.runtimeKind,
         targetOwnerUserId,
       })
   );
@@ -1363,8 +1372,16 @@ const processDispatchQueueMessageExecution = async (input: {
     logServerTiming();
     return settledHeadAdmission;
   }
+  effectiveDispatchMessage = applyRuntimeCoordinatorAcceptedDispatchSnapshot({
+    headAcceptance,
+    message: effectiveDispatchMessage,
+  });
 
   const result = await beginFreshDispatchDeliveryPhase({
+    acceptedDispatchSnapshot:
+      headAcceptance.status === "proceed"
+        ? headAcceptance.acceptedDispatchSnapshot
+        : undefined,
     controllerKey: input.controllerKey,
     ctx: input.ctx,
     db: input.db,
@@ -1610,7 +1627,10 @@ const handlePreAgentStoppedBeforeDeliveryIfNeeded = async (input: {
 };
 
 type RuntimeCoordinatorHeadAcceptanceOutcome =
-  | { status: "proceed" }
+  | {
+      acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
+      status: "proceed";
+    }
   | { status: "profile_queue_waiting" }
   | {
       errorMessage: string;
@@ -1625,6 +1645,18 @@ type RuntimeCoordinatorHeadAcceptanceOutcome =
   | { reasonCode: string; status: "retry" }
   | { status: "publication_intent_ready" }
   | { status: "skip_duplicate" };
+
+const applyRuntimeCoordinatorAcceptedDispatchSnapshot = (input: {
+  headAcceptance: RuntimeCoordinatorHeadAcceptanceOutcome;
+  message: OpenMeldDaemonDispatchQueueMessage;
+}): OpenMeldDaemonDispatchQueueMessage =>
+  input.headAcceptance.status === "proceed" &&
+  input.headAcceptance.acceptedDispatchSnapshot
+    ? applyAcceptedDispatchSnapshotToMessage({
+        message: input.message,
+        snapshot: input.headAcceptance.acceptedDispatchSnapshot,
+      })
+    : input.message;
 
 const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   db: D1Database;
@@ -1746,6 +1778,8 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   env: CoreBindings;
   executionAttemptId: string;
   nowMs: number;
+  openMeldServiceRuntimeId?: string | null;
+  runtimeKind?: "hosted_center_agent" | "openmeld_service" | null;
   targetOwnerUserId: string;
 }): Promise<RuntimeCoordinatorHeadAcceptanceOutcome> => {
   const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
@@ -1767,11 +1801,17 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   if (preAgentStopped.handled) {
     return { status: "skip_duplicate" };
   }
+  const acceptedDispatchSnapshot = await buildAcceptedDispatchSnapshot({
+    message: input.dispatchMessage,
+    openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
+    runtimeKind: input.runtimeKind,
+  });
   const response = await acceptRuntimeTransportRuntimeCoordinatorHead({
     env: input.env,
     ownerUserId: input.targetOwnerUserId,
     head: {
       v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ...(acceptedDispatchSnapshot ? { acceptedDispatchSnapshot } : {}),
       dispatchId: input.dispatchMessage.dispatchId,
       idempotencyKey: input.dispatchMessage.idempotencyKey,
       ownerUserId: input.targetOwnerUserId,
@@ -1922,7 +1962,12 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
       targetWakeLifecycleId: response.targetWakeLifecycleId,
     }
   );
-  return { status: "proceed" };
+  return {
+    ...(response.acceptedDispatchSnapshot
+      ? { acceptedDispatchSnapshot: response.acceptedDispatchSnapshot }
+      : {}),
+    status: "proceed",
+  };
 };
 
 const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
@@ -2644,6 +2689,7 @@ const triggerRuntimeCoordinatorQueueDecision = async (input: {
 };
 
 const beginFreshDispatchDeliveryPhase = async (input: {
+  acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   controllerKey: string;
   ctx: DispatchQueueWaitContext;
   db: D1Database;
@@ -2674,6 +2720,7 @@ const beginFreshDispatchDeliveryPhase = async (input: {
     taskId: input.dispatchMessage.taskId,
   });
   const delivered = await deliverDispatchMessageToDaemon({
+    acceptedDispatchSnapshot: input.acceptedDispatchSnapshot,
     attemptId: input.executionAttemptId,
     db: input.db,
     env: input.env,

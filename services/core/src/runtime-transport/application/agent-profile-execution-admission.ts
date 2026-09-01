@@ -2075,7 +2075,12 @@ function sameRuntimeCoordinatorHeadAuthority(
     existing.targetWakeLifecycleIdentity.sourceSignalId ===
       proposed.targetWakeLifecycleIdentity.sourceSignalId &&
     existing.targetWakeLifecycleIdentity.targetProfileId ===
-      proposed.targetWakeLifecycleIdentity.targetProfileId
+      proposed.targetWakeLifecycleIdentity.targetProfileId &&
+    (!(
+      existing.acceptedDispatchSnapshot && proposed.acceptedDispatchSnapshot
+    ) ||
+      existing.acceptedDispatchSnapshot.payloadFingerprint ===
+        proposed.acceptedDispatchSnapshot.payloadFingerprint)
   );
 }
 

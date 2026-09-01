@@ -14,6 +14,7 @@ import type {
   AgentInteractionRequest,
   AgentInteractionResponse,
   DaemonServiceLane,
+  OpenMeldDaemonAcceptedDispatchSnapshot,
   RuntimeCoordinatorExecutionEventType,
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
@@ -267,6 +268,7 @@ export const RUNTIME_COORDINATOR_RUN_COMMAND_STATE_MODEL_VERSION =
   "openmeld.runtime_coordinator.run_command_state.v1";
 export const RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION =
   "openmeld.runtime_coordinator.head_lifecycle.v1";
+const ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/;
 export const RUNTIME_COORDINATOR_PRE_EXECUTION_HANDOFF_MODEL_VERSION =
   "openmeld.runtime_coordinator.pre_execution_handoff.v1";
 export const RUNTIME_COORDINATOR_PUBLICATION_BLOCKER_MODEL_VERSION =
@@ -586,6 +588,7 @@ export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
       };
 
 export type RuntimeCoordinatorHeadLifecycleRecord = {
+  acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   createdAtMs: number;
   duplicateDispatches: RuntimeCoordinatorHeadLifecycleDuplicateObservation[];
   executionLinkedAtMs: number | null;
@@ -2354,8 +2357,36 @@ export const isRuntimeCoordinatorHeadLifecycleRecord = (
       record.status === "waiting") &&
     (record.runtimeCoordinatorExecutionId === null ||
       typeof record.runtimeCoordinatorExecutionId === "string") &&
+    (record.acceptedDispatchSnapshot === undefined ||
+      isAcceptedDispatchSnapshot(record.acceptedDispatchSnapshot)) &&
     isOptionalNullableString(record.stopReason) &&
     targetWakeLifecycleIdentityMatchesRecord(record.targetWakeLifecycleIdentity)
+  );
+};
+
+const isAcceptedDispatchSnapshot = (
+  value: unknown
+): value is OpenMeldDaemonAcceptedDispatchSnapshot => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const snapshot = value as OpenMeldDaemonAcceptedDispatchSnapshot;
+  const controller = snapshot.controllerSnapshot;
+  return (
+    typeof snapshot.payloadFingerprint === "string" &&
+    ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_PATTERN.test(
+      snapshot.payloadFingerprint
+    ) &&
+    !!controller &&
+    typeof controller.bindingId === "string" &&
+    typeof controller.configurationRevision === "number" &&
+    Number.isInteger(controller.configurationRevision) &&
+    controller.configurationRevision > 0 &&
+    typeof snapshot.openMeldServiceRuntimeId === "string" &&
+    snapshot.runtimeKind === "openmeld_service" &&
+    controller.targetBindingState === "bound" &&
+    controller.targetBindingEnabled === true &&
+    typeof controller.agentControllerRef === "string"
   );
 };
 
