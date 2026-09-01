@@ -740,9 +740,15 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		if (!messageElement) {
 			return;
 		}
-		messageElement.scrollIntoView({
-			block: "center",
-		});
+		const scrollElement = conversationScrollRef.current;
+		if (scrollElement) {
+			scrollMessageIntoConversationViewport({
+				messageElement,
+				scrollElement,
+			});
+		} else {
+			messageElement.scrollIntoView({ block: "center" });
+		}
 		messageElement.focus({ preventScroll: true });
 		setHighlightedSignalId(signalId);
 		if (highlightMessageTimerRef.current !== null) {
@@ -1620,6 +1626,23 @@ function resolveSpaceUnreadNavigationState(input: {
 		nearestAbove: above[0]?.target ?? null,
 		nearestBelow: below[0]?.target ?? null,
 	};
+}
+
+function scrollMessageIntoConversationViewport(input: {
+	messageElement: HTMLElement;
+	scrollElement: HTMLElement;
+}): void {
+	const alignMessage = () => {
+		const messageRect = input.messageElement.getBoundingClientRect();
+		const viewportRect = input.scrollElement.getBoundingClientRect();
+		const messageCenter = (messageRect.top + messageRect.bottom) / 2;
+		const viewportCenter = (viewportRect.top + viewportRect.bottom) / 2;
+		input.scrollElement.scrollTop += messageCenter - viewportCenter;
+	};
+	alignMessage();
+	window.requestAnimationFrame(() => {
+		window.requestAnimationFrame(alignMessage);
+	});
 }
 
 function unreadTargetKey(target: SpaceInboxUnreadTarget): string {

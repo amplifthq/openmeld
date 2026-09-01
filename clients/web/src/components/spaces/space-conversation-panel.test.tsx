@@ -954,7 +954,12 @@ describe("SpaceConversationPanel", () => {
 					return domRect({ bottom: 500, top: 0 });
 				}
 				if (this.hasAttribute("data-signal-id")) {
-					return domRect({ bottom: 760, top: 700 });
+					const conversation = this.closest<HTMLElement>("[role='log']");
+					const scrollTop = conversation?.scrollTop ?? 0;
+					return domRect({
+						bottom: 760 - scrollTop,
+						top: 700 - scrollTop,
+					});
 				}
 				return domRect({ bottom: 0, top: 0 });
 			});
@@ -982,6 +987,48 @@ describe("SpaceConversationPanel", () => {
 			screen.getByRole("button", { name: "Hide 3 new messages" })
 		);
 		expect(document.body.contains(jumpButton)).toBe(false);
+		rectSpy.mockRestore();
+	});
+
+	it("keeps a lower unread target inside the conversation viewport", async () => {
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return domRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					return domRect({ bottom: 760, top: 700 });
+				}
+				return domRect({ bottom: 0, top: 0 });
+			});
+		renderSpaceConversationPanel({
+			timelineItems: [
+				createTimelineItem({ id: "signal-1", text: "First new message" }),
+			],
+			unreadTargets: [
+				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		});
+
+		const conversation = screen.getByRole("log", {
+			name: "Conversation history",
+		});
+		conversation.scrollTop = 0;
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "1 new message. Jump to the nearest new message",
+			})
+		);
+
+		await waitFor(() => {
+			expect(conversation.scrollTop).toBe(480);
+		});
+		expect(document.activeElement).toBe(
+			screen.getByText("First new message").closest("[data-signal-id]")
+		);
 		rectSpy.mockRestore();
 	});
 
