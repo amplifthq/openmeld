@@ -26,6 +26,10 @@ const RELEASE_TAG_PUSH = ['git push origin "refs/tags/v$', '{version}"'].join(
 );
 const PENDING_DATABASE_ERROR_PATTERN =
   /Production database is behind the release source.*scope `database`.*0149_rapid_venus\.sql/su;
+const DATABASE_PROBE_FAILED_ERROR_PATTERN =
+  /could not prove that the Production database is current.*authentication failed/su;
+const DATABASE_PROBE_INCONCLUSIVE_ERROR_PATTERN =
+  /could not prove that the Production database is current/su;
 
 test("keeps the trusted GitHub release publication-only and focused on CLI and Core", () => {
   const source = readRepoFile(".github/workflows/cli-release.yml");
@@ -203,7 +207,7 @@ test("fails closed when the migration probe itself fails", () => {
           stdout: "",
         }),
       }),
-    /could not prove that the Production database is current.*authentication failed/su
+    DATABASE_PROBE_FAILED_ERROR_PATTERN
   );
 });
 
@@ -218,7 +222,7 @@ test("fails closed when a successful migration probe has no decisive evidence", 
           cwd: "/release-source",
           runCommand: () => ({ status: 0, stderr: "", stdout }),
         }),
-      /could not prove that the Production database is current/su
+      DATABASE_PROBE_INCONCLUSIVE_ERROR_PATTERN
     );
   }
 });
