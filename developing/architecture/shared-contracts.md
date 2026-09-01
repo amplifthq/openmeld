@@ -4785,10 +4785,12 @@ that same Profile ID while Core finishes setup. Core checkpoints the ID on that
 fenced request before the first post-Auth setup write, bypasses the Auth create
 RPC on retry, and reruns only idempotent Space, Binding, managed working-folder,
 and Default Project follow-ups. A private custom-folder path remains a Web-local
-per-tab settings draft and resumes through the existing current-device
-workspace writer after Core completes. Web may retain a browser-local
-incomplete marker with the committed Profile ID but no path; neither value is
-added to this cloud contract.
+per-tab settings draft keyed to the request, is bound to the committed Profile
+ID when one exists, and resumes through the existing current-device workspace
+writer after Core completes. Web may retain a browser-local incomplete marker
+with no path: before identity commit it records only that custom setup is due,
+and after commit it may carry the Profile ID. Neither value is added to this
+cloud contract.
 `profile_creation_failed` is reserved for failures that have no committed
 `createdAgentProfileId`; no new strict response enum is required for older CLI
 and cloud readers to understand the payload.

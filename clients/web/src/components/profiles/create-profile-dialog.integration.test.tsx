@@ -550,6 +550,7 @@ async function selectAgentProfileKind() {
 
 describe("CreateProfileDialog", () => {
 	beforeEach(() => {
+		window.localStorage.clear();
 		window.sessionStorage.clear();
 		getProfileCapabilitiesMock.mockReset().mockResolvedValue({
 			additionalHumanProfileCreationEnabled: true,
@@ -1676,6 +1677,64 @@ describe("CreateProfileDialog", () => {
 			agentProfileId: NEW_AGENT_ID,
 			workspacePath: "/Users/felix/Desktop/work/openmeld",
 		});
+	});
+
+	it("keeps a custom folder retryable when Core fails before committing the Profile", async () => {
+		createAgentProfileCreationRequestMock.mockImplementation(
+			async (requestInput) =>
+				buildAgentProfileCreationRequestResult(requestInput, {
+					createdAgentProfileId: null,
+					failureMessage: "The selected Computer is no longer reachable.",
+					status: "failed",
+					statusReason: "profile_creation_failed",
+				})
+		);
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "codex",
+				launchStatus: "ready",
+				selectable: true,
+			}),
+		]);
+		renderCreateProfileDialog({
+			organizationId: "organization-123",
+			recovery,
+		});
+
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+		await selectAgentProfileKind();
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Research Agent" },
+		});
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: "Choose a folder on this computer…",
+			})
+		);
+		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
+			target: { value: "/Users/felix/Desktop/work/openmeld" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
+		);
+
+		await waitFor(() => {
+			expect(
+				readPendingAgentProfileCreationLocalSetup({
+					organizationId: "organization-123",
+					requestId: "apcr-self",
+					storageScope: recovery.storageScope,
+				})
+			).toEqual({
+				agentProfileId: null,
+				workspacePath: "/Users/felix/Desktop/work/openmeld",
+			});
+		});
+		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
 	});
 
 	it("reports Core's Space membership failure without retrying the write in Web", async () => {

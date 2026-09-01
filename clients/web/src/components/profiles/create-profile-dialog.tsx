@@ -1299,8 +1299,6 @@ function handleProfileCreationSuccess(input: {
 			request: input.result.request,
 		});
 		input.onAgentRequestCreated?.(input.result.request);
-		input.onReset();
-		input.onClose();
 		refreshAgentProfileCreationRequestCaches({
 			createdAgentProfileId: input.result.request.createdAgentProfileId,
 			onAfterJoin: input.onAfterJoin,
@@ -1316,6 +1314,14 @@ function handleProfileCreationSuccess(input: {
 				error
 			);
 		});
+		if (
+			input.result.customWorkingFolderIssue &&
+			!input.result.request.createdAgentProfileId
+		) {
+			return;
+		}
+		input.onReset();
+		input.onClose();
 		return;
 	}
 	showCreatedProfileToast({
@@ -1478,14 +1484,13 @@ async function configureRequestedAgentCustomWorkingFolder(input: {
 	submission: CreateProfileSubmissionInput;
 }): Promise<string | null> {
 	if (
-		input.request.createdAgentProfileId &&
 		input.submission.ownerMode === "self" &&
 		input.submission.boundAgentId &&
 		!input.defaultProjectId &&
 		input.submission.projectFolderPath.trim()
 	) {
 		const pendingSetup = {
-			agentProfileId: input.request.createdAgentProfileId,
+			agentProfileId: input.request.createdAgentProfileId ?? null,
 			workspacePath: input.submission.projectFolderPath,
 		};
 		const remembered = rememberPendingAgentProfileCreationLocalSetup({
@@ -1506,7 +1511,7 @@ async function configureRequestedAgentCustomWorkingFolder(input: {
 			return continuation.failureMessage;
 		}
 		if (continuation.pending && !remembered) {
-			return "OpenMeld couldn't remember the custom working folder for setup retry.";
+			return "OpenMeld couldn't keep your custom working folder for retry. Keep this window open and try again.";
 		}
 	}
 	return null;
@@ -2261,10 +2266,14 @@ function showCreatedAgentRequestToast(input: {
 	customWorkingFolderIssue: string | null;
 	request: AgentProfileCreationRequest;
 }): void {
-	if (input.customWorkingFolderIssue && input.request.createdAgentProfileId) {
-		toast.warning(
-			`${input.request.profileName} was created, but working folder setup isn't complete. ${input.customWorkingFolderIssue} Open the Agent to finish setup.`
-		);
+	if (input.customWorkingFolderIssue) {
+		if (input.request.createdAgentProfileId) {
+			toast.warning(
+				`${input.request.profileName} was created, but working folder setup isn't complete. ${input.customWorkingFolderIssue} Open the Agent to finish setup.`
+			);
+		} else {
+			toast.error(input.customWorkingFolderIssue);
+		}
 		return;
 	}
 	switch (input.request.status) {

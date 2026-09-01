@@ -555,20 +555,22 @@ writer. **Enter path manually** remains available as the final fallback. The
 picker must not create a second profile workspace store or upload the selected
 path into cloud Profile identity.
 
-If Agent creation commits the identity before its remaining setup completes,
-Web may keep the selected custom path only in the existing account-scoped,
-per-tab local settings draft. The draft is keyed to the creation request and
-committed Profile ID, never sent to Core or treated as current working-folder
-truth, and is cleared only after the current OpenMeld Service accepts the
-workspace mutation. Web may persist a separate browser-local marker containing
-the committed Profile ID, but not the absolute path, so a closed tab does not
-turn unfinished custom-folder setup into apparent success. **Retry setup**
-finishes the fenced Core request first and then retries that local draft against
-the same Profile. If only the marker remains, the user must choose the custom
-folder again in Agent settings; OpenMeld must not infer it or silently keep
-`openmeld_managed` as if the custom choice succeeded. A successful explicit
-working-folder choice in Agent settings clears all remaining setup drafts and
-markers for that Profile so the request returns to its completed presentation.
+When the user chooses a custom working folder during Agent creation, Web may
+keep the private path only in the existing account-scoped, per-tab local
+settings draft. The draft is keyed to the creation request and is bound to the
+committed Profile ID when one exists. It is never sent to Core or treated as
+current working-folder truth, and is cleared only after the current OpenMeld
+Service accepts the workspace mutation. Web may persist a separate
+browser-local marker without the absolute path: before identity commit it
+records only that custom setup is due, and after commit it may contain the
+Profile ID. This marker prevents a closed tab from turning unfinished
+custom-folder setup into apparent success. **Retry setup** finishes the fenced
+Core request first and then retries that local draft against the same Profile.
+If only the marker remains, the user must choose the custom folder again in
+Agent settings; OpenMeld must not infer it or silently keep `openmeld_managed`
+as if the custom choice succeeded. A successful explicit working-folder choice
+in Agent settings clears all remaining setup drafts and markers for that Profile
+so the request returns to its completed presentation.
 
 When the Default Project selector needs a new local Project connection, it
 reuses the same Project connection flow and offers **Choose a Project folder on

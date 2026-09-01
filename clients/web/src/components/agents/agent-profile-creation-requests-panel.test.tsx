@@ -186,6 +186,40 @@ describe("AgentProfileCreationRequestsPanel", () => {
 		expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
 	});
 
+	it("carries browser-local setup through a retry that commits the Profile", async () => {
+		listRequestsMock.mockResolvedValueOnce({
+			organizationId: "org-1",
+			requests: [
+				{
+					...BASE_REQUEST,
+					failureMessage: "The selected Computer is no longer reachable.",
+					requesterUserId: "user-felix",
+					status: "failed",
+					statusReason: "profile_creation_failed",
+				},
+			],
+		});
+
+		renderPanel();
+
+		fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+		await waitFor(() => {
+			expect(retryRequestMock).toHaveBeenCalledWith({
+				organizationId: "org-1",
+				requestId: "request-incoming",
+			});
+			expect(continueLocalSetupMock).toHaveBeenCalledWith({
+				organizationId: "org-1",
+				request: expect.objectContaining({
+					createdAgentProfileId: "agent-created-before-setup-failed",
+					status: "completed",
+				}),
+				selectedHumanProfileId: "11111111-1111-4111-8111-111111111111",
+				storageScope: "account-1",
+			});
+		});
+	});
+
 	it("retries only the browser-local step after Core setup completed", async () => {
 		readLocalSetupMock.mockReturnValue({
 			agentProfileId: "agent-created-before-setup-failed",

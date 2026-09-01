@@ -145,6 +145,98 @@ describe("pending Agent Profile creation local setup", () => {
 		).toBeNull();
 	});
 
+	it("carries a pre-commit custom folder intent onto the Profile committed by retry", async () => {
+		expect(
+			rememberPendingAgentProfileCreationLocalSetup({
+				agentProfileId: null,
+				organizationId: "org-1",
+				requestId: "request-1",
+				storageScope: "account-1",
+				workspacePath: "/Users/felix/Desktop/work/openmeld",
+			})
+		).toBe(true);
+
+		await expect(
+			continuePendingAgentProfileCreationLocalSetup({
+				organizationId: "org-1",
+				request: requestFixture({
+					createdAgentProfileId: null,
+					status: "failed",
+				}),
+				selectedHumanProfileId: "human-felix",
+				storageScope: "account-1",
+			})
+		).resolves.toEqual({ failureMessage: null, pending: true });
+		expect(
+			readPendingAgentProfileCreationLocalSetup({
+				organizationId: "org-1",
+				requestId: "request-1",
+				storageScope: "account-1",
+			})
+		).toEqual({
+			agentProfileId: null,
+			workspacePath: "/Users/felix/Desktop/work/openmeld",
+		});
+
+		await expect(
+			continuePendingAgentProfileCreationLocalSetup({
+				organizationId: "org-1",
+				request: requestFixture({ status: "completed" }),
+				selectedHumanProfileId: "human-felix",
+				storageScope: "account-1",
+			})
+		).resolves.toEqual({ failureMessage: null, pending: false });
+		expect(configureWorkspaceMock).toHaveBeenCalledWith({
+			agentProfileId: AGENT_PROFILE_ID,
+			bindingEstablished: true,
+			organizationId: "org-1",
+			projectFolderPath: "/Users/felix/Desktop/work/openmeld",
+			selectedHumanProfileId: "human-felix",
+		});
+	});
+
+	it("requires the custom folder to be selected again when its pre-commit tab draft expires", async () => {
+		rememberPendingAgentProfileCreationLocalSetup({
+			agentProfileId: null,
+			organizationId: "org-1",
+			requestId: "request-1",
+			storageScope: "account-1",
+			workspacePath: "/Users/felix/Desktop/work/openmeld",
+		});
+		window.sessionStorage.clear();
+
+		expect(
+			readPendingAgentProfileCreationLocalSetup({
+				organizationId: "org-1",
+				requestId: "request-1",
+				storageScope: "account-1",
+			})
+		).toEqual({ agentProfileId: null, workspacePath: null });
+		await expect(
+			continuePendingAgentProfileCreationLocalSetup({
+				organizationId: "org-1",
+				request: requestFixture({ status: "completed" }),
+				selectedHumanProfileId: "human-felix",
+				storageScope: "account-1",
+			})
+		).resolves.toEqual({
+			failureMessage:
+				"Choose the custom working folder again in Agent settings on this computer.",
+			pending: true,
+		});
+		expect(configureWorkspaceMock).not.toHaveBeenCalled();
+		expect(
+			readPendingAgentProfileCreationLocalSetup({
+				organizationId: "org-1",
+				requestId: "request-1",
+				storageScope: "account-1",
+			})
+		).toEqual({
+			agentProfileId: AGENT_PROFILE_ID,
+			workspacePath: null,
+		});
+	});
+
 	it("preserves the private folder intent while Core setup remains incomplete", async () => {
 		rememberPendingAgentProfileCreationLocalSetup({
 			agentProfileId: AGENT_PROFILE_ID,
@@ -209,6 +301,7 @@ describe("pending Agent Profile creation local setup", () => {
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 function requestFixture(input: {
+	createdAgentProfileId?: string | null;
 	status: "completed" | "failed";
 }): AgentProfileCreationRequest {
 	const completed = input.status === "completed";
@@ -226,7 +319,10 @@ function requestFixture(input: {
 			reasoningLevel: null,
 			targetComputerId: "computer-1",
 		},
-		createdAgentProfileId: AGENT_PROFILE_ID,
+		createdAgentProfileId:
+			input.createdAgentProfileId === undefined
+				? AGENT_PROFILE_ID
+				: input.createdAgentProfileId,
 		createdAt: "2026-09-01T00:00:00.000Z",
 		decidedAt: "2026-09-01T00:00:01.000Z",
 		failureMessage: completed ? null : "The Computer is offline.",

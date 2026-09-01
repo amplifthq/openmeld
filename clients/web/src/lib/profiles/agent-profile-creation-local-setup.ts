@@ -5,14 +5,15 @@ const DRAFT_STORAGE_PREFIX =
 	"openmeld:agent-profile-creation-local-setup-draft:v1";
 const MARKER_STORAGE_PREFIX =
 	"openmeld:agent-profile-creation-custom-folder-marker:v1";
+const PROFILE_ID_PENDING_MARKER = "profile_identity_pending";
 
 export type PendingAgentProfileCreationLocalSetup = {
-	agentProfileId: string;
+	agentProfileId: string | null;
 	workspacePath: string | null;
 };
 
 export function rememberPendingAgentProfileCreationLocalSetup(input: {
-	agentProfileId: string;
+	agentProfileId: string | null;
 	organizationId: string;
 	requestId: string;
 	storageScope: string;
@@ -26,11 +27,10 @@ export function rememberPendingAgentProfileCreationLocalSetup(input: {
 		return false;
 	}
 	let markerStored = false;
-	let draftStored = false;
 	try {
 		window.localStorage.setItem(
 			buildStorageKey(input, MARKER_STORAGE_PREFIX),
-			pendingSetup.agentProfileId
+			pendingSetup.agentProfileId ?? PROFILE_ID_PENDING_MARKER
 		);
 		markerStored = true;
 	} catch {
@@ -41,11 +41,10 @@ export function rememberPendingAgentProfileCreationLocalSetup(input: {
 			buildStorageKey(input, DRAFT_STORAGE_PREFIX),
 			JSON.stringify(pendingSetup)
 		);
-		draftStored = true;
 	} catch {
 		// The non-path marker keeps later presentation fail-closed.
 	}
-	return markerStored && draftStored;
+	return markerStored;
 }
 
 export function readPendingAgentProfileCreationLocalSetup(input: {
@@ -71,10 +70,14 @@ export function readPendingAgentProfileCreationLocalSetup(input: {
 		// The non-path marker can still preserve the incomplete state.
 	}
 	try {
-		const agentProfileId =
+		const markerValue =
 			window.localStorage.getItem(markerStorageKey)?.trim() ?? "";
-		if (agentProfileId) {
-			return { agentProfileId, workspacePath: null };
+		if (markerValue) {
+			return {
+				agentProfileId:
+					markerValue === PROFILE_ID_PENDING_MARKER ? null : markerValue,
+				workspacePath: null,
+			};
 		}
 	} catch {
 		// Browser storage is unavailable, so no durable local setup intent exists.
@@ -105,7 +108,11 @@ export async function continuePendingAgentProfileCreationLocalSetup(input: {
 	) {
 		return { failureMessage: null, pending: true };
 	}
-	if (input.request.createdAgentProfileId !== pendingSetup.agentProfileId) {
+	const createdAgentProfileId = input.request.createdAgentProfileId;
+	if (
+		pendingSetup.agentProfileId &&
+		createdAgentProfileId !== pendingSetup.agentProfileId
+	) {
 		return {
 			failureMessage:
 				"OpenMeld couldn't match the saved working folder to the created Agent.",
@@ -113,15 +120,28 @@ export async function continuePendingAgentProfileCreationLocalSetup(input: {
 		};
 	}
 	if (!pendingSetup.workspacePath) {
+		rememberCommittedAgentProfileMarker({
+			agentProfileId: createdAgentProfileId,
+			organizationId: input.organizationId,
+			requestId: input.request.id,
+			storageScope: input.storageScope,
+		});
 		return {
 			failureMessage:
 				"Choose the custom working folder again in Agent settings on this computer.",
 			pending: true,
 		};
 	}
+	rememberPendingAgentProfileCreationLocalSetup({
+		agentProfileId: createdAgentProfileId,
+		organizationId: input.organizationId,
+		requestId: input.request.id,
+		storageScope: input.storageScope,
+		workspacePath: pendingSetup.workspacePath,
+	});
 	try {
 		await configureNewAgentProfileWorkspace({
-			agentProfileId: pendingSetup.agentProfileId,
+			agentProfileId: createdAgentProfileId,
 			bindingEstablished: true,
 			organizationId: input.organizationId,
 			projectFolderPath: pendingSetup.workspacePath,
@@ -201,6 +221,22 @@ function buildStorageKey(
 		.join(":");
 }
 
+function rememberCommittedAgentProfileMarker(input: {
+	agentProfileId: string;
+	organizationId: string;
+	requestId: string;
+	storageScope: string;
+}): void {
+	try {
+		window.localStorage.setItem(
+			buildStorageKey(input, MARKER_STORAGE_PREFIX),
+			input.agentProfileId
+		);
+	} catch {
+		// The existing marker remains fail-closed if durable storage is unavailable.
+	}
+}
+
 function clearMatchingStorageEntries(input: {
 	matches: (rawValue: string) => boolean;
 	prefix: string;
@@ -224,11 +260,11 @@ function clearMatchingStorageEntries(input: {
 }
 
 function normalizePendingSetup(input: {
-	agentProfileId: string;
+	agentProfileId: string | null;
 	workspacePath: string;
 }): PendingAgentProfileCreationLocalSetup | null {
-	const agentProfileId = input.agentProfileId.trim();
-	if (!(agentProfileId && input.workspacePath.trim())) {
+	const agentProfileId = input.agentProfileId?.trim() || null;
+	if (!input.workspacePath.trim()) {
 		return null;
 	}
 	return { agentProfileId, workspacePath: input.workspacePath };
@@ -244,7 +280,8 @@ function parsePendingSetup(
 		}
 		const record = value as Record<string, unknown>;
 		if (
-			typeof record.agentProfileId !== "string" ||
+			(record.agentProfileId !== null &&
+				typeof record.agentProfileId !== "string") ||
 			typeof record.workspacePath !== "string"
 		) {
 			return null;
