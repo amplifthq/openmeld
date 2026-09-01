@@ -4777,6 +4777,22 @@ requests project one structured Inbox target of kind
 `agent_profile_creation_request`; that locator carries only the canonical
 request ID and grants no approval or Profile access.
 
+The Auth identity write is the request's irreversible commit point. If a later
+setup step fails, the shared response carries the backward-compatible
+combination `status: failed`, `statusReason: profile_created`, and the non-null
+`createdAgentProfileId`. A retry may temporarily carry `status: approved` with
+that same Profile ID while Core finishes setup. Core checkpoints the ID on that
+fenced request before the first post-Auth setup write, bypasses the Auth create
+RPC on retry, and reruns only idempotent Space, Binding, managed working-folder,
+and Default Project follow-ups. A private custom-folder path remains a Web-local
+per-tab settings draft and resumes through the existing current-device
+workspace writer after Core completes. Web may retain a browser-local
+incomplete marker with the committed Profile ID but no path; neither value is
+added to this cloud contract.
+`profile_creation_failed` is reserved for failures that have no committed
+`createdAgentProfileId`; no new strict response enum is required for older CLI
+and cloud readers to understand the payload.
+
 The Center Agent RPC wrapper does not create a second state machine. It verifies
 the current designation, resolves the represented member, preserves the Center
 Agent Profile as actor, and delegates to the same Core request operations.

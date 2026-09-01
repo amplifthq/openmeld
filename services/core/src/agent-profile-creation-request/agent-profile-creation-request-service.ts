@@ -149,6 +149,10 @@ export class AgentProfileCreationRequestConflictError extends Error {
   }
 }
 
+export type AgentProfileCreationRequestExecutionCheckpoint = {
+  checkpointCreatedAgentProfileId: (agentProfileId: string) => Promise<void>;
+};
+
 export class AgentProfileCreationRequestForbiddenError extends Error {
   constructor(message: string) {
     super(message);
@@ -198,16 +202,20 @@ export async function failStaleAgentProfileCreationRequests(input: {
   let markedFailed = 0;
   let superseded = 0;
   for (const record of stale) {
+    const setupIncomplete = record.createdAgentProfileId !== null;
     const failed = await input.repository.transition({
       expectedProfileCreationAttempt: record.profileCreationAttempt,
       expectedStatuses: ["approved"],
       expectedUpdatedAtMs: record.updatedAtMs,
       requestId: record.id,
       update: {
-        failureMessage:
-          "OpenMeld lost contact while creating this Agent. Retry to continue safely.",
+        failureMessage: setupIncomplete
+          ? "OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely."
+          : "OpenMeld lost contact while creating this Agent. Retry to continue safely.",
         status: "failed",
-        statusReason: "profile_creation_failed",
+        statusReason: setupIncomplete
+          ? "profile_created"
+          : "profile_creation_failed",
         updatedAtMs: Math.max(input.nowMs, record.updatedAtMs + 1),
       },
     });
@@ -223,7 +231,8 @@ export async function failStaleAgentProfileCreationRequests(input: {
 export function createAgentProfileCreationRequestService(input: {
   attemptInboxProjection: (requestId: string) => Promise<void>;
   createAgentProfile: (
-    request: AgentProfileCreationRequestRecord
+    request: AgentProfileCreationRequestRecord,
+    checkpoint: AgentProfileCreationRequestExecutionCheckpoint
   ) => Promise<string>;
   now?: () => number;
   randomUuid?: () => string;
@@ -248,38 +257,72 @@ export function createAgentProfileCreationRequestService(input: {
     if (!claimed) {
       return toPublicRequest(await requireRequest(record));
     }
+    let activeClaim = claimed;
     let createdAgentProfileId: string;
     try {
-      createdAgentProfileId = await input.createAgentProfile(claimed);
+      createdAgentProfileId = await input.createAgentProfile(claimed, {
+        checkpointCreatedAgentProfileId: async (agentProfileId) => {
+          if (activeClaim.createdAgentProfileId) {
+            if (activeClaim.createdAgentProfileId !== agentProfileId) {
+              throw new AgentProfileCreationRequestStateError(
+                "This request already belongs to another Agent Profile."
+              );
+            }
+            return;
+          }
+          const checkpointedAtMs = Math.max(now(), activeClaim.updatedAtMs + 1);
+          const checkpointed = await input.repository.transition({
+            expectedProfileCreationAttempt: activeClaim.profileCreationAttempt,
+            expectedStatuses: ["approved"],
+            expectedUpdatedAtMs: activeClaim.updatedAtMs,
+            requestId: activeClaim.id,
+            update: {
+              createdAgentProfileId: agentProfileId,
+              statusReason: "profile_created",
+              updatedAtMs: checkpointedAtMs,
+            },
+          });
+          if (!checkpointed) {
+            throw new AgentProfileCreationRequestStateError(
+              "This Agent Profile setup attempt was superseded."
+            );
+          }
+          activeClaim = checkpointed;
+        },
+      });
     } catch (error) {
-      const failedAtMs = Math.max(now(), claimed.updatedAtMs + 1);
+      const failedAtMs = Math.max(now(), activeClaim.updatedAtMs + 1);
       const executionError =
         error instanceof AgentProfileCreationRequestExecutionError
           ? error
           : null;
+      const createdAgentProfileId =
+        executionError?.createdAgentProfileId ??
+        activeClaim.createdAgentProfileId ??
+        record.createdAgentProfileId;
       const failed = await input.repository.transition({
-        expectedProfileCreationAttempt: claimed.profileCreationAttempt,
+        expectedProfileCreationAttempt: activeClaim.profileCreationAttempt,
         expectedStatuses: ["approved"],
-        expectedUpdatedAtMs: claimed.updatedAtMs,
+        expectedUpdatedAtMs: activeClaim.updatedAtMs,
         requestId: record.id,
         update: {
-          createdAgentProfileId:
-            executionError?.createdAgentProfileId ??
-            record.createdAgentProfileId,
+          createdAgentProfileId,
           failureMessage: normalizeFailureMessage(error),
           status: "failed",
-          statusReason: "profile_creation_failed",
+          statusReason: createdAgentProfileId
+            ? "profile_created"
+            : "profile_creation_failed",
           updatedAtMs: failedAtMs,
         },
       });
       const current = failed ?? (await requireRequest(record));
       return toPublicRequest(current);
     }
-    const completedAtMs = Math.max(now(), claimed.updatedAtMs + 1);
+    const completedAtMs = Math.max(now(), activeClaim.updatedAtMs + 1);
     const completed = await input.repository.transition({
-      expectedProfileCreationAttempt: claimed.profileCreationAttempt,
+      expectedProfileCreationAttempt: activeClaim.profileCreationAttempt,
       expectedStatuses: ["approved"],
-      expectedUpdatedAtMs: claimed.updatedAtMs,
+      expectedUpdatedAtMs: activeClaim.updatedAtMs,
       requestId: record.id,
       update: {
         completedAtMs,
@@ -351,8 +394,9 @@ export function createAgentProfileCreationRequestService(input: {
         );
       }
       if (
-        current.status === "approved" &&
-        current.profileCreationStartedAtMs !== null
+        current.createdAgentProfileId !== null ||
+        (current.status === "approved" &&
+          current.profileCreationStartedAtMs !== null)
       ) {
         throw new AgentProfileCreationRequestStateError(
           "This request can no longer be cancelled."
@@ -577,6 +621,13 @@ export function createAgentProfileCreationRequestService(input: {
         return await completeApprovedRequest(current);
       }
       const nowMs = Math.max(now(), current.updatedAtMs + 1);
+      let retryStatusReason: AgentProfileCreationRequestStatusReason =
+        "automatically_allowed";
+      if (current.createdAgentProfileId) {
+        retryStatusReason = "profile_created";
+      } else if (current.statusReason === "target_approved") {
+        retryStatusReason = "target_approved";
+      }
       const approved = await input.repository.transition({
         expectedStatuses: ["failed"],
         expectedUpdatedAtMs: current.updatedAtMs,
@@ -585,10 +636,7 @@ export function createAgentProfileCreationRequestService(input: {
           failureMessage: null,
           profileCreationStartedAtMs: null,
           status: "approved",
-          statusReason:
-            current.statusReason === "target_approved"
-              ? "target_approved"
-              : "automatically_allowed",
+          statusReason: retryStatusReason,
           updatedAtMs: nowMs,
         },
       });

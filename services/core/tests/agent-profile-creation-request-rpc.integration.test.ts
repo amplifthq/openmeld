@@ -5,12 +5,76 @@ import {
   rpcCreateAgentProfileCreationRequest,
   rpcDecideAgentProfileCreationRequest,
   rpcListAgentProfileCreationRequests,
+  rpcRetryAgentProfileCreationRequest,
 } from "../src/agent-profile-creation-request/agent-profile-creation-request-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
+// biome-ignore lint/performance/noNamespaceImport: Vitest needs the module object to replace this dependency at the RPC boundary.
+import * as rpcMethods from "../src/rpc/methods";
 // biome-ignore lint/performance/noNamespaceImport: Vitest needs the module object to replace this dependency at the RPC boundary.
 import * as currentDeviceTargetService from "../src/start/application/current-device-target-service";
 
 describe("Agent Profile creation request RPC", () => {
+  it("retries setup for the committed Profile without creating another identity", async () => {
+    const fixture = await seedFixture();
+    const createdAgentProfileId = "agt_33333333-3333-4333-8333-333333333333";
+    const createAgentProfileInOrganization = vi.fn().mockResolvedValue({
+      ok: true,
+      profile: { openMeldProfileId: createdAgentProfileId },
+    });
+    const addProfileToSpace = vi
+      .spyOn(rpcMethods, "rpcAddOrganizationDirectoryProfilesToSpace")
+      .mockRejectedValueOnce(new Error("The Space is temporarily unavailable."))
+      .mockResolvedValueOnce({
+        addedProfileIds: [createdAgentProfileId],
+        alreadyMemberProfileIds: [],
+      });
+    const bindings = {
+      OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
+      OPENMELD_DB: env.OPENMELD_DB,
+    } as unknown as CoreBindings;
+
+    try {
+      const first = await rpcCreateAgentProfileCreationRequest(bindings, {
+        context: contextFor(
+          fixture.requesterUserId,
+          fixture.requesterProfileId
+        ),
+        idempotencyKey: `setup-retry-${fixture.suffix}`,
+        organizationId: fixture.organizationId,
+        profileName: "Release Reviewer",
+        requestedSpaceId: `space-${fixture.suffix}`,
+        sessionStrategy: "new",
+        source: "web",
+        targetOwnerUserId: fixture.requesterUserId,
+      });
+
+      expect(first.request).toMatchObject({
+        createdAgentProfileId,
+        status: "failed",
+        statusReason: "profile_created",
+      });
+
+      const retried = await rpcRetryAgentProfileCreationRequest(bindings, {
+        context: contextFor(
+          fixture.requesterUserId,
+          fixture.requesterProfileId
+        ),
+        organizationId: fixture.organizationId,
+        requestId: first.request.id,
+      });
+
+      expect(retried.request).toMatchObject({
+        createdAgentProfileId,
+        status: "completed",
+        statusReason: "profile_created",
+      });
+      expect(createAgentProfileInOrganization).toHaveBeenCalledTimes(1);
+      expect(addProfileToSpace).toHaveBeenCalledTimes(2);
+    } finally {
+      addProfileToSpace.mockRestore();
+    }
+  });
+
   it("does not create an Agent Profile when the selected local agent is no longer available", async () => {
     const fixture = await seedFixture();
     const createAgentProfileInOrganizationMock = vi.fn().mockResolvedValue({

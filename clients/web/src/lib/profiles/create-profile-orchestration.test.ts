@@ -26,10 +26,7 @@ vi.mock("./join-profile-to-space", () => ({
 	joinProfileToSpace: orchestrationMocks.joinSpace,
 }));
 
-import {
-	createProfileWithFollowUps,
-	SessionProfileCreationRolledBackError,
-} from "./create-profile-orchestration";
+import { createProfileWithFollowUps } from "./create-profile-orchestration";
 
 describe("Session-based Agent Profile creation", () => {
 	beforeEach(() => {
@@ -45,7 +42,7 @@ describe("Session-based Agent Profile creation", () => {
 			.mockResolvedValue(agentProfile);
 	});
 
-	it("removes the new Agent when Core rejects stale Resume eligibility", async () => {
+	it("keeps the committed Profile when Core rejects stale Resume eligibility", async () => {
 		const resumeUnavailable = new NewProfileLocalSetupError({
 			message:
 				"This Session changed or is no longer available to resume. Refresh Agent Activity and choose it again.",
@@ -57,19 +54,20 @@ describe("Session-based Agent Profile creation", () => {
 
 		await expect(
 			createProfileWithFollowUps(resumeCreationInput())
-		).rejects.toMatchObject({
-			cause: resumeUnavailable,
-			message: resumeUnavailable.message,
-			name: SessionProfileCreationRolledBackError.name,
+		).resolves.toMatchObject({
+			followUpIssues: [
+				{
+					kind: "local_setup",
+					message: resumeUnavailable.message,
+				},
+			],
+			profile: agentProfile,
 		});
 
-		expect(orchestrationMocks.deleteProfile).toHaveBeenCalledWith({
-			data: agentProfile.openMeldProfileId,
-		});
-		expect(orchestrationMocks.joinSpace).not.toHaveBeenCalled();
+		expect(orchestrationMocks.deleteProfile).not.toHaveBeenCalled();
 	});
 
-	it("reports cleanup failure without claiming that creation rolled back", async () => {
+	it("does not delete the committed Profile when setup cannot start", async () => {
 		const resumeUnavailable = new NewProfileLocalSetupError({
 			message: "This Session is no longer available to resume.",
 			reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
@@ -77,22 +75,22 @@ describe("Session-based Agent Profile creation", () => {
 			setupRefreshAvailable: false,
 		});
 		orchestrationMocks.setupLocalState.mockRejectedValue(resumeUnavailable);
-		orchestrationMocks.deleteProfile.mockRejectedValue(
-			new Error("Auth cleanup unavailable.")
-		);
 
 		await expect(
 			createProfileWithFollowUps(resumeCreationInput())
-		).rejects.toMatchObject({
-			message: expect.stringContaining(
-				"couldn't remove the incomplete Agent Profile"
-			),
-			name: "Error",
+		).resolves.toMatchObject({
+			followUpIssues: [
+				{
+					kind: "local_setup",
+					message: resumeUnavailable.message,
+				},
+			],
+			profile: agentProfile,
 		});
-		expect(orchestrationMocks.joinSpace).not.toHaveBeenCalled();
+		expect(orchestrationMocks.deleteProfile).not.toHaveBeenCalled();
 	});
 
-	it("removes the new Agent when Resume setup fails before Binding", async () => {
+	it("keeps the committed Profile when Resume setup fails before Binding", async () => {
 		const computerOffline = new NewProfileLocalSetupError({
 			message: "OpenMeld Service is offline.",
 			setupRefreshActionLabel: "Reconnect computer",
@@ -102,16 +100,17 @@ describe("Session-based Agent Profile creation", () => {
 
 		await expect(
 			createProfileWithFollowUps(resumeCreationInput())
-		).rejects.toMatchObject({
-			cause: computerOffline,
-			message: computerOffline.message,
-			name: SessionProfileCreationRolledBackError.name,
+		).resolves.toMatchObject({
+			followUpIssues: [
+				{
+					kind: "local_setup",
+					message: computerOffline.message,
+				},
+			],
+			profile: agentProfile,
 		});
 
-		expect(orchestrationMocks.deleteProfile).toHaveBeenCalledWith({
-			data: agentProfile.openMeldProfileId,
-		});
-		expect(orchestrationMocks.joinSpace).not.toHaveBeenCalled();
+		expect(orchestrationMocks.deleteProfile).not.toHaveBeenCalled();
 	});
 
 	it("keeps post-Binding local setup failures as visible follow-up issues", async () => {

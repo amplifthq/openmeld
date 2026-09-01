@@ -78,6 +78,9 @@ describe("Agent Profile creation request service", () => {
         actorProfileId: "center-agent-profile",
         requesterUserId: "user-requester",
         targetOwnerUserId: "user-target",
+      }),
+      expect.objectContaining({
+        checkpointCreatedAgentProfileId: expect.any(Function),
       })
     );
   });
@@ -258,6 +261,44 @@ describe("Agent Profile creation request service", () => {
     });
   });
 
+  it("does not cancel a failed request after its Profile identity was committed", async () => {
+    repository.preference = {
+      existingSessionPolicy: "ask_every_time",
+      newSessionPolicy: "automatically_allow",
+    };
+    createAgentProfile.mockRejectedValueOnce(
+      new AgentProfileCreationRequestExecutionError({
+        cause: new Error("The selected Computer is no longer reachable."),
+        createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      })
+    );
+    const service = createService();
+    const created = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+
+    await expect(
+      service.cancel({
+        organizationId: "org-1",
+        requestId: created.request.id,
+        requesterUserId: "user-requester",
+      })
+    ).rejects.toThrow("This request can no longer be cancelled.");
+    await expect(
+      repository.getById({
+        organizationId: "org-1",
+        requestId: created.request.id,
+      })
+    ).resolves.toMatchObject({
+      createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      status: "failed",
+      statusReason: "profile_created",
+    });
+  });
+
   it("lets only one concurrent retry execute Profile creation", async () => {
     const service = createService();
     const created = await service.create({
@@ -349,6 +390,117 @@ describe("Agent Profile creation request service", () => {
     expect(createAgentProfile).toHaveBeenCalledTimes(2);
   });
 
+  it("checkpoints a committed identity before the initial setup attempt finishes", async () => {
+    repository.preference = {
+      existingSessionPolicy: "ask_every_time",
+      newSessionPolicy: "automatically_allow",
+    };
+    const agentProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    const setup = deferred<string>();
+    createAgentProfile.mockImplementationOnce(async (_request, checkpoint) => {
+      await checkpoint.checkpointCreatedAgentProfileId(agentProfileId);
+      return await setup.promise;
+    });
+    const service = createService();
+    const creation = service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+
+    await vi.waitFor(async () => {
+      await expect(
+        repository.findByIdempotencyKey({
+          idempotencyKey: "request-1",
+          organizationId: "org-1",
+          requesterUserId: "user-requester",
+        })
+      ).resolves.toMatchObject({
+        createdAgentProfileId: agentProfileId,
+        status: "approved",
+        statusReason: "profile_created",
+      });
+    });
+
+    await expect(
+      failStaleAgentProfileCreationRequests({
+        nowMs: NOW_MS + AGENT_PROFILE_CREATION_STALE_AFTER_MS + 10,
+        repository,
+      })
+    ).resolves.toEqual({ markedFailed: 1, scanned: 1, superseded: 0 });
+
+    setup.resolve(agentProfileId);
+    await expect(creation).resolves.toMatchObject({
+      request: {
+        createdAgentProfileId: agentProfileId,
+        failureMessage:
+          "OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely.",
+        status: "failed",
+        statusReason: "profile_created",
+      },
+    });
+  });
+
+  it("keeps an abandoned committed-Profile retry in setup-incomplete state", async () => {
+    repository.preference = {
+      existingSessionPolicy: "ask_every_time",
+      newSessionPolicy: "automatically_allow",
+    };
+    const agentProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    createAgentProfile.mockRejectedValueOnce(
+      new AgentProfileCreationRequestExecutionError({
+        cause: new Error("The selected Computer is no longer reachable."),
+        createdAgentProfileId: agentProfileId,
+      })
+    );
+    const retrySetup = deferred<string>();
+    createAgentProfile.mockReturnValueOnce(retrySetup.promise);
+    const service = createService();
+    const created = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+
+    const retry = service.retry({
+      organizationId: "org-1",
+      requestId: created.request.id,
+      userId: "user-requester",
+    });
+    await vi.waitFor(() => {
+      expect(createAgentProfile).toHaveBeenCalledTimes(2);
+    });
+
+    await expect(
+      failStaleAgentProfileCreationRequests({
+        nowMs: NOW_MS + AGENT_PROFILE_CREATION_STALE_AFTER_MS + 10,
+        repository,
+      })
+    ).resolves.toEqual({ markedFailed: 1, scanned: 1, superseded: 0 });
+
+    retrySetup.resolve(agentProfileId);
+    await expect(retry).resolves.toMatchObject({
+      createdAgentProfileId: agentProfileId,
+      failureMessage:
+        "OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely.",
+      status: "failed",
+      statusReason: "profile_created",
+    });
+    await expect(
+      service.retry({
+        organizationId: "org-1",
+        requestId: created.request.id,
+        userId: "user-requester",
+      })
+    ).resolves.toMatchObject({
+      createdAgentProfileId: agentProfileId,
+      status: "completed",
+    });
+    expect(createAgentProfile).toHaveBeenCalledTimes(3);
+  });
+
   it("keeps the committed Profile visible when its requested setup fails", async () => {
     repository.preference = {
       existingSessionPolicy: "ask_every_time",
@@ -372,7 +524,7 @@ describe("Agent Profile creation request service", () => {
       createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
       failureMessage: "Codex is no longer ready on Felix’s Mac.",
       status: "failed",
-      statusReason: "profile_creation_failed",
+      statusReason: "profile_created",
     });
   });
 

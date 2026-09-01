@@ -10,6 +10,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
+	continuePendingAgentProfileCreationLocalSetup,
+	readPendingAgentProfileCreationLocalSetup,
+} from "#/lib/profiles/agent-profile-creation-local-setup";
+import {
 	cancelAgentProfileCreationRequest,
 	decideAgentProfileCreationRequest,
 	retryAgentProfileCreationRequest,
@@ -29,9 +33,14 @@ export function AgentProfileCreationRequestsPanel(input: {
 	onCreateAgent: () => void;
 	onOpenAgent: (profileId: string) => void;
 	organizationId: string;
+	storageScope: string;
 }) {
 	const queryClient = useQueryClient();
 	const focusedRequestRef = useRef<HTMLElement | null>(null);
+	const selectedHumanProfileId =
+		input.directory.members.find(
+			(member) => member.userId === input.currentUserId
+		)?.humanProfile?.profileId ?? null;
 	const requestsQuery = useQuery(
 		agentProfileCreationRequestsQueryOptions({
 			enabled: true,
@@ -44,21 +53,39 @@ export function AgentProfileCreationRequestsPanel(input: {
 			switch (action.kind) {
 				case "approve":
 				case "decline":
-					return await decideAgentProfileCreationRequest({
-						decision: action.kind,
-						organizationId: input.organizationId,
-						requestId: action.requestId,
-					});
+					return {
+						localSetup: null,
+						result: await decideAgentProfileCreationRequest({
+							decision: action.kind,
+							organizationId: input.organizationId,
+							requestId: action.request.id,
+						}),
+					};
 				case "cancel":
-					return await cancelAgentProfileCreationRequest({
-						organizationId: input.organizationId,
-						requestId: action.requestId,
-					});
-				case "retry":
-					return await retryAgentProfileCreationRequest({
-						organizationId: input.organizationId,
-						requestId: action.requestId,
-					});
+					return {
+						localSetup: null,
+						result: await cancelAgentProfileCreationRequest({
+							organizationId: input.organizationId,
+							requestId: action.request.id,
+						}),
+					};
+				case "retry": {
+					const result =
+						action.request.status === "completed"
+							? { request: action.request }
+							: await retryAgentProfileCreationRequest({
+									organizationId: input.organizationId,
+									requestId: action.request.id,
+								});
+					const localSetup =
+						await continuePendingAgentProfileCreationLocalSetup({
+							organizationId: input.organizationId,
+							request: result.request,
+							selectedHumanProfileId,
+							storageScope: input.storageScope,
+						});
+					return { localSetup, result };
+				}
 				default:
 					throw new Error(`Unsupported request action: ${action.kind}`);
 			}
@@ -66,7 +93,12 @@ export function AgentProfileCreationRequestsPanel(input: {
 		onError: (error) => {
 			toast.error(error.message);
 		},
-		onSuccess: async (result) => {
+		onSuccess: async ({ localSetup, result }) => {
+			if (localSetup?.failureMessage) {
+				toast.warning(
+					`${result.request.profileName} setup is still incomplete. ${localSetup.failureMessage} Open the Agent to finish setup.`
+				);
+			}
 			await Promise.all([
 				queryClient.invalidateQueries({
 					queryKey: agentProfileCreationRequestQueryKeys.byOrganization(
@@ -162,6 +194,16 @@ export function AgentProfileCreationRequestsPanel(input: {
 			) : null}
 			{requestsQuery.data?.requests.map((request) => {
 				const isFocused = request.id === input.focusRequestId;
+				const localSetup =
+					request.status === "completed" &&
+					request.createdAgentProfileId &&
+					readPendingAgentProfileCreationLocalSetup({
+						organizationId: input.organizationId,
+						requestId: request.id,
+						storageScope: input.storageScope,
+					});
+				const localSetupPending = Boolean(localSetup);
+				const localSetupPathMissing = localSetup?.workspacePath === null;
 				return (
 					<article
 						className={`rounded-md border bg-card px-4 py-3 outline-none ${
@@ -177,8 +219,10 @@ export function AgentProfileCreationRequestsPanel(input: {
 									<h2 className="font-medium text-foreground text-sm">
 										{request.profileName}
 									</h2>
-									<Badge variant={statusBadgeVariant(request.status)}>
-										{statusLabel(request)}
+									<Badge
+										variant={statusBadgeVariant(request, localSetupPending)}
+									>
+										{statusLabel(request, localSetupPending)}
 									</Badge>
 								</div>
 								<p className="text-muted-foreground text-xs leading-5">
@@ -194,13 +238,19 @@ export function AgentProfileCreationRequestsPanel(input: {
 										{request.failureMessage}
 									</p>
 								) : null}
+								{localSetupPathMissing ? (
+									<p className="text-muted-foreground text-xs leading-5">
+										Choose the custom working folder again in Agent settings on
+										this computer.
+									</p>
+								) : null}
 							</div>
 							<RequestActions
 								currentUserId={input.currentUserId}
 								isPending={mutation.isPending}
-								onAction={(kind) =>
-									mutation.mutate({ kind, requestId: request.id })
-								}
+								localSetupPending={localSetupPending}
+								localSetupRetryAvailable={!localSetupPathMissing}
+								onAction={(kind) => mutation.mutate({ kind, request })}
 								onOpenAgent={input.onOpenAgent}
 								request={request}
 							/>
@@ -214,12 +264,14 @@ export function AgentProfileCreationRequestsPanel(input: {
 
 type RequestAction = {
 	kind: "approve" | "cancel" | "decline" | "retry";
-	requestId: string;
+	request: AgentProfileCreationRequest;
 };
 
 function RequestActions(input: {
 	currentUserId: string;
 	isPending: boolean;
+	localSetupPending: boolean;
+	localSetupRetryAvailable: boolean;
 	onAction: (kind: RequestAction["kind"]) => void;
 	onOpenAgent: (profileId: string) => void;
 	request: AgentProfileCreationRequest;
@@ -228,7 +280,8 @@ function RequestActions(input: {
 	const isTarget = input.request.targetOwnerUserId === input.currentUserId;
 	if (
 		input.request.status === "completed" &&
-		input.request.createdAgentProfileId
+		input.request.createdAgentProfileId &&
+		!input.localSetupPending
 	) {
 		return (
 			<Button
@@ -240,6 +293,33 @@ function RequestActions(input: {
 			>
 				View Agent
 			</Button>
+		);
+	}
+	if (
+		input.request.createdAgentProfileId &&
+		(input.request.status === "failed" || input.localSetupPending)
+	) {
+		return (
+			<div className="flex shrink-0 flex-wrap gap-2">
+				<Button
+					onClick={() =>
+						input.onOpenAgent(input.request.createdAgentProfileId ?? "")
+					}
+					size="sm"
+					variant="outline"
+				>
+					View Agent
+				</Button>
+				{input.request.status === "failed" || input.localSetupRetryAvailable ? (
+					<Button
+						disabled={input.isPending}
+						onClick={() => input.onAction("retry")}
+						size="sm"
+					>
+						Retry setup
+					</Button>
+				) : null}
+			</div>
 		);
 	}
 	if (input.request.status === "pending" && isTarget) {
@@ -266,17 +346,6 @@ function RequestActions(input: {
 	if (input.request.status === "failed") {
 		return (
 			<div className="flex shrink-0 flex-wrap gap-2">
-				{input.request.createdAgentProfileId ? (
-					<Button
-						onClick={() =>
-							input.onOpenAgent(input.request.createdAgentProfileId ?? "")
-						}
-						size="sm"
-						variant="outline"
-					>
-						View Agent
-					</Button>
-				) : null}
 				{isRequester ? (
 					<Button
 						disabled={input.isPending}
@@ -312,7 +381,19 @@ function RequestActions(input: {
 	return null;
 }
 
-function statusLabel(request: AgentProfileCreationRequest): string {
+function statusLabel(
+	request: AgentProfileCreationRequest,
+	localSetupPending: boolean
+): string {
+	if (localSetupPending) {
+		return "Profile created, setup incomplete";
+	}
+	if (request.status === "approved" && request.createdAgentProfileId) {
+		return "Finishing setup…";
+	}
+	if (request.status === "failed" && request.createdAgentProfileId) {
+		return "Profile created, setup incomplete";
+	}
 	if (request.status === "pending") {
 		return "Waiting for approval";
 	}
@@ -331,11 +412,18 @@ function statusLabel(request: AgentProfileCreationRequest): string {
 	return request.status[0]?.toUpperCase() + request.status.slice(1);
 }
 
-function statusBadgeVariant(status: AgentProfileCreationRequest["status"]) {
-	if (status === "completed") {
+function statusBadgeVariant(
+	request: AgentProfileCreationRequest,
+	localSetupPending: boolean
+) {
+	if (
+		localSetupPending ||
+		request.status === "completed" ||
+		(request.status === "failed" && request.createdAgentProfileId)
+	) {
 		return "secondary" as const;
 	}
-	if (status === "declined" || status === "failed") {
+	if (request.status === "declined" || request.status === "failed") {
 		return "destructive" as const;
 	}
 	return "outline" as const;
