@@ -190,7 +190,7 @@ test("release tooling runs its behavior contracts without an empty product works
   const plan = createPlan([
     ".github/workflows/cli-release.yml",
     "scripts/release/require-production-db-current.mjs",
-    "scripts/release/require-production-db-current.test.mjs",
+    "scripts/release/cli-release-workflow.test.mjs",
     "developing/engineering/production-release.md",
   ]);
 
@@ -205,6 +205,13 @@ test("release tooling runs its behavior contracts without an empty product works
       (entry) => entry.id === "affected-checks-and-unit-tests"
     )
   );
+});
+
+test("unclassified release tooling stays outside the delivery-infrastructure risk tag", () => {
+  const plan = createPlan(["scripts/release/new-release-helper.mjs"]);
+
+  assert.ok(!checkIds(plan).includes("affected-checks-and-unit-tests"));
+  assert.ok(!plan.riskTags.includes("delivery-infrastructure"));
 });
 
 test("a scripts and Web mixed diff keeps control contracts but skips broad workspace tests", () => {

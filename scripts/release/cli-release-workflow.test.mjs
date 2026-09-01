@@ -4,6 +4,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { requireProductionDatabaseCurrent } from "./require-production-db-current.mjs";
+
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const readRepoFile = (relativePath) =>
@@ -22,6 +24,8 @@ const GITHUB_TOKEN_EXPRESSION = `${GITHUB_EXPRESSION_PREFIX} github.token }}`;
 const RELEASE_TAG_PUSH = ['git push origin "refs/tags/v$', '{version}"'].join(
   ""
 );
+const PENDING_DATABASE_ERROR_PATTERN =
+  /Production database is behind the release source.*scope `database`.*0149_rapid_venus\.sql/su;
 
 test("keeps the trusted GitHub release publication-only and focused on CLI and Core", () => {
   const source = readRepoFile(".github/workflows/cli-release.yml");
@@ -113,6 +117,110 @@ test("blocks CLI and Core publication while Production D1 migrations are pending
       'node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD"'
     )
   );
+});
+
+test("allows CLI/Core publication only from unambiguous no-pending migration evidence", () => {
+  const commands = [];
+  assert.deepEqual(
+    requireProductionDatabaseCurrent({
+      cwd: "/release-source",
+      runCommand: (command) => {
+        commands.push(command);
+        return {
+          status: 0,
+          stderr: "",
+          stdout: "No migrations to apply.\n",
+        };
+      },
+    }),
+    {
+      status: "current",
+      reason: "the remote D1 pending migration list is empty",
+    }
+  );
+  assert.deepEqual(commands, [
+    {
+      command: "pnpm",
+      args: [
+        "-C",
+        "services/auth",
+        "exec",
+        "wrangler",
+        "d1",
+        "migrations",
+        "list",
+        "OPENMELD_DB",
+        "--config",
+        "wrangler.jsonc",
+        "--env",
+        "prod",
+        "--remote",
+      ],
+      cwd: "/release-source",
+    },
+  ]);
+});
+
+test("fails closed when the migration probe contradicts itself", () => {
+  assert.throws(
+    () =>
+      requireProductionDatabaseCurrent({
+        cwd: "/release-source",
+        runCommand: () => ({
+          status: 0,
+          stderr: "",
+          stdout:
+            "No migrations to apply.\nMigrations to be applied:\n0149_rapid_venus.sql\n",
+        }),
+      }),
+    PENDING_DATABASE_ERROR_PATTERN
+  );
+});
+
+test("blocks CLI/Core publication when Production D1 is behind", () => {
+  assert.throws(
+    () =>
+      requireProductionDatabaseCurrent({
+        cwd: "/release-source",
+        runCommand: () => ({
+          status: 0,
+          stderr: "",
+          stdout: "Migrations to be applied:\n0149_rapid_venus.sql\n",
+        }),
+      }),
+    PENDING_DATABASE_ERROR_PATTERN
+  );
+});
+
+test("fails closed when the migration probe itself fails", () => {
+  assert.throws(
+    () =>
+      requireProductionDatabaseCurrent({
+        cwd: "/release-source",
+        runCommand: () => ({
+          status: 1,
+          stderr: "authentication failed",
+          stdout: "",
+        }),
+      }),
+    /could not prove that the Production database is current.*authentication failed/su
+  );
+});
+
+test("fails closed when a successful migration probe has no decisive evidence", () => {
+  for (const stdout of [
+    "",
+    "Wrangler completed without a migration summary.\n",
+  ]) {
+    assert.throws(
+      () =>
+        requireProductionDatabaseCurrent({
+          cwd: "/release-source",
+          runCommand: () => ({ status: 0, stderr: "", stdout }),
+        }),
+      /could not prove that the Production database is current/su
+    );
+  }
 });
 
 test("injects production credentials only into the steps that consume them", () => {
