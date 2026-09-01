@@ -1,6 +1,7 @@
 import type {
 	AuthProfileView,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
@@ -23,6 +24,8 @@ describe("Agent Profile edit list caches", () => {
 		const profilesQueryKey =
 			startQueryKeys.profilesForStorageScope("account-1");
 		const directoryQueryKey = organizationQueryKeys.directory("org-acme");
+		const profileDirectoryQueryKey =
+			organizationQueryKeys.profileDirectory("org-acme");
 		const otherDirectoryQueryKey = organizationQueryKeys.directory("org-other");
 		const roleQueryKey = organizationQueryKeys.role("org-acme", "account-1");
 		queryClient.setQueryData(profilesQueryKey, [
@@ -31,6 +34,10 @@ describe("Agent Profile edit list caches", () => {
 		queryClient.setQueryData(
 			directoryQueryKey,
 			createDirectory("org-acme", "agt-edit", "Before")
+		);
+		queryClient.setQueryData(
+			profileDirectoryQueryKey,
+			createProfileDirectory("org-acme", "agt-edit", "Before")
 		);
 		queryClient.setQueryData(
 			otherDirectoryQueryKey,
@@ -60,6 +67,11 @@ describe("Agent Profile edit list caches", () => {
 		expect(
 			queryClient.getQueryData<OrganizationDirectoryResponse>(directoryQueryKey)
 				?.agentProfiles[0]?.profileName
+		).toBe("After");
+		expect(
+			queryClient.getQueryData<OrganizationProfileDirectoryResponse>(
+				profileDirectoryQueryKey
+			)?.agentProfiles[0]?.profileName
 		).toBe("After");
 		expect(queryClient.getQueryData(roleQueryKey)).toBe("owner");
 	});
@@ -94,17 +106,23 @@ describe("Agent Profile edit list caches", () => {
 		expect(cancelQueries).toHaveBeenCalledWith({
 			queryKey: startQueryKeys.profilesForStorageScope("account-1"),
 		});
-		expect(cancelQueries).toHaveBeenCalledWith({
-			queryKey: organizationQueryKeys.directory("org-acme"),
-		});
+		expect(cancelQueries).toHaveBeenCalledWith(
+			expect.objectContaining({
+				predicate: expect.any(Function),
+				queryKey: organizationQueryKeys.all,
+			})
+		);
 		expect(invalidateQueries).toHaveBeenCalledWith({
 			queryKey: startQueryKeys.profilesForStorageScope("account-1"),
 			refetchType: "none",
 		});
-		expect(invalidateQueries).toHaveBeenCalledWith({
-			queryKey: organizationQueryKeys.directory("org-acme"),
-			refetchType: "none",
-		});
+		expect(invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({
+				predicate: expect.any(Function),
+				queryKey: organizationQueryKeys.all,
+				refetchType: "none",
+			})
+		);
 		expect(invalidateQueries).not.toHaveBeenCalledWith({
 			queryKey: organizationQueryKeys.all,
 		});
@@ -230,4 +248,17 @@ function createDirectory(
 		members: [],
 		organizationId,
 	} as unknown as OrganizationDirectoryResponse;
+}
+
+function createProfileDirectory(
+	organizationId: string,
+	profileId: string,
+	profileName: string
+): OrganizationProfileDirectoryResponse {
+	return {
+		agentProfiles: [{ profileId, profileName }],
+		generatedAt: "2026-08-30T00:00:00.000Z",
+		members: [],
+		organizationId,
+	} as unknown as OrganizationProfileDirectoryResponse;
 }

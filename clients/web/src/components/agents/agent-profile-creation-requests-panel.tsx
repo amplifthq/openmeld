@@ -3,6 +3,7 @@
 import type {
 	AgentProfileCreationRequest,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
@@ -24,11 +25,13 @@ import {
 	agentProfileCreationRequestsQueryOptions,
 } from "#/query/profiles/agent-profile-creation-requests";
 
-type DirectoryMember = OrganizationDirectoryResponse["members"][number];
+type DirectoryMember = OrganizationProfileDirectoryResponse["members"][number];
 
 export function AgentProfileCreationRequestsPanel(input: {
 	currentUserId: string;
-	directory: OrganizationDirectoryResponse;
+	directory:
+		| OrganizationProfileDirectoryResponse
+		| OrganizationDirectoryResponse;
 	focusRequestId: string | null;
 	onCreateAgent: () => void;
 	onOpenAgent: (profileId: string) => void;
@@ -106,9 +109,21 @@ export function AgentProfileCreationRequestsPanel(input: {
 					),
 				}),
 				result.request.createdAgentProfileId
-					? queryClient.invalidateQueries({
-							queryKey: organizationQueryKeys.directory(input.organizationId),
-						})
+					? Promise.all([
+							queryClient.invalidateQueries({
+								queryKey: organizationQueryKeys.directory(input.organizationId),
+							}),
+							queryClient.invalidateQueries({
+								queryKey: organizationQueryKeys.profileDirectory(
+									input.organizationId
+								),
+							}),
+							queryClient.invalidateQueries({
+								queryKey: organizationQueryKeys.agentRuntimeOverview(
+									input.organizationId
+								),
+							}),
+						])
 					: Promise.resolve(),
 			]);
 		},

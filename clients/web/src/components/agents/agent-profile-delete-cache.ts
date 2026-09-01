@@ -1,13 +1,24 @@
 import type {
 	AuthProfileView,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
-import { organizationDirectoryQueryFilters } from "#/query/organizations/organization-directory";
+import {
+	organizationDirectoryQueryFilters,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
 import { startQueryKeys } from "#/query/query-keys";
 
 export type AgentProfileDeleteCacheSnapshot = {
-	directories: readonly [QueryKey, OrganizationDirectoryResponse | undefined][];
+	directories: readonly [
+		QueryKey,
+		(
+			| OrganizationDirectoryResponse
+			| OrganizationProfileDirectoryResponse
+			| undefined
+		),
+	][];
 	profiles: readonly [QueryKey, readonly AuthProfileView[] | undefined][];
 };
 
@@ -25,10 +36,9 @@ export async function optimisticallyRemoveAgentProfileFromListCaches(input: {
 		input.queryClient.cancelQueries(directoryQueryFilters),
 	]);
 	const snapshot = {
-		directories:
-			input.queryClient.getQueriesData<OrganizationDirectoryResponse>(
-				directoryQueryFilters
-			),
+		directories: input.queryClient.getQueriesData<
+			OrganizationDirectoryResponse | OrganizationProfileDirectoryResponse
+		>(directoryQueryFilters),
 		profiles:
 			input.queryClient.getQueriesData<readonly AuthProfileView[]>(
 				profileQueryFilters
@@ -40,7 +50,19 @@ export async function optimisticallyRemoveAgentProfileFromListCaches(input: {
 		(profiles) => removeAgentProfileFromProfiles(profiles, input.agentProfileId)
 	);
 	input.queryClient.setQueriesData<OrganizationDirectoryResponse>(
-		directoryQueryFilters,
+		organizationDirectoryTypeQueryFilters("directory"),
+		(directory) =>
+			directory
+				? {
+						...directory,
+						agentProfiles: directory.agentProfiles.filter(
+							(profile) => profile.profileId !== input.agentProfileId
+						),
+					}
+				: directory
+	);
+	input.queryClient.setQueriesData<OrganizationProfileDirectoryResponse>(
+		organizationDirectoryTypeQueryFilters("profile-directory"),
 		(directory) =>
 			directory
 				? {
@@ -80,6 +102,18 @@ export async function invalidateAgentProfileListCaches(input: {
 		}),
 		input.queryClient.invalidateQueries(organizationDirectoryQueryFilters()),
 	]);
+}
+
+function organizationDirectoryTypeQueryFilters(
+	type: "directory" | "profile-directory"
+) {
+	return {
+		predicate: (query: { queryKey: QueryKey }) =>
+			query.queryKey.length === 3 &&
+			query.queryKey[0] === organizationQueryKeys.all[0] &&
+			query.queryKey[2] === type,
+		queryKey: organizationQueryKeys.all,
+	};
 }
 
 function removeAgentProfileFromProfiles(

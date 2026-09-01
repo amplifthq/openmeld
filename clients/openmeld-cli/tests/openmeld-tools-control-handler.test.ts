@@ -43,6 +43,28 @@ describe("OpenMeld Tools control handler", () => {
     expect(requestUpdate).toHaveBeenCalledWith({ requestSource: "web" });
   });
 
+  it("uses the same coordinator for a release-triggered automatic request", async () => {
+    const requestUpdate = vi.fn(async () => ({
+      currentVersion: "0.3.139",
+      status: "current" as const,
+    }));
+
+    await expect(
+      handleOpenMeldToolsControlRequest({
+        coordinator: {
+          requestUpdate,
+          resumePendingUpdate: vi.fn(),
+          waitForIdle: vi.fn(),
+        },
+        request: { operation: "request_update", requestSource: "automatic" },
+      })
+    ).resolves.toEqual({
+      operation: "request_update",
+      result: { currentVersion: "0.3.139", status: "current" },
+    });
+    expect(requestUpdate).toHaveBeenCalledWith({ requestSource: "automatic" });
+  });
+
   it("writes the automatic update setting only when it changes", async () => {
     readPolicy.mockResolvedValue({ automaticUpdatesEnabled: true });
     writePolicy.mockResolvedValue(undefined);

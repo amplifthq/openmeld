@@ -41,6 +41,7 @@ export const {
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  inboxSpaceThreadReadWatermarks,
   organizationMessageChannelSetupRequests,
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,

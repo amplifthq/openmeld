@@ -57,6 +57,7 @@ describe("resolve local service capabilities", () => {
         setDefaultConnection: true,
       },
       openMeldToolsControl: {
+        requestAutomaticUpdate: true,
         requestUpdate: true,
         setAutomaticUpdates: true,
       },
@@ -128,6 +129,7 @@ describe("resolve local service capabilities", () => {
         setDefaultConnection: true,
       },
       openMeldToolsControl: {
+        requestAutomaticUpdate: true,
         requestUpdate: true,
         setAutomaticUpdates: true,
       },

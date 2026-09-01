@@ -62,6 +62,7 @@ export function buildSpaceMessageAgentMentionProfiles(input: {
 }
 
 export function SpaceMessageAgentMentionText(input: {
+	onOpenAgentProfile?: (profileId: string) => void;
 	profilesById: SpaceMessageAgentMentionProfilesById;
 	renderText?: (text: string) => ReactNode;
 	text: string;
@@ -81,6 +82,7 @@ export function SpaceMessageAgentMentionText(input: {
 					return (
 						<SpaceMessageAgentMention
 							key={`${segment.profile.profileId}:${String(segment.offset)}`}
+							onOpenAgentProfile={input.onOpenAgentProfile}
 							profile={segment.profile}
 						/>
 					);
@@ -110,6 +112,7 @@ export function createSpaceMessageAgentMentionRemarkPlugin(
 
 export function renderSpaceMessageAgentMentionInternalLink(input: {
 	href: string;
+	onOpenAgentProfile?: (profileId: string) => void;
 	profilesById: SpaceMessageAgentMentionProfilesById;
 }): ReactNode | null {
 	const profileId = parseSpaceMessageAgentMentionProfileId(input.href);
@@ -118,29 +121,58 @@ export function renderSpaceMessageAgentMentionInternalLink(input: {
 		return null;
 	}
 
-	return <SpaceMessageAgentMention profile={profile} />;
+	return (
+		<SpaceMessageAgentMention
+			onOpenAgentProfile={input.onOpenAgentProfile}
+			profile={profile}
+		/>
+	);
 }
 
 function SpaceMessageAgentMention(input: {
+	onOpenAgentProfile?: (profileId: string) => void;
 	profile: SpaceCollaborationProfilePresentation;
 }) {
-	return (
-		<span data-slot="space-message-agent-mention">
-			<span aria-hidden="true" className="me-1.5">
-				@
-			</span>
+	const content = (
+		<>
+			<span aria-hidden="true">@</span>
 			<SpaceProfileIcon
 				agentControllerRef={input.profile.agentControllerRef}
 				avatarImageUrl={input.profile.avatarImageUrl}
-				className="me-1 inline-flex align-[-0.125em]"
+				className="inline-flex"
 				isCenterAgent={input.profile.isCenterAgent}
 				profileId={input.profile.profileId}
 				profileKind={input.profile.profileKind}
 				profileName={input.profile.profileName}
 				size="inline"
 			/>
-			<strong className="font-semibold">{input.profile.profileName}</strong>
-		</span>
+			<strong className="min-w-0 font-semibold decoration-1 underline-offset-2 group-hover/agent-mention:underline group-focus-visible/agent-mention:underline">
+				{input.profile.profileName}
+			</strong>
+		</>
+	);
+
+	if (!input.onOpenAgentProfile) {
+		return (
+			<span
+				className="inline-flex max-w-full items-center gap-1 align-middle"
+				data-slot="space-message-agent-mention"
+			>
+				{content}
+			</span>
+		);
+	}
+
+	return (
+		<button
+			aria-label={`Open ${input.profile.profileName} profile`}
+			className="group/agent-mention inline-flex max-w-full cursor-pointer items-center gap-1 rounded-sm border-0 bg-transparent p-0 align-middle text-inherit leading-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+			data-slot="space-message-agent-mention"
+			onClick={() => input.onOpenAgentProfile?.(input.profile.profileId)}
+			type="button"
+		>
+			{content}
+		</button>
 	);
 }
 

@@ -7,6 +7,7 @@ import {
   buildInboxPath,
   buildSpaceInboxReadThroughPath,
   buildSpaceInboxSummaryPath,
+  buildSpaceInboxUnreadTargetsPath,
   createInboxApi,
   createOpenMeldApiClient,
   type OpenMeldApiClientTransport,
@@ -48,6 +49,9 @@ describe("api-client Inbox API", () => {
       "/v1/inbox/center-agent/read-through"
     );
     expect(buildSpaceInboxSummaryPath()).toBe("/v1/inbox/spaces/summary");
+    expect(buildSpaceInboxUnreadTargetsPath("space/1")).toBe(
+      "/v1/inbox/spaces/space%2F1/unread-targets"
+    );
     expect(buildSpaceInboxReadThroughPath()).toBe(
       "/v1/inbox/spaces/read-through"
     );
@@ -98,6 +102,23 @@ describe("api-client Inbox API", () => {
                 unreadCount: 1,
               },
             ],
+          })
+        );
+      }
+      if (path === "/v1/inbox/spaces/space-1/unread-targets") {
+        return Promise.resolve(
+          jsonResponse({
+            hasMoreTargets: false,
+            organizationId: "org-1",
+            spaceId: "space-1",
+            targets: [
+              {
+                occurredAtMs: 1_775_000_000_000,
+                signalId: "signal-1",
+                threadRootSignalId: null,
+              },
+            ],
+            totalUnreadCount: 1,
           })
         );
       }
@@ -173,8 +194,15 @@ describe("api-client Inbox API", () => {
       ],
     });
     await expect(
+      api.spaceUnreadTargets({ spaceId: "space-1" })
+    ).resolves.toMatchObject({
+      targets: [{ signalId: "signal-1", threadRootSignalId: null }],
+      totalUnreadCount: 1,
+    });
+    await expect(
       api.markSpaceReadThrough({
         spaceId: "space-1",
+        threadRootSignalId: "thread-root-1",
         throughOccurredAtMs: 1_775_000_000_000,
       })
     ).resolves.toEqual({
@@ -194,7 +222,7 @@ describe("api-client Inbox API", () => {
     await expect(
       api.updatePreferences({ urgentEmailEnabled: false })
     ).resolves.toMatchObject({ urgentEmailEnabled: false });
-    expect(transport).toHaveBeenCalledTimes(12);
+    expect(transport).toHaveBeenCalledTimes(13);
     for (const operation of [
       "inbox.list",
       "inbox.item.get",
@@ -244,6 +272,9 @@ describe("api-client Inbox API", () => {
         throughOccurredAtMs: -1,
       })
     ).rejects.toThrow("Space Inbox read request is invalid.");
+    await expect(api.spaceUnreadTargets({ spaceId: " " })).rejects.toThrow(
+      "Space Inbox unread targets request is invalid."
+    );
     expect(transport).not.toHaveBeenCalled();
   });
 });

@@ -338,16 +338,19 @@ or collapsed tiers; it includes an accessible unread-count label and does not
 pulse.
 
 Opening any Space destination does not clear unread state on route entry alone.
-Web writes one monotonic per-Space read-through watermark only after the
-document is visible and the member has remained at the latest message for the
-normal read debounce. Scrolling up, switching tabs, or arriving through a deep
-link without viewing the latest reply does not clear it. The watermark also
-makes a delayed projection of an older already-viewed update arrive read, while
-a newer update remains unread. A main-conversation watermark applies only to
-main-timeline items and never clears a thread item. A thread item remains
-independent until that exact Inbox item is marked read. Core and Web reject
-implausible future read positions instead of letting a bad client clock suppress
-later messages. Reading never resolves unfinished source work.
+For one open Space, Web reads Core's exact unread message targets and preserves
+their main-conversation or thread-root scope; a browser Space cursor is not an
+unread owner. Web writes one monotonic main-conversation read-through watermark
+only after the document is visible and the member has remained at the latest
+main message for the normal read debounce. Scrolling up, switching tabs, or
+arriving through a deep link without viewing the latest reply does not clear it.
+Each thread has its own monotonic read-through watermark, which advances only
+while that exact thread is open, visible, and held at its latest message. Main
+and thread watermarks make delayed projections of older already-viewed updates
+arrive read while newer updates remain unread; one scope never clears another.
+Core and Web reject implausible future read positions instead of letting a bad
+client clock suppress later messages. Reading never resolves unfinished source
+work.
 Opening the exact Inbox item marks that item read and deep-links to its source
 Signal in the same conversation.
 

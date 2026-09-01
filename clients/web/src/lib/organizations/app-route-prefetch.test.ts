@@ -18,7 +18,8 @@ import {
 
 const resolveOrganizationScopeMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
-const readOrganizationDirectoryMock = vi.hoisted(() => vi.fn());
+const readOrganizationProfileDirectoryMock = vi.hoisted(() => vi.fn());
+const readOrganizationAgentRuntimeOverviewMock = vi.hoisted(() => vi.fn());
 const listOrganizationSpacesMock = vi.hoisted(() => vi.fn());
 const getBootstrapMock = vi.hoisted(() => vi.fn());
 const getStatusMock = vi.hoisted(() => vi.fn());
@@ -43,7 +44,9 @@ vi.mock("#/lib/profiles/existing-profiles", () => ({
 }));
 
 vi.mock("#/lib/organizations/organization-directory", () => ({
-	readCurrentOrganizationDirectory: readOrganizationDirectoryMock,
+	readCurrentOrganizationAgentRuntimeOverview:
+		readOrganizationAgentRuntimeOverviewMock,
+	readCurrentOrganizationProfileDirectory: readOrganizationProfileDirectoryMock,
 }));
 
 vi.mock("#/lib/organizations/organization-spaces", () => ({
@@ -111,10 +114,16 @@ const humanProfile = {
 	openMeldProfileId: "human-1",
 };
 
-const organizationDirectory = {
+const organizationProfileDirectory = {
 	agentProfiles: [],
 	generatedAt: "2026-07-16T00:00:00.000Z",
 	members: [],
+	organizationId: "org-acme",
+};
+
+const organizationAgentRuntimeOverview = {
+	agentProfiles: [],
+	generatedAt: "2026-07-16T00:00:00.000Z",
 	organizationId: "org-acme",
 };
 
@@ -129,7 +138,12 @@ describe("organization app route prefetch", () => {
 		vi.clearAllMocks();
 		resolveOrganizationScopeMock.mockResolvedValue(authorizedScope);
 		listStartProfilesMock.mockResolvedValue([humanProfile]);
-		readOrganizationDirectoryMock.mockResolvedValue(organizationDirectory);
+		readOrganizationProfileDirectoryMock.mockResolvedValue(
+			organizationProfileDirectory
+		);
+		readOrganizationAgentRuntimeOverviewMock.mockResolvedValue(
+			organizationAgentRuntimeOverview
+		);
 		listOrganizationSpacesMock.mockResolvedValue(organizationSpaces);
 		getBootstrapMock.mockResolvedValue(createBootstrapResponse());
 		getStatusMock.mockResolvedValue(createBootstrapResponse().status);
@@ -213,8 +227,15 @@ describe("organization app route prefetch", () => {
 			queryClient.getQueryData(startQueryKeys.profilesForStorageScope("user-1"))
 		).toEqual([humanProfile]);
 		expect(
-			queryClient.getQueryData(organizationQueryKeys.directory("org-acme"))
-		).toEqual(organizationDirectory);
+			queryClient.getQueryData(
+				organizationQueryKeys.profileDirectory("org-acme")
+			)
+		).toEqual(organizationProfileDirectory);
+		expect(
+			queryClient.getQueryData(
+				organizationQueryKeys.agentRuntimeOverview("org-acme")
+			)
+		).toEqual(organizationAgentRuntimeOverview);
 	});
 
 	it("warms the Spaces list and account profiles in parallel", async () => {

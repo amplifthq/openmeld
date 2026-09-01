@@ -490,14 +490,30 @@ projection falls back to `An agent is working`, and a raw `agt_...` identifier
 is never user-facing copy. This live indicator remains distinct from a
 persisted reply's historical **Work summary**.
 Opening a route alone does not clear the indicator. The shared Space message
-view writes the same Core-owned per-Space monotonic read-through watermark only
-after the document is visible and the member remains at the latest message for
-the normal debounce. If the unread summary is unavailable, Space navigation
-remains usable in Account Space Index order without inventing read state. Web
-treats cursor persistence failure as failure and retries it; a missing Core
-Inbox writer cannot be mistaken for a successful write. Main-timeline and
-thread Inbox state remain separate: a main-timeline read position cannot clear
-a thread item. Implausible future cursor positions are rejected rather than
+view reads the exact Core Inbox unread targets for that Space instead of deriving
+unread state from its browser Space cursor. It writes the Core-owned
+main-conversation monotonic read-through watermark only after the document is
+visible and the member remains at the latest main message for the normal
+debounce. An open thread writes its own thread-root watermark under the same
+visibility and latest-message rule. If the unread summary or exact targets are
+unavailable, Space navigation remains usable in Account Space Index order
+without inventing read state. Web treats read-through persistence failure as
+failure and retries it; a missing Core Inbox writer cannot be mistaken for a
+successful write. Main-timeline and thread Inbox state remain separate:
+viewing main cannot clear a thread, and viewing one thread cannot clear another.
+
+The open Messages view groups each exact unread target at its visible main
+message or thread root. When unread targets are above the viewport, a compact
+`N new messages above` control appears below the date navigation; when targets
+are below, the existing bottom jump location becomes an `N new messages`
+control. Activating either control goes to the nearest unread target in that
+direction. A thread target first locates its root, opens the thread, and focuses
+the exact unread reply. Each control has a separate close action that hides the
+current unread target set only for that page session: it does not mark anything
+read, mutate the sidebar indicator, or reappear from scrolling alone. A newly
+arrived unread target can show the control again, and refresh or re-entry starts
+a new dismissal session. The Space sidebar row, unread-dot, and pin interaction
+remain unchanged. Implausible future cursor positions are rejected rather than
 suppressing future messages. When Web observes a new Inbox item, it invalidates
 the full Inbox facts projection so per-conversation indicators and aggregate
 launchers refresh from the same Core truth.
@@ -1582,6 +1598,11 @@ tooltips. Local Agent identity
 uses the same catalog-owned logo and name as Computer detail; Web never creates
 a second name or logo map for People.
 
+People reads the lightweight Profile Directory and does not wait for or request
+the Agent Runtime Overview. Its Agent counts and controller icons come from the
+permission-scoped lightweight summary, so unavailable Runtime Transport cannot
+blank member identity or delay the People workspace.
+
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
 bounded visible-session heartbeat; Core re-verifies the active member and that
@@ -1709,6 +1730,15 @@ copy is **Approve requests for Agents you’re being asked to own, and track
 requests you sent.** A pending badge counts only the existing Core-owned Agent
 Profile Creation Request projection; Web never creates a parallel request
 state.
+
+Agents reads the same lightweight Profile Directory first, renders Agent
+identity immediately, and loads the Agent Runtime Overview independently.
+Missing initial runtime evidence is shown as checking for the affected Agent;
+a failed runtime refresh keeps the identity list and last successful runtime
+projection instead of replacing the workspace with a page-level loading or
+error state. Automatic readiness refresh invalidates only the runtime overview;
+identity refresh remains tied to membership, Profile, designation, and Binding
+summary changes.
 
 The sidebar groups ordinary Agents by owner name. The signed-in member’s group
 is first, and remaining groups use a stable owner-name and owner-ID order. Each
@@ -2862,10 +2892,13 @@ messages.
 In the full message body on the main timeline and in the Thread panel, the
 first visible mention owned by each structured Agent Wake renders as one compact
 inline identity: `@`, the Agent's 14-pixel Profile icon, and its semibold
-canonical name. The `@` and icon use a 6-pixel gap, while the icon and name use
-a 4-pixel gap. Web derives this presentation only from the structured Wake
-target and resolved Profile presentation. It does not decorate ordinary
-mention-like text, code, links, or quoted reply previews.
+canonical name. The `@`, icon, and name use equal 4-pixel gaps and share one
+optical middle alignment.
+The Agent name underlines on hover or keyboard focus, and activating the exact
+structured mention opens that Agent Profile's existing details dialog. Web
+derives this presentation only from the structured Wake target and resolved
+Profile presentation. It does not decorate ordinary mention-like text, code,
+links, or quoted reply previews.
 
 For a durable final reply, Web prefers the complete
 `signal.text.data.meta.agentWorkSummary` projection. It reads the legacy

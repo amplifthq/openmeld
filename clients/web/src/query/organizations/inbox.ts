@@ -6,6 +6,7 @@ import type {
 	InboxView,
 	ListInboxItemsResponse,
 	SpaceInboxSummaryResponse,
+	SpaceInboxUnreadTargetsResponse,
 } from "@openmeld/schemas/types";
 import {
 	type InfiniteData,
@@ -19,6 +20,7 @@ import {
 	getCurrentInboxNotificationPreferences,
 	getCurrentInboxSummary,
 	getCurrentSpaceInboxSummary,
+	getCurrentSpaceInboxUnreadTargets,
 	type InboxFailure,
 	listCurrentInboxItems,
 } from "#/lib/organizations/inbox";
@@ -49,6 +51,12 @@ export const inboxQueryKeys = {
 		] as const,
 	spaceSummary: (organizationId: string) =>
 		[...inboxQueryKeys.organization(organizationId), "space-summary"] as const,
+	spaceUnreadTargets: (organizationId: string, spaceId: string) =>
+		[
+			...inboxQueryKeys.organization(organizationId),
+			"space-unread-targets",
+			spaceId,
+		] as const,
 	preferences: (userId: string) =>
 		[...inboxQueryKeys.all, "preferences", "account", userId] as const,
 };
@@ -183,6 +191,32 @@ export function spaceInboxSummaryQueryOptions(input: {
 	});
 }
 
+export function spaceInboxUnreadTargetsQueryOptions(input: {
+	enabled?: boolean;
+	organizationId: string;
+	spaceId: string;
+}) {
+	return queryOptions<SpaceInboxUnreadTargetsResponse, InboxFailure>({
+		enabled: input.enabled ?? true,
+		gcTime: baseQueryOptions.gcTime,
+		queryFn: async ({ signal }) =>
+			await getCurrentSpaceInboxUnreadTargets({
+				organizationId: input.organizationId,
+				signal,
+				spaceId: input.spaceId,
+			}),
+		queryKey: inboxQueryKeys.spaceUnreadTargets(
+			input.organizationId,
+			input.spaceId
+		),
+		refetchInterval: INBOX_SUMMARY_POLL_INTERVAL_MS,
+		refetchIntervalInBackground: false,
+		refetchOnWindowFocus: true,
+		retry: baseQueryOptions.retry,
+		staleTime: 5000,
+	});
+}
+
 export function inboxNotificationPreferencesQueryOptions(input: {
 	enabled?: boolean;
 	organizationId: string;
@@ -219,6 +253,12 @@ export async function invalidateInboxFacts(input: {
 		}),
 		input.queryClient.invalidateQueries({
 			queryKey: inboxQueryKeys.spaceSummary(input.organizationId),
+		}),
+		input.queryClient.invalidateQueries({
+			queryKey: [
+				...inboxQueryKeys.organization(input.organizationId),
+				"space-unread-targets",
+			],
 		}),
 		input.queryClient.invalidateQueries({
 			queryKey: inboxQueryKeys.items(input.organizationId),

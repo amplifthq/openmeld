@@ -33,6 +33,7 @@ export function resolveDaemonCapabilities(input: {
       ? { localComponents: input.localComponentsStatus }
       : {}),
     openMeldToolsControl: {
+      requestAutomaticUpdate: true,
       requestUpdate: true,
       setAutomaticUpdates: true,
     },
