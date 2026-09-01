@@ -412,6 +412,37 @@ describe("Computer authorization handoff", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("retries when the update releases the Service lock before the warning is inspected", async () => {
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-update-finished-race",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: false,
+    });
+    bestEffortStopCurrentLaneDaemonServiceMock
+      .mockResolvedValueOnce({
+        status: "warning",
+        errorMessage: "OpenMeld Service update owns the lifecycle lock.",
+      })
+      .mockResolvedValueOnce({ status: "stopped" });
+    resolveExternalOpenMeldToolsUpdateMock.mockResolvedValueOnce(null);
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).resolves.toBe("completed");
+
+    expect(waitForExternalOpenMeldToolsUpdateMock).toHaveBeenCalledTimes(1);
+    expect(bestEffortStopCurrentLaneDaemonServiceMock).toHaveBeenCalledTimes(2);
+    expect(
+      recordInterruptedComputerAuthSessionRecoveryFailureMock
+    ).not.toHaveBeenCalled();
+  });
+
   it("keeps failed candidate revocation durable without redoing Service recovery", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({

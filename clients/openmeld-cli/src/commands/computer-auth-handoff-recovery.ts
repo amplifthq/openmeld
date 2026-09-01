@@ -37,22 +37,7 @@ export async function recoverInterruptedComputerAuthHandoff(input: {
     recovery.previousSession?.user?.id
   );
   if (!recovery.serviceReconciled) {
-    await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
-    let stopped = await bestEffortStopCurrentLaneDaemonService({
-      runtime: input.runtime,
-    });
-    while (
-      stopped.status === "warning" &&
-      (await resolveExternalOpenMeldToolsUpdate({
-        currentOperationId:
-          readOpenMeldToolsUpdateContextFromEnv()?.operationId,
-      }))
-    ) {
-      await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
-      stopped = await bestEffortStopCurrentLaneDaemonService({
-        runtime: input.runtime,
-      });
-    }
+    const stopped = await stopCurrentLaneDaemonServiceAfterToolsUpdate(input);
     if (stopped.status === "warning") {
       const error = new Error(
         stopped.errorMessage ??
@@ -140,6 +125,39 @@ export async function recoverInterruptedComputerAuthHandoff(input: {
     recovery.id
   );
   return completed ? "completed" : "deferred";
+}
+
+async function stopCurrentLaneDaemonServiceAfterToolsUpdate(input: {
+  presenter: Presenter;
+  runtime: RuntimeContext;
+  view?: string;
+}): Promise<
+  Awaited<ReturnType<typeof bestEffortStopCurrentLaneDaemonService>>
+> {
+  await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
+  let stopped = await bestEffortStopCurrentLaneDaemonService({
+    runtime: input.runtime,
+  });
+  let retriedAfterUpdateDisappeared = false;
+  while (stopped.status === "warning") {
+    const externalUpdate = await resolveExternalOpenMeldToolsUpdate({
+      currentOperationId: readOpenMeldToolsUpdateContextFromEnv()?.operationId,
+    });
+    if (externalUpdate) {
+      await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
+    } else if (retriedAfterUpdateDisappeared) {
+      break;
+    } else {
+      // The updater can release the lifecycle lock and remove its operation
+      // between stop's warning and this inspection. Retry once so Setup does
+      // not turn that successful completion into a stale failure.
+      retriedAfterUpdateDisappeared = true;
+    }
+    stopped = await bestEffortStopCurrentLaneDaemonService({
+      runtime: input.runtime,
+    });
+  }
+  return stopped;
 }
 
 export async function waitForOpenMeldToolsUpdateBeforeComputerHandoff(input: {
