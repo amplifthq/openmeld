@@ -62,9 +62,13 @@ export function resolveUniqueAgentProfileName(input: {
 	existingNames: readonly string[];
 }): string {
 	const baseName = normalizeNamePart(input.baseName) || "Agent";
-	const normalizedExistingNames = new Set(
-		input.existingNames.map(normalizeComparableName).filter(Boolean)
-	);
+	const normalizedExistingNames = new Set<string>();
+	for (const name of input.existingNames) {
+		const normalizedName = normalizeComparableName(name);
+		if (normalizedName) {
+			normalizedExistingNames.add(normalizedName);
+		}
+	}
 	if (!normalizedExistingNames.has(normalizeComparableName(baseName))) {
 		return baseName;
 	}

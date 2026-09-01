@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  domAnimation,
+  LazyMotion,
   type MotionValue,
-  motion,
+  m,
   useMotionValue,
   useReducedMotion,
   useSpring,
@@ -14,6 +16,7 @@ import {
   type HTMLAttributes,
   type ReactNode,
   use,
+  useMemo,
   useRef,
 } from "react";
 import { useMediaQuery } from "#hooks/use-media-query";
@@ -72,30 +75,34 @@ export const MagnifyingDock = forwardRef<HTMLDivElement, MagnifyingDockProps>(
     const reduceMotion = useReducedMotion() === true;
     const hasFinePointer = useMediaQuery("(hover: hover) and (pointer: fine)");
     const enabled = hasFinePointer && !reduceMotion;
+    const contextValue = useMemo(
+      () => ({ distance, enabled, magnification, pointerX }),
+      [distance, enabled, magnification, pointerX]
+    );
 
     return (
-      <MagnifyingDockContext.Provider
-        value={{ distance, enabled, magnification, pointerX }}
-      >
-        <div
-          {...props}
-          className={cn("flex min-w-0 items-end", className)}
-          data-motion-enabled={enabled || undefined}
-          data-slot="magnifying-dock"
-          onPointerLeave={(event) => {
-            onPointerLeave?.(event);
-            pointerX.set(RESTING_POINTER_POSITION);
-          }}
-          onPointerMove={(event) => {
-            onPointerMove?.(event);
-            if (enabled && event.pointerType === "mouse") {
-              pointerX.set(event.clientX);
-            }
-          }}
-          ref={ref}
-        >
-          {children}
-        </div>
+      <MagnifyingDockContext.Provider value={contextValue}>
+        <LazyMotion features={domAnimation}>
+          <div
+            {...props}
+            className={cn("flex min-w-0 items-end", className)}
+            data-motion-enabled={enabled || undefined}
+            data-slot="magnifying-dock"
+            onPointerLeave={(event) => {
+              onPointerLeave?.(event);
+              pointerX.set(RESTING_POINTER_POSITION);
+            }}
+            onPointerMove={(event) => {
+              onPointerMove?.(event);
+              if (enabled && event.pointerType === "mouse") {
+                pointerX.set(event.clientX);
+              }
+            }}
+            ref={ref}
+          >
+            {children}
+          </div>
+        </LazyMotion>
       </MagnifyingDockContext.Provider>
     );
   }
@@ -164,7 +171,7 @@ export const MagnifyingDockItem = forwardRef<
           }
         }}
       >
-        <motion.div
+        <m.div
           className={cn(
             "relative flex origin-bottom items-center justify-center will-change-transform",
             visualClassName
@@ -173,7 +180,7 @@ export const MagnifyingDockItem = forwardRef<
           style={{ scale: enabled ? scale : 1 }}
         >
           {children}
-        </motion.div>
+        </m.div>
         {caption ? (
           <div
             className={cn(

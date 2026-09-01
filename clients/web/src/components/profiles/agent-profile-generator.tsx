@@ -15,7 +15,13 @@ import {
 	DesktopTowerIcon,
 	SlidersHorizontalIcon,
 } from "@phosphor-icons/react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+	AnimatePresence,
+	domAnimation,
+	LazyMotion,
+	m,
+	useReducedMotion,
+} from "framer-motion";
 import { useId, useState } from "react";
 import { SpinnerButton } from "#/components/spinner-button";
 import {
@@ -65,38 +71,40 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 		form.lockLocalAgentSelection === true;
 
 	return (
-		<form
-			className={cn(
-				"flex min-h-0 w-full min-w-0 flex-1 flex-col",
-				input.surface === "page" && "mx-auto max-w-3xl"
-			)}
-			data-testid="create-profile-panel"
-			onSubmit={form.onSubmit}
-		>
-			<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pr-1">
-				<GeneratorStepContent
-					advancedOpen={advancedOpen}
-					advancedPanelId={advancedPanelId}
-					allowWithoutLocalAgent={allowWithoutLocalAgent}
-					bindingChoices={bindingChoices}
+		<LazyMotion features={domAnimation}>
+			<form
+				className={cn(
+					"flex min-h-0 w-full min-w-0 flex-1 flex-col",
+					input.surface === "page" && "mx-auto max-w-3xl"
+				)}
+				data-testid="create-profile-panel"
+				onSubmit={form.onSubmit}
+			>
+				<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pr-1">
+					<GeneratorStepContent
+						advancedOpen={advancedOpen}
+						advancedPanelId={advancedPanelId}
+						allowWithoutLocalAgent={allowWithoutLocalAgent}
+						bindingChoices={bindingChoices}
+						form={form}
+						onAdvancedOpenChange={setAdvancedOpen}
+						onAllowWithoutLocalAgentChange={setAllowWithoutLocalAgent}
+						reduceMotion={reduceMotion}
+						selectedBinding={selectedBinding ?? null}
+						selectedBindingValue={selectedBindingValue}
+						step={step}
+					/>
+				</div>
+				<GeneratorActions
+					canContinue={canContinue}
 					form={form}
-					onAdvancedOpenChange={setAdvancedOpen}
-					onAllowWithoutLocalAgentChange={setAllowWithoutLocalAgent}
-					reduceMotion={reduceMotion}
-					selectedBinding={selectedBinding ?? null}
-					selectedBindingValue={selectedBindingValue}
+					onCancel={input.onCancel}
+					onStepChange={setStep}
 					step={step}
+					submitBlockReasonId={submitBlockReasonId}
 				/>
-			</div>
-			<GeneratorActions
-				canContinue={canContinue}
-				form={form}
-				onCancel={input.onCancel}
-				onStepChange={setStep}
-				step={step}
-				submitBlockReasonId={submitBlockReasonId}
-			/>
-		</form>
+			</form>
+		</LazyMotion>
 	);
 }
 
@@ -116,7 +124,7 @@ function GeneratorStepContent(input: {
 	return (
 		<AnimatePresence initial={false} mode="wait">
 			{input.step === "configure" ? (
-				<motion.div
+				<m.div
 					animate={{ opacity: 1, x: 0 }}
 					className="grid min-w-0 gap-5 pb-5"
 					exit={input.reduceMotion ? { opacity: 0 } : { opacity: 0, x: -12 }}
@@ -149,9 +157,9 @@ function GeneratorStepContent(input: {
 						panelId={input.advancedPanelId}
 						reduceMotion={input.reduceMotion}
 					/>
-				</motion.div>
+				</m.div>
 			) : (
-				<motion.div
+				<m.div
 					animate={{ opacity: 1, x: 0 }}
 					className="grid min-w-0 gap-5 pb-5"
 					exit={input.reduceMotion ? { opacity: 0 } : { opacity: 0, x: 12 }}
@@ -167,7 +175,7 @@ function GeneratorStepContent(input: {
 						errorState={input.form.errorState}
 						recoveryActionHref={input.form.recoveryActionHref}
 					/>
-				</motion.div>
+				</m.div>
 			)}
 		</AnimatePresence>
 	);
@@ -319,12 +327,14 @@ function AdvancedSetup(input: {
 
 			<AnimatePresence initial={false}>
 				{input.open ? (
-					<motion.div
-						animate={{ height: "auto", opacity: 1 }}
+					<m.div
+						animate={{ opacity: 1, y: 0 }}
 						className="overflow-hidden"
-						exit={{ height: 0, opacity: 0 }}
+						exit={input.reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
 						id={input.panelId}
-						initial={{ height: 0, opacity: 0 }}
+						initial={
+							input.reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }
+						}
 						transition={{ duration: input.reduceMotion ? 0 : 0.16 }}
 					>
 						<div className="grid min-w-0 gap-5 rounded-xl border border-border/70 bg-muted/15 p-4">
@@ -358,7 +368,7 @@ function AdvancedSetup(input: {
 								</div>
 							)}
 						</div>
-					</motion.div>
+					</m.div>
 				) : null}
 			</AnimatePresence>
 		</div>

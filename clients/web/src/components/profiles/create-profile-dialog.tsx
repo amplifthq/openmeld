@@ -283,6 +283,23 @@ function resolveAdditionalHumanProfileCreationEnabled(input: {
 	return !input.agentOnly && input.accountAllowsAdditionalHumanProfileCreation;
 }
 
+function resolveEffectiveCreateProfileName(input: {
+	profileKind: NewProfileKind | null;
+	profileName: string;
+	profileNameEdited: boolean;
+	suggestedProfileName: string;
+	templateNaming: boolean;
+}): string {
+	if (
+		input.templateNaming &&
+		input.profileKind === "agent" &&
+		!input.profileNameEdited
+	) {
+		return input.suggestedProfileName;
+	}
+	return input.profileName;
+}
+
 // Standalone, route-free Create Profile dialog. Reused from Profiles, legacy
 // agent redirects, and Spaces — the only difference is `spaceContext`: when
 // present, the freshly created profile is also joined to that Space (always as a
@@ -644,25 +661,13 @@ function useCreateProfileDialogController(
 		ownerDisplayName: targetOwnerName ?? "",
 		reasoningLevel: boundReasoningLevel,
 	});
-
-	useEffect(() => {
-		if (
-			!options.templateNaming ||
-			selectableProfileKind !== "agent" ||
-			profileNameEdited ||
-			profileName === suggestedProfileName
-		) {
-			return;
-		}
-		setProfileName(suggestedProfileName);
-	}, [
+	const effectiveProfileName = resolveEffectiveCreateProfileName({
+		profileKind: selectableProfileKind,
 		profileName,
 		profileNameEdited,
-		options.templateNaming,
-		selectableProfileKind,
-		setProfileName,
 		suggestedProfileName,
-	]);
+		templateNaming: options.templateNaming,
+	});
 
 	useDefaultTeammateSelection({
 		currentUserId,
@@ -746,7 +751,7 @@ function useCreateProfileDialogController(
 				organizationId,
 				ownerMode,
 				profileKind: selectableProfileKind,
-				profileName,
+				profileName: effectiveProfileName,
 				profileCreationExecutionTarget,
 				projectFolderPath,
 				queryClient,
@@ -1095,7 +1100,7 @@ function useCreateProfileDialogController(
 					organizationId,
 					ownerMode,
 					profileKind: selectableProfileKind,
-					profileName,
+					profileName: effectiveProfileName,
 					selectedHumanProfileId:
 						selectedHumanProfile?.openMeldProfileId ?? null,
 					selectedProjectId,
@@ -1110,7 +1115,7 @@ function useCreateProfileDialogController(
 			});
 		},
 		profileKind: selectableProfileKind,
-		profileName,
+		profileName: effectiveProfileName,
 		projectFolderPath,
 		projectSelectionBlockReason,
 		projectSelectionSlot,
@@ -1190,18 +1195,22 @@ function resolveExistingAgentProfileNames(input: {
 		input.ownerMode === "teammate"
 			? input.targetOwnerUserId
 			: input.currentUserId;
-	const names = [
-		...(input.directory?.agentProfiles ?? [])
-			.filter((profile) => profile.ownerUserId === ownerUserId)
-			.map((profile) => profile.profileName),
-		...input.profiles
-			.filter(
-				(profile) =>
-					profile.profileKind === "agent" && profile.ownerUserId === ownerUserId
-			)
-			.map((profile) => profile.profileName),
-	];
-	return [...new Set(names.map((name) => name.trim()).filter(Boolean))];
+	const names = new Set<string>();
+	for (const profile of input.directory?.agentProfiles ?? []) {
+		if (profile.ownerUserId === ownerUserId && profile.profileName.trim()) {
+			names.add(profile.profileName.trim());
+		}
+	}
+	for (const profile of input.profiles) {
+		if (
+			profile.profileKind === "agent" &&
+			profile.ownerUserId === ownerUserId &&
+			profile.profileName.trim()
+		) {
+			names.add(profile.profileName.trim());
+		}
+	}
+	return [...names];
 }
 
 function shouldReadAgentProfileSessionChoices(input: {
