@@ -1053,8 +1053,8 @@ export type SpaceLandingController =
 			onOpenUnreadThread: (input: {
 				rootSignalId: string;
 				signalId: string;
-				threadId: string;
-			}) => void;
+				threadId?: string;
+			}) => Promise<boolean>;
 			onRefresh: () => Promise<void>;
 			onRefreshMembers: () => Promise<void>;
 			onHardRefreshStatusAndMembers: () => Promise<void>;
@@ -1707,15 +1707,26 @@ export function useSpaceLandingController(input: {
 		[threadController.onOpenThread]
 	);
 	const openUnreadThread = useCallback(
-		(target: { rootSignalId: string; signalId: string; threadId: string }) => {
+		async (target: {
+			rootSignalId: string;
+			signalId: string;
+			threadId?: string;
+		}) => {
+			const opened = await threadController.onOpenUnreadThread({
+				rootSignalId: target.rootSignalId,
+				...(target.threadId ? { threadId: target.threadId } : {}),
+			});
+			if (!opened) {
+				return false;
+			}
 			setThreadUnreadFocus({
 				rootSignalId: target.rootSignalId,
 				signalId: target.signalId,
 				spaceId: input.spaceId,
 			});
-			threadController.onOpenThread(target.threadId);
+			return true;
 		},
-		[input.spaceId, threadController.onOpenThread]
+		[input.spaceId, threadController.onOpenUnreadThread]
 	);
 	useEffect(() => {
 		if (input.spaceId.trim().length === 0) {
@@ -3114,6 +3125,7 @@ function useSpaceThreadController(input: {
 		isSendingThreadMessage: isSendingMessage,
 		onCloseThread: closeThread,
 		onCreateThread: createThread,
+		onOpenUnreadThread: openUnreadThread,
 		onOpenThread: openThread,
 		onRetryWakeTarget: retryWakeTarget,
 		onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => {
@@ -3170,6 +3182,30 @@ function useSpaceThreadController(input: {
 		setComposerBlockedWakeProfileId(null);
 		setPendingOutgoingSignals([]);
 		composerFilesController.clearFiles();
+	}
+
+	async function openUnreadThread(threadInput: {
+		rootSignalId: string;
+		threadId?: string;
+	}): Promise<boolean> {
+		let threadId = threadInput.threadId;
+		if (!threadId) {
+			threadId = threads.find(
+				(thread) => thread.rootSignalId === threadInput.rootSignalId
+			)?.threadId;
+		}
+		if (!threadId) {
+			const refreshed = await threadsQuery.refetch();
+			threadId = refreshed.data?.threads.find(
+				(thread) => thread.rootSignalId === threadInput.rootSignalId
+			)?.threadId;
+		}
+		if (!threadId) {
+			return false;
+		}
+
+		openThread(threadId);
+		return true;
 	}
 
 	async function createThread(threadInput: { rootSignalId: string }) {

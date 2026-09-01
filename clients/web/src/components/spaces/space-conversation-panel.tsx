@@ -269,8 +269,8 @@ type SpaceConversationPanelProps = {
 	onOpenUnreadThread?: (input: {
 		rootSignalId: string;
 		signalId: string;
-		threadId: string;
-	}) => void;
+		threadId?: string;
+	}) => boolean | Promise<boolean>;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	onRemoveComposerFile: (localId: string) => void;
@@ -895,6 +895,21 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		observer.observe(scrollElement);
 		return () => observer.disconnect();
 	}, [conversationScrollElement, requestUnreadMeasurement]);
+	const openUnreadThreadTarget = useLatestCallback(
+		async (target: SpaceInboxUnreadTarget): Promise<boolean> => {
+			if (!target.threadRootSignalId) {
+				return true;
+			}
+			const thread = threadsByRootSignalId.get(target.threadRootSignalId);
+			return (
+				(await input.onOpenUnreadThread?.({
+					rootSignalId: target.threadRootSignalId,
+					signalId: target.signalId,
+					...(thread ? { threadId: thread.threadId } : {}),
+				})) === true
+			);
+		}
+	);
 	const revealUnreadTarget = useLatestCallback(
 		async (target: SpaceInboxUnreadTarget) => {
 			const anchorSignalId = target.threadRootSignalId ?? target.signalId;
@@ -905,16 +920,10 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			) {
 				if (messageElementsBySignalIdRef.current.has(anchorSignalId)) {
 					jumpToMessage(anchorSignalId);
-					if (target.threadRootSignalId) {
-						const thread = threadsByRootSignalId.get(target.threadRootSignalId);
-						if (thread) {
-							input.onOpenUnreadThread?.({
-								rootSignalId: target.threadRootSignalId,
-								signalId: target.signalId,
-								threadId: thread.threadId,
-							});
-						}
+					if (!target.threadRootSignalId) {
+						return;
 					}
+					await openUnreadThreadTarget(target);
 					return;
 				}
 				if (

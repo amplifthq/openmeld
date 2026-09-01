@@ -1016,6 +1016,53 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
+	it("delegates an unread thread target even when the local thread catalog is stale", async () => {
+		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+			configurable: true,
+			value: vi.fn(),
+		});
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return domRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					return domRect({ bottom: -40, top: -100 });
+				}
+				return domRect({ bottom: 0, top: 0 });
+			});
+		const onOpenUnreadThread = vi.fn(async () => true);
+		renderSpaceConversationPanel({
+			onOpenUnreadThread,
+			timelineItems: [createTimelineItem({ id: "thread-root" })],
+			threads: [],
+			unreadTargets: [
+				{
+					occurredAtMs: 1,
+					signalId: "thread-reply",
+					threadRootSignalId: "thread-root",
+				},
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		});
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "1 new message above. Jump to the nearest new message",
+			})
+		);
+
+		await waitFor(() => {
+			expect(onOpenUnreadThread).toHaveBeenCalledWith({
+				rootSignalId: "thread-root",
+				signalId: "thread-reply",
+			});
+		});
+		rectSpy.mockRestore();
+	});
+
 	it("opens date shortcuts and delegates a selected history window", async () => {
 		const onJumpToDate = vi.fn<(date: Date) => Promise<string | null>>(
 			async () => "signal-1"
