@@ -355,7 +355,6 @@ import {
 import {
   listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace,
   type RuntimeCoordinatorExecutionWakeProgressSelector,
-  readRuntimeCoordinatorExecutionProjectionByDispatch,
   readRuntimeCoordinatorExecutionProjectionById,
 } from "../../../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import {
@@ -9423,37 +9422,9 @@ export class Space extends DurableObject<CoreBindings> {
       return nativeDeliveryStop;
     }
 
-    const db = wakeEvidenceDb(this.bindings);
-    if (!db) {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "space.wake_stop_store_unavailable",
-        runtimeCoordinatorExecutionId: null,
-        status: "retry_later",
-        targetProfileId: lookupMatch.targetProfileId,
-      });
-    }
-    const execution = await readRuntimeCoordinatorExecutionProjectionByDispatch(
-      {
-        db,
-        dispatchId: lookupMatch.dispatchId,
-        spaceId: this.spaceId,
-        targetProfileId: lookupMatch.targetProfileId,
-      }
-    ).catch(() => null);
-    if (
-      !execution ||
-      isRuntimeCoordinatorDeliveryRejectedBeforeLocalAcceptance(execution)
-    ) {
-      return await this.requestPreAgentWakeStop({
-        body,
-        db,
-        lookupMatch,
-      });
-    }
-
-    return await this.requestControllerBackedWakeStop({
+    return await this.requestPreAgentWakeStop({
       body,
-      execution,
+      lookupMatch,
     });
   }
 
@@ -9560,7 +9531,6 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async requestPreAgentWakeStop(input: {
     body: PostSpaceWakeStopBody;
-    db: D1Database;
     lookupMatch: SpaceDispatchLookupMatch;
   }): Promise<PostSpaceWakeStopResponse> {
     const ownerResolution = await this.resolveOutboxActiveAttemptOwnerUserId(
@@ -9630,22 +9600,14 @@ export class Space extends DurableObject<CoreBindings> {
       stopResponse.status === "execution_linked" &&
       stopResponse.runtimeCoordinatorExecutionId
     ) {
-      const execution = await readRuntimeCoordinatorExecutionProjectionById({
-        db: input.db,
+      return await this.requestExecutionLinkedWakeStop({
+        body: input.body,
+        dispatchId: input.lookupMatch.dispatchId,
+        ownerUserId: ownerResolution.ownerUserId,
         runtimeCoordinatorExecutionId:
           stopResponse.runtimeCoordinatorExecutionId,
-      }).catch(() => null);
-      if (execution) {
-        return await this.requestControllerBackedWakeStop({
-          body: input.body,
-          execution,
-        });
-      }
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.execution_projection_pending",
-        runtimeCoordinatorExecutionId:
-          stopResponse.runtimeCoordinatorExecutionId,
-        status: "retry_later",
+        sourceClientMessageId: targetWakeLifecycleIdentity.clientMessageId,
+        spaceId: targetWakeLifecycleIdentity.spaceId,
         targetProfileId: input.lookupMatch.targetProfileId,
       });
     }
@@ -9660,61 +9622,26 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private async requestControllerBackedWakeStop(input: {
+  private async requestExecutionLinkedWakeStop(input: {
     body: PostSpaceWakeStopBody;
-    execution: RuntimeCoordinatorExecutionRecord;
+    dispatchId: string;
+    ownerUserId: string;
+    runtimeCoordinatorExecutionId: string;
+    sourceClientMessageId: string | null;
+    spaceId: string;
+    targetProfileId: string;
   }): Promise<PostSpaceWakeStopResponse> {
-    const execution = input.execution;
-    if (execution.status === "cancelled") {
-      return buildSpaceWakeStopAlreadyCancelledResponse(execution);
-    }
-
-    if (
-      execution.status === "reply_published" ||
-      execution.status === "failed_terminal" ||
-      execution.terminalOutcome !== null
-    ) {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.wake_stop_execution_terminal",
-        runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-        status: "not_stoppable",
-        targetProfileId: execution.targetProfileId,
-      });
-    }
-
-    const localDb = localStateDb(this.bindings);
-    if (!localDb) {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.runtime_owner_store_unavailable",
-        runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-        status: "retry_later",
-        targetProfileId: execution.targetProfileId,
-      });
-    }
-    const runtimeOwner = await readRuntimeRegistryRecordByRuntimeId({
-      db: localDb,
-      openMeldServiceRuntimeId: execution.openMeldServiceRuntimeId.value,
-    });
-    if (runtimeOwner.status !== "found") {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.runtime_owner_unavailable",
-        runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-        status: "retry_later",
-        targetProfileId: execution.targetProfileId,
-      });
-    }
-    const ownerUserId = runtimeOwner.record.runtimeLookupInput.owner.id;
     const response = await requestRuntimeTransportRuntimeCoordinatorWakeStop({
       env: this.bindings,
-      ownerUserId,
+      ownerUserId: input.ownerUserId,
       wakeStop: {
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
-        ownerUserId,
-        runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-        dispatchId: execution.dispatchId,
-        spaceId: execution.spaceId,
-        sourceClientMessageId: execution.sourceClientMessageId,
-        targetProfileId: execution.targetProfileId,
+        ownerUserId: input.ownerUserId,
+        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+        dispatchId: input.dispatchId,
+        spaceId: input.spaceId,
+        sourceClientMessageId: input.sourceClientMessageId,
+        targetProfileId: input.targetProfileId,
         ...(input.body.reason ? { reason: input.body.reason } : {}),
       },
     });
@@ -9723,10 +9650,9 @@ export class Space extends DurableObject<CoreBindings> {
       ? parsed.data
       : buildSpaceWakeStopFailureResponse({
           reasonCode: "space.wake_stop_response_invalid",
-          runtimeCoordinatorExecutionId:
-            execution.runtimeCoordinatorExecutionId,
+          runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
           status: "retry_later",
-          targetProfileId: execution.targetProfileId,
+          targetProfileId: input.targetProfileId,
         });
   }
 
@@ -15676,17 +15602,12 @@ export class Space extends DurableObject<CoreBindings> {
       | undefined;
     if (input.includeWakeStopEligibility === true) {
       wakeStopEligibility =
-        trace?.runtimeCoordinatorExecution &&
-        !isRuntimeCoordinatorDeliveryRejectedBeforeLocalAcceptance(
-          trace.runtimeCoordinatorExecution
-        )
-          ? await this.readWakeProgressWakeStopEligibility(trace)
-          : await this.readWakeProgressPreAgentWakeStopEligibility({
-              clientMessageId: input.clientMessageId,
-              lookupMatch: input.lookupMatch,
-              outboxRecord: input.outboxRecord,
-              trace,
-            });
+        await this.readWakeProgressPreAgentWakeStopEligibility({
+          clientMessageId: input.clientMessageId,
+          lookupMatch: input.lookupMatch,
+          outboxRecord: input.outboxRecord,
+          trace,
+        });
     }
     const runtimeCoordinatorExecution =
       trace?.runtimeCoordinatorExecution ?? null;
@@ -15755,14 +15676,6 @@ export class Space extends DurableObject<CoreBindings> {
     outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
     trace: SpaceDispatchTraceSnapshot | null;
   }): Promise<WakeProgressItem["wakeStopEligibility"]> {
-    if (
-      input.trace?.runtimeCoordinatorExecution &&
-      !isRuntimeCoordinatorDeliveryRejectedBeforeLocalAcceptance(
-        input.trace.runtimeCoordinatorExecution
-      )
-    ) {
-      return null;
-    }
     if (input.outboxRecord?.outboxStatus === "cancelled") {
       return null;
     }
@@ -15838,23 +15751,51 @@ export class Space extends DurableObject<CoreBindings> {
       return preAgentWakeStopNotEligible();
     }
     if (headLifecycleTrace.readStatus === "missing") {
-      return preAgentWakeStopEligible();
+      return input.trace?.runtimeCoordinatorExecution
+        ? preAgentWakeStopNotEligible()
+        : preAgentWakeStopEligible();
     }
     if (headLifecycleTrace.readStatus !== "found") {
       return preAgentWakeStopNotEligible();
     }
 
-    const lifecycle = headLifecycleTrace.lifecycle;
+    return await this.resolveWakeProgressStopEligibilityFromHeadLifecycle({
+      lifecycle: headLifecycleTrace.lifecycle,
+      trace: input.trace,
+    });
+  }
+
+  private async resolveWakeProgressStopEligibilityFromHeadLifecycle(input: {
+    lifecycle: {
+      executionLinkedAtMs: number | null;
+      noExecutionDecision: unknown | null;
+      publicationIntent: unknown | null;
+      runtimeCoordinatorExecutionId: string | null;
+      status: string;
+    };
+    trace: SpaceDispatchTraceSnapshot | null;
+  }): Promise<WakeProgressItem["wakeStopEligibility"]> {
+    const { lifecycle } = input;
     if (
-      lifecycle.runtimeCoordinatorExecutionId ||
-      lifecycle.executionLinkedAtMs !== null ||
-      lifecycle.status === "execution_linked" ||
       lifecycle.status === "publication_intent_ready" ||
       lifecycle.status === "stopped_before_execution" ||
       lifecycle.noExecutionDecision !== null ||
       lifecycle.publicationIntent !== null
     ) {
       return null;
+    }
+
+    if (
+      lifecycle.runtimeCoordinatorExecutionId ||
+      lifecycle.executionLinkedAtMs !== null ||
+      lifecycle.status === "execution_linked"
+    ) {
+      return lifecycle.runtimeCoordinatorExecutionId &&
+        input.trace?.runtimeCoordinatorExecution
+          ?.runtimeCoordinatorExecutionId ===
+          lifecycle.runtimeCoordinatorExecutionId
+        ? await this.readWakeProgressWakeStopEligibility(input.trace)
+        : preAgentWakeStopNotEligible();
     }
 
     return preAgentWakeStopEligible();
@@ -16974,22 +16915,6 @@ function normalizeOptionalText(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function buildSpaceWakeStopAlreadyCancelledResponse(
-  execution: RuntimeCoordinatorExecutionRecord
-): PostSpaceWakeStopResponse {
-  return parseSpaceWakeStopResponse({
-    ok: true,
-    runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-    status: "already_cancelled",
-    targetProfileId: execution.targetProfileId,
-    cancellationState: {
-      observedAtMs: Date.now(),
-      reasonCode: execution.terminalOutcome?.reasonCode ?? null,
-      status: "cancelled",
-    },
-  });
-}
-
 function buildSpaceWakeStopPreAgentCancelledResponse(input: {
   reasonCode: string;
   targetProfileId: string;
@@ -17261,21 +17186,6 @@ function isPreAgentWakeStopDispatchStatus(
     status === "queued" ||
     status === "dispatching" ||
     status === "failed_retryable"
-  );
-}
-
-function isRuntimeCoordinatorDeliveryRejectedBeforeLocalAcceptance(
-  execution:
-    | {
-        status: string;
-        terminalOutcome: unknown;
-      }
-    | null
-    | undefined
-): boolean {
-  return (
-    execution?.status === "delivery_rejected" &&
-    execution.terminalOutcome === null
   );
 }
 

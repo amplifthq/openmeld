@@ -300,6 +300,25 @@ describe("RuntimeCoordinator authority next-alarm resolvers", () => {
     );
   });
 
+  it("starts a promoted head's handoff deadline when it becomes accepted", () => {
+    const queuedAtMs = NOW_MS - 5 * 60_000;
+    const promotedAtMs = NOW_MS - 5000;
+
+    expect(
+      resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMsFromRecords({
+        nowMs: NOW_MS,
+        records: [
+          buildHeadLifecycleRecord({
+            acceptedAtMs: promotedAtMs,
+            createdAtMs: queuedAtMs,
+            runtimeCoordinatorExecutionId: null,
+            status: "accepted",
+          }),
+        ],
+      })
+    ).toBe(promotedAtMs + RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS);
+  });
+
   it("returns the earliest head failure-publication retry from scheduled retries only", () => {
     const earlierRetryAtMs = NOW_MS + 3000;
     const laterRetryAtMs = NOW_MS + 7000;

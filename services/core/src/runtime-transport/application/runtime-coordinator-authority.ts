@@ -795,7 +795,8 @@ export const resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMsFromRecord
       }
       nextAlarmAtMs = minNullableTimestamp(
         nextAlarmAtMs,
-        record.createdAtMs + RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS
+        (record.acceptedAtMs ?? record.createdAtMs) +
+          RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS
       );
     }
     return nextAlarmAtMs;

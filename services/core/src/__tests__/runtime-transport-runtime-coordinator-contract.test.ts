@@ -38,6 +38,7 @@ import { handleDispatchQueueBatch } from "../dispatch/transport/queue/dispatch-q
 import type { CoreBindings } from "../lib/bindings";
 import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
+  rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission,
   runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys,
 } from "../runtime-transport/application/agent-profile-execution-admission";
 import type {
@@ -53,6 +54,7 @@ import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../runtime
 import {
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
+  buildRuntimeCoordinatorRunCommandStateStorageKey,
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_STORAGE_KEY_PREFIX,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_DELAY_MS,
@@ -14555,6 +14557,95 @@ describe("runtime transport runtime coordinator transport contract", () => {
     } finally {
       nowSpy.mockRestore();
     }
+  });
+
+  it("does not roll back an unsent delivery after Wake Stop is durably requested", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const commandState = findRuntimeCoordinatorRunCommandState(storageRecords);
+    const headLifecycle =
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords);
+    if (!(commandState && headLifecycle)) {
+      throw new Error("Expected linked RuntimeCoordinator delivery state.");
+    }
+    storageRecords.set(
+      buildRuntimeCoordinatorRunCommandStateStorageKey(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      ),
+      {
+        ...commandState,
+        lastCommandReasonCode: "runtime_coordinator.wake_stop_delivery_pending",
+      }
+    );
+
+    await expect(
+      rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission({
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        nowMs: 1_700_000_002_000,
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        storage: (hub as unknown as { ctx: DurableObjectState }).ctx.storage,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: headLifecycle.targetWakeLifecycleId,
+      })
+    ).resolves.toBe("not_eligible");
+    expect(
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+    ).toMatchObject({
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      status: "execution_linked",
+    });
+  });
+
+  it("does not revive an unsent delivery after its token run becomes terminal", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const [authorityKey, authority] =
+      findRuntimeCoordinatorExecutionTokenAuthorityEntry(storageRecords) ?? [];
+    const headLifecycle =
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords);
+    if (!(authorityKey && authority && headLifecycle)) {
+      throw new Error("Expected linked RuntimeCoordinator authority state.");
+    }
+    storageRecords.set(
+      authorityKey,
+      retireRuntimeCoordinatorTokenRun({
+        authority,
+        reasonCode: "execution_token_terminal_late",
+        retiredAtMs: 1_700_000_001_000,
+        retentionExpiresAtMs: 1_700_086_401_000,
+        runId: executionToken.runId,
+        tokenStatus: "terminal",
+      })
+    );
+
+    await expect(
+      rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission({
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        nowMs: 1_700_000_002_000,
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        storage: (hub as unknown as { ctx: DurableObjectState }).ctx.storage,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: headLifecycle.targetWakeLifecycleId,
+      })
+    ).resolves.toBe("not_eligible");
+    expect(
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+    ).toMatchObject({
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      status: "execution_linked",
+    });
   });
 
   it("does not delivery-expire durable running progress from alarm after pending memory is lost", async () => {

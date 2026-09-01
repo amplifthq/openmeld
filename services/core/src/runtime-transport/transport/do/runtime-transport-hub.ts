@@ -13282,6 +13282,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
       changed = true;
     }
+    if (
+      commandState.lastCommandReasonCode !==
+      RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE
+    ) {
+      commandState = {
+        ...commandState,
+        lastCommandReasonCode:
+          RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+        updatedAtMs: input.nowMs,
+      };
+      changed = true;
+    }
     if (changed) {
       await this.writeRuntimeCoordinatorRunCommandState(commandState);
     }

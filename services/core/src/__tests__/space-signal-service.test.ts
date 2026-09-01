@@ -537,6 +537,7 @@ const buildWakeProgressItemFromLookupTrace = async (
     readWakeProgressWakeStopEligibility: (
       trace: SpaceDispatchTraceSnapshot | null
     ) => Promise<WakeStopEligibilityReadModel | null>;
+    readWakeProgressPreAgentWakeStopEligibility: () => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressRuntimeDeviceDisplayName: () => Promise<string | null>;
   };
   Object.defineProperties(space, {
@@ -547,6 +548,9 @@ const buildWakeProgressItemFromLookupTrace = async (
       value: vi.fn(async () => null),
     },
     readWakeProgressWakeStopEligibility: {
+      value: vi.fn(async () => wakeStopEligibility),
+    },
+    readWakeProgressPreAgentWakeStopEligibility: {
       value: vi.fn(async () => wakeStopEligibility),
     },
   });
@@ -741,7 +745,18 @@ async function readWakeProgressWakeStopEligibilityForTest(input: {
 }
 
 async function readWakeProgressPreAgentWakeStopEligibilityForTest(
-  trace: SpaceDispatchTraceSnapshot
+  trace: SpaceDispatchTraceSnapshot,
+  options: {
+    db?: D1Database;
+    headLifecycleReadStatus?:
+      | "accepted"
+      | "execution_linked"
+      | "missing"
+      | "queued"
+      | "stopped"
+      | "unavailable"
+      | "waiting";
+  } = {}
 ): Promise<WakeProgressItem["wakeStopEligibility"]> {
   const space = Object.create(Space.prototype) as unknown as {
     bindings: CoreBindings;
@@ -757,8 +772,10 @@ async function readWakeProgressPreAgentWakeStopEligibilityForTest(
     bindings: {
       value: {
         ...createRuntimeTransportBindings({
-          headLifecycleReadStatus: "accepted",
+          headLifecycleReadStatus:
+            options.headLifecycleReadStatus ?? "accepted",
         }),
+        ...(options.db ? { OPENMELD_DB: options.db } : {}),
       },
     },
     spaceId: { value: "space-1" },
@@ -1127,6 +1144,7 @@ function createWakeEvidenceDb(
 function createRuntimeTransportBindings(input: {
   headLifecycleReadStatus:
     | "accepted"
+    | "execution_linked"
     | "missing"
     | "queued"
     | "stopped"
@@ -1219,6 +1237,30 @@ function createRuntimeTransportBindings(input: {
         },
       });
     }
+    if (input.headLifecycleReadStatus === "execution_linked") {
+      const nowMs = Date.now();
+      return Response.json({
+        ok: true,
+        readStatus: "found",
+        lifecycle: {
+          createdAtMs: nowMs,
+          duplicateDispatchCount: 0,
+          executionLinkedAtMs: nowMs + 1000,
+          modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+          noExecutionDecision: null,
+          ownerUserId: "owner-1",
+          primaryDispatchId: body.targetWakeLifecycleIdentity.dispatchId,
+          publicationIntent: null,
+          runtimeCoordinatorExecutionId: "rce-dispatch-running-1",
+          status: "execution_linked",
+          targetWakeLifecycleIdentity: body.targetWakeLifecycleIdentity,
+          targetWakeLifecycleId:
+            body.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+          updatedAtMs: nowMs + 1000,
+          waitingBoundary: null,
+        },
+      });
+    }
     if (input.headLifecycleReadStatus === "queued") {
       const nowMs = Date.now();
       return Response.json({
@@ -1300,6 +1342,7 @@ async function readActiveWakeProgressForTest(input: {
   targetProfileId?: string;
   headLifecycleReadStatus?:
     | "accepted"
+    | "execution_linked"
     | "missing"
     | "queued"
     | "stopped"
@@ -4742,6 +4785,38 @@ describe("space signal service", () => {
     });
   });
 
+  it("uses Coordinator head truth for Stop after a rejected delivery is retried into execution", async () => {
+    const trace = createRunningRuntimeCoordinatorTrace();
+    const eligibility =
+      await readWakeProgressPreAgentWakeStopEligibilityForTest(
+        {
+          ...trace,
+          runtimeCoordinatorExecution: trace.runtimeCoordinatorExecution
+            ? {
+                ...trace.runtimeCoordinatorExecution,
+                status: "delivery_rejected",
+              }
+            : null,
+        },
+        {
+          db: createRuntimeAgentControllerReportDb({
+            agentControllerInterface: createAgentControllerInterfaceSnapshot({
+              cancel: true,
+            }),
+            expiresAtMs: Date.now() + 60_000,
+          }),
+          headLifecycleReadStatus: "execution_linked",
+        }
+      );
+
+    expect(eligibility).toEqual({
+      controlMode: "cancel",
+      reasonCode: null,
+      reliability: "native_cancel",
+      status: "eligible",
+    });
+  });
+
   it("routes public Stop for a delivery-rejected execution back to its pre-agent head", async () => {
     const targetProfileId = "agt_33333333-3333-4333-8333-333333333333";
     const lookupMatch = {
@@ -4836,6 +4911,108 @@ describe("space signal service", () => {
     ).resolves.toEqual(preAgentResponse);
     expect(requestPreAgentWakeStop).toHaveBeenCalledOnce();
     expect(requestControllerBackedWakeStop).not.toHaveBeenCalled();
+  });
+
+  it("routes Stop from an execution-linked head without waiting for its D1 projection", async () => {
+    const targetProfileId = "agt_33333333-3333-4333-8333-333333333333";
+    const runtimeCoordinatorExecutionId = "rce-execution-linked-1";
+    const fetch = vi.fn((url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body ?? "{}")) as {
+        targetWakeLifecycleIdentity?: { targetWakeLifecycleId: string };
+      };
+      if (
+        new URL(url).pathname === "/runtime-coordinator/head/pre-agent-stop"
+      ) {
+        return Response.json({
+          ok: false,
+          primaryDispatchId: "dispatch-execution-linked-1",
+          publicationIntentId: null,
+          reasonCode: "runtime_coordinator.pre_agent_stop_execution_linked",
+          runtimeCoordinatorExecutionId,
+          status: "execution_linked",
+          targetWakeLifecycleId:
+            body.targetWakeLifecycleIdentity?.targetWakeLifecycleId ??
+            "target-wake-lifecycle-1",
+        });
+      }
+      return Response.json({
+        cancellationState: {
+          observedAtMs: 1_700_000_002_000,
+          reasonCode: "runtime_coordinator.wake_stop_requested",
+          status: "delivery_pending",
+        },
+        ok: true,
+        runtimeCoordinatorExecutionId,
+        status: "cancellation_requested",
+        targetProfileId,
+      });
+    });
+    const space = Object.create(Space.prototype) as unknown as {
+      bindings: CoreBindings;
+      requestPreAgentWakeStop: (input: {
+        body: PostSpaceWakeStopBody;
+        lookupMatch: SpaceDispatchLookupMatch;
+      }) => Promise<PostSpaceWakeStopResponse>;
+      resolveOutboxActiveAttemptOwnerUserId: () => Promise<{
+        ownerUserId: string;
+        status: "ok";
+      }>;
+      resolveWakeStopTargetDisplay: () => {
+        targetProfileMentionLabel: null;
+        targetProfileName: null;
+      };
+      spaceId: string;
+    };
+    Object.defineProperties(space, {
+      bindings: {
+        value: {
+          OPENMELD_RUNTIME_TRANSPORT: {
+            get: vi.fn(() => ({ fetch })),
+            idFromName: vi.fn((name: string) => ({ name })),
+          },
+        },
+      },
+      resolveOutboxActiveAttemptOwnerUserId: {
+        value: vi.fn(async () => ({
+          ownerUserId: "owner-1",
+          status: "ok" as const,
+        })),
+      },
+      resolveWakeStopTargetDisplay: {
+        value: vi.fn(() => ({
+          targetProfileMentionLabel: null,
+          targetProfileName: null,
+        })),
+      },
+      spaceId: { value: "space-1" },
+    });
+
+    const response = await space.requestPreAgentWakeStop({
+      body: {
+        target: {
+          by: "client_message",
+          clientMessageId: "client-message-1",
+          targetProfileId,
+        },
+      },
+      lookupMatch: {
+        dispatchId: "dispatch-execution-linked-1",
+        sourceSignalId: "signal-1",
+        targetProfileId,
+      } as SpaceDispatchLookupMatch,
+    });
+    expect(response).toMatchObject({
+      ok: true,
+      runtimeCoordinatorExecutionId,
+      status: "cancellation_requested",
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      fetch.mock.calls.map(([url]) => new URL(String(url)).pathname)
+    ).toEqual([
+      "/runtime-coordinator/head/pre-agent-stop",
+      "/runtime-coordinator/wake-stop",
+    ]);
   });
 
   it("fails closed when the current ACI report has no local control-backed Stop", async () => {

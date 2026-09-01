@@ -84,6 +84,8 @@ const EXECUTION_INDEX_REPAIR_FAILED_REASON =
   "runtime_coordinator.execution_state_repair_failed";
 const EXECUTION_TARGET_MUTATION_IN_PROGRESS_REASON =
   "runtime_coordinator.execution_target_mutation_in_progress";
+const RUNTIME_COORDINATOR_WAKE_STOP_REASON_CODE_PREFIX =
+  "runtime_coordinator.wake_stop_";
 
 type ExecutionAdmissionStorage = Pick<
   DurableObjectStorage,
@@ -1781,10 +1783,27 @@ export async function rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission(inpu
       buildRuntimeCoordinatorRunCommandStateStorageKey(
         input.runtimeCoordinatorExecutionId
       );
-    const [rawHead, rawCommandState] = await Promise.all([
+    const tokenAuthorityStorageKey =
+      buildRuntimeCoordinatorTokenAuthorityStorageKey(
+        input.runtimeCoordinatorExecutionId
+      );
+    const [rawHead, rawCommandState, rawTokenAuthority] = await Promise.all([
       transaction.get<unknown>(headLifecycleStorageKey),
       transaction.get<unknown>(runCommandStateStorageKey),
+      transaction.get<unknown>(tokenAuthorityStorageKey),
     ]);
+    const parsedTokenAuthority =
+      rawTokenAuthority === undefined
+        ? null
+        : runtimeCoordinatorExecutionTokenAuthorityRecordSchema.safeParse(
+            rawTokenAuthority
+          );
+    const tokenAuthority = parsedTokenAuthority?.success
+      ? parsedTokenAuthority.data
+      : null;
+    const activeTokenRun = tokenAuthority?.currentRunId
+      ? tokenAuthority.runsById[tokenAuthority.currentRunId]
+      : null;
     if (
       !(
         isRuntimeCoordinatorHeadLifecycleRecord(rawHead) &&
@@ -1802,7 +1821,24 @@ export async function rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission(inpu
         input.runtimeCoordinatorExecutionId ||
       rawCommandState.targetProfileId !== input.targetProfileId ||
       rawCommandState.ownerUserId !== rawHead.ownerUserId ||
-      hasRuntimeCoordinatorDurableLocalProgress(rawCommandState.localProgress)
+      hasRuntimeCoordinatorDurableLocalProgress(
+        rawCommandState.localProgress
+      ) ||
+      rawCommandState.lastCommandReasonCode?.startsWith(
+        RUNTIME_COORDINATOR_WAKE_STOP_REASON_CODE_PREFIX
+      ) === true ||
+      (rawTokenAuthority !== undefined &&
+        (!tokenAuthority ||
+          tokenAuthority.runtimeCoordinatorExecutionId !==
+            input.runtimeCoordinatorExecutionId ||
+          tokenAuthority.executionScope.runtimeCoordinatorExecutionId !==
+            input.runtimeCoordinatorExecutionId ||
+          tokenAuthority.executionScope.dispatchId !== input.dispatchId ||
+          tokenAuthority.executionScope.targetProfileId !==
+            input.targetProfileId ||
+          tokenAuthority.terminalOutcome !== null ||
+          !activeTokenRun ||
+          activeTokenRun.tokenStatus !== "active"))
     ) {
       return "not_eligible";
     }
