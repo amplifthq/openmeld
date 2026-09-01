@@ -9,7 +9,10 @@ import {
 } from "@openmeld/ui/lib/card-picker-contract";
 import { cn } from "@openmeld/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
-import { resolveComputerRecordState } from "#/components/agents/agents-page-computer";
+import {
+	resolveComputerRecordState,
+	resolveCurrentExecutionTarget,
+} from "#/components/agents/agents-page-computer";
 import {
 	ComputerActionsDialog,
 	ComputerSummaryCardContent,
@@ -68,17 +71,6 @@ export function ComputersPicker(input: {
 		resolveConnectedLocalRuntime(input.recovery)?.deviceId ??
 		input.recovery.localRuntimesQuery.data?.currentDeviceId ??
 		null;
-	const currentComputerStatus = resolveCurrentLocalRuntimeComputerSummaryStatus(
-		{
-			isReconcilingStatus: input.isReconcilingCurrentToolsStatus,
-			readiness: currentReadiness,
-		}
-	);
-	const currentComputerStatusDeviceId =
-		resolveCurrentLocalRuntimeComputerSummaryStatusDeviceId({
-			isReconcilingStatus: input.isReconcilingCurrentToolsStatus,
-			readiness: currentReadiness,
-		}) ?? (currentComputerStatus ? currentRuntimeSubjectDeviceId : null);
 	const currentUserGroup = input.computerGroups.find(
 		(group) => group.isCurrentUser
 	);
@@ -89,6 +81,23 @@ export function ComputersPicker(input: {
 		currentUserGroup?.computers.flatMap((computer) =>
 			computer.ownedComputer ? [computer.ownedComputer] : []
 		) ?? [];
+	const currentComputer = ownedComputers.find(
+		(computer) => computer.deviceId === currentRuntimeSubjectDeviceId
+	);
+	const currentComputerStatus = resolveCurrentLocalRuntimeComputerSummaryStatus(
+		{
+			executionTarget: currentComputer
+				? resolveCurrentExecutionTarget(currentComputer)
+				: null,
+			isReconcilingStatus: input.isReconcilingCurrentToolsStatus,
+			readiness: currentReadiness,
+		}
+	);
+	const currentComputerStatusDeviceId =
+		resolveCurrentLocalRuntimeComputerSummaryStatusDeviceId({
+			isReconcilingStatus: input.isReconcilingCurrentToolsStatus,
+			readiness: currentReadiness,
+		}) ?? (currentComputerStatus ? currentRuntimeSubjectDeviceId : null);
 	const renderGroupGrid = (group: OrganizationComputerGroup) => (
 		<DirectoryCardGrid
 			data-testid={group.isCurrentUser ? "computers-picker-list" : undefined}

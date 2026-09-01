@@ -6,6 +6,7 @@ import type {
 	LocalRuntimesResponse,
 } from "@openmeld/schemas/types";
 import { buttonVariants } from "@openmeld/ui/components/button";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import {
 	Tooltip,
 	TooltipContent,
@@ -17,6 +18,7 @@ import { DesktopTowerIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { resolveCurrentExecutionTarget } from "#/components/agents/agents-page-computer";
 import { useLocalRuntimeQueries } from "#/components/agents/use-local-runtime-queries";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import {
@@ -26,7 +28,10 @@ import {
 } from "#/lib/computer-summary-status";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationComputerPath,
+	buildOrganizationComputersPath,
+} from "#/lib/organizations/organization-routes";
 import {
 	type CurrentComputerToolbarDisplaySnapshot,
 	createCurrentComputerToolbarDisplaySnapshot,
@@ -61,7 +66,14 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 			inventory,
 			readiness: readinessQuery.data,
 		});
+	const isReconciling = Boolean(
+		runtimeQueries.localRuntimesQuery.isFetching ||
+			(readinessQuery.isFetching &&
+				(!readiness || readiness.service.connected === true))
+	);
 	const liveStatus = resolveCurrentLocalRuntimeComputerSummaryStatus({
+		executionTarget: resolveComputerExecutionTarget(computer),
+		isReconcilingStatus: isReconciling,
 		readiness,
 	});
 	const restoredCurrentComputer =
@@ -92,6 +104,7 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 					runtimeQueries.localRuntimesQuery.isError ? null : restoredStatus
 				}
 				inventoryFailed={runtimeQueries.localRuntimesQuery.isError}
+				orgSlug={input.orgSlug}
 			/>
 		);
 	}
@@ -131,7 +144,14 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 				<CurrentComputerAttentionIndicator status={status} />
 			</TooltipTrigger>
 			<TooltipContent align="start" className="text-left" side="top">
-				{deviceLabel} · {statusLabel}
+				<span className="inline-flex items-center gap-1.5">
+					{status?.localAgent ? (
+						<LocalAgentLogo agentId={status.localAgent.agentId} size="xs" />
+					) : null}
+					<span>
+						{deviceLabel} · {statusLabel}
+					</span>
+				</span>
 			</TooltipContent>
 		</Tooltip>
 	);
@@ -177,19 +197,33 @@ function resolveCurrentComputerToolbarSubject(input: {
 	};
 }
 
+function resolveComputerExecutionTarget(
+	computer: Parameters<typeof resolveCurrentExecutionTarget>[0] | null
+) {
+	return computer ? resolveCurrentExecutionTarget(computer) : null;
+}
+
 function UnresolvedCurrentComputerToolbarStatus(input: {
 	attention: ComputerSummaryStatus | null;
 	inventoryFailed: boolean;
+	orgSlug: string;
 }) {
 	const accessibleLabel =
 		resolveUnresolvedCurrentComputerAccessibleLabel(input);
 	const statusLabel =
 		input.attention?.label ??
-		(input.inventoryFailed ? "Status unavailable" : "Checking status");
+		(input.inventoryFailed
+			? "Couldn’t load Computer status"
+			: "Checking status");
 	return (
 		<CurrentComputerToolbarStatus
 			accessibleLabel={accessibleLabel}
 			attention={input.attention}
+			destination={
+				input.inventoryFailed
+					? buildOrganizationComputersPath(input.orgSlug)
+					: undefined
+			}
 			statusLabel={statusLabel}
 		/>
 	);
@@ -203,7 +237,7 @@ function resolveUnresolvedCurrentComputerAccessibleLabel(input: {
 		return `Computer, ${input.attention.label}`;
 	}
 	if (input.inventoryFailed) {
-		return "Computer status unavailable";
+		return "Open Computers; couldn’t load Computer status";
 	}
 	return "Checking this Computer";
 }
@@ -211,22 +245,32 @@ function resolveUnresolvedCurrentComputerAccessibleLabel(input: {
 function CurrentComputerToolbarStatus(input: {
 	accessibleLabel: string;
 	attention: ComputerSummaryStatus | null;
+	destination?: string;
 	statusLabel: string;
 }) {
+	const trigger = input.destination ? (
+		<Link
+			aria-label={input.accessibleLabel}
+			className={cn(
+				buttonVariants({ size: "sm", variant: "ghost" }),
+				"pointer-events-auto min-w-0 border-0 bg-transparent px-2 text-muted-foreground shadow-none transition-colors duration-100 hover:bg-muted hover:text-foreground motion-reduce:transition-none dark:bg-transparent dark:hover:bg-muted/50"
+			)}
+			data-testid="current-computer-toolbar-launcher"
+			to={input.destination}
+		/>
+	) : (
+		<output
+			aria-label={input.accessibleLabel}
+			className={cn(
+				buttonVariants({ size: "sm", variant: "ghost" }),
+				"pointer-events-auto min-w-0 border-0 bg-transparent px-2 text-muted-foreground shadow-none dark:bg-transparent"
+			)}
+			data-testid="current-computer-toolbar-launcher"
+		/>
+	);
 	return (
 		<Tooltip>
-			<TooltipTrigger
-				render={
-					<output
-						aria-label={input.accessibleLabel}
-						className={cn(
-							buttonVariants({ size: "sm", variant: "ghost" }),
-							"pointer-events-auto min-w-0 border-0 bg-transparent px-2 text-muted-foreground shadow-none dark:bg-transparent"
-						)}
-						data-testid="current-computer-toolbar-launcher"
-					/>
-				}
-			>
+			<TooltipTrigger render={trigger}>
 				<DesktopTowerIcon aria-hidden="true" className="size-3.5" />
 				<span>Computer</span>
 				<CurrentComputerAttentionIndicator status={input.attention} />

@@ -1372,7 +1372,10 @@ describe("current device target service", () => {
           {
             agentControllerRef: "builtin:claude-code",
             capabilityEnabled: true,
-            capabilityReasonCodes: ["controller.auth.unauthenticated"],
+            capabilityReasonCodes: [
+              "provider_account.access_required",
+              "controller.auth.unauthenticated",
+            ],
             capabilityStatus: "not_ready",
             deviceId: "device-owner-1",
             lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
@@ -1435,7 +1438,10 @@ describe("current device target service", () => {
     ).resolves.toMatchObject({
       nextAction: "run_setup",
       runtime: {
-        reasonCodes: ["controller.auth.unauthenticated"],
+        reasonCodes: [
+          "provider_account.access_required",
+          "controller.auth.unauthenticated",
+        ],
         signInOnlyBlockers: true,
       },
     });

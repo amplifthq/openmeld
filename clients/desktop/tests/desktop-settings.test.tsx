@@ -232,9 +232,9 @@ describe("DesktopSettings", () => {
 
     expect(screen.getByText("This Mac")).toBeTruthy();
     expect(screen.getByText("Running")).toBeTruthy();
-    const setupLabel = screen.getByText("Needs setup");
+    const setupLabel = screen.getByText("Turn on");
     expect(setupLabel.getAttribute("data-slot")).not.toBe("badge");
-    expect(setupLabel.className).toContain("text-destructive");
+    expect(setupLabel.className).toContain("text-amber");
     expect(screen.queryByText("Connect local agent")).toBeNull();
     expect(
       screen.getByText("Turn on Codex to let OpenMeld launch it on this Mac.")

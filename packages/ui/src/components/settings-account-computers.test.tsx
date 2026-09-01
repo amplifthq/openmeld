@@ -203,6 +203,25 @@ describe("Settings Computers shared components", () => {
     );
   });
 
+  it("pairs a named local-agent status with its logo and keeps the full text accessible", () => {
+    render(
+      <SettingsComputerSummaryCardContent
+        lastSeenLabel="Last seen just now"
+        name="Felix's MacBook Pro"
+        platformLabel="Laptop · macOS 25.5.0"
+        status={{
+          label: "Sign in to Claude Code",
+          localAgent: { agentId: "claude-code", displayName: "Claude Code" },
+          showLabel: true,
+          tone: "muted",
+        }}
+      />
+    );
+
+    expect(screen.getByTestId("local-agent-logo-claude-code")).toBeTruthy();
+    expect(screen.getByText("Sign in to Claude Code")).toBeTruthy();
+  });
+
   it("renders the add-computer card contents without owning navigation", () => {
     const { container } = render(
       <a className={ADD_CARD_PICKER_CLASS_NAME} href="/connect">
@@ -304,13 +323,12 @@ describe("Settings Computers shared components", () => {
       pointerType: "mouse",
     });
     fireEvent.mouseEnter(tooltipTrigger as HTMLElement);
-    const renderedUpdateCommand = await screen.findByText(updateCommand);
-    expect(renderedUpdateCommand.tagName.toLowerCase()).toBe("code");
-    expect(renderedUpdateCommand.className).toContain("font-mono");
-    expect(renderedUpdateCommand.className).toContain("block");
-    expect(renderedUpdateCommand.parentElement?.textContent).toContain(
-      "Run this command on this computer"
-    );
+    expect(
+      await screen.findByText(
+        "Update available. Open Details to copy the update command and see how to run it."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByText(updateCommand)).toBeNull();
     expect(
       within(row).getByTestId("settings-local-agent-row-control").className
     ).toContain("ml-auto");

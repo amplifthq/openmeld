@@ -171,17 +171,20 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(screen.getByLabelText("Computer, Couldn't check")).toBeTruthy();
 	});
 
-	it("does not offer setup when Computer inventory is unavailable", () => {
+	it("opens Computers when Computer inventory cannot be loaded", () => {
 		useLocalRuntimeQueriesMock.mockReturnValue(
 			buildRuntimeQueries({ inventoryState: "failed" })
 		);
 
 		render(<CurrentComputerToolbarLauncher />);
 
-		expect(
-			screen.queryByRole("link", { name: "Connect this Computer" })
-		).toBeNull();
-		expect(screen.getByLabelText("Computer status unavailable")).toBeTruthy();
+		const launcher = screen.getByRole("link", {
+			name: "Open Computers; couldn’t load Computer status",
+		});
+		expect(launcher.getAttribute("href")).toBe("/o/acme/computers");
+		expect(screen.getByTestId("toolbar-tooltip").textContent).toContain(
+			"Couldn’t load Computer status"
+		);
 	});
 
 	it("ignores cached readiness for a Computer that is no longer in inventory", () => {
@@ -229,6 +232,8 @@ describe("CurrentComputerToolbarLauncher", () => {
 			"/o/acme/computers/device-current"
 		);
 		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget: null,
+			isReconcilingStatus: false,
 			readiness: null,
 		});
 	});
@@ -258,10 +263,34 @@ describe("CurrentComputerToolbarLauncher", () => {
 		).toBeTruthy();
 		expect(screen.queryByTestId("current-computer-toolbar-status")).toBeNull();
 		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget: null,
+			isReconcilingStatus: true,
 			readiness: {
 				deviceId: "device-current",
 				service: { connected: true },
 			},
+		});
+	});
+
+	it("uses the selected Computer execution target for status guidance", () => {
+		const executionTarget = {
+			isCurrent: true,
+			runtimeLane: "dev-local",
+		};
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				deviceDisplayName: "Felix's MacBook Pro",
+				executionTargets: [executionTarget],
+			})
+		);
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget,
+			isReconcilingStatus: false,
+			readiness: null,
 		});
 	});
 
@@ -290,6 +319,8 @@ describe("CurrentComputerToolbarLauncher", () => {
 			})
 		).toBeTruthy();
 		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget: null,
+			isReconcilingStatus: true,
 			readiness: {
 				deviceId: "device-current",
 				service: { connected: true },
@@ -464,11 +495,32 @@ describe("CurrentComputerToolbarLauncher", () => {
 			})
 		).toBeTruthy();
 		expect(statusMock).toHaveBeenCalledWith({
+			executionTarget: null,
+			isReconcilingStatus: false,
 			readiness: {
 				deviceId: "device-current",
 				service: { connected: false },
 			},
 		});
+	});
+
+	it("pairs an exact local-agent status with its icon and accessible text", () => {
+		statusMock.mockReturnValue({
+			label: "Sign in to Claude Code",
+			localAgent: { agentId: "claude-code", displayName: "Claude Code" },
+			reason: "agent_sign_in_needed",
+			showLabel: true,
+			tone: "muted",
+		});
+
+		render(<CurrentComputerToolbarLauncher />);
+
+		expect(screen.getByTestId("local-agent-logo-claude-code")).toBeTruthy();
+		expect(
+			screen.getByRole("link", {
+				name: "Open Felix's MacBook Pro details, Sign in to Claude Code",
+			})
+		).toBeTruthy();
 	});
 
 	it("stays hidden before the app shell has an Organization context", () => {
@@ -485,6 +537,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 function buildRuntimeQueries(input: {
 	currentDeviceId?: string;
 	deviceDisplayName?: string;
+	executionTargets?: Array<{ isCurrent: boolean; runtimeLane: string }>;
 	inventoryState?: "failed" | "pending" | "ready";
 	readinessDeviceId?: string;
 	readinessIsFetching?: boolean;
@@ -496,6 +549,7 @@ function buildRuntimeQueries(input: {
 				{
 					deviceDisplayName: input.deviceDisplayName,
 					deviceId: input.currentDeviceId,
+					executionTargets: input.executionTargets ?? [],
 					isCurrent: true,
 				},
 			]

@@ -1,4 +1,7 @@
-import { projectLocalAgentCatalogFromCapabilities } from "@openmeld/agent-runtime";
+import {
+  hasOnlyAgentControllerSignInReasonCodes,
+  projectLocalAgentCatalogFromCapabilities,
+} from "@openmeld/agent-runtime";
 import {
   currentDeviceTargetDeviceIdSchema,
   forgetComputerRouteParamsSchema,
@@ -1189,9 +1192,7 @@ function hasOnlyControllerSignInBlockers(
       (capability) =>
         capability.status === "not_ready" &&
         capability.reasonCodes.length > 0 &&
-        capability.reasonCodes.every(
-          (reasonCode) => reasonCode === "controller.auth.unauthenticated"
-        )
+        hasOnlyAgentControllerSignInReasonCodes(capability.reasonCodes)
     )
   );
 }

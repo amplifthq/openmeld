@@ -160,8 +160,8 @@ describe("agent controller interface display", () => {
     });
 
     expect(getAgentControllerVersionAdvisoryPresentation(snapshot)).toEqual({
-      detail: "Update available.",
-      label: "Update",
+      detail: "A newer version of Codex is available: v0.39.0.",
+      label: "Update available",
       tone: "warning",
       updateCommand: "npm install -g @openai/codex@latest",
     });
@@ -218,6 +218,52 @@ describe("agent controller interface display", () => {
     ).toBe(true);
   });
 
+  it("does not repeat the not-signed-in state in the version summary", () => {
+    const snapshot = agentControllerInterfaceSnapshot({
+      auth: { status: "unauthenticated" },
+      version: "0.38.0",
+    });
+
+    expect(formatAgentControllerInterfaceSummary(snapshot)).toBe("v0.38.0");
+    expect(createAgentControllerInterfaceDisplayRows(snapshot)).toContainEqual({
+      label: "Account",
+      value: "Not signed in",
+    });
+  });
+
+  it("uses beginner-friendly installation status labels", () => {
+    expect(
+      createAgentControllerInterfaceDisplayRows(
+        agentControllerInterfaceSnapshot({
+          launch: {
+            argsPrefix: [],
+            commandPath: null,
+            installChoiceCount: 2,
+            status: "needs_choice",
+          },
+        })
+      )
+    ).toContainEqual({
+      label: "Launch check",
+      value: "Choose an installation · 2 local installs found",
+    });
+    expect(
+      createAgentControllerInterfaceDisplayRows(
+        agentControllerInterfaceSnapshot({
+          launch: {
+            argsPrefix: [],
+            commandPath: null,
+            installChoiceCount: 1,
+            status: "needs_repair",
+          },
+        })
+      )
+    ).toContainEqual({
+      label: "Launch check",
+      value: "Can’t start · 1 local install found",
+    });
+  });
+
   it("distinguishes a failed check from a broken controller", () => {
     const snapshot = agentControllerInterfaceSnapshot({
       auth: { status: "unknown" },
@@ -259,7 +305,7 @@ describe("agent controller interface display", () => {
     expect(shouldExpandAgentControllerInterface(snapshot)).toBe(true);
   });
 
-  it("keeps controller-specific not-signed-in detail ahead of the generic fallback", () => {
+  it("shows a concrete sign-in instruction instead of the controller error", () => {
     expect(
       resolveAgentControllerInterfaceDescription({
         displayDescription: "Built-in local agent found on this computer.",
@@ -271,11 +317,29 @@ describe("agent controller interface display", () => {
         }),
       })
     ).toBe(
-      "Codex CLI is installed, but this computer is not signed in to Codex."
+      "Run codex login in a terminal on this computer to sign in to Codex."
     );
   });
 
-  it("keeps controller-specific not-signed-in detail when the resolver has no message", () => {
+  it("explains how to sign in to Claude Code without controller jargon", () => {
+    expect(
+      resolveAgentControllerInterfaceDescription({
+        displayDescription: "Built-in local agent found on this computer.",
+        snapshot: agentControllerInterfaceSnapshot({
+          agentControllerRef: "builtin:claude-code",
+          auth: { status: "unauthenticated" },
+          controllerId: "claude-code",
+          displayName: "Claude Code",
+          message: "Installed, but this controller is not signed in.",
+          status: "error",
+        }),
+      })
+    ).toBe(
+      "Run claude in a terminal on this computer, then sign in to Claude Code."
+    );
+  });
+
+  it("keeps the sign-in instruction when the resolver has no message", () => {
     expect(
       resolveAgentControllerInterfaceDescription({
         displayDescription: "Built-in local agent found on this computer.",
@@ -286,11 +350,11 @@ describe("agent controller interface display", () => {
         }),
       })
     ).toBe(
-      "Codex CLI is installed, but this computer is not signed in to Codex."
+      "Run codex login in a terminal on this computer to sign in to Codex."
     );
   });
 
-  it("falls back to generic not-signed-in detail for an unnamed controller", () => {
+  it("uses a beginner-friendly sign-in instruction for an unnamed controller", () => {
     expect(
       resolveAgentControllerInterfaceDescription({
         displayDescription: "Local agent found on this computer.",
@@ -301,7 +365,7 @@ describe("agent controller interface display", () => {
           status: "error",
         }),
       })
-    ).toBe("Installed, but this controller is not signed in.");
+    ).toBe("Sign in to this local agent from a terminal on this computer.");
   });
 });
 

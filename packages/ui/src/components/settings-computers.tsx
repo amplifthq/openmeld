@@ -49,6 +49,7 @@ export type SettingsComputerLocalAgentIcon = {
 
 export type SettingsComputerSummaryStatus = {
   label: string;
+  localAgent?: SettingsComputerLocalAgentIcon;
   showLabel: boolean;
   tone: "checking" | "danger" | "muted" | "ready" | "warning";
 };
@@ -121,10 +122,17 @@ export function SettingsComputerSummaryCardContent({
                   {status.showLabel ? (
                     <span
                       className={cn(
-                        "min-w-0 font-medium text-xs",
+                        "inline-flex min-w-0 items-center gap-1.5 font-medium text-xs",
                         resolveStatusToneStrongTextClassName(status.tone)
                       )}
                     >
+                      {status.localAgent &&
+                      hasLocalAgentLogo(status.localAgent.agentId) ? (
+                        <LocalAgentLogo
+                          agentId={status.localAgent.agentId}
+                          size="xs"
+                        />
+                      ) : null}
                       {status.label}
                     </span>
                   ) : null}
@@ -893,18 +901,9 @@ export function SettingsLocalAgentAdvisoryBadge({
   tone = "warning",
   updateCommand,
 }: SettingsLocalAgentAdvisoryBadgeProps) {
-  const tooltipContent = updateCommand ? (
-    <>
-      <span>
-        {detail} Run this command on this computer to update this controller.
-      </span>
-      <code className="block max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-sm border border-background/20 bg-background/10 px-2 py-1 font-mono text-[11px] text-background leading-4">
-        {updateCommand}
-      </code>
-    </>
-  ) : (
-    `${detail} Update this controller from the installer or package manager used on this computer.`
-  );
+  const tooltipContent = updateCommand
+    ? `${detail} Open Details to copy the update command and see how to run it.`
+    : `${detail} Use the same installer or package manager you used to install this local agent.`;
 
   const badge = (
     <Badge
