@@ -6,6 +6,7 @@ import {
 	resolveAgentWakeAvailabilityDisplayCategory,
 } from "@openmeld/agent-runtime";
 import type {
+	AgentProfileCreationRequest,
 	AuthProfileView,
 	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationProfileDirectoryResponse,
@@ -32,7 +33,10 @@ import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profile
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
-import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
+import {
+	CreateAgentProfilePage,
+	CreateProfileDialog,
+} from "#/components/profiles/create-profile-dialog";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -47,6 +51,7 @@ import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent
 import { startQueryKeys } from "#/query/query-keys";
 
 export type ProfileHomeId = "agents" | "people";
+type AgentWorkspaceView = "agents" | "create" | "requests";
 
 type AgentProfileListFilter =
 	| AgentProfileAvailabilityFilter
@@ -76,12 +81,12 @@ const EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS: ReadonlySet<string> =
 	new Set();
 
 export function PeopleAndAgentsPage(input: {
-	activeAgentView?: "agents" | "requests";
+	activeAgentView?: AgentWorkspaceView;
 	activeSectionId: ProfileHomeId;
 	focusRequestId?: string | null;
 	focusProfileId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
-	onAgentViewChange?: (view: "agents" | "requests", profileId?: string) => void;
+	onAgentViewChange?: (view: AgentWorkspaceView, profileId?: string) => void;
 }) {
 	const account = useAppShellAccount();
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -173,22 +178,23 @@ export function PeopleAndAgentsPage(input: {
 			console.error("Failed to open the created profile.", error);
 		});
 	};
+	const handleAgentRequestCreated = (request: AgentProfileCreationRequest) => {
+		if (request.createdAgentProfileId) {
+			navigate({
+				search: { profileId: request.createdAgentProfileId },
+				to: profileHomeRoutes.agents,
+			}).catch((error: unknown) => {
+				console.error("Failed to open the created Agent.", error);
+			});
+			return;
+		}
+		input.onAgentViewChange?.("requests");
+	};
 	const createProfileDialog = isCreateProfileOpen ? (
 		<CreateProfileDialog
 			allowTeammateRequests={isOrganizationContext}
 			currentUserId={currentUserId}
-			onAgentRequestCreated={(request) => {
-				if (request.createdAgentProfileId) {
-					navigate({
-						search: { profileId: request.createdAgentProfileId },
-						to: profileHomeRoutes.agents,
-					}).catch((error: unknown) => {
-						console.error("Failed to open the created Agent.", error);
-					});
-					return;
-				}
-				input.onAgentViewChange?.("requests");
-			}}
+			onAgentRequestCreated={handleAgentRequestCreated}
 			onOpenChange={setIsCreateProfileOpen}
 			onProfileCreated={handleProfileCreated}
 			open={true}
@@ -222,6 +228,19 @@ export function PeopleAndAgentsPage(input: {
 				availabilityFilter={resolveAgentProfileAvailabilityFilter(
 					agentProfileFilter
 				)}
+				createPanel={
+					activeAgentView === "create" ? (
+						<CreateAgentProfilePage
+							allowTeammateRequests={isOrganizationContext}
+							currentUserId={currentUserId}
+							onAgentRequestCreated={handleAgentRequestCreated}
+							onCancel={() => input.onAgentViewChange?.("agents")}
+							onProfileCreated={handleProfileCreated}
+							organizationId={currentOrganization.id}
+							recovery={recovery}
+						/>
+					) : null
+				}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
 				filterControl={
@@ -235,7 +254,7 @@ export function PeopleAndAgentsPage(input: {
 				focusRequestId={input.focusRequestId ?? null}
 				initialSidebarStates={input.initialSidebarStates}
 				isOrganizationContext={isOrganizationContext}
-				onCreateAgent={() => setIsCreateProfileOpen(true)}
+				onCreateAgent={() => input.onAgentViewChange?.("create")}
 				onSelectProfile={(profileId) => {
 					navigate({
 						search: { profileId },
@@ -266,10 +285,16 @@ export function PeopleAndAgentsPage(input: {
 }
 
 function resolveActiveAgentView(input: {
-	activeAgentView: "agents" | "requests" | undefined;
+	activeAgentView: AgentWorkspaceView | undefined;
 	activeSectionId: ProfileHomeId;
 	isOrganizationContext: boolean;
-}): "agents" | "requests" {
+}): AgentWorkspaceView {
+	if (
+		input.activeSectionId === "agents" &&
+		input.activeAgentView === "create"
+	) {
+		return "create";
+	}
 	return input.activeSectionId === "agents" &&
 		input.activeAgentView === "requests" &&
 		input.isOrganizationContext
@@ -278,10 +303,11 @@ function resolveActiveAgentView(input: {
 }
 
 function AgentsWorkspaceHome(input: {
-	activeView: "agents" | "requests";
+	activeView: AgentWorkspaceView;
 	availabilityFilter: AgentProfileAvailabilityFilter;
 	agentProfileSearchQuery: string;
 	currentUserId: string;
+	createPanel: ReactNode;
 	runtimeOverviewQuery: OrganizationAgentRuntimeOverviewQueryState;
 	profileDirectoryQuery: OrganizationProfileDirectoryQueryState;
 	fallbackOwnerLabel: string;
@@ -291,7 +317,7 @@ function AgentsWorkspaceHome(input: {
 	isOrganizationContext: boolean;
 	onCreateAgent: () => void;
 	onSelectProfile: (profileId: string) => void;
-	onViewChange: (view: "agents" | "requests", profileId?: string) => void;
+	onViewChange: (view: AgentWorkspaceView, profileId?: string) => void;
 	organizationId: string;
 	orgSlug: string;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
@@ -503,6 +529,7 @@ function AgentsWorkspaceHome(input: {
 	return (
 		<AgentProfilesWorkspace
 			activeView={input.activeView}
+			createPanel={input.createPanel}
 			currentUserId={input.currentUserId}
 			filterControl={input.filterControl}
 			hasAnyProfiles={agentProfiles.length > 0}

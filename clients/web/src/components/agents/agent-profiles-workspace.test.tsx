@@ -109,6 +109,22 @@ describe("AgentProfilesWorkspace", () => {
 		fireEvent.click(requests);
 	});
 
+	it("shows the route-backed create composition without selecting another Agent", () => {
+		const onCreateAgent = vi.fn();
+		renderWorkspace({
+			activeView: "create",
+			createPanel: <div data-testid="create-agent-page">Create flow</div>,
+			onCreateAgent,
+		});
+
+		expect(screen.getByTestId("create-agent-page")).toBeTruthy();
+		expect(screen.queryByTestId("selected-agent-detail")).toBeNull();
+		const createButton = screen.getByRole("button", { name: "Create Agent" });
+		expect(createButton.className).toContain("bg-sidebar-accent");
+		fireEvent.click(createButton);
+		expect(onCreateAgent).toHaveBeenCalledOnce();
+	});
+
 	it("places Agent search before the availability filter", () => {
 		renderWorkspace({
 			filterControl: <button type="button">Filter Agents</button>,
