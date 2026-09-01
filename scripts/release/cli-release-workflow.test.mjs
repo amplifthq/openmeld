@@ -93,6 +93,28 @@ test("keeps the signed and notarized CLI publisher fail closed", () => {
   }
 });
 
+test("blocks CLI and Core publication while Production D1 migrations are pending", () => {
+  const source = readRepoFile(".github/workflows/cli-release.yml");
+  const databaseGate = source.indexOf(
+    "Require production database migrations current"
+  );
+  const acquireCliLease = source.indexOf(
+    "Acquire shared CLI publication lease"
+  );
+  const publish = source.indexOf(
+    "Publish signed and notarized CLI, binary channel, npm package, tag, and Core"
+  );
+
+  assert.ok(databaseGate >= 0);
+  assert.ok(databaseGate < acquireCliLease);
+  assert.ok(databaseGate < publish);
+  assert.ok(
+    source.includes(
+      'node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD"'
+    )
+  );
+});
+
 test("injects production credentials only into the steps that consume them", () => {
   const source = readRepoFile(".github/workflows/cli-release.yml");
   const cliStart = source.indexOf("  cli_release:");
