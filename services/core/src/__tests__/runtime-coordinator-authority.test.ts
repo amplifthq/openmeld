@@ -279,11 +279,13 @@ describe("RuntimeCoordinator authority next-alarm resolvers", () => {
         nowMs: NOW_MS,
         records: [
           buildHeadLifecycleRecord({
+            acceptedAtMs: laterAcceptedCreatedAtMs,
             createdAtMs: laterAcceptedCreatedAtMs,
             runtimeCoordinatorExecutionId: null,
             status: "accepted",
           }),
           buildHeadLifecycleRecord({
+            acceptedAtMs: acceptedCreatedAtMs,
             createdAtMs: acceptedCreatedAtMs,
             runtimeCoordinatorExecutionId: null,
             status: "accepted",

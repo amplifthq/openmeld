@@ -599,6 +599,11 @@ export type RuntimeCoordinatorHeadLifecycleRecord = {
   waitingBoundary?: RuntimeCoordinatorHeadWaitingBoundary;
 };
 
+const resolveRuntimeCoordinatorHeadAcceptedAtMs = (
+  record: RuntimeCoordinatorHeadLifecycleRecord
+): number =>
+  record.acceptedAtMs ?? Math.max(record.createdAtMs, record.updatedAtMs);
+
 export type RuntimeCoordinatorPreExecutionHandoffPublicationStatus =
   | "legacy_evidence_only"
   | "waiting_for_recovery"
@@ -795,7 +800,7 @@ export const resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMsFromRecord
       }
       nextAlarmAtMs = minNullableTimestamp(
         nextAlarmAtMs,
-        (record.acceptedAtMs ?? record.createdAtMs) +
+        resolveRuntimeCoordinatorHeadAcceptedAtMs(record) +
           RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS
       );
     }
@@ -2187,7 +2192,7 @@ export const normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming = (
   if (record.acceptedAtMs !== undefined) {
     return record;
   }
-  const acceptedAtMs = Math.max(record.createdAtMs, record.updatedAtMs);
+  const acceptedAtMs = resolveRuntimeCoordinatorHeadAcceptedAtMs(record);
   if (record.status !== "waiting" || !record.waitingBoundary) {
     return { ...record, acceptedAtMs };
   }
@@ -2210,8 +2215,7 @@ export const shouldEscalateAcceptedHeadToWaitingBoundary = (input: {
   record: RuntimeCoordinatorHeadLifecycleRecord;
 }): boolean =>
   isAcceptedHeadAwaitingExecution(input.record) &&
-  (input.record.acceptedAtMs ??
-    Math.max(input.record.createdAtMs, input.record.updatedAtMs)) +
+  resolveRuntimeCoordinatorHeadAcceptedAtMs(input.record) +
     RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS <=
     input.nowMs;
 
