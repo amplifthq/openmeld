@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T17:22:52.923Z",
+  "updatedAt": "2026-09-01T18:32:35.805Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.139",
+      "packageVersion": "0.3.140",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup, upgrade, status, trace, and self-rescue commands remain compatible and can install 0.3.139."
+      "reason": "Existing CLI update, setup, status, and self-rescue commands remain compatible with current cloud services."
     },
     "service": {
-      "bundleHash": "456d4ff05b87aa2ac13180c06109995ac16d57f64922b3e74a6e71c059274619",
-      "bundleVersion": "0.3.139",
+      "bundleHash": "bfc1cfbcfc2501f5ae8101bc4a3981a70aef5c0e4e24660eb47b211fec165a53",
+      "bundleVersion": "0.3.140",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Service 0.3.138 remains safe for existing Wake work and can self-update; 0.3.139 adds durable update convergence without changing the runtime contract."
+      "reason": "Existing Services remain safe for Wake work; 0.3.140 refreshes update metadata without changing runtime contracts."
     },
     "skills": {
       "bundleHash": "73e31d09533eac76338fb95bcfab855aeeca940ca587925095ab0c63371abf7d",
