@@ -1,6 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const getAuthSessionStateMock = vi.hoisted(() => vi.fn());
+const { getAuthSessionStateMock, runAuthLoginMock, selectPromptMock } =
+  vi.hoisted(() => ({
+    getAuthSessionStateMock: vi.fn(),
+    runAuthLoginMock: vi.fn(),
+    selectPromptMock: vi.fn(),
+  }));
+
+vi.mock("@clack/prompts", async () => {
+  const actual =
+    await vi.importActual<typeof import("@clack/prompts")>("@clack/prompts");
+  return {
+    ...actual,
+    select: selectPromptMock,
+  };
+});
 
 vi.mock("../src/config/auth-session", async () => {
   const actual = await vi.importActual<
@@ -15,10 +29,13 @@ vi.mock("../src/config/auth-session", async () => {
 });
 
 vi.mock("../src/commands/auth", () => ({
-  runAuthLogin: vi.fn(),
+  runAuthLogin: runAuthLoginMock,
 }));
 
-import { evaluateCommandAuthentication } from "../src/auth/command-auth";
+import {
+  ensureCommandAuthenticationOrCancel,
+  evaluateCommandAuthentication,
+} from "../src/auth/command-auth";
 
 const VALID_AUTH_STATE = {
   state: "valid" as const,
@@ -46,6 +63,8 @@ const UNAVAILABLE_AUTH_STATE = {
 describe("command authentication", () => {
   beforeEach(() => {
     getAuthSessionStateMock.mockReset();
+    runAuthLoginMock.mockReset();
+    selectPromptMock.mockReset();
   });
 
   it("recovers when a transient credential read succeeds on the bounded retry", async () => {
@@ -110,5 +129,32 @@ describe("command authentication", () => {
       reasonCode: "session_metadata_invalid",
     });
     expect(getAuthSessionStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("exposes the newly authenticated session to the current command", async () => {
+    getAuthSessionStateMock
+      .mockResolvedValueOnce({
+        state: "invalid",
+        session: null,
+        reasonCode: "session_metadata_missing",
+      })
+      .mockResolvedValueOnce(VALID_AUTH_STATE);
+    selectPromptMock.mockResolvedValue("__command_auth_login__");
+    runAuthLoginMock.mockResolvedValue(undefined);
+    const onAuthenticatedSession = vi.fn();
+
+    await expect(
+      ensureCommandAuthenticationOrCancel({
+        runtime: { interactive: true, resolvedView: "human" },
+        promptMessage: "Sign in before reading this Space.",
+        onAuthenticatedSession,
+      })
+    ).resolves.toBe(true);
+
+    expect(runAuthLoginMock).toHaveBeenCalledOnce();
+    expect(onAuthenticatedSession).toHaveBeenCalledOnce();
+    expect(onAuthenticatedSession).toHaveBeenCalledWith(
+      VALID_AUTH_STATE.session
+    );
   });
 });

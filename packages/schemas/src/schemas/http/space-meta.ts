@@ -15,6 +15,12 @@ export const MAX_SPACE_GUIDE_LENGTH = 4000 as const;
 
 export const spaceOrganizationVisibilitySchema = z.enum(["public", "private"]);
 
+export function resolveInitialSpaceAccessMode(
+  visibility: z.infer<typeof spaceOrganizationVisibilitySchema>
+): "public" | "members_only" {
+  return visibility === "private" ? "members_only" : "public";
+}
+
 export const spaceCreatorSchema = z
   .strictObject({
     profileId: openMeldRuntimeProfileIdSchema,

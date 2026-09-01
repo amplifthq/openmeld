@@ -14,6 +14,12 @@ const PASSIVE_CLI_QUERY_COMMANDS = new Set([
   "service trace",
   "whoami",
 ]);
+const COMMAND_ROUTE_OPTIONS_WITH_VALUES = new Set([
+  "--gateway-url",
+  "--profile",
+  "--service-auto-install",
+  "--view",
+]);
 
 export function isStandaloneViewQueryArgv(argv: string[]): boolean {
   const args = argv.slice(2);
@@ -150,13 +156,13 @@ export function parseLeadingCommandTokensFromArgv(
       return tokens;
     }
 
-    if (shouldSkipKnownGlobalFlag(args, i)) {
+    if (shouldSkipKnownCommandRouteOption(args, i)) {
       i += 1;
       continue;
     }
 
     const arg = args[i];
-    if (typeof arg !== "string" || shouldSkipInlineGlobalFlag(arg)) {
+    if (typeof arg !== "string" || shouldSkipInlineCommandRouteOption(arg)) {
       continue;
     }
 
@@ -182,7 +188,7 @@ export function isPassiveCliQueryArgv(argv: string[]): boolean {
     }
 
     if (
-      isKnownGlobalFlagExpectValue(arg) &&
+      isKnownCommandRouteOptionExpectValue(arg) &&
       isGlobalFlagValueCandidate(args[i + 1])
     ) {
       i += 1;
@@ -255,8 +261,8 @@ function parseServiceAutoInstallMode(value: string): ServiceAutoInstallMode {
   );
 }
 
-function isKnownGlobalFlagExpectValue(value: string): boolean {
-  return value === "--view" || value === "--service-auto-install";
+function isKnownCommandRouteOptionExpectValue(value: string): boolean {
+  return COMMAND_ROUTE_OPTIONS_WITH_VALUES.has(value);
 }
 
 function isGlobalFlagValueCandidate(value: unknown): value is string {
@@ -289,16 +295,19 @@ function collectTokensAfterTerminator(
   return true;
 }
 
-function shouldSkipKnownGlobalFlag(args: string[], index: number): boolean {
+function shouldSkipKnownCommandRouteOption(
+  args: string[],
+  index: number
+): boolean {
   return (
-    isKnownGlobalFlagExpectValue(args[index] ?? "") &&
+    isKnownCommandRouteOptionExpectValue(args[index] ?? "") &&
     isGlobalFlagValueCandidate(args[index + 1])
   );
 }
 
-function shouldSkipInlineGlobalFlag(value: string): boolean {
-  return (
-    value.startsWith("--view=") || value.startsWith("--service-auto-install=")
+function shouldSkipInlineCommandRouteOption(value: string): boolean {
+  return [...COMMAND_ROUTE_OPTIONS_WITH_VALUES].some((option) =>
+    value.startsWith(`${option}=`)
   );
 }
 

@@ -2213,6 +2213,7 @@ export {
   MAX_SPACE_GUIDE_LENGTH,
   patchSpaceMetaBodySchema,
   patchSpaceMetaResponseSchema,
+  resolveInitialSpaceAccessMode,
   spaceCreatorSchema,
   spaceDirectMessageMetaSchema,
   spaceMetaSchema,
@@ -2247,8 +2248,10 @@ export {
   validateSpaceSignalClientMessageIdPolicy,
 } from "./http/space-signals";
 export {
+  boundSpaceStatusPreviewText,
   getSpaceStatusInputSchema,
   getSpaceStatusResponseSchema,
+  SPACE_STATUS_PREVIEW_MAX_UTF16_UNITS,
   spaceStatusLatestVisibleUpdateSchema,
   spaceStatusMembersSummarySchema,
 } from "./http/space-status";

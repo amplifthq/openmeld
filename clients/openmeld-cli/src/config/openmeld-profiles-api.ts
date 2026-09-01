@@ -11,6 +11,7 @@ import {
 } from "../auth/auth-guidance";
 import { touchDaemonCatalogSyncSignal } from "../local-service/state/catalog-sync-signal";
 import { getAuthSessionState, type StoredAuthSession } from "./auth-session";
+import { isLoopbackHostname } from "./loopback-hostname";
 import { assertAdditionalHumanProfileCreationEnabled } from "./profile-creation-capability";
 
 export type OpenMeldProfileKind = "human" | "agent" | "system";
@@ -464,12 +465,6 @@ function parseUrlOrNull(value: string): URL | null {
   } catch {
     return null;
   }
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-  );
 }
 
 function isSameStoredAuthSession(

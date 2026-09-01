@@ -401,6 +401,14 @@ visibility** and **link access**. A bare `private` or `public` label must not be
 presented as the privacy state of the whole Space because it answers only one
 of those two questions.
 
+New Space creation deliberately initializes the two independent facts together
+through the shared initial-access policy: Organization visibility `private`
+starts with link access `members_only`, while Organization visibility `public`
+starts with link access `public`. Core persists that canonical pair and clients
+use the same policy to explain the pending creation before it is submitted.
+This is creation policy, not a permanent derivation rule: after creation,
+visibility and access mode remain independently owned facts.
+
 OpenMeld has four access modes:
 
 - `members_only`: only an active member, the creator, or another active Profile

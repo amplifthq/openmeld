@@ -10,6 +10,7 @@ import {
 } from "../auth/command-auth";
 import { runAuthLogin } from "../commands/auth";
 import { deriveAuthBaseUrlFromGatewayUrl } from "../config/auth-request-compatibility";
+import { primeOpenMeldProfilesSessionCache } from "../config/openmeld-profiles-api";
 import { formatOpenMeldCliCommands } from "../runtime/cli-entry-command";
 import { buildAgentCheckResult } from "./build-agent-check-result";
 import { getCommandEntryCopy } from "./command-entry-copy";
@@ -52,6 +53,9 @@ export async function runSignInCheck(input: {
   setCurrentSignInStatus(evaluated.status, input.context.gatewayUrl);
 
   if (evaluated.status === "valid") {
+    if (evaluated.session) {
+      primeOpenMeldProfilesSessionCache(evaluated.session);
+    }
     return {
       status: "continue",
     };
@@ -148,6 +152,7 @@ async function runRequiredSignInCheck(input: {
     ),
     allowPrompt: true,
     evaluated: input.evaluated,
+    onAuthenticatedSession: primeOpenMeldProfilesSessionCache,
   });
   if (!authenticated) {
     return {
@@ -269,6 +274,9 @@ async function runOptionalSignInLogin(input: {
   });
   setCurrentSignInStatus(afterLogin.status, input.context.gatewayUrl);
   if (afterLogin.status === "valid") {
+    if (afterLogin.session) {
+      primeOpenMeldProfilesSessionCache(afterLogin.session);
+    }
     return {
       status: "continue",
     };

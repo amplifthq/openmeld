@@ -83,6 +83,7 @@ export async function ensureCommandAuthenticationOrCancel(input: {
   promptMessage: string;
   allowPrompt?: boolean;
   evaluated?: EvaluatedCommandAuthentication;
+  onAuthenticatedSession?: (session: StoredAuthSession) => void;
 }): Promise<boolean> {
   const currentState = getCurrentCommandCheckState();
   if (
@@ -100,6 +101,7 @@ export async function ensureCommandAuthenticationOrCancel(input: {
       gatewayUrl: input.gatewayUrl,
     }));
   if (auth.status === "valid" && auth.session) {
+    input.onAuthenticatedSession?.(auth.session);
     return true;
   }
 
@@ -173,6 +175,7 @@ export async function ensureCommandAuthenticationOrCancel(input: {
     cancel("Cancelled.");
     return false;
   }
+  input.onAuthenticatedSession?.(afterLogin.session);
   if (isCurrentCommandCheckScopeActive()) {
     currentState.signIn = {
       checkedGatewayUrl: normalizeOptionalString(input.gatewayUrl),

@@ -1,4 +1,5 @@
 import { normalizeBaseUrl } from "../protocol/urls";
+import { isLoopbackHostname } from "./loopback-hostname";
 import { resolveOpenMeldEnvPreset } from "./paths";
 import { getConfiguredBaseUrl } from "./runtime-config";
 
@@ -110,15 +111,6 @@ function isAuthWorkerUrl(url: URL): boolean {
   const [firstLabel = ""] = url.hostname.toLowerCase().split(".");
   return (
     firstLabel === AUTH_HOST_LABEL || firstLabel.startsWith(AUTH_HOST_PREFIX)
-  );
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalizedHostname = hostname.toLowerCase();
-  return (
-    normalizedHostname === "localhost" ||
-    normalizedHostname === "127.0.0.1" ||
-    normalizedHostname === "::1"
   );
 }
 

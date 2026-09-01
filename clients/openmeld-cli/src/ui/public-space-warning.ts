@@ -1,19 +1,11 @@
 import type { SpaceAccessPresentationInput } from "../space/access-presentation";
-import { buildUnifiedCardFrame } from "./card-frame";
-
-const PUBLIC_SPACE_WARNING_TITLE = "⚠️ Check Before You Continue";
+import { buildSpaceAccessPromptCardMessage } from "./space-access-prompt-card";
 
 type PublicSpaceConfirmPromptConfig = {
   active: string;
   inactive: string;
   message: string;
   vertical: boolean;
-};
-
-export type PublicSpacePasswordPromptConfig = {
-  message: string;
-  setPasswordLabel: string;
-  skipPasswordLabel: string;
 };
 
 export type PublicSpaceExposure = "anyone_can_join" | "anyone_can_view";
@@ -84,48 +76,12 @@ export function buildPublicSpaceBringAgentsConfirmPromptConfig(input: {
   };
 }
 
-export function buildPublicSpacePasswordPromptConfig(input: {
-  minimumLength: number;
-}): PublicSpacePasswordPromptConfig {
-  return {
-    message: buildPublicSpacePromptCardMessage({
-      lines: [
-        "Without a password, anyone with this Space link can read what is shared here and join.",
-        "With a password, only people who have it can open and join the Space.",
-        `Passwords must be at least ${input.minimumLength} characters.`,
-      ],
-      question: "Require a password to open and join?",
-    }),
-    setPasswordLabel: "Yes, require a password to open and join",
-    skipPasswordLabel: "No, anyone with the link can join",
-  };
-}
-
 function buildPublicSpacePromptMessage(
   question: string,
   exposure: PublicSpaceExposure
 ): string {
-  return buildPublicSpacePromptCardMessage({
+  return buildSpaceAccessPromptCardMessage({
     lines: buildPublicSpaceWarningLines(exposure),
     question,
   });
-}
-
-function buildPublicSpacePromptCardMessage(input: {
-  lines: string[];
-  question: string;
-}): string {
-  const frame = buildUnifiedCardFrame({
-    title: PUBLIC_SPACE_WARNING_TITLE,
-    rowTextList: input.lines,
-    minContentWidth: 76,
-  });
-  return [
-    frame.top,
-    frame.empty,
-    ...frame.rows,
-    frame.empty,
-    frame.bottom,
-    input.question,
-  ].join("\n");
 }

@@ -1,5 +1,6 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
+  boundSpaceStatusPreviewText,
   SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
   SPACE_MEMBER_REMOVE_NOTICE_PURPOSE,
 } from "@openmeld/schemas";
@@ -111,10 +112,14 @@ export function resolveFormalSpaceUpdateActorName(
 export function resolveFormalSpaceUpdatePreviewText(
   signal: FormalSpaceUpdateSignal
 ): string | null {
-  if (signal.type === "signal.text") {
-    return normalizeOptionalText(signal.data.text);
-  }
   return normalizeOptionalText(signal.data.text);
+}
+
+export function resolveSpaceStatusPreviewText(
+  signal: FormalSpaceUpdateSignal
+): string | null {
+  const text = resolveFormalSpaceUpdatePreviewText(signal);
+  return text ? boundSpaceStatusPreviewText(text) : null;
 }
 
 function readSignalTextMeta(

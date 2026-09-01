@@ -19,6 +19,7 @@ const AGENT_ONBOARDING_PATH = join(
   "agent-onboarding.md"
 );
 const SPACE_OPS_PATH = join(SKILL_DIR, "playbooks", "space-ops.md");
+const SPACE_READS_PATH = join(SKILL_DIR, "playbooks", "space-reads.md");
 const COMMANDS_REFERENCE_PATH = join(SKILL_DIR, "references", "commands.md");
 const RUNTIME_REFERENCE_PATH = join(
   SKILL_DIR,
@@ -36,6 +37,7 @@ const SPACE_SEND_TEXT_FILE_FLAG_PATTERN =
 const REQUIRED_SKILL_LINKS = [
   "playbooks/agent-onboarding.md",
   "playbooks/space-ops.md",
+  "playbooks/space-reads.md",
   "references/commands.md",
   "references/runtime-resolution.md",
 ] as const;
@@ -46,6 +48,7 @@ describe("openmeld-cli skill docs contract", () => {
       SKILL_FILE_PATH,
       AGENT_ONBOARDING_PATH,
       SPACE_OPS_PATH,
+      SPACE_READS_PATH,
       COMMANDS_REFERENCE_PATH,
       RUNTIME_REFERENCE_PATH,
     ]) {
@@ -63,15 +66,47 @@ describe("openmeld-cli skill docs contract", () => {
     }
   });
 
+  it("keeps SKILL.md a short router with common Space reads on the first layer", async () => {
+    const raw = await readFile(SKILL_FILE_PATH, "utf8");
+
+    expect(raw.split("\n").length).toBeLessThanOrEqual(200);
+    expect(raw).toContain("This file is a router");
+    expect(raw).toContain("Do not preload every file");
+    for (const command of [
+      "openmeld space board",
+      "openmeld space members",
+      "openmeld space history",
+      "openmeld space status",
+    ]) {
+      expect(raw).toContain(command);
+    }
+  });
+
+  it("documents the copied-URL and one-off Profile contract for Space reads", async () => {
+    const docs = [
+      await readFile(SKILL_FILE_PATH, "utf8"),
+      await readFile(SPACE_READS_PATH, "utf8"),
+      await readFile(RUNTIME_REFERENCE_PATH, "utf8"),
+    ].map(normalizeMarkdownWhitespace);
+
+    for (const raw of docs) {
+      expect(raw).toContain("explicit `--profile`");
+      expect(raw).toContain("`profileId`");
+      expect(raw).toContain("Do not run `openmeld profiles set`");
+      expect(raw).toContain("space create");
+      expect(raw).toContain("space join");
+      expect(raw).toContain("space watch");
+    }
+  });
+
   it("documents Organization collaboration and live Wake controls for agents", async () => {
-    const skillRaw = await readFile(SKILL_FILE_PATH, "utf8");
     const spaceOpsRaw = await readFile(SPACE_OPS_PATH, "utf8");
     const commandsReferenceRaw = await readFile(
       COMMANDS_REFERENCE_PATH,
       "utf8"
     );
 
-    for (const raw of [skillRaw, commandsReferenceRaw]) {
+    for (const raw of [commandsReferenceRaw]) {
       for (const command of [
         "openmeld org directory",
         "openmeld org computers",
@@ -83,7 +118,7 @@ describe("openmeld-cli skill docs contract", () => {
       }
     }
 
-    for (const raw of [skillRaw, spaceOpsRaw, commandsReferenceRaw]) {
+    for (const raw of [spaceOpsRaw, commandsReferenceRaw]) {
       for (const command of [
         "openmeld space wake-progress",
         "openmeld space wake-stop",
@@ -96,10 +131,9 @@ describe("openmeld-cli skill docs contract", () => {
   });
 
   it("teaches Local Agents to consult the canonical Center Agent Chat", async () => {
-    const docs = [
-      await readFile(SKILL_FILE_PATH, "utf8"),
-      await readFile(COMMANDS_REFERENCE_PATH, "utf8"),
-    ].map(normalizeMarkdownWhitespace);
+    const docs = [await readFile(COMMANDS_REFERENCE_PATH, "utf8")].map(
+      normalizeMarkdownWhitespace
+    );
 
     for (const raw of docs) {
       expect(raw).toContain("openmeld center-agent ask");
@@ -113,10 +147,9 @@ describe("openmeld-cli skill docs contract", () => {
   });
 
   it("teaches a truthful invisible context-load and Task handoff workflow", async () => {
-    const docs = [
-      await readFile(SKILL_FILE_PATH, "utf8"),
-      await readFile(COMMANDS_REFERENCE_PATH, "utf8"),
-    ].map(normalizeMarkdownWhitespace);
+    const docs = [await readFile(COMMANDS_REFERENCE_PATH, "utf8")].map(
+      normalizeMarkdownWhitespace
+    );
 
     for (const raw of docs) {
       expect(raw).toContain("nextAction.command");
@@ -142,7 +175,6 @@ describe("openmeld-cli skill docs contract", () => {
 
   it("keeps publication-mode guidance aligned across agent-facing skill docs", async () => {
     const docs = [
-      await readFile(SKILL_FILE_PATH, "utf8"),
       await readFile(SPACE_OPS_PATH, "utf8"),
       await readFile(COMMANDS_REFERENCE_PATH, "utf8"),
     ].map(normalizeMarkdownWhitespace);
@@ -210,10 +242,9 @@ describe("openmeld-cli skill docs contract", () => {
   });
 
   it("teaches Local Agents the auditable Agent Profile request workflow", async () => {
-    const docs = [
-      await readFile(SKILL_FILE_PATH, "utf8"),
-      await readFile(COMMANDS_REFERENCE_PATH, "utf8"),
-    ].map(normalizeMarkdownWhitespace);
+    const docs = [await readFile(COMMANDS_REFERENCE_PATH, "utf8")].map(
+      normalizeMarkdownWhitespace
+    );
 
     for (const raw of docs) {
       expect(raw).toContain("openmeld profiles create");
@@ -232,7 +263,6 @@ describe("openmeld-cli skill docs contract", () => {
 
   it("documents Cursor ACP setup, model, and permission semantics", async () => {
     const docs = [
-      await readFile(SKILL_FILE_PATH, "utf8"),
       await readFile(AGENT_ONBOARDING_PATH, "utf8"),
       await readFile(COMMANDS_REFERENCE_PATH, "utf8"),
     ].map(normalizeMarkdownWhitespace);
@@ -265,12 +295,9 @@ describe("openmeld-cli skill docs contract", () => {
 
   it("keeps Space message file flags aligned with the real CLI", async () => {
     const docs = await Promise.all(
-      [
-        README_PATH,
-        SKILL_FILE_PATH,
-        SPACE_OPS_PATH,
-        COMMANDS_REFERENCE_PATH,
-      ].map(async (path) => await readFile(path, "utf8"))
+      [README_PATH, SPACE_OPS_PATH, COMMANDS_REFERENCE_PATH].map(
+        async (path) => await readFile(path, "utf8")
+      )
     );
     const openMeldSourceRaw = await readFile(OPENMELD_SOURCE_PATH, "utf8");
     const spaceSendSource =

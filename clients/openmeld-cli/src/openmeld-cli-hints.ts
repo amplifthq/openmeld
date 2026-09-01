@@ -80,6 +80,15 @@ function buildHints(
   const contractEntryName = resolveCommandEntryNameFromTokens(
     parseLeadingCommandTokensFromArgv(argv, 3)
   );
+  const invalidSpaceReadTargetHints = resolveInvalidSpaceReadTargetHints({
+    entryName: resolveCommandEntryNameFromTokens(
+      parseLeadingCommandTokensFromArgv(argv, 2)
+    ),
+    message,
+  });
+  if (invalidSpaceReadTargetHints) {
+    return invalidSpaceReadTargetHints;
+  }
   if (contractEntryName) {
     const contractHints = getCommandHintsFromContract({
       context: {
@@ -129,6 +138,45 @@ function buildHints(
   }
 
   return [];
+}
+
+function resolveInvalidSpaceReadTargetHints(input: {
+  entryName: ReturnType<typeof resolveCommandEntryNameFromTokens>;
+  message: string;
+}): string[] | null {
+  if (!isInvalidSpaceTargetMessage(input.message)) {
+    return null;
+  }
+  const command = resolveSpaceReadCommandName(input.entryName);
+  return command ? [`openmeld space ${command} <space-id-or-url>`] : null;
+}
+
+function resolveSpaceReadCommandName(
+  entryName: ReturnType<typeof resolveCommandEntryNameFromTokens>
+): "board" | "history" | "members" | "status" | null {
+  switch (entryName) {
+    case "space.board":
+      return "board";
+    case "space.history":
+      return "history";
+    case "space.members":
+      return "members";
+    case "space.status":
+      return "status";
+    default:
+      return null;
+  }
+}
+
+function isInvalidSpaceTargetMessage(message: string): boolean {
+  return (
+    message.includes("invalid space target") ||
+    message.includes("Space target must be a 64-character Space ID") ||
+    message.includes(
+      "Space URL must include /o/<org-slug>/spaces/<space-id>"
+    ) ||
+    message.includes("Space URL must use a trusted OpenMeld Web origin")
+  );
 }
 
 function isSpaceCommandToken(token: string | null): boolean {

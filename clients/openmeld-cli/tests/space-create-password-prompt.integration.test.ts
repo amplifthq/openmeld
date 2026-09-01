@@ -267,7 +267,7 @@ describe("space create password prompt", () => {
         | undefined;
       expect(selectInput?.message).toContain("⚠️ Check Before You Continue");
       expect(selectInput?.message).toContain(
-        "Without a password, anyone with this Space link can read what is shared here and join."
+        "Without a password, only current members can open this Space. New participants must be added explicitly."
       );
       expect(selectInput?.message).toContain(
         "With a password, only people who have it can open and join the Space."
@@ -287,7 +287,7 @@ describe("space create password prompt", () => {
             value: "set",
           }),
           expect.objectContaining({
-            label: "No, anyone with the link can join",
+            label: "No, keep access members-only",
             value: "skip",
           }),
         ])
@@ -390,6 +390,23 @@ describe("space create password prompt", () => {
       expect(selectMock.mock.calls[0]?.[0]).toMatchObject({
         message: "Organization visibility",
       });
+      const passwordSelectInput = selectMock.mock.calls[1]?.[0] as
+        | {
+            message?: string;
+            options?: Array<{ label?: string; value?: string }>;
+          }
+        | undefined;
+      expect(passwordSelectInput?.message).toContain(
+        "Without a password, anyone with this Space link can read what is shared here and join."
+      );
+      expect(passwordSelectInput?.options).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "No, anyone with the link can join",
+            value: "skip",
+          }),
+        ])
+      );
       const body = await readCreateRequestBody<{
         visibility?: string;
       }>(fetchMock);
@@ -686,11 +703,12 @@ describe("space create password prompt", () => {
         .find((line) => line.code === "space.create.password.optional_hint");
       expect(hintEnvelope?.text).toContain("Password is optional");
       expect(hintEnvelope?.text).toContain(
-        "anyone with the Space link can read what is shared here and join"
+        "Without a password, only current members can open this Space"
       );
       expect(hintEnvelope?.text).toContain(
-        "require a password to open and join"
+        "New participants must be added explicitly"
       );
+      expect(hintEnvelope?.text).not.toContain("anyone with the Space link");
       expect(hintEnvelope?.text).not.toContain("Space ID");
       expect(hintEnvelope?.text).toContain("at least 6 characters");
       expect(hintEnvelope?.text).toContain("--password <value>");
@@ -702,6 +720,50 @@ describe("space create password prompt", () => {
         password?: string;
       }>(fetchMock);
       expect(body.password).toBeUndefined();
+    });
+  });
+
+  it("explains public link access when an agent creates a public Space without a password", async () => {
+    resolveRuntimeContextMock.mockResolvedValue({
+      viewMode: "agent",
+      resolvedView: "agent",
+      interactive: false,
+    });
+
+    await withTempHome(async () => {
+      mockSpaceCreateFetchSequence(
+        createAuthProbeResponse(),
+        createSpaceCreatedResponse()
+      );
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runSpaceCreate({
+          profile: "agt-space-create-prompt",
+          baseUrl: "https://gateway.openmeld.invalid",
+          name: "public-room",
+          visibility: "public",
+          join: false,
+          view: "agent",
+        });
+      });
+
+      const hintEnvelope = stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              code?: string;
+              text?: string;
+            }
+        )
+        .find((line) => line.code === "space.create.password.optional_hint");
+
+      expect(hintEnvelope?.text).toContain(
+        "Without a password, anyone with this Space link can read what is shared here and join"
+      );
+      expect(hintEnvelope?.text).not.toContain("members-only");
     });
   });
 

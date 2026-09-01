@@ -1,52 +1,9 @@
-import path from "node:path";
 import { defineConfig } from "vitest/config";
+import { OPENMELD_CLI_VITEST_WORKSPACE_ALIASES } from "./vitest.workspace-aliases";
 
 export default defineConfig({
   resolve: {
-    alias: [
-      {
-        find: /^@openmeld\/api-client$/,
-        replacement: path.resolve(
-          import.meta.dirname,
-          "../../packages/api-client/src/index.ts"
-        ),
-      },
-      {
-        find: /^@openmeld\/gateway-contract$/,
-        replacement: path.resolve(
-          import.meta.dirname,
-          "../../packages/gateway-contract/src/index.ts"
-        ),
-      },
-      {
-        find: /^@openmeld\/protocol$/,
-        replacement: path.resolve(
-          import.meta.dirname,
-          "../../packages/protocol/src/index.ts"
-        ),
-      },
-      {
-        find: /^@openmeld\/start$/,
-        replacement: path.resolve(
-          import.meta.dirname,
-          "../../packages/start/src/index.ts"
-        ),
-      },
-      {
-        find: /^@openmeld\/space$/,
-        replacement: path.resolve(
-          import.meta.dirname,
-          "../../packages/space/src/index.ts"
-        ),
-      },
-      {
-        find: /^@openmeld\/utils$/,
-        replacement: path.resolve(
-          import.meta.dirname,
-          "../../packages/utils/src/index.ts"
-        ),
-      },
-    ],
+    alias: OPENMELD_CLI_VITEST_WORKSPACE_ALIASES,
   },
   test: {
     // See vitest.config.ts: NO_COLOR must be set before the worker imports

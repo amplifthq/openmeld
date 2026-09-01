@@ -15,6 +15,9 @@ import onboarding from "../../skills/openmeld-cli/playbooks/agent-onboarding.md"
 import spaceOps from "../../skills/openmeld-cli/playbooks/space-ops.md" with {
   type: "file",
 };
+import spaceReads from "../../skills/openmeld-cli/playbooks/space-reads.md" with {
+  type: "file",
+};
 import commands from "../../skills/openmeld-cli/references/commands.md" with {
   type: "file",
 };
@@ -37,6 +40,7 @@ const EMBEDDED_SKILL_FILES: ReadonlyArray<{
     handle: onboarding,
   },
   { relativePath: "openmeld-cli/playbooks/space-ops.md", handle: spaceOps },
+  { relativePath: "openmeld-cli/playbooks/space-reads.md", handle: spaceReads },
   { relativePath: "openmeld-cli/references/commands.md", handle: commands },
   {
     relativePath: "openmeld-cli/references/runtime-resolution.md",

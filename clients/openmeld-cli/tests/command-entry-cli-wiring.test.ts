@@ -8,10 +8,12 @@ type CenterAgentContextCommandModule =
 type OrgCommandModule = typeof import("../src/org/command");
 type ProfileCreationRequestCommandModule =
   typeof import("../src/profile-creation-request/command");
+type SpaceBoardCommandModule = typeof import("../src/space/board-command");
 type SpaceCommandModule = typeof import("../src/space/command");
 type SpaceMembersCommandModule = typeof import("../src/space/members-command");
 type SpaceOrganizationCommandModule =
   typeof import("../src/space/organization-space-command");
+type SpaceStatusCommandModule = typeof import("../src/space/status-command");
 type SpaceWakeControlCommandModule =
   typeof import("../src/space/wake-control-command");
 type RunCommandWithEntryChecks =
@@ -45,6 +47,12 @@ const runMocks = vi.hoisted(() => ({
   runSpaceJoin: vi.fn<SpaceCommandModule["runSpaceJoin"]>(
     async () => "completed"
   ),
+  runSpaceBoard: vi.fn<SpaceBoardCommandModule["runSpaceBoard"]>(
+    async () => undefined
+  ),
+  runSpaceHistory: vi.fn<SpaceCommandModule["runSpaceHistory"]>(
+    async () => undefined
+  ),
   runSpaceList: vi.fn<SpaceCommandModule["runSpaceList"]>(
     async () => undefined
   ),
@@ -58,6 +66,9 @@ const runMocks = vi.hoisted(() => ({
     SpaceOrganizationCommandModule["runSpaceSelfServeJoin"]
   >(async () => undefined),
   runSpaceSend: vi.fn<SpaceCommandModule["runSpaceSend"]>(
+    async () => undefined
+  ),
+  runSpaceStatus: vi.fn<SpaceStatusCommandModule["runSpaceStatus"]>(
     async () => undefined
   ),
   runSpaceWakeProgress: vi.fn<
@@ -172,9 +183,18 @@ vi.mock("../src/space/command", async (importOriginal) => {
   const actual = await importOriginal<SpaceCommandModule>();
   return {
     ...actual,
+    runSpaceHistory: runMocks.runSpaceHistory,
     runSpaceJoin: runMocks.runSpaceJoin,
     runSpaceList: runMocks.runSpaceList,
     runSpaceSend: runMocks.runSpaceSend,
+  };
+});
+
+vi.mock("../src/space/board-command", async (importOriginal) => {
+  const actual = await importOriginal<SpaceBoardCommandModule>();
+  return {
+    ...actual,
+    runSpaceBoard: runMocks.runSpaceBoard,
   };
 });
 
@@ -183,6 +203,14 @@ vi.mock("../src/space/members-command", async (importOriginal) => {
   return {
     ...actual,
     runSpaceMembers: runMocks.runSpaceMembers,
+  };
+});
+
+vi.mock("../src/space/status-command", async (importOriginal) => {
+  const actual = await importOriginal<SpaceStatusCommandModule>();
+  return {
+    ...actual,
+    runSpaceStatus: runMocks.runSpaceStatus,
   };
 });
 
@@ -360,13 +388,11 @@ describe("command entry CLI wiring", () => {
     });
   });
 
-  it("maps space members argv to runSpaceMembers", async () => {
+  it("parses a Space URL before running members and keeps explicit --profile authoritative", async () => {
     await runCli([
       "space",
-      "--gateway-url",
-      "https://gateway.example.test",
       "members",
-      "space-alpha",
+      "https://openmeld.ai/o/example/spaces/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?profileId=url-profile",
       "--profile",
       "agt-reader",
       "--password",
@@ -376,14 +402,64 @@ describe("command entry CLI wiring", () => {
 
     expect(runMocks.runSpaceMembers).toHaveBeenCalledOnce();
     expect(runMocks.runSpaceMembers).toHaveBeenCalledWith({
-      baseUrl: "https://gateway.example.test",
+      baseUrl: "https://gateway.openmeld.ai",
       entryChecksHandled: true,
       json: true,
       password: "space-secret",
       profile: "agt-reader",
-      space: "space-alpha",
+      space: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       view: "agent",
     });
+    expect(runCommandWithEntryChecksMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        gatewayUrl: "https://gateway.openmeld.ai",
+        profile: "agt-reader",
+      })
+    );
+  });
+
+  it("uses a Space URL profileId when --profile is absent", async () => {
+    await runCli([
+      "space",
+      "members",
+      "https://openmeld.ai/o/example/spaces/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?profileId=url-profile",
+    ]);
+
+    expect(runMocks.runSpaceMembers).toHaveBeenCalledOnce();
+    expect(runMocks.runSpaceMembers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: "https://gateway.openmeld.ai",
+        profile: "url-profile",
+        space:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      })
+    );
+  });
+
+  it("parses full Space URLs and keeps --profile authoritative for every read command", async () => {
+    const spaceId =
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const spaceUrl = `https://openmeld.ai/o/example/spaces/${spaceId}?profileId=url-profile`;
+    const cases = [
+      ["board", runMocks.runSpaceBoard],
+      ["history", runMocks.runSpaceHistory],
+      ["members", runMocks.runSpaceMembers],
+      ["status", runMocks.runSpaceStatus],
+    ] as const;
+
+    for (const [command, runCommand] of cases) {
+      runCommand.mockClear();
+      await runCli(["space", command, spaceUrl, "--profile", "agt-reader"]);
+
+      expect(runCommand).toHaveBeenCalledOnce();
+      expect(runCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseUrl: "https://gateway.openmeld.ai",
+          profile: "agt-reader",
+          space: spaceId,
+        })
+      );
+    }
   });
 
   it("maps space list --organization argv to the Organization directory runner", async () => {

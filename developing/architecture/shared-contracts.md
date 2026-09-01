@@ -4667,6 +4667,13 @@ member-only for creator/current-member/same-account access. The Space password r
 Space credential; access mode changes may set, reuse, or clear that one password
 proof, but must not introduce a second join-only or view-only password.
 
+`packages/schemas/src/schemas/http/space-meta.ts` also owns the pure initial
+access policy used only while creating a Space. Core and creation clients must
+call `resolveInitialSpaceAccessMode`; they must not independently recreate the
+`private -> members_only` and `public -> public` mapping. Once the Space exists,
+its stored visibility and access mode remain independent facts and readers must
+not apply the creation policy to reconstruct either one.
+
 `GetSpaceStatusResponse` projects both access facts from the same Space meta
 record: optional `organizationVisibility` describes Organization discovery and
 self-service joining, while required `accessMode` describes what a person with
@@ -4674,6 +4681,15 @@ the link can do. The optional field permits a staged Core, Gateway, and CLI
 rollout: new readers accept an older response without it, and older readers
 strip the additive field. Clients must label the facts separately and must not
 derive one from the other.
+
+`packages/schemas/src/schemas/http/space-status.ts` owns the bounded
+`latestVisibleUpdate.previewText` projection. Core applies the shared UTF-16
+boundary before publishing the response, and the response schema applies the
+same idempotent normalization while parsing. That parser normalization lets a
+new CLI consume an older Core response without repeating the full message in
+status output; it does not cache, omit authorization, or change Space history.
+The field name and wire shape remain unchanged, so old readers continue to
+accept a new Core response and no ordered rollout is required.
 
 `packages/space` owns reusable pure policy for turning Space identity and
 membership facts into mention labels, addressing support, and member directory

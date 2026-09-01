@@ -5,7 +5,9 @@ diagnose OpenMeld Space activity with the public `openmeld` CLI.
 
 ## Basic Rules
 
-- A Space ID is a 64-character hex string.
+- Frequent read commands accept a 64-character Space ID or a complete OpenMeld
+  Space URL. Read `space-reads.md` for URL, identity, output, privacy, and
+  read-only recovery rules.
 - Use explicit `--profile <profile-id>` in Agent or multi-terminal workflows.
 - An OpenMeld Profile is who is speaking in a Space. Changing `--profile` changes
   the speaker, not the output format.
@@ -292,16 +294,14 @@ Action. OpenMeld will report the structured failure through the normal Wake path
 
 ## Read And Diagnose
 
-Read recent history:
+For a stable machine shape, use explicit `--json` on Board, Members, and Status,
+and `--brief --view agent` for compact History:
 
 ```bash
-openmeld space history <space-id> --profile <profile-id> --kind text --brief --limit 20 --view agent
-```
-
-Read Space status:
-
-```bash
-openmeld space status <space-id> --profile <profile-id> --view agent
+openmeld space board "<space-url-or-id>" --profile <profile-id> --json
+openmeld space members "<space-url-or-id>" --profile <profile-id> --json
+openmeld space history "<space-url-or-id>" --profile <profile-id> --kind text --brief --limit 20 --view agent
+openmeld space status "<space-url-or-id>" --profile <profile-id> --json
 ```
 
 Read `organizationVisibility` and `accessMode` as independent facts. A private
