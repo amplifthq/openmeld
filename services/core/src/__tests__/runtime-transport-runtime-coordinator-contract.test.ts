@@ -9436,7 +9436,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toHaveLength(1);
   });
 
-  it("fences Wake Stop before controller lookup so send rollback cannot revive the Wake", async () => {
+  it("keeps the Wake Stop fence when a repeated delivery would otherwise fail to send", async () => {
     let releaseControllerReport: (() => void) | undefined;
     const controllerReportGate = new Promise<void>((resolve) => {
       releaseControllerReport = resolve;
@@ -9452,26 +9452,40 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     enableWakeStopControl(state, "cancel");
-    const headLifecycle =
-      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords);
-    if (!headLifecycle) {
-      throw new Error("Expected linked RuntimeCoordinator head lifecycle.");
-    }
-
     const stopResponsePromise = requestRuntimeCoordinatorWakeStop(hub);
     await controllerReportReadStarted;
 
-    await expect(
-      rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission({
-        attemptId: "attempt-1",
-        dispatchId: "dispatch-1",
-        nowMs: 1_700_000_002_000,
-        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
-        storage: (hub as unknown as { ctx: DurableObjectState }).ctx.storage,
-        targetProfileId: TARGET_AGENT_PROFILE_ID,
-        targetWakeLifecycleId: headLifecycle.targetWakeLifecycleId,
+    state.pendingDispatches.clear();
+    const socketSend = vi.mocked(socket.send);
+    const sendCountBeforeRepeatedDelivery = socketSend.mock.calls.length;
+    socketSend.mockImplementation((message) => {
+      if (typeof message !== "string") {
+        throw new Error("Expected a serialized runtime transport frame.");
+      }
+      const frame = JSON.parse(message) as { code?: unknown };
+      if (frame.code === "daemon.dispatch.deliver") {
+        throw new Error("test repeated delivery send failure");
+      }
+      sentFrames.push(frame);
+    });
+    const repeatedDeliveryResponse = await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(buildDeliverRequest()),
+        method: "POST",
       })
-    ).resolves.toBe("not_eligible");
+    );
+
+    expect(repeatedDeliveryResponse.status).toBe(409);
+    await expect(repeatedDeliveryResponse.json()).resolves.toMatchObject({
+      accepted: false,
+      reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+      status: "rejected",
+    });
+    expect(socketSend).toHaveBeenCalledTimes(sendCountBeforeRepeatedDelivery);
     expect(findRuntimeCoordinatorRunCommandState(storageRecords)).toMatchObject(
       {
         lastCommandReasonCode: "runtime_coordinator.wake_stop_requested",

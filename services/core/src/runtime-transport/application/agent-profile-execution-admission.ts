@@ -84,7 +84,7 @@ const EXECUTION_INDEX_REPAIR_FAILED_REASON =
   "runtime_coordinator.execution_state_repair_failed";
 const EXECUTION_TARGET_MUTATION_IN_PROGRESS_REASON =
   "runtime_coordinator.execution_target_mutation_in_progress";
-const RUNTIME_COORDINATOR_WAKE_STOP_REASON_CODE_PREFIX =
+export const RUNTIME_COORDINATOR_WAKE_STOP_REASON_CODE_PREFIX =
   "runtime_coordinator.wake_stop_";
 
 type ExecutionAdmissionStorage = Pick<
