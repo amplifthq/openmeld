@@ -69,6 +69,7 @@ function SpaceCreateProfileDialogMount(input: {
 	});
 	return (
 		<CreateProfileDialog
+			agentOnly={true}
 			allowTeammateRequests={currentOrganization.isPersonal !== true}
 			currentUserId={currentUserId}
 			onAfterJoin={input.onAfterJoin}

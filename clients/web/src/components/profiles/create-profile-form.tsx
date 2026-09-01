@@ -72,7 +72,7 @@ export type AgentProfileModelCompatibilityContext = {
 // parent dialog; this component only renders an available kind choice, the
 // name input, the agent binding radio, and the recoverable error block. It
 // performs no navigation, no StartFlow reads/writes, and no mutation.
-export function CreateProfileForm(input: {
+export type CreateProfileFormProps = {
 	additionalHumanProfileCreationEnabled: boolean;
 	additionalSubmitBlockReason?: string | null;
 	agentBindingChoices?: readonly AgentProfileBindingChoice[];
@@ -124,7 +124,9 @@ export function CreateProfileForm(input: {
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 	submitLabel?: string;
 	submittingLabel?: string;
-}) {
+};
+
+export function CreateProfileForm(input: CreateProfileFormProps) {
 	const submitBlockReasonId = useId();
 	// Block submit until the account profiles have resolved, so the acting human
 	// (creatorProfileId / Space-join actor) is populated before create runs.
@@ -173,26 +175,10 @@ export function CreateProfileForm(input: {
 							input={input}
 						/>
 					) : null}
-					{input.errorState ? (
-						<div className="grid gap-3 rounded-md border border-destructive/40 p-4">
-							<p className="text-destructive text-sm">
-								{input.errorState.message}
-							</p>
-							{input.errorState.setupRefreshAvailable ? (
-								<div>
-									<Link
-										className={buttonVariants({
-											size: "sm",
-											variant: "outline",
-										})}
-										to={input.recoveryActionHref}
-									>
-										{input.errorState.setupRefreshActionLabel}
-									</Link>
-								</div>
-							) : null}
-						</div>
-					) : null}
+					<CreateProfileErrorNotice
+						errorState={input.errorState}
+						recoveryActionHref={input.recoveryActionHref}
+					/>
 				</div>
 			</div>
 			<div
@@ -228,7 +214,7 @@ export function CreateProfileForm(input: {
 
 function AgentProfileFields(input: {
 	agentBindingHelpText: string;
-	input: Parameters<typeof CreateProfileForm>[0];
+	input: CreateProfileFormProps;
 }) {
 	const form = input.input;
 	return (
@@ -242,49 +228,60 @@ function AgentProfileFields(input: {
 				onChange={form.onChangeAgentBindingValue ?? form.onChangeBoundAgentId}
 				value={form.agentBindingValue ?? form.boundAgentId}
 			/>
-			{form.boundAgentId && form.projectSelectionSlot
-				? form.projectSelectionSlot
-				: null}
-			{form.boundAgentId && !form.projectSelectionSlot ? (
+			<AgentProfileAdvancedFields input={form} />
+			<div className="grid gap-1">
+				<p className="text-muted-foreground text-xs">
+					{input.agentBindingHelpText}
+				</p>
+			</div>
+		</>
+	);
+}
+
+export function AgentProfileAdvancedFields(input: {
+	input: CreateProfileFormProps;
+}) {
+	const form = input.input;
+	if (!form.boundAgentId) {
+		return null;
+	}
+	return (
+		<>
+			{form.projectSelectionSlot ? form.projectSelectionSlot : null}
+			{form.projectSelectionSlot ? null : (
 				<ProjectFolderField
 					disabled={form.isSubmitting}
 					onChange={form.onChangeProjectFolderPath}
 					pickerDeviceId={form.localFolderPickerDeviceId}
 					value={form.projectFolderPath}
 				/>
-			) : null}
-			{form.boundAgentId ? (
-				<AgentProfileModelSelectionFields
-					agentId={form.boundAgentId}
-					disabled={form.isSubmitting}
-					modelCatalog={form.modelCatalog}
-					modelCompatibilityContext={form.modelCompatibilityContext}
-					modelId={form.boundModelId}
-					onChangeModelId={form.onChangeBoundModelId}
-					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
-					reasoningLevel={form.boundReasoningLevel}
-				/>
-			) : null}
-			{form.boundAgentId ? (
-				<AgentControllerCollaborationModeFields
-					agentId={form.boundAgentId}
-					disabled={form.isSubmitting}
-					onChange={form.onChangeBoundAgentControllerCollaborationMode}
-					value={form.boundAgentControllerCollaborationMode}
-				/>
-			) : null}
-			{form.boundAgentId ? (
-				<AgentControllerPermissionModeFields
-					agentId={form.boundAgentId}
-					confirmed={form.boundAgentControllerPermissionModeConfirmed}
-					disabled={form.isSubmitting}
-					onChange={form.onChangeBoundAgentControllerPermissionMode}
-					onConfirmChange={
-						form.onChangeBoundAgentControllerPermissionModeConfirmed
-					}
-					value={form.boundAgentControllerPermissionMode}
-				/>
-			) : null}
+			)}
+			<AgentProfileModelSelectionFields
+				agentId={form.boundAgentId}
+				disabled={form.isSubmitting}
+				modelCatalog={form.modelCatalog}
+				modelCompatibilityContext={form.modelCompatibilityContext}
+				modelId={form.boundModelId}
+				onChangeModelId={form.onChangeBoundModelId}
+				onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
+				reasoningLevel={form.boundReasoningLevel}
+			/>
+			<AgentControllerCollaborationModeFields
+				agentId={form.boundAgentId}
+				disabled={form.isSubmitting}
+				onChange={form.onChangeBoundAgentControllerCollaborationMode}
+				value={form.boundAgentControllerCollaborationMode}
+			/>
+			<AgentControllerPermissionModeFields
+				agentId={form.boundAgentId}
+				confirmed={form.boundAgentControllerPermissionModeConfirmed}
+				disabled={form.isSubmitting}
+				onChange={form.onChangeBoundAgentControllerPermissionMode}
+				onConfirmChange={
+					form.onChangeBoundAgentControllerPermissionModeConfirmed
+				}
+				value={form.boundAgentControllerPermissionMode}
+			/>
 			{isOpenCodeAgentId(form.boundAgentId) ? (
 				<OpenCodePermissionsField
 					disabled={form.isSubmitting}
@@ -292,12 +289,34 @@ function AgentProfileFields(input: {
 					value={form.boundOpenCodePermission}
 				/>
 			) : null}
-			<div className="grid gap-1">
-				<p className="text-muted-foreground text-xs">
-					{input.agentBindingHelpText}
-				</p>
-			</div>
 		</>
+	);
+}
+
+export function CreateProfileErrorNotice(input: {
+	errorState: NewProfileErrorState | null;
+	recoveryActionHref: string;
+}) {
+	if (!input.errorState) {
+		return null;
+	}
+	return (
+		<div
+			className="grid gap-3 rounded-md border border-destructive/40 p-4"
+			role="alert"
+		>
+			<p className="text-destructive text-sm">{input.errorState.message}</p>
+			{input.errorState.setupRefreshAvailable ? (
+				<div>
+					<Link
+						className={buttonVariants({ size: "sm", variant: "outline" })}
+						to={input.recoveryActionHref}
+					>
+						{input.errorState.setupRefreshActionLabel}
+					</Link>
+				</div>
+			) : null}
+		</div>
 	);
 }
 
@@ -434,7 +453,7 @@ function resolveAgentBindingHelpText(input: {
 	return "Choose a local agent now, or choose later if you only need the profile name today.";
 }
 
-function resolveCreateProfileSubmitBlockReason(input: {
+export function resolveCreateProfileSubmitBlockReason(input: {
 	additionalHumanProfileCreationEnabled: boolean;
 	additionalSubmitBlockReason?: string | null;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;

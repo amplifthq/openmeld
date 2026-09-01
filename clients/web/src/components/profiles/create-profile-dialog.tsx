@@ -61,6 +61,7 @@ import {
 	rememberPendingAgentProfileCreationLocalSetup,
 } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { createAgentProfileCreationRequest } from "#/lib/profiles/agent-profile-creation-requests";
+import { buildAgentProfileTemplateName } from "#/lib/profiles/agent-profile-template-name";
 import type {
 	NewProfileErrorState,
 	NewProfileKind,
@@ -100,6 +101,7 @@ import {
 } from "#/query/profiles/profile-capabilities";
 import { startQueryKeys } from "#/query/query-keys";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
+import { AgentProfileGenerator } from "./agent-profile-generator";
 import {
 	AgentProfileOwnerChoice,
 	type AgentProfileOwnerMode,
@@ -148,6 +150,7 @@ type CreateProfileDialogFormState = {
 	ownerMode: AgentProfileOwnerMode;
 	profileKind: NewProfileKind | null;
 	profileName: string;
+	profileNameEdited: boolean;
 	projectFolderPath: string;
 	projectWorkspaceFallback: "advanced" | "managed" | null;
 	selectedProjectBindingGeneration: string | null;
@@ -175,6 +178,7 @@ function reduceCreateProfileDialogFormState(
 }
 
 function createInitialCreateProfileDialogFormState(input: {
+	initialProfileKind: NewProfileKind | null;
 	initialOwnerMode: AgentProfileOwnerMode;
 	initialSessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
 }): CreateProfileDialogFormState {
@@ -196,8 +200,9 @@ function createInitialCreateProfileDialogFormState(input: {
 		boundReasoningLevel: "",
 		errorState: null,
 		ownerMode: input.initialOwnerMode,
-		profileKind: input.initialSessionPreset ? "agent" : null,
+		profileKind: input.initialProfileKind,
 		profileName: resolveSessionPresetProfileName(input.initialSessionPreset),
+		profileNameEdited: false,
 		projectFolderPath: "",
 		projectWorkspaceFallback: null,
 		selectedProjectBindingGeneration: null,
@@ -243,6 +248,7 @@ function createProfileDialogFormSetters(
 		setOwnerMode: setField("ownerMode"),
 		setProfileKind: setField("profileKind"),
 		setProfileName: setField("profileName"),
+		setProfileNameEdited: setField("profileNameEdited"),
 		setProjectFolderPath: setField("projectFolderPath"),
 		setProjectWorkspaceFallback: setField("projectWorkspaceFallback"),
 		setSelectedProjectBindingGeneration: setField(
@@ -263,14 +269,29 @@ function resolveInitialAgentProfileSessionMode(
 		: "new";
 }
 
+function resolveInitialCreateProfileKind(input: {
+	agentOnly: boolean;
+	hasSessionPreset: boolean;
+}): NewProfileKind | null {
+	return input.agentOnly || input.hasSessionPreset ? "agent" : null;
+}
+
+function resolveAdditionalHumanProfileCreationEnabled(input: {
+	accountAllowsAdditionalHumanProfileCreation: boolean;
+	agentOnly: boolean;
+}): boolean {
+	return !input.agentOnly && input.accountAllowsAdditionalHumanProfileCreation;
+}
+
 // Standalone, route-free Create Profile dialog. Reused from Profiles, legacy
 // agent redirects, and Spaces — the only difference is `spaceContext`: when
 // present, the freshly created profile is also joined to that Space (always as a
 // human acting profile); when absent, it is created in the selected Organization
 // without Space membership. Carries zero dependency on retired start pages or
 // route intents.
-type CreateProfileDialogProps = {
+export type CreateProfileDialogProps = {
 	agentActivitySessionPreset?: CreateProfileAgentActivitySessionPreset;
+	agentOnly?: boolean;
 	allowTeammateRequests?: boolean;
 	currentUserId?: string;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
@@ -285,7 +306,28 @@ type CreateProfileDialogProps = {
 };
 
 export function CreateProfileDialog(input: CreateProfileDialogProps) {
-	const view = useCreateProfileDialogController(input);
+	const view = useCreateProfileDialogController(input, {
+		agentOnly: input.agentOnly === true,
+		templateNaming: true,
+	});
+	return (
+		<Dialog onOpenChange={view.onOpenChange} open={input.open}>
+			<DialogContent className="flex max-h-[min(46rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
+				<DialogHeader>
+					<DialogTitle>{view.title}</DialogTitle>
+					<DialogDescription>{view.description}</DialogDescription>
+				</DialogHeader>
+				<AgentProfileGenerator form={view.formProps} surface="dialog" />
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+export function LegacyCreateProfileDialog(input: CreateProfileDialogProps) {
+	const view = useCreateProfileDialogController(input, {
+		agentOnly: input.agentOnly === true,
+		templateNaming: false,
+	});
 	return (
 		<Dialog onOpenChange={view.onOpenChange} open={input.open}>
 			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-xl">
@@ -299,7 +341,42 @@ export function CreateProfileDialog(input: CreateProfileDialogProps) {
 	);
 }
 
-function useCreateProfileDialogController(input: CreateProfileDialogProps) {
+export function CreateAgentProfilePage(
+	input: Omit<CreateProfileDialogProps, "onOpenChange" | "open"> & {
+		onCancel: () => void;
+	}
+) {
+	const view = useCreateProfileDialogController(
+		{
+			...input,
+			onOpenChange: () => undefined,
+			open: true,
+		},
+		{ agentOnly: true, templateNaming: true }
+	);
+	return (
+		<div className="flex min-h-full min-w-0 flex-col overflow-y-auto px-5 py-8 sm:px-8 lg:px-12">
+			<div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6">
+				<header className="grid gap-1.5">
+					<h1 className="font-medium text-2xl tracking-tight">{view.title}</h1>
+					<p className="max-w-2xl text-pretty text-muted-foreground text-sm leading-6">
+						{view.description}
+					</p>
+				</header>
+				<AgentProfileGenerator
+					form={view.formProps}
+					onCancel={input.onCancel}
+					surface="page"
+				/>
+			</div>
+		</div>
+	);
+}
+
+function useCreateProfileDialogController(
+	input: CreateProfileDialogProps,
+	options: { agentOnly: boolean; templateNaming: boolean }
+) {
 	const initialSessionPreset = input.agentActivitySessionPreset;
 	const currentUserId = input.currentUserId ?? "";
 	const initialOwnerMode: AgentProfileOwnerMode =
@@ -308,9 +385,13 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		initialSessionPreset.ownerUserId !== currentUserId
 			? "teammate"
 			: "self";
+	const initialProfileKind = resolveInitialCreateProfileKind({
+		agentOnly: options.agentOnly,
+		hasSessionPreset: Boolean(initialSessionPreset),
+	});
 	const [formState, dispatchForm] = useReducer(
 		reduceCreateProfileDialogFormState,
-		{ initialOwnerMode, initialSessionPreset },
+		{ initialOwnerMode, initialProfileKind, initialSessionPreset },
 		createInitialCreateProfileDialogFormState
 	);
 	const formSetters = useMemo(
@@ -330,6 +411,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		ownerMode,
 		profileKind,
 		profileName,
+		profileNameEdited,
 		projectFolderPath,
 		projectWorkspaceFallback,
 		selectedProjectBindingGeneration,
@@ -351,6 +433,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		setOwnerMode,
 		setProfileKind,
 		setProfileName,
+		setProfileNameEdited,
 		setProjectFolderPath,
 		setProjectWorkspaceFallback,
 		setSelectedProjectBindingGeneration,
@@ -367,8 +450,13 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		selectDefaultWhenMissing: true,
 	});
 	const profileCapabilitiesQuery = useQuery(profileCapabilitiesQueryOptions());
-	const additionalHumanProfileCreationEnabled =
+	const accountAllowsAdditionalHumanProfileCreation =
 		isAdditionalHumanProfileCreationEnabled(profileCapabilitiesQuery);
+	const additionalHumanProfileCreationEnabled =
+		resolveAdditionalHumanProfileCreationEnabled({
+			accountAllowsAdditionalHumanProfileCreation,
+			agentOnly: options.agentOnly,
+		});
 	const selectableProfileKind = resolveSelectableProfileKind({
 		additionalHumanProfileCreationEnabled,
 		profileKind,
@@ -402,7 +490,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	const teammateQueriesEnabled = input.open && canRequestForTeammate;
 	const organizationDirectoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
-			enabled: teammateQueriesEnabled,
+			enabled: input.open,
 			organizationId,
 		})
 	);
@@ -521,6 +609,60 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		resolveAgentActivitySessionConversationId(sessionPreset);
 	const sessionInventorySelection =
 		resolveAgentActivitySessionInventorySelection(sessionPreset);
+	const targetOwnerName = resolveCreateProfileOwnerName({
+		currentUserId,
+		directory: organizationDirectoryQuery.data ?? null,
+		ownerMode,
+		selectedHumanProfile,
+		targetOwnerUserId,
+	});
+	const existingAgentProfileNames = useMemo(
+		() =>
+			resolveExistingAgentProfileNames({
+				currentUserId,
+				directory: organizationDirectoryQuery.data ?? null,
+				ownerMode,
+				profiles: profilesQuery.data ?? [],
+				targetOwnerUserId,
+			}),
+		[
+			currentUserId,
+			organizationDirectoryQuery.data,
+			ownerMode,
+			profilesQuery.data,
+			targetOwnerUserId,
+		]
+	);
+	const suggestedProfileName = buildAgentProfileTemplateName({
+		agentId: boundAgentId,
+		existingNames: existingAgentProfileNames,
+		localAgentDisplayName: boundAgentId
+			? formatLocalAgentDisplayName(boundAgentId)
+			: "Agent",
+		modelCatalog,
+		modelId: boundModelId,
+		ownerDisplayName: targetOwnerName ?? "",
+		reasoningLevel: boundReasoningLevel,
+	});
+
+	useEffect(() => {
+		if (
+			!options.templateNaming ||
+			selectableProfileKind !== "agent" ||
+			profileNameEdited ||
+			profileName === suggestedProfileName
+		) {
+			return;
+		}
+		setProfileName(suggestedProfileName);
+	}, [
+		profileName,
+		profileNameEdited,
+		options.templateNaming,
+		selectableProfileKind,
+		setProfileName,
+		suggestedProfileName,
+	]);
 
 	useDefaultTeammateSelection({
 		currentUserId,
@@ -567,10 +709,11 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			state: {
 				...createInitialCreateProfileDialogFormState({
 					initialOwnerMode,
+					initialProfileKind,
 					initialSessionPreset,
 				}),
 				boundAgentId: sessionPresetAgentId ?? "",
-				profileKind: null,
+				profileKind: initialProfileKind,
 				selectedProjectId: "",
 			},
 			type: "reset",
@@ -903,6 +1046,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			setErrorState(null);
 		},
 		onChangeProfileName: (nextProfileName: string) => {
+			setProfileNameEdited(true);
 			setProfileName(nextProfileName);
 			setErrorState(null);
 		},
@@ -981,10 +1125,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			additionalHumanProfileCreationEnabled,
 			ownerMode,
 			spaceContext,
-			targetOwnerName:
-				organizationDirectoryQuery.data?.members.find(
-					(member) => member.userId === targetOwnerUserId
-				)?.user.name ?? null,
+			targetOwnerName,
 		}),
 		formProps,
 		onOpenChange: (nextOpen: boolean) => {
@@ -1009,6 +1150,58 @@ function resolveSessionOwnerUserId(input: {
 		return input.targetOwnerUserId;
 	}
 	return input.currentUserId || input.initialSessionPreset?.ownerUserId || "";
+}
+
+function resolveCreateProfileOwnerName(input: {
+	currentUserId: string;
+	directory: OrganizationDirectoryResponse | null;
+	ownerMode: AgentProfileOwnerMode;
+	selectedHumanProfile: AuthProfileView | null;
+	targetOwnerUserId: string;
+}): string | null {
+	const ownerUserId =
+		input.ownerMode === "teammate"
+			? input.targetOwnerUserId
+			: input.currentUserId;
+	const directoryName = input.directory?.members.find(
+		(member) => member.userId === ownerUserId
+	)?.user.name;
+	if (directoryName?.trim()) {
+		return directoryName.trim();
+	}
+	if (input.ownerMode === "self") {
+		return (
+			input.selectedHumanProfile?.ownerName?.trim() ||
+			input.selectedHumanProfile?.profileName.trim() ||
+			null
+		);
+	}
+	return null;
+}
+
+function resolveExistingAgentProfileNames(input: {
+	currentUserId: string;
+	directory: OrganizationDirectoryResponse | null;
+	ownerMode: AgentProfileOwnerMode;
+	profiles: readonly AuthProfileView[];
+	targetOwnerUserId: string;
+}): string[] {
+	const ownerUserId =
+		input.ownerMode === "teammate"
+			? input.targetOwnerUserId
+			: input.currentUserId;
+	const names = [
+		...(input.directory?.agentProfiles ?? [])
+			.filter((profile) => profile.ownerUserId === ownerUserId)
+			.map((profile) => profile.profileName),
+		...input.profiles
+			.filter(
+				(profile) =>
+					profile.profileKind === "agent" && profile.ownerUserId === ownerUserId
+			)
+			.map((profile) => profile.profileName),
+	];
+	return [...new Set(names.map((name) => name.trim()).filter(Boolean))];
 }
 
 function shouldReadAgentProfileSessionChoices(input: {
