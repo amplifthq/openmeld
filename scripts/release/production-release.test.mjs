@@ -293,6 +293,18 @@ test("derives deploy scopes from affected deployable packages", () => {
   );
 });
 
+test("does not expand production scope through dev-only workspace dependencies", () => {
+  const plan = buildProductionReleasePlan({
+    base: "origin/main",
+    changedPaths: ["services/core/src/space/transport/do/space.ts"],
+    scope: "auto",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.deepEqual(plan.affectedPackages, ["@openmeld/core"]);
+  assert.deepEqual(plan.scopes, ["core"]);
+});
+
 test("adds the database only for schema and migration truth", () => {
   assert.deepEqual(
     resolveAutomaticReleaseScopes({
