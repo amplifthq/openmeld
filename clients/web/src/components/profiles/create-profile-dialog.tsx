@@ -56,17 +56,19 @@ import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-pic
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
 import { resolveRememberedAgentProfileCreationDefaults } from "#/lib/profiles/agent-profile-creation-defaults";
+import {
+	continuePendingAgentProfileCreationLocalSetup,
+	rememberPendingAgentProfileCreationLocalSetup,
+} from "#/lib/profiles/agent-profile-creation-local-setup";
 import { createAgentProfileCreationRequest } from "#/lib/profiles/agent-profile-creation-requests";
 import type {
 	NewProfileErrorState,
 	NewProfileKind,
 } from "#/lib/profiles/create-profile-flow";
-import { configureNewAgentProfileWorkspace } from "#/lib/profiles/create-profile-flow";
 import {
 	type CreatedProfileFollowUpIssue,
 	type CreateProfileSpaceContext,
 	createProfileWithFollowUps,
-	SessionProfileCreationRolledBackError,
 	type SpaceJoinedProfileReference,
 } from "#/lib/profiles/create-profile-orchestration";
 import {
@@ -618,9 +620,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				targetOwnerUserId,
 			}),
 		onError: (error) => {
-			if (error instanceof SessionProfileCreationRolledBackError) {
-				creationIntentRef.current = null;
-			}
 			const failure = toStructuredApiClientFailure(error);
 			setErrorState({
 				message:
@@ -1295,10 +1294,11 @@ function handleProfileCreationSuccess(input: {
 	storageScope: string;
 }) {
 	if (input.result.kind === "request") {
-		toast.success(createdAgentRequestMessage(input.result.request));
+		showCreatedAgentRequestToast({
+			customWorkingFolderIssue: input.result.customWorkingFolderIssue,
+			request: input.result.request,
+		});
 		input.onAgentRequestCreated?.(input.result.request);
-		input.onReset();
-		input.onClose();
 		refreshAgentProfileCreationRequestCaches({
 			createdAgentProfileId: input.result.request.createdAgentProfileId,
 			onAfterJoin: input.onAfterJoin,
@@ -1314,6 +1314,14 @@ function handleProfileCreationSuccess(input: {
 				error
 			);
 		});
+		if (
+			input.result.customWorkingFolderIssue &&
+			!input.result.request.createdAgentProfileId
+		) {
+			return;
+		}
+		input.onReset();
+		input.onClose();
 		return;
 	}
 	showCreatedProfileToast({
@@ -1425,12 +1433,17 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 		sessionStrategy: input.sessionStrategy,
 		targetOwnerUserId: resolveRequestedAgentOwnerUserId(input),
 	});
-	await configureRequestedAgentCustomWorkingFolder({
-		defaultProjectId,
+	const customWorkingFolderIssue =
+		await configureRequestedAgentCustomWorkingFolder({
+			defaultProjectId,
+			request: result.request,
+			submission: input,
+		});
+	return {
+		customWorkingFolderIssue,
+		kind: "request" as const,
 		request: result.request,
-		submission: input,
-	});
-	return { kind: "request" as const, request: result.request };
+	};
 }
 
 function resolveRequestedAgentConnection(input: CreateProfileSubmissionInput): {
@@ -1469,24 +1482,39 @@ async function configureRequestedAgentCustomWorkingFolder(input: {
 	defaultProjectId: string | null;
 	request: AgentProfileCreationRequest;
 	submission: CreateProfileSubmissionInput;
-}): Promise<void> {
+}): Promise<string | null> {
 	if (
-		input.request.status === "completed" &&
-		input.request.createdAgentProfileId &&
 		input.submission.ownerMode === "self" &&
 		input.submission.boundAgentId &&
 		!input.defaultProjectId &&
 		input.submission.projectFolderPath.trim()
 	) {
-		await configureNewAgentProfileWorkspace({
-			agentProfileId: input.request.createdAgentProfileId,
-			bindingEstablished: true,
+		const pendingSetup = {
+			agentProfileId: input.request.createdAgentProfileId ?? null,
+			workspacePath: input.submission.projectFolderPath,
+		};
+		const remembered = rememberPendingAgentProfileCreationLocalSetup({
+			...pendingSetup,
 			organizationId: input.submission.organizationId,
-			projectFolderPath: input.submission.projectFolderPath,
+			requestId: input.request.id,
+			storageScope: input.submission.recovery.storageScope,
+		});
+		const continuation = await continuePendingAgentProfileCreationLocalSetup({
+			organizationId: input.submission.organizationId,
+			pendingSetup,
+			request: input.request,
 			selectedHumanProfileId:
 				input.submission.selectedHumanProfile?.openMeldProfileId ?? null,
+			storageScope: input.submission.recovery.storageScope,
 		});
+		if (continuation.failureMessage) {
+			return continuation.failureMessage;
+		}
+		if (continuation.pending && !remembered) {
+			return "OpenMeld couldn't keep your custom working folder for retry. Keep this window open and try again.";
+		}
 	}
+	return null;
 }
 
 async function createHumanProfile(input: CreateProfileSubmissionInput) {
@@ -2234,22 +2262,42 @@ function resolveCreateModelCompatibilityContext(input: {
 	};
 }
 
-function createdAgentRequestMessage(
-	request: AgentProfileCreationRequest
-): string {
-	switch (request.status) {
+function showCreatedAgentRequestToast(input: {
+	customWorkingFolderIssue: string | null;
+	request: AgentProfileCreationRequest;
+}): void {
+	if (input.customWorkingFolderIssue) {
+		if (input.request.createdAgentProfileId) {
+			toast.warning(
+				`${input.request.profileName} was created, but working folder setup isn't complete. ${input.customWorkingFolderIssue} Open the Agent to finish setup.`
+			);
+		} else {
+			toast.error(input.customWorkingFolderIssue);
+		}
+		return;
+	}
+	switch (input.request.status) {
 		case "completed":
-			return request.requesterUserId === request.targetOwnerUserId
-				? "Agent created."
-				: "Agent created for your teammate.";
+			toast.success(
+				input.request.requesterUserId === input.request.targetOwnerUserId
+					? "Agent created."
+					: "Agent created for your teammate."
+			);
+			return;
 		case "declined":
-			return "This teammate doesn't allow Agent creation requests.";
+			toast.error("This teammate doesn't allow Agent creation requests.");
+			return;
 		case "failed":
-			return request.createdAgentProfileId
-				? "The Agent was created, but its setup needs attention."
-				: "OpenMeld couldn't create this Agent.";
+			if (input.request.createdAgentProfileId) {
+				toast.warning(
+					"Profile created. Setup is not complete. Open the Agent request to review the issue and retry setup."
+				);
+				return;
+			}
+			toast.error("OpenMeld couldn't create this Agent.");
+			return;
 		default:
-			return "Request sent.";
+			toast.success("Request sent.");
 	}
 }
 

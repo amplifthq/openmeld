@@ -2508,6 +2508,27 @@ offline between form selection and Binding creation. A Space membership failure
 still surfaces the committed Profile and directs the user to add that existing
 Profile from the Members panel.
 
+For a durable failed creation request with a non-null
+`createdAgentProfileId`, Web labels the outcome **Profile created, setup
+incomplete**, exposes the committed Profile, and offers **Retry setup**. That
+action continues the same request and same Profile; Web must not reopen the
+create form, generate a new creation intent, or offer cancellation as if the
+committed identity could still be rolled back.
+
+When the user selected a custom working folder, Web retains that private path
+only as an account-scoped per-tab local settings draft keyed to the request. The
+draft is bound to the committed Profile when one exists. A separate
+account-scoped browser marker may remember that custom-folder setup is still
+due after the tab closes, but it never carries the path: before identity commit
+it is presence-only, and after commit it may carry the Profile ID. After Core
+setup completes, the same **Retry setup** action continues with the
+current-device workspace writer. A failed local write keeps the draft and the
+setup-incomplete presentation; if only the marker remains, Web directs the user
+to choose the folder again in Agent settings. Any successful, explicit
+working-folder choice in Agent settings clears that Profile's remaining draft
+and marker. Neither case may change the durable request back to creation, call
+Auth, or hide the unfinished choice behind a completed badge.
+
 ## Space And Thread Presentation
 
 Web presents a Space as a collaboration room and visible outcome surface.

@@ -57,6 +57,7 @@ import { createD1AgentProfileCreationRequestInboxProjectionService } from "./age
 import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
 import {
   AgentProfileCreationRequestConflictError,
+  type AgentProfileCreationRequestExecutionCheckpoint,
   AgentProfileCreationRequestExecutionError,
   AgentProfileCreationRequestForbiddenError,
   AgentProfileCreationRequestNotFoundError,
@@ -590,8 +591,8 @@ function createService(env: CoreBindings, db: D1Database) {
     createD1AgentProfileCreationRequestInboxProjectionService({ db });
   return createAgentProfileCreationRequestService({
     attemptInboxProjection: inboxProjection.attemptForRequest,
-    createAgentProfile: async (request) =>
-      await createRequestedAgentProfile(env, request),
+    createAgentProfile: async (request, checkpoint) =>
+      await createRequestedAgentProfile(env, request, checkpoint),
     repository: createD1AgentProfileCreationRequestRepository(db),
   });
 }
@@ -662,12 +663,39 @@ async function buildCenterAgentCreationRequestIdempotencyKey(input: {
 
 async function createRequestedAgentProfile(
   env: CoreBindings,
-  request: AgentProfileCreationRequestRecord
+  request: AgentProfileCreationRequestRecord,
+  checkpoint: AgentProfileCreationRequestExecutionCheckpoint
 ): Promise<string> {
   const localAgentConnection = await prepareRequestedLocalAgentConnection({
     env,
     request,
   });
+  const agentProfileId =
+    request.createdAgentProfileId ??
+    (await createRequestedAgentProfileIdentity(env, request));
+  if (!request.createdAgentProfileId) {
+    await checkpoint.checkpointCreatedAgentProfileId(agentProfileId);
+  }
+  try {
+    await completeRequestedAgentProfileSetup({
+      agentProfileId,
+      env,
+      localAgentConnection,
+      request,
+    });
+  } catch (cause) {
+    throw new AgentProfileCreationRequestExecutionError({
+      cause,
+      createdAgentProfileId: agentProfileId,
+    });
+  }
+  return agentProfileId;
+}
+
+async function createRequestedAgentProfileIdentity(
+  env: CoreBindings,
+  request: AgentProfileCreationRequestRecord
+): Promise<string> {
   const authWorker = env.OPENMELD_AUTH_WORKER;
   if (!authWorker?.createAgentProfileInOrganization) {
     throw new Error("Auth Agent Profile creation RPC is unavailable.");
@@ -687,21 +715,7 @@ async function createRequestedAgentProfile(
   if (!result.profile.openMeldProfileId) {
     throw new Error("Auth could not create the requested Agent Profile.");
   }
-  const agentProfileId = result.profile.openMeldProfileId;
-  try {
-    await completeRequestedAgentProfileSetup({
-      agentProfileId,
-      env,
-      localAgentConnection,
-      request,
-    });
-  } catch (cause) {
-    throw new AgentProfileCreationRequestExecutionError({
-      cause,
-      createdAgentProfileId: agentProfileId,
-    });
-  }
-  return agentProfileId;
+  return result.profile.openMeldProfileId;
 }
 
 async function completeRequestedAgentProfileSetup(input: {

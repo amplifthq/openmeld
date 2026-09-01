@@ -403,6 +403,7 @@ function AgentsWorkspaceHome(input: {
 					input.onViewChange("agents", profileId);
 				}}
 				organizationId={input.organizationId}
+				storageScope={input.recovery.storageScope}
 			/>
 		);
 	} else if (input.directoryQuery.isError) {

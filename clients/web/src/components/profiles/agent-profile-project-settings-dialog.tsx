@@ -19,6 +19,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useProjectDiscovery } from "#/components/projects/use-project-discovery";
+import { clearPendingAgentProfileCreationLocalSetupForProfile } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { updateAgentProfileDefaultProject } from "#/lib/profiles/update-default-project";
 import { updateAgentProfileWorkspace } from "#/lib/profiles/update-profile-workspace";
 import { projectsQueryOptions } from "#/query/organizations/projects";
@@ -97,6 +98,9 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 				workspaceMode: "custom",
 				workspacePath: connection.path,
 			});
+			clearPendingAgentProfileCreationLocalSetupForProfile(
+				input.profile.openMeldProfileId
+			);
 			const updatedProfile = await updateAgentProfileDefaultProject({
 				actorProfileId: input.actorProfileId,
 				defaultProjectId: selectedProjectId,
@@ -122,6 +126,9 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 				profileId: input.profile.openMeldProfileId,
 				workspaceMode: "openmeld_managed",
 			});
+			clearPendingAgentProfileCreationLocalSetupForProfile(
+				input.profile.openMeldProfileId
+			);
 			const updatedProfile = await updateAgentProfileDefaultProject({
 				actorProfileId: input.actorProfileId,
 				defaultProjectId: null,
@@ -152,6 +159,9 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 				workspaceMode: "custom",
 				workspacePath,
 			});
+			clearPendingAgentProfileCreationLocalSetupForProfile(
+				input.profile.openMeldProfileId
+			);
 			const updatedProfile = await updateAgentProfileDefaultProject({
 				actorProfileId: input.actorProfileId,
 				defaultProjectId: null,

@@ -14,6 +14,7 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
+import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
 import { startQueryKeys } from "#/query/query-keys";
 import {
@@ -46,7 +47,6 @@ const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const getProfileCapabilitiesMock = vi.hoisted(() => vi.fn());
 const createStartHumanProfileMock = vi.hoisted(() => vi.fn());
 const createStartAgentProfileMock = vi.hoisted(() => vi.fn());
-const deleteStartAgentProfileMock = vi.hoisted(() => vi.fn());
 const addMembersMock = vi.hoisted(() => vi.fn());
 const recordProfileSpaceHistoryMock = vi.hoisted(() => vi.fn());
 const refreshAllMock = vi.hoisted(() => vi.fn());
@@ -108,12 +108,6 @@ vi.mock("#/lib/profiles/create-agent-profile", () => ({
 	createStartAgentProfile: (
 		...args: Parameters<typeof createStartAgentProfileMock>
 	) => createStartAgentProfileMock(...args),
-}));
-
-vi.mock("#/lib/profiles/delete-agent-profile", () => ({
-	deleteStartAgentProfile: (
-		...args: Parameters<typeof deleteStartAgentProfileMock>
-	) => deleteStartAgentProfileMock(...args),
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
@@ -556,6 +550,8 @@ async function selectAgentProfileKind() {
 
 describe("CreateProfileDialog", () => {
 	beforeEach(() => {
+		window.localStorage.clear();
+		window.sessionStorage.clear();
 		getProfileCapabilitiesMock.mockReset().mockResolvedValue({
 			additionalHumanProfileCreationEnabled: true,
 			ok: true,
@@ -570,9 +566,6 @@ describe("CreateProfileDialog", () => {
 			isDefault: false,
 		});
 		createStartAgentProfileMock
-			.mockReset()
-			.mockResolvedValue(buildAgentProfileFixture());
-		deleteStartAgentProfileMock
 			.mockReset()
 			.mockResolvedValue(buildAgentProfileFixture());
 		addMembersMock.mockReset().mockResolvedValue({
@@ -823,7 +816,6 @@ describe("CreateProfileDialog", () => {
 			).toBeTruthy();
 		});
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
-		expect(deleteStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 	});
 
@@ -1618,20 +1610,21 @@ describe("CreateProfileDialog", () => {
 					failureMessage:
 						"The Agent was created, but its local connection needs attention.",
 					status: "failed",
-					statusReason: "profile_creation_failed",
+					statusReason: "profile_created",
 				})
 		);
 		const onAgentRequestCreated = vi.fn();
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "codex",
+				launchStatus: "ready",
+				selectable: true,
+			}),
+		]);
 		const { onOpenChange } = renderCreateProfileDialog({
 			onAgentRequestCreated,
 			organizationId: "organization-123",
-			recovery: buildFakeRecovery([
-				buildCatalogEntry({
-					agentId: "codex",
-					launchStatus: "ready",
-					selectable: true,
-				}),
-			]),
+			recovery,
 			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
 		});
 
@@ -1643,6 +1636,15 @@ describe("CreateProfileDialog", () => {
 			target: { value: "Research Agent" },
 		});
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: "Choose a folder on this computer…",
+			})
+		);
+		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
+			target: { value: "/Users/felix/Desktop/work/openmeld" },
+		});
 		fireEvent.click(
 			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
 		);
@@ -1652,14 +1654,87 @@ describe("CreateProfileDialog", () => {
 				expect.objectContaining({
 					createdAgentProfileId: NEW_AGENT_ID,
 					status: "failed",
-					statusReason: "profile_creation_failed",
+					statusReason: "profile_created",
 				})
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
+		expect(toastWarningMock).toHaveBeenCalledWith(
+			"Profile created. Setup is not complete. Open the Agent request to review the issue and retry setup."
+		);
+		expect(toastSuccessMock).not.toHaveBeenCalled();
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
+		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
 		expect(addMembersMock).not.toHaveBeenCalled();
+		expect(
+			readPendingAgentProfileCreationLocalSetup({
+				organizationId: "organization-123",
+				requestId: "apcr-self",
+				storageScope: recovery.storageScope,
+			})
+		).toEqual({
+			agentProfileId: NEW_AGENT_ID,
+			workspacePath: "/Users/felix/Desktop/work/openmeld",
+		});
+	});
+
+	it("keeps a custom folder retryable when Core fails before committing the Profile", async () => {
+		createAgentProfileCreationRequestMock.mockImplementation(
+			async (requestInput) =>
+				buildAgentProfileCreationRequestResult(requestInput, {
+					createdAgentProfileId: null,
+					failureMessage: "The selected Computer is no longer reachable.",
+					status: "failed",
+					statusReason: "profile_creation_failed",
+				})
+		);
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "codex",
+				launchStatus: "ready",
+				selectable: true,
+			}),
+		]);
+		renderCreateProfileDialog({
+			organizationId: "organization-123",
+			recovery,
+		});
+
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+		await selectAgentProfileKind();
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Research Agent" },
+		});
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: "Choose a folder on this computer…",
+			})
+		);
+		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
+			target: { value: "/Users/felix/Desktop/work/openmeld" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
+		);
+
+		await waitFor(() => {
+			expect(
+				readPendingAgentProfileCreationLocalSetup({
+					organizationId: "organization-123",
+					requestId: "apcr-self",
+					storageScope: recovery.storageScope,
+				})
+			).toEqual({
+				agentProfileId: null,
+				workspacePath: "/Users/felix/Desktop/work/openmeld",
+			});
+		});
+		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
 	});
 
 	it("reports Core's Space membership failure without retrying the write in Web", async () => {
@@ -1670,7 +1745,7 @@ describe("CreateProfileDialog", () => {
 					failureMessage:
 						"The Agent was created, but it could not be added to the Space.",
 					status: "failed",
-					statusReason: "profile_creation_failed",
+					statusReason: "profile_created",
 				})
 		);
 		const onAgentRequestCreated = vi.fn();
@@ -1690,7 +1765,7 @@ describe("CreateProfileDialog", () => {
 				expect.objectContaining({
 					createdAgentProfileId: NEW_AGENT_ID,
 					status: "failed",
-					statusReason: "profile_creation_failed",
+					statusReason: "profile_created",
 				})
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -2062,6 +2137,61 @@ describe("CreateProfileDialog", () => {
 				workspacePath: "/Users/felix/Desktop/work/openmeld ",
 			});
 		});
+	});
+
+	it("keeps the committed Agent visible when custom working folder setup fails", async () => {
+		setCurrentAgentProfileWorkspaceMock.mockRejectedValue(
+			new Error("The working folder is temporarily unavailable.")
+		);
+		const onAgentRequestCreated = vi.fn();
+		const { onOpenChange } = renderCreateProfileDialog({
+			onAgentRequestCreated,
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+		await selectAgentProfileKind();
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Research Agent" },
+		});
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: "Choose a folder on this computer…",
+			})
+		);
+		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
+			target: { value: "/Users/felix/Desktop/work/openmeld" },
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
+		);
+
+		await waitFor(() => {
+			expect(onAgentRequestCreated).toHaveBeenCalledWith(
+				expect.objectContaining({
+					createdAgentProfileId: NEW_AGENT_ID,
+					status: "completed",
+				})
+			);
+			expect(onOpenChange).toHaveBeenCalledWith(false);
+		});
+		expect(createAgentProfileCreationRequestMock).toHaveBeenCalledTimes(1);
+		expect(toastWarningMock).toHaveBeenCalledWith(
+			"Research Agent was created, but working folder setup isn't complete. The working folder is temporarily unavailable. Open the Agent to finish setup."
+		);
+		expect(toastErrorMock).not.toHaveBeenCalled();
+		expect(toastSuccessMock).not.toHaveBeenCalled();
 	});
 
 	it("saves selected OpenCode model variant as Binding intent", async () => {

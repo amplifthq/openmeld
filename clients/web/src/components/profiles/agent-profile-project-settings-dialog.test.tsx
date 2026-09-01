@@ -2,6 +2,10 @@ import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type { AuthProfileView } from "@openmeld/schemas/types";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	readPendingAgentProfileCreationLocalSetup,
+	rememberPendingAgentProfileCreationLocalSetup,
+} from "#/lib/profiles/agent-profile-creation-local-setup";
 import { projectQueryKeys } from "#/query/organizations/projects";
 import {
 	createTestQueryClient,
@@ -54,6 +58,8 @@ vi.mock("#/components/projects/use-project-discovery", () => ({
 
 describe("AgentProfileProjectSettingsDialog", () => {
 	beforeEach(() => {
+		window.localStorage.clear();
+		window.sessionStorage.clear();
 		updateDefaultProjectMock
 			.mockReset()
 			.mockResolvedValue(profileFixture({ defaultProjectId: null }));
@@ -86,6 +92,14 @@ describe("AgentProfileProjectSettingsDialog", () => {
 	});
 
 	it("saves a custom working-folder draft only after explicit confirmation", async () => {
+		rememberPendingAgentProfileCreationLocalSetup({
+			agentProfileId: "profile-agent",
+			organizationId: "organization-1",
+			requestId: "request-1",
+			storageScope: "account-1",
+			workspacePath: "/Users/felix/Old Workspace",
+		});
+		window.sessionStorage.clear();
 		const { onProfileUpdated } = renderSettings();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Choose custom working folder" })
@@ -116,6 +130,13 @@ describe("AgentProfileProjectSettingsDialog", () => {
 			});
 		});
 		expect(onProfileUpdated).toHaveBeenCalled();
+		expect(
+			readPendingAgentProfileCreationLocalSetup({
+				organizationId: "organization-1",
+				requestId: "request-1",
+				storageScope: "account-1",
+			})
+		).toBeNull();
 	});
 
 	it("switches to the managed workspace before clearing the Default Project", async () => {

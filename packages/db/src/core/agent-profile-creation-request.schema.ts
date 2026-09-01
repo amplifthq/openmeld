@@ -153,7 +153,7 @@ export const agentProfileCreationRequests = sqliteTable(
     ),
     check(
       "agent_profile_creation_requests_completion_check",
-      sql`("status" = 'completed' and "created_agent_profile_id" is not null and "completed_at" is not null) or ("status" = 'failed' and "completed_at" is null) or ("status" not in ('completed', 'failed') and "created_agent_profile_id" is null and "completed_at" is null)`
+      sql`("status" = 'completed' and "created_agent_profile_id" is not null and "completed_at" is not null) or ("status" in ('approved', 'failed') and "completed_at" is null) or ("status" not in ('approved', 'completed', 'failed') and "created_agent_profile_id" is null and "completed_at" is null)`
     ),
     check(
       "agent_profile_creation_requests_failure_check",
