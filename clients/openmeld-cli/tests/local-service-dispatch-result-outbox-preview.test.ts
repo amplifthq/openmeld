@@ -560,7 +560,7 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("forwards provider conversation occupancy as nonterminal lifecycle evidence", async () => {
+  it("keeps provider conversation occupancy accepted until the provider accepts the turn", async () => {
     await withTempHome(async () => {
       vi.spyOn(globalThis, "setInterval").mockImplementation((handler) => {
         if (typeof handler === "function") {
@@ -596,11 +596,24 @@ describe("dispatch result outbox around preview teardown", () => {
           phase: "agent_controller_conversation_occupied",
           tsMs: 1_700_000_000_100,
         });
+        const lifecycleBeforeProviderAdmission =
+          settlementSocket.send.mock.calls
+            .map(([rawFrame]) => JSON.parse(String(rawFrame)))
+            .filter((frame) => frame.code === "daemon.dispatch.lifecycle");
+        expect(
+          lifecycleBeforeProviderAdmission.map((frame) => frame.payload.phase)
+        ).toEqual(lifecycleBeforeProviderAdmission.map(() => "accepted_local"));
         input.onRuntimeEvent?.({
           agentControllerConversationId: "thread-occupied",
           contractVersion: 1,
           phase: "agent_controller_conversation_available",
           tsMs: 1_700_000_000_200,
+        });
+        input.onRuntimeEvent?.({
+          agentControllerConversationId: "thread-occupied",
+          phase: "provider_turn_accepted",
+          tsMs: 1_700_000_000_300,
+          turnId: "turn-1",
         });
         return createRuntimeSuccessResult();
       });
@@ -640,6 +653,11 @@ describe("dispatch result outbox around preview teardown", () => {
             frame.code === "daemon.dispatch.lifecycle" &&
             frame.payload.agentControllerConversationOccupancy
         );
+      expect(
+        occupancyFrames.every(
+          (frame) => frame.payload.phase === "accepted_local"
+        )
+      ).toBe(true);
       expect(
         occupancyFrames.map(
           (frame) => frame.payload.agentControllerConversationOccupancy
@@ -686,6 +704,27 @@ describe("dispatch result outbox around preview teardown", () => {
               !frame.payload.agentControllerConversationOccupancy
           ).length
       ).toBeGreaterThanOrEqual(6);
+      expect(
+        readRecentDaemonDispatchJournalEvents({
+          dispatchId: "dispatch-1",
+          limit: 100,
+        })
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            attemptId: "attempt-1",
+            dispatchId: "dispatch-1",
+            metadata: expect.objectContaining({
+              agentControllerConversationId: "thread-occupied",
+              phase: "provider_turn_accepted",
+              turnId: "turn-1",
+            }),
+            result: "accepted",
+            taskId: "task-1",
+            type: "dispatch.local.phase",
+          }),
+        ])
+      );
     });
   });
 

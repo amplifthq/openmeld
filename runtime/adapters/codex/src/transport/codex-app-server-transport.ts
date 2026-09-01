@@ -391,6 +391,10 @@ export async function invokeCodexAppServerTransport(input: {
       );
       const turn = readTurnStartResponse(turnResponse);
       const turnId = readRequiredText(turn.id, "turn/start response turn.id");
+      session.emitProviderTurnAccepted({
+        threadId: executionThreadId,
+        turnId,
+      });
       const unregisterActiveTurn = session.registerActiveTurn({
         onActiveTurn: input.onActiveTurn,
         taskId: input.taskId,
@@ -1715,6 +1719,15 @@ class CodexAppServerSession {
       agentControllerConversationId,
       phase: "provider_conversation_observed",
       tsMs: Date.now(),
+    });
+  }
+
+  emitProviderTurnAccepted(input: { threadId: string; turnId: string }): void {
+    this.#emitRuntimeEvent({
+      agentControllerConversationId: input.threadId,
+      phase: "provider_turn_accepted",
+      tsMs: Date.now(),
+      turnId: input.turnId,
     });
   }
 

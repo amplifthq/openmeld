@@ -72,6 +72,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { resolveSpacePublicationRequirement } from "@openmeld/space-mesh";
 import { recordOpenMeldCreatedLocalAgentSession } from "../../agent-activity/session-inventory-origin-store";
+import { resolveBuiltinAgentControllerDefinition } from "../../agents/builtin-agent-controller-definitions";
 import { resolveBaseUrl } from "../../config/base-url";
 import { buildOpenMeldRequestContextFromProfileIdentity } from "../../config/openmeld-request-context";
 import { emitDaemonDispatchJournalEvent } from "../../local-service/dispatch/daemon-dispatch-journal";
@@ -957,7 +958,20 @@ export async function handleDispatchDeliverFrame(input: {
   let runtimePromptPlan: DispatchPromptPlan | null = null;
   let runtimePromptTrace: DispatchPromptTrace | null = null;
   let settledResultSummary: LocalExecutionSlotTaskResult | null = null;
-  let stopRunningKeepalive: (() => void) | null = null;
+  const providerAdmissionOwnsRunningLifecycle =
+    resolveBuiltinAgentControllerDefinition(
+      runtimeControllerSupport.runtimeAdapterMatch.agentId
+    )?.conversationOccupancy.mode ===
+    "official_atomic_admission_and_release_signal";
+  let runtimeLifecyclePhase: Extract<
+    DispatchLifecyclePhase,
+    "accepted_local" | "running"
+  > = resolveInitialDispatchLifecyclePhase({
+    providerAdmissionOwnsRunningLifecycle,
+  });
+  const lifecycleKeepalive = {
+    stop: null as (() => void) | null,
+  };
   let firstOutputEvidenceSent = false;
   input.inflightTaskControlRegistry.registerTask({
     adapterId: runtimeControllerSupport.runtimeAdapterMatch.adapterId,
@@ -1232,32 +1246,44 @@ export async function handleDispatchDeliverFrame(input: {
       phase: "runtime_started",
       presenter: input.presenter,
     });
-    emitDispatchLifecycleTransition({
-      attemptId: parsedTask.attemptId,
-      connectionGeneration: input.deliverRequest.connectionGeneration,
-      currentSocketRef,
-      daemonSessionId: input.daemonSessionId,
-      dispatchId: parsedTask.dispatchId,
-      leaseEpoch: input.deliverRequest.leaseEpoch,
-      phase: "running",
-      presenter: input.presenter,
-      executionTokenEcho: parsedTask.executionTokenEcho,
-      runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
-      taskId: parsedTask.taskId,
-    });
-    stopRunningKeepalive = startDispatchLifecycleKeepalive({
-      attemptId: parsedTask.attemptId,
-      connectionGeneration: input.deliverRequest.connectionGeneration,
-      currentSocketRef,
-      daemonSessionId: input.daemonSessionId,
-      dispatchId: parsedTask.dispatchId,
-      leaseEpoch: input.deliverRequest.leaseEpoch,
-      phase: "running",
-      presenter: input.presenter,
-      executionTokenEcho: parsedTask.executionTokenEcho,
-      runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
-      taskId: parsedTask.taskId,
-    });
+    const transitionDispatchLifecycle = (inputLifecycle: {
+      agentControllerConversationOccupancy?: RuntimeTransportAgentControllerConversationOccupancy | null;
+      phase: Extract<DispatchLifecyclePhase, "accepted_local" | "running">;
+    }): void => {
+      runtimeLifecyclePhase = inputLifecycle.phase;
+      lifecycleKeepalive.stop?.();
+      emitDispatchLifecycleTransition({
+        agentControllerConversationOccupancy:
+          inputLifecycle.agentControllerConversationOccupancy ?? null,
+        attemptId: parsedTask.attemptId,
+        connectionGeneration: input.deliverRequest.connectionGeneration,
+        currentSocketRef,
+        daemonSessionId: input.daemonSessionId,
+        dispatchId: parsedTask.dispatchId,
+        leaseEpoch: input.deliverRequest.leaseEpoch,
+        phase: runtimeLifecyclePhase,
+        presenter: input.presenter,
+        executionTokenEcho: parsedTask.executionTokenEcho,
+        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+        taskId: parsedTask.taskId,
+      });
+      lifecycleKeepalive.stop = startDispatchLifecycleKeepalive({
+        agentControllerConversationOccupancy:
+          inputLifecycle.agentControllerConversationOccupancy ?? null,
+        attemptId: parsedTask.attemptId,
+        connectionGeneration: input.deliverRequest.connectionGeneration,
+        currentSocketRef,
+        daemonSessionId: input.daemonSessionId,
+        dispatchId: parsedTask.dispatchId,
+        leaseEpoch: input.deliverRequest.leaseEpoch,
+        phase: runtimeLifecyclePhase,
+        presenter: input.presenter,
+        executionTokenEcho: parsedTask.executionTokenEcho,
+        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+        taskId: parsedTask.taskId,
+      });
+    };
+    transitionDispatchLifecycle({ phase: runtimeLifecyclePhase });
     emitDispatchLocalPhaseJournalEvent({
       deliverRequest: input.deliverRequest,
       metadata: {
@@ -1383,34 +1409,32 @@ export async function handleDispatchDeliverFrame(input: {
             ? ("occupied" as const)
             : ("available" as const),
       } satisfies RuntimeTransportAgentControllerConversationOccupancy;
-      stopRunningKeepalive?.();
-      emitDispatchLifecycleTransition({
+      transitionDispatchLifecycle({
         agentControllerConversationOccupancy: occupancy,
-        attemptId: parsedTask.attemptId,
-        connectionGeneration: input.deliverRequest.connectionGeneration,
-        currentSocketRef,
-        daemonSessionId: input.daemonSessionId,
-        dispatchId: parsedTask.dispatchId,
-        leaseEpoch: input.deliverRequest.leaseEpoch,
-        phase: "running",
-        presenter: input.presenter,
-        executionTokenEcho: parsedTask.executionTokenEcho,
-        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
-        taskId: parsedTask.taskId,
+        phase: runtimeLifecyclePhase,
       });
-      stopRunningKeepalive = startDispatchLifecycleKeepalive({
-        agentControllerConversationOccupancy: occupancy,
-        attemptId: parsedTask.attemptId,
-        connectionGeneration: input.deliverRequest.connectionGeneration,
-        currentSocketRef,
-        daemonSessionId: input.daemonSessionId,
-        dispatchId: parsedTask.dispatchId,
-        leaseEpoch: input.deliverRequest.leaseEpoch,
-        phase: "running",
-        presenter: input.presenter,
-        executionTokenEcho: parsedTask.executionTokenEcho,
-        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
-        taskId: parsedTask.taskId,
+    };
+    const syncProviderTurnAcceptedLifecycle = (
+      event: AdapterRuntimeEvent
+    ): void => {
+      if (event.phase !== "provider_turn_accepted") {
+        return;
+      }
+      if (
+        providerAdmissionOwnsRunningLifecycle &&
+        runtimeLifecyclePhase !== "running"
+      ) {
+        transitionDispatchLifecycle({ phase: "running" });
+      }
+      emitDispatchLocalPhaseJournalEvent({
+        deliverRequest: input.deliverRequest,
+        metadata: {
+          agentControllerConversationId: event.agentControllerConversationId,
+          turnId: event.turnId,
+        },
+        parsedTask,
+        phase: "provider_turn_accepted",
+        result: "accepted",
       });
     };
     const runtimeExecutionPromise = Promise.resolve(
@@ -1436,6 +1460,7 @@ export async function handleDispatchDeliverFrame(input: {
         },
         onRuntimeEvent: (event) => {
           syncAgentControllerConversationOccupancyLifecycle(event);
+          syncProviderTurnAcceptedLifecycle(event);
           if (event.phase === "tool_activity") {
             agentToolActivitySequence += 1;
             emitDispatchAgentToolActivityFrame({
@@ -1938,8 +1963,8 @@ export async function handleDispatchDeliverFrame(input: {
       },
     });
   } finally {
-    stopRunningKeepalive?.();
-    stopRunningKeepalive = null;
+    lifecycleKeepalive.stop?.();
+    lifecycleKeepalive.stop = null;
     input.inflightDispatchMetaByTaskId.delete(parsedTask.taskId);
     input.inflightTaskControlRegistry.removeTask(parsedTask.taskId);
     pendingAgentInteractionRegistry.removeTask(parsedTask.taskId);
@@ -5380,6 +5405,14 @@ function emitDispatchLifecycleTransition(input: {
       taskId: input.taskId,
     },
   });
+}
+
+function resolveInitialDispatchLifecyclePhase(input: {
+  providerAdmissionOwnsRunningLifecycle: boolean;
+}): Extract<DispatchLifecyclePhase, "accepted_local" | "running"> {
+  return input.providerAdmissionOwnsRunningLifecycle
+    ? "accepted_local"
+    : "running";
 }
 
 function startDispatchLifecycleKeepalive(input: {

@@ -207,6 +207,12 @@ export type AdapterProviderConversationObservedEvent = {
   agentControllerConversation?: AgentControllerConversationRef | null;
   tsMs: number;
 };
+export type AdapterProviderTurnAcceptedEvent = {
+  phase: "provider_turn_accepted";
+  agentControllerConversationId: string;
+  tsMs: number;
+  turnId: string;
+};
 export type AdapterProviderUsageLimitsObservedEvent = {
   phase: "provider_usage_limits_observed";
   tsMs: number;
@@ -232,6 +238,7 @@ export type AdapterRuntimeEvent =
   | CliDriverLifecycleEvent
   | AdapterAgentControllerConversationOccupancyEvent
   | AdapterProviderConversationObservedEvent
+  | AdapterProviderTurnAcceptedEvent
   | AdapterProviderUsageLimitsObservedEvent
   | AdapterToolActivityEvent;
 export type AdapterRuntimeEventCallback = (
