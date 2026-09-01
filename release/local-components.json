@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T12:08:46.285Z",
+  "updatedAt": "2026-09-01T17:22:52.923Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.138",
+      "packageVersion": "0.3.139",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible through optional inputs and negotiated legacy trace projections; older CLIs can safely continue current setup, Wake, Space, and diagnostic work."
+      "reason": "Existing CLI setup, upgrade, status, trace, and self-rescue commands remain compatible and can install 0.3.139."
     },
     "service": {
-      "bundleHash": "c8737285e4509692e38ebb68e3e4f4919a7683ebe78266e83d277393a3030f65",
-      "bundleVersion": "0.3.138",
+      "bundleHash": "456d4ff05b87aa2ac13180c06109995ac16d57f64922b3e74a6e71c059274619",
+      "bundleVersion": "0.3.139",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
-      "updatePolicy": "required",
-      "reason": "Older Services can override an existing Codex thread's controller-owned model when the Binding has no explicit selection; require 0.3.138 before admitting new Wake work so resumed threads preserve their chosen model and reasoning behavior."
+      "updatePolicy": "available",
+      "reason": "Service 0.3.138 remains safe for existing Wake work and can self-update; 0.3.139 adds durable update convergence without changing the runtime contract."
     },
     "skills": {
       "bundleHash": "73e31d09533eac76338fb95bcfab855aeeca940ca587925095ab0c63371abf7d",
