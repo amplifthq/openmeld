@@ -19,8 +19,6 @@ const VERSIONED_RELEASE_BRANCH_PATTERN =
 const DOCUMENT_PATH_PATTERN = /(?:^|\/)(?:AGENTS|CLAUDE|README)\.md$|\.md$/u;
 const DELIVERY_INFRASTRUCTURE_PREFIXES = [".github/", ".husky/"];
 const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
-  "scripts/release/cli-release-workflow.test.mjs",
-  "scripts/release/require-production-db-current.mjs",
   "scripts/ci/check-candidate-code-quality.mjs",
   "scripts/ci/check-candidate-code-quality.test.mjs",
   "scripts/ci/final-candidate-bootstrap.mjs",

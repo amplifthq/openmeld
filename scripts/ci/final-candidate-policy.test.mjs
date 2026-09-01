@@ -186,34 +186,6 @@ test("delivery infrastructure runs its behavior contracts without an empty Turbo
   assert.ok(plan.riskTags.includes("delivery-infrastructure"));
 });
 
-test("release tooling runs its behavior contracts without an empty product workspace lane", () => {
-  const plan = createPlan([
-    ".github/workflows/cli-release.yml",
-    "scripts/release/require-production-db-current.mjs",
-    "scripts/release/cli-release-workflow.test.mjs",
-    "developing/engineering/production-release.md",
-  ]);
-
-  assert.deepEqual(checkIds(plan), [
-    "diff-integrity",
-    "repository-code-quality",
-    "repository-contracts",
-  ]);
-  assert.ok(plan.riskTags.includes("delivery-infrastructure"));
-  assert.ok(
-    plan.skippedChecks.some(
-      (entry) => entry.id === "affected-checks-and-unit-tests"
-    )
-  );
-});
-
-test("unclassified release tooling stays outside the delivery-infrastructure risk tag", () => {
-  const plan = createPlan(["scripts/release/new-release-helper.mjs"]);
-
-  assert.ok(!checkIds(plan).includes("affected-checks-and-unit-tests"));
-  assert.ok(!plan.riskTags.includes("delivery-infrastructure"));
-});
-
 test("a scripts and Web mixed diff keeps control contracts but skips broad workspace tests", () => {
   const plan = createPlan([
     "scripts/ci/final-candidate.mjs",
