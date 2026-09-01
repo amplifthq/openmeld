@@ -599,6 +599,12 @@ snapshot, and a same-lifecycle request with a different payload fingerprint
 fails closed. These fields are not added to the Service delivery controller
 snapshot, so an older strict Service continues to receive the established
 dispatch shape during a Core rollout.
+Mixed Core versions fail closed at this boundary. A request without the field
+cannot reaccept a head that already stores it, and a head without the field can
+adopt it only while the same primary dispatch is provably still queued with no
+execution or token authority. Both incompatible directions return the existing
+strict `retry_later` response shape, without the additive field, so an older
+caller can parse and retry safely.
 
 ### Delivery Evidence And Production Lease Contracts
 

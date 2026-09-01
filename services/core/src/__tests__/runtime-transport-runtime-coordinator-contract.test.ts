@@ -3929,6 +3929,136 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
+  it("keeps an old Core caller from reaccepting a head that owns an accepted snapshot", async () => {
+    const { hub } = createHarness();
+    const acceptedSnapshot = buildAcceptedDispatchSnapshot({
+      fingerprint: "a",
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            acceptedDispatchSnapshot: acceptedSnapshot,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      acceptedDispatchSnapshot: acceptedSnapshot,
+      action: "create_execution",
+      status: "accepted",
+    });
+
+    const oldCallerResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest()
+    );
+    expect(oldCallerResponse.status).toBe(503);
+    await expect(oldCallerResponse.json()).resolves.toEqual({
+      ok: false,
+      primaryDispatchId: "dispatch-1",
+      reasonCode: "runtime_coordinator.accepted_dispatch_snapshot_required",
+      status: "retry_later",
+      targetWakeLifecycleId: expect.any(String),
+    });
+  });
+
+  it("keeps a new Core caller from upgrading a legacy head that may already be executing", async () => {
+    const { hub } = createHarness();
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest()
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "create_execution",
+      status: "accepted",
+    });
+
+    const newCallerResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        acceptedDispatchSnapshot: buildAcceptedDispatchSnapshot({
+          fingerprint: "a",
+        }),
+      })
+    );
+    expect(newCallerResponse.status).toBe(503);
+    await expect(newCallerResponse.json()).resolves.toEqual({
+      ok: false,
+      primaryDispatchId: "dispatch-1",
+      reasonCode: "runtime_coordinator.legacy_head_snapshot_upgrade_unsafe",
+      status: "retry_later",
+      targetWakeLifecycleId: expect.any(String),
+    });
+  });
+
+  it("atomically upgrades a queued legacy head before a new Core caller can use it", async () => {
+    const { hub } = createHarness();
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest()
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "create_execution",
+      status: "accepted",
+    });
+    const queuedIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-legacy-queued",
+      dispatchId: "dispatch-legacy-queued",
+      sourceSignalId: "signal-legacy-queued",
+      spaceId: "b".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const queuedRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      dispatchId: "dispatch-legacy-queued",
+      idempotencyKey: "idempotency-legacy-queued",
+      targetWakeLifecycleIdentity: queuedIdentity,
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          queuedRequest
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
+    });
+
+    const acceptedSnapshot = buildAcceptedDispatchSnapshot({
+      fingerprint: "b",
+    });
+    const upgradedResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      {
+        ...queuedRequest,
+        acceptedDispatchSnapshot: acceptedSnapshot,
+      }
+    );
+    expect(upgradedResponse.status).toBe(200);
+    await expect(upgradedResponse.json()).resolves.toMatchObject({
+      acceptedDispatchSnapshot: acceptedSnapshot,
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
+    });
+  });
+
   it("preserves the running Wake and FIFO queue across an execution-index generation repair", async () => {
     const { hub, socket, spaceFetchRequests, state, storageRecords } =
       createHarness();

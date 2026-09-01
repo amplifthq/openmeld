@@ -144,6 +144,13 @@ owner of that payload. Promotion, alarm redrive, and reconnect reacceptance must
 return this accepted snapshot so Core can combine it with the same outbox
 payload. A different payload fingerprint for the same Wake lifecycle is an
 authority conflict, never permission to execute newer message content.
+During a rolling Core deployment, a caller that omits the snapshot cannot
+reaccept a head that already owns one; RuntimeCoordinator returns the legacy-
+parseable `retry_later` shape and never grants `create_execution`. A legacy
+head may gain a proposed snapshot only inside the admission transaction while
+it is still queued and has no linked execution or token authority. Any legacy
+head that may already be executing also returns `retry_later` instead of
+silently adopting or discarding the snapshot.
 `profile_queue_waiting` is a D1 ledger projection, not scheduling authority.
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.

@@ -1153,6 +1153,14 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
         status: "retry_later",
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
+    case "snapshot_compatibility_retry":
+      return {
+        ok: false,
+        primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
+        reasonCode: input.admission.reasonCode,
+        status: "retry_later",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
     case "queue_full":
       return {
         ok: false,
