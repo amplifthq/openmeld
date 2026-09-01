@@ -133,12 +133,6 @@ export function renderFinalCandidateObservation(observation) {
   if (observation.detail) {
     lines.push(`GitHub fact: ${observation.detail}`);
   }
-  if (observation.reason === "exact-status-stale") {
-    lines.push(
-      "Prevalidation only: this run remains evidence for its original base, not current-main merge evidence.",
-      "Next action: when merge is next, sync current main once and request one new Final Candidate."
-    );
-  }
   if (
     observation.state === "hosted-unavailable" &&
     observation.exactStatus !== "success"

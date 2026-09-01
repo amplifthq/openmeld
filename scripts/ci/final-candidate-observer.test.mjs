@@ -34,9 +34,6 @@ const LOCAL_FALLBACK_PATTERN = /trusted local fallback/u;
 const CANDIDATE_FAILURE_PATTERN = /candidate validation failed/iu;
 const EXACT_SUCCESS_PATTERN = /Exact status: success/u;
 const AVAILABLE_FALLBACK_PATTERN = /Available fallback/u;
-const PREVALIDATION_PATTERN = /Prevalidation only:/u;
-const CURRENT_MAIN_EVIDENCE_PATTERN = /not current-main merge evidence/u;
-const SYNC_ONCE_PATTERN = /sync current main once/u;
 
 test("classifies a captured GitHub Actions budget refusal without blaming candidate code", () => {
   const observation = buildFinalCandidateObservation({
@@ -150,10 +147,6 @@ test("rejects a green status that belongs to an older validation base", () => {
   assert.equal(observation.state, "failure");
   assert.equal(observation.exactStatus, "stale-success");
   assert.equal(observation.reason, "exact-status-stale");
-  const output = renderFinalCandidateObservation(observation);
-  assert.match(output, PREVALIDATION_PATTERN);
-  assert.match(output, CURRENT_MAIN_EVIDENCE_PATTERN);
-  assert.match(output, SYNC_ONCE_PATTERN);
 });
 
 test("keeps a completed run without exact status visibly failed", () => {
