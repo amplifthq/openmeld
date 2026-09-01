@@ -8,6 +8,7 @@ import {
   getInboxNotificationPreferencesRpcInputSchema,
   getInboxSummaryRpcInputSchema,
   getSpaceInboxSummaryRpcInputSchema,
+  getSpaceInboxUnreadTargetsRpcInputSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryResponseSchema,
   listInboxItemsResponseSchema,
@@ -21,6 +22,7 @@ import {
   markSpaceInboxReadThroughResponseSchema,
   markSpaceInboxReadThroughRpcInputSchema,
   spaceInboxSummaryResponseSchema,
+  spaceInboxUnreadTargetsResponseSchema,
   updateInboxNotificationPreferencesRpcInputSchema,
 } from "@openmeld/schemas";
 import type {
@@ -33,6 +35,7 @@ import type {
   GetInboxNotificationPreferencesRpcInput,
   GetInboxSummaryRpcInput,
   GetSpaceInboxSummaryRpcInput,
+  GetSpaceInboxUnreadTargetsRpcInput,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
   ListInboxItemsResponse,
@@ -46,6 +49,7 @@ import type {
   MarkSpaceInboxReadThroughResponse,
   MarkSpaceInboxReadThroughRpcInput,
   SpaceInboxSummaryResponse,
+  SpaceInboxUnreadTargetsResponse,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
 import { type CoreBindings, inboxDb } from "../../../lib/bindings";
@@ -163,6 +167,24 @@ export async function rpcGetSpaceInboxSummary(
   );
 }
 
+export async function rpcGetSpaceInboxUnreadTargets(
+  env: CoreBindings,
+  input: GetSpaceInboxUnreadTargetsRpcInput
+): Promise<SpaceInboxUnreadTargetsResponse> {
+  const request = parseRequest(getSpaceInboxUnreadTargetsRpcInputSchema, input);
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    spaceInboxUnreadTargetsResponseSchema,
+    await runService(() =>
+      prepared.service.spaceUnreadTargets({
+        organizationId: prepared.organizationId,
+        recipientUserId: prepared.userId,
+        spaceId: request.spaceId,
+      })
+    )
+  );
+}
+
 export async function rpcMarkCenterAgentInboxReadThrough(
   env: CoreBindings,
   input: MarkCenterAgentInboxReadThroughRpcInput
@@ -198,6 +220,9 @@ export async function rpcMarkSpaceInboxReadThrough(
         organizationId: prepared.organizationId,
         recipientUserId: prepared.userId,
         spaceId: request.spaceId,
+        ...(request.threadRootSignalId === undefined
+          ? {}
+          : { threadRootSignalId: request.threadRootSignalId }),
         throughOccurredAtMs: request.throughOccurredAtMs,
       })
     )

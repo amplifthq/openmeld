@@ -81,8 +81,10 @@ describe("Inbox routes", () => {
         throughOccurredAtMs: 1_775_000_000_000,
       }),
       new Request("http://local/v1/inbox/spaces/summary"),
+      new Request("http://local/v1/inbox/spaces/space-1/unread-targets"),
       jsonRequest("http://local/v1/inbox/spaces/read-through", "POST", {
         spaceId: "space-1",
+        threadRootSignalId: "thread-root-1",
         throughOccurredAtMs: 1_775_000_000_000,
       }),
       new Request("http://local/v1/inbox/items/inbox-item-1"),
@@ -105,7 +107,7 @@ describe("Inbox routes", () => {
     }
 
     expect(responses.map((response) => response.status)).toEqual([
-      200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200,
+      200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200,
     ]);
     expect(coreRpc.listInboxItems).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 25, view: "needs_action" })
@@ -125,9 +127,13 @@ describe("Inbox routes", () => {
     expect(coreRpc.getSpaceInboxSummary).toHaveBeenCalledWith(
       expect.objectContaining({ context: expect.any(Object) })
     );
+    expect(coreRpc.getSpaceInboxUnreadTargets).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceId: "space-1" })
+    );
     expect(coreRpc.markSpaceInboxReadThrough).toHaveBeenCalledWith(
       expect.objectContaining({
         spaceId: "space-1",
+        threadRootSignalId: "thread-root-1",
         throughOccurredAtMs: 1_775_000_000_000,
       })
     );
@@ -476,6 +482,19 @@ function makeEnv() {
           unreadCount: 1,
         },
       ],
+    })),
+    getSpaceInboxUnreadTargets: vi.fn(async () => ({
+      hasMoreTargets: false,
+      organizationId: "org-1",
+      spaceId: "space-1",
+      targets: [
+        {
+          occurredAtMs: 1_775_000_000_000,
+          signalId: "signal-1",
+          threadRootSignalId: null,
+        },
+      ],
+      totalUnreadCount: 1,
     })),
     listInboxItems: vi.fn(async () => ({
       items: [ITEM, MESSAGE_CHANNEL_ITEM],

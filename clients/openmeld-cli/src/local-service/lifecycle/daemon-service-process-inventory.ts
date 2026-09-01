@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import process from "node:process";
 import { daemonRuntimeRootPath } from "../../config/daemon-state";
 import {
@@ -21,6 +21,7 @@ import {
 import {
   type DaemonServiceProcessMode,
   daemonCommandContainsExactPath,
+  extractDaemonCommandEntryPath,
   isDaemonRuntimeProcessCommand,
   parseDaemonServiceProcessCommand,
   tokenizeDaemonCommand,
@@ -95,6 +96,11 @@ function classifyDaemonOwnedProcess(
     return null;
   }
   const normalizedCommand = normalizeProcessCommand(processInfo.command);
+  const isRuntimeProcess = isDaemonRuntimeProcessCommand(normalizedCommand);
+  const isLegacyDetachedProcess = normalizedCommand.includes("legacy-detached");
+  if (!(isRuntimeProcess || isLegacyDetachedProcess)) {
+    return null;
+  }
   const launcherPath = normalizeProcessCommand(
     daemonServiceLauncherPath(pathInput)
   );
@@ -275,6 +281,7 @@ function resolveManagedDaemonPathLane(input: {
   normalizedCommand: string;
   pathInput: OpenMeldPathResolutionInput;
 }): OpenMeldEnvPreset | null {
+  const currentPreset = resolveOpenMeldEnvPreset(input.pathInput);
   for (const preset of ALL_OPENMELD_ENV_PRESETS) {
     const lanePathInput = resolveLanePathInput(input.pathInput, preset);
     const laneLauncherPath = normalizeProcessCommand(
@@ -286,11 +293,23 @@ function resolveManagedDaemonPathLane(input: {
     const laneRuntimeRoot = normalizeProcessCommand(
       daemonRuntimeRootPath(lanePathInput)
     );
+    const laneEntryPath = extractDaemonCommandEntryPath(
+      input.normalizedCommand,
+      lanePathInput
+    );
+    const laneExecutableNames = laneWrapperPaths.map((candidatePath) =>
+      basename(candidatePath)
+    );
     if (
       input.normalizedCommand.includes(laneLauncherPath) ||
       laneWrapperPaths.some((wrapperPath) =>
         daemonCommandContainsExactPath(input.normalizedCommand, wrapperPath)
       ) ||
+      (preset !== currentPreset &&
+        laneEntryPath !== null &&
+        laneExecutableNames.includes(
+          normalizeProcessCommand(basename(laneEntryPath))
+        )) ||
       input.normalizedCommand.includes(laneRuntimeRoot) ||
       containsOpenMeldManagedBinaryPath(input.normalizedCommand, lanePathInput)
     ) {

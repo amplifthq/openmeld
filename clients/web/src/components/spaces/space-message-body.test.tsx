@@ -102,6 +102,7 @@ describe("SpaceMessageBody", () => {
 	});
 
 	it("renders a structured Wake target as an inline Agent identity", () => {
+		const onOpenAgentProfile = vi.fn();
 		const view = render(
 			<SpaceMessageBody
 				item={{
@@ -109,6 +110,7 @@ describe("SpaceMessageBody", () => {
 					text: `@${WAKE_TARGET_PROFILE_NAME} hi`,
 					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
 				}}
+				onOpenAgentProfile={onOpenAgentProfile}
 				profilePresentationsById={createWakeTargetProfilePresentations()}
 			/>
 		);
@@ -117,21 +119,37 @@ describe("SpaceMessageBody", () => {
 			'[data-slot="space-message-agent-mention"]'
 		);
 
+		const mentionButton = screen.getByRole("button", {
+			name: `Open ${WAKE_TARGET_PROFILE_NAME} profile`,
+		});
+		expect(mentionButton).toBe(mention);
+		expect(mentionButton.className).toContain("items-center");
+		expect(mentionButton.className).toContain("gap-1");
+		expect(mentionButton.className).toContain("align-middle");
 		const atMark = mention?.querySelector('[aria-hidden="true"]');
 		expect(atMark?.textContent).toBe("@");
-		expect(atMark?.className).toContain("me-1.5");
 		expect(mention?.childNodes.item(2).textContent).toBe(
 			WAKE_TARGET_PROFILE_NAME
 		);
 		const profileIcon = screen.getByTestId(
 			`space-profile-icon-${WAKE_TARGET_PROFILE_ID}`
 		);
-		expect(profileIcon.className).toContain("me-1");
+		expect(profileIcon.className).not.toContain("me-");
 		const profileName = screen.getByText(WAKE_TARGET_PROFILE_NAME);
 		expect(profileName.tagName).toBe("STRONG");
 		expect(profileName.className).toContain("font-semibold");
+		expect(profileName.className).toContain(
+			"group-hover/agent-mention:underline"
+		);
+		expect(profileName.className).toContain(
+			"group-focus-visible/agent-mention:underline"
+		);
 		expect(profileName.className).not.toContain("font-bold");
 		expect(mention?.nextSibling?.textContent).toBe(" hi");
+
+		fireEvent.click(mentionButton);
+		expect(onOpenAgentProfile).toHaveBeenCalledOnce();
+		expect(onOpenAgentProfile).toHaveBeenCalledWith(WAKE_TARGET_PROFILE_ID);
 	});
 
 	it("keeps an ordinary unstructured @Agent name as plain text", () => {

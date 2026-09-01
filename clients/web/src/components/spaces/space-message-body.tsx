@@ -78,6 +78,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 				| "wakeTargetProfileIds"
 			>
 		>;
+	onOpenAgentProfile?: (profileId: string) => void;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	openMeldProfileId?: string;
 	orgSlug?: string;
@@ -145,6 +146,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		({ children, href }: { children: ReactNode; href: string }) => {
 			const agentMention = renderSpaceMessageAgentMentionInternalLink({
 				href,
+				onOpenAgentProfile: input.onOpenAgentProfile,
 				profilesById: agentMentionProfilesById,
 			});
 			if (agentMention) {
@@ -156,7 +158,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 				referencesById: spaceReferencesById,
 			});
 		},
-		[agentMentionProfilesById, spaceReferencesById]
+		[agentMentionProfilesById, input.onOpenAgentProfile, spaceReferencesById]
 	);
 	const shouldRenderMarkdown =
 		input.item.actorProfileKind === "agent" ||
@@ -190,6 +192,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		agentMentionProfilesById,
 		className,
 		isStreaming,
+		onOpenAgentProfile: input.onOpenAgentProfile,
 		referencesById: spaceReferencesById,
 		renderInternalLink,
 		renderedText,
@@ -262,6 +265,7 @@ function renderSpaceMessageTextContent(input: {
 	>;
 	className: string;
 	isStreaming: boolean;
+	onOpenAgentProfile?: (profileId: string) => void;
 	referencesById: SpaceMessageReferencesById;
 	renderInternalLink: ComponentProps<
 		typeof MessageResponse
@@ -287,6 +291,7 @@ function renderSpaceMessageTextContent(input: {
 	return (
 		<p className={cn("whitespace-pre-wrap", input.className)}>
 			<SpaceMessageAgentMentionText
+				onOpenAgentProfile={input.onOpenAgentProfile}
 				profilesById={input.agentMentionProfilesById}
 				renderText={(text) => (
 					<SpaceMessageReferenceText

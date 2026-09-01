@@ -13,64 +13,87 @@ import { isSameOwnerUserId } from "./space-member-ownership";
 export function useSpaceProfileDetailsDialog(input: {
 	currentOwnerUserId: string | null;
 	entry: SpaceMemberDirectoryEntry | null;
+	entriesByProfileId?: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 	modelCatalog: ModelCatalog | null;
 }) {
 	const [isOpen, setIsOpen] = useState(false);
+	const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
+		null
+	);
+	const entry = selectedProfileId
+		? (input.entriesByProfileId?.get(selectedProfileId) ??
+			(input.entry?.profileId === selectedProfileId ? input.entry : null))
+		: input.entry;
 	const viewerScope = useMemo<ProfileDetailsViewerScope>(() => {
-		return input.entry &&
+		return entry &&
 			isSameOwnerUserId({
 				currentOwnerUserId: input.currentOwnerUserId,
-				ownerUserId: input.entry.ownerUserId,
+				ownerUserId: entry.ownerUserId,
 			})
 			? "owner_self"
 			: "observer";
-	}, [input.currentOwnerUserId, input.entry]);
+	}, [entry, input.currentOwnerUserId]);
 	const modelDetail = useMemo(() => {
-		if (input.entry?.profileKind !== "agent") {
+		if (entry?.profileKind !== "agent") {
 			return null;
 		}
 
 		return resolveAgentProfileControllerModelDetail({
-			agentControllerRef: input.entry.agentControllerRef,
-			controllerDisplayName: input.entry.controllerDisplayName,
+			agentControllerRef: entry.agentControllerRef,
+			controllerDisplayName: entry.controllerDisplayName,
 			modelCatalog: input.modelCatalog,
-			modelSelection: input.entry.modelSelection,
+			modelSelection: entry.modelSelection,
 		});
-	}, [input.entry, input.modelCatalog]);
+	}, [entry, input.modelCatalog]);
 	const controllerPermissionModeDetail = useMemo(() => {
-		if (input.entry?.profileKind !== "agent") {
+		if (entry?.profileKind !== "agent") {
 			return null;
 		}
 
 		return (
 			resolveWebAgentControllerPermissionModeDisplay({
-				agentControllerPermissionMode:
-					input.entry.agentControllerPermissionMode,
-				agentControllerRef: input.entry.agentControllerRef,
+				agentControllerPermissionMode: entry.agentControllerPermissionMode,
+				agentControllerRef: entry.agentControllerRef,
 			})?.label ?? null
 		);
-	}, [input.entry]);
+	}, [entry]);
 	const details = useMemo(() => {
-		if (!input.entry) {
+		if (!entry) {
 			return null;
 		}
 
 		return buildProfileDetailsSnapshotFromSpaceMember({
 			agentControllerPermissionModeDetail: controllerPermissionModeDetail,
-			entry: input.entry,
+			entry,
 			modelDetail,
 			viewerScope,
 		});
-	}, [controllerPermissionModeDetail, input.entry, modelDetail, viewerScope]);
+	}, [controllerPermissionModeDetail, entry, modelDetail, viewerScope]);
 	const openProfileDetails = useCallback(() => {
-		if (details) {
-			setIsOpen(true);
+		if (!input.entry) {
+			return;
 		}
-	}, [details]);
+		setSelectedProfileId(input.entry.profileId);
+		setIsOpen(true);
+	}, [input.entry]);
+	const openProfileDetailsById = useCallback(
+		(profileId: string) => {
+			const targetEntry =
+				input.entriesByProfileId?.get(profileId) ??
+				(input.entry?.profileId === profileId ? input.entry : null);
+			if (!targetEntry) {
+				return;
+			}
+			setSelectedProfileId(targetEntry.profileId);
+			setIsOpen(true);
+		},
+		[input.entriesByProfileId, input.entry]
+	);
 
 	return {
-		canOpenProfileDetails: details !== null,
+		canOpenProfileDetails: input.entry !== null,
 		openProfileDetails,
+		openProfileDetailsById,
 		profileDetailsDialog: details ? (
 			<ProfileDetailsDialog
 				details={details}

@@ -195,21 +195,25 @@ function parseStoredRequiredFloor(value: unknown): string | null | undefined {
 }
 
 export async function fetchLatestPackageInfo(
-  packageName: string
+  packageName: string,
+  input: { forceRefresh?: boolean } = {}
 ): Promise<PackageLatestInfo> {
   const now = Date.now();
-  const cached = versionCache.get(packageName);
+  const cached = input.forceRefresh ? undefined : versionCache.get(packageName);
   if (cached && now - cached.fetchedAt < VERSION_CHECK_CACHE_TTL_MS) {
     return cached.info;
   }
 
-  const inFlight = inFlightVersionRequests.get(packageName);
+  const requestKey = input.forceRefresh
+    ? `${packageName}:force_refresh`
+    : packageName;
+  const inFlight = inFlightVersionRequests.get(requestKey);
   if (inFlight) {
     return inFlight;
   }
 
   const request = requestLatestPackageInfo(packageName);
-  inFlightVersionRequests.set(packageName, request);
+  inFlightVersionRequests.set(requestKey, request);
 
   try {
     const info = await request;
@@ -219,7 +223,7 @@ export async function fetchLatestPackageInfo(
     });
     return info;
   } finally {
-    inFlightVersionRequests.delete(packageName);
+    inFlightVersionRequests.delete(requestKey);
   }
 }
 

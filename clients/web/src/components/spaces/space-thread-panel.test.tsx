@@ -10,6 +10,7 @@ import type {
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -141,6 +142,22 @@ describe("SpaceThreadPanel", () => {
 		expect(pendingActions.compareDocumentPosition(composer)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
+	});
+
+	it("marks only the open thread read after its latest message stays visible", async () => {
+		vi.useFakeTimers();
+		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
+		const latestTs = Date.UTC(2026, 4, 27, 10, 0, 9);
+		renderThreadPanel({
+			onViewedThroughTs,
+			signals: [createTextSignal({ ts: latestTs })],
+		});
+
+		await act(async () => {
+			vi.advanceTimersByTime(800);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenCalledWith(latestTs);
 	});
 
 	it("keeps the Thread composer actions flush and aligned while sending", () => {
@@ -1166,6 +1183,28 @@ describe("SpaceThreadPanel", () => {
 
 		expect(onEditAgentProfile).toHaveBeenCalledWith(TARGET_PROFILE_ID);
 	});
+
+	it("opens the exact structured Wake target from an inline Agent mention", () => {
+		renderThreadPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
+			signals: [
+				createWakeTextSignal({
+					text: "@Codex 5.6 Sol please review this.",
+				}),
+			],
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Open Codex 5.6 Sol profile",
+			})
+		);
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.getByText("About profile")).toBeTruthy();
+		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
+		expect(dialog.getByText(TARGET_PROFILE_ID)).toBeTruthy();
+	});
 });
 
 const TARGET_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
@@ -1203,12 +1242,14 @@ function renderThreadPanel(
 		composerText: "",
 		composerFiles: [],
 		composerFileLimitReached: false,
+		currentOwnerUserId: null,
 		ephemeralActivityItems: [],
 		isAgentRecoveryPending: () => false,
 		isDiagnosticReportPending: () => false,
 		isDiagnosticReportSent: () => false,
 		isSendingMessage: false,
 		membersSnapshot: null,
+		modelCatalog: null,
 		onAgentRecoveryAction: async () => undefined,
 		onClose: () => undefined,
 		onComposerEditorChange: () => undefined,

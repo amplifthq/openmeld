@@ -1,6 +1,7 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import type {
 	ModelCatalog,
+	SpaceInboxUnreadTarget,
 	SpaceMembersSnapshot,
 	SpaceThread,
 	SpaceThreadPreview,
@@ -20,10 +21,7 @@ import {
 	InfoIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import {
-	useMessageScroller,
-	useMessageScrollerScrollable,
-} from "@shadcn/react/message-scroller";
+import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
 	Fragment,
@@ -268,6 +266,11 @@ type SpaceConversationPanelProps = {
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onOpenThread: (threadId: string) => void;
+	onOpenUnreadThread?: (input: {
+		rootSignalId: string;
+		signalId: string;
+		threadId?: string;
+	}) => boolean | Promise<boolean>;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	onRemoveComposerFile: (localId: string) => void;
@@ -302,11 +305,30 @@ type SpaceConversationPanelProps = {
 	threadPreviews: readonly SpaceThreadPreview[];
 	isCreatingThread: boolean;
 	timelineItems: readonly SpaceTimelineItem[];
+	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	unreadCount: number;
 	unreadStateReady: boolean;
 };
 
 const MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS = 9;
+
+type SpaceUnreadNavigationState = {
+	aboveCount: number;
+	aboveTargetKeys: readonly string[];
+	belowCount: number;
+	belowTargetKeys: readonly string[];
+	nearestAbove: SpaceInboxUnreadTarget | null;
+	nearestBelow: SpaceInboxUnreadTarget | null;
+};
+
+const EMPTY_SPACE_UNREAD_NAVIGATION_STATE: SpaceUnreadNavigationState = {
+	aboveCount: 0,
+	aboveTargetKeys: [],
+	belowCount: 0,
+	belowTargetKeys: [],
+	nearestAbove: null,
+	nearestBelow: null,
+};
 
 type SpaceSetupGuidanceSlots = {
 	banner: ReactNode;
@@ -429,6 +451,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		showComposerWhenReadOnly: input.readOnlyComposerPlaceholder !== undefined,
 	});
 	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
+	const unreadMeasurementRequestRef = useRef<() => void>(() => undefined);
 	const [conversationScrollElement, setConversationScrollElement] =
 		useState<HTMLDivElement | null>(null);
 	const [stuckConversationDateMs, setStuckConversationDateMs] = useState<
@@ -460,6 +483,11 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 	const [mainFocusStatusMessage, setMainFocusStatusMessage] = useState<
 		string | null
 	>(null);
+	const [unreadNavigation, setUnreadNavigation] =
+		useState<SpaceUnreadNavigationState>(EMPTY_SPACE_UNREAD_NAVIGATION_STATE);
+	const [dismissedUnreadTargetKeys, setDismissedUnreadTargetKeys] = useState(
+		() => new Set<string>()
+	);
 	const [starterComputerSetupOpen, setStarterComputerSetupOpen] =
 		useState(false);
 	const threadSignalIds = useMemo(
@@ -699,9 +727,11 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		(signalId: string, element: HTMLElement | null) => {
 			if (element) {
 				messageElementsBySignalIdRef.current.set(signalId, element);
+				unreadMeasurementRequestRef.current();
 				return;
 			}
 			messageElementsBySignalIdRef.current.delete(signalId);
+			unreadMeasurementRequestRef.current();
 		},
 		[]
 	);
@@ -710,9 +740,15 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		if (!messageElement) {
 			return;
 		}
-		messageElement.scrollIntoView({
-			block: "center",
-		});
+		const scrollElement = conversationScrollRef.current;
+		if (scrollElement) {
+			scrollMessageIntoConversationViewport({
+				messageElement,
+				scrollElement,
+			});
+		} else {
+			messageElement.scrollIntoView({ block: "center" });
+		}
 		messageElement.focus({ preventScroll: true });
 		setHighlightedSignalId(signalId);
 		if (highlightMessageTimerRef.current !== null) {
@@ -825,6 +861,94 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		input.isLoadingEarlierHistory,
 		input.onLoadEarlierHistory,
 	]);
+	const measureUnreadNavigation = useCallback(() => {
+		setUnreadNavigation(
+			resolveSpaceUnreadNavigationState({
+				hasEarlierHistory: input.hasEarlierHistory,
+				messageElementsBySignalId: messageElementsBySignalIdRef.current,
+				scrollElement: conversationScrollRef.current,
+				targets: input.unreadTargets ?? [],
+			})
+		);
+	}, [input.hasEarlierHistory, input.unreadTargets]);
+	const requestUnreadMeasurement = useMemo(() => {
+		let frameId: number | null = null;
+		return () => {
+			if (frameId !== null) {
+				return;
+			}
+			frameId = window.requestAnimationFrame(() => {
+				frameId = null;
+				measureUnreadNavigation();
+			});
+		};
+	}, [measureUnreadNavigation]);
+	useLayoutEffect(() => {
+		unreadMeasurementRequestRef.current = requestUnreadMeasurement;
+		return () => {
+			unreadMeasurementRequestRef.current = () => undefined;
+		};
+	}, [requestUnreadMeasurement]);
+	useLayoutEffect(() => {
+		measureUnreadNavigation();
+	}, [measureUnreadNavigation]);
+	useEffect(() => {
+		const scrollElement = conversationScrollElement;
+		if (!scrollElement) {
+			return;
+		}
+		const observer = new ResizeObserver(requestUnreadMeasurement);
+		observer.observe(scrollElement);
+		return () => observer.disconnect();
+	}, [conversationScrollElement, requestUnreadMeasurement]);
+	const openUnreadThreadTarget = useLatestCallback(
+		async (target: SpaceInboxUnreadTarget): Promise<boolean> => {
+			if (!target.threadRootSignalId) {
+				return true;
+			}
+			const thread = threadsByRootSignalId.get(target.threadRootSignalId);
+			return (
+				(await input.onOpenUnreadThread?.({
+					rootSignalId: target.threadRootSignalId,
+					signalId: target.signalId,
+					...(thread ? { threadId: thread.threadId } : {}),
+				})) === true
+			);
+		}
+	);
+	const revealUnreadTarget = useLatestCallback(
+		async (target: SpaceInboxUnreadTarget) => {
+			const anchorSignalId = target.threadRootSignalId ?? target.signalId;
+			for (
+				let attempt = 0;
+				attempt <= MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS;
+				attempt += 1
+			) {
+				if (messageElementsBySignalIdRef.current.has(anchorSignalId)) {
+					jumpToMessage(anchorSignalId);
+					if (!target.threadRootSignalId) {
+						return;
+					}
+					await openUnreadThreadTarget(target);
+					return;
+				}
+				if (
+					!(
+						input.hasEarlierHistory &&
+						attempt < MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS
+					)
+				) {
+					return;
+				}
+				await loadEarlierHistory();
+				await new Promise<void>((resolve) => {
+					window.requestAnimationFrame(() =>
+						window.requestAnimationFrame(() => resolve())
+					);
+				});
+			}
+		}
+	);
 	const initialMainFocusSignalId = resolveInitialMainFocusSignalId({
 		ephemeralActivityItems: input.ephemeralActivityItems,
 		initialFocusInteractionId: input.initialFocusInteractionId,
@@ -1028,6 +1152,19 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 									visible={showEarlierHistoryLoadingIndicator}
 								/>
 								{setupGuidance.banner}
+								<SpaceUnreadAboveControl
+									dismissedTargetKeys={dismissedUnreadTargetKeys}
+									navigation={unreadNavigation}
+									onDismiss={() => {
+										setDismissedUnreadTargetKeys((current) =>
+											mergeUnreadTargetKeys(
+												current,
+												unreadNavigation.aboveTargetKeys
+											)
+										);
+									}}
+									onNavigate={revealUnreadTarget}
+								/>
 							</SpaceConversationTopOverlay>
 							<MessageScrollerViewport
 								aria-busy={
@@ -1041,6 +1178,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 								)}
 								onScroll={(event) => {
 									const conversationScrollElement = event.currentTarget;
+									requestUnreadMeasurement();
 									if (conversationScrollElement.scrollTop > 48) {
 										return;
 									}
@@ -1071,9 +1209,17 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 							</MessageScrollerViewport>
 
 							<ConversationJumpButton
-								firstUnreadSignalId={input.firstUnreadSignalId}
-								unreadCount={input.unreadCount}
-								unreadStateReady={input.unreadStateReady}
+								dismissedTargetKeys={dismissedUnreadTargetKeys}
+								navigation={unreadNavigation}
+								onDismissUnread={() => {
+									setDismissedUnreadTargetKeys((current) =>
+										mergeUnreadTargetKeys(
+											current,
+											unreadNavigation.belowTargetKeys
+										)
+									);
+								}}
+								onNavigateUnread={revealUnreadTarget}
 							/>
 						</MessageScroller>
 					</MessageScrollerProvider>
@@ -1308,45 +1454,213 @@ function ConversationLatestObserver(input: {
 }
 
 function ConversationJumpButton(input: {
-	firstUnreadSignalId: string | null;
-	unreadCount: number;
-	unreadStateReady: boolean;
+	dismissedTargetKeys: ReadonlySet<string>;
+	navigation: SpaceUnreadNavigationState;
+	onDismissUnread: () => void;
+	onNavigateUnread: (target: SpaceInboxUnreadTarget) => Promise<void>;
 }) {
-	const messageScroller = useMessageScroller();
 	const shouldReduceMotion = useReducedMotion();
-	const hasUnreadTarget =
-		input.unreadStateReady &&
-		input.unreadCount > 0 &&
-		input.firstUnreadSignalId !== null;
-	const unreadLabel = `${String(input.unreadCount)} new ${input.unreadCount === 1 ? "message" : "messages"}`;
-	const accessibleLabel = hasUnreadTarget
-		? `${unreadLabel}. Jump to first new message`
-		: "Jump to latest message";
+	const showUnread =
+		input.navigation.belowCount > 0 &&
+		hasUndismissedUnreadTarget(
+			input.navigation.belowTargetKeys,
+			input.dismissedTargetKeys
+		);
+	if (showUnread && input.navigation.nearestBelow) {
+		return (
+			<div className="absolute inset-x-0 bottom-4 z-20 flex justify-center">
+				<SpaceUnreadNavigationPill
+					count={input.navigation.belowCount}
+					direction="below"
+					onDismiss={input.onDismissUnread}
+					onNavigate={() => {
+						runUnreadNavigation(
+							input.navigation.nearestBelow,
+							input.onNavigateUnread
+						);
+					}}
+				/>
+			</div>
+		);
+	}
 
 	return (
 		<MessageScrollerButton
-			aria-label={accessibleLabel}
+			aria-label="Jump to latest message"
 			behavior={shouldReduceMotion ? "auto" : "smooth"}
 			className="z-20 min-h-11 min-w-11 gap-1.5 rounded-full border border-border bg-background/95 px-3 text-foreground shadow-md backdrop-blur-sm hover:bg-muted"
 			direction="end"
-			onClick={(event) => {
-				if (!(hasUnreadTarget && input.firstUnreadSignalId)) {
-					return;
-				}
-				event.preventDefault();
-				messageScroller.scrollToMessage(input.firstUnreadSignalId, {
-					align: "center",
-					behavior: shouldReduceMotion ? "auto" : "smooth",
-				});
-			}}
-			size={hasUnreadTarget ? "sm" : "icon-lg"}
+			size="icon-lg"
 			type="button"
 			variant="secondary"
 		>
 			<CaretDoubleDownIcon aria-hidden="true" weight="bold" />
-			{hasUnreadTarget ? <span>{unreadLabel}</span> : null}
 		</MessageScrollerButton>
 	);
+}
+
+function SpaceUnreadAboveControl(input: {
+	dismissedTargetKeys: ReadonlySet<string>;
+	navigation: SpaceUnreadNavigationState;
+	onDismiss: () => void;
+	onNavigate: (target: SpaceInboxUnreadTarget) => Promise<void>;
+}) {
+	if (
+		input.navigation.aboveCount <= 0 ||
+		!hasUndismissedUnreadTarget(
+			input.navigation.aboveTargetKeys,
+			input.dismissedTargetKeys
+		) ||
+		!input.navigation.nearestAbove
+	) {
+		return null;
+	}
+	return (
+		<SpaceUnreadNavigationPill
+			count={input.navigation.aboveCount}
+			direction="above"
+			onDismiss={input.onDismiss}
+			onNavigate={() => {
+				runUnreadNavigation(input.navigation.nearestAbove, input.onNavigate);
+			}}
+		/>
+	);
+}
+
+function runUnreadNavigation(
+	target: SpaceInboxUnreadTarget | null,
+	navigate: (target: SpaceInboxUnreadTarget) => Promise<void>
+): void {
+	if (!target) {
+		return;
+	}
+	navigate(target).catch((error: unknown) => {
+		console.error("Failed to reveal an unread Space message.", error);
+	});
+}
+
+function SpaceUnreadNavigationPill(input: {
+	count: number;
+	direction: "above" | "below";
+	onDismiss: () => void;
+	onNavigate: () => void;
+}) {
+	const label = `${String(input.count)} new ${input.count === 1 ? "message" : "messages"}${input.direction === "above" ? " above" : ""}`;
+	const navigateLabel = `${label}. Jump to the nearest new message`;
+	const dismissLabel = `Hide ${label}`;
+	return (
+		<div
+			className="pointer-events-auto inline-flex overflow-hidden rounded-full border border-border bg-background/95 text-foreground shadow-md backdrop-blur-sm"
+			data-unread-direction={input.direction}
+		>
+			<Button
+				aria-label={navigateLabel}
+				className="min-h-10 gap-1.5 rounded-none border-0 bg-transparent px-3 hover:bg-muted focus-visible:z-10"
+				onClick={input.onNavigate}
+				size="sm"
+				type="button"
+				variant="secondary"
+			>
+				{input.direction === "above" ? (
+					<ArrowUpIcon aria-hidden="true" weight="bold" />
+				) : (
+					<CaretDoubleDownIcon aria-hidden="true" weight="bold" />
+				)}
+				<span>{label}</span>
+			</Button>
+			<Button
+				aria-label={dismissLabel}
+				className="min-h-10 min-w-10 rounded-none border-0 border-border border-l bg-transparent px-0 hover:bg-muted focus-visible:z-10"
+				onClick={input.onDismiss}
+				size="icon"
+				type="button"
+				variant="secondary"
+			>
+				<XIcon aria-hidden="true" />
+			</Button>
+		</div>
+	);
+}
+
+function resolveSpaceUnreadNavigationState(input: {
+	hasEarlierHistory: boolean;
+	messageElementsBySignalId: ReadonlyMap<string, HTMLElement>;
+	scrollElement: HTMLElement | null;
+	targets: readonly SpaceInboxUnreadTarget[];
+}): SpaceUnreadNavigationState {
+	if (!(input.scrollElement && input.targets.length > 0)) {
+		return EMPTY_SPACE_UNREAD_NAVIGATION_STATE;
+	}
+	const viewport = input.scrollElement.getBoundingClientRect();
+	const above: Array<{
+		distance: number;
+		target: SpaceInboxUnreadTarget;
+	}> = [];
+	const below: Array<{
+		distance: number;
+		target: SpaceInboxUnreadTarget;
+	}> = [];
+	for (const target of input.targets) {
+		const anchorSignalId = target.threadRootSignalId ?? target.signalId;
+		const element = input.messageElementsBySignalId.get(anchorSignalId);
+		if (!element) {
+			if (input.hasEarlierHistory) {
+				above.push({ distance: Number.POSITIVE_INFINITY, target });
+			}
+			continue;
+		}
+		const rect = element.getBoundingClientRect();
+		if (rect.bottom < viewport.top) {
+			above.push({ distance: viewport.top - rect.bottom, target });
+		} else if (rect.top > viewport.bottom) {
+			below.push({ distance: rect.top - viewport.bottom, target });
+		}
+	}
+	above.sort((left, right) => left.distance - right.distance);
+	below.sort((left, right) => left.distance - right.distance);
+	return {
+		aboveCount: above.length,
+		aboveTargetKeys: above.map((item) => unreadTargetKey(item.target)),
+		belowCount: below.length,
+		belowTargetKeys: below.map((item) => unreadTargetKey(item.target)),
+		nearestAbove: above[0]?.target ?? null,
+		nearestBelow: below[0]?.target ?? null,
+	};
+}
+
+function scrollMessageIntoConversationViewport(input: {
+	messageElement: HTMLElement;
+	scrollElement: HTMLElement;
+}): void {
+	const alignMessage = () => {
+		const messageRect = input.messageElement.getBoundingClientRect();
+		const viewportRect = input.scrollElement.getBoundingClientRect();
+		const messageCenter = (messageRect.top + messageRect.bottom) / 2;
+		const viewportCenter = (viewportRect.top + viewportRect.bottom) / 2;
+		input.scrollElement.scrollTop += messageCenter - viewportCenter;
+	};
+	alignMessage();
+	window.requestAnimationFrame(() => {
+		window.requestAnimationFrame(alignMessage);
+	});
+}
+
+function unreadTargetKey(target: SpaceInboxUnreadTarget): string {
+	return `${target.threadRootSignalId ?? "main"}:${target.signalId}`;
+}
+
+function hasUndismissedUnreadTarget(
+	targetKeys: readonly string[],
+	dismissedTargetKeys: ReadonlySet<string>
+): boolean {
+	return targetKeys.some((key) => !dismissedTargetKeys.has(key));
+}
+
+function mergeUnreadTargetKeys(
+	current: ReadonlySet<string>,
+	targetKeys: readonly string[]
+): Set<string> {
+	return new Set([...current, ...targetKeys]);
 }
 
 function EarlierHistoryLoadingIndicator(input: { visible: boolean }) {
@@ -2116,6 +2430,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 	const detailsDialog = useSpaceProfileDetailsDialog({
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
+		entriesByProfileId: input.profileEntriesById,
 		modelCatalog: input.modelCatalog,
 	});
 	const computerSetupContext = resolveCenterAgentComputerSetupContext({
@@ -2347,6 +2662,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													computerSetupSourceSignalId={item.id}
 													containerClassName={selfMessageContentLayoutClassName}
 													item={item}
+													onOpenAgentProfile={
+														detailsDialog.openProfileDetailsById
+													}
 													onOpenSpaceFile={input.onOpenSpaceFile}
 													openMeldProfileId={input.selfProfileId}
 													orgSlug={input.orgSlug}

@@ -56,6 +56,7 @@ export const openMeldToolsMaintenanceProjectionSchema = z.strictObject({
 });
 
 export const openMeldToolsControlCapabilitySchema = z.strictObject({
+  requestAutomaticUpdate: z.literal(true).optional(),
   requestUpdate: z.literal(true).optional(),
   setAutomaticUpdates: z.literal(true).optional(),
 });
@@ -86,7 +87,7 @@ export const openMeldToolsControlRequestSchema = z.discriminatedUnion(
   [
     z.strictObject({
       operation: z.literal("request_update"),
-      requestSource: z.enum(["center_agent", "web"]),
+      requestSource: z.enum(["automatic", "center_agent", "web"]),
     }),
     z.strictObject({
       automaticUpdatesEnabled: z.boolean(),

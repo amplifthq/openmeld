@@ -135,7 +135,9 @@ async function resolveLatestPackageInfo(input: {
   if (cached) {
     return cached;
   }
-  const info = await fetchLatestPackageInfo(OPENMELD_PACKAGE_NAME);
+  const info = await fetchLatestPackageInfo(OPENMELD_PACKAGE_NAME, {
+    forceRefresh: input.forceRefresh,
+  });
   await persistInfo({ currentVersion: input.currentVersion, info });
   return info;
 }

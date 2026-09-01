@@ -1051,6 +1051,13 @@
       "when": 1788235331922,
       "tag": "0149_rapid_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "6",
+      "when": 1788276088257,
+      "tag": "0150_flashy_triathlon",
+      "breakpoints": true
     }
   ]
 }

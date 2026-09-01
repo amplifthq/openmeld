@@ -298,6 +298,73 @@ describe("assessCliUpdate", () => {
     });
   });
 
+  it("refreshes the process cache when an update action needs the current release", async () => {
+    await withTempHome(async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          npmLatestResponse({ version: packageJson.version })
+        )
+        .mockResolvedValueOnce(npmLatestResponse({ version: "9.9.9" }));
+      vi.stubGlobal("fetch", fetchMock);
+      resetVersionCheckCacheForTests();
+
+      const startupAssessment = await assessCliUpdate({
+        environmentTarget: PROD_TARGET,
+      });
+      const requestedAssessment = await assessCliUpdate({
+        environmentTarget: PROD_TARGET,
+        forceRefresh: true,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(startupAssessment).toMatchObject({
+        latestVersion: packageJson.version,
+        updateAvailable: false,
+      });
+      expect(requestedAssessment).toMatchObject({
+        latestVersion: "9.9.9",
+        updateAvailable: true,
+      });
+    });
+  });
+
+  it("does not join a regular in-flight check when an update action forces a refresh", async () => {
+    await withTempHome(async () => {
+      const regularRequest = Promise.withResolvers<Response>();
+      const fetchMock = vi
+        .fn()
+        .mockReturnValueOnce(regularRequest.promise)
+        .mockResolvedValueOnce(npmLatestResponse({ version: "9.9.9" }));
+      vi.stubGlobal("fetch", fetchMock);
+      resetVersionCheckCacheForTests();
+
+      const startupAssessment = assessCliUpdate({
+        environmentTarget: PROD_TARGET,
+      });
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+      const requestedAssessment = assessCliUpdate({
+        environmentTarget: PROD_TARGET,
+        forceRefresh: true,
+      });
+      regularRequest.resolve(
+        npmLatestResponse({ version: packageJson.version })
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await expect(startupAssessment).resolves.toMatchObject({
+        latestVersion: packageJson.version,
+        updateAvailable: false,
+      });
+      await expect(requestedAssessment).resolves.toMatchObject({
+        latestVersion: "9.9.9",
+        updateAvailable: true,
+      });
+    });
+  });
+
   it("refreshes a fresh cached update when the cached floor is malformed", async () => {
     await withTempHome(async () => {
       const checkedAt = new Date().toISOString();

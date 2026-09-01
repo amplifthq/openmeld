@@ -1,4 +1,7 @@
-import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
+import type {
+	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
+} from "@openmeld/schemas/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { recordCurrentOrganizationWebActivity } from "#/lib/organizations/organization-member-activity";
@@ -46,6 +49,23 @@ export function WebMemberActivityReporter(input: {
 				lastSuccessfulReportAtRef.current = Date.now();
 				queryClient.setQueryData<OrganizationDirectoryResponse>(
 					organizationQueryKeys.directory(input.organizationId),
+					(current) =>
+						current
+							? {
+									...current,
+									members: current.members.map((member) =>
+										member.userId === input.currentUserId
+											? {
+													...member,
+													lastActiveAt: activity.lastActiveAt,
+												}
+											: member
+									),
+								}
+							: current
+				);
+				queryClient.setQueryData<OrganizationProfileDirectoryResponse>(
+					organizationQueryKeys.profileDirectory(input.organizationId),
 					(current) =>
 						current
 							? {

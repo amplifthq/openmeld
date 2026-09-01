@@ -68,7 +68,10 @@ import {
   readRuntimeRegistryRecordByRuntimeId,
 } from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
-import { resolveConnectedLocalRuntimeDisplayNameUseCase } from "../../start/application/current-device-target-service";
+import {
+  resolveConnectedLocalRuntimeDisplayNamesUseCase,
+  resolveConnectedLocalRuntimeDisplayNameUseCase,
+} from "../../start/application/current-device-target-service";
 import { resolveCurrentDeviceFromBindings } from "../../start/infrastructure/d1/current-device-derivation-repo";
 import { listOwnedDeviceRegistryRecords } from "../../start/infrastructure/d1/owned-device-registry-repo";
 import { readFreshAgentExecutionReadinessImpactForBinding } from "../infrastructure/d1/agent-execution-readiness-impact-repo";
@@ -107,8 +110,15 @@ export type AgentExecutionReadinessProfileInput = {
   // Batch callers prefetch all routes in one RuntimeTransport round trip and hand
   // each profile its slice here; per-profile callers leave it undefined and
   // the live lookup runs as before.
-  preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse;
-  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse;
+  preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
+  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
+  preloadedProfileIdentity?: {
+    ownerUserId: string;
+    profileKind: "agent";
+    profileName: string;
+    status: "active" | "disabled";
+  };
+  preloadedRuntimeDeviceDisplayName?: string | null;
   profileId: string;
   targetRuntime?: AgentExecutionTargetRuntimeContext | null;
 };
@@ -162,8 +172,10 @@ type ProfileIdentitySnapshot = Omit<
 
 type ResolveAgentBindingSnapshotInput = {
   activeOrganizationId: string | null;
-  preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse;
-  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse;
+  preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
+  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
+  preloadedProfileIdentity?: AgentExecutionReadinessProfileInput["preloadedProfileIdentity"];
+  preloadedRuntimeDeviceDisplayName?: string | null;
   agent: AgentExecutionReadinessAgentInput;
   env: CoreBindings;
   generatedAt: string;
@@ -239,6 +251,15 @@ export function resolveCoreAgentExecutionReadinessForProfile(
     ...(input.preloadedOwnerService === undefined
       ? {}
       : { preloadedOwnerService: input.preloadedOwnerService }),
+    ...(input.preloadedProfileIdentity === undefined
+      ? {}
+      : { preloadedProfileIdentity: input.preloadedProfileIdentity }),
+    ...(input.preloadedRuntimeDeviceDisplayName === undefined
+      ? {}
+      : {
+          preloadedRuntimeDeviceDisplayName:
+            input.preloadedRuntimeDeviceDisplayName,
+        }),
     targetRuntime: input.targetRuntime ?? null,
   });
 }
@@ -249,8 +270,10 @@ export async function resolveCoreAgentExecutionReadiness(input: {
   env: CoreBindings;
   generatedAt: string;
   includeRuntimeDeviceDisplayName?: boolean;
-  preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse;
-  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse;
+  preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
+  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
+  preloadedProfileIdentity?: AgentExecutionReadinessProfileInput["preloadedProfileIdentity"];
+  preloadedRuntimeDeviceDisplayName?: string | null;
   targetRuntime?: AgentExecutionTargetRuntimeContext | null;
 }): Promise<CoreAgentExecutionReadiness> {
   const startedAtMs = Date.now();
@@ -268,6 +291,15 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     ...(input.preloadedOwnerService === undefined
       ? {}
       : { preloadedOwnerService: input.preloadedOwnerService }),
+    ...(input.preloadedProfileIdentity === undefined
+      ? {}
+      : { preloadedProfileIdentity: input.preloadedProfileIdentity }),
+    ...(input.preloadedRuntimeDeviceDisplayName === undefined
+      ? {}
+      : {
+          preloadedRuntimeDeviceDisplayName:
+            input.preloadedRuntimeDeviceDisplayName,
+        }),
     targetRuntime: input.targetRuntime ?? null,
     timing,
   });
@@ -337,6 +369,44 @@ export async function resolveCoreAgentExecutionReadiness(input: {
 async function resolveAgentBindingSnapshot(
   input: ResolveAgentBindingSnapshotInput
 ): Promise<AgentBindingSnapshot> {
+  if (input.preloadedProfileIdentity) {
+    const profileEvidence = resolveProfileIdentityEvidence(
+      input.preloadedProfileIdentity
+    );
+    const ownerUserId = normalizeOptionalText(
+      input.preloadedProfileIdentity.ownerUserId
+    );
+    const profileName = normalizeOptionalText(
+      input.preloadedProfileIdentity.profileName
+    );
+    if (!(profileEvidence.active && ownerUserId)) {
+      return createProfileIdentityOnlyBindingSnapshot({
+        agent: input.agent,
+        generatedAt: input.generatedAt,
+        ownerUserId,
+        profileEvidence: ownerUserId
+          ? profileEvidence
+          : {
+              active: false,
+              reasonCodes: ["agent_profile.owner_unavailable"],
+              source: "unavailable",
+            },
+        profileName,
+      });
+    }
+    return enrichAgentBindingSnapshot(
+      createEnrichAgentBindingSnapshotInput({
+        input,
+        snapshot: createProfileIdentitySnapshot({
+          agent: input.agent,
+          generatedAt: input.generatedAt,
+          ownerUserId,
+          profileEvidence,
+          profileName,
+        }),
+      })
+    );
+  }
   const authWorker = input.env.OPENMELD_AUTH_WORKER;
   if (!hasProfileIdentityLookup(authWorker)) {
     return enrichAgentBindingSnapshot(
@@ -434,6 +504,12 @@ function createEnrichAgentBindingSnapshotInput(input: {
     ...(input.input.preloadedOwnerService === undefined
       ? {}
       : { preloadedOwnerService: input.input.preloadedOwnerService }),
+    ...(input.input.preloadedRuntimeDeviceDisplayName === undefined
+      ? {}
+      : {
+          preloadedRuntimeDeviceDisplayName:
+            input.input.preloadedRuntimeDeviceDisplayName,
+        }),
     activeOrganizationId: input.input.activeOrganizationId,
     agent: input.input.agent,
     env: input.input.env,
@@ -588,8 +664,9 @@ async function enrichAgentBindingSnapshot(input: {
   env: CoreBindings;
   generatedAt: string;
   includeRuntimeDeviceDisplayName: boolean;
-  preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse;
-  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse;
+  preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
+  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
+  preloadedRuntimeDeviceDisplayName?: string | null;
   snapshot: ProfileIdentitySnapshot;
   targetRuntime: AgentExecutionTargetRuntimeContext | null;
   timing: ReadinessTimingRecorder;
@@ -667,6 +744,12 @@ async function enrichAgentBindingSnapshot(input: {
           ...(input.preloadedDaemonRoute === undefined
             ? {}
             : { preloadedResult: input.preloadedDaemonRoute }),
+          ...(input.preloadedRuntimeDeviceDisplayName === undefined
+            ? {}
+            : {
+                preloadedRuntimeDeviceDisplayName:
+                  input.preloadedRuntimeDeviceDisplayName,
+              }),
           profileId: input.agent.profileId,
           timing: input.timing,
         })
@@ -1638,7 +1721,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
   serviceCompatibility: DaemonExecutionCompatibility | null;
   localComponentsStatus: LocalComponentsStatus | null;
   serviceVersion: string | null;
-  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse;
+  preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
   targetRuntime: AgentExecutionTargetRuntimeContext | null;
 }): Promise<LocalExecutionServiceEvidenceResolution> {
   if (!isAgentProfileBindingProjection(input.binding)) {
@@ -1723,12 +1806,24 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
 
     const runtimeReadiness = await input.runtimeReadiness;
     const ownerService =
-      input.preloadedOwnerService ??
-      (await lookupRuntimeTransportOwnerService({
-        blockForgottenDevices: true,
-        env: input.env,
-        ownerUserId: input.ownerUserId,
-      }));
+      input.preloadedOwnerService === undefined
+        ? await lookupRuntimeTransportOwnerService({
+            blockForgottenDevices: true,
+            env: input.env,
+            ownerUserId: input.ownerUserId,
+          })
+        : input.preloadedOwnerService;
+    if (ownerService === null) {
+      return {
+        localService: {
+          reachable: false,
+          refreshable: false,
+          reasonCodes: ["local_service.unavailable"],
+          source: "unavailable",
+        },
+        service: createUnavailableServiceEvidence(),
+      };
+    }
     if (!ownerService.online) {
       return createRuntimeTransportMissServiceEvidence({
         reasonCode: "local_service.not_connected_for_account",
@@ -2311,11 +2406,15 @@ async function resolveRuntimeRouteSnapshot(input: {
   generatedAt: string;
   includeRuntimeDeviceDisplayName: boolean;
   ownerUserId: string;
-  preloadedResult?: RuntimeTransportLookupRouteResponse;
+  preloadedResult?: RuntimeTransportLookupRouteResponse | null;
+  preloadedRuntimeDeviceDisplayName?: string | null;
   profileId: string;
   timing: ReadinessTimingRecorder;
 }): Promise<RuntimeRouteSnapshot> {
   try {
+    if (input.preloadedResult === null) {
+      throw new Error("Runtime route batch lookup was unavailable.");
+    }
     const result =
       input.preloadedResult ??
       (await measureReadinessStep(input.timing, "daemon_route_lookup", () =>
@@ -2329,20 +2428,24 @@ async function resolveRuntimeRouteSnapshot(input: {
     if (result.online) {
       const agentWakeRouteRegistration =
         createRegisteredAgentWakeRouteRegistration(result);
-      const runtimeDeviceDisplayName = input.includeRuntimeDeviceDisplayName
-        ? await measureReadinessStep(
-            input.timing,
-            "runtime_device_display_read",
-            () =>
-              readRuntimeDeviceDisplayName({
-                deviceId: result.deviceId,
-                env: input.env,
-                ownerUserId: input.ownerUserId,
-                profileId: input.profileId,
-                runtimeLane: result.lane,
-              })
-          )
-        : null;
+      let runtimeDeviceDisplayName: string | null = null;
+      if (input.includeRuntimeDeviceDisplayName) {
+        runtimeDeviceDisplayName =
+          input.preloadedRuntimeDeviceDisplayName === undefined
+            ? await measureReadinessStep(
+                input.timing,
+                "runtime_device_display_read",
+                () =>
+                  readRuntimeDeviceDisplayName({
+                    deviceId: result.deviceId,
+                    env: input.env,
+                    ownerUserId: input.ownerUserId,
+                    profileId: input.profileId,
+                    runtimeLane: result.lane,
+                  })
+              )
+            : input.preloadedRuntimeDeviceDisplayName;
+      }
       return {
         daemonRouteObservation: createDaemonRouteObservation({
           observedAt: input.generatedAt,
@@ -2587,6 +2690,80 @@ async function readRuntimeDeviceDisplayName(input: {
     });
     return null;
   }
+}
+
+export async function preloadRuntimeDeviceDisplayNamesForOwner(input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  targets: readonly {
+    deviceId: string;
+    runtimeLane: DaemonServiceLane;
+  }[];
+}): Promise<ReadonlyMap<string, string | null> | null> {
+  const db = localStateDb(input.env);
+  if (!db) {
+    return null;
+  }
+  const targets = [
+    ...new Map(
+      input.targets.map((target) => [
+        runtimeDeviceDisplayNameTargetKey(target),
+        target,
+      ])
+    ).values(),
+  ];
+  try {
+    const resolved = await resolveConnectedLocalRuntimeDisplayNamesUseCase({
+      store: {
+        readCurrentDeviceTarget: async (targetInput) =>
+          await resolveCurrentDeviceFromBindings({
+            db,
+            userId: targetInput.userId,
+          }),
+        readOwnedDevices: async (devicesInput) =>
+          await listOwnedDeviceRegistryRecords({
+            db,
+            userId: devicesInput.userId,
+          }),
+        readOwnedDeviceExecutionTargets: async (targetsInput) =>
+          await listOwnedDeviceExecutionTargetRecords({
+            db,
+            nowMs: targetsInput.nowMs,
+            userId: targetsInput.userId,
+          }),
+      },
+      targets,
+      userId: input.ownerUserId,
+    });
+    return new Map(
+      resolved.map((target) => [
+        runtimeDeviceDisplayNameTargetKey(target),
+        target.displayName,
+      ])
+    );
+  } catch (error) {
+    console.warn("[core.agent_execution.runtime_device_display_batch_failed]", {
+      error: formatUnknownErrorMessage(error),
+      ownerUserId: input.ownerUserId,
+      targetCount: targets.length,
+    });
+    return null;
+  }
+}
+
+export function readPreloadedRuntimeDeviceDisplayName(input: {
+  deviceId: string;
+  preloaded: ReadonlyMap<string, string | null>;
+  runtimeLane: DaemonServiceLane;
+}): string | null {
+  return input.preloaded.get(runtimeDeviceDisplayNameTargetKey(input)) ?? null;
+}
+
+function runtimeDeviceDisplayNameTargetKey(input: {
+  deviceId: string;
+  runtimeLane: DaemonServiceLane;
+}): string {
+  return `${input.deviceId}\u0000${input.runtimeLane}`;
 }
 
 function uniqueReasonCodes(codes: readonly string[]): string[] {

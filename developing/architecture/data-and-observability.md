@@ -427,6 +427,13 @@ default Human Profile, and Organization-scoped Agent Profile identity
 projections. Core owns Center Agent designation, readiness overlay, and the
 optional Organization Member Activity overlay. Core does not expand the
 Directory with cross-Organization authorization records.
+Core may expose that same owned data through a stable Profile Directory and a
+dynamic Agent Runtime Overview so a slow runtime read cannot withhold member or
+Agent identity. These are separate read projections, not separate truth:
+Profile Directory does not call Runtime Transport, and Runtime Overview batches
+route, owner-Service, and display-inventory reads by owner before applying the
+same permission-scoped readiness projection used by the compatibility
+Directory.
 Core records the activity overlay only after Space accepts and persists a text
 Signal from an active Human Profile or after an authenticated Web request proves
 the active Organization member and that member's current active Human Profile.

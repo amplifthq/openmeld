@@ -96,7 +96,12 @@ downloader or installer. The automatic request records durable local progress,
 uses the CLI installation that created the active Service bundle, and hands the
 same operation to the background Service switch. An explicit update and an
 automatic update therefore have the same installation, verification, rollback,
-and status behavior.
+and status behavior. A compatible connected Service can receive one
+release-triggered automatic recheck over its existing Runtime Transport
+connection only after it explicitly advertises automatic-request support.
+Startup, reconnect, and hourly channel checks remain the fallback; the release
+signal does not create a new polling loop. A disconnected request fails
+immediately so a replacement Service can retry.
 
 `openmeld skills` is the canonical Organization Skills command group. Phase 1
 provides `list`, `show`, and `load` with Human View, Agent View, and strict JSON

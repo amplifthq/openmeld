@@ -12,6 +12,7 @@ import type {
   MarkSpaceInboxReadThroughResponse,
   OpenMeldRequestContext,
   SpaceInboxSummaryResponse,
+  SpaceInboxUnreadTargetsResponse,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 
@@ -34,9 +35,13 @@ export type InboxApi = {
   spaceSummary: (
     input?: InboxRequestInput
   ) => Promise<SpaceInboxSummaryResponse>;
+  spaceUnreadTargets: (
+    input: InboxRequestInput & { spaceId: string }
+  ) => Promise<SpaceInboxUnreadTargetsResponse>;
   markSpaceReadThrough: (
     input: InboxRequestInput & {
       spaceId: string;
+      threadRootSignalId?: string;
       throughOccurredAtMs: number;
     }
   ) => Promise<MarkSpaceInboxReadThroughResponse>;

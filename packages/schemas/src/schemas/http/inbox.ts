@@ -8,6 +8,7 @@ export const INBOX_CONTEXT_LABEL_MAX_CHARS = 160;
 export const INBOX_LIST_DEFAULT_LIMIT = 40;
 export const INBOX_LIST_MAX_LIMIT = 100;
 export const INBOX_SPACE_SUMMARY_MAX_SPACES = 500;
+export const INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS = 500;
 
 const identifierSchema = z.string().trim().min(1).max(256);
 const timestampMsSchema = z.number().int().nonnegative();
@@ -231,6 +232,26 @@ export const spaceInboxSummaryResponseSchema = z.strictObject({
     .max(INBOX_SPACE_SUMMARY_MAX_SPACES),
 });
 
+export const spaceInboxUnreadTargetSchema = z.strictObject({
+  occurredAtMs: timestampMsSchema,
+  signalId: identifierSchema,
+  threadRootSignalId: identifierSchema.nullable(),
+});
+
+export const spaceInboxUnreadTargetsResponseSchema = z.strictObject({
+  hasMoreTargets: z.boolean(),
+  organizationId: identifierSchema,
+  spaceId: identifierSchema,
+  targets: z
+    .array(spaceInboxUnreadTargetSchema)
+    .max(INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS),
+  totalUnreadCount: z.number().int().nonnegative(),
+});
+
+export const spaceInboxUnreadTargetsRouteParamsSchema = z.strictObject({
+  spaceId: identifierSchema,
+});
+
 export const markCenterAgentInboxReadThroughBodySchema = z.strictObject({
   spaceId: identifierSchema,
   throughOccurredAtMs: timestampMsSchema,
@@ -243,6 +264,7 @@ export const markCenterAgentInboxReadThroughResponseSchema = z.strictObject({
 
 export const markSpaceInboxReadThroughBodySchema = z.strictObject({
   spaceId: identifierSchema,
+  threadRootSignalId: identifierSchema.optional(),
   throughOccurredAtMs: timestampMsSchema,
 });
 
@@ -330,6 +352,10 @@ export const getCenterAgentInboxSummaryRpcInputSchema = z.strictObject({
 });
 export const getSpaceInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+});
+export const getSpaceInboxUnreadTargetsRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  spaceId: identifierSchema,
 });
 export const markCenterAgentInboxReadThroughRpcInputSchema =
   markCenterAgentInboxReadThroughBodySchema.extend({

@@ -6,6 +6,7 @@ import {
   rpcGetInboxItem,
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
+  rpcGetSpaceInboxUnreadTargets,
   rpcListInboxItems,
   rpcMarkSpaceInboxReadThrough,
 } from "../src/inbox/transport/rpc/inbox-rpc";
@@ -56,6 +57,15 @@ describe("Inbox Core RPC", () => {
             unreadCount: 1,
           },
         ],
+      });
+      await expect(
+        rpcGetSpaceInboxUnreadTargets(env, {
+          context: contextFor("user-1"),
+          spaceId: "space-1",
+        })
+      ).resolves.toMatchObject({
+        targets: [{ signalId: "signal-1", threadRootSignalId: null }],
+        totalUnreadCount: 1,
       });
       await expect(
         rpcMarkSpaceInboxReadThrough(env, {
@@ -156,6 +166,7 @@ function createInboxHarness() {
     "inbox_email_deliveries",
     "inbox_notification_preferences",
     "inbox_center_agent_read_watermarks",
+    "inbox_space_thread_read_watermarks",
     "space_index_spaces",
     "space_index_memberships",
   ]);

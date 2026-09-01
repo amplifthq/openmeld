@@ -1,7 +1,9 @@
 import type {
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 	OrganizationMemberOpenMeldServiceStatusesResponse,
+	OrganizationProfileDirectoryResponse,
 	OrganizationSpaceDirectoryWithMemberCountsResponse,
 } from "@openmeld/schemas/types";
 import { type QueryKey, queryOptions } from "@tanstack/react-query";
@@ -11,7 +13,9 @@ import {
 } from "#/lib/organizations/organization-computers";
 import {
 	type OrganizationDirectoryFailure,
+	readCurrentOrganizationAgentRuntimeOverview,
 	readCurrentOrganizationDirectory,
+	readCurrentOrganizationProfileDirectory,
 } from "#/lib/organizations/organization-directory";
 import {
 	type OrganizationMemberOpenMeldServiceStatusesFailure,
@@ -36,6 +40,16 @@ export const organizationQueryKeys = {
 		[
 			...organizationQueryKeys.organization(organizationId),
 			"directory",
+		] as const,
+	profileDirectory: (organizationId: string) =>
+		[
+			...organizationQueryKeys.organization(organizationId),
+			"profile-directory",
+		] as const,
+	agentRuntimeOverview: (organizationId: string) =>
+		[
+			...organizationQueryKeys.organization(organizationId),
+			"agent-runtime-overview",
 		] as const,
 	computers: (organizationId: string) =>
 		[
@@ -67,12 +81,17 @@ export const organizationQueryKeys = {
 		[...organizationQueryKeys.organization(organizationId), "spaces"] as const,
 };
 
-export function organizationDirectoryQueryFilters() {
+export function organizationDirectoryQueryFilters(input?: {
+	organizationId?: string;
+}) {
 	return {
 		predicate: (query: { queryKey: QueryKey }) =>
 			query.queryKey.length === 3 &&
 			query.queryKey[0] === organizationQueryKeys.all[0] &&
-			query.queryKey[2] === "directory",
+			(input?.organizationId === undefined ||
+				query.queryKey[1] === input.organizationId) &&
+			(query.queryKey[2] === "directory" ||
+				query.queryKey[2] === "profile-directory"),
 		queryKey: organizationQueryKeys.all,
 	};
 }
@@ -169,6 +188,50 @@ export function organizationDirectoryQueryOptions(input: {
 			}),
 		queryKey: organizationQueryKeys.directory(input.organizationId),
 		refetchOnWindowFocus: false,
+		retry: baseQueryOptions.retry,
+		staleTime: 10_000,
+	});
+}
+
+export function organizationProfileDirectoryQueryOptions(input: {
+	enabled: boolean;
+	organizationId: string;
+}) {
+	return queryOptions<
+		OrganizationProfileDirectoryResponse,
+		OrganizationDirectoryFailure
+	>({
+		enabled: input.enabled,
+		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		queryFn: async ({ signal }) =>
+			await readCurrentOrganizationProfileDirectory({
+				organizationId: input.organizationId,
+				signal,
+			}),
+		queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
+		refetchOnWindowFocus: false,
+		retry: baseQueryOptions.retry,
+		staleTime: 10_000,
+	});
+}
+
+export function organizationAgentRuntimeOverviewQueryOptions(input: {
+	enabled: boolean;
+	organizationId: string;
+}) {
+	return queryOptions<
+		OrganizationAgentRuntimeOverviewResponse,
+		OrganizationDirectoryFailure
+	>({
+		enabled: input.enabled,
+		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		queryFn: async ({ signal }) =>
+			await readCurrentOrganizationAgentRuntimeOverview({
+				organizationId: input.organizationId,
+				signal,
+			}),
+		queryKey: organizationQueryKeys.agentRuntimeOverview(input.organizationId),
+		refetchOnWindowFocus: true,
 		retry: baseQueryOptions.retry,
 		staleTime: 10_000,
 	});
