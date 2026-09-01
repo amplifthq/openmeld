@@ -342,21 +342,25 @@ rollback, remove the Web caller and Gateway route before removing Core's RPC
 method. No database migration is required because the canonical clear timestamp
 already exists.
 
-Space unread uses two additive Inbox contracts. The grouped summary returns at
+Space unread uses three additive Inbox contracts. The grouped summary returns at
 most 500 accessible Space ids for the current member, with unread message
 counts and latest unread Signal occurrence watermarks. Account Space Index
-remains the owner of names, visibility, and ordering facts. Read-through accepts
-one exact Space id and a
-nonnegative source occurrence watermark. Core verifies current human Space
-membership, advances the watermark monotonically, and marks only matching
-Space message projections at or before it read. Agent interaction requests are
-not part of this message timeline, and reading never resolves source work. Inbox
-insertion consults the same watermark so delayed older projections do not
-reappear unread. Existing Center Agent summary and read-through contracts remain
-available during mixed-version rollout and use the same existing watermark
-ledger. The canonical Center Agent target contains both `spaceId` and `signalId`;
-the legacy target with neither remains readable during rollout, while a target
-with only one is invalid.
+remains the owner of names, visibility, and ordering facts. The exact-target
+read returns at most 500 accessible unread projections for one Space, including
+the source Signal id, occurrence watermark, and nullable thread-root Signal id;
+it does not copy message content or create another unread owner. Read-through
+accepts one exact Space id, a nonnegative source occurrence watermark, and an
+optional thread-root Signal id. Core verifies current human Space membership,
+advances either the main-conversation watermark or that exact thread watermark
+monotonically, and marks only matching Space message projections at or before
+it read. Agent interaction requests are not part of this message timeline, and
+reading never resolves source work. Inbox insertion consults the matching
+scope's watermark so delayed older projections do not reappear unread. Existing
+Center Agent summary and read-through contracts remain available during
+mixed-version rollout and use the main-conversation watermark ledger. The
+canonical Center Agent target contains both `spaceId` and `signalId`; the legacy
+target with neither remains readable during rollout, while a target with only
+one is invalid.
 
 The grouped summary also carries the optional `ordinarySpaceUnreadCount`
 aggregate. Core derives it across every accessible unread message in an ordinary
