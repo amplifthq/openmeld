@@ -229,11 +229,13 @@ import {
   openCenterAgentDirectMessageSpaceResponseSchema,
   openDirectMessageSpaceResponseSchema,
   openMeldRequestContextSchema,
+  organizationAgentRuntimeOverviewResponseSchema,
   organizationComputersResponseSchema,
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
   organizationMemberWebActivityResponseSchema,
+  organizationProfileDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   ownerComputerDiagnosticsSchema,
@@ -571,11 +573,14 @@ import type {
   OpenDirectMessageSpaceResponse,
   OpenMeldRequestContext,
   OpenMeldToolsControlRequest,
+  OrganizationAgentRuntimeOverviewResponse,
   OrganizationComputersResponse,
+  OrganizationDirectoryAgentProfileIdentity,
   OrganizationDirectoryResponse,
   OrganizationInformationProtectionPolicyResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
   OrganizationMemberWebActivityResponse,
+  OrganizationProfileDirectoryResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
   OrganizationUsageOverviewRpcInput,
@@ -704,6 +709,8 @@ import { rpcReadAgentActivityStats as readAgentActivityStats } from "../agent-ac
 import {
   type AgentExecutionTargetRuntimeContext,
   type CoreAgentExecutionReadiness,
+  preloadRuntimeDeviceDisplayNamesForOwner,
+  readPreloadedRuntimeDeviceDisplayName,
   resolveCoreAgentExecutionReadinessForProfile,
 } from "../agent-execution/application/agent-execution-readiness-service";
 import { acceptProviderConversationProofRecord } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
@@ -737,6 +744,7 @@ import {
   listEnabledPrimaryAgentProfileBindingRecords,
   listEnabledPrimaryAgentProfileBindingRecordsForProfile,
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
+  listPrimaryAgentProfileBindingRecords,
   MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE,
   readPrimaryAgentProfileBindingRecord,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
@@ -2621,6 +2629,16 @@ export type GetCurrentOrganizationDirectoryInput = {
   agentProfileWorkRecoveryVersion?: 2;
   context?: CoreRpcContextInput;
   includeMemberLastActiveAt?: boolean;
+};
+
+export type GetCurrentOrganizationProfileDirectoryInput = {
+  context?: CoreRpcContextInput;
+  includeMemberLastActiveAt?: boolean;
+};
+
+export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
+  agentProfileWorkRecoveryVersion?: 2;
+  context?: CoreRpcContextInput;
 };
 
 export type RecordCurrentOrganizationWebActivityInput = {
@@ -6123,149 +6141,46 @@ export async function rpcGetCurrentOrganizationDirectory(
     context,
     env,
   });
-  const db = requireAgentProfileBindingDb(env);
   const generatedAt = new Date().toISOString();
   const organizationId = activeOrganization.organizationId;
   const requestId = context.actorContext.requestId;
-  const membersPromise = resolveOrganizationDirectoryMembers({
-    authWorker: env.OPENMELD_AUTH_WORKER,
-    organizationId,
-    requestId,
-  });
-  const centerAgentDesignationPromise = readCenterAgentDesignationRecord({
-    db,
-    organizationId,
-  });
-  const agentProfileProjectionPromise =
-    resolveOrganizationDirectoryAgentProfiles({
-      additionalAgentProfileIds: [],
-      authWorker: env.OPENMELD_AUTH_WORKER,
+  const [members, eligibleAgentProfiles] = await Promise.all([
+    resolveOrganizationDirectoryMembersWithActivity({
+      env,
+      includeMemberLastActiveAt: input.includeMemberLastActiveAt === true,
       organizationId,
       requestId,
-    });
-  const memberActivityPromise = input.includeMemberLastActiveAt
-    ? listOrganizationMemberActivity({
-        db: requireIdentityDb(env),
-        organizationId,
-      })
-    : Promise.resolve([]);
-  const [
-    directoryMembers,
-    centerAgentDesignation,
-    agentProfileProjection,
-    memberActivity,
-  ] = await Promise.all([
-    membersPromise,
-    centerAgentDesignationPromise,
-    agentProfileProjectionPromise,
-    memberActivityPromise,
+    }),
+    resolveEligibleOrganizationAgentProfiles({
+      env,
+      organizationId,
+      requestId,
+    }),
   ]);
-  const memberActivityByUserId = new Map(
-    memberActivity.map((activity) => [activity.userId, activity])
-  );
-  const members = directoryMembers.map((member) => {
-    const activity = memberActivityByUserId.get(member.userId);
-    if (
-      !activity ||
-      activity.humanProfileId !== member.humanProfile?.profileId
-    ) {
-      return member;
-    }
-    return {
-      ...member,
-      lastActiveAt: new Date(activity.lastActiveAtMs).toISOString(),
-    };
-  });
-  const agentProfilesById = new Map(
-    agentProfileProjection.organizationAgentProfiles.map((profile) => [
-      profile.profileId,
-      profile,
-    ])
-  );
-  const eligibleAgentProfiles = [...agentProfilesById.values()]
-    .filter((agent) =>
-      isAgentProfileEligibleForOrganization({
-        managedRole: agent.managedRole,
-        profileOrganizationId: agent.organizationId,
-        targetOrganizationId: organizationId,
-      })
-    )
-    .sort(
-      (left, right) =>
-        left.profileName.localeCompare(right.profileName, undefined, {
-          sensitivity: "base",
-        }) || left.profileId.localeCompare(right.profileId)
-    );
-  const [agentProfilesWithReadiness, operationalContextsByProfileId] =
-    await Promise.all([
-      Promise.all(
-        eligibleAgentProfiles.map(async (agent) => {
-          const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-            activeOrganizationId: organizationId,
-            env,
-            generatedAt,
-            profileId: agent.profileId,
-          });
-          return {
-            ...agent,
-            isCenterAgent:
-              centerAgentDesignation?.agentProfileId === agent.profileId,
-            readiness:
-              buildOrganizationDirectoryAgentExecutionReadinessResponse({
-                generatedAt,
-                isOwner: agent.ownerUserId === activeOrganization.userId,
-                readiness,
-              }),
-          };
-        })
-      ),
-      readOrganizationDirectoryAgentProfileOperationalContexts({
-        eligibleAgentProfiles,
-        env,
-        viewerUserId: activeOrganization.userId,
-      }),
-    ]);
-  const ownerWorkSpaceIds = [
-    ...operationalContextsByProfileId.values(),
-  ].flatMap(({ exposeWorkReferences, operationalContext }) => {
-    if (
-      !exposeWorkReferences ||
-      (operationalContext.status !== "working" &&
-        operationalContext.status !== "paused")
-    ) {
-      return [];
-    }
-    return [
-      ...(operationalContext.currentWorkReference
-        ? [operationalContext.currentWorkReference.spaceId]
-        : []),
-      ...(operationalContext.queuedWorkReferences ?? []).map(
-        (reference) => reference.spaceId
-      ),
-    ];
-  });
-  const spaceNamesById = await readSpaceIndexNamesByIds({
-    db: requireSpaceIndexDb(env),
+  const runtimeOverview = await resolveOrganizationAgentRuntimeOverview({
+    agentProfileWorkRecoveryVersion: input.agentProfileWorkRecoveryVersion,
+    eligibleAgentProfiles,
+    env,
+    generatedAt,
     organizationId,
-    spaceIds: ownerWorkSpaceIds,
+    viewerUserId: activeOrganization.userId,
   });
-  const agentProfiles = agentProfilesWithReadiness.map((agent) => {
-    if (agent.isCenterAgent) {
-      return agent;
+  const runtimeByProfileId = new Map(
+    runtimeOverview.agentProfiles.map((profile) => [profile.profileId, profile])
+  );
+  const agentProfiles = eligibleAgentProfiles.map((agent) => {
+    const runtime = runtimeByProfileId.get(agent.profileId);
+    if (!runtime) {
+      throw new Error(
+        `missing Organization Agent runtime overview for ${agent.profileId}`
+      );
     }
-    const projected = operationalContextsByProfileId.get(agent.profileId);
     return {
       ...agent,
-      operationalContext:
-        projectOrganizationDirectoryAgentProfileOperationalContext({
-          exposeRecoveryVersion2: input.agentProfileWorkRecoveryVersion === 2,
-          exposeWorkReferences: projected?.exposeWorkReferences === true,
-          operationalContext: projected?.operationalContext ?? {
-            reasonCode: "runtime_coordinator.operational_context_unavailable",
-            status: "checking",
-          },
-          spaceNamesById,
-        }),
+      ...(runtime.operationalContext
+        ? { operationalContext: runtime.operationalContext }
+        : {}),
+      readiness: runtime.readiness,
     };
   });
 
@@ -6294,6 +6209,425 @@ export async function rpcGetCurrentOrganizationDirectory(
   return validated.data;
 }
 
+export async function rpcGetCurrentOrganizationProfileDirectory(
+  env: CoreBindings,
+  input: GetCurrentOrganizationProfileDirectoryInput
+): Promise<OrganizationProfileDirectoryResponse> {
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const generatedAt = new Date().toISOString();
+  const organizationId = activeOrganization.organizationId;
+  const requestId = context.actorContext.requestId;
+  const [members, eligibleAgentProfiles] = await Promise.all([
+    resolveOrganizationDirectoryMembersWithActivity({
+      env,
+      includeMemberLastActiveAt: input.includeMemberLastActiveAt === true,
+      organizationId,
+      requestId,
+    }),
+    resolveEligibleOrganizationAgentProfiles({
+      env,
+      organizationId,
+      requestId,
+    }),
+  ]);
+  const controllerRefsByProfileId =
+    await readProfileDirectoryAgentControllerRefs({
+      agentProfiles: eligibleAgentProfiles,
+      env,
+      organizationId,
+      viewerUserId: activeOrganization.userId,
+    });
+  const response = {
+    agentProfiles: eligibleAgentProfiles.map((profile) => ({
+      ...profile,
+      agentControllerRef:
+        controllerRefsByProfileId.get(profile.profileId) ?? null,
+    })),
+    generatedAt,
+    members,
+    organizationId,
+  };
+  const validated =
+    organizationProfileDirectoryResponseSchema.safeParse(response);
+  if (!validated.success) {
+    throw new Error(
+      `failed to build Organization Profile Directory response: ${validated.error.message}`
+    );
+  }
+  console.info("[core.organization_profile_directory.read]", {
+    actorProfileKind: context.actorContext.profileKind,
+    agentProfileCount: validated.data.agentProfiles.length,
+    event: "organization_profile_directory.read",
+    includeMemberLastActiveAt: input.includeMemberLastActiveAt === true,
+    memberCount: validated.data.members.length,
+    organizationId,
+    requestId,
+  });
+  return validated.data;
+}
+
+export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
+  env: CoreBindings,
+  input: GetCurrentOrganizationAgentRuntimeOverviewInput
+): Promise<OrganizationAgentRuntimeOverviewResponse> {
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const generatedAt = new Date().toISOString();
+  const organizationId = activeOrganization.organizationId;
+  const eligibleAgentProfiles = await resolveEligibleOrganizationAgentProfiles({
+    env,
+    organizationId,
+    requestId: context.actorContext.requestId,
+  });
+  const response = await resolveOrganizationAgentRuntimeOverview({
+    agentProfileWorkRecoveryVersion: input.agentProfileWorkRecoveryVersion,
+    eligibleAgentProfiles,
+    env,
+    generatedAt,
+    organizationId,
+    viewerUserId: activeOrganization.userId,
+  });
+  console.info("[core.organization_agent_runtime_overview.read]", {
+    actorProfileKind: context.actorContext.profileKind,
+    agentProfileCount: response.agentProfiles.length,
+    event: "organization_agent_runtime_overview.read",
+    organizationId,
+    requestId: context.actorContext.requestId,
+  });
+  return response;
+}
+
+type EligibleOrganizationAgentProfile =
+  OrganizationDirectoryAgentProfileIdentity & {
+    isCenterAgent: boolean;
+  };
+
+async function resolveOrganizationDirectoryMembersWithActivity(input: {
+  env: CoreBindings;
+  includeMemberLastActiveAt: boolean;
+  organizationId: string;
+  requestId?: string | null;
+}) {
+  const [directoryMembers, memberActivity] = await Promise.all([
+    resolveOrganizationDirectoryMembers({
+      authWorker: input.env.OPENMELD_AUTH_WORKER,
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+    }),
+    input.includeMemberLastActiveAt
+      ? listOrganizationMemberActivity({
+          db: requireIdentityDb(input.env),
+          organizationId: input.organizationId,
+        })
+      : Promise.resolve([]),
+  ]);
+  const memberActivityByUserId = new Map(
+    memberActivity.map((activity) => [activity.userId, activity])
+  );
+  return directoryMembers.map((member) => {
+    const activity = memberActivityByUserId.get(member.userId);
+    if (
+      !activity ||
+      activity.humanProfileId !== member.humanProfile?.profileId
+    ) {
+      return member;
+    }
+    return {
+      ...member,
+      lastActiveAt: new Date(activity.lastActiveAtMs).toISOString(),
+    };
+  });
+}
+
+async function resolveEligibleOrganizationAgentProfiles(input: {
+  env: CoreBindings;
+  organizationId: string;
+  requestId?: string | null;
+}): Promise<EligibleOrganizationAgentProfile[]> {
+  const db = requireAgentProfileBindingDb(input.env);
+  const [centerAgentDesignation, agentProfileProjection] = await Promise.all([
+    readCenterAgentDesignationRecord({
+      db,
+      organizationId: input.organizationId,
+    }),
+    resolveOrganizationDirectoryAgentProfiles({
+      additionalAgentProfileIds: [],
+      authWorker: input.env.OPENMELD_AUTH_WORKER,
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+    }),
+  ]);
+  return agentProfileProjection.organizationAgentProfiles
+    .filter((agent) =>
+      isAgentProfileEligibleForOrganization({
+        managedRole: agent.managedRole,
+        profileOrganizationId: agent.organizationId,
+        targetOrganizationId: input.organizationId,
+      })
+    )
+    .map((agent) => ({
+      ...agent,
+      isCenterAgent: centerAgentDesignation?.agentProfileId === agent.profileId,
+    }))
+    .sort(
+      (left, right) =>
+        left.profileName.localeCompare(right.profileName, undefined, {
+          sensitivity: "base",
+        }) || left.profileId.localeCompare(right.profileId)
+    );
+}
+
+async function readProfileDirectoryAgentControllerRefs(input: {
+  agentProfiles: readonly EligibleOrganizationAgentProfile[];
+  env: CoreBindings;
+  organizationId: string;
+  viewerUserId: string;
+}): Promise<ReadonlyMap<string, string>> {
+  const ownedProfileIds = input.agentProfiles
+    .filter((profile) => profile.ownerUserId === input.viewerUserId)
+    .map((profile) => profile.profileId);
+  if (ownedProfileIds.length === 0) {
+    return new Map();
+  }
+  try {
+    const bindings = await listPrimaryAgentProfileBindingRecords({
+      agentProfileIds: ownedProfileIds,
+      db: requireAgentProfileBindingDb(input.env),
+      owner: { id: input.viewerUserId, kind: "owner_account" },
+    });
+    return new Map(
+      bindings.map((binding) => [
+        binding.agentProfileId,
+        binding.agentControllerRef,
+      ])
+    );
+  } catch (error) {
+    console.warn(
+      "[core.organization_profile_directory.binding_summary_failed]",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        organizationId: input.organizationId,
+        ownerUserId: input.viewerUserId,
+        profileCount: ownedProfileIds.length,
+      }
+    );
+    return new Map();
+  }
+}
+
+const ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY = 4;
+const ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY = 8;
+
+async function resolveOrganizationAgentRuntimeOverview(input: {
+  agentProfileWorkRecoveryVersion?: 2;
+  eligibleAgentProfiles: readonly EligibleOrganizationAgentProfile[];
+  env: CoreBindings;
+  generatedAt: string;
+  organizationId: string;
+  viewerUserId: string;
+}): Promise<OrganizationAgentRuntimeOverviewResponse> {
+  const [readinessByProfileId, operationalContextsByProfileId] =
+    await Promise.all([
+      resolveOrganizationAgentReadinessByProfileId(input),
+      readOrganizationDirectoryAgentProfileOperationalContexts({
+        eligibleAgentProfiles: input.eligibleAgentProfiles,
+        env: input.env,
+        viewerUserId: input.viewerUserId,
+      }),
+    ]);
+  const ownerWorkSpaceIds = [
+    ...operationalContextsByProfileId.values(),
+  ].flatMap(({ exposeWorkReferences, operationalContext }) => {
+    if (
+      !exposeWorkReferences ||
+      (operationalContext.status !== "working" &&
+        operationalContext.status !== "paused")
+    ) {
+      return [];
+    }
+    return [
+      ...(operationalContext.currentWorkReference
+        ? [operationalContext.currentWorkReference.spaceId]
+        : []),
+      ...(operationalContext.queuedWorkReferences ?? []).map(
+        (reference) => reference.spaceId
+      ),
+    ];
+  });
+  const spaceNamesById = await readSpaceIndexNamesByIds({
+    db: requireSpaceIndexDb(input.env),
+    organizationId: input.organizationId,
+    spaceIds: ownerWorkSpaceIds,
+  });
+  const response = {
+    agentProfiles: input.eligibleAgentProfiles.map((agent) => {
+      const readiness = readinessByProfileId.get(agent.profileId);
+      if (!readiness) {
+        throw new Error(
+          `missing Agent readiness overview for ${agent.profileId}`
+        );
+      }
+      if (agent.isCenterAgent) {
+        return { profileId: agent.profileId, readiness };
+      }
+      const projected = operationalContextsByProfileId.get(agent.profileId);
+      return {
+        operationalContext:
+          projectOrganizationDirectoryAgentProfileOperationalContext({
+            exposeRecoveryVersion2: input.agentProfileWorkRecoveryVersion === 2,
+            exposeWorkReferences: projected?.exposeWorkReferences === true,
+            operationalContext: projected?.operationalContext ?? {
+              reasonCode: "runtime_coordinator.operational_context_unavailable",
+              status: "checking",
+            },
+            spaceNamesById,
+          }),
+        profileId: agent.profileId,
+        readiness,
+      };
+    }),
+    generatedAt: input.generatedAt,
+    organizationId: input.organizationId,
+  };
+  const validated =
+    organizationAgentRuntimeOverviewResponseSchema.safeParse(response);
+  if (!validated.success) {
+    throw new Error(
+      `failed to build Organization Agent runtime overview response: ${validated.error.message}`
+    );
+  }
+  return validated.data;
+}
+
+async function resolveOrganizationAgentReadinessByProfileId(input: {
+  eligibleAgentProfiles: readonly EligibleOrganizationAgentProfile[];
+  env: CoreBindings;
+  generatedAt: string;
+  organizationId: string;
+  viewerUserId: string;
+}): Promise<
+  ReadonlyMap<
+    string,
+    OrganizationDirectoryResponse["agentProfiles"][number]["readiness"]
+  >
+> {
+  const profilesByOwner = new Map<string, EligibleOrganizationAgentProfile[]>();
+  for (const profile of input.eligibleAgentProfiles) {
+    const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
+    profiles.push(profile);
+    profilesByOwner.set(profile.ownerUserId, profiles);
+  }
+  const ownerResults = await mapWithConcurrency(
+    [...profilesByOwner],
+    ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY,
+    async ([ownerUserId, profiles]) => {
+      const [preloadedRoutes, preloadedOwnerService] = await Promise.all([
+        lookupRuntimeTransportRoutesBatch({
+          blockForgottenDevices: true,
+          env: input.env,
+          ownerUserId,
+          profileIds: profiles.map((profile) => profile.profileId),
+        }),
+        lookupRuntimeTransportOwnerService({
+          blockForgottenDevices: true,
+          env: input.env,
+          ownerUserId,
+        }).catch(() => null),
+      ]);
+      const onlineTargets = preloadedRoutes
+        ? Object.values(preloadedRoutes.routes).flatMap((route) =>
+            route.online
+              ? [{ deviceId: route.deviceId, runtimeLane: route.lane }]
+              : []
+          )
+        : [];
+      const displayNames = preloadedRoutes
+        ? await preloadRuntimeDeviceDisplayNamesForOwner({
+            env: input.env,
+            ownerUserId,
+            targets: onlineTargets,
+          })
+        : null;
+      return await mapWithConcurrency(
+        profiles,
+        ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
+        async (agent) => {
+          const preloadedRoute = preloadedRoutes
+            ? (preloadedRoutes.routes[agent.profileId] ?? null)
+            : undefined;
+          const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+            activeOrganizationId: input.organizationId,
+            env: input.env,
+            generatedAt: input.generatedAt,
+            ...(preloadedRoute === undefined
+              ? {}
+              : { preloadedDaemonRoute: preloadedRoute }),
+            ...(preloadedOwnerService === null
+              ? {}
+              : { preloadedOwnerService }),
+            preloadedProfileIdentity: {
+              ownerUserId: agent.ownerUserId,
+              profileKind: "agent",
+              profileName: agent.profileName,
+              status: agent.status,
+            },
+            ...(preloadedRoute?.online
+              ? {
+                  preloadedRuntimeDeviceDisplayName: displayNames
+                    ? readPreloadedRuntimeDeviceDisplayName({
+                        deviceId: preloadedRoute.deviceId,
+                        preloaded: displayNames,
+                        runtimeLane: preloadedRoute.lane,
+                      })
+                    : null,
+                }
+              : {}),
+            profileId: agent.profileId,
+          });
+          return [
+            agent.profileId,
+            buildOrganizationDirectoryAgentExecutionReadinessResponse({
+              generatedAt: input.generatedAt,
+              isOwner: agent.ownerUserId === input.viewerUserId,
+              readiness,
+            }),
+          ] as const;
+        }
+      );
+    }
+  );
+  return new Map(ownerResults.flat());
+}
+
+async function mapWithConcurrency<Input, Output>(
+  inputs: readonly Input[],
+  concurrency: number,
+  worker: (input: Input) => Promise<Output>
+): Promise<Output[]> {
+  const results = new Array<Output>(inputs.length);
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from(
+      { length: Math.min(Math.max(1, concurrency), inputs.length) },
+      async () => {
+        while (nextIndex < inputs.length) {
+          const index = nextIndex;
+          nextIndex += 1;
+          results[index] = await worker(inputs[index] as Input);
+        }
+      }
+    )
+  );
+  return results;
+}
+
 type DirectoryOperationalContextRead = {
   exposeWorkReferences: boolean;
   operationalContext: import("@openmeld/schemas/types").RuntimeTransportAgentProfileOperationalContext;
@@ -6318,8 +6652,10 @@ async function readOrganizationDirectoryAgentProfileOperationalContexts(input: {
     profileIdsByOwner.set(profile.ownerUserId, profileIds);
   }
   const resolved = new Map<string, DirectoryOperationalContextRead>();
-  await Promise.all(
-    [...profileIdsByOwner].map(async ([ownerUserId, targetProfileIds]) => {
+  await mapWithConcurrency(
+    [...profileIdsByOwner],
+    ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY,
+    async ([ownerUserId, targetProfileIds]) => {
       const exposeWorkReferences = ownerUserId === input.viewerUserId;
       for (let start = 0; start < targetProfileIds.length; start += 100) {
         const response =
@@ -6336,7 +6672,7 @@ async function readOrganizationDirectoryAgentProfileOperationalContexts(input: {
           });
         }
       }
-    })
+    }
   );
   return resolved;
 }

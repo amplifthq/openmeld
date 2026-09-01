@@ -1582,6 +1582,11 @@ tooltips. Local Agent identity
 uses the same catalog-owned logo and name as Computer detail; Web never creates
 a second name or logo map for People.
 
+People reads the lightweight Profile Directory and does not wait for or request
+the Agent Runtime Overview. Its Agent counts and controller icons come from the
+permission-scoped lightweight summary, so unavailable Runtime Transport cannot
+blank member identity or delay the People workspace.
+
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
 bounded visible-session heartbeat; Core re-verifies the active member and that
@@ -1709,6 +1714,15 @@ copy is **Approve requests for Agents you’re being asked to own, and track
 requests you sent.** A pending badge counts only the existing Core-owned Agent
 Profile Creation Request projection; Web never creates a parallel request
 state.
+
+Agents reads the same lightweight Profile Directory first, renders Agent
+identity immediately, and loads the Agent Runtime Overview independently.
+Missing initial runtime evidence is shown as checking for the affected Agent;
+a failed runtime refresh keeps the identity list and last successful runtime
+projection instead of replacing the workspace with a page-level loading or
+error state. Automatic readiness refresh invalidates only the runtime overview;
+identity refresh remains tied to membership, Profile, designation, and Binding
+summary changes.
 
 The sidebar groups ordinary Agents by owner name. The signed-in member’s group
 is first, and remaining groups use a stable owner-name and owner-ID order. Each

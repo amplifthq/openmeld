@@ -21,7 +21,9 @@ type CoreRpcMock = {
   inspectDbState: ReturnType<typeof vi.fn>;
   inspectDispatchStorageReadiness: ReturnType<typeof vi.fn>;
   createSpace: ReturnType<typeof vi.fn>;
+  getCurrentOrganizationAgentRuntimeOverview: ReturnType<typeof vi.fn>;
   getCurrentOrganizationDirectory: ReturnType<typeof vi.fn>;
+  getCurrentOrganizationProfileDirectory: ReturnType<typeof vi.fn>;
   recordCurrentOrganizationWebActivity: ReturnType<typeof vi.fn>;
   getCurrentOrganizationMemberOpenMeldServiceStatuses: ReturnType<typeof vi.fn>;
   getCurrentOrganizationSpaceDirectory: ReturnType<typeof vi.fn>;
@@ -432,7 +434,18 @@ function makeEnv(input?: {
       checkedAt: "2026-04-07T00:00:00.000Z",
     })),
     createSpace: vi.fn(async () => ({ spaceId: "from-core-space-id" })),
+    getCurrentOrganizationAgentRuntimeOverview: vi.fn(async () => ({
+      organizationId: "org-1",
+      generatedAt: "2026-07-04T00:00:00.000Z",
+      agentProfiles: [],
+    })),
     getCurrentOrganizationDirectory: vi.fn(async () => ({
+      organizationId: "org-1",
+      generatedAt: "2026-07-04T00:00:00.000Z",
+      members: [],
+      agentProfiles: [],
+    })),
+    getCurrentOrganizationProfileDirectory: vi.fn(async () => ({
       organizationId: "org-1",
       generatedAt: "2026-07-04T00:00:00.000Z",
       members: [],
@@ -1068,7 +1081,11 @@ function makeEnv(input?: {
       inspectDbState: rpc.inspectDbState,
       inspectDispatchStorageReadiness: rpc.inspectDispatchStorageReadiness,
       createSpace: rpc.createSpace,
+      getCurrentOrganizationAgentRuntimeOverview:
+        rpc.getCurrentOrganizationAgentRuntimeOverview,
       getCurrentOrganizationDirectory: rpc.getCurrentOrganizationDirectory,
+      getCurrentOrganizationProfileDirectory:
+        rpc.getCurrentOrganizationProfileDirectory,
       recordCurrentOrganizationWebActivity:
         rpc.recordCurrentOrganizationWebActivity,
       getCurrentOrganizationMemberOpenMeldServiceStatuses:
@@ -1597,6 +1614,51 @@ describe("gateway http forwarding", () => {
     expect(rpc.getCurrentOrganizationDirectory).toHaveBeenCalledWith({
       context: EXPECTED_CORE_CONTEXT,
     });
+  });
+
+  it("forwards the lightweight Profile Directory options without requesting runtime state", async () => {
+    const { env, rpc } = makeEnv();
+    const request = new Request(
+      "http://local/v1/organizations/current/profile-directory?includeHumanProfileLastUsedAt=true&includeMemberLastActiveAt=true"
+    );
+
+    const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      organizationId: "org-1",
+      members: [],
+      agentProfiles: [],
+    });
+    expect(rpc.getCurrentOrganizationProfileDirectory).toHaveBeenCalledWith({
+      context: EXPECTED_CORE_CONTEXT,
+      includeMemberLastActiveAt: true,
+    });
+    expect(
+      rpc.getCurrentOrganizationAgentRuntimeOverview
+    ).not.toHaveBeenCalled();
+  });
+
+  it("forwards only dynamic Agent runtime options to the runtime overview", async () => {
+    const { env, rpc } = makeEnv();
+    const request = new Request(
+      "http://local/v1/organizations/current/agent-runtime-overview?agentProfileWorkRecoveryVersion=2"
+    );
+
+    const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      organizationId: "org-1",
+      agentProfiles: [],
+    });
+    expect(rpc.getCurrentOrganizationAgentRuntimeOverview).toHaveBeenCalledWith(
+      {
+        agentProfileWorkRecoveryVersion: 2,
+        context: EXPECTED_CORE_CONTEXT,
+      }
+    );
+    expect(rpc.getCurrentOrganizationProfileDirectory).not.toHaveBeenCalled();
   });
 
   it("forwards explicit Web member activity to core RPC", async () => {

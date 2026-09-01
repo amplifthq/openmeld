@@ -71,8 +71,10 @@ import {
   rpcGetCenterAgentDirectMessageSpaceProjection,
   rpcGetCenterAgentModel,
   rpcGetCenterAgentOperatingState,
+  rpcGetCurrentOrganizationAgentRuntimeOverview,
   rpcGetCurrentOrganizationComputers,
   rpcGetCurrentOrganizationDirectory,
+  rpcGetCurrentOrganizationProfileDirectory,
   rpcGetCurrentOrganizationSpaceDirectory,
   rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts,
   rpcJoinOrganizationPublicSpace,
@@ -429,6 +431,144 @@ describe("organization Core RPC", () => {
       response.agentProfiles[0]?.readiness.agentExecutionReadiness
         .agentProfileId
     ).toBe(AGENT_PROFILE_ID);
+  });
+
+  it("reads the lightweight Profile Directory without touching Runtime Transport", async () => {
+    const env = buildEnv({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+      ],
+      members: [memberRow("member-a", "org-a", "user-a")],
+    });
+    const lookupRoutes = vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportRoutesBatch"
+    );
+    const lookupOwnerService = vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportOwnerService"
+    );
+    const readOperationalContexts = vi.spyOn(
+      runtimeTransportClient,
+      "readRuntimeTransportAgentProfileOperationalContexts"
+    );
+
+    const response = await rpcGetCurrentOrganizationProfileDirectory(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+
+    expect(response).toMatchObject({
+      organizationId: "org-a",
+      agentProfiles: [
+        {
+          agentControllerRef: "builtin:codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+        },
+      ],
+      members: [expect.objectContaining({ userId: "user-a" })],
+    });
+    expect(lookupRoutes).not.toHaveBeenCalled();
+    expect(lookupOwnerService).not.toHaveBeenCalled();
+    expect(readOperationalContexts).not.toHaveBeenCalled();
+  });
+
+  it("batches Agent runtime lookups once per owner and reuses Auth identity", async () => {
+    const resolveProfileById = vi.fn();
+    const env = buildEnv({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "reviewer",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "Reviewer",
+          status: "active",
+        },
+      ],
+      authWorker: { resolveProfileById },
+      members: [memberRow("member-a", "org-a", "user-a")],
+    });
+    const lookupRoutes = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportRoutesBatch")
+      .mockResolvedValue({
+        routes: {
+          [AGENT_PROFILE_ID]: {
+            online: false,
+            reasonCode: "daemon.profile.offline",
+          },
+          [SECOND_AGENT_PROFILE_ID]: {
+            online: false,
+            reasonCode: "daemon.profile.offline",
+          },
+        },
+      });
+    const lookupOwnerService = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockResolvedValue({
+        online: false,
+        reasonCode: "daemon.session.not_found",
+      });
+    vi.spyOn(
+      runtimeTransportClient,
+      "readRuntimeTransportAgentProfileOperationalContexts"
+    ).mockResolvedValue({
+      contexts: [
+        {
+          operationalContext: {
+            status: "idle",
+            waitingCount: 0,
+          },
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+        {
+          operationalContext: {
+            status: "idle",
+            waitingCount: 0,
+          },
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+        },
+      ],
+    });
+
+    const response = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+
+    expect(response.agentProfiles.map((profile) => profile.profileId)).toEqual([
+      AGENT_PROFILE_ID,
+      SECOND_AGENT_PROFILE_ID,
+    ]);
+    expect(lookupRoutes).toHaveBeenCalledOnce();
+    expect(lookupRoutes).toHaveBeenCalledWith({
+      blockForgottenDevices: true,
+      env,
+      ownerUserId: "user-a",
+      profileIds: [AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
+    });
+    expect(lookupOwnerService).toHaveBeenCalledOnce();
+    expect(resolveProfileById).not.toHaveBeenCalled();
   });
 
   it("keeps owner readiness details while sharing only the allowlisted Usage fact with another active member", async () => {
@@ -13225,6 +13365,51 @@ function resolveAllRows(input: {
       )
       .slice(0, Number(input.args[1] ?? Number.POSITIVE_INFINITY))
       .map(mapAgentProfileBindingTestRow);
+  }
+
+  if (
+    input.normalizedSql.includes(
+      "from openmelddaemon_agent_profile_bindings"
+    ) &&
+    input.normalizedSql.includes("agent_profile_id in") &&
+    input.normalizedSql.includes("binding_state = 'enabled_primary'")
+  ) {
+    const ownerId = String(input.args[1] ?? "");
+    const requestedProfileIds = new Set(
+      input.args.slice(2).map((value) => String(value))
+    );
+    return input.agentProfiles
+      .filter(
+        (profile) =>
+          profile.ownerUserId === ownerId &&
+          requestedProfileIds.has(profile.profileId) &&
+          profile.status === "active" &&
+          profile.hasBinding !== false
+      )
+      .sort((left, right) => left.profileId.localeCompare(right.profileId))
+      .map((profile) => ({
+        agent_controller_collaboration_mode: null,
+        agent_controller_conversation_id: null,
+        agent_controller_permission_mode: "ask",
+        agent_controller_ref: "builtin:codex",
+        agent_profile_id: profile.profileId,
+        binding_id: `binding-${profile.profileId}`,
+        binding_state: "enabled_primary",
+        configuration_revision: 0,
+        created_at_ms: profile.createdAt ?? 1_700_000_000_000,
+        created_by_profile_id: HUMAN_PROFILE_ID,
+        disabled_at_ms: null,
+        hosted_runtime_identity_json: null,
+        model_id: null,
+        opencode_permission: null,
+        owner_id: ownerId,
+        owner_kind: "owner_account",
+        reason_code: null,
+        reasoning_level: null,
+        runtime_kind: "openmeld_service",
+        updated_at_ms: profile.updatedAt ?? 1_700_000_000_000,
+        openmeld_service_runtime_id: `runtime-${profile.profileId}`,
+      }));
   }
 
   if (

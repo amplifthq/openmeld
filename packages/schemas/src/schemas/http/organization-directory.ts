@@ -102,6 +102,32 @@ export const organizationDirectoryAgentProfileSchema =
     readiness: getAgentExecutionReadinessResponseSchema,
   });
 
+export const organizationProfileDirectoryAgentProfileSchema =
+  organizationDirectoryAgentProfileIdentitySchema.extend({
+    agentControllerRef: nullableTrimmedStringSchema,
+    isCenterAgent: z.boolean().optional(),
+  });
+
+export const organizationProfileDirectoryResponseSchema = z.strictObject({
+  organizationId: trimmedNonEmptyStringSchema,
+  generatedAt: ISO_DATE_TIME_SCHEMA,
+  members: z.array(organizationDirectoryMemberSchema),
+  agentProfiles: z.array(organizationProfileDirectoryAgentProfileSchema),
+});
+
+export const organizationAgentRuntimeOverviewItemSchema = z.strictObject({
+  profileId: agentProfileIdSchema,
+  operationalContext:
+    organizationDirectoryAgentProfileOperationalContextSchema.optional(),
+  readiness: getAgentExecutionReadinessResponseSchema,
+});
+
+export const organizationAgentRuntimeOverviewResponseSchema = z.strictObject({
+  organizationId: trimmedNonEmptyStringSchema,
+  generatedAt: ISO_DATE_TIME_SCHEMA,
+  agentProfiles: z.array(organizationAgentRuntimeOverviewItemSchema),
+});
+
 export const organizationDirectoryResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
   generatedAt: ISO_DATE_TIME_SCHEMA,

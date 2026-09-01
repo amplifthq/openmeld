@@ -817,6 +817,20 @@ public `OrganizationDirectoryResponse` adds only the optional member-level
 `lastActiveAt` field. Gateway strips it unless the query opts in, so older Web
 and CLI clients continue to receive the prior strict shape during rollout.
 
+The broad `OrganizationDirectoryResponse` remains a compatibility contract.
+Current Web People and Agents use two narrower Core-owned read projections so
+identity is never blocked by runtime fan-out. `OrganizationProfileDirectoryResponse`
+contains Auth-owned member and Agent Profile identity, Center Agent designation,
+the optional member-activity overlay, and only the current viewer's
+permission-scoped primary Agent Controller summary. It does not read Runtime
+Transport or RuntimeCoordinator. `OrganizationAgentRuntimeOverviewResponse`
+contains readiness and Agent Profile Operational Context keyed by Profile id.
+Core resolves its inputs in bounded owner batches: one route batch, one owner
+Service read, and one local-runtime display inventory per owner, with bounded
+per-Profile readiness work. Splitting transport does not split authority: Auth,
+Core readiness, Binding, and RuntimeCoordinator remain the same owners, and the
+browser never derives or writes either projection.
+
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member
 receives the public four-state Wakeability status with private readiness facts
