@@ -39,9 +39,6 @@ export function publishGuardedLocalReleaseEvidence(input) {
       scope,
     });
   }
-  if (pending.length === 0) {
-    return { published: false, scopes, sourceSha };
-  }
 
   const args = ["push", "--no-verify", "--porcelain", "--atomic"];
   for (const item of pending) {
