@@ -431,6 +431,7 @@ function AgentsWorkspaceHome(input: {
 			onCreateAgent={input.onCreateAgent}
 			onSelectProfile={input.onSelectProfile}
 			onViewChange={input.onViewChange}
+			operationalContextByProfileId={operationalContextByProfileId}
 			pendingRequestCount={pendingRequestCount}
 			profiles={sidebarAgentProfiles}
 			profilesErrorMessage={profilesErrorMessage}

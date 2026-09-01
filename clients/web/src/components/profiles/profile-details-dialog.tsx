@@ -5,9 +5,10 @@ import type {
 	ProfileDetailsField,
 	ProfileDetailsRecoveryAction,
 	ProfileDetailsSection,
+	ProfileDetailsSectionId,
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
-import { Button, buttonVariants } from "@openmeld/ui/components/button";
+import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -17,13 +18,17 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	ArrowSquareOutIcon,
+	CaretDownIcon,
 	ChatCircleTextIcon,
 	CopyIcon,
 } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
+import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { copyTextToClipboard } from "#/lib/clipboard";
+
+const AGENT_WORKSPACE_TECHNICAL_SECTION_IDS: ReadonlySet<ProfileDetailsSectionId> =
+	new Set(["connection", "agent_controller_permission_mode", "advanced"]);
 
 export function ProfileDetailsDialog(input: {
 	currentSession?: {
@@ -67,12 +72,14 @@ export function ProfileDetailsDialog(input: {
 
 export function ProfileDetailsContent(input: {
 	className?: string;
+	collapseAgentTechnicalDetails?: boolean;
 	currentSession?: {
 		href: string;
 		nativeSessionId: string;
 		title: string;
 	};
 	details: ProfileDetailsSnapshot;
+	excludedSectionIds?: readonly ProfileDetailsSectionId[];
 	isDirectMessagePending?: boolean;
 	isRecoveryActionPending?: boolean;
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
@@ -80,6 +87,23 @@ export function ProfileDetailsContent(input: {
 	showSummary?: boolean;
 	testId?: string;
 }) {
+	const excludedSectionIds = new Set(input.excludedSectionIds ?? []);
+	const visibleSections = input.details.sections.filter(
+		(section) => !excludedSectionIds.has(section.id)
+	);
+	const technicalSections = input.collapseAgentTechnicalDetails
+		? visibleSections.filter((section) =>
+				AGENT_WORKSPACE_TECHNICAL_SECTION_IDS.has(section.id)
+			)
+		: [];
+	const primarySections = input.collapseAgentTechnicalDetails
+		? visibleSections.filter(
+				(section) => !AGENT_WORKSPACE_TECHNICAL_SECTION_IDS.has(section.id)
+			)
+		: visibleSections;
+	const showCollapsedTechnicalDetails =
+		input.collapseAgentTechnicalDetails === true &&
+		(Boolean(input.currentSession) || technicalSections.length > 0);
 	return (
 		<div className={cn("min-w-0", input.className)} data-testid={input.testId}>
 			{input.showSummary === false ? null : (
@@ -107,32 +131,15 @@ export function ProfileDetailsContent(input: {
 					) : null}
 				</div>
 			)}
-			{input.currentSession ? (
-				<div className="mt-5 flex min-w-0 items-start justify-between gap-3 rounded-md border border-border px-3 py-3">
-					<div className="min-w-0 space-y-1">
-						<p className="text-muted-foreground text-xs">Current Session</p>
-						<p className="break-words font-medium text-sm">
-							{input.currentSession.title}
-						</p>
-						<p className="break-all font-mono text-muted-foreground text-xs">
-							{input.currentSession.nativeSessionId}
-						</p>
-					</div>
-					<Link
-						className={cn(
-							buttonVariants({ size: "sm", variant: "outline" }),
-							"shrink-0"
-						)}
-						to={input.currentSession.href}
-					>
-						<ArrowSquareOutIcon data-icon="inline-start" />
-						View Session
-					</Link>
-				</div>
+			{input.currentSession && !input.collapseAgentTechnicalDetails ? (
+				<ProfileDetailsCurrentSession
+					className="mt-5"
+					currentSession={input.currentSession}
+				/>
 			) : null}
 
 			<div className="mt-5 min-w-0 space-y-5">
-				{input.details.sections.map((section) => (
+				{primarySections.map((section) => (
 					<ProfileDetailsSectionView
 						isRecoveryActionPending={input.isRecoveryActionPending === true}
 						key={section.id}
@@ -140,6 +147,37 @@ export function ProfileDetailsContent(input: {
 						section={section}
 					/>
 				))}
+				{showCollapsedTechnicalDetails ? (
+					<details
+						className="group min-w-0 overflow-hidden rounded-md border border-border"
+						data-testid="profile-technical-details"
+					>
+						<summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 px-3 py-2 font-medium text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-ring motion-reduce:transition-none [&::-webkit-details-marker]:hidden">
+							<span className="min-w-0 flex-1">Technical details</span>
+							<CaretDownIcon
+								aria-hidden="true"
+								className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none"
+							/>
+						</summary>
+						<div className="min-w-0 space-y-5 border-border border-t px-3 py-3">
+							{input.currentSession ? (
+								<ProfileDetailsCurrentSession
+									currentSession={input.currentSession}
+								/>
+							) : null}
+							{technicalSections.map((section) => (
+								<ProfileDetailsSectionView
+									isRecoveryActionPending={
+										input.isRecoveryActionPending === true
+									}
+									key={section.id}
+									onRecoveryAction={input.onRecoveryAction}
+									section={section}
+								/>
+							))}
+						</div>
+					</details>
+				) : null}
 			</div>
 		</div>
 	);
@@ -165,55 +203,13 @@ function ProfileDetailsSectionView(input: {
 				))}
 			</div>
 			{recoveryAction && input.onRecoveryAction ? (
-				<Button
-					disabled={input.isRecoveryActionPending}
-					onClick={() => input.onRecoveryAction?.(recoveryAction)}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					{input.isRecoveryActionPending
-						? formatProfileDetailsRecoveryActionPendingLabel(recoveryAction)
-						: formatProfileDetailsRecoveryActionLabel(recoveryAction)}
-				</Button>
+				<ProfileDetailsRecoveryActionButton
+					isPending={input.isRecoveryActionPending}
+					onRecoveryAction={input.onRecoveryAction}
+					recoveryAction={recoveryAction}
+				/>
 			) : null}
 		</section>
-	);
-}
-
-function formatProfileDetailsRecoveryActionPendingLabel(
-	recoveryAction: ProfileDetailsRecoveryAction
-): string {
-	switch (recoveryAction.kind) {
-		case "continue_interrupted_work":
-			return "Continuing interrupted work…";
-		case "approve_queued_work":
-			return "Starting queued work…";
-		case "skip_interrupted_work":
-			return "Skipping interrupted work…";
-		default:
-			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
-	}
-}
-
-function formatProfileDetailsRecoveryActionLabel(
-	recoveryAction: ProfileDetailsRecoveryAction
-): string {
-	switch (recoveryAction.kind) {
-		case "continue_interrupted_work":
-			return "Continue interrupted work";
-		case "approve_queued_work":
-			return "Start queued work";
-		case "skip_interrupted_work":
-			return "Skip interrupted work";
-		default:
-			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
-	}
-}
-
-function assertNeverProfileDetailsRecoveryActionKind(value: never): never {
-	throw new Error(
-		`Unsupported Agent Profile recovery action: ${String(value)}`
 	);
 }
 

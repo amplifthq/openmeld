@@ -12,6 +12,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -373,6 +374,56 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				.getByTestId("agent-profile-workspace-detail")
 				.querySelector('[data-profile-kind="center-agent"]')
 		).toBeNull();
+	});
+
+	it("puts owner operational context first and collapses technical details", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Launch planning",
+							queuedWorkLocations: ["Customer follow-up"],
+							recoveryAction: null,
+							status: "working",
+							waitingCount: 1,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		expect(
+			await screen.findByRole("heading", { name: "Operational context" })
+		).toBeTruthy();
+		const workStatus = screen.getByTestId("agent-profile-operational-status");
+		expect(workStatus.getAttribute("data-agent-work-status")).toBe("working");
+		expect(within(workStatus).getByText("Working").className).toContain(
+			"shimmer-text"
+		);
+		expect(screen.getByText("Current: Launch planning")).toBeTruthy();
+		expect(screen.getByText("1 queued")).toBeTruthy();
+		expect(screen.getByText("Wakeability")).toBeTruthy();
+		expect(screen.getByText("Usage")).toBeTruthy();
+		expect(screen.getByText("Settings timing")).toBeTruthy();
+		expect(screen.getAllByText("Not reported")).toHaveLength(2);
+
+		const technicalDetails = screen.getByTestId(
+			"profile-technical-details"
+		) as HTMLDetailsElement;
+		expect(technicalDetails.open).toBe(false);
+		expect(
+			within(technicalDetails).getByText("Technical details")
+		).toBeTruthy();
+		expect(
+			within(technicalDetails).getByText("Agent Controller Permission Mode")
+		).toBeTruthy();
+		expect(screen.queryByText("Activity")).toBeNull();
+		expect(screen.queryByText("Wake availability")).toBeNull();
 	});
 
 	it("shows the Coordinator workload summary and owner-only work locations in Profile Details", () => {

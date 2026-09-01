@@ -248,6 +248,51 @@ describe("AgentProfilesWorkspace", () => {
 		);
 	});
 
+	it("shows owner workload on the row without exposing it on another owner's row", () => {
+		renderWorkspace({
+			operationalContextByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						currentWorkLocation: "Launch planning",
+						queuedWorkLocations: ["Customer follow-up"],
+						recoveryAction: null,
+						status: "working",
+						waitingCount: 1,
+					},
+				],
+				[
+					"agent-other",
+					{
+						currentWorkLocation: "Private Space",
+						queuedWorkLocations: [],
+						recoveryAction: { kind: "skip_interrupted_work" },
+						status: "paused",
+						waitingCount: 0,
+					},
+				],
+			]),
+		});
+
+		const ownerItem = screen.getByRole("button", { name: "Open Felix Agent" });
+		const ownerStatus = within(ownerItem).getByTestId(
+			"agent-profile-operational-status"
+		);
+		expect(ownerStatus.getAttribute("data-agent-work-status")).toBe("working");
+		expect(ownerStatus.textContent).toContain("∞");
+		expect(within(ownerStatus).getByText("Working").className).toContain(
+			"shimmer-text"
+		);
+
+		const observerItem = screen.getByRole("button", {
+			name: "Open Other Agent",
+		});
+		expect(
+			within(observerItem).queryByTestId("agent-profile-operational-status")
+		).toBeNull();
+		expect(observerItem.textContent).not.toContain("Needs attention");
+	});
+
 	it("shows a readiness refresh error before cached sidebar availability", () => {
 		renderWorkspace({
 			readinessErrorByProfileId: new Map([
@@ -260,6 +305,52 @@ describe("AgentProfilesWorkspace", () => {
 			"Core could not refresh Wake availability."
 		);
 		expect(within(item).queryByText("Available")).toBeNull();
+	});
+
+	it("keeps owner Offline and Unavailable rows static gray and less prominent", () => {
+		const readiness = createReadiness();
+		renderWorkspace({
+			operationalContextByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						currentWorkLocation: null,
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "idle",
+						waitingCount: 0,
+					},
+				],
+			]),
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...readiness,
+						agentWakeAvailability: {
+							...readiness.agentWakeAvailability,
+							badgeLabel: "Unavailable",
+							category: "unavailable",
+							status: "unavailable_for_wake",
+							tooltip: "Provider account unavailable",
+						},
+					},
+				],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(within(item).getByText("Unavailable").className).toContain(
+			"text-muted-foreground"
+		);
+		expect(within(item).getByText("Felix Agent").className).toContain(
+			"text-muted-foreground"
+		);
+		const avatar = within(item).getByTestId(
+			"agent-profile-controller-avatar-agent-current"
+		);
+		expect(avatar.className).toContain("grayscale");
+		expect(avatar.className).toContain("opacity-55");
 	});
 
 	it("switches the main content to Agent requests without creating another request state", () => {
