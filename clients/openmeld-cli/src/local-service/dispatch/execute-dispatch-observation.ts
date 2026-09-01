@@ -242,6 +242,19 @@ export function emitProviderRuntimePhaseLine(input: {
         },
       });
       return;
+    case "provider_turn_accepted":
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.provider_turn_accepted",
+        text: `provider turn accepted for task ${input.taskId}`,
+        payload: {
+          ...basePayload,
+          agentControllerConversationId:
+            input.event.agentControllerConversationId,
+          turnId: input.event.turnId,
+        },
+      });
+      return;
     case "provider_usage_limits_observed":
       emitRunLine({
         presenter: input.presenter,

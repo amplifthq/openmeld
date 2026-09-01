@@ -427,12 +427,14 @@ that task must not issue another `thread/resume`. Normal execution adds no extra
 query or network round trip. No other RPC code, message, timeout, stderr,
 process presence, or Agent Activity fact may be promoted to occupancy.
 After an occupancy transition, the Service includes the current occupancy value
-on the first running keepalive, the first keepalive after a connection-generation
-change, and a low-frequency recovery keepalive. Ordinary keepalives between
-those frames omit the additive field so an older Core can still observe a
-healthy running Wake. Current Core may recover a lost transition after a
-WebSocket reconnect or Service restart without polling Codex or delaying normal
-Wake admission.
+on the first keepalive in its current lifecycle phase, the first keepalive after
+a connection-generation change, and a low-frequency recovery keepalive. Until
+`turn/start` returns the accepted turn, the Service remains `accepted_local`;
+App Server process spawn, protocol stdout, and writer occupancy do not promote
+RuntimeCoordinator to `running`. Ordinary keepalives between those frames omit
+the additive field so an older Core can still observe fresh local ownership.
+Current Core may recover a lost transition after a WebSocket reconnect or
+Service restart without polling Codex or delaying normal Wake admission.
 
 If an existing controller conversation
 is missing or does not acknowledge resume within the short resume admission

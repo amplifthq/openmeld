@@ -364,7 +364,11 @@ Important execution rules:
 - `accepted_local` means OpenMeld Service has accepted the task on the user's
   computer. If the runtime has not started yet, the local service must attach
   queue diagnostics so Trace can explain whether the task is waiting for the
-  same local execution lane, global local capacity, or runtime startup.
+  same local execution lane, global local capacity, or runtime startup. A
+  controller with an official atomic provider-admission contract remains
+  `accepted_local` after local process startup until that provider accepts the
+  exact turn; process spawn, protocol stdout, and conversation occupancy are
+  not `running` evidence.
 - A provider's versioned Agent Controller conversation occupancy contract may
   keep the current Wake at the Profile FIFO head after local execution starts.
   A structured occupied admission is non-terminal: the Service reports it as
@@ -377,11 +381,12 @@ Important execution rules:
   provider release evidence uses bounded backoff and must not become a tight
   retry loop.
 - While a Wake remains occupied or resumes running after an occupancy
-  transition, the first running keepalive, the first keepalive on a new
-  connection generation, and a low-frequency recovery keepalive repeat the
-  current occupancy value. Ordinary keepalives between them stay compatible
-  with an older Core. A lost transition or Service reconnect therefore
-  self-heals without adding a provider query to the Wake hot path.
+  transition, the first keepalive in its current lifecycle phase, the first
+  keepalive on a new connection generation, and a low-frequency recovery
+  keepalive repeat the current occupancy value. Ordinary keepalives between
+  them stay compatible with an older Core. A lost transition or Service
+  reconnect therefore self-heals without adding a provider query to the Wake
+  hot path.
 - Compatibility claim endpoints may exist during migration, but they must not
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come

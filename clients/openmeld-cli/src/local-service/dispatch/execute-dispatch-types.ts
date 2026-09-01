@@ -57,6 +57,7 @@ export type DispatchLocalJournalPhase =
   | "preflight_ready"
   | "process_exit"
   | "process_spawned"
+  | "provider_turn_accepted"
   | "runtime_context_ready"
   | "runtime_completed"
   | "runtime_invocation_started"

@@ -1338,6 +1338,20 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
         .map((event) => event.agentControllerConversationId),
       ["thread-existing-1"]
     );
+    assert.deepEqual(
+      runtimeEvents
+        .filter((event) => event.phase === "provider_turn_accepted")
+        .map((event) => ({
+          agentControllerConversationId: event.agentControllerConversationId,
+          turnId: event.turnId,
+        })),
+      [
+        {
+          agentControllerConversationId: "thread-existing-1",
+          turnId: "turn-1",
+        },
+      ]
+    );
     validateCodexTelemetry(result.telemetry, {
       previewEmitted: false,
       resumedContext: true,
