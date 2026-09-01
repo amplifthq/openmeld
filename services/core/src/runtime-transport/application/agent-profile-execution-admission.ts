@@ -43,6 +43,7 @@ import {
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
   buildRuntimeCoordinatorRunCommandStateStorageKey,
   buildRuntimeCoordinatorTokenAuthorityStorageKey,
+  hasRuntimeCoordinatorDurableLocalProgress,
   isRuntimeCoordinatorHeadLifecycleRecord,
   isRuntimeCoordinatorRunCommandState,
   RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
@@ -1762,6 +1763,109 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
   });
 }
 
+export async function rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission(input: {
+  attemptId: string;
+  dispatchId: string;
+  nowMs: number;
+  runtimeCoordinatorExecutionId: string;
+  storage: ExecutionAdmissionStorage;
+  targetProfileId: string;
+  targetWakeLifecycleId: string;
+}): Promise<"not_eligible" | "rolled_back"> {
+  return await input.storage.transaction(async (transaction) => {
+    const headLifecycleStorageKey =
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        input.targetWakeLifecycleId
+      );
+    const runCommandStateStorageKey =
+      buildRuntimeCoordinatorRunCommandStateStorageKey(
+        input.runtimeCoordinatorExecutionId
+      );
+    const [rawHead, rawCommandState] = await Promise.all([
+      transaction.get<unknown>(headLifecycleStorageKey),
+      transaction.get<unknown>(runCommandStateStorageKey),
+    ]);
+    if (
+      !(
+        isRuntimeCoordinatorHeadLifecycleRecord(rawHead) &&
+        isRuntimeCoordinatorRunCommandState(rawCommandState)
+      ) ||
+      rawHead.status !== "execution_linked" ||
+      rawHead.primaryDispatchId !== input.dispatchId ||
+      rawHead.runtimeCoordinatorExecutionId !==
+        input.runtimeCoordinatorExecutionId ||
+      rawHead.targetWakeLifecycleIdentity.targetProfileId !==
+        input.targetProfileId ||
+      rawCommandState.attemptId !== input.attemptId ||
+      rawCommandState.dispatchId !== input.dispatchId ||
+      rawCommandState.runtimeCoordinatorExecutionId !==
+        input.runtimeCoordinatorExecutionId ||
+      rawCommandState.targetProfileId !== input.targetProfileId ||
+      rawCommandState.ownerUserId !== rawHead.ownerUserId ||
+      hasRuntimeCoordinatorDurableLocalProgress(rawCommandState.localProgress)
+    ) {
+      return "not_eligible";
+    }
+
+    const restoredHead = {
+      ...rawHead,
+      executionLinkedAtMs: null,
+      runtimeCoordinatorExecutionId: null,
+      status: "accepted",
+      updatedAtMs: input.nowMs,
+    } satisfies RuntimeCoordinatorHeadLifecycleRecord;
+    const prepared = await prepareHeadLifecycleAdmissionWrite({
+      nowMs: input.nowMs,
+      record: restoredHead,
+      transaction,
+    });
+    const headReferences = appendBoundedReferences(
+      prepared.admission.activeHeadLifecycleIds,
+      [input.targetWakeLifecycleId]
+    );
+    const nextAdmission = {
+      ...prepared.admission,
+      activeExecutionIds: prepared.admission.activeExecutionIds.filter(
+        (executionId) => executionId !== input.runtimeCoordinatorExecutionId
+      ),
+      activeHeadLifecycleIds: headReferences.ids,
+      referencesOverflowed:
+        prepared.admission.referencesOverflowed || headReferences.overflowed,
+      revision: prepared.admission.revision + 1,
+      updatedAtMs: input.nowMs,
+    } satisfies AgentProfileExecutionAdmissionRecord;
+    await persistHeadLifecycleAdmissionTransition({
+      admissionAfterHeadWrite: nextAdmission,
+      effectiveRecord: restoredHead,
+      headLifecycleStorageKey,
+      nextAdmission,
+      nowMs: input.nowMs,
+      preparation: prepared,
+      transaction,
+    });
+
+    const rawRunCommandStateIndex = await transaction.get<unknown>(
+      RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY
+    );
+    const runCommandStateIds = Array.isArray(rawRunCommandStateIndex)
+      ? rawRunCommandStateIndex.filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0
+        )
+      : [];
+    await Promise.all([
+      transaction.delete(runCommandStateStorageKey),
+      transaction.put(
+        RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
+        runCommandStateIds.filter(
+          (executionId) => executionId !== input.runtimeCoordinatorExecutionId
+        )
+      ),
+    ]);
+    return "rolled_back";
+  });
+}
+
 function resolveContinuationHeadFence(input: {
   admission: AgentProfileExecutionAdmissionRecord;
   record: RuntimeCoordinatorHeadLifecycleRecord;
@@ -3391,6 +3495,7 @@ async function promoteAgentProfileWorkItem(input: {
   }
   const promotedHead = {
     ...rawPromotedHead,
+    acceptedAtMs: input.nowMs,
     status: "accepted",
     updatedAtMs: input.nowMs,
   } satisfies RuntimeCoordinatorHeadLifecycleRecord;

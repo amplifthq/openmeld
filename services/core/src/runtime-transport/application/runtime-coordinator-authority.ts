@@ -564,6 +564,11 @@ export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
       };
 
 export type RuntimeCoordinatorHeadLifecycleRecord = {
+  /**
+   * When this Wake most recently became the profile's active FIFO head.
+   * Legacy records fall back to createdAtMs.
+   */
+  acceptedAtMs?: number;
   acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   createdAtMs: number;
   duplicateDispatches: RuntimeCoordinatorHeadLifecycleDuplicateObservation[];
@@ -2180,7 +2185,7 @@ export const shouldEscalateAcceptedHeadToWaitingBoundary = (input: {
   record: RuntimeCoordinatorHeadLifecycleRecord;
 }): boolean =>
   isAcceptedHeadAwaitingExecution(input.record) &&
-  input.record.createdAtMs +
+  (input.record.acceptedAtMs ?? input.record.createdAtMs) +
     RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS <=
     input.nowMs;
 
@@ -2321,6 +2326,8 @@ export const isRuntimeCoordinatorHeadLifecycleRecord = (
   const record = value as RuntimeCoordinatorHeadLifecycleRecord;
   return (
     record.modelVersion === RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION &&
+    (record.acceptedAtMs === undefined ||
+      (Number.isInteger(record.acceptedAtMs) && record.acceptedAtMs >= 0)) &&
     typeof record.targetWakeLifecycleId === "string" &&
     typeof record.ownerUserId === "string" &&
     typeof record.primaryDispatchId === "string" &&

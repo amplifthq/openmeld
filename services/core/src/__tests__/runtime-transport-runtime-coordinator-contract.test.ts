@@ -7003,6 +7003,69 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(spaceFetchRequests).toHaveLength(redriveCount);
   });
 
+  it("starts the promoted head waiting boundary when FIFO ownership transfers", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, storageRecords } = createHarness();
+      const successorIdentity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-message-aged-successor",
+        dispatchId: "dispatch-aged-successor",
+        sourceSignalId: "signal-aged-successor",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      await acceptDefaultRuntimeCoordinatorHead(hub);
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        buildRuntimeCoordinatorHeadAcceptRequest({
+          dispatchId: "dispatch-aged-successor",
+          idempotencyKey: "idempotency-aged-successor",
+          targetWakeLifecycleIdentity: successorIdentity,
+        })
+      );
+
+      nowSpy.mockReturnValue(1_700_000_360_000);
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/pre-agent-stop",
+        buildRuntimeCoordinatorHeadPreAgentStopRequest()
+      );
+      const waitingResponse = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/waiting",
+        buildRuntimeCoordinatorHeadWaitingRequest({
+          dispatchId: "dispatch-aged-successor",
+          idempotencyKey: "idempotency-aged-successor",
+          observedAtMs: 1_700_000_360_000,
+          targetWakeLifecycleIdentity: successorIdentity,
+        })
+      );
+
+      expect(waitingResponse.status).toBe(200);
+      await expect(waitingResponse.json()).resolves.toMatchObject({
+        deadlineAtMs: 1_700_000_660_000,
+        ok: true,
+        status: "waiting",
+      });
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorHeadLifecycleStorageKey(
+            successorIdentity.targetWakeLifecycleId
+          )
+        )
+      ).toMatchObject({
+        acceptedAtMs: 1_700_000_360_000,
+        status: "waiting",
+        waitingBoundary: {
+          waitingSinceMs: 1_700_000_360_000,
+        },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("keeps the FIFO successor queued while the running head is waiting", async () => {
     const { hub, spaceFetchRequests, storageRecords } = createHarness();
     const successorIdentity = projectTargetWakeLifecycleIdentity({
@@ -14266,6 +14329,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         spaceFetchRequests,
         state,
+        storageRecords,
       } = createHarness();
       configureCompatibleRoute({
         socket,
@@ -14294,6 +14358,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
       });
       expect(response.status).toBe(409);
       expect(state.pendingDispatches.size).toBe(0);
+      expect(
+        findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+      ).toMatchObject({
+        executionLinkedAtMs: null,
+        runtimeCoordinatorExecutionId: null,
+        status: "accepted",
+      });
+
+      const stopResponse = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/pre-agent-stop",
+        buildRuntimeCoordinatorHeadPreAgentStopRequest()
+      );
+      expect(stopResponse.status).toBe(200);
+      await expect(stopResponse.json()).resolves.toMatchObject({
+        ok: true,
+        reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+        status: "stopped_before_execution",
+      });
 
       recordingD1.calls.length = 0;
       sentFrames.length = 0;

@@ -9440,7 +9440,10 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: lookupMatch.targetProfileId,
       }
     ).catch(() => null);
-    if (!execution) {
+    if (
+      !execution ||
+      isRuntimeCoordinatorDeliveryRejectedBeforeLocalAcceptance(execution)
+    ) {
       return await this.requestPreAgentWakeStop({
         body,
         db,
@@ -15672,14 +15675,18 @@ export class Space extends DurableObject<CoreBindings> {
       | WakeProgressItem["wakeStopEligibility"]
       | undefined;
     if (input.includeWakeStopEligibility === true) {
-      wakeStopEligibility = trace?.runtimeCoordinatorExecution
-        ? await this.readWakeProgressWakeStopEligibility(trace)
-        : await this.readWakeProgressPreAgentWakeStopEligibility({
-            clientMessageId: input.clientMessageId,
-            lookupMatch: input.lookupMatch,
-            outboxRecord: input.outboxRecord,
-            trace,
-          });
+      wakeStopEligibility =
+        trace?.runtimeCoordinatorExecution &&
+        !isRuntimeCoordinatorDeliveryRejectedBeforeLocalAcceptance(
+          trace.runtimeCoordinatorExecution
+        )
+          ? await this.readWakeProgressWakeStopEligibility(trace)
+          : await this.readWakeProgressPreAgentWakeStopEligibility({
+              clientMessageId: input.clientMessageId,
+              lookupMatch: input.lookupMatch,
+              outboxRecord: input.outboxRecord,
+              trace,
+            });
     }
     const runtimeCoordinatorExecution =
       trace?.runtimeCoordinatorExecution ?? null;
@@ -15748,7 +15755,12 @@ export class Space extends DurableObject<CoreBindings> {
     outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
     trace: SpaceDispatchTraceSnapshot | null;
   }): Promise<WakeProgressItem["wakeStopEligibility"]> {
-    if (input.trace?.runtimeCoordinatorExecution) {
+    if (
+      input.trace?.runtimeCoordinatorExecution &&
+      !isRuntimeCoordinatorDeliveryRejectedBeforeLocalAcceptance(
+        input.trace.runtimeCoordinatorExecution
+      )
+    ) {
       return null;
     }
     if (input.outboxRecord?.outboxStatus === "cancelled") {
@@ -17249,6 +17261,21 @@ function isPreAgentWakeStopDispatchStatus(
     status === "queued" ||
     status === "dispatching" ||
     status === "failed_retryable"
+  );
+}
+
+function isRuntimeCoordinatorDeliveryRejectedBeforeLocalAcceptance(
+  execution:
+    | {
+        status: string;
+        terminalOutcome: unknown;
+      }
+    | null
+    | undefined
+): boolean {
+  return (
+    execution?.status === "delivery_rejected" &&
+    execution.terminalOutcome === null
   );
 }
 

@@ -313,6 +313,7 @@ import {
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   retireRuntimeCoordinatorAgentProfileHeadHistoryReference,
+  rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission,
   skipRuntimeCoordinatorAgentProfileInterruptedWork,
   writeRuntimeCoordinatorHeadLifecycleWithAdmission,
 } from "../../application/agent-profile-execution-admission";
@@ -511,7 +512,6 @@ import { processRuntimeCoordinatorPreExecutionHandoffAlarm as processRuntimeCoor
 import {
   appendRuntimeCoordinatorDecisionRecordToStorage,
   deleteRuntimeCoordinatorPreExecutionHandoffRecordFromStorage,
-  deleteRuntimeCoordinatorRunCommandStateFromStorage,
   readRuntimeCoordinatorDecisionByKeyFromStorage,
   readRuntimeCoordinatorDecisionRecordsFromStorage,
   readRuntimeCoordinatorFinalizationCommandFromStorage,
@@ -10061,7 +10061,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     const acceptedDeliveryRequest = acceptedDeliveryRequests[0] ?? null;
     if (!response.accepted && preparedDeliveryRequest) {
-      await this.deleteRuntimeCoordinatorRunCommandStateIfDeliveryWasNotSent(
+      await this.rollbackRuntimeCoordinatorUnsentDelivery(
         preparedDeliveryRequest
       );
     }
@@ -10440,26 +10440,34 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
 
-  private async deleteRuntimeCoordinatorRunCommandStateIfDeliveryWasNotSent(
+  private async rollbackRuntimeCoordinatorUnsentDelivery(
     request: RuntimeTransportDeliverDispatchRequest
   ): Promise<void> {
-    const runtimeCoordinatorExecutionId =
-      request.payload.runtimeCoordinatorExecutionId;
-    const commandState = await this.readRuntimeCoordinatorRunCommandState(
-      runtimeCoordinatorExecutionId
-    );
-    if (
-      !commandState ||
-      commandState.dispatchId !== request.dispatchId ||
-      commandState.attemptId !== request.attemptId ||
-      hasRuntimeCoordinatorDurableLocalProgress(commandState.localProgress)
-    ) {
-      return;
+    const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: request.payload.sourceClientMessageId ?? null,
+      dispatchId: request.dispatchId,
+      sourceSignalId: request.payload.sourceEventId,
+      spaceId: request.payload.spaceId,
+      targetProfileId: request.payload.targetProfileId,
+    });
+    const rollback =
+      await rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission({
+        attemptId: request.attemptId,
+        dispatchId: request.dispatchId,
+        nowMs: Date.now(),
+        runtimeCoordinatorExecutionId:
+          request.payload.runtimeCoordinatorExecutionId,
+        storage: this.ctx.storage,
+        targetProfileId: request.payload.targetProfileId,
+        targetWakeLifecycleId:
+          targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      });
+    if (rollback === "rolled_back") {
+      this.publishAgentReadinessInvalidated({
+        profileIds: [request.payload.targetProfileId],
+        reason: "agent_profile_work_coordinator.changed",
+      });
     }
-    await deleteRuntimeCoordinatorRunCommandStateFromStorage(
-      this.ctx.storage,
-      runtimeCoordinatorExecutionId
-    );
   }
 
   private async handleRuntimeCoordinatorHeadAcceptRequest(
@@ -10836,6 +10844,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ...(request.acceptedDispatchSnapshot
         ? { acceptedDispatchSnapshot: request.acceptedDispatchSnapshot }
         : {}),
+      acceptedAtMs: nowMs,
       createdAtMs: nowMs,
       duplicateDispatches: [],
       executionLinkedAtMs: null,
@@ -11276,7 +11285,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
     const existingBoundary = existing.waitingBoundary;
     const waitingSinceMs =
-      existingBoundary?.waitingSinceMs ?? existing.createdAtMs;
+      existingBoundary?.waitingSinceMs ??
+      existing.acceptedAtMs ??
+      existing.createdAtMs;
     const softDeadlineAtMs =
       existingBoundary?.softDeadlineAtMs ??
       waitingSinceMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS;
