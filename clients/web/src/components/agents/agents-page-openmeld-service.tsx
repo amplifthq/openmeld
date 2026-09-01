@@ -1171,7 +1171,7 @@ function resolveCurrentOpenMeldToolsPrimaryAction(input: {
 	return {
 		disabled: input.updateIsActive,
 		kind: "managed",
-		label: input.updateIsActive ? "Updating" : "Update",
+		label: input.updateIsActive ? "Updating…" : "Update",
 		onClick: input.onUpdateOpenMeldTools,
 	};
 }
@@ -1594,7 +1594,13 @@ function OpenMeldToolsMaintenanceControls(input: {
 			<div className="min-w-0">
 				<p className="font-medium text-sm">Keep OpenMeld Tools up to date</p>
 				{updateStatus ? (
-					<p className="mt-1 text-muted-foreground text-xs">{updateStatus}</p>
+					<p
+						aria-atomic="true"
+						aria-live="polite"
+						className="mt-1 text-muted-foreground text-xs"
+					>
+						{updateStatus}
+					</p>
 				) : null}
 			</div>
 			<Switch
@@ -1629,10 +1635,10 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 		return "Couldn't verify the update. Try again or update manually.";
 	}
 	if (input.confirmationPending && !input.targetObserved) {
-		return "Verifying update";
+		return "Verifying the update…";
 	}
 	if (input.requesting) {
-		return "Checking for updates";
+		return "Checking for updates…";
 	}
 	if (
 		input.operation?.phase === "updated" &&
@@ -1657,11 +1663,11 @@ function formatOpenMeldToolsUpdatePhase(input: {
 }): string {
 	switch (input.phase) {
 		case "waiting_for_work":
-			return "Finishing current work";
+			return "Finishing current work…";
 		case "updating":
-			return "Updating";
+			return "Updating OpenMeld Tools…";
 		case "updated":
-			return input.targetObserved ? "Up to date" : "Verifying update";
+			return input.targetObserved ? "Up to date" : "Verifying the update…";
 		case "restored":
 			return "Update failed. Try again.";
 		case "needs_help":
@@ -1917,7 +1923,9 @@ function OpenMeldToolsActionControl(input: {
 				variant="outline"
 			>
 				<ArrowsClockwiseIcon aria-hidden="true" data-icon="inline-start" />
-				{input.action.label}
+				<span className={input.action.disabled ? "shimmer-text" : undefined}>
+					{input.action.label}
+				</span>
 			</Button>
 		);
 	}

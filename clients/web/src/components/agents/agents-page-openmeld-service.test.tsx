@@ -310,12 +310,13 @@ describe("OpenMeldServiceCard", () => {
 			"search",
 			"?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
 		);
-		expect(
-			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
-				.disabled
-		).toBe(true);
-		expect(screen.getByText("Checking for updates")).toBeTruthy();
-		expect(screen.getAllByText("Updating")).toHaveLength(1);
+		const updatingButton = screen.getByRole("button", { name: "Updating…" });
+		expect((updatingButton as HTMLButtonElement).disabled).toBe(true);
+		expect(updatingButton.querySelector(".shimmer-text")?.textContent).toBe(
+			"Updating…"
+		);
+		const checkingStatus = screen.getByText("Checking for updates…");
+		expect(checkingStatus.getAttribute("aria-live")).toBe("polite");
 
 		finishRequest(result);
 
@@ -323,7 +324,7 @@ describe("OpenMeldServiceCard", () => {
 			expect(setQueryDataMock).toHaveBeenCalledTimes(1);
 		});
 		expect(
-			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+			(screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement)
 				.disabled
 		).toBe(true);
 		expect(toastSuccessMock).not.toHaveBeenCalled();
@@ -361,9 +362,9 @@ describe("OpenMeldServiceCard", () => {
 			expect(refreshSharedCachesMock).toHaveBeenCalled();
 		});
 		expect(toastSuccessMock).not.toHaveBeenCalled();
-		expect(screen.getByText("Verifying update")).toBeTruthy();
+		expect(screen.getByText("Verifying the update…")).toBeTruthy();
 		expect(
-			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+			(screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement)
 				.disabled
 		).toBe(true);
 	});
@@ -391,9 +392,9 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getAllByText("Updating")).toHaveLength(2);
+		expect(screen.getByText("Updating OpenMeld Tools…")).toBeTruthy();
 		expect(
-			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+			(screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement)
 				.disabled
 		).toBe(true);
 	});
@@ -432,7 +433,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("Verifying update")).toBeTruthy();
+		expect(screen.getByText("Verifying the update…")).toBeTruthy();
 		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
@@ -471,7 +472,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		expect(screen.getByText("Up to date")).toBeTruthy();
-		expect(screen.queryByText("Verifying update")).toBeNull();
+		expect(screen.queryByText("Verifying the update…")).toBeNull();
 		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
 	});
 
@@ -511,7 +512,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
-		expect(screen.queryByText("Verifying update")).toBeNull();
+		expect(screen.queryByText("Verifying the update…")).toBeNull();
 		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
@@ -543,7 +544,7 @@ describe("OpenMeldServiceCard", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Update" }));
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Updating" })).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Updating…" })).toBeTruthy();
 		});
 
 		view.rerender(
@@ -587,8 +588,8 @@ describe("OpenMeldServiceCard", () => {
 			).toBe(false);
 		});
 		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
-		expect(screen.queryByText("Updating")).toBeNull();
-		expect(screen.queryByText("Verifying update")).toBeNull();
+		expect(screen.queryByText("Updating OpenMeld Tools…")).toBeNull();
+		expect(screen.queryByText("Verifying the update…")).toBeNull();
 		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
@@ -628,7 +629,7 @@ describe("OpenMeldServiceCard", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Update" }));
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Updating" })).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Updating…" })).toBeTruthy();
 		});
 
 		view.rerender(
@@ -662,8 +663,8 @@ describe("OpenMeldServiceCard", () => {
 			})
 		);
 
-		expect(screen.queryByText("Finishing current work")).toBeNull();
-		expect(screen.getAllByText("Updating")).toHaveLength(2);
+		expect(screen.queryByText("Finishing current work…")).toBeNull();
+		expect(screen.getByText("Updating OpenMeld Tools…")).toBeTruthy();
 	});
 
 	it("keeps polling after installation ends until both installed versions catch up", async () => {
@@ -702,7 +703,7 @@ describe("OpenMeldServiceCard", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Update" }));
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Updating" })).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Updating…" })).toBeTruthy();
 		});
 		view.rerender(
 			buildOpenMeldServiceCard({
@@ -747,9 +748,9 @@ describe("OpenMeldServiceCard", () => {
 		);
 
 		expect(screen.queryByText("Up to date")).toBeNull();
-		expect(screen.getByText("Verifying update")).toBeTruthy();
+		expect(screen.getByText("Verifying the update…")).toBeTruthy();
 		expect(
-			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+			(screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement)
 				.disabled
 		).toBe(true);
 		await waitFor(
@@ -1090,7 +1091,7 @@ describe("OpenMeldServiceCard", () => {
 			name: "Keep OpenMeld Tools up to date",
 		});
 		expect(toggle.getAttribute("aria-checked")).toBe("true");
-		expect(screen.getByText("Finishing current work")).toBeTruthy();
+		expect(screen.getByText("Finishing current work…")).toBeTruthy();
 		fireEvent.click(toggle);
 
 		await waitFor(() => {

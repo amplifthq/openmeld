@@ -8,8 +8,9 @@ audiences: ["members", "admins"]
 
 OpenMeld Tools updates now join an update already in progress instead of
 starting a competing CLI or Setup path. Manual Setup waits and continues
-automatically, and the Computer page keeps the active update visible after a
-refresh.
+automatically. On the Computer page, the button stays disabled with an active
+`Updating…` cue after a refresh, and the status explains whether OpenMeld is
+checking, finishing current work, updating, or verifying.
 
 Automatic updates can also respond to a newly available release over the
 Service's existing connection when that Service explicitly supports the
