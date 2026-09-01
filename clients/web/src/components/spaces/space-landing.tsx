@@ -2169,6 +2169,7 @@ function SpaceLandingSecondaryPanels({
 				}
 				composerMentionPickerItems={controller.threadComposerMentionPickerItems}
 				composerText={controller.threadComposerText}
+				currentOwnerUserId={currentOwnerUserId}
 				editableAgentProfileIds={editableAgentProfileIds}
 				ephemeralActivityItems={controller.threadEphemeralActivityItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
@@ -2186,6 +2187,7 @@ function SpaceLandingSecondaryPanels({
 				isPersonalContext={input.isPersonalContext === true}
 				isSendingMessage={controller.isSendingThreadMessage}
 				membersSnapshot={controller.presentationMembersSnapshot}
+				modelCatalog={modelCatalog}
 				onAddComposerFiles={controller.onAddThreadComposerFiles}
 				onAgentInteractionResponse={controller.onAgentInteractionResponse}
 				onAgentRecoveryAction={handleAgentRecoveryAction}

@@ -1,5 +1,6 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import type {
+	ModelCatalog,
 	SignalEnvelope,
 	SpaceInboxUnreadTarget,
 	SpaceMembersSnapshot,
@@ -154,6 +155,7 @@ import type {
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
 import { useSpacePanelWidth } from "./use-space-panel-width";
+import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
 
 const SINGLE_MESSAGE_GROUP_POSITION = {
 	isFirstInGroup: true,
@@ -241,6 +243,7 @@ export function SpaceThreadPanel(input: {
 	composerText: string;
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
+	currentOwnerUserId: string | null;
 	pendingActionSurface?: ReactNode;
 	profileControl?: ReactNode;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
@@ -259,6 +262,7 @@ export function SpaceThreadPanel(input: {
 	isPersonalContext?: boolean;
 	isSendingMessage: boolean;
 	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
 	onClose: () => void;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
@@ -406,6 +410,12 @@ export function SpaceThreadPanel(input: {
 			}),
 		[input.centerAgentProfileId, profileEntriesById]
 	);
+	const profileDetailsDialog = useSpaceProfileDetailsDialog({
+		currentOwnerUserId: input.currentOwnerUserId,
+		entriesByProfileId: profileEntriesById,
+		entry: null,
+		modelCatalog: input.modelCatalog,
+	});
 	const openMessageDetails = useCallback(
 		(item: SpaceTimelineItem) => {
 			if (!(activeThreadId && activeThreadRootSignalId)) {
@@ -613,6 +623,7 @@ export function SpaceThreadPanel(input: {
 				latestThreadOccurredAtMs={latestThreadOccurredAtMs}
 				onAgentInteractionResponse={input.onAgentInteractionResponse}
 				onEditAgentProfile={input.onEditAgentProfile}
+				onOpenAgentProfile={profileDetailsDialog.openProfileDetailsById}
 				onOpenMessageDetails={onOpenMessageDetails}
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				onRecoverExecution={messageDetailsItem ? undefined : onRecoverExecution}
@@ -638,6 +649,7 @@ export function SpaceThreadPanel(input: {
 				}
 				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
 			/>
+			{profileDetailsDialog.profileDetailsDialog}
 			{input.pendingActionSurface}
 			{renderThreadComposer(input)}
 			{messageDetailsItem && input.activeThread ? (
@@ -886,6 +898,7 @@ function ThreadTimeline(input: {
 	latestThreadOccurredAtMs: number;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	onOpenAgentProfile: (profileId: string) => void;
 	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
@@ -1032,6 +1045,7 @@ function ThreadTimeline(input: {
 											input.onAgentInteractionResponse
 										}
 										onEditAgentProfile={input.onEditAgentProfile}
+										onOpenAgentProfile={input.onOpenAgentProfile}
 										onOpenMessageDetails={input.onOpenMessageDetails}
 										onOpenSpaceFile={input.onOpenSpaceFile}
 										onRecoverExecution={input.onRecoverExecution}
@@ -1142,6 +1156,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	isPersonalContext: boolean;
 	item: SpaceTimelineItem;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	onOpenAgentProfile: (profileId: string) => void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onEditAgentProfile?: SpaceAgentProfileEditHandler;
@@ -1331,6 +1346,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								computerSetupSourceSignalId={input.item.id}
 								containerClassName={selfMessageContentLayoutClassName}
 								item={input.item}
+								onOpenAgentProfile={input.onOpenAgentProfile}
 								onOpenSpaceFile={input.onOpenSpaceFile}
 								openMeldProfileId={input.selfProfileId}
 								orgSlug={input.orgSlug}

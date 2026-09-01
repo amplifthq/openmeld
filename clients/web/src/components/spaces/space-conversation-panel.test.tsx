@@ -3977,6 +3977,31 @@ describe("SpaceConversationPanel", () => {
 		expect(dialog.getByText(profileId)).toBeTruthy();
 	});
 
+	it("opens the exact structured Wake target from an inline Agent mention", () => {
+		const membersSnapshot = createWakeReceiptMembersSnapshot();
+		renderSpaceConversationPanel({
+			membersSnapshot,
+			timelineItems: [
+				createStructuredWakeTimelineItem({
+					activationTargets: [TARGET_PROFILE_ID],
+					membersSnapshot,
+					text: "@Codex 5.6 Sol please review this.",
+				}),
+			],
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Open Codex 5.6 Sol profile",
+			})
+		);
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.getByText("About profile")).toBeTruthy();
+		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
+		expect(dialog.getByText(TARGET_PROFILE_ID)).toBeTruthy();
+	});
+
 	it("keeps historical profile headers passive when the member entry is unavailable", () => {
 		renderSpaceConversationPanel({
 			membersSnapshot: null,

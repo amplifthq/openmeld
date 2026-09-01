@@ -1183,6 +1183,28 @@ describe("SpaceThreadPanel", () => {
 
 		expect(onEditAgentProfile).toHaveBeenCalledWith(TARGET_PROFILE_ID);
 	});
+
+	it("opens the exact structured Wake target from an inline Agent mention", () => {
+		renderThreadPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
+			signals: [
+				createWakeTextSignal({
+					text: "@Codex 5.6 Sol please review this.",
+				}),
+			],
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Open Codex 5.6 Sol profile",
+			})
+		);
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.getByText("About profile")).toBeTruthy();
+		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
+		expect(dialog.getByText(TARGET_PROFILE_ID)).toBeTruthy();
+	});
 });
 
 const TARGET_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
@@ -1220,12 +1242,14 @@ function renderThreadPanel(
 		composerText: "",
 		composerFiles: [],
 		composerFileLimitReached: false,
+		currentOwnerUserId: null,
 		ephemeralActivityItems: [],
 		isAgentRecoveryPending: () => false,
 		isDiagnosticReportPending: () => false,
 		isDiagnosticReportSent: () => false,
 		isSendingMessage: false,
 		membersSnapshot: null,
+		modelCatalog: null,
 		onAgentRecoveryAction: async () => undefined,
 		onClose: () => undefined,
 		onComposerEditorChange: () => undefined,

@@ -2892,10 +2892,13 @@ messages.
 In the full message body on the main timeline and in the Thread panel, the
 first visible mention owned by each structured Agent Wake renders as one compact
 inline identity: `@`, the Agent's 14-pixel Profile icon, and its semibold
-canonical name. The `@` and icon use a 6-pixel gap, while the icon and name use
-a 4-pixel gap. Web derives this presentation only from the structured Wake
-target and resolved Profile presentation. It does not decorate ordinary
-mention-like text, code, links, or quoted reply previews.
+canonical name. The `@`, icon, and name use equal 4-pixel gaps and share one
+optical middle alignment.
+The Agent name underlines on hover or keyboard focus, and activating the exact
+structured mention opens that Agent Profile's existing details dialog. Web
+derives this presentation only from the structured Wake target and resolved
+Profile presentation. It does not decorate ordinary mention-like text, code,
+links, or quoted reply previews.
 
 For a durable final reply, Web prefers the complete
 `signal.text.data.meta.agentWorkSummary` projection. It reads the legacy

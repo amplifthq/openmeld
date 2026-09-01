@@ -2430,6 +2430,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 	const detailsDialog = useSpaceProfileDetailsDialog({
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
+		entriesByProfileId: input.profileEntriesById,
 		modelCatalog: input.modelCatalog,
 	});
 	const computerSetupContext = resolveCenterAgentComputerSetupContext({
@@ -2661,6 +2662,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													computerSetupSourceSignalId={item.id}
 													containerClassName={selfMessageContentLayoutClassName}
 													item={item}
+													onOpenAgentProfile={
+														detailsDialog.openProfileDetailsById
+													}
 													onOpenSpaceFile={input.onOpenSpaceFile}
 													openMeldProfileId={input.selfProfileId}
 													orgSlug={input.orgSlug}
