@@ -486,22 +486,16 @@ const finalizeDeliveryAgainstSessionBoundRequest = async (input: {
     };
   }
 
-  const currentSession = input.state.sessionsById.get(
-    input.request.daemonSessionId
-  );
-  if (
-    !currentSession?.socket ||
-    currentSession.connectionGeneration !== input.request.connectionGeneration
-  ) {
-    return {
-      accepted: false,
-      status: "rejected",
-      reasonCode: "daemon.session.connection_replaced",
-    };
+  const currentRoute = resolveCurrentDeliveryRouteFence({
+    request: preparedDelivery.request,
+    state: input.state,
+  });
+  if (!currentRoute.ok) {
+    return currentRoute.response;
   }
   const currentSessionBoundRequest = resolveProfileConfigurationFence({
     request: preparedDelivery.request,
-    session: currentSession,
+    session: currentRoute.session,
   });
   if (!currentSessionBoundRequest.ok) {
     return currentSessionBoundRequest.response;
@@ -520,7 +514,7 @@ const finalizeDeliveryAgainstSessionBoundRequest = async (input: {
   );
 
   try {
-    input.deps.sendFrame(currentSession.socket, {
+    input.deps.sendFrame(currentRoute.session.socket, {
       code: "daemon.dispatch.deliver",
       payload: acceptedRequest,
     });
@@ -543,6 +537,101 @@ const finalizeDeliveryAgainstSessionBoundRequest = async (input: {
     accepted: true,
     status: "delivered",
   };
+};
+
+const resolveCurrentDeliveryRouteFence = (input: {
+  request: RuntimeTransportDeliverDispatchRequest;
+  state: RuntimeTransportMutableState;
+}):
+  | { ok: true; session: RuntimeTransportSessionState & { socket: WebSocket } }
+  | {
+      ok: false;
+      response: Extract<
+        RuntimeTransportDeliverDispatchResponse,
+        { accepted: false }
+      >;
+    } => {
+  const lease = input.state.profileLeasesByProfileId.get(
+    input.request.profileId
+  );
+  if (!lease) {
+    return {
+      ok: false,
+      response: {
+        accepted: false,
+        reasonCode: "daemon.profile.offline",
+        status: "rejected",
+      },
+    };
+  }
+  if (
+    !isLeaseMatch({
+      actualDaemonSessionId: input.request.daemonSessionId,
+      actualLeaseEpoch: input.request.leaseEpoch,
+      expectedDaemonSessionId: lease.daemonSessionId,
+      expectedLeaseEpoch: lease.leaseEpoch,
+    })
+  ) {
+    return {
+      ok: false,
+      response: {
+        accepted: false,
+        reasonCode: "daemon.session.stale_lease",
+        status: "rejected",
+      },
+    };
+  }
+  const leaseCompatibilityRejection = rejectIncompatibleDaemonExecution({
+    compatibility: lease.executionCompatibility,
+    request: input.request,
+    source: "lease",
+  });
+  if (leaseCompatibilityRejection) {
+    return { ok: false, response: leaseCompatibilityRejection };
+  }
+
+  const session = input.state.sessionsById.get(input.request.daemonSessionId);
+  if (!session?.socket) {
+    return {
+      ok: false,
+      response: {
+        accepted: false,
+        reasonCode: "daemon.session.connection_replaced",
+        status: "rejected",
+      },
+    };
+  }
+  if (session.connectionGeneration !== input.request.connectionGeneration) {
+    return {
+      ok: false,
+      response: {
+        accepted: false,
+        reasonCode: "daemon.session.connection_replaced",
+        status: "rejected",
+      },
+    };
+  }
+  if (
+    session.acceptingDispatches === false ||
+    !session.profileIds.has(input.request.profileId)
+  ) {
+    return {
+      ok: false,
+      response: {
+        accepted: false,
+        reasonCode: "daemon.profile.offline",
+        status: "rejected",
+      },
+    };
+  }
+  const sessionCompatibilityRejection = rejectIncompatibleDaemonExecution({
+    compatibility: session.executionCompatibility,
+    request: input.request,
+    source: "session",
+  });
+  return sessionCompatibilityRejection
+    ? { ok: false, response: sessionCompatibilityRejection }
+    : { ok: true, session: { ...session, socket: session.socket } };
 };
 
 const buildInFlightDispatchDeliveryKey = (
@@ -819,7 +908,10 @@ const rejectIncompatibleDaemonExecution = (input: {
   compatibility: DaemonExecutionCompatibility;
   request: RuntimeTransportDeliverDispatchRequest;
   source: "lease" | "session";
-}): RuntimeTransportDeliverDispatchResponse | null => {
+}): Extract<
+  RuntimeTransportDeliverDispatchResponse,
+  { accepted: false }
+> | null => {
   if (isDaemonExecutionCompatible(input.compatibility)) {
     return null;
   }

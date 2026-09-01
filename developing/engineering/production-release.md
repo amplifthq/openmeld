@@ -578,6 +578,13 @@ full
 - `full` runs Database, Auth, Web, Gateway, Core, and Remote Agent in order.
 - CLI publishing is not available in this workflow.
 
+The separate CLI Release workflow also deploys the Core projection required by
+the published CLI channel. Before any CLI or Core mutation, it proves that the
+Production D1 pending migration list is empty. If migrations remain, release
+the exact SHA with the `database` scope first, then rerun CLI Release. This gate
+prevents a new Core writer from reaching an older database constraint or
+schema.
+
 For a Center Agent bridge release that includes Context Scope Plan, first run
 the `remote-agent` scope from the approved commit and verify it succeeds. Then
 run the remaining required database/cloud scopes, and publish CLI only after

@@ -312,13 +312,15 @@ For the normal GitHub production path:
    `pnpm run verify:release-ready`.
 2. Confirm the six Apple secret names above exist in the GitHub `production`
    Environment.
-3. Run `.github/workflows/cli-release.yml`. It defaults to `mode=verify`, which
-   is a safe manual readiness check. Select `mode=release` with
-   `release_path=normal` and the exact release commit SHA when publishing. The
-   publish command verifies release readiness before its first irreversible
-   action, so a separate verify run is optional rather than a required repeated
-   gate. Use the separate Scoped Production Release workflow when the release
-   also requires database or cloud fleet changes.
+3. Before `.github/workflows/cli-release.yml`, use the separate Scoped
+   Production Release workflow with scope `database` when the exact release SHA
+   has pending migrations. CLI Release verifies the remote D1 pending list
+   before any publication because it also deploys Core; it fails closed instead
+   of running new Core code against an older database schema. After Production
+   D1 is current, run CLI Release with `release_path=normal` and the exact
+   release commit SHA. The publish command verifies release readiness before
+   its first irreversible action, so a separate repeated verification run is
+   unnecessary.
 4. Require an `Apple notarization accepted` submission ID before treating the
    binary upload as valid.
 5. Close the release only after the npm version, production CLI manifest,

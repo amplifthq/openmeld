@@ -30,6 +30,13 @@ develop and run focused tests
   -> smallest real-user smoke for the changed path
 ```
 
+For a coordinated train of compatible changes, integrate the ready leaf
+branches into one batch branch, sync `main` once, and run one Final Candidate
+on the combined batch PR. Leaf PRs keep their focused evidence but do not each
+pay for an immediately stale Final Candidate or merge to `main` first. The
+combined candidate is the merge unit and proves the interactions users will
+actually receive.
+
 This is not a central-coordinator process. CI/CD reports facts; the responsible
 agent uses those facts, the task, and the relevant owner documents to decide
 what to do. CI/CD does not choose business scope, mandate a reviewer, or ask
@@ -48,7 +55,11 @@ unrelated agents to wait.
    that merge order instead of starting a paid run that cannot certify the
    eventual merge. Keep the branch moving with focused or affected checks,
    then sync current `main` once and run the one Final Candidate that can lead
-   directly to merge.
+   directly to merge. When two or more compatible ready changes share one
+   delivery window, prefer one batch integration PR and one combined Final
+   Candidate. If that candidate fails, use the leaf commit boundaries and the
+   smallest failing command to locate the responsible change; do not pay the
+   per-leaf cost in advance merely to make diagnosis easier.
 2. Candidate evidence identifies one exact `head SHA + validation base SHA +
    tree SHA`, plus candidate kind (`pull-request` or `merge-group`). Evidence
    never transfers to another identity.
@@ -131,10 +142,12 @@ latency.
 Before requesting Final Candidate:
 
 1. finish the scoped implementation, focused tests, and task-required review;
-2. commit and push the exact tree;
-3. fetch current `origin/main` and sync it into the branch;
-4. resolve conflicts and rerun checks affected by the sync; and
-5. confirm a clean worktree and an open, non-draft PR targeting `main`.
+2. for a coordinated train, integrate every ready compatible leaf into the
+   batch branch and freeze that combined scope;
+3. commit and push the exact single-PR or batch tree;
+4. fetch current `origin/main` and sync it into the candidate branch once;
+5. resolve conflicts and rerun checks affected by the sync; and
+6. confirm a clean worktree and an open, non-draft PR targeting `main`.
 
 These are engineering facts, not an approval form. Final Candidate does not
 require a waiting period, a fixed reviewer count, or permission from a central
