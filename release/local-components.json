@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T19:31:14.815Z",
+  "updatedAt": "2026-09-01T20:23:57.927Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.141",
+      "packageVersion": "0.3.142",
       "updatePolicy": "available",
-      "reason": "No CLI command or wire contract changed; 0.3.140 and 0.3.141 remain compatible with current cloud services."
+      "reason": "The menu rerun fix changes only local process invocation; existing CLI commands and all cloud and Service contracts remain compatible in both directions."
     },
     "service": {
-      "bundleHash": "2340daa8a67506c7ca5033c163781dccafe1e8056cd3bb477728d775ce24abec",
-      "bundleVersion": "0.3.141",
+      "bundleHash": "80eae2a833cbac1b977dc0444dcd52725059ed79dd13ab8b8ac5bd9a429adbb7",
+      "bundleVersion": "0.3.142",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
