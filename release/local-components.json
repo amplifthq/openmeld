@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-31T10:15:51.617Z",
+  "updatedAt": "2026-09-01T02:38:01.506Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.136",
+      "packageVersion": "0.3.137",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup and Wake commands remain compatible while Agent Profile Work Recovery V2 stays unavailable until update."
+      "reason": "Existing cloud remains compatible with old CLI clients, while the new CLI preserves negotiated legacy paths and fails closed when a capability is unavailable."
     },
     "service": {
-      "bundleHash": "89d822e43910e2ba961f064f6d0538c2e87d748abeca4f656f222023d6aa5aa0",
-      "bundleVersion": "0.3.136",
+      "bundleHash": "28b7391ee6fbb0970eccdba765fff194d1022f2e7df82910e8934baa158dd2c2",
+      "bundleVersion": "0.3.137",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services continue ordinary setup and Wake, and cannot trigger Agent Profile Work Recovery V2 without the current Usage support-matrix version."
+      "reason": "The Service runtime and Wake transport contracts remain compatible in both directions; this release updates the packaged carrier without requiring an immediate upgrade."
     },
     "skills": {
-      "bundleHash": "302eb02cf945624527f272c4f2c0e812d414ab39a878ec58ef53ca832a44e056",
+      "bundleHash": "b190ea21ed12f7b3c047c7d79b6756b0d54ff31e181245ba8caa9f0b37fdd947",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The bundled command reference update is additive and does not change existing skill behavior."
+      "reason": "The bundled Skill changes improve Agent guidance and commands without requiring new cloud capabilities or invalidating the previous bundle."
     }
   }
 }
