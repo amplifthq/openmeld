@@ -157,6 +157,7 @@ import type {
   OpenMeldDaemonSyncRouteCatalogPayload,
   OpenMeldDaemonTaskResultEnvelope,
   OpenMeldToolsControlCapability,
+  OpenMeldToolsControlResult,
   PostSpaceDispatchOutboxRedriveResponse,
   RuntimeCoordinatorExecutionEventType,
   RuntimeCoordinatorExecutionRecord,
@@ -286,6 +287,7 @@ import {
   projectionsDb,
   wakeEvidenceDb,
 } from "../../../lib/bindings";
+import { resolveReleaseTriggeredOpenMeldToolsUpdate } from "../../../local-components/automatic-update-trigger";
 import { resolveSpaceStub } from "../../../rpc/space-ref";
 import {
   emitSpaceExecutionRecoveryNoticeSignal,
@@ -1294,6 +1296,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly currentDeviceOperationWaiters = new Map<
     string,
     CurrentDeviceOperationWaiter
+  >();
+  private readonly automaticToolsUpdateTargetByComputer = new Map<
+    string,
+    string
   >();
   private readonly routeCatalogReconciliationSignalsBySessionKey = new Map<
     string,
@@ -2964,6 +2970,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const registeredSession =
       this.state.sessionsById.get(parsed.data.daemonSessionId) ?? null;
     if (response.ok) {
+      this.queueReleaseTriggeredOpenMeldToolsUpdate({
+        session: registeredSession,
+        socket: webSocket,
+        trigger: "register",
+      });
       console.info("[core.runtime_transport.socket_connected]", {
         connectedAtMs: registeredSession?.connectedAtMs ?? Date.now(),
         connectionGeneration: response.connectionGeneration,
@@ -3140,6 +3151,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         });
       }
       if (sessionAfterHeartbeat) {
+        this.queueReleaseTriggeredOpenMeldToolsUpdate({
+          session: sessionAfterHeartbeat,
+          socket: webSocket,
+          trigger: "heartbeat",
+        });
         this.ctx.waitUntil(
           this.reconcileExpectedRoutesForSession({
             connectionGeneration: sessionAfterHeartbeat.connectionGeneration,
@@ -17699,6 +17715,94 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: operationError?.kind === "timeout" ? 504 : 502 }
       );
     }
+  }
+
+  private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
+    session: RuntimeTransportSessionState | null;
+    socket: WebSocket;
+    trigger: "heartbeat" | "register";
+  }): void {
+    if (input.session?.socket !== input.socket) {
+      return;
+    }
+    const session = input.session as RuntimeTransportSessionState & {
+      socket: WebSocket;
+    };
+    const update = resolveReleaseTriggeredOpenMeldToolsUpdate({
+      capabilities: session.capabilities,
+      generatedAt: new Date().toISOString(),
+      lane: session.lane,
+      serviceVersion: session.serviceVersion ?? null,
+    });
+    if (!update) {
+      return;
+    }
+    const computerKey = [
+      session.ownerUserId,
+      session.deviceId,
+      session.lane,
+    ].join(":");
+    if (
+      this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
+      update.targetVersion
+    ) {
+      return;
+    }
+    this.automaticToolsUpdateTargetByComputer.set(
+      computerKey,
+      update.targetVersion
+    );
+    const requestId = crypto.randomUUID();
+    this.ctx.waitUntil(
+      this.sendCurrentDeviceOperationAndWait<OpenMeldToolsControlResult>({
+        code: "daemon.openmeld_tools_control.request",
+        expectedResponseCode: "daemon.openmeld_tools_control.result",
+        isExpectedPayload: (payload) => {
+          const parsed = openMeldToolsControlResultSchema.safeParse(payload);
+          return parsed.success && parsed.data.operation === "request_update";
+        },
+        payload: {
+          requestId,
+          request: update.request,
+        },
+        requestId,
+        session,
+        timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
+      })
+        .then((result) => {
+          console.info("[core.openmeld_tools.automatic_update_requested]", {
+            daemonSessionId: session.daemonSessionId,
+            deviceId: session.deviceId,
+            event: "core.openmeld_tools.automatic_update_requested",
+            lane: session.lane,
+            operationStatus:
+              result.operation === "request_update"
+                ? result.result.status
+                : "invalid_response",
+            ownerUserId: session.ownerUserId,
+            targetVersion: update.targetVersion,
+            trigger: input.trigger,
+          });
+        })
+        .catch((error) => {
+          if (
+            this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
+            update.targetVersion
+          ) {
+            this.automaticToolsUpdateTargetByComputer.delete(computerKey);
+          }
+          console.warn("[core.openmeld_tools.automatic_update_failed]", {
+            daemonSessionId: session.daemonSessionId,
+            deviceId: session.deviceId,
+            error: error instanceof Error ? error.message : String(error),
+            event: "core.openmeld_tools.automatic_update_failed",
+            lane: session.lane,
+            ownerUserId: session.ownerUserId,
+            targetVersion: update.targetVersion,
+            trigger: input.trigger,
+          });
+        })
+    );
   }
 
   private resolveOpenMeldToolsControlSession(input: {

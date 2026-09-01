@@ -1783,9 +1783,16 @@ becomes the projection owner as soon as the handoff exists. A computer with no
 saved preference enables automatic OpenMeld Tools updates; an invalid preference
 fails closed and reports maintenance attention. Automatic requests obey that
 preference, while an explicit user request still runs when automation is off.
-The published Service checks the release channel every hour, bypassing the
-normal CLI command cache for this maintenance check. An explicit update request
-also refreshes the release channel before deciding that the computer is current.
+For a Service that supports release-triggered maintenance, Core uses the
+existing Runtime Transport connection to request one automatic recheck when
+the current release manifest first becomes actionable for that computer. The
+request is capability- and version-gated, obeys the Service-owned automatic
+update preference, and coalesces by computer and release target. It never adds
+a second updater or a faster polling loop. The published Service still checks
+the release channel after startup and every hour as the missed-signal fallback,
+bypassing the normal CLI command cache for this maintenance check. An explicit
+update request also refreshes the release channel before deciding that the
+computer is current.
 The Service resumes a saved attempt immediately after restart and never waits
 for the downloader when the Service itself must stop. Dev and canary lanes do
 not check or install the published channel.

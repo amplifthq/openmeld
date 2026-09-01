@@ -2241,6 +2241,15 @@ describe("runtime transport schema", () => {
         .success
     ).toBe(true);
     expect(
+      runtimeTransportOpenMeldToolsControlRequestSchema.safeParse({
+        ...request,
+        request: {
+          operation: "request_update",
+          requestSource: "automatic",
+        },
+      }).success
+    ).toBe(true);
+    expect(
       runtimeTransportOpenMeldToolsControlFramePayloadSchema.safeParse({
         requestId: request.requestId,
         request: request.request,

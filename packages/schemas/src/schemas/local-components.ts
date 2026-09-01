@@ -86,7 +86,7 @@ export const openMeldToolsControlRequestSchema = z.discriminatedUnion(
   [
     z.strictObject({
       operation: z.literal("request_update"),
-      requestSource: z.enum(["center_agent", "web"]),
+      requestSource: z.enum(["automatic", "center_agent", "web"]),
     }),
     z.strictObject({
       automaticUpdatesEnabled: z.boolean(),
