@@ -1635,10 +1635,10 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 		return "Couldn't verify the update. Try again or update manually.";
 	}
 	if (input.confirmationPending && !input.targetObserved) {
-		return "Verifying the update…";
+		return "Verifying…";
 	}
 	if (input.requesting) {
-		return "Checking for updates…";
+		return "Checking…";
 	}
 	if (
 		input.operation?.phase === "updated" &&
@@ -1663,11 +1663,11 @@ function formatOpenMeldToolsUpdatePhase(input: {
 }): string {
 	switch (input.phase) {
 		case "waiting_for_work":
-			return "Finishing current work…";
+			return "Finishing…";
 		case "updating":
-			return "Updating OpenMeld Tools…";
+			return "Updating…";
 		case "updated":
-			return input.targetObserved ? "Up to date" : "Verifying the update…";
+			return input.targetObserved ? "Up to date" : "Verifying…";
 		case "restored":
 			return "Update failed. Try again.";
 		case "needs_help":
