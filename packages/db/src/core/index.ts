@@ -125,6 +125,7 @@ export {
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";
 export {
   openMeldRemoteAgentLarkPlatformChannelConnections,

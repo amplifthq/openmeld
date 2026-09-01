@@ -82,6 +82,7 @@ import {
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";
 import {
   openMeldRemoteAgentLarkPlatformChannelConnections,
@@ -1630,6 +1631,7 @@ export const coreSchema = {
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  inboxSpaceThreadReadWatermarks,
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,
   agentActivityDigests,

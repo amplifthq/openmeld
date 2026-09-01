@@ -197,6 +197,7 @@ import type {
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
   GetSpaceInboxSummaryRpcInput,
+  GetSpaceInboxUnreadTargetsRpcInput,
   GetSpaceMessageDetailsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
@@ -326,6 +327,7 @@ import type {
   SpaceFileDescriptor,
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
+  SpaceInboxUnreadTargetsResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceViewerMembershipResponse,
@@ -420,6 +422,7 @@ import {
   rpcGetInboxNotificationPreferences,
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
+  rpcGetSpaceInboxUnreadTargets,
   rpcListInboxItems,
   rpcMarkAllInboxItemsRead,
   rpcMarkCenterAgentInboxReadThrough,
@@ -1413,6 +1416,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetSpaceInboxSummaryRpcInput
   ): Promise<SpaceInboxSummaryResponse> {
     return rpcGetSpaceInboxSummary(this.env, input);
+  }
+
+  getSpaceInboxUnreadTargets(
+    input: GetSpaceInboxUnreadTargetsRpcInput
+  ): Promise<SpaceInboxUnreadTargetsResponse> {
+    return rpcGetSpaceInboxUnreadTargets(this.env, input);
   }
 
   markCenterAgentInboxReadThrough(
@@ -3522,6 +3531,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetSpaceInboxSummaryRpcInput
   ): Promise<SpaceInboxSummaryResponse> {
     return super.getSpaceInboxSummary(input);
+  }
+
+  getSpaceInboxUnreadTargets(
+    input: GetSpaceInboxUnreadTargetsRpcInput
+  ): Promise<SpaceInboxUnreadTargetsResponse> {
+    return super.getSpaceInboxUnreadTargets(input);
   }
 
   markCenterAgentInboxReadThrough(

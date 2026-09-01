@@ -166,6 +166,7 @@ export {
   buildInboxSummaryPath,
   buildSpaceInboxReadThroughPath,
   buildSpaceInboxSummaryPath,
+  buildSpaceInboxUnreadTargetsPath,
 } from "./inbox/routes";
 export type {
   CreateInboxApi,
