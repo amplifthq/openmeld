@@ -23056,10 +23056,14 @@ export function projectTeamSafeOrganizationDirectoryReadiness(
 function projectTeamSafeOrganizationDirectoryWakeAvailability(
   availability: GetAgentExecutionReadinessResponse["agentWakeAvailability"]
 ): GetAgentExecutionReadinessResponse["agentWakeAvailability"] {
+  const sharesUsageExhausted =
+    availability.category === "unavailable" &&
+    availability.reasonCode === "usage_exhausted" &&
+    availability.status === "unavailable_for_wake";
   const shared = {
     action: "none" as const,
     category: availability.category,
-    reasonCode: null,
+    reasonCode: sharesUsageExhausted ? "usage_exhausted" : null,
     status: availability.status,
   };
   switch (availability.category) {
@@ -23094,6 +23098,18 @@ function projectTeamSafeOrganizationDirectoryWakeAvailability(
         tooltip: "Offline for Wake",
       };
     case "unavailable":
+      if (sharesUsageExhausted) {
+        return {
+          ...shared,
+          badgeLabel: "Unavailable",
+          isRefreshing: false,
+          label: "Usage Limit reached",
+          phase: "unavailable",
+          summary:
+            "This Agent reached a Usage Limit and cannot start new work.",
+          tooltip: "Usage Limit reached",
+        };
+      }
       return {
         ...shared,
         badgeLabel: "Unavailable",

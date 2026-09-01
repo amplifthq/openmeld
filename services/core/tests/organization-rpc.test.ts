@@ -431,7 +431,7 @@ describe("organization Core RPC", () => {
     ).toBe(AGENT_PROFILE_ID);
   });
 
-  it("keeps owner readiness details while projecting team-safe readiness for another active member", async () => {
+  it("keeps owner readiness details while sharing only the allowlisted Usage fact with another active member", async () => {
     const env = buildEnv({
       agentProfiles: [
         {
@@ -713,6 +713,29 @@ describe("organization Core RPC", () => {
     expect(serializedProjection).not.toContain("builtin:codex");
     expect(serializedProjection).not.toContain("binding-");
     expect(serializedProjection).not.toContain("user-a");
+
+    const usageExhaustedOwnerReadiness = structuredClone(privateOwnerReadiness);
+    usageExhaustedOwnerReadiness.agentWakeAvailability.reasonCode =
+      "usage_exhausted";
+    const usageExhaustedProjection =
+      projectTeamSafeOrganizationDirectoryReadiness(
+        usageExhaustedOwnerReadiness
+      );
+    expect(usageExhaustedProjection.agentWakeAvailability).toMatchObject({
+      action: "none",
+      badgeLabel: "Unavailable",
+      category: "unavailable",
+      label: "Usage Limit reached",
+      phase: "unavailable",
+      reasonCode: "usage_exhausted",
+      status: "unavailable_for_wake",
+      summary: "This Agent reached a Usage Limit and cannot start new work.",
+      tooltip: "Usage Limit reached",
+    });
+    expect(
+      usageExhaustedProjection.agentExecutionReadiness.reasonCodes
+    ).toEqual([]);
+    expect(JSON.stringify(usageExhaustedProjection)).not.toContain("private");
   });
 
   it("pages the narrow Center Agent member list without resolving Agent Profiles", async () => {
