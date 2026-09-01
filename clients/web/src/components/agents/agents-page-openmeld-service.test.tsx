@@ -478,6 +478,48 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
 	});
 
+	it.each([
+		"restored",
+		"needs_help",
+	] as const)("does not keep a stale %s outcome visible after both installed versions converge", (phase) => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					cli: {
+						commandContractVersion:
+							"openmeld-cli-command-contract-2026-05-local-components-v1",
+						installedPackageVersion: "0.8.0",
+						latestPackageVersion: "0.8.0",
+						reasonCodes: [],
+						requiredCommandContractVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.8.0",
+						latestVersion: "0.8.0",
+						reasonCodes: [],
+						requiredVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("Up to date")).toBeTruthy();
+		expect(screen.queryByText("Update failed. Try again.")).toBeNull();
+		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+	});
+
 	it("settles an exact update target when a newer release is already available", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(

@@ -19,3 +19,8 @@ while simultaneous checks still share one fresh request. Startup, reconnect,
 and hourly checks remain as fallbacks, failed connections can retry promptly,
 and active Agent work still finishes before OpenMeld switches the Service
 version.
+
+Update cleanup is also isolated to the current OpenMeld lane, so a Development
+or Canary Service cannot block or be stopped by a Production update. After a
+repair reaches the requested version, the Computer page now shows the current
+healthy result instead of keeping a historical update failure on screen.
