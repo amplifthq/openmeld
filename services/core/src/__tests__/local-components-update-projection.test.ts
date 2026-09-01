@@ -94,9 +94,9 @@ describe("local component update projection", () => {
     });
   });
 
-  it("directs Service 0.3.137 to the current installable release while allowing the 0.3.138 recovery baseline", () => {
+  it("requires Service 0.3.138 before admitting new Wake work", () => {
     const releaseManifest = createReleaseManifest({
-      serviceBundleVersion: "0.3.139",
+      serviceBundleVersion: "0.3.138",
       serviceUpdatePolicy: "available",
     });
     const unsupported = resolveLocalComponentUpdateProjection({
@@ -116,9 +116,9 @@ describe("local component update projection", () => {
       setupAction: "update_service",
       service: {
         installedVersion: "0.3.137",
-        latestVersion: "0.3.139",
+        latestVersion: "0.3.138",
         reasonCodes: ["service.version_outdated"],
-        requiredVersion: "0.3.139",
+        requiredVersion: "0.3.138",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
@@ -128,10 +128,10 @@ describe("local component update projection", () => {
       setupAction: "none",
       service: {
         installedVersion: "0.3.138",
-        latestVersion: "0.3.139",
-        reasonCodes: ["service.version_outdated"],
+        latestVersion: "0.3.138",
+        reasonCodes: ["service.bundle_hash_not_reported"],
         requiredVersion: null,
-        status: "update_available",
+        status: "current",
         updatePolicy: "available",
         wakeBlocked: false,
       },

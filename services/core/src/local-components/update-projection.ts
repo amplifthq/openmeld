@@ -31,9 +31,9 @@ const AGENT_SETUP_COMMAND =
 const SEMVER_RE =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u;
 const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
-// OpenMeld Service 0.3.126 is the first supported recovery baseline. Earlier
-// Services do not carry the complete startup recovery, managed-update, and
-// active Permission/Wake behavior required by the current workstation runtime.
+// OpenMeld Service 0.3.138 is the first release that preserves a resumed Codex
+// thread's controller-owned model when the Binding has no explicit selection.
+// Earlier Services can silently replace that model with the catalog default.
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
