@@ -94,31 +94,31 @@ describe("local component update projection", () => {
     });
   });
 
-  it("directs Service 0.3.125 to the current installable release while allowing the 0.3.126 recovery baseline", () => {
+  it("requires Service 0.3.138 before admitting new Wake work", () => {
     const releaseManifest = createReleaseManifest({
-      serviceBundleVersion: "0.3.127",
+      serviceBundleVersion: "0.3.138",
       serviceUpdatePolicy: "available",
     });
     const unsupported = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest,
       serviceConnected: true,
-      serviceVersion: "0.3.125",
+      serviceVersion: "0.3.137",
     });
     const supported = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest,
       serviceConnected: true,
-      serviceVersion: "0.3.126",
+      serviceVersion: "0.3.138",
     });
 
     expect(unsupported).toMatchObject({
       setupAction: "update_service",
       service: {
-        installedVersion: "0.3.125",
-        latestVersion: "0.3.127",
+        installedVersion: "0.3.137",
+        latestVersion: "0.3.138",
         reasonCodes: ["service.version_outdated"],
-        requiredVersion: "0.3.127",
+        requiredVersion: "0.3.138",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
@@ -127,11 +127,11 @@ describe("local component update projection", () => {
     expect(supported).toMatchObject({
       setupAction: "none",
       service: {
-        installedVersion: "0.3.126",
-        latestVersion: "0.3.127",
-        reasonCodes: ["service.version_outdated"],
+        installedVersion: "0.3.138",
+        latestVersion: "0.3.138",
+        reasonCodes: ["service.bundle_hash_not_reported"],
         requiredVersion: null,
-        status: "update_available",
+        status: "current",
         updatePolicy: "available",
         wakeBlocked: false,
       },
@@ -222,7 +222,7 @@ describe("local component update projection", () => {
         installedVersion: "0.3.125",
         latestVersion: "0.3.125",
         reasonCodes: ["service.version_outdated"],
-        requiredVersion: "0.3.126",
+        requiredVersion: "0.3.138",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
