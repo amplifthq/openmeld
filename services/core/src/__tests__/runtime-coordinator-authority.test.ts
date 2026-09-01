@@ -800,7 +800,7 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
     });
   });
 
-  it("reanchors a legacy waiting boundary that still carries queue age even before its old deadline", () => {
+  it("reanchors a legacy waiting boundary when durable promotion evidence proves it still carries queue age", () => {
     const createdAtMs = NOW_MS - 120_000;
     const updatedAtMs = NOW_MS - 60_000;
     const waitingBoundary = buildWaitingBoundary({
@@ -817,7 +817,9 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
     });
 
     expect(
-      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record, {
+        acceptedAtMs: updatedAtMs,
+      })
     ).toMatchObject({
       acceptedAtMs: updatedAtMs,
       status: "waiting",
@@ -850,9 +852,38 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
     });
 
     expect(
-      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record, {
+        acceptedAtMs: updatedAtMs,
+      })
     ).toMatchObject({
       acceptedAtMs: updatedAtMs,
+      status: "waiting",
+      waitingBoundary,
+    });
+  });
+
+  it("preserves an ordinary legacy waiting boundary without promotion evidence", () => {
+    const createdAtMs = NOW_MS - 120_000;
+    const updatedAtMs = NOW_MS - 60_000;
+    const waitingBoundary = buildWaitingBoundary({
+      deadlineAtMs:
+        createdAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+      observedAtMs: updatedAtMs,
+      softDeadlineAtMs:
+        createdAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+      waitingSinceMs: createdAtMs,
+    });
+    const record = buildHeadLifecycleRecord({
+      createdAtMs,
+      status: "waiting",
+      updatedAtMs,
+      waitingBoundary,
+    });
+
+    expect(
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+    ).toMatchObject({
+      acceptedAtMs: createdAtMs,
       status: "waiting",
       waitingBoundary,
     });

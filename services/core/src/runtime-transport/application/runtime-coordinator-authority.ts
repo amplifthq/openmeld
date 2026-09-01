@@ -2187,12 +2187,17 @@ export const isAcceptedHeadAwaitingExecution = (
   !record.waitingBoundary;
 
 export const normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming = (
-  record: RuntimeCoordinatorHeadLifecycleRecord
+  record: RuntimeCoordinatorHeadLifecycleRecord,
+  promotionEvidence?: { acceptedAtMs: number }
 ): RuntimeCoordinatorHeadLifecycleRecord => {
   if (record.acceptedAtMs !== undefined) {
     return record;
   }
-  const acceptedAtMs = resolveRuntimeCoordinatorHeadAcceptedAtMs(record);
+  const acceptedAtMs =
+    promotionEvidence?.acceptedAtMs ??
+    (record.status === "waiting"
+      ? record.createdAtMs
+      : resolveRuntimeCoordinatorHeadAcceptedAtMs(record));
   if (record.status !== "waiting" || !record.waitingBoundary) {
     return { ...record, acceptedAtMs };
   }

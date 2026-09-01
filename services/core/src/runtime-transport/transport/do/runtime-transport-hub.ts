@@ -324,6 +324,7 @@ import {
   deferPendingAgentProfileWorkPromotion,
   type PendingAgentProfileWorkPromotion,
   readNextPendingAgentProfileWorkPromotionAlarmAtMs,
+  readPendingAgentProfileWorkPromotion,
   readPendingAgentProfileWorkPromotions,
 } from "../../application/agent-profile-work-promotion";
 import {
@@ -11294,8 +11295,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const waitingDecision = resolveRuntimeCoordinatorHeadWaitingDecision(
       request.reasonCode
     );
+    const pendingPromotion =
+      existing.acceptedAtMs === undefined && existing.status === "waiting"
+        ? await readPendingAgentProfileWorkPromotion(
+            this.ctx.storage,
+            identity.targetProfileId
+          )
+        : null;
     const existingWithAcceptanceTiming =
-      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(existing);
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(
+        existing,
+        pendingPromotion?.dispatchId === existing.primaryDispatchId &&
+          pendingPromotion.targetWakeLifecycleId ===
+            existing.targetWakeLifecycleId
+          ? { acceptedAtMs: pendingPromotion.createdAtMs }
+          : undefined
+      );
     const existingBoundary = existingWithAcceptanceTiming.waitingBoundary;
     const waitingSinceMs =
       existingBoundary?.waitingSinceMs ??
@@ -11738,11 +11753,35 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   > {
     const records =
       await this.readRuntimeCoordinatorHeadLifecycleRecordsFromIndex();
+    const legacyWaitingRecords = records.filter(
+      (record) =>
+        record.status === "waiting" && record.acceptedAtMs === undefined
+    );
+    const pendingPromotions =
+      legacyWaitingRecords.length > 0
+        ? await readPendingAgentProfileWorkPromotions(this.ctx.storage)
+        : [];
+    const pendingPromotionByWakeLifecycleId = new Map(
+      pendingPromotions.map((promotion) => [
+        promotion.targetWakeLifecycleId,
+        promotion,
+      ])
+    );
     const normalizedRecords: RuntimeCoordinatorHeadLifecycleRecord[] = [];
     for (const record of records) {
+      const pendingPromotion = pendingPromotionByWakeLifecycleId.get(
+        record.targetWakeLifecycleId
+      );
       const normalized =
         record.status === "waiting"
-          ? normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+          ? normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(
+              record,
+              pendingPromotion?.dispatchId === record.primaryDispatchId &&
+                pendingPromotion.targetProfileId ===
+                  record.targetWakeLifecycleIdentity.targetProfileId
+                ? { acceptedAtMs: pendingPromotion.createdAtMs }
+                : undefined
+            )
           : record;
       if (normalized !== record) {
         await this.writeRuntimeCoordinatorHeadLifecycleRecord(normalized);

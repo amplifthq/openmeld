@@ -45,6 +45,7 @@ import type {
   AgentProfileWorkCoordinatorItem,
   AgentProfileWorkRecoveryGate,
 } from "../runtime-transport/application/agent-profile-work-coordinator";
+import { buildPendingAgentProfileWorkPromotion } from "../runtime-transport/application/agent-profile-work-promotion";
 import {
   buildAgentProfileWorkRecoveryInboxProjectionIntent,
   buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
@@ -7192,6 +7193,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
           waitingSinceMs: createdAtMs,
         },
       });
+      storageRecords.set(
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.pendingPromotion(
+          TARGET_AGENT_PROFILE_ID
+        ),
+        buildPendingAgentProfileWorkPromotion({
+          dispatchId: "dispatch-legacy-aged-successor",
+          nowMs: promotedAtMs,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+          targetWakeLifecycleId: successorIdentity.targetWakeLifecycleId,
+        })
+      );
       spaceFetchRequests.length = 0;
 
       await (
