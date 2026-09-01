@@ -14515,10 +14515,6 @@ export class Space extends DurableObject<CoreBindings> {
     const currentTargetProfileNameSnapshot = normalizeOptionalText(
       dispatchMessage.targetProfileNameSnapshot
     );
-    const enqueuedAtMs =
-      typeof candidate.handedOffAtMs === "number" && candidate.handedOffAtMs > 0
-        ? candidate.handedOffAtMs
-        : dispatchMessage.enqueuedAtMs;
     return {
       ...dispatchMessage,
       ...(deliveryRecoveryReason &&
@@ -14527,7 +14523,6 @@ export class Space extends DurableObject<CoreBindings> {
         : {}),
       ...(sourceSignalSnapshot ? { sourceSignalSnapshot } : {}),
       ...(replyToSnapshot ? { replyToSnapshot } : {}),
-      enqueuedAtMs,
       ...(spaceNameSnapshot && !currentSpaceNameSnapshot
         ? { spaceNameSnapshot }
         : {}),
