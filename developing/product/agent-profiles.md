@@ -34,16 +34,22 @@ An Agent Profile owns product identity and collaboration meaning:
 - visible teammate identity
 - Space membership meaning
 
-An Agent Profile name should describe the AI teammate's practical role, not
-the Runtime, provider, or Agent Controller behind it. When an assistant creates
-an Agent Profile and the user did not supply a name, it should infer a short,
-plain name from the user's current goal and Space context, usually two to four
-words such as `Release Reviewer`, `API Debugger`, or `Docs Editor`. Bare
-infrastructure names such as `Codex`, `Claude`, `Claude Code`, `Cursor`, `Grok Build`, or `OpenCode`,
-and vague names such as `Assistant`, `Agent`, or `Helper`, are not meaningful
-teammate identities. Preserve an explicit user-provided name. If the available
-context does not support a meaningful role, ask for a name before creating the
-profile.
+An Agent Profile name is a practical label for distinguishing the member,
+Session, and execution configuration. Ordinary interactive creation must not
+make a user invent a role or create one profile per task. It proposes a factual,
+editable template name from the owner, selected Agent Controller, model, and,
+when useful, reasoning level, for example `Felix Lu Codex GPT-5.6 Sol Xhigh`.
+The template uses plain spaces rather than possessives or decorative separators.
+If the proposed visible name already exists for that owner, the creation surface
+adds the first available numeric suffix such as `(1)` or `(2)`.
+
+The name field appears at the final review rather than blocking the first
+decision. While the name still matches the managed template, configuration
+changes update it automatically. Once the user edits the name, later
+configuration changes must preserve the user's text. When the Center Agent or
+another assistant creates an Agent from an explicit work goal, it may instead
+infer a short practical role name such as `Release Reviewer` or `API Debugger`.
+An explicit user-provided name always wins.
 
 It does not own local execution truth.
 

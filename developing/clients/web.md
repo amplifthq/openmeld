@@ -1739,6 +1739,18 @@ requests you sent.** A pending badge counts only the existing Core-owned Agent
 Profile Creation Request projection; Web never creates a parallel request
 state.
 
+**Create Agent** opens the route-backed create view in the right pane so reload,
+back, and forward preserve the user's location. Space, People, and other compact
+entry points use the dialog composition. Both surfaces use the same creation
+controller and generator components: local-Agent selection is the first
+decision, lower-frequency configuration stays under an inline **Advanced**
+disclosure, and the editable generated name appears only in the final review.
+Creating for another Organization member remains the same Core-owned Agent
+Profile Creation Request flow; Web does not introduce a simplified parallel
+request model. The previous full-form dialog may remain as a temporary internal
+legacy composition during migration, but new entry points must not fork its
+creation contracts.
+
 Agents reads the same lightweight Profile Directory first, renders Agent
 identity immediately, and loads the Agent Runtime Overview independently.
 Missing initial runtime evidence is shown as checking for the affected Agent;

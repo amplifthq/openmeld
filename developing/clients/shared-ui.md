@@ -27,6 +27,8 @@
 - global UI CSS tokens imported by clients
 - reusable UI-only hooks and helpers such as proximity hover, springs, font
   weights, and `cn`
+- reusable motion mechanics such as pointer-proximity magnification, with
+  stable interaction hit areas and reduced-motion behavior
 
 This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
@@ -48,6 +50,13 @@ import { cn } from "@openmeld/ui/lib/utils";
 Client-local UI files are allowed when the primitive is genuinely client-bound
 or not yet shared. They must not duplicate an existing package export with a
 different API or visual meaning.
+
+`MagnifyingDock` owns only pointer-proximity motion and fixed item geometry. A
+client composes product-specific choices, labels, selection semantics, and
+Fluid shared-layout backgrounds inside its items. Magnification is limited to
+fine-pointer hover, keeps the selectable hit areas stationary, and becomes
+static when reduced motion is requested. Product surfaces must keep choices
+identifiable without requiring the magnification effect.
 
 `FluidSelect` accepts a composed React display value so a product-owned choice
 may pair its text with an existing shared primitive such as `Badge`. The Select
