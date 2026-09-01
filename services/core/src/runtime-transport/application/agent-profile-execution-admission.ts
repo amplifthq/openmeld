@@ -2357,106 +2357,118 @@ export async function writeRuntimeCoordinatorTokenAuthorityWithAdmission(input: 
   nowMs: number;
   storage: ExecutionAdmissionStorage;
 }): Promise<PendingAgentProfileWorkPromotion | null> {
-  return await input.storage.transaction(async (transaction) => {
-    const index = parseExecutionIndexState(
-      await transaction.get<unknown>(EXECUTION_INDEX_STORAGE_KEY)
-    );
-    const generation = index?.generation ?? 1;
-    const targetProfileId = input.authority.executionScope.targetProfileId;
-    const admissionKey = buildExecutionAdmissionStorageKey(targetProfileId);
-    const rawAdmission = await transaction.get<unknown>(admissionKey);
-    const parsedAdmission = parseExecutionAdmissionRecord(rawAdmission);
-    if (rawAdmission !== undefined && !parsedAdmission) {
-      throw new Error("runtime_coordinator.execution_admission_invalid");
-    }
-    const admission =
-      parsedAdmission?.generation === generation
-        ? parsedAdmission
-        : carryExecutionAdmissionIntoGeneration({
-            admission: parsedAdmission,
-            generation,
-            nowMs: input.nowMs,
-            targetProfileId,
-          });
-    const executionId = input.authority.runtimeCoordinatorExecutionId;
-    const boundedExecutionReferences = input.authority.terminalOutcome
-      ? {
-          ids: admission.activeExecutionIds.filter((id) => id !== executionId),
-          overflowed: admission.referencesOverflowed,
-        }
-      : appendBoundedReferences(admission.activeExecutionIds, [executionId]);
-    const admissionAfterAuthorityWrite = {
-      ...admission,
-      activeExecutionIds: boundedExecutionReferences.ids,
-      referencesOverflowed:
-        admission.referencesOverflowed || boundedExecutionReferences.overflowed,
-      revision: admission.revision + 1,
-      updatedAtMs: input.nowMs,
-    } satisfies AgentProfileExecutionAdmissionRecord;
-    const terminalHeadLifecycleId = input.authority.terminalOutcome
-      ? (admissionAfterAuthorityWrite.workItems.find(
-          (item) =>
-            item.dispatchId === input.authority.executionScope.dispatchId
-        )?.targetWakeLifecycleId ?? null)
-      : null;
-    const terminalTransition = input.authority.terminalOutcome
-      ? await removeTerminalExecutionAgentProfileWorkAndPromoteSuccessor({
-          admission: admissionAfterAuthorityWrite,
-          dispatchId: input.authority.executionScope.dispatchId,
-          nowMs: input.nowMs,
-          outcome: resolveAgentProfileWorkTerminalOutcome(
-            input.authority.terminalOutcome
-          ),
-          runtimeCoordinatorExecutionId: executionId,
-          transaction,
-        })
-      : { admission: admissionAfterAuthorityWrite, pendingPromotion: null };
-    const nextAdmission = terminalHeadLifecycleId
-      ? removeRetiredHeadReference(
-          terminalTransition.admission,
-          terminalHeadLifecycleId
-        )
-      : terminalTransition.admission;
-    const rawActiveProfileIds = await transaction.get<unknown>(
-      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
-    );
-    const activeProfileIndex = resolveActiveProfileIndexForWrite({
-      generation,
-      indexReady: index?.status === "ready",
-      raw: rawActiveProfileIds,
-    });
-    if (!activeProfileIndex) {
-      throw new Error("runtime_coordinator.active_profile_index_invalid");
-    }
-    const writes: Promise<unknown>[] = [
-      transaction.put(
-        buildRuntimeCoordinatorTokenAuthorityStorageKey(executionId),
-        input.authority
-      ),
-      shouldDeleteInactiveAdmission(nextAdmission, input.nowMs)
-        ? transaction.delete(admissionKey)
-        : transaction.put(admissionKey, nextAdmission),
-      transaction.put(
-        EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
-        createActiveProfileIndexRecord(
+  return await input.storage.transaction((transaction) =>
+    writeRuntimeCoordinatorTokenAuthorityWithAdmissionInTransaction({
+      authority: input.authority,
+      nowMs: input.nowMs,
+      transaction,
+    })
+  );
+}
+
+export async function writeRuntimeCoordinatorTokenAuthorityWithAdmissionInTransaction(input: {
+  authority: import("@openmeld/schemas/types").RuntimeCoordinatorExecutionTokenAuthorityRecord;
+  nowMs: number;
+  transaction: DurableObjectTransaction;
+}): Promise<PendingAgentProfileWorkPromotion | null> {
+  const { transaction } = input;
+  const index = parseExecutionIndexState(
+    await transaction.get<unknown>(EXECUTION_INDEX_STORAGE_KEY)
+  );
+  const generation = index?.generation ?? 1;
+  const targetProfileId = input.authority.executionScope.targetProfileId;
+  const admissionKey = buildExecutionAdmissionStorageKey(targetProfileId);
+  const rawAdmission = await transaction.get<unknown>(admissionKey);
+  const parsedAdmission = parseExecutionAdmissionRecord(rawAdmission);
+  if (rawAdmission !== undefined && !parsedAdmission) {
+    throw new Error("runtime_coordinator.execution_admission_invalid");
+  }
+  const admission =
+    parsedAdmission?.generation === generation
+      ? parsedAdmission
+      : carryExecutionAdmissionIntoGeneration({
+          admission: parsedAdmission,
           generation,
-          updateActiveProfileIds({
-            active: admissionHasActiveReferences(nextAdmission),
-            activeProfileIds: activeProfileIndex.targetProfileIds,
-            targetProfileId,
-          })
-        )
-      ),
-      retireTerminalHeadCurrentStateInTransaction({
-        authority: input.authority,
-        nextAdmission,
-        targetWakeLifecycleId: terminalHeadLifecycleId,
+          nowMs: input.nowMs,
+          targetProfileId,
+        });
+  const executionId = input.authority.runtimeCoordinatorExecutionId;
+  const boundedExecutionReferences = input.authority.terminalOutcome
+    ? {
+        ids: admission.activeExecutionIds.filter((id) => id !== executionId),
+        overflowed: admission.referencesOverflowed,
+      }
+    : appendBoundedReferences(admission.activeExecutionIds, [executionId]);
+  const admissionAfterAuthorityWrite = {
+    ...admission,
+    activeExecutionIds: boundedExecutionReferences.ids,
+    referencesOverflowed:
+      admission.referencesOverflowed || boundedExecutionReferences.overflowed,
+    revision: admission.revision + 1,
+    updatedAtMs: input.nowMs,
+  } satisfies AgentProfileExecutionAdmissionRecord;
+  const terminalHeadLifecycleId = input.authority.terminalOutcome
+    ? (admissionAfterAuthorityWrite.workItems.find(
+        (item) => item.dispatchId === input.authority.executionScope.dispatchId
+      )?.targetWakeLifecycleId ?? null)
+    : null;
+  const terminalTransition = input.authority.terminalOutcome
+    ? await removeTerminalExecutionAgentProfileWorkAndPromoteSuccessor({
+        admission: admissionAfterAuthorityWrite,
+        dispatchId: input.authority.executionScope.dispatchId,
+        nowMs: input.nowMs,
+        outcome: resolveAgentProfileWorkTerminalOutcome(
+          input.authority.terminalOutcome
+        ),
+        runtimeCoordinatorExecutionId: executionId,
         transaction,
-      }),
-    ];
-    await Promise.all(writes);
-    return terminalTransition.pendingPromotion;
+      })
+    : { admission: admissionAfterAuthorityWrite, pendingPromotion: null };
+  const nextAdmission = terminalHeadLifecycleId
+    ? removeRetiredHeadReference(
+        terminalTransition.admission,
+        terminalHeadLifecycleId
+      )
+    : terminalTransition.admission;
+  const rawActiveProfileIds = await transaction.get<unknown>(
+    EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
+  );
+  const activeProfileIndex = resolveActiveProfileIndexForWrite({
+    generation,
+    indexReady: index?.status === "ready",
+    raw: rawActiveProfileIds,
   });
+  if (!activeProfileIndex) {
+    throw new Error("runtime_coordinator.active_profile_index_invalid");
+  }
+  const writes: Promise<unknown>[] = [
+    transaction.put(
+      buildRuntimeCoordinatorTokenAuthorityStorageKey(executionId),
+      input.authority
+    ),
+    shouldDeleteInactiveAdmission(nextAdmission, input.nowMs)
+      ? transaction.delete(admissionKey)
+      : transaction.put(admissionKey, nextAdmission),
+    transaction.put(
+      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY,
+      createActiveProfileIndexRecord(
+        generation,
+        updateActiveProfileIds({
+          active: admissionHasActiveReferences(nextAdmission),
+          activeProfileIds: activeProfileIndex.targetProfileIds,
+          targetProfileId,
+        })
+      )
+    ),
+    retireTerminalHeadCurrentStateInTransaction({
+      authority: input.authority,
+      nextAdmission,
+      targetWakeLifecycleId: terminalHeadLifecycleId,
+      transaction,
+    }),
+  ];
+  await Promise.all(writes);
+  return terminalTransition.pendingPromotion;
 }
 
 function resolveAgentProfileWorkTerminalOutcome(

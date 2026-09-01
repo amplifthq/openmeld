@@ -530,6 +530,7 @@ import {
   writeRuntimeCoordinatorPreExecutionHandoffRecordToStorage,
   writeRuntimeCoordinatorRunCommandStateInTransaction,
   writeRuntimeCoordinatorRunCommandStateToStorage,
+  writeRuntimeCoordinatorTokenAuthorityInTransaction,
   writeRuntimeCoordinatorTokenAuthorityToStorage,
 } from "../../application/runtime-coordinator-storage";
 import { processRuntimeCoordinatorWatchdogAlarm as processRuntimeCoordinatorWatchdogAlarmWithPorts } from "../../application/runtime-coordinator-watchdog-alarm";
@@ -4818,7 +4819,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           })
         );
       }
-      await writeRuntimeCoordinatorExecutionProjection({
+      await writeRuntimeCoordinatorTerminalExecutionProjectionWithoutRead({
         db: input.db,
         record: buildRuntimeCoordinatorCancelledExecutionRecord({
           nowMs,
@@ -13204,36 +13205,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
 
-    if (projection.status !== "cancellation_requested") {
-      const nextProjection =
-        buildRuntimeCoordinatorExecutionRecordFromCommandState({
-          commandState: currentCommandState,
-          nowMs,
-          status: "cancellation_requested",
-        });
-      await writeRuntimeCoordinatorExecutionProjection({
+    const deliveryPreparation =
+      await this.prepareRuntimeCoordinatorWakeStopDelivery({
+        commandState: currentCommandState,
+        controlMode: wakeStopEligibility.controlMode,
         db,
-        record: nextProjection,
+        input,
+        nowMs,
+        reliability: wakeStopEligibility.reliability,
       });
-      await writeRuntimeCoordinatorExecutionEventFromParts({
-        db,
-        eventType: "cancellation_requested",
-        idempotencyKey: `wake-stop-requested:${input.runtimeCoordinatorExecutionId}`,
-        observedAtMs: nowMs,
-        payload: {
-          controlMode: wakeStopEligibility.controlMode,
-          reason: input.reason ?? null,
-          reliability: wakeStopEligibility.reliability,
-          source: "space_wake_stop",
-        },
-        reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
-        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
-        statusAfter: "cancellation_requested",
-      });
+    if (deliveryPreparation.status === "response") {
+      return deliveryPreparation.response;
     }
 
     const delivery = await this.deliverRuntimeCoordinatorWakeStopControlFrame({
-      commandState: currentCommandState,
+      commandState: deliveryPreparation.commandState,
       controlMode: wakeStopEligibility.controlMode,
       input,
       nowMs,
@@ -13255,6 +13241,125 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       status: "cancellation_requested",
       targetProfileId: input.targetProfileId,
     });
+  }
+
+  private async prepareRuntimeCoordinatorWakeStopDelivery(input: {
+    commandState: RuntimeCoordinatorRunCommandState;
+    controlMode: RuntimeCoordinatorWakeStopControlMode;
+    db: D1Database;
+    input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
+    nowMs: number;
+    reliability: RuntimeCoordinatorWakeStopControlReliability;
+  }): Promise<
+    | { commandState: RuntimeCoordinatorRunCommandState; status: "ready" }
+    | {
+        response: RuntimeTransportRuntimeCoordinatorWakeStopResponse;
+        status: "response";
+      }
+  > {
+    const currentStop =
+      await this.readCurrentRuntimeCoordinatorWakeStopCommandState({
+        commandState: input.commandState,
+        input: input.input,
+      });
+    if (currentStop.status !== "ready") {
+      return {
+        response: buildRuntimeCoordinatorWakeStopPreparationFailureResponse({
+          input: input.input,
+          status: currentStop.status,
+        }),
+        status: "response",
+      };
+    }
+    const currentProjection =
+      await readRuntimeCoordinatorExecutionProjectionById({
+        db: input.db,
+        runtimeCoordinatorExecutionId:
+          input.input.runtimeCoordinatorExecutionId,
+      }).catch(() => null);
+    const projectionResponse =
+      resolveRuntimeCoordinatorWakeStopProjectionResponse({
+        commandState: currentStop.commandState,
+        input: input.input,
+        projection: currentProjection,
+      });
+    if (projectionResponse) {
+      return { response: projectionResponse, status: "response" };
+    }
+    if (currentProjection?.status !== "cancellation_requested") {
+      const projectionWrite = await writeRuntimeCoordinatorExecutionProjection({
+        db: input.db,
+        record: buildRuntimeCoordinatorExecutionRecordFromCommandState({
+          commandState: currentStop.commandState,
+          nowMs: input.nowMs,
+          status: "cancellation_requested",
+        }),
+      });
+      if (projectionWrite === "skipped_stale") {
+        return {
+          response:
+            await this.resolveRacedRuntimeCoordinatorWakeStopResponse(input),
+          status: "response",
+        };
+      }
+      await writeRuntimeCoordinatorExecutionEventFromParts({
+        db: input.db,
+        eventType: "cancellation_requested",
+        idempotencyKey: `wake-stop-requested:${input.input.runtimeCoordinatorExecutionId}`,
+        observedAtMs: input.nowMs,
+        payload: {
+          controlMode: input.controlMode,
+          reason: input.input.reason ?? null,
+          reliability: input.reliability,
+          source: "space_wake_stop",
+        },
+        reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+        runtimeCoordinatorExecutionId:
+          input.input.runtimeCoordinatorExecutionId,
+        statusAfter: "cancellation_requested",
+      });
+    }
+    const deliverableStop =
+      await this.readCurrentRuntimeCoordinatorWakeStopCommandState({
+        commandState: currentStop.commandState,
+        input: input.input,
+      });
+    return deliverableStop.status === "ready"
+      ? deliverableStop
+      : {
+          response: buildRuntimeCoordinatorWakeStopPreparationFailureResponse({
+            input: input.input,
+            status: deliverableStop.status,
+          }),
+          status: "response",
+        };
+  }
+
+  private async resolveRacedRuntimeCoordinatorWakeStopResponse(input: {
+    db: D1Database;
+    input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
+  }): Promise<RuntimeTransportRuntimeCoordinatorWakeStopResponse> {
+    const racedProjection = await readRuntimeCoordinatorExecutionProjectionById(
+      {
+        db: input.db,
+        runtimeCoordinatorExecutionId:
+          input.input.runtimeCoordinatorExecutionId,
+      }
+    ).catch(() => null);
+    return racedProjection?.status === "cancelled"
+      ? buildWakeStopSuccessResponse({
+          runtimeCoordinatorExecutionId:
+            input.input.runtimeCoordinatorExecutionId,
+          status: "already_cancelled",
+          targetProfileId: input.input.targetProfileId,
+        })
+      : buildWakeStopFailureResponse({
+          reasonCode: "runtime_coordinator.wake_stop_state_changed",
+          runtimeCoordinatorExecutionId:
+            input.input.runtimeCoordinatorExecutionId,
+          status: "retry_later",
+          targetProfileId: input.input.targetProfileId,
+        });
   }
 
   private async prepareRuntimeCoordinatorWakeStopCommandState(input: {
@@ -13353,6 +13458,57 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return prepared;
   }
 
+  private async readCurrentRuntimeCoordinatorWakeStopCommandState(input: {
+    commandState: RuntimeCoordinatorRunCommandState;
+    input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
+  }): Promise<
+    | { commandState: RuntimeCoordinatorRunCommandState; status: "ready" }
+    | { status: "scope_missing" | "terminal" }
+  > {
+    return await this.ctx.storage.transaction(async (transaction) => {
+      const [commandState, authority] = await Promise.all([
+        readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          input.input.runtimeCoordinatorExecutionId
+        ),
+        readRuntimeCoordinatorTokenAuthorityFromStorage(
+          transaction,
+          input.input.runtimeCoordinatorExecutionId
+        ),
+      ]);
+      if (
+        !(
+          commandState &&
+          isRuntimeCoordinatorWakeStopCommandScopeMatch({
+            commandState,
+            input: input.input,
+          })
+        ) ||
+        commandState.activeRunId !== input.commandState.activeRunId ||
+        commandState.attemptId !== input.commandState.attemptId
+      ) {
+        return { status: "scope_missing" as const };
+      }
+      const activeTokenRun = authority?.currentRunId
+        ? authority.runsById[authority.currentRunId]
+        : null;
+      if (
+        (authority &&
+          (authority.terminalOutcome !== null ||
+            authority.currentRunId !== commandState.activeRunId ||
+            !activeTokenRun ||
+            activeTokenRun.tokenStatus !== "active")) ||
+        ![
+          RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+          "runtime_coordinator.wake_stop_delivery_pending",
+        ].includes(commandState.lastCommandReasonCode ?? "")
+      ) {
+        return { status: "terminal" as const };
+      }
+      return { commandState, status: "ready" as const };
+    });
+  }
+
   private async markRuntimeCoordinatorWakeStopDeliveryReason(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     nowMs: number;
@@ -13367,9 +13523,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         !current ||
         current.activeRunId !== input.commandState.activeRunId ||
         current.attemptId !== input.commandState.attemptId ||
-        current.lastCommandReasonCode?.startsWith(
-          "runtime_coordinator.wake_stop_"
-        ) !== true
+        current.lastCommandReasonCode !==
+          RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE
       ) {
         return;
       }
@@ -17199,40 +17354,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ).catch(() => null),
     ]);
     if (projection?.status === "cancelled") {
-      if (input.payload.accepted && commandState) {
-        await this.publishRuntimeCoordinatorWakeStoppedNotice({
-          commandState,
-          nowMs: Date.now(),
-          reasonCode:
-            input.payload.reasonCode ??
-            RUNTIME_COORDINATOR_WAKE_STOP_LOCAL_CONTROL_ACCEPTED_REASON_CODE,
-          stopReason: commandState.stopReason ?? null,
-        });
-      }
+      await this.publishAlreadyCancelledRuntimeCoordinatorWakeStopNotice({
+        commandState,
+        payload: input.payload,
+      });
       return;
     }
 
     const nowMs = Date.now();
-    const taskAlreadyAbsentAfterRequestedCancellation =
-      input.payload.accepted === false &&
-      input.payload.reasonCode === "task.not_found" &&
-      projection?.status === "cancellation_requested" &&
-      commandState !== null &&
-      input.payload.target.by === "task" &&
-      input.payload.target.taskId ===
-        commandState.sanitizedDeliveryRequest.payload.taskId;
-    const effectivePayload: RuntimeCoordinatorWakeStopControlPayload =
-      taskAlreadyAbsentAfterRequestedCancellation
-        ? {
-            ...input.payload,
-            accepted: true,
-            resolvedDispatchId: commandState.dispatchId,
-            resolvedRuntimeCoordinatorExecutionId:
-              commandState.runtimeCoordinatorExecutionId,
-            resolvedTaskId:
-              commandState.sanitizedDeliveryRequest.payload.taskId,
-          }
-        : input.payload;
+    const effectivePayload = resolveEffectiveRuntimeCoordinatorWakeStopPayload({
+      commandState,
+      payload: input.payload,
+      projection,
+    });
     if (!effectivePayload.accepted) {
       await this.recordRuntimeCoordinatorWakeStopControlResultEvent({
         db,
@@ -17280,14 +17414,28 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const reasonCode =
       effectivePayload.reasonCode ??
       RUNTIME_COORDINATOR_WAKE_STOP_LOCAL_CONTROL_ACCEPTED_REASON_CODE;
-    const nextAuthority =
-      settleRuntimeCoordinatorAuthorityForCancellationAccepted({
+    const settlement =
+      await this.settleRuntimeCoordinatorWakeStopAuthorityAndCommand({
         authority,
+        commandState,
         nowMs,
         reasonCode,
       });
-    await this.writeRuntimeCoordinatorTokenAuthority(nextAuthority);
-    await writeRuntimeCoordinatorExecutionProjection({
+    if (settlement.status !== "settled") {
+      return;
+    }
+    const settledCommandState = settlement.commandState;
+    this.publishAgentReadinessInvalidated({
+      profileIds: [authority.executionScope.targetProfileId],
+      reason: "agent_profile_work_coordinator.changed",
+    });
+    if (settlement.pendingPromotion) {
+      await this.requestSpaceDispatchOutboxRedriveForPromotion(
+        settlement.pendingPromotion,
+        "terminal_transaction"
+      );
+    }
+    await writeRuntimeCoordinatorTerminalExecutionProjectionWithoutRead({
       db,
       record: buildRuntimeCoordinatorCancelledExecutionRecord({
         nowMs,
@@ -17296,19 +17444,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }),
     });
     const publication = await this.publishRuntimeCoordinatorWakeStoppedNotice({
-      commandState,
+      commandState: settledCommandState,
       nowMs,
       reasonCode,
-      stopReason: commandState.stopReason ?? null,
+      stopReason: settledCommandState.stopReason ?? null,
     });
     if (!publication.ok) {
       const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
-        clientMessageId: commandState.sourceClientMessageId,
-        dispatchId: commandState.dispatchId,
+        clientMessageId: settledCommandState.sourceClientMessageId,
+        dispatchId: settledCommandState.dispatchId,
         sourceSignalId:
-          commandState.sanitizedDeliveryRequest.payload.sourceEventId,
-        spaceId: commandState.sanitizedDeliveryRequest.payload.spaceId,
-        targetProfileId: commandState.targetProfileId,
+          settledCommandState.sanitizedDeliveryRequest.payload.sourceEventId,
+        spaceId: settledCommandState.sanitizedDeliveryRequest.payload.spaceId,
+        targetProfileId: settledCommandState.targetProfileId,
       });
       await this.writeRuntimeCoordinatorPublicationBlocker({
         blockerId: buildRuntimeCoordinatorWakeStoppedNoticePublicationId(
@@ -17316,22 +17464,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ),
         blockerKind: "publication_unavailable",
         db,
-        dispatchId: commandState.dispatchId,
+        dispatchId: settledCommandState.dispatchId,
         nowMs,
         publicationKind: "stopped_notice",
         reasonCode: publication.reasonCode,
         runtimeCoordinatorExecutionId,
-        spaceId: commandState.sanitizedDeliveryRequest.payload.spaceId,
-        targetProfileId: commandState.targetProfileId,
+        spaceId: settledCommandState.sanitizedDeliveryRequest.payload.spaceId,
+        targetProfileId: settledCommandState.targetProfileId,
         targetWakeLifecycleId:
           targetWakeLifecycleIdentity.targetWakeLifecycleId,
       });
     }
     await this.closeLocalAgentStreamOrScheduleRetry({
-      attemptId: commandState.sanitizedDeliveryRequest.attemptId,
-      dispatchId: commandState.dispatchId,
+      attemptId: settledCommandState.sanitizedDeliveryRequest.attemptId,
+      dispatchId: settledCommandState.dispatchId,
       runtimeCoordinatorExecutionId,
-      spaceId: commandState.sanitizedDeliveryRequest.payload.spaceId,
+      spaceId: settledCommandState.sanitizedDeliveryRequest.payload.spaceId,
       terminal: buildStoppedLocalAgentStreamTerminal(reasonCode),
     });
     await this.recordRuntimeCoordinatorWakeStopControlResultEvent({
@@ -17346,11 +17494,94 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       runtimeCoordinatorExecutionId,
       statusAfter: "cancelled",
     });
-    await this.writeRuntimeCoordinatorRunCommandState({
-      ...commandState,
-      lastCommandReasonCode: reasonCode,
-      lastWatchdogCheckAtMs: null,
-      updatedAtMs: nowMs,
+  }
+
+  private async publishAlreadyCancelledRuntimeCoordinatorWakeStopNotice(input: {
+    commandState: RuntimeCoordinatorRunCommandState | null;
+    payload: RuntimeCoordinatorWakeStopControlPayload;
+  }): Promise<void> {
+    if (!(input.payload.accepted && input.commandState)) {
+      return;
+    }
+    await this.publishRuntimeCoordinatorWakeStoppedNotice({
+      commandState: input.commandState,
+      nowMs: Date.now(),
+      reasonCode:
+        input.payload.reasonCode ??
+        RUNTIME_COORDINATOR_WAKE_STOP_LOCAL_CONTROL_ACCEPTED_REASON_CODE,
+      stopReason: input.commandState.stopReason ?? null,
+    });
+  }
+
+  private async settleRuntimeCoordinatorWakeStopAuthorityAndCommand(input: {
+    authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
+    commandState: RuntimeCoordinatorRunCommandState;
+    nowMs: number;
+    reasonCode: string;
+  }): Promise<
+    | {
+        commandState: RuntimeCoordinatorRunCommandState;
+        pendingPromotion: PendingAgentProfileWorkPromotion | null;
+        status: "settled";
+      }
+    | { status: "stale" }
+  > {
+    return await this.ctx.storage.transaction(async (transaction) => {
+      const [currentCommandState, currentAuthority] = await Promise.all([
+        readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          input.commandState.runtimeCoordinatorExecutionId
+        ),
+        readRuntimeCoordinatorTokenAuthorityFromStorage(
+          transaction,
+          input.authority.runtimeCoordinatorExecutionId
+        ),
+      ]);
+      const activeTokenRun = currentAuthority?.currentRunId
+        ? currentAuthority.runsById[currentAuthority.currentRunId]
+        : null;
+      if (
+        !(currentCommandState && currentAuthority) ||
+        currentCommandState.activeRunId !== input.commandState.activeRunId ||
+        currentCommandState.attemptId !== input.commandState.attemptId ||
+        currentAuthority.currentRunId !== input.authority.currentRunId ||
+        currentAuthority.terminalOutcome !== null ||
+        !activeTokenRun ||
+        activeTokenRun.tokenStatus !== "active" ||
+        ![
+          RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+          "runtime_coordinator.wake_stop_delivery_pending",
+        ].includes(currentCommandState.lastCommandReasonCode ?? "")
+      ) {
+        return { status: "stale" as const };
+      }
+      const nextAuthority =
+        settleRuntimeCoordinatorAuthorityForCancellationAccepted({
+          authority: currentAuthority,
+          nowMs: input.nowMs,
+          reasonCode: input.reasonCode,
+        });
+      const nextCommandState: RuntimeCoordinatorRunCommandState = {
+        ...currentCommandState,
+        lastCommandReasonCode: input.reasonCode,
+        lastWatchdogCheckAtMs: null,
+        updatedAtMs: input.nowMs,
+      };
+      const pendingPromotion =
+        await writeRuntimeCoordinatorTokenAuthorityInTransaction(
+          transaction,
+          nextAuthority,
+          input.nowMs
+        );
+      await writeRuntimeCoordinatorRunCommandStateInTransaction(
+        transaction,
+        nextCommandState
+      );
+      return {
+        commandState: nextCommandState,
+        pendingPromotion,
+        status: "settled" as const,
+      };
     });
   }
 
@@ -18820,6 +19051,74 @@ const isRuntimeCoordinatorWakeStopScopeMatch = (input: {
     input.projection.sourceClientMessageId ===
       input.commandState.sourceClientMessageId
   );
+};
+
+const resolveRuntimeCoordinatorWakeStopProjectionResponse = (input: {
+  commandState: RuntimeCoordinatorRunCommandState;
+  input: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
+  projection: RuntimeCoordinatorExecutionRecord | null;
+}): RuntimeTransportRuntimeCoordinatorWakeStopResponse | null => {
+  if (
+    !(
+      input.projection &&
+      isRuntimeCoordinatorWakeStopScopeMatch({
+        commandState: input.commandState,
+        input: input.input,
+        projection: input.projection,
+      })
+    )
+  ) {
+    return buildWakeStopFailureResponse({
+      reasonCode: "runtime_coordinator.wake_stop_scope_missing",
+      runtimeCoordinatorExecutionId: input.input.runtimeCoordinatorExecutionId,
+      status: "retry_later",
+      targetProfileId: input.input.targetProfileId,
+    });
+  }
+  if (input.projection.status === "cancelled") {
+    return buildWakeStopSuccessResponse({
+      runtimeCoordinatorExecutionId: input.input.runtimeCoordinatorExecutionId,
+      status: "already_cancelled",
+      targetProfileId: input.input.targetProfileId,
+    });
+  }
+  return input.projection.status === "reply_published" ||
+    input.projection.status === "failed_terminal" ||
+    input.projection.terminalOutcome !== null
+    ? buildWakeStopFailureResponse({
+        reasonCode: "runtime_coordinator.wake_stop_execution_terminal",
+        runtimeCoordinatorExecutionId:
+          input.input.runtimeCoordinatorExecutionId,
+        status: "not_stoppable",
+        targetProfileId: input.input.targetProfileId,
+      })
+    : null;
+};
+
+const resolveEffectiveRuntimeCoordinatorWakeStopPayload = (input: {
+  commandState: RuntimeCoordinatorRunCommandState | null;
+  payload: RuntimeCoordinatorWakeStopControlPayload;
+  projection: RuntimeCoordinatorExecutionRecord | null;
+}): RuntimeCoordinatorWakeStopControlPayload => {
+  const taskAlreadyAbsentAfterRequestedCancellation =
+    input.payload.accepted === false &&
+    input.payload.reasonCode === "task.not_found" &&
+    input.projection?.status === "cancellation_requested" &&
+    input.commandState !== null &&
+    input.payload.target.by === "task" &&
+    input.payload.target.taskId ===
+      input.commandState.sanitizedDeliveryRequest.payload.taskId;
+  if (!(taskAlreadyAbsentAfterRequestedCancellation && input.commandState)) {
+    return input.payload;
+  }
+  return {
+    ...input.payload,
+    accepted: true,
+    resolvedDispatchId: input.commandState.dispatchId,
+    resolvedRuntimeCoordinatorExecutionId:
+      input.commandState.runtimeCoordinatorExecutionId,
+    resolvedTaskId: input.commandState.sanitizedDeliveryRequest.payload.taskId,
+  };
 };
 
 const isRuntimeCoordinatorWakeStopCommandScopeMatch = (input: {

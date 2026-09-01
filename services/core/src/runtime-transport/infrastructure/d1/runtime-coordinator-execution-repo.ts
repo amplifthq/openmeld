@@ -156,7 +156,7 @@ export const writeRuntimeCoordinatorExecutionProjection = async (input: {
       return "skipped_stale";
     }
 
-    await input.db
+    const updateResult = await input.db
       .prepare(
         `
           UPDATE openMeldDaemon_runtime_coordinator_executions
@@ -179,6 +179,8 @@ export const writeRuntimeCoordinatorExecutionProjection = async (input: {
             lease_epoch = ?,
             updated_at_ms = ?
           WHERE runtime_coordinator_execution_id = ?
+            AND status = ?
+            AND updated_at_ms = ?
         `
       )
       .bind(
@@ -199,10 +201,12 @@ export const writeRuntimeCoordinatorExecutionProjection = async (input: {
         record.legacyPointers.connectionGeneration,
         record.legacyPointers.leaseEpoch,
         record.updatedAtMs,
-        record.runtimeCoordinatorExecutionId
+        record.runtimeCoordinatorExecutionId,
+        existing.status,
+        existing.updated_at_ms
       )
       .run();
-    return "updated";
+    return updateResult.meta.changes === 0 ? "skipped_stale" : "updated";
   }
 
   await input.db

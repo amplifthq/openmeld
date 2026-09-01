@@ -191,6 +191,10 @@ const createRecordingD1 = (input?: {
   let remainingTerminalProjectionWriteFailures =
     input?.terminalProjectionWriteFailures ?? 0;
   let projectionReadFailureCountdown: number | null = null;
+  let nextProjectionReadGate: {
+    gate: Promise<void>;
+    onStarted: () => void;
+  } | null = null;
   const projectionRows = new Map<
     string,
     RecordingRuntimeCoordinatorExecutionRow
@@ -242,7 +246,7 @@ const createRecordingD1 = (input?: {
             }
             return { results: [] };
           }),
-          first: vi.fn(() => {
+          first: vi.fn(async () => {
             if (query.includes("FROM openmeld_profiles")) {
               return (
                 input?.agentProfileRow ?? {
@@ -389,6 +393,12 @@ const createRecordingD1 = (input?: {
               if (
                 query.includes("WHERE runtime_coordinator_execution_id = ?")
               ) {
+                if (nextProjectionReadGate) {
+                  const pendingGate = nextProjectionReadGate;
+                  nextProjectionReadGate = null;
+                  pendingGate.onStarted();
+                  await pendingGate.gate;
+                }
                 if (projectionReadFailureCountdown !== null) {
                   if (projectionReadFailureCountdown === 0) {
                     projectionReadFailureCountdown = null;
@@ -777,6 +787,13 @@ const createRecordingD1 = (input?: {
                 projectionRows.get(String(runtimeCoordinatorExecutionId)) ?? {};
               const existingStatus = String(existing.status ?? "");
               if (
+                query.includes("AND status = ?") &&
+                (existingStatus !== String(params[18]) ||
+                  Number(existing.updated_at_ms) !== Number(params[19]))
+              ) {
+                return { meta: { changes: 0 } };
+              }
+              if (
                 ["cancelled", "failed_terminal", "reply_published"].includes(
                   existingStatus
                 ) &&
@@ -820,6 +837,12 @@ const createRecordingD1 = (input?: {
     eventRows,
     failProjectionReadAfter: (successfulReads: number) => {
       projectionReadFailureCountdown = successfulReads;
+    },
+    gateNextProjectionRead: (input: {
+      gate: Promise<void>;
+      onStarted: () => void;
+    }) => {
+      nextProjectionReadGate = input;
     },
     inboxRows,
     interactionInboxRows,
@@ -2435,6 +2458,7 @@ const enableLocalAgentInteraction = (state: RuntimeTransportMutableState) => {
 
 const submitWakeStopLocalControlResult = async (input: {
   accepted?: boolean;
+  awaitCompletion?: boolean;
   hub: RuntimeTransportHub;
   includeResolvedIdentity?: boolean;
   note?: string | null;
@@ -2479,6 +2503,9 @@ const submitWakeStopLocalControlResult = async (input: {
       },
     },
   });
+  if (input.awaitCompletion === false) {
+    return;
+  }
   await Promise.all(input.waitUntilTasks.splice(0));
 };
 
@@ -9476,11 +9503,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const controllerReportReadStarted = new Promise<void>((resolve) => {
       markControllerReportReadStarted = resolve;
     });
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness({
-      agentControllerReportReadGate: controllerReportGate,
-      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
-      onAgentControllerReportRead: () => markControllerReportReadStarted?.(),
-    });
+    const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
+      createHarness({
+        agentControllerReportReadGate: controllerReportGate,
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+        onAgentControllerReportRead: () => markControllerReportReadStarted?.(),
+      });
     await issueDeliveryToken({ hub, sentFrames, socket, state });
     enableWakeStopControl(state, "cancel");
 
@@ -9490,11 +9518,44 @@ describe("runtime transport runtime coordinator transport contract", () => {
       RUNTIME_COORDINATOR_EXECUTION_ID
     );
     storageRecords.delete(commandStateKey);
+    const projection = recordingD1.projectionRows.get(
+      RUNTIME_COORDINATOR_EXECUTION_ID
+    );
+    if (!projection) {
+      throw new Error("Expected RuntimeCoordinator projection.");
+    }
+    recordingD1.projectionRows.set(RUNTIME_COORDINATOR_EXECUTION_ID, {
+      ...projection,
+      status: "cancelled",
+      terminal_outcome_json: JSON.stringify({
+        kind: "cancelled",
+        observedAtMs: 1_700_000_003_000,
+        reasonCode: "test.concurrent_stop",
+      }),
+      updated_at_ms: 1_700_000_003_000,
+    });
+    const localControlFrameCount = sentFrames.filter(
+      (frame) =>
+        (frame as { code?: unknown }).code ===
+        "daemon.local_agent_control.cancel"
+    ).length;
 
     releaseControllerReport?.();
     const stopResponse = await stopResponsePromise;
     expect(stopResponse.status).toBe(200);
     expect(storageRecords.has(commandStateKey)).toBe(false);
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({
+      status: "cancelled",
+    });
+    expect(
+      sentFrames.filter(
+        (frame) =>
+          (frame as { code?: unknown }).code ===
+          "daemon.local_agent_control.cancel"
+      )
+    ).toHaveLength(localControlFrameCount);
   });
 
   it("records Wake Stop through interrupt delivery for interrupt-only RuntimeCoordinator executions", async () => {
@@ -9935,6 +9996,99 @@ describe("runtime transport runtime coordinator transport contract", () => {
       reasonCode: "runtime_coordinator.publication_already_visible",
       status: "already_visible",
     });
+  });
+
+  it("does not let a late Wake Stop receipt overwrite a newer terminal state", async () => {
+    let releaseProjectionRead: (() => void) | undefined;
+    const projectionReadGate = new Promise<void>((resolve) => {
+      releaseProjectionRead = resolve;
+    });
+    let markProjectionReadStarted: (() => void) | undefined;
+    const projectionReadStarted = new Promise<void>((resolve) => {
+      markProjectionReadStarted = resolve;
+    });
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      spaceFetchRequests,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness({
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+    });
+    await issueDeliveryToken({ hub, sentFrames, socket, state });
+    enableWakeStopControl(state);
+    await requestRuntimeCoordinatorWakeStop(hub);
+    recordingD1.calls.length = 0;
+    recordingD1.gateNextProjectionRead({
+      gate: projectionReadGate,
+      onStarted: () => markProjectionReadStarted?.(),
+    });
+
+    await submitWakeStopLocalControlResult({
+      awaitCompletion: false,
+      hub,
+      socket,
+      state,
+      waitUntilTasks,
+    });
+    const receiptSettlement = Promise.all(waitUntilTasks.splice(0));
+    await projectionReadStarted;
+
+    const authorityEntry = [...storageRecords.entries()].find(([key]) =>
+      key.startsWith("runtime-coordinator:execution-token-authority:")
+    );
+    if (!authorityEntry) {
+      throw new Error("Expected RuntimeCoordinator token authority.");
+    }
+    const authority =
+      authorityEntry[1] as RuntimeCoordinatorExecutionTokenAuthorityRecord;
+    if (!authority.currentRunId) {
+      throw new Error("Expected an active RuntimeCoordinator token run.");
+    }
+    const retiredAuthority = retireRuntimeCoordinatorTokenRun({
+      authority,
+      reasonCode: "execution_token_revoked",
+      retiredAtMs: 1_700_000_040_000,
+      retentionExpiresAtMs: 1_700_000_100_000,
+      runId: authority.currentRunId,
+      tokenStatus: "revoked",
+    });
+    storageRecords.set(authorityEntry[0], {
+      ...retiredAuthority,
+      terminalOutcome: {
+        finalizedAtMs: 1_700_000_040_000,
+        reasonCode: "test.concurrent_terminal",
+        replySignalId: null,
+        status: "failed_terminal",
+      },
+    });
+    const commandStateKey = buildRuntimeCoordinatorRunCommandStateStorageKey(
+      RUNTIME_COORDINATOR_EXECUTION_ID
+    );
+    storageRecords.delete(commandStateKey);
+
+    releaseProjectionRead?.();
+    await receiptSettlement;
+
+    expect(storageRecords.has(commandStateKey)).toBe(false);
+    expect(
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+    ).toMatchObject({
+      terminalOutcome: {
+        reasonCode: "test.concurrent_terminal",
+        status: "failed_terminal",
+      },
+    });
+    expect(spaceFetchRequests).toEqual([]);
+    expect(
+      getRuntimeCoordinatorEventCalls(recordingD1.calls).filter(
+        (call) => call.params[2] === "cancellation_control_accepted"
+      )
+    ).toEqual([]);
   });
 
   it("durably retries an accepted Wake Stop stream close until Space accepts it", async () => {
