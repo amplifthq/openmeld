@@ -20,6 +20,10 @@ and hourly checks remain as fallbacks, failed connections can retry promptly,
 and active Agent work still finishes before OpenMeld switches the Service
 version.
 
+The CLI update prompt now also restarts a newly installed standalone binary
+without treating its internal build path as a command, so the menu continues
+cleanly after the upgrade.
+
 Update cleanup is also isolated to the current OpenMeld lane, so a Development
 or Canary Service cannot block or be stopped by a Production update. After a
 repair reaches the requested version, the Computer page now shows the current
