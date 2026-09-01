@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T18:32:35.805Z",
+  "updatedAt": "2026-09-01T19:31:14.815Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.140",
+      "packageVersion": "0.3.141",
       "updatePolicy": "available",
-      "reason": "Existing CLI update, setup, status, and self-rescue commands remain compatible with current cloud services."
+      "reason": "No CLI command or wire contract changed; 0.3.140 and 0.3.141 remain compatible with current cloud services."
     },
     "service": {
-      "bundleHash": "bfc1cfbcfc2501f5ae8101bc4a3981a70aef5c0e4e24660eb47b211fec165a53",
-      "bundleVersion": "0.3.140",
+      "bundleHash": "2340daa8a67506c7ca5033c163781dccafe1e8056cd3bb477728d775ce24abec",
+      "bundleVersion": "0.3.141",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services remain safe for Wake work; 0.3.140 refreshes update metadata without changing runtime contracts."
+      "reason": "The fix only narrows local lifecycle process ownership; existing Services remain protocol-compatible and can finish active Agent work before updating."
     },
     "skills": {
       "bundleHash": "73e31d09533eac76338fb95bcfab855aeeca940ca587925095ab0c63371abf7d",
