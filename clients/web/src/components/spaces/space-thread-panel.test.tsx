@@ -10,6 +10,7 @@ import type {
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -141,6 +142,22 @@ describe("SpaceThreadPanel", () => {
 		expect(pendingActions.compareDocumentPosition(composer)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
+	});
+
+	it("marks only the open thread read after its latest message stays visible", async () => {
+		vi.useFakeTimers();
+		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
+		const latestTs = Date.UTC(2026, 4, 27, 10, 0, 9);
+		renderThreadPanel({
+			onViewedThroughTs,
+			signals: [createTextSignal({ ts: latestTs })],
+		});
+
+		await act(async () => {
+			vi.advanceTimersByTime(800);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenCalledWith(latestTs);
 	});
 
 	it("keeps the Thread composer actions flush and aligned while sending", () => {

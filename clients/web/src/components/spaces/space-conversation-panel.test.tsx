@@ -946,19 +946,74 @@ describe("SpaceConversationPanel", () => {
 		).toBeLessThan(conversationItems.indexOf(firstNewMessage as Element));
 	});
 
-	it("labels the floating jump control with the unread message count", () => {
+	it("shows and temporarily hides the lower new-message control", async () => {
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return domRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					return domRect({ bottom: 760, top: 700 });
+				}
+				return domRect({ bottom: 0, top: 0 });
+			});
 		renderSpaceConversationPanel({
 			firstUnreadSignalId: "signal-1",
-			timelineItems: [createTimelineItem({ text: "First new message" })],
+			timelineItems: [
+				createTimelineItem({ id: "signal-1", text: "First new message" }),
+				createTimelineItem({ id: "signal-2", text: "Second new message" }),
+				createTimelineItem({ id: "signal-3", text: "Third new message" }),
+			],
+			unreadTargets: [
+				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
+				{ occurredAtMs: 2, signalId: "signal-2", threadRootSignalId: null },
+				{ occurredAtMs: 3, signalId: "signal-3", threadRootSignalId: null },
+			],
 			unreadCount: 3,
 			unreadStateReady: true,
 		});
 
-		const jumpButton = screen.getByRole("button", {
-			name: "3 new messages. Jump to first new message",
+		const jumpButton = await screen.findByRole("button", {
+			name: "3 new messages. Jump to the nearest new message",
 		});
 		expect(jumpButton.textContent).toContain("3 new messages");
-		expect(jumpButton.className).toContain("rounded-full");
+		fireEvent.click(
+			screen.getByRole("button", { name: "Hide 3 new messages" })
+		);
+		expect(document.body.contains(jumpButton)).toBe(false);
+		rectSpy.mockRestore();
+	});
+
+	it("shows and temporarily hides the upper new-message control", async () => {
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return domRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					return domRect({ bottom: -40, top: -100 });
+				}
+				return domRect({ bottom: 0, top: 0 });
+			});
+		renderSpaceConversationPanel({
+			timelineItems: [createTimelineItem({ id: "signal-1" })],
+			unreadTargets: [
+				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		});
+
+		const jumpButton = await screen.findByRole("button", {
+			name: "1 new message above. Jump to the nearest new message",
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Hide 1 new message above" })
+		);
+		expect(document.body.contains(jumpButton)).toBe(false);
+		rectSpy.mockRestore();
 	});
 
 	it("opens date shortcuts and delegates a selected history window", async () => {
@@ -4330,6 +4385,7 @@ function createSpaceConversationPanelProps(
 		threadPreviews: [],
 		threads: [],
 		timelineItems: [],
+		unreadTargets: [],
 		unreadCount: 0,
 		unreadStateReady: false,
 		wakeFailureTargetContextsByProfileId: new Map(),
@@ -4355,6 +4411,20 @@ function createReadyComposerFile() {
 		progress: 1,
 		publishMutationId: "publish-file-1",
 		status: "ready" as const,
+	};
+}
+
+function domRect(input: { bottom: number; top: number }): DOMRect {
+	return {
+		bottom: input.bottom,
+		height: input.bottom - input.top,
+		left: 0,
+		right: 0,
+		toJSON: () => ({}),
+		top: input.top,
+		width: 0,
+		x: 0,
+		y: input.top,
 	};
 }
 
