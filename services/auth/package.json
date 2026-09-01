@@ -23,7 +23,7 @@
     "sync:stg": "pnpm run sync:secrets:stg && pnpm run sync:config:stg",
     "test": "pnpm run test:unit",
     "test:full": "pnpm run test && pnpm run test:runtime",
-    "test:unit": "pnpm run build:lazy-runtime-modules && vitest run",
+    "test:unit": "vitest run",
     "test:runtime": "node ./tests/auth-worker-runtime-smoke.mjs",
     "test:watch": "vitest",
     "typecheck": "pnpm run typecheck:worker && pnpm run typecheck:tooling",

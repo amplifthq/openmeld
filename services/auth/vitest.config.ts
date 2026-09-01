@@ -13,6 +13,7 @@ export default defineConfig({
   test: {
     environment: "node",
     exclude: ["tests/**/*.worker.test.ts"],
+    globalSetup: ["./tests/support/build-lazy-runtime.global-setup.mjs"],
     include: ["tests/**/*.test.ts", "tests/**/*.test.mjs"],
   },
 });
