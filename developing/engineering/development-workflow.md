@@ -167,6 +167,10 @@ environment callback, or no coordination best fits the actual work.
   the latest-main combination when available; strict up-to-date protection owns
   it otherwise. Agents should inspect those facts and choose their next action
   without CI/CD making a business or review decision for them.
+- For a coordinated delivery train, integrate compatible ready leaf branches
+  into one batch PR, sync `main` once, and run one Final Candidate on that
+  combined tree. Leaf work keeps focused evidence; it does not need a separate
+  paid candidate that will be invalidated by the same train.
 
 ## Standard Lanes
 
