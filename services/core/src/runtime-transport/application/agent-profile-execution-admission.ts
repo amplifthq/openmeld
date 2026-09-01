@@ -1798,11 +1798,21 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
     }
 > {
   return await input.storage.transaction(async (transaction) => {
+    const executionId = input.authority.runtimeCoordinatorExecutionId;
     const headLifecycleStorageKey =
       buildRuntimeCoordinatorHeadLifecycleStorageKey(
         input.targetWakeLifecycleId
       );
-    const rawHead = await transaction.get<unknown>(headLifecycleStorageKey);
+    const runCommandStateStorageKey =
+      buildRuntimeCoordinatorRunCommandStateStorageKey(executionId);
+    const tokenAuthorityStorageKey =
+      buildRuntimeCoordinatorTokenAuthorityStorageKey(executionId);
+    const [rawHead, rawExistingCommandState, rawExistingAuthority] =
+      await Promise.all([
+        transaction.get<unknown>(headLifecycleStorageKey),
+        transaction.get<unknown>(runCommandStateStorageKey),
+        transaction.get<unknown>(tokenAuthorityStorageKey),
+      ]);
     if (rawHead === undefined) {
       return {
         ok: false,
@@ -1813,7 +1823,6 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
       throw new Error("runtime_coordinator.head_lifecycle_record_invalid");
     }
 
-    const executionId = input.authority.runtimeCoordinatorExecutionId;
     const targetProfileId = input.authority.executionScope.targetProfileId;
     const deliveryRequest = input.commandState.sanitizedDeliveryRequest;
     const deliveryPayload = deliveryRequest.payload;
@@ -1867,26 +1876,20 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
         reasonCode: "runtime_coordinator.head_link_scope_mismatch" as const,
       };
     }
-    if (rawHead.status === "stopped_before_execution") {
+    const deliveryFence =
+      resolveRuntimeCoordinatorAcceptedDeliveryHeadFence({
+        executionId,
+        head: rawHead,
+      }) ??
+      resolveRuntimeCoordinatorAcceptedDeliveryExistingStateFence({
+        authority: input.authority,
+        rawExistingAuthority,
+        rawExistingCommandState,
+      });
+    if (deliveryFence) {
       return {
         ok: false,
-        reasonCode: "runtime_coordinator.pre_agent_stop_requested" as const,
-      };
-    }
-    if (rawHead.status === "publication_intent_ready") {
-      return {
-        ok: false,
-        reasonCode:
-          "runtime_coordinator.head_publication_intent_already_ready" as const,
-      };
-    }
-    if (
-      rawHead.runtimeCoordinatorExecutionId &&
-      rawHead.runtimeCoordinatorExecutionId !== executionId
-    ) {
-      return {
-        ok: false,
-        reasonCode: "runtime_coordinator.head_execution_link_mismatch" as const,
+        reasonCode: deliveryFence,
       };
     }
 
@@ -1922,14 +1925,8 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
       ...new Set([...runCommandStateIds, executionId]),
     ].sort();
     await Promise.all([
-      transaction.put(
-        buildRuntimeCoordinatorTokenAuthorityStorageKey(executionId),
-        input.authority
-      ),
-      transaction.put(
-        buildRuntimeCoordinatorRunCommandStateStorageKey(executionId),
-        input.commandState
-      ),
+      transaction.put(tokenAuthorityStorageKey, input.authority),
+      transaction.put(runCommandStateStorageKey, input.commandState),
       transaction.put(
         RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
         nextRunCommandStateIds
@@ -1938,6 +1935,76 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
     ]);
     return { ok: true };
   });
+}
+
+function resolveRuntimeCoordinatorAcceptedDeliveryHeadFence(input: {
+  executionId: string;
+  head: RuntimeCoordinatorHeadLifecycleRecord;
+}):
+  | "runtime_coordinator.head_execution_link_mismatch"
+  | "runtime_coordinator.head_publication_intent_already_ready"
+  | "runtime_coordinator.pre_agent_stop_requested"
+  | null {
+  if (input.head.status === "stopped_before_execution") {
+    return "runtime_coordinator.pre_agent_stop_requested";
+  }
+  if (input.head.status === "publication_intent_ready") {
+    return "runtime_coordinator.head_publication_intent_already_ready";
+  }
+  if (
+    input.head.runtimeCoordinatorExecutionId &&
+    input.head.runtimeCoordinatorExecutionId !== input.executionId
+  ) {
+    return "runtime_coordinator.head_execution_link_mismatch";
+  }
+  return null;
+}
+
+function resolveRuntimeCoordinatorAcceptedDeliveryExistingStateFence(input: {
+  authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
+  rawExistingAuthority: unknown;
+  rawExistingCommandState: unknown;
+}):
+  | "runtime_coordinator.head_execution_link_mismatch"
+  | "runtime_coordinator.pre_agent_stop_requested"
+  | null {
+  const existingCommandState = isRuntimeCoordinatorRunCommandState(
+    input.rawExistingCommandState
+  )
+    ? input.rawExistingCommandState
+    : null;
+  if (
+    existingCommandState?.lastCommandReasonCode?.startsWith(
+      RUNTIME_COORDINATOR_WAKE_STOP_REASON_CODE_PREFIX
+    )
+  ) {
+    return "runtime_coordinator.pre_agent_stop_requested";
+  }
+  if (input.rawExistingAuthority === undefined) {
+    return null;
+  }
+  const existingAuthorityParse =
+    runtimeCoordinatorExecutionTokenAuthorityRecordSchema.safeParse(
+      input.rawExistingAuthority
+    );
+  if (!existingAuthorityParse.success) {
+    throw new Error("runtime_coordinator.execution_token_authority_invalid");
+  }
+  const existingAuthority = existingAuthorityParse.data;
+  const nextRun = input.authority.currentRunId
+    ? input.authority.runsById[input.authority.currentRunId]
+    : null;
+  const expectedPreviousRunId = nextRun?.supersedesRunId ?? null;
+  if (
+    existingAuthority.runtimeCoordinatorExecutionId !==
+      input.authority.runtimeCoordinatorExecutionId ||
+    existingAuthority.terminalOutcome !== null ||
+    (existingAuthority.currentRunId !== input.authority.currentRunId &&
+      existingAuthority.currentRunId !== expectedPreviousRunId)
+  ) {
+    return "runtime_coordinator.head_execution_link_mismatch";
+  }
+  return null;
 }
 
 export async function rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission(input: {

@@ -308,7 +308,6 @@ import {
   markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy,
   markRuntimeCoordinatorAgentProfileWorkUsageAvailable,
   prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission,
-  RUNTIME_COORDINATOR_WAKE_STOP_REASON_CODE_PREFIX,
   readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
   readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
@@ -10202,22 +10201,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               : "runtime_coordinator.head_execution_link_unavailable",
         };
       }
-      const deliveryCommandWrite =
-        await this.writeRuntimeCoordinatorRunCommandStateFromDelivery({
-          nowMs: Date.now(),
-          request: acceptedRequest,
-          reasonCode: "runtime_coordinator.delivery_command_stored",
-        });
-      if (deliveryCommandWrite !== "stored") {
-        return {
-          ok: false,
-          reasonCode:
-            deliveryCommandWrite === "wake_stop_fenced"
-              ? "runtime_coordinator.pre_agent_stop_requested"
-              : "runtime_coordinator.execution_token_unavailable",
-        };
-      }
-      await this.syncHousekeepingAlarm();
+      this.scheduledHousekeepingAlarmAtMs = alarmAtMs;
+      this.publishAgentReadinessInvalidated({
+        profileIds: [request.payload.targetProfileId],
+        reason: "agent_profile_work_coordinator.changed",
+      });
       return {
         ok: true,
         request: acceptedRequest,
@@ -11908,11 +11896,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     nowMs: number;
     reasonCode: string;
     request: RuntimeTransportDeliverDispatchRequest;
-  }): Promise<"stored" | "terminal_fenced" | "wake_stop_fenced"> {
+  }): Promise<RuntimeCoordinatorRunCommandState> {
     const executionToken = input.request.payload.executionToken ?? null;
     if (!executionToken) {
-      return "terminal_fenced";
+      throw new Error("runtime_coordinator.execution_token_unavailable");
     }
+    const existing = await this.readRuntimeCoordinatorRunCommandState(
+      input.request.payload.runtimeCoordinatorExecutionId
+    );
     const deliverySession = this.state.sessionsById.get(
       input.request.daemonSessionId
     );
@@ -11926,75 +11917,42 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         "runtime_coordinator.delivery_route_identity_unavailable"
       );
     }
-    return await this.ctx.storage.transaction(async (transaction) => {
-      const runtimeCoordinatorExecutionId =
-        input.request.payload.runtimeCoordinatorExecutionId;
-      const [existing, authority] = await Promise.all([
-        readRuntimeCoordinatorRunCommandStateFromStorage(
-          transaction,
-          runtimeCoordinatorExecutionId
-        ),
-        readRuntimeCoordinatorTokenAuthorityFromStorage(
-          transaction,
-          runtimeCoordinatorExecutionId
-        ),
-      ]);
-      if (
-        existing?.lastCommandReasonCode?.startsWith(
-          RUNTIME_COORDINATOR_WAKE_STOP_REASON_CODE_PREFIX
-        )
-      ) {
-        return "wake_stop_fenced" as const;
-      }
-      const activeRun = authority?.runsById[executionToken.runId] ?? null;
-      if (
-        !authority ||
-        authority.currentRunId !== executionToken.runId ||
-        authority.terminalOutcome !== null ||
-        !activeRun ||
-        activeRun.tokenStatus !== "active"
-      ) {
-        return "terminal_fenced" as const;
-      }
-      await writeRuntimeCoordinatorRunCommandStateInTransaction(transaction, {
-        activeRunId: executionToken.runId,
-        attemptId: input.request.attemptId,
-        createdAtMs: existing?.createdAtMs ?? input.nowMs,
-        dispatchId: input.request.dispatchId,
-        lastCommandReasonCode: input.reasonCode,
-        lastDeliveryProvenance: {
-          connectionGeneration: input.request.connectionGeneration,
-          daemonSessionId: input.request.daemonSessionId,
-          deviceId: deliverySession.deviceId,
-          lane: deliverySession.lane,
-          leaseEpoch: input.request.leaseEpoch,
-        },
-        lastWatchdogCheckAtMs: null,
-        localProgress: {
-          acceptedLocalAtMs: null,
-          completedLocalAtMs: null,
-          lastLifecycleAtMs: input.nowMs,
-          phase: "starting",
-          resultReceivedAtMs: null,
-          runningAtMs: null,
-        },
-        modelVersion: RUNTIME_COORDINATOR_RUN_COMMAND_STATE_MODEL_VERSION,
-        ownerUserId: input.request.ownerUserId,
-        pendingInteraction: existing?.pendingInteraction ?? null,
-        profileId: input.request.profileId,
-        redeliveryCount: existing?.redeliveryCount ?? 0,
-        runtimeCoordinatorExecutionId,
-        sanitizedDeliveryRequest:
-          sanitizeRuntimeCoordinatorDeliveryRequestForCommandState(
-            input.request
-          ),
-        sourceClientMessageId:
-          input.request.payload.sourceClientMessageId ?? null,
-        targetProfileId: input.request.payload.targetProfileId,
-        updatedAtMs: input.nowMs,
-      });
-      return "stored" as const;
-    });
+    return {
+      activeRunId: executionToken.runId,
+      attemptId: input.request.attemptId,
+      createdAtMs: existing?.createdAtMs ?? input.nowMs,
+      dispatchId: input.request.dispatchId,
+      lastCommandReasonCode: input.reasonCode,
+      lastDeliveryProvenance: {
+        connectionGeneration: input.request.connectionGeneration,
+        daemonSessionId: input.request.daemonSessionId,
+        deviceId: deliverySession.deviceId,
+        lane: deliverySession.lane,
+        leaseEpoch: input.request.leaseEpoch,
+      },
+      lastWatchdogCheckAtMs: null,
+      localProgress: {
+        acceptedLocalAtMs: null,
+        completedLocalAtMs: null,
+        lastLifecycleAtMs: input.nowMs,
+        phase: "starting",
+        resultReceivedAtMs: null,
+        runningAtMs: null,
+      },
+      modelVersion: RUNTIME_COORDINATOR_RUN_COMMAND_STATE_MODEL_VERSION,
+      ownerUserId: input.request.ownerUserId,
+      pendingInteraction: existing?.pendingInteraction ?? null,
+      profileId: input.request.profileId,
+      redeliveryCount: existing?.redeliveryCount ?? 0,
+      runtimeCoordinatorExecutionId:
+        input.request.payload.runtimeCoordinatorExecutionId,
+      sanitizedDeliveryRequest:
+        sanitizeRuntimeCoordinatorDeliveryRequestForCommandState(input.request),
+      sourceClientMessageId:
+        input.request.payload.sourceClientMessageId ?? null,
+      targetProfileId: input.request.payload.targetProfileId,
+      updatedAtMs: input.nowMs,
+    };
   }
 
   private async updateRuntimeCoordinatorRunCommandStateFromPending(input: {
