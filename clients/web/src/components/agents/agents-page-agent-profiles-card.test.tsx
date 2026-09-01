@@ -653,7 +653,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 	});
 
-	it("redacts owner-only diagnostics from a teammate Agent detail", async () => {
+	it("shows only team-safe workload and Usage in a teammate Agent detail", async () => {
 		const baseBinding = createPrimaryBindingResponse(
 			"codex:approveForMe",
 			"builtin:codex",
@@ -668,11 +668,40 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		};
 		const readiness = {
 			...createReadinessResponseWithPrimaryBinding(primaryBinding),
-			runtimeDeviceDisplayName: "Mira's MacBook Pro",
+			agentControllerRef: null,
+			agentWakeAvailability: {
+				action: "none",
+				badgeLabel: "Unavailable",
+				category: "unavailable",
+				isRefreshing: false,
+				label: "Unavailable for Wake",
+				phase: "unavailable",
+				reasonCode: "usage_exhausted",
+				status: "unavailable_for_wake",
+				summary: "This Agent is unavailable for Wake.",
+				tooltip: "Unavailable for Wake",
+			},
+			ownerUserId: null,
+			primaryActionPlan: { action: "none", target: null },
+			primaryBinding: null,
+			profileName: null,
+			runtimeDeviceDisplayName: null,
 		} as unknown as GetAgentExecutionReadinessResponse;
-		renderAgentProfilesCard({}, primaryBinding, {
+		renderAgentProfilesCard({}, null, {
 			agentExecutionReadinessByProfileId: new Map([
 				[AGENT_PROFILE_ID, readiness],
+			]),
+			agentProfileOperationalContextByProfileId: new Map([
+				[
+					AGENT_PROFILE_ID,
+					{
+						currentWorkLocation: "Private Space",
+						queuedWorkLocations: ["Private task"],
+						recoveryAction: { kind: "skip_interrupted_work" },
+						status: "working",
+						waitingCount: 2,
+					},
+				],
 			]),
 			canManageProfile: () => false,
 			presentation: "detail",
@@ -683,11 +712,22 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Direct Message" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Edit Agent" })).toBeNull();
+		expect(
+			screen.getByRole("heading", { name: "Operational context" })
+		).toBeTruthy();
+		expect(screen.getByText("Working")).toBeTruthy();
+		expect(screen.getByText("2 queued")).toBeTruthy();
+		expect(screen.getByText("Usage")).toBeTruthy();
+		expect(screen.getByText("Exhausted")).toBeTruthy();
+		expect(screen.queryByText("Settings timing")).toBeNull();
+		expect(screen.queryByText("Private Space")).toBeNull();
+		expect(screen.queryByText("Private task")).toBeNull();
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("Computer")).toBeNull();
 		expect(screen.queryByText("Model")).toBeNull();
 		expect(screen.queryByText("Binding state")).toBeNull();
 		expect(screen.queryByText("GPT-5.5 · High")).toBeNull();
+		expect(screen.queryByText("No Controller connected")).toBeNull();
 		await waitFor(() => {
 			expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
 		});

@@ -1,4 +1,5 @@
 import {
+  AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE,
   type AuthorityOpenMeldServiceRuntimeId,
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
@@ -23058,12 +23059,14 @@ function projectTeamSafeOrganizationDirectoryWakeAvailability(
 ): GetAgentExecutionReadinessResponse["agentWakeAvailability"] {
   const sharesUsageExhausted =
     availability.category === "unavailable" &&
-    availability.reasonCode === "usage_exhausted" &&
+    availability.reasonCode === AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE &&
     availability.status === "unavailable_for_wake";
   const shared = {
     action: "none" as const,
     category: availability.category,
-    reasonCode: sharesUsageExhausted ? "usage_exhausted" : null,
+    reasonCode: sharesUsageExhausted
+      ? AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE
+      : null,
     status: availability.status,
   };
   switch (availability.category) {

@@ -444,9 +444,8 @@ function AgentProfileSidebarItem(input: {
 	});
 	const isOwner = input.profile.ownerUserId === input.currentUserId;
 	const hasReducedProminence =
-		isOwner &&
-		(presentation.availabilityCategory === "offline" ||
-			presentation.availabilityCategory === "unavailable");
+		presentation.availabilityCategory === "offline" ||
+		presentation.availabilityCategory === "unavailable";
 	return (
 		<FluidNavMenuItem
 			index={input.index}
@@ -487,16 +486,16 @@ function AgentProfileSidebarItem(input: {
 						>
 							{input.profile.profileName}
 						</span>
-						{isOwner ? (
-							<AgentProfileOperationalStatusText
-								className="shrink-0"
-								operationalContext={input.operationalContext}
-							/>
-						) : null}
+						<AgentProfileOperationalStatusText
+							className="shrink-0"
+							operationalContext={input.operationalContext}
+						/>
 					</span>
-					<span className="truncate text-muted-foreground text-xs">
-						{presentation.controllerModelSummary}
-					</span>
+					{isOwner ? (
+						<span className="truncate text-muted-foreground text-xs">
+							{presentation.controllerModelSummary}
+						</span>
+					) : null}
 					<Tooltip>
 						<TooltipTrigger
 							render={

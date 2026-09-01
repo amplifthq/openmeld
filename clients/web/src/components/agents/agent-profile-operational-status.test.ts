@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveAgentProfileOperationalStatus } from "./agent-profile-operational-status";
+import { resolveAgentProfileOperationalStatus } from "./agent-profile-operational-status-presentation";
 
 describe("resolveAgentProfileOperationalStatus", () => {
 	it("maps owner workload facts without inventing progress", () => {

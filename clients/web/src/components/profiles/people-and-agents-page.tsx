@@ -713,27 +713,29 @@ function projectAgentProfileOperationalContext(
 	operationalContext: NonNullable<
 		OrganizationDirectoryResponse["agentProfiles"][number]["operationalContext"]
 	>,
-	exposeRecoveryAction: boolean
+	isOwner: boolean
 ): AgentProfileOperationalContextInput {
 	const hasWorkLocations =
 		operationalContext.status === "working" ||
 		operationalContext.status === "paused";
 	return {
-		currentWorkLocation: hasWorkLocations
-			? (operationalContext.currentWorkLocation?.spaceName ?? null)
-			: null,
-		queuedWorkLocations: hasWorkLocations
-			? (operationalContext.queuedWorkLocations?.map(
-					(location) => location.spaceName
-				) ?? [])
-			: [],
+		currentWorkLocation:
+			isOwner && hasWorkLocations
+				? (operationalContext.currentWorkLocation?.spaceName ?? null)
+				: null,
+		queuedWorkLocations:
+			isOwner && hasWorkLocations
+				? (operationalContext.queuedWorkLocations?.map(
+						(location) => location.spaceName
+					) ?? [])
+				: [],
 		recoveryAction:
-			exposeRecoveryAction &&
+			isOwner &&
 			operationalContext.status === "paused" &&
 			operationalContext.recoveryAction
 				? { kind: operationalContext.recoveryAction }
 				: null,
-		...(exposeRecoveryAction &&
+		...(isOwner &&
 		operationalContext.status === "paused" &&
 		operationalContext.recoveryTargetWakeLifecycleId
 			? {

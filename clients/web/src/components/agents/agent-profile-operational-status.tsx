@@ -1,39 +1,6 @@
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import { cn } from "@openmeld/ui/lib/utils";
-
-export type AgentProfileOperationalStatus =
-	| "checking"
-	| "idle"
-	| "needs_attention"
-	| "not_reported"
-	| "waiting"
-	| "working";
-
-export type AgentProfileOperationalStatusPresentation = {
-	label: string;
-	status: AgentProfileOperationalStatus;
-};
-
-export function resolveAgentProfileOperationalStatus(
-	operationalContext: AgentProfileOperationalContextInput | null
-): AgentProfileOperationalStatusPresentation {
-	if (!operationalContext) {
-		return { label: "Not reported", status: "not_reported" };
-	}
-	if (operationalContext.status === "checking") {
-		return { label: "Checking", status: "checking" };
-	}
-	if (operationalContext.status === "idle") {
-		return { label: "Idle", status: "idle" };
-	}
-	if (operationalContext.status === "working") {
-		return { label: "Working", status: "working" };
-	}
-	if (operationalContext.recoveryAction) {
-		return { label: "Needs attention", status: "needs_attention" };
-	}
-	return { label: "Waiting", status: "waiting" };
-}
+import { resolveAgentProfileOperationalStatus } from "./agent-profile-operational-status-presentation";
 
 export function AgentProfileOperationalStatusText(input: {
 	className?: string;
@@ -43,6 +10,7 @@ export function AgentProfileOperationalStatusText(input: {
 		input.operationalContext
 	);
 	const isWorking = presentation.status === "working";
+	const needsAttention = presentation.status === "needs_attention";
 	return (
 		<span
 			className={cn(
@@ -52,6 +20,13 @@ export function AgentProfileOperationalStatusText(input: {
 			data-agent-work-status={presentation.status}
 			data-testid="agent-profile-operational-status"
 		>
+			{needsAttention ? (
+				<span
+					aria-hidden="true"
+					className="size-1.5 shrink-0 rounded-full bg-amber-500"
+					data-agent-needs-attention-indicator="true"
+				/>
+			) : null}
 			{isWorking ? (
 				<span aria-hidden="true" className="text-[0.95rem] leading-none">
 					∞

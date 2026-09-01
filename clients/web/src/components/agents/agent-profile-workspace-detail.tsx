@@ -102,9 +102,11 @@ export function AgentProfileWorkspaceDetail(input: {
 						>
 							{input.profile.profileName}
 						</h1>
-						<p className="mt-1 break-words text-muted-foreground text-sm">
-							{input.controllerModelSummary}
-						</p>
+						{showOwnerOperationalContext ? (
+							<p className="mt-1 break-words text-muted-foreground text-sm">
+								{input.controllerModelSummary}
+							</p>
+						) : null}
 					</div>
 				</div>
 				<div className="flex max-w-full shrink-0 flex-wrap items-center gap-2 self-end">
@@ -133,19 +135,16 @@ export function AgentProfileWorkspaceDetail(input: {
 					{input.overflowActions}
 				</div>
 			</div>
-			{showOwnerOperationalContext ? (
-				<AgentProfileOperationalContextPanel
-					fallbackAvailability={fallbackAvailability}
-					isRecoveryActionPending={input.isRecoveryActionPending}
-					onRecoveryAction={input.onRecoveryAction}
-					operationalContext={input.operationalContext}
-					projectedRecoveryAction={projectedRecoveryAction ?? null}
-					wakeAvailability={displayedWakeAvailability}
-					wakeAvailabilityRecoveryActions={
-						input.wakeAvailabilityRecoveryActions
-					}
-				/>
-			) : null}
+			<AgentProfileOperationalContextPanel
+				fallbackAvailability={fallbackAvailability}
+				isOwner={showOwnerOperationalContext}
+				isRecoveryActionPending={input.isRecoveryActionPending}
+				onRecoveryAction={input.onRecoveryAction}
+				operationalContext={input.operationalContext}
+				projectedRecoveryAction={projectedRecoveryAction ?? null}
+				wakeAvailability={displayedWakeAvailability}
+				wakeAvailabilityRecoveryActions={input.wakeAvailabilityRecoveryActions}
+			/>
 			{input.supportingContent ? (
 				<div className="max-w-3xl">{input.supportingContent}</div>
 			) : null}
@@ -157,11 +156,7 @@ export function AgentProfileWorkspaceDetail(input: {
 					collapseAgentTechnicalDetails={showOwnerOperationalContext}
 					currentSession={input.currentSession}
 					details={input.details}
-					excludedSectionIds={
-						showOwnerOperationalContext
-							? AGENT_OPERATIONAL_CONTEXT_SECTION_IDS
-							: undefined
-					}
+					excludedSectionIds={AGENT_OPERATIONAL_CONTEXT_SECTION_IDS}
 					isRecoveryActionPending={input.isRecoveryActionPending}
 					onRecoveryAction={input.onRecoveryAction}
 					showSummary={false}
@@ -173,6 +168,7 @@ export function AgentProfileWorkspaceDetail(input: {
 
 function AgentProfileOperationalContextPanel(input: {
 	fallbackAvailability: ReturnType<typeof resolveFallbackWakeAvailability>;
+	isOwner: boolean;
 	isRecoveryActionPending: boolean;
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	operationalContext: AgentProfileOperationalContextInput | null;
@@ -181,7 +177,11 @@ function AgentProfileOperationalContextPanel(input: {
 	wakeAvailabilityRecoveryActions?: ReactNode;
 }) {
 	let recoveryAction: ReactNode = null;
-	if (input.projectedRecoveryAction && input.onRecoveryAction) {
+	if (
+		input.isOwner &&
+		input.projectedRecoveryAction &&
+		input.onRecoveryAction
+	) {
 		recoveryAction = (
 			<ProfileDetailsRecoveryActionButton
 				isPending={input.isRecoveryActionPending}
@@ -189,9 +189,15 @@ function AgentProfileOperationalContextPanel(input: {
 				recoveryAction={input.projectedRecoveryAction}
 			/>
 		);
-	} else if (input.wakeAvailabilityRecoveryActions) {
+	} else if (input.isOwner && input.wakeAvailabilityRecoveryActions) {
 		recoveryAction = input.wakeAvailabilityRecoveryActions;
 	}
+	const usageExhausted =
+		input.wakeAvailability?.reasonCode === "usage_exhausted";
+	const usageDescription = resolveUsageDescription({
+		isOwner: input.isOwner,
+		usageExhausted,
+	});
 	return (
 		<section
 			aria-labelledby="agent-operational-context-heading"
@@ -209,30 +215,34 @@ function AgentProfileOperationalContextPanel(input: {
 						className="text-sm"
 						operationalContext={input.operationalContext}
 					/>
-					<AgentProfileWorkLocations
+					<AgentProfileWorkSummary
 						operationalContext={input.operationalContext}
+						showLocations={input.isOwner}
 					/>
 				</OperationalContextFact>
-				<OperationalContextFact label="Wakeability">
-					<WakeabilityValue
-						fallbackAvailability={input.fallbackAvailability}
-						wakeAvailability={input.wakeAvailability}
-					/>
+				{input.isOwner ? (
+					<OperationalContextFact label="Wakeability">
+						<WakeabilityValue
+							fallbackAvailability={input.fallbackAvailability}
+							wakeAvailability={input.wakeAvailability}
+						/>
+					</OperationalContextFact>
+				) : null}
+				<OperationalContextFact description={usageDescription} label="Usage">
+					<span data-reported={usageExhausted ? "true" : "false"}>
+						{usageExhausted ? "Exhausted" : "Not reported"}
+					</span>
 				</OperationalContextFact>
-				<OperationalContextFact
-					description="This Controller has not reported reliable Usage."
-					label="Usage"
-				>
-					<span data-reported="false">Not reported</span>
-				</OperationalContextFact>
-				<OperationalContextFact
-					description="No confirmed timing has been reported for saved settings."
-					label="Settings timing"
-				>
-					<span data-reported="false">Not reported</span>
-				</OperationalContextFact>
+				{input.isOwner ? (
+					<OperationalContextFact
+						description="No confirmed timing has been reported for saved settings."
+						label="Settings timing"
+					>
+						<span data-reported="false">Not reported</span>
+					</OperationalContextFact>
+				) : null}
 			</div>
-			{input.fallbackAvailability.diagnostic ? (
+			{input.isOwner && input.fallbackAvailability.diagnostic ? (
 				<p
 					className="mt-2 max-w-2xl text-muted-foreground text-sm"
 					role={
@@ -269,24 +279,22 @@ function OperationalContextFact(input: {
 	);
 }
 
-function AgentProfileWorkLocations(input: {
+function AgentProfileWorkSummary(input: {
 	operationalContext: AgentProfileOperationalContextInput | null;
+	showLocations: boolean;
 }) {
 	const operationalContext = input.operationalContext;
 	if (!operationalContext) {
 		return null;
 	}
-	return (
-		<div className="mt-1 space-y-1 font-normal text-muted-foreground text-xs leading-5">
-			{operationalContext.currentWorkLocation ? (
-				<p className="break-words">
-					Current: {operationalContext.currentWorkLocation}
-				</p>
-			) : null}
-			{operationalContext.queuedWorkLocations.length > 0 ? (
+	let queuedWork: ReactNode = null;
+	if (operationalContext.waitingCount > 0) {
+		queuedWork =
+			input.showLocations &&
+			operationalContext.queuedWorkLocations.length > 0 ? (
 				<details className="group/work-queue">
 					<summary className="min-h-6 cursor-pointer list-none rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-						{operationalContext.queuedWorkLocations.length} queued
+						{operationalContext.waitingCount} queued
 					</summary>
 					<ol className="mt-1 list-decimal space-y-1 pl-4">
 						{operationalContext.queuedWorkLocations.map((location) => (
@@ -296,9 +304,32 @@ function AgentProfileWorkLocations(input: {
 						))}
 					</ol>
 				</details>
+			) : (
+				<p>{operationalContext.waitingCount} queued</p>
+			);
+	}
+	return (
+		<div className="mt-1 space-y-1 font-normal text-muted-foreground text-xs leading-5">
+			{input.showLocations && operationalContext.currentWorkLocation ? (
+				<p className="break-words">
+					Current: {operationalContext.currentWorkLocation}
+				</p>
 			) : null}
+			{queuedWork}
 		</div>
 	);
+}
+
+function resolveUsageDescription(input: {
+	isOwner: boolean;
+	usageExhausted: boolean;
+}): string {
+	if (input.usageExhausted) {
+		return "This Agent reached a current Usage Limit.";
+	}
+	return input.isOwner
+		? "This Controller has not reported reliable Usage."
+		: "Reliable Usage has not been reported for this Agent.";
 }
 
 function WakeabilityValue(input: {
