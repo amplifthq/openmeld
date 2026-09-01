@@ -14484,11 +14484,12 @@ describe("SpaceLanding", () => {
 			throw new Error("Expected the source message footer details action.");
 		}
 		expect(sourceMessageDetailsButton.className).toContain("text-destructive");
+		fireEvent.click(
+			sourceActionScope.getByRole("button", { name: "More actions" })
+		);
+		expect(screen.getByRole("menuitem", { name: "Reply" })).toBeTruthy();
 		expect(
-			sourceActionScope.getByRole("button", { name: "Reply" })
-		).toBeTruthy();
-		expect(
-			sourceActionScope.getByRole("button", { name: "Reply in thread" })
+			screen.getByRole("menuitem", { name: "Reply in thread" })
 		).toBeTruthy();
 		// The source footer keeps only the calm failure summary. The diagnostic
 		// body remains in Message details instead of extending the timeline.
