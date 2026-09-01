@@ -2,7 +2,9 @@ import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	CurrentLocalRuntimeReplyReadinessResponse,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import {
 	cleanup,
@@ -514,6 +516,61 @@ function buildOrganizationDirectory(): OrganizationDirectoryResponse {
 	};
 }
 
+function buildOrganizationProfileDirectory(
+	directory: OrganizationDirectoryResponse
+): OrganizationProfileDirectoryResponse {
+	return {
+		agentProfiles: directory.agentProfiles.map(
+			({ operationalContext: _operationalContext, readiness, ...profile }) => ({
+				...profile,
+				agentControllerRef: readiness.agentControllerRef,
+			})
+		),
+		generatedAt: directory.generatedAt,
+		members: directory.members,
+		organizationId: directory.organizationId,
+	};
+}
+
+function buildOrganizationAgentRuntimeOverview(
+	directory: OrganizationDirectoryResponse
+): OrganizationAgentRuntimeOverviewResponse {
+	return {
+		agentProfiles: directory.agentProfiles.map((profile) => ({
+			...(profile.operationalContext
+				? { operationalContext: profile.operationalContext }
+				: {}),
+			profileId: profile.profileId,
+			readiness: profile.readiness,
+		})),
+		generatedAt: directory.generatedAt,
+		organizationId: directory.organizationId,
+	};
+}
+
+function resolveOrganizationProjectionQuery(
+	queryKey: readonly unknown[],
+	directory: OrganizationDirectoryResponse
+) {
+	if (queryKey.includes("profile-directory")) {
+		return {
+			data: buildOrganizationProfileDirectory(directory),
+			error: null,
+			isError: false,
+			isPending: false,
+		};
+	}
+	if (queryKey.includes("agent-runtime-overview")) {
+		return {
+			data: buildOrganizationAgentRuntimeOverview(directory),
+			error: null,
+			isError: false,
+			isPending: false,
+		};
+	}
+	return null;
+}
+
 function buildRecoveryStub(
 	input: {
 		localRuntimeCount?: number;
@@ -610,13 +667,12 @@ describe("PeopleAndAgentsPage", () => {
 				const queryKey = Array.isArray(options?.queryKey)
 					? options.queryKey
 					: [];
-				if (queryKey.includes("directory")) {
-					return {
-						data: organizationDirectoryFixture,
-						error: null,
-						isError: false,
-						isPending: false,
-					};
+				const organizationProjection = resolveOrganizationProjectionQuery(
+					queryKey,
+					organizationDirectoryFixture
+				);
+				if (organizationProjection) {
+					return organizationProjection;
 				}
 				if (queryKey.includes("agent-profile-creation-requests")) {
 					return {
@@ -700,16 +756,83 @@ describe("PeopleAndAgentsPage", () => {
 		).toBe(false);
 	});
 
-	it("counts only pending requests from the existing organization request query", () => {
+	it("does not request Agent runtime state on People", () => {
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="people"
+				focusProfileId="human-default"
+			/>
+		);
+
+		const runtimeQueryOptions = useQueryMock.mock.calls.find(([options]) =>
+			options.queryKey?.includes("agent-runtime-overview")
+		)?.[0];
+		expect(runtimeQueryOptions).toEqual(
+			expect.objectContaining({ enabled: false })
+		);
+	});
+
+	it("renders Agent identities while runtime state is still loading", () => {
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			if (queryKey.includes("directory")) {
+			if (queryKey.includes("profile-directory")) {
 				return {
-					data: buildOrganizationDirectory(),
+					data: buildOrganizationProfileDirectory(organizationDirectoryFixture),
 					error: null,
 					isError: false,
 					isPending: false,
 				};
+			}
+			if (queryKey.includes("agent-runtime-overview")) {
+				return {
+					data: undefined,
+					error: null,
+					isError: false,
+					isPending: true,
+				};
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
+		);
+
+		const workspaceProps = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
+		expect(workspaceProps.profiles).toEqual([
+			expect.objectContaining({
+				openMeldProfileId: "agt_11111111-1111-4111-8111-111111111111",
+				profileName: "Scout",
+			}),
+		]);
+		expect(workspaceProps.profilesStatus).toBe("ready");
+		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([
+			"agt_11111111-1111-4111-8111-111111111111",
+		]);
+	});
+
+	it("counts only pending requests from the existing organization request query", () => {
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				organizationDirectoryFixture
+			);
+			if (organizationProjection) {
+				return organizationProjection;
 			}
 			if (queryKey.includes("agent-profile-creation-requests")) {
 				return {
@@ -878,13 +1001,12 @@ describe("PeopleAndAgentsPage", () => {
 		directory.agentProfiles = [firstAgent, secondAgent];
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			if (queryKey.includes("directory")) {
-				return {
-					data: directory,
-					error: null,
-					isError: false,
-					isPending: false,
-				};
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				directory
+			);
+			if (organizationProjection) {
+				return organizationProjection;
 			}
 			if (queryKey.includes("agent-profile-creation-requests")) {
 				return {
@@ -960,13 +1082,12 @@ describe("PeopleAndAgentsPage", () => {
 		directory.agentProfiles = [firstAgent, secondAgent];
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			if (queryKey.includes("directory")) {
-				return {
-					data: directory,
-					error: null,
-					isError: false,
-					isPending: false,
-				};
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				directory
+			);
+			if (organizationProjection) {
+				return organizationProjection;
 			}
 			if (queryKey.includes("agent-profile-creation-requests")) {
 				return {
@@ -1020,21 +1141,20 @@ describe("PeopleAndAgentsPage", () => {
 			name: "Personal",
 			slug: "personal",
 		});
+		const emptyDirectory = {
+			...buildOrganizationDirectory(),
+			agentProfiles: [],
+		};
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			return queryKey.includes("directory")
-				? {
-						data: { ...buildOrganizationDirectory(), agentProfiles: [] },
-						error: null,
-						isError: false,
-						isPending: false,
-					}
-				: {
-						data: [buildHumanProfile("human-default")],
-						error: null,
-						isError: false,
-						isPending: false,
-					};
+			return (
+				resolveOrganizationProjectionQuery(queryKey, emptyDirectory) ?? {
+					data: [buildHumanProfile("human-default")],
+					error: null,
+					isError: false,
+					isPending: false,
+				}
+			);
 		});
 
 		render(
@@ -1063,19 +1183,14 @@ describe("PeopleAndAgentsPage", () => {
 		}));
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			return queryKey.includes("directory")
-				? {
-						data: directory,
-						error: null,
-						isError: false,
-						isPending: false,
-					}
-				: {
-						data: [buildHumanProfile("human-default")],
-						error: null,
-						isError: false,
-						isPending: false,
-					};
+			return (
+				resolveOrganizationProjectionQuery(queryKey, directory) ?? {
+					data: [buildHumanProfile("human-default")],
+					error: null,
+					isError: false,
+					isPending: false,
+				}
+			);
 		});
 		useLocalAgentRecoveryControllerMock.mockReturnValue({
 			...buildRecoveryStub(),
@@ -1212,13 +1327,12 @@ describe("PeopleAndAgentsPage", () => {
 		directory.agentProfiles = [firstAgent, secondAgent];
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			if (queryKey.includes("directory")) {
-				return {
-					data: directory,
-					error: null,
-					isError: false,
-					isPending: false,
-				};
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				directory
+			);
+			if (organizationProjection) {
+				return organizationProjection;
 			}
 			if (queryKey.includes("agent-profile-creation-requests")) {
 				return {

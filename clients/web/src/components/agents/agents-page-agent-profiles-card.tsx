@@ -1408,7 +1408,9 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			try {
 				await Promise.all([
 					input.queryClient.invalidateQueries({
-						queryKey: organizationQueryKeys.directory(currentOrganization.id),
+						queryKey: organizationQueryKeys.agentRuntimeOverview(
+							currentOrganization.id
+						),
 					}),
 					input.queryClient.invalidateQueries({
 						queryKey: inboxQueryKeys.organization(currentOrganization.id),

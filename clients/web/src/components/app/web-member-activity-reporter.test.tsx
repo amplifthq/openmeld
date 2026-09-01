@@ -20,7 +20,7 @@ afterEach(() => {
 describe("WebMemberActivityReporter", () => {
 	it("records entry into the Web app and updates an existing People directory", async () => {
 		const queryClient = new QueryClient();
-		queryClient.setQueryData(organizationQueryKeys.directory("org-1"), {
+		const directory = {
 			agentProfiles: [],
 			generatedAt: "2026-08-28T00:00:00.000Z",
 			members: [
@@ -41,7 +41,15 @@ describe("WebMemberActivityReporter", () => {
 				},
 			],
 			organizationId: "org-1",
-		});
+		};
+		queryClient.setQueryData(
+			organizationQueryKeys.directory("org-1"),
+			directory
+		);
+		queryClient.setQueryData(
+			organizationQueryKeys.profileDirectory("org-1"),
+			directory
+		);
 		recordWebActivityMock.mockResolvedValue({
 			lastActiveAt: "2026-08-28T03:00:00.000Z",
 			organizationId: "org-1",
@@ -65,6 +73,12 @@ describe("WebMemberActivityReporter", () => {
 			queryClient.getQueryData<{
 				members: Array<{ lastActiveAt?: string }>;
 			}>(organizationQueryKeys.directory("org-1"))?.members[0]?.lastActiveAt
+		).toBe("2026-08-28T03:00:00.000Z");
+		expect(
+			queryClient.getQueryData<{
+				members: Array<{ lastActiveAt?: string }>;
+			}>(organizationQueryKeys.profileDirectory("org-1"))?.members[0]
+				?.lastActiveAt
 		).toBe("2026-08-28T03:00:00.000Z");
 	});
 });

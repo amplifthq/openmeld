@@ -4,6 +4,7 @@ import type {
 	CenterAgentMemberResearchBatch,
 	MessageChannelProvider,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -121,7 +122,7 @@ const INVITE_ROLE_OPTIONS = [
 }[];
 
 type DirectoryQueryState = {
-	data?: OrganizationDirectoryResponse;
+	data?: OrganizationProfileDirectoryResponse | OrganizationDirectoryResponse;
 	error: { message?: string } | null;
 	isError: boolean;
 	isPending: boolean;
@@ -758,11 +759,16 @@ export function InvitationForm(input: { organizationId: string }) {
 			setSentMessage(`Invitation sent to ${email.trim()}.`);
 			setEmail("");
 			setRole("member");
-			queryClient
-				.invalidateQueries({
+			Promise.all([
+				queryClient.invalidateQueries({
 					queryKey: organizationQueryKeys.directory(input.organizationId),
-				})
-				.catch(() => undefined);
+				}),
+				queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.profileDirectory(
+						input.organizationId
+					),
+				}),
+			]).catch(() => undefined);
 		},
 	});
 	const normalizedEmail = email.trim();
