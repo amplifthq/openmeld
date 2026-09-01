@@ -4,6 +4,7 @@ import {
   MODEL_CATALOG_SCHEMA_VERSION,
   modelCatalogSchema,
 } from "../../src/index";
+import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
 
 describe("model catalog schema", () => {
   it("accepts the release vendor model catalog", () => {
@@ -12,7 +13,7 @@ describe("model catalog schema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.schemaVersion).toBe(MODEL_CATALOG_SCHEMA_VERSION);
-      expect(result.data.updatedAt).toBe("2026-08-27T00:00:00.000Z");
+      expect(result.data.updatedAt).toBe("2026-09-01T00:00:00.000Z");
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
         "gpt-5.5"
       );
@@ -102,6 +103,19 @@ describe("model catalog schema", () => {
         displayName: "GLM 5.3 Flash",
         unavailable: false,
         supportedReasoningLevels: ["low", "high", "max"],
+        minCliVersion: null,
+      });
+      expect(
+        result.data.agentControllers.opencode?.models.find(
+          (model) =>
+            model.id ===
+            `${openCodeGoQwen38Flash.providerID}/${openCodeGoQwen38Flash.id}`
+        )
+      ).toEqual({
+        id: `${openCodeGoQwen38Flash.providerID}/${openCodeGoQwen38Flash.id}`,
+        displayName: openCodeGoQwen38Flash.name,
+        unavailable: openCodeGoQwen38Flash.status !== "active",
+        supportedReasoningLevels: Object.keys(openCodeGoQwen38Flash.variants),
         minCliVersion: null,
       });
       // Variant keys stay the exact OpenCode `--variant` strings, including

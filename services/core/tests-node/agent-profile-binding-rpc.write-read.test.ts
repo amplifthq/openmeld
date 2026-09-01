@@ -353,6 +353,59 @@ describe("agent profile binding Core RPC", () => {
     }
   });
 
+  it("creates an OpenCode Agent Profile Binding with Qwen3.8 Flash", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const registeredRuntimeId = await seedRuntimeAgentControllerReport(
+        harness,
+        { agentControllerRef: "builtin:opencode" }
+      );
+
+      await expect(
+        rpcEnsureAgentProfilePrimaryBinding(coreEnv(harness.db), {
+          agentControllerRef: "builtin:opencode",
+          agentProfileId: AGENT_PROFILE_ID,
+          context: DEFAULT_CONTEXT,
+          deviceId: "device-1",
+          lane: "openmeld-dev",
+          modelId: "opencode-go/qwen3.8-flash",
+          openMeldServiceRuntimeId: registeredRuntimeId,
+          reasoningLevel: "xhigh",
+        })
+      ).resolves.toMatchObject({
+        binding: {
+          agentProfileId: AGENT_PROFILE_ID,
+          executionTarget: {
+            agentControllerRef: "builtin:opencode",
+          },
+          modelSelection: {
+            modelId: "opencode-go/qwen3.8-flash",
+            reasoningLevel: "xhigh",
+          },
+        },
+        outcome: "created",
+        status: "accepted",
+      });
+
+      expect(
+        harness.queryFirst<{
+          agent_controller_ref: string;
+          model_id: string | null;
+          reasoning_level: string | null;
+        }>({
+          sql: "SELECT agent_controller_ref, model_id, reasoning_level FROM openMeldDaemon_agent_profile_bindings",
+        })
+      ).toEqual({
+        agent_controller_ref: "builtin:opencode",
+        model_id: "opencode-go/qwen3.8-flash",
+        reasoning_level: "xhigh",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("rejects an unsupported reasoning level with the model's supported values", async () => {
     const harness = createSqliteD1Harness();
     applyAgentProfileBindingRpcMigrations(harness);

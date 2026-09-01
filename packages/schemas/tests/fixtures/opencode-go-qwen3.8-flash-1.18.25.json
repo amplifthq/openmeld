@@ -1,0 +1,59 @@
+{
+  "id": "qwen3.8-flash",
+  "providerID": "opencode-go",
+  "name": "Qwen3.8 Flash",
+  "family": "qwen",
+  "api": {
+    "id": "qwen3.8-flash",
+    "url": "https://opencode.ai/zen/go/v1",
+    "npm": "@ai-sdk/anthropic"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 0.15,
+    "output": 0.47,
+    "cache": {
+      "read": 0.016,
+      "write": 0.2
+    }
+  },
+  "limit": {
+    "context": 1000000,
+    "output": 131072
+  },
+  "capabilities": {
+    "temperature": true,
+    "reasoning": true,
+    "attachment": true,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": true,
+      "pdf": false
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": false
+  },
+  "release_date": "2026-08-26",
+  "variants": {
+    "low": {
+      "effort": "low"
+    },
+    "medium": {
+      "effort": "medium"
+    },
+    "xhigh": {
+      "effort": "xhigh"
+    }
+  }
+}

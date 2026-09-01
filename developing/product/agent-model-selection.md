@@ -371,6 +371,14 @@ stale entries:
   always be a valid, maintained id (§8.2), and every non-empty
   `supportedReasoningLevels` variant was verified against the same CLI output.
 
+The 2026-09-01 follow-up recaptured OpenCode 1.18.25's authenticated
+`opencode models opencode-go --verbose` contract before adding
+`opencode-go/qwen3.8-flash`. The provider reports the model as active with the
+display name **Qwen3.8 Flash** and the exact variant keys `low`, `medium`, and
+`xhigh`. The captured provider-shaped fixture is retained in the schema tests
+so the catalog entry is checked against observed vendor fields rather than a
+fixture shaped after OpenMeld's manifest.
+
 ---
 
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
