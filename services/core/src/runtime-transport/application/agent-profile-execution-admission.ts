@@ -1082,6 +1082,13 @@ type AgentProfileWorkCoordinatorHeadWriteBaseResult =
       effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
       status: "conflict";
     }
+  | {
+      effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
+      reasonCode:
+        | "runtime_coordinator.accepted_dispatch_snapshot_required"
+        | "runtime_coordinator.legacy_head_snapshot_upgrade_unsafe";
+      status: "snapshot_compatibility_retry";
+    }
   | { status: "legacy_execution_active" }
   | { status: "queue_full"; waitingCount: number }
   | {
@@ -1861,10 +1868,11 @@ async function resolveExistingHeadLifecycleWrite(input: {
     tokenAuthorityStorageKey,
   ]);
   const rawExistingHead = storedCurrentState.get(input.headLifecycleStorageKey);
+  const rawTokenAuthority = storedCurrentState.get(tokenAuthorityStorageKey);
   if (rawExistingHead === undefined) {
     return resolveTerminalExecutionHeadReplay({
       proposedRecord: input.proposedRecord,
-      rawAuthority: storedCurrentState.get(tokenAuthorityStorageKey),
+      rawAuthority: rawTokenAuthority,
       runtimeCoordinatorExecutionId,
     });
   }
@@ -1875,23 +1883,74 @@ async function resolveExistingHeadLifecycleWrite(input: {
     return null;
   }
   if (
-    !sameRuntimeCoordinatorHeadAuthority(rawExistingHead, input.proposedRecord)
+    !sameRuntimeCoordinatorHeadLifecycleAuthority(
+      rawExistingHead,
+      input.proposedRecord
+    )
   ) {
     return { effectiveRecord: rawExistingHead, status: "conflict" };
   }
+  let effectiveExistingHead = rawExistingHead;
   if (
-    rawExistingHead.primaryDispatchId !== input.proposedRecord.primaryDispatchId
+    rawExistingHead.acceptedDispatchSnapshot &&
+    !input.proposedRecord.acceptedDispatchSnapshot
+  ) {
+    return {
+      effectiveRecord: rawExistingHead,
+      reasonCode: "runtime_coordinator.accepted_dispatch_snapshot_required",
+      status: "snapshot_compatibility_retry",
+    };
+  }
+  if (
+    !rawExistingHead.acceptedDispatchSnapshot &&
+    input.proposedRecord.acceptedDispatchSnapshot
+  ) {
+    const canAtomicallyUpgradeQueuedLegacyHead =
+      rawExistingHead.primaryDispatchId ===
+        input.proposedRecord.primaryDispatchId &&
+      rawExistingHead.status === "queued" &&
+      rawExistingHead.executionLinkedAtMs === null &&
+      rawExistingHead.runtimeCoordinatorExecutionId === null &&
+      rawTokenAuthority === undefined;
+    if (!canAtomicallyUpgradeQueuedLegacyHead) {
+      return {
+        effectiveRecord: rawExistingHead,
+        reasonCode: "runtime_coordinator.legacy_head_snapshot_upgrade_unsafe",
+        status: "snapshot_compatibility_retry",
+      };
+    }
+    effectiveExistingHead = {
+      ...rawExistingHead,
+      acceptedDispatchSnapshot: input.proposedRecord.acceptedDispatchSnapshot,
+      updatedAtMs: input.nowMs,
+    };
+    await input.transaction.put(
+      input.headLifecycleStorageKey,
+      effectiveExistingHead
+    );
+  }
+  if (
+    !sameRuntimeCoordinatorHeadAuthority(
+      effectiveExistingHead,
+      input.proposedRecord
+    )
+  ) {
+    return { effectiveRecord: effectiveExistingHead, status: "conflict" };
+  }
+  if (
+    effectiveExistingHead.primaryDispatchId !==
+    input.proposedRecord.primaryDispatchId
   ) {
     const withDuplicate = appendHeadLifecycleDuplicate({
-      existing: rawExistingHead,
+      existing: effectiveExistingHead,
       nowMs: input.nowMs,
       proposed: input.proposedRecord,
     });
     await input.transaction.put(input.headLifecycleStorageKey, withDuplicate);
     return { effectiveRecord: withDuplicate, status: "existing" };
   }
-  if (rawExistingHead.status !== "queued") {
-    return { effectiveRecord: rawExistingHead, status: "existing" };
+  if (effectiveExistingHead.status !== "queued") {
+    return { effectiveRecord: effectiveExistingHead, status: "existing" };
   }
   const workIndex = input.admission.workItems.findIndex(
     (item) =>
@@ -1903,7 +1962,7 @@ async function resolveExistingHeadLifecycleWrite(input: {
     throw new Error("agent_profile_work_coordinator.queue_state_invalid");
   }
   return {
-    effectiveRecord: rawExistingHead,
+    effectiveRecord: effectiveExistingHead,
     queuePosition,
     status: "queued",
     waitingCount: Math.max(0, input.admission.workItems.length - 1),
@@ -2064,6 +2123,22 @@ function planAgentProfileWorkAcceptance(input: {
 }
 
 function sameRuntimeCoordinatorHeadAuthority(
+  existing: RuntimeCoordinatorHeadLifecycleRecord,
+  proposed: RuntimeCoordinatorHeadLifecycleRecord
+): boolean {
+  const acceptedSnapshotsMatch =
+    !(existing.acceptedDispatchSnapshot || proposed.acceptedDispatchSnapshot) ||
+    (existing.acceptedDispatchSnapshot !== undefined &&
+      proposed.acceptedDispatchSnapshot !== undefined &&
+      existing.acceptedDispatchSnapshot.payloadFingerprint ===
+        proposed.acceptedDispatchSnapshot.payloadFingerprint);
+  return (
+    sameRuntimeCoordinatorHeadLifecycleAuthority(existing, proposed) &&
+    acceptedSnapshotsMatch
+  );
+}
+
+function sameRuntimeCoordinatorHeadLifecycleAuthority(
   existing: RuntimeCoordinatorHeadLifecycleRecord,
   proposed: RuntimeCoordinatorHeadLifecycleRecord
 ): boolean {

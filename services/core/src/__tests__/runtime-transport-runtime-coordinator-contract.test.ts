@@ -13,6 +13,7 @@ import {
 import type {
   AgentControllerInterfaceSnapshot,
   DaemonRuntimeAdapterCapabilitySnapshot,
+  OpenMeldDaemonAcceptedDispatchSnapshot,
   RuntimeCoordinatorExecutionTokenAuthorityRecord,
   RuntimeCoordinatorExecutionTokenEnvelope,
   RuntimeCoordinatorFailurePublicationCommand,
@@ -1801,6 +1802,9 @@ const buildRuntimeCoordinatorHeadAcceptRequest = (
     });
   return {
     v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+    ...(overrides.acceptedDispatchSnapshot
+      ? { acceptedDispatchSnapshot: overrides.acceptedDispatchSnapshot }
+      : {}),
     dispatchId,
     idempotencyKey: overrides.idempotencyKey ?? "idempotency-1",
     ownerUserId: overrides.ownerUserId ?? "owner-1",
@@ -1810,6 +1814,26 @@ const buildRuntimeCoordinatorHeadAcceptRequest = (
     targetWakeLifecycleIdentity,
   };
 };
+
+const buildAcceptedDispatchSnapshot = (input: {
+  agentControllerRef?: string;
+  bindingId?: string;
+  configurationRevision?: number;
+  fingerprint: string;
+  openMeldServiceRuntimeId?: string;
+}): OpenMeldDaemonAcceptedDispatchSnapshot => ({
+  controllerSnapshot: {
+    agentControllerRef: input.agentControllerRef ?? "builtin:codex",
+    bindingId: input.bindingId ?? "binding-accepted-1",
+    configurationRevision: input.configurationRevision ?? 7,
+    targetBindingEnabled: true,
+    targetBindingState: "bound",
+  },
+  openMeldServiceRuntimeId:
+    input.openMeldServiceRuntimeId ?? "runtime-accepted-1",
+  payloadFingerprint: `sha256:${input.fingerprint.repeat(64)}`,
+  runtimeKind: "openmeld_service",
+});
 
 const buildRuntimeCoordinatorHeadNoExecutionRequest = (
   overrides: Partial<RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest> = {}
@@ -3753,6 +3777,285 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(publishAgentReadinessInvalidated).toHaveBeenCalledWith({
       profileIds: ["agt_22222222-2222-4222-8222-222222222222"],
       reason: "agent_profile_work_coordinator.changed",
+    });
+  });
+
+  it("returns the accepted dispatch identity when FIFO promotion is redriven after configuration drift", async () => {
+    const { hub, socket, state, storageRecords } = createHarness();
+    configureCompatibleRoute({ socket, state });
+    const firstSnapshot = buildAcceptedDispatchSnapshot({ fingerprint: "a" });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            acceptedDispatchSnapshot: firstSnapshot,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      acceptedDispatchSnapshot: firstSnapshot,
+      action: "create_execution",
+      status: "accepted",
+    });
+    const deliveryResponse = await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(buildDeliverRequest()),
+        method: "POST",
+      })
+    );
+    expect(deliveryResponse.status).toBe(200);
+
+    const secondIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-snapshot-b",
+      dispatchId: "dispatch-snapshot-b",
+      sourceSignalId: "signal-snapshot-b",
+      spaceId: "b".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const thirdIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-snapshot-c",
+      dispatchId: "dispatch-snapshot-c",
+      sourceSignalId: "signal-snapshot-c",
+      spaceId: "c".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const secondSnapshot = buildAcceptedDispatchSnapshot({ fingerprint: "b" });
+    const thirdSnapshot = buildAcceptedDispatchSnapshot({ fingerprint: "c" });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            acceptedDispatchSnapshot: secondSnapshot,
+            dispatchId: "dispatch-snapshot-b",
+            idempotencyKey: "idempotency-snapshot-b",
+            targetWakeLifecycleIdentity: secondIdentity,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      acceptedDispatchSnapshot: secondSnapshot,
+      queuePosition: 1,
+      status: "queued",
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            acceptedDispatchSnapshot: thirdSnapshot,
+            dispatchId: "dispatch-snapshot-c",
+            idempotencyKey: "idempotency-snapshot-c",
+            targetWakeLifecycleIdentity: thirdIdentity,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      acceptedDispatchSnapshot: thirdSnapshot,
+      queuePosition: 2,
+      status: "queued",
+    });
+
+    const authority =
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords);
+    expect(authority).toBeDefined();
+    await (
+      hub as unknown as {
+        writeRuntimeCoordinatorTokenAuthority: (
+          authority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+        ) => Promise<void>;
+      }
+    ).writeRuntimeCoordinatorTokenAuthority({
+      ...(authority as RuntimeCoordinatorExecutionTokenAuthorityRecord),
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "space.reply_published",
+        replySignalId: "signal-final-snapshot-a",
+        status: "reply_published",
+      },
+    });
+
+    const driftedCurrentSnapshot = buildAcceptedDispatchSnapshot({
+      agentControllerRef: "builtin:claude-code",
+      bindingId: "binding-later-2",
+      configurationRevision: 8,
+      fingerprint: "b",
+      openMeldServiceRuntimeId: "runtime-later-2",
+    });
+    const redriveResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        acceptedDispatchSnapshot: driftedCurrentSnapshot,
+        dispatchId: "dispatch-snapshot-b",
+        idempotencyKey: "idempotency-snapshot-b",
+        targetWakeLifecycleIdentity: secondIdentity,
+      })
+    );
+    expect(redriveResponse.status).toBe(200);
+    await expect(redriveResponse.json()).resolves.toMatchObject({
+      acceptedDispatchSnapshot: secondSnapshot,
+      action: "create_execution",
+      primaryDispatchId: "dispatch-snapshot-b",
+      status: "already_accepted",
+    });
+
+    const mutatedPayloadResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        acceptedDispatchSnapshot: buildAcceptedDispatchSnapshot({
+          fingerprint: "d",
+        }),
+        dispatchId: "dispatch-snapshot-b",
+        idempotencyKey: "idempotency-snapshot-b",
+        targetWakeLifecycleIdentity: secondIdentity,
+      })
+    );
+    expect(mutatedPayloadResponse.status).toBe(409);
+    await expect(mutatedPayloadResponse.json()).resolves.toMatchObject({
+      ok: false,
+      primaryDispatchId: "dispatch-snapshot-b",
+      reasonCode: "runtime_coordinator.head_authority_conflict",
+      status: "conflict",
+    });
+  });
+
+  it("keeps an old Core caller from reaccepting a head that owns an accepted snapshot", async () => {
+    const { hub } = createHarness();
+    const acceptedSnapshot = buildAcceptedDispatchSnapshot({
+      fingerprint: "a",
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            acceptedDispatchSnapshot: acceptedSnapshot,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      acceptedDispatchSnapshot: acceptedSnapshot,
+      action: "create_execution",
+      status: "accepted",
+    });
+
+    const oldCallerResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest()
+    );
+    expect(oldCallerResponse.status).toBe(503);
+    await expect(oldCallerResponse.json()).resolves.toEqual({
+      ok: false,
+      primaryDispatchId: "dispatch-1",
+      reasonCode: "runtime_coordinator.accepted_dispatch_snapshot_required",
+      status: "retry_later",
+      targetWakeLifecycleId: expect.any(String),
+    });
+  });
+
+  it("keeps a new Core caller from upgrading a legacy head that may already be executing", async () => {
+    const { hub } = createHarness();
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest()
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "create_execution",
+      status: "accepted",
+    });
+
+    const newCallerResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        acceptedDispatchSnapshot: buildAcceptedDispatchSnapshot({
+          fingerprint: "a",
+        }),
+      })
+    );
+    expect(newCallerResponse.status).toBe(503);
+    await expect(newCallerResponse.json()).resolves.toEqual({
+      ok: false,
+      primaryDispatchId: "dispatch-1",
+      reasonCode: "runtime_coordinator.legacy_head_snapshot_upgrade_unsafe",
+      status: "retry_later",
+      targetWakeLifecycleId: expect.any(String),
+    });
+  });
+
+  it("atomically upgrades a queued legacy head before a new Core caller can use it", async () => {
+    const { hub } = createHarness();
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest()
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "create_execution",
+      status: "accepted",
+    });
+    const queuedIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-legacy-queued",
+      dispatchId: "dispatch-legacy-queued",
+      sourceSignalId: "signal-legacy-queued",
+      spaceId: "b".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const queuedRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      dispatchId: "dispatch-legacy-queued",
+      idempotencyKey: "idempotency-legacy-queued",
+      targetWakeLifecycleIdentity: queuedIdentity,
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          queuedRequest
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
+    });
+
+    const acceptedSnapshot = buildAcceptedDispatchSnapshot({
+      fingerprint: "b",
+    });
+    const upgradedResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      {
+        ...queuedRequest,
+        acceptedDispatchSnapshot: acceptedSnapshot,
+      }
+    );
+    expect(upgradedResponse.status).toBe(200);
+    await expect(upgradedResponse.json()).resolves.toMatchObject({
+      acceptedDispatchSnapshot: acceptedSnapshot,
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
     });
   });
 

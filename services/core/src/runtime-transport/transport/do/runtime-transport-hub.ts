@@ -1153,6 +1153,14 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
         status: "retry_later",
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
+    case "snapshot_compatibility_retry":
+      return {
+        ok: false,
+        primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
+        reasonCode: input.admission.reasonCode,
+        status: "retry_later",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
     case "queue_full":
       return {
         ok: false,
@@ -1172,6 +1180,13 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
       };
     case "queued":
       return {
+        ...(input.request.acceptedDispatchSnapshot &&
+        input.admission.effectiveRecord.acceptedDispatchSnapshot
+          ? {
+              acceptedDispatchSnapshot:
+                input.admission.effectiveRecord.acceptedDispatchSnapshot,
+            }
+          : {}),
         action: "wait_in_queue",
         ok: true,
         primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
@@ -1185,6 +1200,13 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
       };
     case "started":
       return {
+        ...(input.request.acceptedDispatchSnapshot &&
+        input.admission.effectiveRecord.acceptedDispatchSnapshot
+          ? {
+              acceptedDispatchSnapshot:
+                input.admission.effectiveRecord.acceptedDispatchSnapshot,
+            }
+          : {}),
         action: "create_execution",
         ok: true,
         primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
@@ -1243,6 +1265,10 @@ function resolveExistingRuntimeCoordinatorHeadAdmissionResponse(input: {
         : "runtime_coordinator.head_primary_reaccepted";
   }
   return {
+    ...(input.request.acceptedDispatchSnapshot &&
+    existing.acceptedDispatchSnapshot
+      ? { acceptedDispatchSnapshot: existing.acceptedDispatchSnapshot }
+      : {}),
     action:
       existing.status === "execution_linked" || !isPrimaryDispatch
         ? "skip_duplicate"
@@ -10808,6 +10834,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const nowMs = Date.now();
     const identity = request.targetWakeLifecycleIdentity;
     const nextRecord: RuntimeCoordinatorHeadLifecycleRecord = {
+      ...(request.acceptedDispatchSnapshot
+        ? { acceptedDispatchSnapshot: request.acceptedDispatchSnapshot }
+        : {}),
       createdAtMs: nowMs,
       duplicateDispatches: [],
       executionLinkedAtMs: null,

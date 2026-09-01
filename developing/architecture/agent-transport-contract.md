@@ -136,6 +136,21 @@ one current Wake plus at most 50 waiting Wakes. The order is the Durable Object
 transaction acceptance order across Spaces and Direct Messages. The
 Coordinator stores only identifiers and minimum scheduling metadata; the Space
 outbox retains the complete payload while the head lifecycle is `queued`.
+At first head acceptance, RuntimeCoordinator also freezes the secret-free
+execution-target identity (`bindingId`, `configurationRevision`, Agent
+Controller ref, OpenMeld Service Runtime id, and runtime kind) plus a SHA-256
+fingerprint of the Space-owned dispatch payload. It does not copy or become the
+owner of that payload. Promotion, alarm redrive, and reconnect reacceptance must
+return this accepted snapshot so Core can combine it with the same outbox
+payload. A different payload fingerprint for the same Wake lifecycle is an
+authority conflict, never permission to execute newer message content.
+During a rolling Core deployment, a caller that omits the snapshot cannot
+reaccept a head that already owns one; RuntimeCoordinator returns the legacy-
+parseable `retry_later` shape and never grants `create_execution`. A legacy
+head may gain a proposed snapshot only inside the admission transaction while
+it is still queued and has no linked execution or token authority. Any legacy
+head that may already be executing also returns `retry_later` instead of
+silently adopting or discarding the snapshot.
 `profile_queue_waiting` is a D1 ledger projection, not scheduling authority.
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
@@ -643,14 +658,18 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   in-flight lease arbitration stays with Runtime Transport.
 - Controller-native execution setting writes increment the primary Binding's
   monotonic `configurationRevision`. RuntimeCoordinator freezes the current
-  `bindingId` and revision for each accepted dispatch. A capability-aware local
-  Service reports the identity it has applied, and Runtime Transport must not
-  deliver the dispatch until both values match. When the applied revision is
-  merely older for the same Binding id, Runtime Transport may hold delivery
-  inside a bounded convergence window while nudging the Service to re-sync, but
-  it never executes with a mismatched identity; an expired window fails closed
-  with `daemon.profile.configuration_not_synced`. This consistency fence does
-  not make the projection or the Service an execution authority.
+  `bindingId`, revision, Agent Controller ref, and OpenMeld Service Runtime id
+  for each accepted dispatch. Core rechecks that the current primary Binding
+  and live route still own that accepted identity before delivery; a later
+  Binding/controller/runtime replacement fails closed instead of lending its
+  route or execution token to the older Wake. A capability-aware local Service
+  reports the identity it has applied, and Runtime Transport must not deliver
+  the dispatch until both Binding id and revision match. When the applied
+  revision is merely older for the same Binding id, Runtime Transport may hold
+  delivery inside a bounded convergence window while nudging the Service to
+  re-sync, but it never executes with a mismatched identity; an expired window
+  fails closed with `daemon.profile.configuration_not_synced`. This consistency
+  fence does not make the projection or the Service an execution authority.
   Agent Controller Permission Mode is the only supported active-session
   reconciliation inside that frozen dispatch identity. The canonical Binding
   write and expected-routes projection remain the source of truth; the local

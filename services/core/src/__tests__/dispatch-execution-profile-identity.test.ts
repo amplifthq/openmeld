@@ -724,6 +724,43 @@ describe("dispatch execution profile identity boundaries", () => {
     expect(deliverRuntimeTransportDispatch).not.toHaveBeenCalled();
   });
 
+  it("blocks reconnect delivery when the primary Binding no longer owns the accepted Wake", async () => {
+    await expect(
+      deliverDispatchMessageToDaemon({
+        acceptedDispatchSnapshot: {
+          controllerSnapshot: {
+            agentControllerRef: "builtin:codex",
+            bindingId: "binding-accepted-a",
+            configurationRevision: 7,
+            targetBindingEnabled: true,
+            targetBindingState: "bound",
+          },
+          openMeldServiceRuntimeId: "runtime-accepted-a",
+          payloadFingerprint: `sha256:${"a".repeat(64)}`,
+          runtimeKind: "openmeld_service",
+        },
+        attemptId: "attempt-profile-identity-reconnect-drift-1",
+        db: {} as D1Database,
+        env: {
+          OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
+          OPENMELD_LOCAL_STATE_DB: {} as D1Database,
+        } as never,
+        message: createDispatchMessage({
+          dispatchId: "dispatch-profile-identity-reconnect-drift-1",
+          targetProfileNameSnapshot: "Snapshot Codex",
+          targetProfileMentionLabel: "snapshot-codex",
+        }),
+        targetOwnerUserId: "user-1",
+      })
+    ).rejects.toMatchObject({
+      code: "local_service.identity_mismatch",
+      name: "DispatchExecutionValidationError",
+    } satisfies Partial<DispatchExecutionValidationError>);
+
+    expect(deliverRuntimeTransportDispatch).not.toHaveBeenCalled();
+    expect(recordDispatchAttemptExecutionOwnershipMock).not.toHaveBeenCalled();
+  });
+
   it("blocks daemon delivery when the online route is missing execution contract evidence", async () => {
     vi.mocked(lookupRuntimeTransportRoute).mockResolvedValueOnce({
       online: true,

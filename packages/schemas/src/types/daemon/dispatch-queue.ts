@@ -15,6 +15,14 @@ export type OpenMeldDaemonDispatchContinuitySnapshot = import("zod/v4").infer<
   typeof import("../../schemas/daemon/dispatch-queue")["openMeldDaemonDispatchContinuitySnapshotSchema"]
 >;
 
+export type OpenMeldDaemonAcceptedDispatchSnapshot = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/dispatch-queue")["openMeldDaemonAcceptedDispatchSnapshotSchema"]
+>;
+
+export type OpenMeldDaemonDispatchControllerSnapshot = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/dispatch-queue")["openMeldDaemonDispatchControllerSnapshotSchema"]
+>;
+
 export type OpenMeldDaemonDispatchQueueLegacyMessageV1 = import("zod/v4").infer<
   typeof import("../../schemas/daemon/dispatch-queue")["openMeldDaemonDispatchQueueLegacyMessageSchemaV1"]
 >;

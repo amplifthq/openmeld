@@ -58,6 +58,19 @@ export const openMeldDaemonDispatchControllerSnapshotSchema = z.strictObject({
   agentControllerRef: z.string().min(1).nullable(),
 });
 
+export const openMeldDaemonAcceptedDispatchSnapshotSchema = z.strictObject({
+  controllerSnapshot: z.strictObject({
+    bindingId: z.string().trim().min(1),
+    configurationRevision: z.number().int().positive(),
+    targetBindingState: z.literal("bound"),
+    targetBindingEnabled: z.literal(true),
+    agentControllerRef: z.string().trim().min(1),
+  }),
+  openMeldServiceRuntimeId: z.string().trim().min(1),
+  payloadFingerprint: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  runtimeKind: z.literal("openmeld_service"),
+});
+
 export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
   dispatchPolicy: runtimeDispatchPolicySchema,
   ruleSource: openMeldDaemonMentionDispatchRuleSourceSchema,
