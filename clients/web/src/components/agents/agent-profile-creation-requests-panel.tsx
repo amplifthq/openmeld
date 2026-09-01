@@ -195,13 +195,13 @@ export function AgentProfileCreationRequestsPanel(input: {
 			{requestsQuery.data?.requests.map((request) => {
 				const isFocused = request.id === input.focusRequestId;
 				const localSetup =
-					request.status === "completed" &&
-					request.createdAgentProfileId &&
-					readPendingAgentProfileCreationLocalSetup({
-						organizationId: input.organizationId,
-						requestId: request.id,
-						storageScope: input.storageScope,
-					});
+					request.status === "completed" && request.createdAgentProfileId
+						? readPendingAgentProfileCreationLocalSetup({
+								organizationId: input.organizationId,
+								requestId: request.id,
+								storageScope: input.storageScope,
+							})
+						: null;
 				const localSetupPending = Boolean(localSetup);
 				const localSetupPathMissing = localSetup?.workspacePath === null;
 				return (
