@@ -30,9 +30,6 @@ export function publishGuardedLocalReleaseEvidence(input) {
   const pending = [];
   for (const scope of scopes) {
     const current = currentEvidence.get(scope);
-    if (current?.metadata.sourceSha === sourceSha) {
-      continue;
-    }
     const metadata = createEvidenceMetadata(context, scope, sourceSha);
     pending.push({
       evidenceSha: createEvidenceCommit(context, current, metadata),
