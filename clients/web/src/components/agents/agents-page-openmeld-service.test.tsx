@@ -368,6 +368,36 @@ describe("OpenMeldServiceCard", () => {
 		).toBe(true);
 	});
 
+	it("keeps an in-progress update visible after a fresh mount", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updating" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getAllByText("Updating")).toHaveLength(2);
+		expect(
+			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+	});
+
 	it("verifies an updated operation after a fresh mount until both installed versions match", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
