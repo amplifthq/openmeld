@@ -44,12 +44,14 @@ const {
 		return "/o/acme/people";
 	}),
 	resolveActiveOrganizationSpacePathMock: vi.fn(
-		(input: { data: { profileId: string; spaceId: string } }) => {
+		(input: { data: { profileId?: string; spaceId: string } }) => {
 			const url = new URL(
 				`/o/acme/spaces/${encodeURIComponent(input.data.spaceId)}`,
 				"http://localhost"
 			);
-			url.searchParams.set("profileId", input.data.profileId);
+			if (input.data.profileId) {
+				url.searchParams.set("profileId", input.data.profileId);
+			}
 			return `${url.pathname}${url.search}`;
 		}
 	),
@@ -143,7 +145,7 @@ import { PublicSpacePage } from "./$spaceId";
 
 const MESSAGE_TEXTBOX_NAME = "Message this space";
 const SIGN_IN_LINK_NAME = "Sign in";
-const JOIN_SPACE_BUTTON_PATTERN = /Join Space/;
+const JOIN_SPACE_BUTTON_PATTERN = /Join as My Human/;
 const CLASS_NAME_SEPARATOR_PATTERN = /\s+/;
 const CENTER_AGENT_PROFILE_ID = "agt_99999999-9999-4999-8999-999999999999";
 const PUBLIC_AGENT_PROFILE_ID = "agt_88888888-8888-4888-8888-888888888888";
@@ -169,12 +171,14 @@ describe("PublicSpacePage", () => {
 		resolveActiveOrganizationSpacePathMock
 			.mockReset()
 			.mockImplementation(
-				(input: { data: { profileId: string; spaceId: string } }) => {
+				(input: { data: { profileId?: string; spaceId: string } }) => {
 					const url = new URL(
 						`/o/acme/spaces/${encodeURIComponent(input.data.spaceId)}`,
 						"http://localhost"
 					);
-					url.searchParams.set("profileId", input.data.profileId);
+					if (input.data.profileId) {
+						url.searchParams.set("profileId", input.data.profileId);
+					}
 					return `${url.pathname}${url.search}`;
 				}
 			);
@@ -510,7 +514,7 @@ describe("PublicSpacePage", () => {
 		expect(screen.getByRole("button", { name: "View Space" })).not.toBeNull();
 	});
 
-	it("opens the app Space automatically for one active member profile", async () => {
+	it("opens one active human membership through the canonical Web viewer entry", async () => {
 		createWebSpaceApiMock.mockReturnValue(
 			createPublicSpaceApi({
 				getViewerMembership: vi.fn(async () => ({
@@ -532,39 +536,47 @@ describe("PublicSpacePage", () => {
 
 		await waitFor(() => {
 			expect(useNavigateMock).toHaveBeenCalledWith({
-				to: "/o/acme/spaces/space-123?profileId=human-1",
+				replace: true,
+				to: "/o/acme/spaces/space-123",
 			});
+		});
+		expect(resolveActiveOrganizationSpacePathMock).toHaveBeenCalledWith({
+			data: {
+				routeFamily: "/spaces/space-123",
+				spaceId: "space-123",
+			},
 		});
 	});
 
-	it("opens the app Space automatically for one active agent member profile", async () => {
-		createWebSpaceApiMock.mockReturnValue(
-			createPublicSpaceApi({
-				getViewerMembership: vi.fn(async () => ({
-					spaceId: "space-123",
-					activeMemberProfiles: [
-						{
-							profileId: "agt_11111111-1111-4111-8111-111111111111",
-							profileKind: "agent",
-							profileName: "Mira Agent",
-							lastEnteredAt: null,
-						},
-					],
-					preferredOpenProfileId: "agt_11111111-1111-4111-8111-111111111111",
-				})),
-			})
-		);
+	it("opens an agent-only membership through the canonical Human viewer without joining the Human", async () => {
+		const spaceApi = createPublicSpaceApi({
+			getViewerMembership: vi.fn(async () => ({
+				spaceId: "space-123",
+				activeMemberProfiles: [
+					{
+						profileId: "agt_11111111-1111-4111-8111-111111111111",
+						profileKind: "agent",
+						profileName: "Mira Agent",
+						lastEnteredAt: null,
+					},
+				],
+				preferredOpenProfileId: "agt_11111111-1111-4111-8111-111111111111",
+			})),
+		});
+		createWebSpaceApiMock.mockReturnValue(spaceApi);
 
 		renderPublicSpace({ isAuthenticated: true });
 
 		await waitFor(() => {
 			expect(useNavigateMock).toHaveBeenCalledWith({
-				to: "/o/acme/spaces/space-123?profileId=agt_11111111-1111-4111-8111-111111111111",
+				replace: true,
+				to: "/o/acme/spaces/space-123",
 			});
 		});
+		expect(spaceApi.addMembers).not.toHaveBeenCalled();
 	});
 
-	it("shows profile choices without auto-opening when multiple member profiles match", async () => {
+	it("does not expose Agent members as Web viewer choices when multiple account profiles are members", async () => {
 		createWebSpaceApiMock.mockReturnValue(
 			createPublicSpaceApi({
 				getViewerMembership: vi.fn(async () => ({
@@ -596,32 +608,15 @@ describe("PublicSpacePage", () => {
 
 		renderPublicSpace({ isAuthenticated: true });
 
-		const profileSelect = await screen.findByRole("combobox", {
-			name: "Join Space as",
-		});
-		expect(screen.queryByText("Open in app")).toBeNull();
-		expect(screen.queryByRole("link", { name: "Mira" })).toBeNull();
-		expect(screen.queryByRole("link", { name: "Quinn Agent" })).toBeNull();
-
-		fireEvent.click(profileSelect);
-
-		const humanProfilesLabel = screen.getByText("Human Profiles");
-		const agentProfilesLabel = screen.getByText("Agent Profiles");
-		expect(humanProfilesLabel.compareDocumentPosition(agentProfilesLabel)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
-		);
-		expect(screen.getByRole("option", { name: "Mira" })).not.toBeNull();
-		expect(screen.getByRole("option", { name: "Casey" })).not.toBeNull();
-		expect(screen.getByRole("option", { name: "Quinn Agent" })).not.toBeNull();
-		expect(useNavigateMock).not.toHaveBeenCalled();
-
-		fireEvent.click(screen.getByRole("option", { name: "Mira" }));
-
 		await waitFor(() => {
 			expect(useNavigateMock).toHaveBeenCalledWith({
-				to: "/o/acme/spaces/space-123?profileId=human-1",
+				replace: true,
+				to: "/o/acme/spaces/space-123",
 			});
 		});
+		expect(
+			screen.queryByRole("combobox", { name: "Join Space as" })
+		).toBeNull();
 	});
 
 	it("lets an authenticated non-member join in place as their human profile", async () => {
@@ -667,6 +662,7 @@ describe("PublicSpacePage", () => {
 		});
 		await waitFor(() => {
 			expect(useNavigateMock).toHaveBeenCalledWith({
+				replace: true,
 				to: "/o/acme/spaces/space-123?profileId=human-self",
 			});
 		});

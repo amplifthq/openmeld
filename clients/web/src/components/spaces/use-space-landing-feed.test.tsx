@@ -154,6 +154,7 @@ function renderFeed(
 		onAgentReadinessInvalidated?: (input: {
 			agentProfileIds: readonly string[];
 		}) => Promise<void> | void;
+		participationEnabled?: boolean;
 		seededEnvelopes?: readonly SignalEnvelope[];
 	} = {}
 ) {
@@ -185,10 +186,12 @@ function renderFeed(
 		);
 	}
 	const view = renderHook(
-		(props: { history: FeedHistoryState }) =>
+		(props: { history: FeedHistoryState; participationEnabled?: boolean }) =>
 			useSpaceLandingFeed({
 				spaceId: "space-123",
 				openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+				participationEnabled:
+					props.participationEnabled ?? options.participationEnabled ?? true,
 				statusReady: true,
 				statusRefetch,
 				membersRefetch,
@@ -197,7 +200,13 @@ function renderFeed(
 				history: props.history,
 			}),
 		{
-			initialProps: { history: initialHistory },
+			initialProps: {
+				history: initialHistory,
+				participationEnabled: options.participationEnabled,
+			} as {
+				history: FeedHistoryState;
+				participationEnabled?: boolean;
+			},
 			wrapper: ({ children }: { children: ReactNode }) => (
 				<QueryClientProvider client={queryClient}>
 					{children}
@@ -321,6 +330,22 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		await acceptLatestLiveSession();
 
 		expect(view.result.current.liveState).toBe("connected");
+	});
+
+	it("does not open a participating live session until the Human viewer is a member", () => {
+		const { view } = renderFeed({ participationEnabled: false });
+
+		expect(FakeWebSocket.instances).toHaveLength(0);
+		expect(view.result.current.liveState).toBe("connected");
+
+		act(() => {
+			view.rerender({
+				history: createReadyFeedHistory(),
+				participationEnabled: true,
+			});
+		});
+
+		expect(FakeWebSocket.instances).toHaveLength(1);
 	});
 
 	it("treats a bare PONG as liveness evidence without surfacing it on the timeline", async () => {

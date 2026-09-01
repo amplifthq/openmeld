@@ -22,15 +22,9 @@ import {
 	SelectGroup,
 	SelectItem,
 	SelectLabel,
-	SelectSeparator,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import {
-	LockKeyIcon,
-	RobotIcon,
-	SignInIcon,
-	UserIcon,
-} from "@phosphor-icons/react";
+import { LockKeyIcon, SignInIcon, UserIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -70,8 +64,6 @@ const EMPTY_THREAD_PREVIEWS: readonly SpaceThreadPreview[] = [];
 const EMPTY_AGENT_RECOVERY_PLANS = new Map<string, never>();
 const EMPTY_EPHEMERAL_ACTIVITY_ITEMS: readonly never[] = [];
 const EMPTY_WAKE_FAILURE_TARGET_CONTEXTS = new Map<string, never>();
-type PublicSpaceMemberProfile =
-	SpaceViewerMembershipResponse["activeMemberProfiles"][number];
 
 function buildPublicSpacePostSignInRedirect(spaceId: string): string {
 	return `/spaces/${encodeURIComponent(spaceId)}`;
@@ -79,17 +71,17 @@ function buildPublicSpacePostSignInRedirect(spaceId: string): string {
 
 async function navigateToActiveOrganizationSpace(input: {
 	navigate: ReturnType<typeof useNavigate>;
-	profileId: string;
+	profileId?: string;
 	spaceId: string;
 }) {
 	const target = await resolveActiveOrganizationSpacePath({
 		data: {
-			profileId: input.profileId,
+			...(input.profileId ? { profileId: input.profileId } : {}),
 			routeFamily: `/spaces/${input.spaceId}`,
 			spaceId: input.spaceId,
 		},
 	});
-	await input.navigate({ to: target });
+	await input.navigate({ replace: true, to: target });
 }
 
 export const Route = createFileRoute("/spaces/$spaceId")({
@@ -221,14 +213,14 @@ export function PublicSpacePage(input: {
 	]);
 
 	useEffect(() => {
-		const preferredOpenProfileId =
-			viewerMembershipQuery.data?.preferredOpenProfileId ?? null;
-		if (!preferredOpenProfileId) {
+		if ((viewerMembershipQuery.data?.activeMemberProfiles.length ?? 0) === 0) {
 			return;
 		}
+		// Membership proves same-account access, not the browser's acting identity.
+		// Omit profileId so the app route resolves the account's current Human
+		// Profile instead of treating an Agent member as a Web viewer.
 		navigateToActiveOrganizationSpace({
 			navigate,
-			profileId: preferredOpenProfileId,
 			spaceId: input.spaceId,
 		}).catch((error) => {
 			console.error("Failed to open the member Space view.", error);
@@ -236,7 +228,7 @@ export function PublicSpacePage(input: {
 	}, [
 		input.spaceId,
 		navigate,
-		viewerMembershipQuery.data?.preferredOpenProfileId,
+		viewerMembershipQuery.data?.activeMemberProfiles.length,
 	]);
 
 	const refetchSpace = async () => {
@@ -618,8 +610,6 @@ function PublicSpaceViewerAction(input: {
 	spaceId: string;
 	spaceName: string;
 }) {
-	const navigate = useNavigate();
-
 	if (!input.isAuthenticated) {
 		return (
 			<Link
@@ -637,86 +627,21 @@ function PublicSpaceViewerAction(input: {
 
 	const profiles = input.membership?.activeMemberProfiles ?? [];
 
-	// Authenticated but not a member of this Space yet → offer to join in place
+	// Authenticated but no profile in this account is a member yet → offer to join
+	// in place
 	// as one of the viewer's own human profiles. Membership is a server-side
 	// fact (addMembers); we never gate the join on local agent readiness — agents
 	// are brought in later from inside the Space (deferred-binding).
-	if (profiles.length === 0) {
-		return (
-			<PublicSpaceJoinAction
-				accessMode={input.accessMode}
-				spaceId={input.spaceId}
-				spaceName={input.spaceName}
-			/>
-		);
-	}
-
-	if (profiles.length <= 1) {
+	if (profiles.length > 0) {
 		return null;
 	}
 
-	const groupedProfiles = groupPublicSpaceProfiles(profiles);
-	const openProfile = (profileId: string) => {
-		if (!profiles.some((profile) => profile.profileId === profileId)) {
-			throw new Error(
-				`Public Space join profile is not available: ${profileId}`
-			);
-		}
-
-		navigateToActiveOrganizationSpace({
-			navigate,
-			profileId,
-			spaceId: input.spaceId,
-		}).catch((error) => {
-			console.error("Failed to join the member Space view.", error);
-		});
-	};
-
 	return (
-		<Select onValueChange={openProfile} value="">
-			<SelectTrigger
-				aria-label="Join Space as"
-				className="h-9 w-44 sm:w-64"
-				placeholder="Join Space as..."
-				variant="bordered"
-			/>
-			<SelectContent className="max-h-72">
-				{groupedProfiles.humanProfiles.length > 0 ? (
-					<SelectGroup>
-						<SelectLabel>Human Profiles</SelectLabel>
-						{groupedProfiles.humanProfiles.map((profile, index) => (
-							<SelectItem
-								icon={UserIcon}
-								index={index}
-								key={profile.profileId}
-								value={profile.profileId}
-							>
-								{profile.profileName}
-							</SelectItem>
-						))}
-					</SelectGroup>
-				) : null}
-				{groupedProfiles.humanProfiles.length > 0 &&
-				groupedProfiles.agentProfiles.length > 0 ? (
-					<SelectSeparator />
-				) : null}
-				{groupedProfiles.agentProfiles.length > 0 ? (
-					<SelectGroup>
-						<SelectLabel>Agent Profiles</SelectLabel>
-						{groupedProfiles.agentProfiles.map((profile, index) => (
-							<SelectItem
-								icon={RobotIcon}
-								index={groupedProfiles.humanProfiles.length + index}
-								key={profile.profileId}
-								value={profile.profileId}
-							>
-								{profile.profileName}
-							</SelectItem>
-						))}
-					</SelectGroup>
-				) : null}
-			</SelectContent>
-		</Select>
+		<PublicSpaceJoinAction
+			accessMode={input.accessMode}
+			spaceId={input.spaceId}
+			spaceName={input.spaceName}
+		/>
 	);
 }
 
@@ -848,7 +773,9 @@ function PublicSpaceJoinAction(input: {
 				type="button"
 			>
 				<SignInIcon aria-hidden="true" className="size-4" />
-				{joinMutation.isPending ? "Joining…" : "Join Space"}
+				{joinMutation.isPending
+					? "Joining…"
+					: `Join as ${humanProfiles[0].profileName}`}
 			</Button>
 		) : (
 			<Select
@@ -922,22 +849,6 @@ function resolvePublicSpaceAccessLabel(accessMode: SpaceAccessMode): string {
 		default:
 			return "Public";
 	}
-}
-
-function groupPublicSpaceProfiles(
-	profiles: readonly PublicSpaceMemberProfile[]
-): {
-	agentProfiles: PublicSpaceMemberProfile[];
-	humanProfiles: PublicSpaceMemberProfile[];
-} {
-	return {
-		humanProfiles: profiles.filter(
-			(profile) => profile.profileKind === "human"
-		),
-		agentProfiles: profiles.filter(
-			(profile) => profile.profileKind === "agent"
-		),
-	};
 }
 
 function ProtectedSpaceForm(input: {

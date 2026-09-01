@@ -1700,7 +1700,7 @@ describe("AppSpacesSidebar", () => {
 		});
 	});
 
-	it("opens a new Space with the joined account profile from the index", async () => {
+	it("opens an agent-only Space with the current Human Web viewer", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -1731,7 +1731,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/spaces/space-alpha?profileId=agent-1",
+			to: "/o/acme/spaces/space-alpha?profileId=human-1",
 		});
 	});
 

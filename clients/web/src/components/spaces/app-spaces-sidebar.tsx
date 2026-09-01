@@ -60,7 +60,6 @@ import {
 	isNewlyJoinedAccountSpace,
 	prioritizeNewlyJoinedAccountSpaces,
 	resolveAccountSpaceTrailingStatus,
-	resolveAccountSpaceViewerProfileId,
 	type SpaceUnreadById,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
@@ -239,14 +238,14 @@ export function AppSpacesSidebar(input: {
 		),
 		spaceItems: prioritizeNewlyJoinedAccountSpaces(selectedSections.spaceItems),
 	};
+	// Space Index membership selects participation and history owners. Web route
+	// identity stays the signed-in Human Profile; Core authorizes same-account
+	// owner access without silently adding that Human to the Space.
 	const resolveSpaceRoutePath = (item: AccountSpaceItem) =>
 		buildOrganizationSpacePath({
 			orgSlug,
 			search: {
-				profileId: resolveAccountSpaceViewerProfileId({
-					currentProfileId: input.currentProfileId,
-					item,
-				}),
+				profileId: input.currentProfileId,
 			},
 			spaceId: item.spaceId,
 		});
@@ -457,10 +456,7 @@ function SidebarSpacesList(input: {
 			{input.items.map((item, index) => {
 				const isActive = item.spaceId === input.currentSpaceId;
 				const unread = input.unreadBySpaceId.get(item.spaceId);
-				const viewerProfileId = resolveAccountSpaceViewerProfileId({
-					currentProfileId: input.currentProfileId,
-					item,
-				});
+				const viewerProfileId = input.currentProfileId;
 				return (
 					<SpaceSidebarMenuItem
 						activeWakeSummary={input.activeWakeSummaryBySpaceId.get(
