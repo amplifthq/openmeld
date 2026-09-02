@@ -18,7 +18,7 @@ import {
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useReducer } from "react";
 import { toast } from "sonner";
 import { clearPendingAgentProfileCreationLocalSetupForProfile } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { updateAgentProfileDefaultProject } from "#/lib/profiles/update-default-project";
@@ -31,6 +31,23 @@ import {
 } from "./agent-profile-project-settings";
 
 type ProjectSelectionMode = "managed" | "project" | "workspace" | null;
+
+type ProjectSettingsDialogState = {
+	errorMessage: string | null;
+	pendingAction: string | null;
+	selectedBindingGeneration: string | null;
+	selectedConnection: LocalProjectControlConnection | null;
+	selectedProjectId: string;
+	selectionMode: ProjectSelectionMode;
+	workspacePath: string;
+};
+
+function reduceProjectSettingsDialogState(
+	state: ProjectSettingsDialogState,
+	patch: Partial<ProjectSettingsDialogState>
+): ProjectSettingsDialogState {
+	return { ...state, ...patch };
+}
 
 export function AgentProfileProjectSettingsDialog(input: {
 	actorProfileId: string | null;
@@ -82,21 +99,41 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 		currentWorkingFolder: input.currentWorkingFolder,
 		defaultProjectId,
 	});
-	const [selectionMode, setSelectionMode] =
-		useState<ProjectSelectionMode>(null);
-	const [selectedProjectId, setSelectedProjectId] = useState(
-		defaultProjectId ?? ""
-	);
-	const [selectedBindingGeneration, setSelectedBindingGeneration] = useState<
-		string | null
-	>(null);
-	const [selectedConnection, setSelectedConnection] =
-		useState<LocalProjectControlConnection | null>(null);
-	const [workspacePath, setWorkspacePath] = useState(
-		currentMode === "workspace" ? (input.currentWorkingFolder ?? "") : ""
-	);
-	const [pendingAction, setPendingAction] = useState<string | null>(null);
-	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [state, updateState] = useReducer(reduceProjectSettingsDialogState, {
+		errorMessage: null,
+		pendingAction: null,
+		selectedBindingGeneration: null,
+		selectedConnection: null,
+		selectedProjectId: defaultProjectId ?? "",
+		selectionMode: null,
+		workspacePath:
+			currentMode === "workspace" ? (input.currentWorkingFolder ?? "") : "",
+	});
+	const {
+		errorMessage,
+		pendingAction,
+		selectedBindingGeneration,
+		selectedConnection,
+		selectedProjectId,
+		selectionMode,
+		workspacePath,
+	} = state;
+	const setSelectionMode = (selectionMode: ProjectSelectionMode) =>
+		updateState({ selectionMode });
+	const setSelectedProjectId = (selectedProjectId: string) =>
+		updateState({ selectedProjectId });
+	const setSelectedBindingGeneration = (
+		selectedBindingGeneration: string | null
+	) => updateState({ selectedBindingGeneration });
+	const setSelectedConnection = (
+		selectedConnection: LocalProjectControlConnection | null
+	) => updateState({ selectedConnection });
+	const setWorkspacePath = (workspacePath: string) =>
+		updateState({ workspacePath });
+	const setPendingAction = (pendingAction: string | null) =>
+		updateState({ pendingAction });
+	const setErrorMessage = (errorMessage: string | null) =>
+		updateState({ errorMessage });
 	const closeDialog = () => {
 		setSelectionMode(null);
 		setSelectedProjectId(defaultProjectId ?? "");

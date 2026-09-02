@@ -43,6 +43,7 @@ import {
 	type ComponentProps,
 	type Dispatch,
 	type FormEvent,
+	type MutableRefObject,
 	type ReactNode,
 	useEffect,
 	useMemo,
@@ -182,13 +183,38 @@ type CreateProfileDialogFormAction =
 	| {
 			state: CreateProfileDialogFormState;
 			type: "reset";
+	  }
+	| {
+			draft: AgentProfileCreationJourneyDraft;
+			type: "restore_journey_draft";
 	  };
 
 function reduceCreateProfileDialogFormState(
 	state: CreateProfileDialogFormState,
 	action: CreateProfileDialogFormAction
 ): CreateProfileDialogFormState {
-	return action.type === "reset" ? action.state : { ...state, ...action.patch };
+	if (action.type === "reset") {
+		return action.state;
+	}
+	if (action.type === "restore_journey_draft") {
+		return {
+			...state,
+			boundAgentControllerCollaborationMode:
+				action.draft.agentControllerCollaborationMode,
+			boundAgentControllerPermissionMode:
+				action.draft.agentControllerPermissionMode,
+			boundAgentControllerPermissionModeConfirmed: false,
+			boundAgentId: action.draft.agentId,
+			boundModelId: action.draft.modelId,
+			boundOpenCodePermission: action.draft.openCodePermission,
+			boundReasoningLevel: action.draft.reasoningLevel,
+			projectWorkspaceFallback: resolveJourneyDraftProjectWorkspaceFallback(
+				action.draft.selectedProjectId
+			),
+			selectedProjectId: action.draft.selectedProjectId,
+		};
+	}
+	return { ...state, ...action.patch };
 }
 
 function createInitialCreateProfileDialogFormState(input: {
@@ -632,6 +658,7 @@ function useCreateProfileDialogController(
 		});
 	useAgentProfileCreationJourneyDraft({
 		availableLocalAgentIds,
+		creationDefaultsEditedRef,
 		current: {
 			agentControllerCollaborationMode: boundAgentControllerCollaborationMode,
 			agentControllerPermissionMode: boundAgentControllerPermissionMode,
@@ -652,24 +679,7 @@ function useCreateProfileDialogController(
 		}),
 		key: journeyDraftStorageKey,
 		modelCatalog,
-		onRestore: (draft) => {
-			creationDefaultsEditedRef.current = true;
-			setBoundAgentId(draft.agentId);
-			setBoundAgentControllerCollaborationMode(
-				draft.agentControllerCollaborationMode
-			);
-			setBoundAgentControllerPermissionMode(
-				draft.agentControllerPermissionMode
-			);
-			setBoundAgentControllerPermissionModeConfirmed(false);
-			setBoundModelId(draft.modelId);
-			setBoundOpenCodePermission(draft.openCodePermission);
-			setBoundReasoningLevel(draft.reasoningLevel);
-			setSelectedProjectId(draft.selectedProjectId);
-			setProjectWorkspaceFallback(
-				resolveJourneyDraftProjectWorkspaceFallback(draft.selectedProjectId)
-			);
-		},
+		restoreDraft: dispatchForm,
 		projects: availableProjects,
 	});
 	const recoveryActionHref = buildConnectComputerPath({
@@ -1417,11 +1427,12 @@ function resolveAgentProfileProjectSelectionBlockReason(
 
 function useAgentProfileCreationJourneyDraft(input: {
 	availableLocalAgentIds: readonly string[];
+	creationDefaultsEditedRef: MutableRefObject<boolean>;
 	current: AgentProfileCreationJourneyDraft;
 	enabled: boolean;
 	key: string | null;
 	modelCatalog: ModelCatalog | null;
-	onRestore: (draft: AgentProfileCreationJourneyDraft) => void;
+	restoreDraft: Dispatch<CreateProfileDialogFormAction>;
 	projects: ListProjectsResponse["projects"];
 }) {
 	const restoredKeyRef = useRef<string | null>(null);
@@ -1449,7 +1460,11 @@ function useAgentProfileCreationJourneyDraft(input: {
 				})
 			) {
 				lastWrittenDraftRef.current = JSON.stringify(remembered);
-				input.onRestore(remembered);
+				input.creationDefaultsEditedRef.current = true;
+				input.restoreDraft({
+					draft: remembered,
+					type: "restore_journey_draft",
+				});
 				return;
 			}
 		}
@@ -2685,8 +2700,7 @@ function resolveTeammateBindingOptions(input: {
 		for (const localAgent of computer.localAgents) {
 			const controller = parseAgentControllerRef(localAgent.agentControllerRef);
 			if (
-				!controller ||
-				controller.kind !== "builtin" ||
+				controller?.kind !== "builtin" ||
 				!localAgent.enabled ||
 				localAgent.status !== "ready"
 			) {
