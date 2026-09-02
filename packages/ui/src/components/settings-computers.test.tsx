@@ -198,16 +198,19 @@ describe("Settings Local Agent usage limits", () => {
       />
     );
     const providerGrid = screen.getByTestId("local-agent-usage-provider-grid");
+    const openCodeGoGroup = within(providerGrid).getByRole("region", {
+      name: "OpenCode Go usage limits",
+    });
+    expect(openCodeGoGroup.className).not.toContain("border");
     expect(
-      within(providerGrid).getByRole("region", {
-        name: "OpenCode Go usage limits",
-      })
-    ).toBeTruthy();
-    expect(
-      within(providerGrid).getByRole("region", {
+      within(providerGrid).queryByRole("region", {
         name: "OpenAI usage limits",
-      }).textContent
-    ).toContain("Not reported by provider.");
+      })
+    ).toBeNull();
+    expect(
+      within(providerGrid).getByTestId("local-agent-usage-unreported")
+        .textContent
+    ).toBe("Usage not supportedOpenAI");
     expect(within(providerGrid).getAllByRole("progressbar")).toHaveLength(3);
   });
 
@@ -273,8 +276,8 @@ describe("Settings Local Agent usage limits", () => {
     expect(screen.getByText("Low")).toBeTruthy();
     expect(screen.getByText("Exhausted")).toBeTruthy();
     expect(screen.getByText("Stale")).toBeTruthy();
-    expect(screen.getByText("Unavailable")).toBeTruthy();
-    expect(screen.getByText("Unsupported")).toBeTruthy();
+    expect(screen.getByText("Usage temporarily unavailable")).toBeTruthy();
+    expect(screen.getByText("Usage not supported")).toBeTruthy();
     expect(screen.getAllByRole("progressbar")).toHaveLength(4);
     const availableGauge = screen.getByRole("progressbar", {
       name: AVAILABLE_FIVE_HOUR_USAGE_GAUGE_NAME,
@@ -304,8 +307,8 @@ describe("Settings Local Agent usage limits", () => {
     ).toBe("12 100");
     expect(screen.getByText("Reset time passed")).toBeTruthy();
     expect(screen.getByText("Last updated 1 day ago")).toBeTruthy();
-    expect(screen.getByText("Temporarily unavailable.")).toBeTruthy();
-    expect(screen.getByText("Not reported by provider.")).toBeTruthy();
+    expect(screen.getByText("Provider usage")).toBeTruthy();
+    expect(screen.getByText("Other provider usage")).toBeTruthy();
   });
 
   it("puts Codex's overall weekly limit first and uses the lighter detail gauge", () => {
