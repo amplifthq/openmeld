@@ -14505,7 +14505,7 @@ export class Space extends DurableObject<CoreBindings> {
     const {
       outboxStatus: _outboxStatus,
       createdAtMs: _createdAtMs,
-      handedOffAtMs: _handedOffAtMs,
+      handedOffAtMs,
       ...dispatchMessage
     } = candidate;
     const sourceSignalSnapshot =
@@ -14528,6 +14528,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
     return {
       ...dispatchMessage,
+      enqueuedAtMs: handedOffAtMs ?? dispatchMessage.enqueuedAtMs,
       ...(deliveryRecoveryReason &&
       dispatchMessage.deliveryRecoveryReason !== deliveryRecoveryReason
         ? { deliveryRecoveryReason }
