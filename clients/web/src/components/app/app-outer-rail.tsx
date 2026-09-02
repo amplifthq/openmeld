@@ -188,7 +188,7 @@ function buildAppRailGroups(input: {
 				{
 					compactLabel: "DMs",
 					id: "directMessages",
-					label: "Direct Messages",
+					label: "Messages",
 					to: buildOrganizationDirectMessagesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-4" />,
 				},

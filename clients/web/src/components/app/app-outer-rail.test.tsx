@@ -160,7 +160,7 @@ const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
 	"Home",
 	"Spaces",
-	"Direct Messages",
+	"Messages",
 	"People",
 	"Agents",
 ] as const;
@@ -335,7 +335,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "full", width: "9rem" });
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Direct Messages",
+			name: "Messages",
 		});
 		const centerTruncatedLabel = directMessagesLink.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
@@ -346,12 +346,12 @@ describe("AppOuterRail", () => {
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-start"]'
 			)?.textContent
-		).toBe("Direct M");
+		).toBe("Mess");
 		expect(
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-end"]'
 			)?.textContent
-		).toBe("essages");
+		).toBe("ages");
 		expect(directMessagesLink.querySelector("span.truncate")).toBeNull();
 	});
 
@@ -386,7 +386,7 @@ describe("AppOuterRail", () => {
 		for (const label of [
 			"Home",
 			"Spaces",
-			"Direct Messages",
+			"Messages",
 			"People",
 			"Agents",
 			"Settings",
@@ -431,14 +431,14 @@ describe("AppOuterRail", () => {
 			}
 		});
 
-		it("shows DMs visually while preserving the Direct Messages link name", () => {
+		it("shows DMs visually while preserving the Messages link name", () => {
 			renderCompactRail();
 
 			const directMessagesLink = screen.getByRole("link", {
-				name: "Direct Messages",
+				name: "Messages",
 			});
 			expect(directMessagesLink.textContent).toContain("DMs");
-			expect(directMessagesLink.textContent).not.toContain("Direct Messages");
+			expect(directMessagesLink.textContent).not.toContain("Messages");
 			expect(
 				directMessagesLink.querySelector('[data-slot="center-truncated-text"]')
 			).toBeNull();
@@ -591,7 +591,7 @@ describe("AppOuterRail", () => {
 		renderRail();
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Direct Messages",
+			name: "Messages",
 		});
 		expect(directMessagesLink.getAttribute("href")).toBe(
 			"/o/acme/direct-messages"
@@ -665,7 +665,7 @@ describe("AppOuterRail", () => {
 			within(railContent).queryByRole("link", { name: "Spaces" })
 		).toBeNull();
 		expect(
-			within(railContent).queryByRole("link", { name: "Direct Messages" })
+			within(railContent).queryByRole("link", { name: "Messages" })
 		).toBeNull();
 		expect(
 			within(railContent).getByRole("link", { name: "People" })
@@ -687,7 +687,7 @@ describe("AppOuterRail", () => {
 		expect(screen.getByRole("link", { name: "Home" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Center Agent" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Direct Messages" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Messages" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
 	});
 

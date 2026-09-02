@@ -42,6 +42,7 @@ export function resolveDaemonCapabilities(input: {
       forkSession: true,
       interrupt: true,
       manageInstallations: true,
+      manageInstallationsSafely: true,
       refreshCatalog: true,
       resumeControllerConversation: true,
       setEnabled: true,

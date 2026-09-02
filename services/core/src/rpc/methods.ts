@@ -3810,7 +3810,7 @@ async function getCurrentLocalAgentInstallationsForUser(
   }
 
   const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
-    capability: "manageInstallations",
+    capability: "manageInstallationsSafely",
     env,
     unsupportedCode: "local_agent_control.unsupported",
     unsupportedReason:
@@ -3832,6 +3832,9 @@ async function getCurrentLocalAgentInstallationsForUser(
   const response: CurrentLocalAgentInstallationsResponse = {
     agentId: acceptedPayload.agentId,
     installations: acceptedPayload.installations,
+    selectionStatus: requireLocalAgentInstallationSelectionStatus(
+      acceptedPayload.selectionStatus
+    ),
     selectedInstallationId: acceptedPayload.selectedInstallationId,
   };
   const validated =
@@ -3880,7 +3883,7 @@ async function selectCurrentLocalAgentInstallationForUser(
 
   const { currentTarget, lookupOwnerServiceForUser } =
     await resolveCurrentLocalAgentControlTarget({
-      capability: "manageInstallations",
+      capability: "manageInstallationsSafely",
       env,
       unsupportedCode: "local_agent_control.unsupported",
       unsupportedReason:
@@ -3912,6 +3915,9 @@ async function selectCurrentLocalAgentInstallationForUser(
     installations: acceptedPayload.installations,
     localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     reportSyncStatus: acceptedPayload.reportSyncStatus,
+    selectionStatus: requireLocalAgentInstallationSelectionStatus(
+      acceptedPayload.selectionStatus
+    ),
     selectedInstallationId: acceptedPayload.selectedInstallationId,
     status:
       acceptedPayload.status === "listed"
@@ -3926,6 +3932,24 @@ async function selectCurrentLocalAgentInstallationForUser(
     );
   }
   return validated.data;
+}
+
+function requireLocalAgentInstallationSelectionStatus(
+  status: unknown
+): CurrentLocalAgentInstallationsResponse["selectionStatus"] {
+  if (
+    status === "available" ||
+    status === "blocked_by_work" ||
+    status === "operation_in_progress"
+  ) {
+    return status;
+  }
+  throw createCoreRpcHttpError({
+    status: 409,
+    reason:
+      "Update OpenMeld Service before choosing a local agent installation.",
+    code: "local_agent_control.service_update_required",
+  });
 }
 
 export async function rpcSetCurrentAgentProfileWorkspace(

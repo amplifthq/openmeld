@@ -925,18 +925,24 @@ authoritative; a connected Computer must never be presented as proof that an
 Agent can reply.
 
 On the exact current owned Computer, each enabled reported local agent may show
-**Change installation** when the live Service advertises installation
-management. The action sits beside the **Launch check** value in that local
-agent's detail rows instead of creating a separate Installation section.
-**Launch check** is the second detail row after **Controller** and names the
-selected installation source and version when more than one verified choice
-exists. The collapsed row names that same selected source beside the version so
-people never need to infer an installation from a version number. The dialog
-lists only locally verified choices, clearly marks the current choice, stages a
-new choice without changing it, and requires an explicit **Use ...**
-confirmation before it updates the Service-owned local registry. Long paths
-truncate inside a width-bounded dialog rather than overflowing the viewport. It
-loads on demand, never blocks setup, and never appears for another member's
+an **Installation** control when the live Service advertises both installation
+management and idle-selection safety. It is a compact, borderless section above
+**Usage limits**, separate from the diagnostic list; **Launch check** remains a
+plain diagnostic row. The control names the selected source and version, and the
+collapsed row names the same source beside the version so people never need to
+infer an installation from a version number. A selector lists only locally
+verified choices and stages a new choice without changing it. A quiet inline
+confirmation then names the exact target and requires an explicit **Switch
+installation** action. It never opens a nested dialog or renders each choice as
+another card.
+
+The Service-owned selection status disables the selector while matching work is
+queued or running and explains: the agent has work in progress, so the person
+must wait until it finishes. A concurrent installation operation gets a separate
+short-lived message. One verified installation is read-only. Loading, empty,
+failure, switching, and slow-reconciliation states remain inline without moving
+the surrounding dialog. Long names and details truncate within the selector,
+the control never blocks setup, and it never appears for another member's
 Computer. When a confirmed change outlives the Web request budget, Web
 reconciles the Service-owned selected installation before it reports a failure;
 a transport timeout alone is neither shown as the result nor treated as a

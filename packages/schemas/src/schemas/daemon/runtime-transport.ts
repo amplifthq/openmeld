@@ -387,6 +387,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
       cancel: z.literal(true).optional(),
       interrupt: z.literal(true).optional(),
       manageInstallations: z.literal(true).optional(),
+      manageInstallationsSafely: z.literal(true).optional(),
       forkSession: z.literal(true).optional(),
       refreshCatalog: z.literal(true).optional(),
       resumeControllerConversation: z.literal(true).optional(),
@@ -1773,6 +1774,7 @@ export const runtimeTransportAgentControllerConversationOccupancySchema =
   });
 
 export const runtimeTransportDispatchLocalQueueWaitReasonSchema = z.enum([
+  "agent_controller_maintenance",
   "global_concurrency",
   "local_execution_lane_concurrency",
   "none",

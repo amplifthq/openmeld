@@ -4190,14 +4190,25 @@ implementation details.
 
 The shared daemon, Runtime Transport, Local Runtimes HTTP, and API-client
 contracts also own current-Computer installation management. The optional
-`localAgentControl.manageInstallations` capability gates an owner-only
-list/select request for one registered built-in agent. The Service returns
-bounded installation ids, friendly names/details, and one selected id; only the
-immediate owner response may contain path-derived details. Selection updates
-the local registry's launch contract and then refreshes the canonical runtime
-report. Older Services omit the capability, so new Web stays dormant; publish a
-new Service only after Core, Gateway, API client, and Web accept the additive
-frames and responses.
+`localAgentControl.manageInstallations` capability preserves the original
+owner-only list/select contract for one registered built-in agent. The additive
+`localAgentControl.manageInstallationsSafely` capability states that the Service
+also owns idle admission and serializes the registry write against matching
+local work. Cloud callers require both capabilities before exposing or sending
+a selection. The Service returns bounded installation ids, friendly
+names/details, one selected id, and an additive selection status of `available`,
+`blocked_by_work`, or `operation_in_progress`; only the immediate owner response
+may contain path-derived details. Selection updates the local registry's launch
+contract and then refreshes the canonical runtime report.
+
+The new capability and daemon result field are optional on the mixed-version
+wire, while the owner-only HTTP response requires the normalized selection
+status. New cloud code stays dormant against an older Service because the safe
+capability is absent. Publish Core, Gateway, API client, and Web consumers before
+the new Service producer; rolling cloud consumers back after that publication is
+not supported until the producer is retired. Existing setup, Wake, status,
+Space Actions, and diagnostics remain compatible in both directions because
+none of their established frames or projections change.
 
 `packages/schemas/src/schemas/daemon/computer-file-access.ts` owns the strict
 Computer file access mode, absolute-path, policy, current-device HTTP/RPC,

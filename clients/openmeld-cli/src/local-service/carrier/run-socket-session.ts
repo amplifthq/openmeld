@@ -1958,7 +1958,32 @@ export async function runDaemonSocketSession(input: {
     operation: "list" | "select";
   }): Promise<OpenMeldDaemonManageLocalAgentInstallationPayload> => {
     try {
-      const result = await manageAgentRegistrationInstallation(controlInput);
+      let result: Awaited<
+        ReturnType<typeof manageAgentRegistrationInstallation>
+      >;
+      if (controlInput.operation === "select") {
+        const guardedResult =
+          await localExecutionSlots.runAdapterOperationIfIdle(
+            controlInput.agentId,
+            () => manageAgentRegistrationInstallation(controlInput)
+          );
+        if (!guardedResult.accepted) {
+          if (guardedResult.status === "operation_in_progress") {
+            throw new Error(
+              "agents.installation_change_in_progress: this installation is already being changed; check again in a moment"
+            );
+          }
+          throw new Error(
+            "agents.installation_change_blocked_by_work: this agent has work in progress; wait until it finishes before changing installations"
+          );
+        }
+        result = guardedResult.value;
+      } else {
+        result = await manageAgentRegistrationInstallation(controlInput);
+      }
+      const selectionStatus = localExecutionSlots.getAdapterOperationStatus(
+        controlInput.agentId
+      );
       let reportSyncStatus: OpenMeldDaemonManageLocalAgentInstallationPayload["reportSyncStatus"] =
         "skipped";
       if (result.changed) {
@@ -1993,6 +2018,7 @@ export async function runDaemonSocketSession(input: {
           installationCount: result.installations.length,
           operation: controlInput.operation,
           reportSyncStatus,
+          selectionStatus,
           selectedInstallationId: result.selectedInstallationId,
         },
       });
@@ -2003,6 +2029,7 @@ export async function runDaemonSocketSession(input: {
         changed: result.changed,
         installations: result.installations,
         reportSyncStatus,
+        selectionStatus,
         selectedInstallationId: result.selectedInstallationId,
         status: result.status,
       };

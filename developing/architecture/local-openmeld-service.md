@@ -967,6 +967,17 @@ choice, otherwise selects the first verified PATH-ordered candidate. Listing or
 selection failure stays visible and must not be reported as a successful local
 agent refresh.
 
+Installation selection is an idle-only local maintenance operation. The local
+execution-slot owner reports whether matching adapter work is queued or active,
+and the Service rejects a selection while either exists. Once admitted, the
+operation reserves that adapter until the registry write finishes; a Wake that
+arrives during this short window remains queued and starts against the completed
+launch contract. Listing remains available and returns the current selection
+status. Web and other cloud callers may expose selection only when the Service
+advertises `localAgentControl.manageInstallationsSafely`; the older
+`manageInstallations` capability alone is not authorization for the safe
+workflow.
+
 An explicit Off decision is sticky. Setup, service restart, catalog refresh,
 binary update, controller reinstall, and later controller detection must not
 turn that controller back on. Only an explicit current-service enable command

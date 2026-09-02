@@ -2149,6 +2149,7 @@ describe("runtime transport schema", () => {
         cancel: true,
         interrupt: true,
         manageInstallations: true,
+        manageInstallationsSafely: true,
         refreshCatalog: true,
         setEnabled: true,
         setProfileWorkspace: true,
@@ -2198,6 +2199,7 @@ describe("runtime transport schema", () => {
         },
       ],
       reportSyncStatus: "submitted" as const,
+      selectionStatus: "available" as const,
       selectedInstallationId: "install-homebrew",
       status: "updated" as const,
     };

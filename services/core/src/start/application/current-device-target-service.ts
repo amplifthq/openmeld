@@ -1357,6 +1357,10 @@ function buildLocalAgentControlByDeviceLane(
     const manageInstallations =
       session.executionCompatibility.status === "compatible" &&
       session.capabilities.localAgentControl?.manageInstallations === true;
+    const manageInstallationsSafely =
+      manageInstallations &&
+      session.capabilities.localAgentControl?.manageInstallationsSafely ===
+        true;
     const refreshCatalog =
       session.executionCompatibility.status === "compatible" &&
       session.capabilities.localAgentControl?.refreshCatalog === true;
@@ -1365,6 +1369,7 @@ function buildLocalAgentControlByDeviceLane(
       session.capabilities.localAgentControl?.setProfileWorkspace === true;
     controls.set(key, {
       ...(manageInstallations ? { manageInstallations: true } : {}),
+      ...(manageInstallationsSafely ? { manageInstallationsSafely: true } : {}),
       refreshCatalog,
       setEnabled,
       setProfileWorkspace,
