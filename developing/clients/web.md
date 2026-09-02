@@ -3149,6 +3149,12 @@ structured relations explicitly instead of relying on Core to infer Wake from
 arbitrary bare text. Changing a semantic control changes the authored structured
 relation; AI interpretation must never silently rewrite it.
 
+The Composer member picker reuses the shared Fluid layout indicator for its
+active row. Pointer hover and combobox keyboard navigation update that one
+indicator through the same active-item state, so Web never paints separate
+hover and keyboard backgrounds. Result groups keep deliberate row separation
+and popover-edge padding rather than using each row's margin as layout.
+
 The shared Web API client sends the current Space Addressing response-version
 header, and the Web Gateway proxy forwards it unchanged. The live Space proxy
 declares the matching `spaceMessageAddressing` hello capability. Therefore a

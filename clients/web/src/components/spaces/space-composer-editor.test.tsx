@@ -233,6 +233,26 @@ describe("SpaceComposerEditor", () => {
 		const runnerOption = await screen.findByRole("option", {
 			name: RUNNER_OPTION_NAME,
 		});
+		const memberOptions = screen.getByRole("listbox", {
+			name: "Member options",
+		});
+		const sharedLayoutGroup = memberOptions.querySelector(
+			'[data-slot="shared-layout-group"]'
+		);
+		const sharedLayoutItem = runnerOption.closest(
+			'[data-slot="shared-layout-item"]'
+		);
+		expect(sharedLayoutGroup?.className).toContain("p-1.5");
+		expect(sharedLayoutItem?.parentElement?.className).toContain("gap-1");
+		expect(
+			sharedLayoutGroup?.querySelectorAll(
+				'[data-slot="shared-layout-background"]'
+			)
+		).toHaveLength(1);
+		expect(runnerOption.className).not.toContain("hover:bg-accent");
+		expect(runnerOption.className).not.toContain(
+			"data-[active-item=true]:bg-accent"
+		);
 		fireEvent.mouseDown(runnerOption);
 		fireEvent.click(runnerOption);
 
