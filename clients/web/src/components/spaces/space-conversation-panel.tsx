@@ -1770,37 +1770,12 @@ function SpaceComposerSection(input: {
 				data-space-conversation-content-width=""
 			>
 				<div className="relative">
-					{isDraggingFiles ? (
-						<div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border border-foreground/30 bg-background/90 text-foreground text-sm shadow-sm backdrop-blur-sm">
-							Drop files to add them
-						</div>
-					) : null}
-					{panel.composerReplyToSignalId ? (
-						<div
-							className="mb-2 flex items-center justify-between gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
-							data-slot="composer-reply-banner"
-						>
-							<p className="min-w-0 truncate text-muted-foreground">
-								Replying to{" "}
-								<span className="font-bold text-foreground">
-									{resolveReplyToDisplayText({
-										signalId: panel.composerReplyToSignalId,
-										timelineItems: panel.timelineItems,
-									})}
-								</span>
-							</p>
-							<Button
-								aria-label="Cancel reply"
-								className="size-7 shrink-0"
-								onClick={panel.onClearComposerReplyTo}
-								size="icon-sm"
-								type="button"
-								variant="ghost"
-							>
-								<XIcon aria-hidden="true" />
-							</Button>
-						</div>
-					) : null}
+					<ComposerFileDropOverlay visible={isDraggingFiles} />
+					<ComposerReplyBanner
+						onClear={panel.onClearComposerReplyTo}
+						signalId={panel.composerReplyToSignalId}
+						timelineItems={panel.timelineItems}
+					/>
 					<PromptInput
 						className="w-full"
 						maxHeight={240}
@@ -1830,82 +1805,163 @@ function SpaceComposerSection(input: {
 							placeholder={input.composerPlaceholder}
 							text={panel.composerText}
 						/>
-						<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
-							<div className="flex min-w-0 flex-1 items-center gap-0">
-								<SpaceComposerFileMenu
-									addFiles={addFiles}
-									disabled={composerActionsDisabled}
-									limitReached={panel.composerFileLimitReached}
-								/>
-								{panel.isCenterAgentDirectMessage ||
-								panel.agentDirectConversationKind ? null : (
-									<Button
-										aria-label="Mention a member"
-										className="size-8 text-base"
-										disabled={composerActionsDisabled}
-										onClick={panel.onMentionButtonClick}
-										size="icon-sm"
-										type="button"
-										variant="ghost"
-									>
-										<span aria-hidden="true">@</span>
-									</Button>
-								)}
-								{composerHint ? (
-									<p
-										aria-live="polite"
-										className={cn(
-											"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
-											composerHintClassName
-										)}
-									>
-										{composerHint}
-									</p>
-								) : null}
-							</div>
-							<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
-								{panel.profileControl}
-								{panel.composerPrimaryAction ?? (
-									<PromptInputAction
-										className="hidden sm:inline-flex"
-										tooltip={
-											panel.isSendingMessage ? "Sending…" : "Send message"
-										}
-									>
-										<Button
-											aria-label={input.sendButtonLabel}
-											disabled={
-												panel.isSendingMessage ||
-												!input.canSendMessage ||
-												input.composerSendBlocked
-											}
-											onClick={input.submitComposer}
-											size="icon-sm"
-											type="button"
-										>
-											<ArrowUpIcon aria-hidden="true" weight="bold" />
-										</Button>
-									</PromptInputAction>
-								)}
-							</div>
-						</PromptInputActions>
+						<SpaceComposerToolbar
+							addFiles={addFiles}
+							canSendMessage={input.canSendMessage}
+							composerActionsDisabled={composerActionsDisabled}
+							composerHint={composerHint}
+							composerHintClassName={composerHintClassName}
+							composerSendBlocked={input.composerSendBlocked}
+							panel={panel}
+							sendButtonLabel={input.sendButtonLabel}
+							submitComposer={input.submitComposer}
+						/>
 					</PromptInput>
 				</div>
-				{panel.composerErrorMessage ? (
-					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
-						<p>{panel.composerErrorMessage}</p>
-						{renderComposerBlockedWakeRecoveryAction({
-							agentRecoveryPlansByProfileId:
-								panel.agentRecoveryPlansByProfileId,
-							blockedWakeProfileId: panel.composerBlockedWakeProfileId,
-							isAgentRecoveryPending: panel.isAgentRecoveryPending,
-							onAgentRecoveryAction: panel.onAgentRecoveryAction,
-							orgSlug: panel.orgSlug,
-							prepareSetupHref: panel.prepareSetupHref,
-						})}
-					</div>
-				) : null}
+				<ComposerError panel={panel} />
 			</div>
+		</div>
+	);
+}
+
+function ComposerFileDropOverlay(input: { visible: boolean }) {
+	return input.visible ? (
+		<div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border border-foreground/30 bg-background/90 text-foreground text-sm shadow-sm backdrop-blur-sm">
+			Drop files to add them
+		</div>
+	) : null;
+}
+
+function ComposerReplyBanner(input: {
+	onClear: () => void;
+	signalId: string | null;
+	timelineItems: readonly SpaceTimelineItem[];
+}) {
+	if (!input.signalId) {
+		return null;
+	}
+	return (
+		<div
+			className="mb-2 flex items-center justify-between gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
+			data-slot="composer-reply-banner"
+		>
+			<p className="min-w-0 truncate text-muted-foreground">
+				Replying to{" "}
+				<span className="font-bold text-foreground">
+					{resolveReplyToDisplayText({
+						signalId: input.signalId,
+						timelineItems: input.timelineItems,
+					})}
+				</span>
+			</p>
+			<Button
+				aria-label="Cancel reply"
+				className="size-7 shrink-0"
+				onClick={input.onClear}
+				size="icon-sm"
+				type="button"
+				variant="ghost"
+			>
+				<XIcon aria-hidden="true" />
+			</Button>
+		</div>
+	);
+}
+
+function SpaceComposerToolbar(input: {
+	addFiles: (files: readonly File[]) => void;
+	canSendMessage: boolean;
+	composerActionsDisabled: boolean;
+	composerHint: string | null;
+	composerHintClassName: string;
+	composerSendBlocked: boolean;
+	panel: SpaceConversationPanelProps;
+	sendButtonLabel: string;
+	submitComposer: () => void;
+}) {
+	const panel = input.panel;
+	const mentionButton =
+		panel.isCenterAgentDirectMessage ||
+		panel.agentDirectConversationKind ? null : (
+			<Button
+				aria-label="Mention a member"
+				className="size-8 text-base"
+				disabled={input.composerActionsDisabled}
+				onClick={panel.onMentionButtonClick}
+				size="icon-sm"
+				type="button"
+				variant="ghost"
+			>
+				<span aria-hidden="true">@</span>
+			</Button>
+		);
+	const composerHint = input.composerHint ? (
+		<p
+			aria-live="polite"
+			className={cn(
+				"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
+				input.composerHintClassName
+			)}
+		>
+			{input.composerHint}
+		</p>
+	) : null;
+	const primaryAction = panel.composerPrimaryAction ?? (
+		<PromptInputAction
+			className="hidden sm:inline-flex"
+			tooltip={panel.isSendingMessage ? "Sending…" : "Send message"}
+		>
+			<Button
+				aria-label={input.sendButtonLabel}
+				disabled={
+					panel.isSendingMessage ||
+					!input.canSendMessage ||
+					input.composerSendBlocked
+				}
+				onClick={input.submitComposer}
+				size="icon-sm"
+				type="button"
+			>
+				<ArrowUpIcon aria-hidden="true" weight="bold" />
+			</Button>
+		</PromptInputAction>
+	);
+
+	return (
+		<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
+			<div className="flex min-w-0 flex-1 items-center gap-0">
+				<SpaceComposerFileMenu
+					addFiles={input.addFiles}
+					disabled={input.composerActionsDisabled}
+					limitReached={panel.composerFileLimitReached}
+				/>
+				{mentionButton}
+				{composerHint}
+			</div>
+			<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
+				{panel.profileControl}
+				{primaryAction}
+			</div>
+		</PromptInputActions>
+	);
+}
+
+function ComposerError(input: { panel: SpaceConversationPanelProps }) {
+	const panel = input.panel;
+	if (!panel.composerErrorMessage) {
+		return null;
+	}
+	return (
+		<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
+			<p>{panel.composerErrorMessage}</p>
+			{renderComposerBlockedWakeRecoveryAction({
+				agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
+				blockedWakeProfileId: panel.composerBlockedWakeProfileId,
+				isAgentRecoveryPending: panel.isAgentRecoveryPending,
+				onAgentRecoveryAction: panel.onAgentRecoveryAction,
+				orgSlug: panel.orgSlug,
+				prepareSetupHref: panel.prepareSetupHref,
+			})}
 		</div>
 	);
 }
