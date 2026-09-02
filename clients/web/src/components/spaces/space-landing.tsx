@@ -1477,8 +1477,6 @@ function SpaceLandingReady({
 		modelCatalog,
 		navigate,
 		organizationId,
-		recovery,
-		refreshCurrentSpaceMemberFacts,
 		setupRecallAction,
 		spaceFileNavigation,
 		spaceInboxReadPosition,
@@ -1508,33 +1506,14 @@ function SpaceLandingReady({
 			open={membersOpen}
 		/>
 	);
-	const currentHumanViewer = resolveCurrentSpaceHumanViewer({
-		accountProfiles,
-		currentProfileId: controller.profileId,
-		membersSnapshot: controller.membersSnapshot,
-	});
-	const currentProfileIsActiveSpaceMember =
-		controller.currentProfileMembershipState === "member";
-	const currentProfileName = currentHumanViewer.profileName;
-	const agentOwnerDirectMessageObserver =
-		resolveAgentOwnerDirectMessageObserver({
-			currentOwnerUserId,
-			humanProfile: currentHumanViewer.humanProfile,
-			isActiveSpaceMember: currentProfileIsActiveSpaceMember,
-			isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
-			isDirectMessage,
-			snapshot: controller.membersSnapshot,
-		});
-	const agentOwnerDirectMessageJoin = useAgentOwnerDirectMessageJoin({
-		currentSpaceName: controller.status.name,
-		onJoin: handleConvertDirectMessageToSpace,
-		observer: agentOwnerDirectMessageObserver,
-	});
-	const agentOwnerVisibilityLabel = resolveAgentOwnerVisibilityLabel({
-		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
-		isDirectMessage,
-		snapshot: controller.membersSnapshot,
-	});
+	const {
+		agentOwnerDirectMessageJoin,
+		agentOwnerDirectMessageObserver,
+		agentOwnerVisibilityLabel,
+		currentHumanViewer,
+		currentProfileIsActiveSpaceMember,
+		currentProfileName,
+	} = useSpaceLandingViewerState({ controller, state });
 	const humanJoinControl = (
 		<SpaceHumanJoinControl
 			humanProfile={currentHumanViewer.humanProfile}
@@ -1585,37 +1564,16 @@ function SpaceLandingReady({
 		session: "fresh",
 		spaceId: controller.spaceId,
 	});
-	const agentProfileEditContext = resolveAgentProfileEditDialogContext({
-		onSaved: async (profileId) => {
-			await Promise.all([
-				refreshCurrentSpaceMemberFacts({
-					agentProfileIds: [profileId],
-					forceNetwork: true,
-				}),
-				recovery.refreshAll(),
-			]);
-		},
-		organizationId,
-		recovery,
-	});
-	const pendingAgentActions = useSpacePendingAgentActions({
-		accountProfiles,
-		agentProfileEditContext,
-		currentOwnerUserId,
-		membersSnapshot: controller.membersSnapshot,
-		modelCatalog,
-		onRespond: controller.onAgentInteractionResponse,
-		presentedItems: controller.presentedWakeProgressItems,
-		threadItems: controller.threadEphemeralActivityItems,
-	});
 	const isCompactPresentation = input.presentation === "compact";
-	const pendingActionSurfacePlacement =
-		resolveSpacePendingAgentActionSurfacePlacement({
-			hasActiveThread:
-				!isCompactPresentation &&
-				controller.isCurrentAccessConfirmed &&
-				controller.activeThread !== null,
-		});
+	const {
+		agentProfileEditContext,
+		pendingActionSurfacePlacement,
+		pendingAgentActions,
+	} = useSpaceLandingPendingAgentActions({
+		controller,
+		isCompactPresentation,
+		state,
+	});
 	const pendingActionSurface = (
 		<SpacePendingAgentActions
 			{...pendingAgentActions.surfaceProps}
@@ -1777,6 +1735,93 @@ function SpaceLandingReady({
 			{pendingAgentActions.profileEditDialog}
 		</SpaceAgentProfileEditProvider>
 	);
+}
+
+function useSpaceLandingViewerState({
+	controller,
+	state,
+}: {
+	controller: ReadySpaceLandingController;
+	state: SpaceLandingState;
+}) {
+	const currentHumanViewer = resolveCurrentSpaceHumanViewer({
+		accountProfiles: state.accountProfiles,
+		currentProfileId: controller.profileId,
+		membersSnapshot: controller.membersSnapshot,
+	});
+	const currentProfileIsActiveSpaceMember =
+		controller.currentProfileMembershipState === "member";
+	const agentOwnerDirectMessageObserver =
+		resolveAgentOwnerDirectMessageObserver({
+			currentOwnerUserId: state.currentOwnerUserId,
+			humanProfile: currentHumanViewer.humanProfile,
+			isActiveSpaceMember: currentProfileIsActiveSpaceMember,
+			isCenterAgentDirectMessage: state.currentSpaceIsCenterAgentDirectMessage,
+			isDirectMessage: state.isDirectMessage,
+			snapshot: controller.membersSnapshot,
+		});
+	const agentOwnerDirectMessageJoin = useAgentOwnerDirectMessageJoin({
+		currentSpaceName: controller.status.name,
+		onJoin: state.handleConvertDirectMessageToSpace,
+		observer: agentOwnerDirectMessageObserver,
+	});
+	return {
+		agentOwnerDirectMessageJoin,
+		agentOwnerDirectMessageObserver,
+		agentOwnerVisibilityLabel: resolveAgentOwnerVisibilityLabel({
+			isCenterAgentDirectMessage: state.currentSpaceIsCenterAgentDirectMessage,
+			isDirectMessage: state.isDirectMessage,
+			snapshot: controller.membersSnapshot,
+		}),
+		currentHumanViewer,
+		currentProfileIsActiveSpaceMember,
+		currentProfileName: currentHumanViewer.profileName,
+	};
+}
+
+function useSpaceLandingPendingAgentActions({
+	controller,
+	isCompactPresentation,
+	state,
+}: {
+	controller: ReadySpaceLandingController;
+	isCompactPresentation: boolean;
+	state: SpaceLandingState;
+}) {
+	const agentProfileEditContext = resolveAgentProfileEditDialogContext({
+		onSaved: async (profileId) => {
+			await Promise.all([
+				state.refreshCurrentSpaceMemberFacts({
+					agentProfileIds: [profileId],
+					forceNetwork: true,
+				}),
+				state.recovery.refreshAll(),
+			]);
+		},
+		organizationId: state.organizationId,
+		recovery: state.recovery,
+	});
+	const pendingAgentActions = useSpacePendingAgentActions({
+		accountProfiles: state.accountProfiles,
+		agentProfileEditContext,
+		currentOwnerUserId: state.currentOwnerUserId,
+		membersSnapshot: controller.membersSnapshot,
+		modelCatalog: state.modelCatalog,
+		onRespond: controller.onAgentInteractionResponse,
+		presentedItems: controller.presentedWakeProgressItems,
+		threadItems: controller.threadEphemeralActivityItems,
+	});
+	return {
+		agentProfileEditContext,
+		pendingActionSurfacePlacement:
+			resolveSpacePendingAgentActionSurfacePlacement({
+				hasActiveThread:
+					!isCompactPresentation &&
+					controller.isCurrentAccessConfirmed &&
+					controller.activeThread !== null,
+			}),
+		pendingAgentActions,
+	};
 }
 
 function resolveSpaceHistoryErrorMessage(
