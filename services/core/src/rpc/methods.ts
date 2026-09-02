@@ -4475,12 +4475,17 @@ export async function rpcSubmitRuntimeAgentControllerReports(
         await notifyAgentProfileWorkUsageRecoveryAvailable({
           bindingStore: {
             listBindings: async (bindingInput) =>
-              await listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController(
-                {
-                  ...bindingInput,
-                  db,
-                }
-              ),
+              (
+                await listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController(
+                  {
+                    ...bindingInput,
+                    db,
+                  }
+                )
+              ).map((binding) => ({
+                agentProfileId: binding.agentProfileId,
+                modelId: binding.modelId,
+              })),
           },
           currentReport: result.currentReport,
           notifyUsageAvailable: async (recoveryInput) =>

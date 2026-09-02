@@ -1413,6 +1413,63 @@ describe("Core Agent Execution Readiness", () => {
     );
   });
 
+  it("checks only the provider selected by an OpenCode binding", async () => {
+    mockReadyBindingAndRuntime(
+      "agt_opencode_provider_usage",
+      "builtin:opencode",
+      undefined,
+      "opencode-go/qwen3-coder"
+    );
+    mockOnlineRoute("device-1");
+    const selectedProviderLimit = {
+      ...createUsageLimit({ status: "available", usedPercent: 43 }),
+      key: "opencode-go:rolling",
+      provider: { displayName: "OpenCode Go", id: "opencode-go" },
+    };
+    const baseReport = createRuntimeReportWithUsage(
+      selectedProviderLimit,
+      "builtin:opencode"
+    );
+    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
+      {
+        ...baseReport,
+        agentControllerInterface: {
+          ...baseReport.agentControllerInterface,
+          usageLimits: [
+            selectedProviderLimit,
+            {
+              ...createUsageLimit({ status: "exhausted", usedPercent: 100 }),
+              key: "openai:provider",
+              provider: { displayName: "OpenAI", id: "openai" },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId: "agt_opencode_provider_usage",
+            profileName: "OpenCode Provider Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId: "agt_opencode_provider_usage",
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "ready",
+      primaryAction: "none",
+    });
+    expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
+      "usage_exhausted"
+    );
+  });
+
   it("projects exact Codex Usage exhaustion evidence ahead of sign-in guidance", async () => {
     mockReadyBindingAndRuntime("agt_provider_access", "builtin:codex");
     vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
@@ -1933,7 +1990,8 @@ function createAgentProfileOrganizationDb(): D1Database {
 function mockReadyBindingAndRuntime(
   agentProfileId: string,
   agentControllerRef = "builtin:codex",
-  agentControllerConversationId?: string
+  agentControllerConversationId?: string,
+  modelId?: string
 ): void {
   vi.mocked(readPrimaryAgentProfileBindingRecord).mockResolvedValue({
     agentProfileId,
@@ -1951,6 +2009,7 @@ function mockReadyBindingAndRuntime(
     },
     reasonCode: null,
     openMeldServiceRuntimeId: "runtime-1",
+    ...(modelId ? { modelSelection: { modelId } } : {}),
     updatedAtMs: 1,
   });
   vi.mocked(readRuntimeRegistryRecordByRuntimeId).mockResolvedValue({

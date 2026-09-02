@@ -266,7 +266,10 @@ ACI must not own:
 Provider Usage Limits are capacity evidence, not execution authority. Each
 controller projects one optional list of stable limit keys, plain-English
 labels, 0–100 used percentages, reset times when reported, observation times,
-and honest states. An adapter must leave an unknown percentage or reset time
+and honest states. A controller that hosts multiple model providers may also
+attach the provider's stable id and display name to each limit. Those fields
+group evidence; they do not carry authentication or account identity. An
+adapter must leave an unknown percentage or reset time
 unknown. It must never infer capacity from a failed run, start a Wake or Agent
 Session to collect it, or retain credentials, account identity, subscription,
 payment, balance, or monetary fields from a provider response.
@@ -322,6 +325,16 @@ Core also requires the exact current support-matrix version before a fresh
 Usage report may trigger automatic continuation of interrupted work. Legacy or
 mismatched reports remain compatible inventory evidence but cannot authorize
 new work under a capability contract they did not implement.
+
+OpenCode is provider-scoped. Its ordinary provider inventory names connected
+providers but does not expose a universal quota contract. OpenMeld reads the
+official OpenCode Go usage endpoint for that provider's 5-hour, weekly, and
+monthly windows. The OpenCode Go API key is read transiently from OpenCode's
+official local auth input or store, used only for that request, and never
+logged, retained, or projected. Other connected OpenCode providers are
+`unsupported` until a provider-owned, non-task capacity source is verified.
+Failure to read OpenCode Go usage produces provider-scoped `unavailable`
+evidence without failing the rest of the Computer inventory.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards

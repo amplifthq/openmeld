@@ -1,3 +1,4 @@
+import { AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION } from "@openmeld/agent-runtime";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { projectAgentControllerInterfaceForCloud } from "../src/local-service/reporting/agent-controller-interface-cloud-projection";
@@ -46,6 +47,7 @@ describe("Agent Controller Interface cloud projection", () => {
           key: "opencode:provider",
           label: "Usage limits",
           observedAt: "2026-07-19T07:10:00.000Z",
+          provider: { displayName: "OpenCode Go", id: "opencode-go" },
           resetsAt: null,
           status: "unsupported",
           usedPercent: null,
@@ -70,7 +72,8 @@ describe("Agent Controller Interface cloud projection", () => {
       message: null,
       models: [{ displayName: "GPT-5.4", id: "openai/gpt-5.4" }],
       skills: [],
-      usageLimitsSupportMatrixVersion: 1,
+      usageLimitsSupportMatrixVersion:
+        AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
     });
   });
 });
