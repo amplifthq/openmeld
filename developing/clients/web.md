@@ -3337,8 +3337,10 @@ reinterpret it as the execution start time. A mixed-version response without
 When Core projects the bounded controller-conversation occupancy wait reason,
 Web shows `Waiting for Codex task` and explains that the Wake will start when
 that task becomes available. It must not present that state as `Agent is
-working` or the generic `Sending to agent`, and it must return to ordinary Wake
-progress as soon as Core projects the conversation as available.
+working` or the generic `Sending to agent`. The current Space's secondary
+sidebar status uses the same progress projection and a non-Working waiting
+indicator instead of its animated Working orb. Both surfaces return to ordinary
+Wake progress as soon as Core projects the conversation as available.
 
 When active Wake progress includes a pending Agent Interaction for the current
 Binding owner, Web projects it into one collapsed Pending Action Surface above

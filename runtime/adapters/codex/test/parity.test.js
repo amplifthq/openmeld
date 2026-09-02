@@ -560,6 +560,40 @@ test("codex writer wait closes immediately when the Wake is stopped", async () =
   }
 });
 
+test("codex writer wait keeps one waiter while the official lock remains occupied", async () => {
+  const { waitForCodexThreadWriterAvailability } = await import(
+    "../dist/index.js"
+  );
+  const codexHome = await mkdtemp(join(tmpdir(), "codex-home-held-lock-"));
+  const lockDirectory = join(codexHome, "thread-writer-locks");
+  const lockPath = join(lockDirectory, "thread-held.lock");
+  let settled = false;
+  await mkdir(lockDirectory, { recursive: true });
+  await writeFile(lockPath, "");
+
+  try {
+    const waiting = waitForCodexThreadWriterAvailability({
+      env: { CODEX_HOME: codexHome },
+      occupancy: {
+        agentControllerConversationId: "thread-held",
+        contractVersion: 1,
+        state: "occupied",
+      },
+      recoveryRetryMs: 50,
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 125));
+    assert.equal(settled, false);
+    await rm(lockPath, { force: true });
+    assert.equal(await waiting, "release_observed");
+  } finally {
+    await rm(codexHome, { force: true, recursive: true });
+  }
+});
+
 test("codex writer wait backs off when an occupied thread lock is not visible", async () => {
   const { waitForCodexThreadWriterAvailability } = await import(
     "../dist/index.js"
@@ -2588,7 +2622,7 @@ test("codex app-server admission budgets keep rollover fast without rejecting a 
   );
 });
 
-test("invokeCodexAppServer rolls forward after stalled resume and transient fresh-thread admission", async () => {
+test("invokeCodexAppServer fails closed after an ambiguous resume timeout", async () => {
   const { invokeCodexAppServer } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-resume-heal-"));
   const dispatchDir = await mkdtemp(
@@ -2603,30 +2637,28 @@ test("invokeCodexAppServer rolls forward after stalled resume and transient fres
   await chmod(fixturePath, 0o755);
 
   try {
-    const result = await invokeCodexAppServer({
-      launchContract: createNodeScriptLaunchContract(fixturePath),
-      codexTimeoutMs: null,
-      codexWorkdir: dispatchDir,
-      controlRequestTimeoutMs: 50,
-      env: {
-        OPENMELD_FAKE_CODEX_APP_SERVER_HANG_RESUME_ATTEMPTS: "1",
-        OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS: "2",
-        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
-        OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: attemptPath,
-      },
-      onProcessControlEvent: (event) => processEvents.push(event),
-      prompt: "continue the current Wake after automatic rollover",
-      // This test exercises control-request recovery, not process startup timing.
-      startupTimeoutMs: 5000,
-      taskId: "task-app-server-resume-heal",
-      threadId: "thread-stalled-1",
-    });
+    await assert.rejects(
+      invokeCodexAppServer({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: null,
+        codexWorkdir: dispatchDir,
+        controlRequestTimeoutMs: 50,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_HANG_RESUME_ATTEMPTS: "1",
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: attemptPath,
+        },
+        onProcessControlEvent: (event) => processEvents.push(event),
+        prompt: "continue the current Wake without replacing its session",
+        // This test exercises control-request recovery, not process startup timing.
+        startupTimeoutMs: 5000,
+        taskId: "task-app-server-resume-timeout",
+        threadId: "thread-stalled-1",
+      }),
+      (error) => error?.code === "context.resume_timeout"
+    );
 
     const messages = await readFakeAppServerMessages(logPath);
-    assert.equal(result.threadId, "thread-new-1");
-    assert.equal(result.contextHealed, true);
-    assert.equal(result.telemetry.contextHealed, true);
-    assert.equal(result.telemetry.resumedContext, true);
     assert.deepEqual(
       messages
         .filter((message) =>
@@ -2635,11 +2667,11 @@ test("invokeCodexAppServer rolls forward after stalled resume and transient fres
           )
         )
         .map((message) => message.method),
-      ["thread/resume", "thread/start", "thread/start", "turn/start"]
+      ["thread/resume"]
     );
     assert.equal(
       processEvents.filter((event) => event.phase === "process_spawned").length,
-      3
+      1
     );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
