@@ -2170,9 +2170,9 @@ function AgentOwnerDirectMessageJoinControl(input: {
 	const currentMemberNames = [
 		...input.snapshot.humans,
 		...input.snapshot.agents,
-	]
-		.filter((member) => member.status === "active")
-		.map((member) => member.profileName);
+	].flatMap((member) =>
+		member.status === "active" ? [member.profileName] : []
+	);
 	const defaultName = buildDirectMessageConversionDefaultName({
 		currentMemberNames,
 		currentSpaceName: input.currentSpaceName,
