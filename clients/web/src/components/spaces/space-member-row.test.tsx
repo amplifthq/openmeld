@@ -194,7 +194,7 @@ describe("SpaceMemberRow", () => {
 		});
 
 		const profileSummaryButton = screen.getByRole("button", {
-			name: "About Codex",
+			name: "Check Codex Profile",
 		});
 		expect(profileSummaryButton.className).toContain("cursor-pointer");
 
@@ -281,15 +281,12 @@ describe("SpaceMemberRow", () => {
 	});
 
 	it("keeps Agent Profile editing inside the shared profile surface", () => {
-		const onEditAgentProfile = vi.fn();
-
 		renderSpaceMemberRow({
 			entry: buildAgentEntry({
 				ownerUserId: "user-1",
 				profileId: "agt-owned",
 				profileName: "Research Agent",
 			}),
-			onEditAgentProfile,
 			onRemoveFromSpace: undefined,
 		});
 
@@ -303,7 +300,6 @@ describe("SpaceMemberRow", () => {
 			screen.getByRole("menuitem", { name: "Check this Profile" })
 		);
 		expect(screen.getByRole("dialog")).toBeTruthy();
-		expect(onEditAgentProfile).not.toHaveBeenCalled();
 	});
 
 	it("keeps profile details available without offering a separate edit action", () => {
@@ -312,7 +308,6 @@ describe("SpaceMemberRow", () => {
 				ownerUserId: "user-2",
 				profileName: "Mira's Agent",
 			}),
-			onEditAgentProfile: vi.fn(),
 			onRemoveFromSpace: undefined,
 		});
 
@@ -336,7 +331,7 @@ describe("SpaceMemberRow", () => {
 		expect(screen.getByRole("dialog")).toBeTruthy();
 	});
 
-	it("keeps Agent Profile diagnostics in About instead of the member row", () => {
+	it("keeps Agent Profile diagnostics in Check this Profile instead of the member row", () => {
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildServiceConnectionPlan(),
 			entry: buildAgentEntry({
@@ -364,7 +359,9 @@ describe("SpaceMemberRow", () => {
 			)
 		).toBeNull();
 
-		fireEvent.click(screen.getByRole("button", { name: "About Codex" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Codex Profile" })
+		);
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Codex · gpt-5.3-codex-spark · high")).toBeTruthy();
 		expect(dialog.getByText("Felix")).toBeTruthy();
@@ -390,7 +387,9 @@ describe("SpaceMemberRow", () => {
 			modelCatalog: buildModelCatalog(),
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: "About Codex" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Codex Profile" })
+		);
 
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Mira")).toBeTruthy();
@@ -416,7 +415,9 @@ describe("SpaceMemberRow", () => {
 		});
 
 		expect(screen.queryByText("Codex · GPT-5.4 · model default")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "About Codex" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Codex Profile" })
+		);
 		expect(
 			within(screen.getByRole("dialog")).getByText(
 				"Codex · GPT-5.4 · model default"
@@ -434,7 +435,9 @@ describe("SpaceMemberRow", () => {
 		});
 
 		expect(screen.queryByText("Codex · GPT-5.5 · model default")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "About Codex" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Codex Profile" })
+		);
 		expect(
 			within(screen.getByRole("dialog")).getByText(
 				"Codex · GPT-5.5 · model default"
@@ -1155,7 +1158,7 @@ function getAgentAvailabilityIndicatorDot(): HTMLElement {
 
 function getProfileNameElement(profileName: string): HTMLElement {
 	const profileNameElement = screen
-		.getByRole("button", { name: `About ${profileName}` })
+		.getByRole("button", { name: `Check ${profileName} Profile` })
 		.querySelector(":scope > span:last-child");
 	if (!(profileNameElement instanceof HTMLElement)) {
 		throw new Error(`Expected the profile name to render: ${profileName}`);
@@ -1173,7 +1176,6 @@ function renderSpaceMemberRow(input: {
 	memberTransientState?: SpaceWakeStatusTransientState | null;
 	modelCatalog?: ModelCatalog | null;
 	onCheckAgentWakeAvailability?: (profileId: string) => Promise<void>;
-	onEditAgentProfile?: (profileId: string) => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<{
 		alreadyAbsentCount: number;
 		removedCount: number;
@@ -1197,7 +1199,6 @@ function renderSpaceMemberRow(input: {
 			onCheckAgentWakeAvailability={
 				input.onCheckAgentWakeAvailability ?? vi.fn(async () => undefined)
 			}
-			onEditAgentProfile={input.onEditAgentProfile}
 			onRemoveFromSpace={input.onRemoveFromSpace}
 			orgSlug="acme"
 			prepareSetupHref={input.prepareSetupHref}

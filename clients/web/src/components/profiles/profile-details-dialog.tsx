@@ -19,6 +19,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowRightIcon,
@@ -28,7 +34,6 @@ import {
 	DotsThreeIcon,
 	InfoIcon,
 } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
 import type { ReactElement, ReactNode } from "react";
 import { toast } from "sonner";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
@@ -171,13 +176,30 @@ export function AgentProfileDetailsContent(input: {
 					) : null}
 				</div>
 				{input.moreDetailsHref ? (
-					<Link
-						aria-label={`More options for ${input.entry.profileName}`}
-						className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
-						to={input.moreDetailsHref}
-					>
-						<DotsThreeIcon aria-hidden="true" />
-					</Link>
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={
+								<Button
+									aria-label={`More options for ${input.entry.profileName}`}
+									size="icon-sm"
+									type="button"
+									variant="ghost"
+								>
+									<DotsThreeIcon aria-hidden="true" />
+								</Button>
+							}
+						/>
+						<DropdownMenuContent align="end" className="w-40">
+							<DropdownMenuItem
+								onClick={() =>
+									window.location.assign(input.moreDetailsHref ?? "")
+								}
+							>
+								<InfoIcon aria-hidden="true" />
+								More Details
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
 				) : null}
 			</div>
 
@@ -239,28 +261,31 @@ export function AgentProfileDetailsContent(input: {
 			</section>
 
 			{input.moreDetailsHref ? (
-				<Link
+				<a
 					className={cn(
 						buttonVariants({ size: "sm", variant: "outline" }),
 						"mt-5 w-full justify-between"
 					)}
-					to={input.moreDetailsHref}
+					href={input.moreDetailsHref}
 				>
 					<span className="inline-flex items-center gap-2">
 						<InfoIcon aria-hidden="true" />
 						More Details
 					</span>
 					<ArrowRightIcon aria-hidden="true" />
-				</Link>
+				</a>
 			) : null}
 		</div>
 	);
 }
 
 export function AgentProfileDetailsPopover(input: {
+	configurationContent?: ReactNode;
 	details: ProfileDetailsSnapshot;
 	entry: SpaceMemberDirectoryEntry;
+	isDirectMessagePending?: boolean;
 	moreDetailsHref?: string;
+	onOpenDirectMessage?: () => void;
 	trigger: ReactElement;
 }) {
 	return (
@@ -286,9 +311,12 @@ export function AgentProfileDetailsPopover(input: {
 					>
 						<AgentProfileDetailsContent
 							className="max-h-[min(34rem,calc(100dvh-3rem))]"
+							configurationContent={input.configurationContent}
 							details={input.details}
 							entry={input.entry}
+							isDirectMessagePending={input.isDirectMessagePending}
 							moreDetailsHref={input.moreDetailsHref}
+							onOpenDirectMessage={input.onOpenDirectMessage}
 						/>
 					</Popover.Popup>
 				</Popover.Positioner>

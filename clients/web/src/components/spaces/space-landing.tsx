@@ -117,6 +117,7 @@ import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import type { SpaceAgentProfileEditHandler } from "./space-agent-interaction-card";
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
+import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
@@ -1608,7 +1609,14 @@ function SpaceLandingReady({
 	);
 
 	return (
-		<>
+		<SpaceAgentProfileEditProvider
+			accountProfiles={accountProfiles}
+			context={agentProfileEditContext ?? null}
+			currentOwnerUserId={currentOwnerUserId}
+			modelCatalog={modelCatalog}
+			organizationId={organizationId}
+			orgSlug={input.orgSlug}
+		>
 			<SpaceFileNavigationGuards navigation={spaceFileNavigation} />
 			<AppMainContent
 				bodyClassName="flex"
@@ -1740,7 +1748,7 @@ function SpaceLandingReady({
 				</div>
 			</AppMainContent>
 			{pendingAgentActions.profileEditDialog}
-		</>
+		</SpaceAgentProfileEditProvider>
 	);
 }
 

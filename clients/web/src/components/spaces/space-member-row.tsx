@@ -74,7 +74,6 @@ type SpaceMemberRowProps = {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onCheckAgentWakeAvailability: (profileId: string) => Promise<void>;
-	onEditAgentProfile?: (profileId: string) => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	orgSlug: string;
 	prepareSetupHref?: string;
@@ -260,7 +259,7 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 				profileName={input.entry.profileName}
 				profileNameAdornment={availabilityIndicator}
 				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
-				profileSummaryAriaLabel={`About ${input.entry.profileName}`}
+				profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
 			>
 				{recoveryActionControl}
 			</AgentProfileListItem>
@@ -350,7 +349,7 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 				primaryDetail={primaryDetail}
 				profileName={input.entry.profileName}
 				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
-				profileSummaryAriaLabel={`About ${input.entry.profileName}`}
+				profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
 			/>
 			{detailsDialog.profileDetailsDialog}
 		</>

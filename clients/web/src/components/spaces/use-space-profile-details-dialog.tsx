@@ -6,6 +6,7 @@ import type {
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import type { ReactElement } from "react";
 import { useCallback, useMemo, useState } from "react";
+import { AgentProfileInlineConfigurationController } from "#/components/agents/agent-profile-edit-dialog-controller";
 import {
 	AgentProfileDetailsPopover,
 	ProfileDetailsDialog,
@@ -13,6 +14,7 @@ import {
 import { buildAgentProfilePath } from "#/lib/profile-routes";
 import { resolveWebAgentControllerPermissionModeDisplay } from "#/lib/profiles/agent-controller-permission-mode-display";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
+import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
 import { isSameOwnerUserId } from "./space-member-ownership";
 
 export function useSpaceProfileDetailsDialog(input: {
@@ -22,6 +24,7 @@ export function useSpaceProfileDetailsDialog(input: {
 	modelCatalog: ModelCatalog | null;
 	orgSlug?: string;
 }) {
+	const agentProfileEditContext = useOptionalSpaceAgentProfileEditContext();
 	const [isOpen, setIsOpen] = useState(false);
 	const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
 		null
@@ -60,6 +63,36 @@ export function useSpaceProfileDetailsDialog(input: {
 		},
 		[input.entriesByProfileId, input.entry]
 	);
+	const renderAgentConfiguration = useCallback(
+		(
+			targetEntry: SpaceMemberDirectoryEntry,
+			targetDetails: ReturnType<typeof buildSpaceProfileDetails>
+		) => {
+			const profile = agentProfileEditContext?.profilesById.get(
+				targetEntry.profileId
+			);
+			if (!(profile && agentProfileEditContext?.context)) {
+				return undefined;
+			}
+			return (
+				<AgentProfileInlineConfigurationController
+					context={agentProfileEditContext.context}
+					details={targetDetails}
+					entry={targetEntry}
+					modelCatalog={agentProfileEditContext.modelCatalog}
+					profile={profile}
+				/>
+			);
+		},
+		[agentProfileEditContext]
+	);
+	const buildOpenDirectMessageAction = useCallback(
+		(profileId: string) => {
+			const openDirectMessage = agentProfileEditContext?.onOpenDirectMessage;
+			return openDirectMessage ? () => openDirectMessage(profileId) : undefined;
+		},
+		[agentProfileEditContext]
+	);
 
 	return {
 		canOpenProfileDetails: input.entry !== null,
@@ -69,8 +102,13 @@ export function useSpaceProfileDetailsDialog(input: {
 			entry?.profileKind === "agent" && details
 				? (trigger: ReactElement) => (
 						<AgentProfileDetailsPopover
+							configurationContent={renderAgentConfiguration(entry, details)}
 							details={details}
 							entry={entry}
+							isDirectMessagePending={
+								agentProfileEditContext?.pendingDirectMessageProfileId ===
+								entry.profileId
+							}
 							moreDetailsHref={
 								input.orgSlug
 									? buildAgentProfilePath({
@@ -79,6 +117,9 @@ export function useSpaceProfileDetailsDialog(input: {
 										})
 									: undefined
 							}
+							onOpenDirectMessage={buildOpenDirectMessageAction(
+								entry.profileId
+							)}
 							trigger={trigger}
 						/>
 					)
@@ -100,8 +141,16 @@ export function useSpaceProfileDetailsDialog(input: {
 			});
 			return (
 				<AgentProfileDetailsPopover
+					configurationContent={renderAgentConfiguration(
+						targetEntry,
+						targetDetails
+					)}
 					details={targetDetails}
 					entry={targetEntry}
+					isDirectMessagePending={
+						agentProfileEditContext?.pendingDirectMessageProfileId ===
+						targetEntry.profileId
+					}
 					moreDetailsHref={
 						input.orgSlug
 							? buildAgentProfilePath({
@@ -110,14 +159,26 @@ export function useSpaceProfileDetailsDialog(input: {
 								})
 							: undefined
 					}
+					onOpenDirectMessage={buildOpenDirectMessageAction(
+						targetEntry.profileId
+					)}
 					trigger={trigger}
 				/>
 			);
 		},
 		profileDetailsDialog: details ? (
 			<ProfileDetailsDialog
+				agentConfigurationContent={
+					entry?.profileKind === "agent"
+						? renderAgentConfiguration(entry, details)
+						: undefined
+				}
 				agentEntry={entry ?? undefined}
 				details={details}
+				isDirectMessagePending={
+					agentProfileEditContext?.pendingDirectMessageProfileId ===
+					entry?.profileId
+				}
 				moreDetailsHref={
 					entry?.profileKind === "agent" && input.orgSlug
 						? buildAgentProfilePath({
@@ -127,6 +188,11 @@ export function useSpaceProfileDetailsDialog(input: {
 						: undefined
 				}
 				onOpenChange={setIsOpen}
+				onOpenDirectMessage={
+					entry?.profileKind === "agent"
+						? buildOpenDirectMessageAction(entry.profileId)
+						: undefined
+				}
 				open={isOpen}
 			/>
 		) : null,

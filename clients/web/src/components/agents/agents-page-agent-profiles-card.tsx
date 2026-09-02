@@ -3533,7 +3533,7 @@ function AgentProfileWorkspacePresentation(input: {
 	);
 }
 
-function AgentProfileConfigurationOverview(input: {
+export function AgentProfileConfigurationOverview(input: {
 	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	controllerDisplayName: string | null;
@@ -3558,7 +3558,7 @@ function AgentProfileConfigurationOverview(input: {
 	onOpenCodePermissionUpdate: (
 		openCodePermission: AgentProfileBindingOpenCodePermission | null
 	) => Promise<void>;
-	onOpenProjectSettings: () => void;
+	onOpenProjectSettings?: () => void;
 	onRenameProfile: (profileName: string) => Promise<void>;
 	ownerAvatarUrl: string | null | undefined;
 	ownerProfile: AuthProfileView | null;
@@ -3567,6 +3567,8 @@ function AgentProfileConfigurationOverview(input: {
 		controllerName: string;
 		managePath: string;
 	} | null;
+	showHeading?: boolean;
+	compact?: boolean;
 }) {
 	type EditorId = "controller" | "model" | "collaboration" | "permissions";
 	const confirmationId = useId();
@@ -3709,15 +3711,19 @@ function AgentProfileConfigurationOverview(input: {
 			className="grid min-w-0 gap-3"
 			data-testid="agent-configuration-overview"
 		>
-			<div className="flex items-end justify-between gap-3">
-				<div className="grid gap-1">
-					<h2 className="font-medium text-sm">How this Agent works</h2>
-					<p className="text-muted-foreground text-xs leading-5">
-						Open a card to change its setup.
-					</p>
+			{input.showHeading === false ? null : (
+				<div className="flex items-end justify-between gap-3">
+					<div className="grid gap-1">
+						<h2 className="font-medium text-sm">How this Agent works</h2>
+						<p className="text-muted-foreground text-xs leading-5">
+							Open a card to change its setup.
+						</p>
+					</div>
 				</div>
-			</div>
-			<AgentConfigurationGrid className="lg:grid-cols-3">
+			)}
+			<AgentConfigurationGrid
+				className={input.compact ? "lg:grid-cols-2" : "lg:grid-cols-3"}
+			>
 				<AgentConfigurationCard
 					icon={
 						<DitherProfileAvatar
@@ -3778,11 +3784,12 @@ function AgentProfileConfigurationOverview(input: {
 					) : null}
 				</AgentConfigurationCard>
 				<AgentConfigurationCard
-					disabled={input.disabled}
+					disabled={input.disabled || !input.onOpenProjectSettings}
 					icon={<FolderOpenIcon aria-hidden="true" />}
 					itemId="working-folder"
 					label="Working folder"
 					onClick={input.onOpenProjectSettings}
+					readOnly={!input.onOpenProjectSettings}
 					summary={workingFolder}
 				/>
 				<AgentConfigurationCard

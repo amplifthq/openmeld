@@ -29,16 +29,32 @@ import {
 } from "#/test-support/query-client";
 
 const {
+	navigateMock,
+	openDirectMessageMock,
 	readPrimaryBindingMock,
 	toastMock,
 	updatePrimaryBindingAgentControllerCollaborationModeMock,
 } = vi.hoisted(() => ({
+	navigateMock: vi.fn(),
+	openDirectMessageMock: vi.fn(),
 	readPrimaryBindingMock: vi.fn(),
 	toastMock: {
 		error: vi.fn(),
 		success: vi.fn(),
 	},
 	updatePrimaryBindingAgentControllerCollaborationModeMock: vi.fn(),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => navigateMock,
+}));
+
+vi.mock("#/lib/spaces/direct-message", () => ({
+	openCurrentDirectMessageSpace: (
+		...args: Parameters<typeof openDirectMessageMock>
+	) => openDirectMessageMock(...args),
+	resolveDirectMessageOpenErrorMessage: () =>
+		"OpenMeld could not open the Direct Message.",
 }));
 
 vi.mock("sonner", () => ({
@@ -77,6 +93,7 @@ vi.mock(
 	}
 );
 
+import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import {
 	SpaceMembersSidePanel as ResizableSpaceMembersSidePanel,
 	type SpaceAddProfilesResult,
@@ -88,6 +105,7 @@ import type { WakeDisplayOverrideByProfileId } from "./use-wake-display-debounce
 const EMPTY_SPACE_CTA_NAME = /It is just you here so far/;
 const EXISTING_MESSAGES_AND_FILES_PATTERN = /existing messages and files/i;
 const CANNOT_BE_UNDONE_PATTERN = /cannot be undone/i;
+const DIRECT_MESSAGE_PATTERN = /Direct Message/;
 const TEST_PANEL_WIDTH = "22rem";
 const noopPanelWidthChange = () => undefined;
 
@@ -128,12 +146,27 @@ type TestSpaceMembersSidePanelProps = Omit<
 	>;
 
 function SpaceMembersSidePanel(input: TestSpaceMembersSidePanelProps) {
-	return (
+	const panel = (
 		<ResizableSpaceMembersSidePanel
 			{...input}
 			onPanelWidthChange={input.onPanelWidthChange ?? noopPanelWidthChange}
 			panelWidth={input.panelWidth ?? TEST_PANEL_WIDTH}
 		/>
+	);
+	if (!input.agentProfileEditContext) {
+		return panel;
+	}
+	return (
+		<SpaceAgentProfileEditProvider
+			accountProfiles={input.accountProfiles ?? []}
+			context={input.agentProfileEditContext}
+			currentOwnerUserId={input.currentOwnerUserId}
+			modelCatalog={input.modelCatalog ?? null}
+			organizationId={input.agentProfileEditContext.organizationId}
+			orgSlug={input.orgSlug}
+		>
+			{panel}
+		</SpaceAgentProfileEditProvider>
 	);
 }
 
@@ -322,6 +355,7 @@ describe("SpaceMembersSidePanel", () => {
 		const agentProfileId = "agt_22222222-2222-4222-8222-222222222222";
 		const queryClient = createTestQueryClient();
 		const primaryBindingResponse = createPrimaryBindingResponse(agentProfileId);
+		readPrimaryBindingMock.mockResolvedValue(primaryBindingResponse);
 		queryClient.setQueryData(
 			agentProfilePrimaryBindingQueryKeys.profile("test-scope", agentProfileId),
 			primaryBindingResponse
@@ -385,15 +419,19 @@ describe("SpaceMembersSidePanel", () => {
 				name: "Member options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("menuitem", { name: "Edit Agent" }));
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: "Check this Profile" })
+		);
 
 		expect(
-			await screen.findByRole("heading", { name: "Edit Agent" })
+			await screen.findByRole("heading", { name: "Check this Profile" })
 		).toBeTruthy();
 		expect(
-			(screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value
-		).toBe("Research Agent");
-		expect(screen.getByText("Codex permissions mode")).toBeTruthy();
+			await screen.findByRole("button", { name: "Edit Collaboration" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Edit Permissions" })
+		).toBeTruthy();
 	});
 
 	it("keeps a completed Agent Profile save successful when the Space refresh fails", async () => {
@@ -479,7 +517,12 @@ describe("SpaceMembersSidePanel", () => {
 				name: "Member options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("menuitem", { name: "Edit Agent" }));
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: "Check this Profile" })
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Edit Collaboration" })
+		);
 		fireEvent.click(
 			await screen.findByRole("combobox", {
 				name: "Codex collaboration mode",
@@ -500,8 +543,13 @@ describe("SpaceMembersSidePanel", () => {
 		});
 		expect(onSaved).toHaveBeenCalledWith(agentProfileId);
 		await waitFor(() => {
-			expect(screen.queryByRole("heading", { name: "Edit Agent" })).toBeNull();
+			expect(
+				screen.queryByRole("combobox", { name: "Codex collaboration mode" })
+			).toBeNull();
 		});
+		expect(
+			screen.getByRole("heading", { name: "Check this Profile" })
+		).toBeTruthy();
 		expect(toastMock.error).toHaveBeenCalledWith(
 			"The Agent was saved, but OpenMeld could not refresh the latest settings. Refresh the page to see them."
 		);
@@ -509,6 +557,82 @@ describe("SpaceMembersSidePanel", () => {
 			"Agent Profile was saved, but current views could not be refreshed.",
 			expect.any(Error)
 		);
+	});
+
+	it("opens a Direct Message from the shared Agent Profile surface", async () => {
+		const agentProfileId = "agt_22222222-2222-4222-8222-222222222222";
+		readPrimaryBindingMock.mockResolvedValue(
+			createPrimaryBindingResponse(agentProfileId)
+		);
+		openDirectMessageMock.mockResolvedValue({
+			memberProfileId: agentProfileId,
+			spaceId: "space-direct-message",
+		});
+
+		renderWithQueryClient(
+			<SpaceMembersSidePanel
+				accountProfiles={[
+					createAccountProfile({
+						openMeldProfileId: agentProfileId,
+						profileKind: "agent",
+						profileName: "Research Agent",
+					}),
+				]}
+				activeWakeWaitingTargetProfileIds={new Set()}
+				agentProfileEditContext={{
+					actorProfileId: "human-1",
+					deviceId: "device-1",
+					executionTarget: null,
+					onSaved: async () => undefined,
+					organizationId: "org-acme",
+					runtimeLane: "dev-local",
+					storageScope: "test-scope",
+				}}
+				agentRecoveryPlansByProfileId={new Map()}
+				autoRefreshExhaustedProfileIds={new Set()}
+				currentOwnerUserId="user_felix"
+				currentProfileId="human-1"
+				isAgentRecoveryPending={() => false}
+				isLoading={false}
+				membersError={null}
+				onAgentRecoveryAction={async () => undefined}
+				onOpenChange={vi.fn()}
+				onRefresh={async () => undefined}
+				open={true}
+				orgSlug="acme"
+				snapshot={createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							ownerUserId: "user_felix",
+							profileId: agentProfileId,
+							profileName: "Research Agent",
+						}),
+					],
+				})}
+			/>
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Member options for Research Agent",
+			})
+		);
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: "Check this Profile" })
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: DIRECT_MESSAGE_PATTERN })
+		);
+
+		await waitFor(() => {
+			expect(openDirectMessageMock).toHaveBeenCalledWith({
+				organizationId: "org-acme",
+				targetProfileId: agentProfileId,
+			});
+		});
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/o/acme/direct-messages/space-direct-message?profileId=agt_22222222-2222-4222-8222-222222222222",
+		});
 	});
 
 	it("shows agent permissions mode to every Space member without exposing owner-only connection facts", async () => {
@@ -549,7 +673,9 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "About Codex Agent" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Codex Agent Profile" })
+		);
 
 		expect(await screen.findByText("Permissions mode")).toBeTruthy();
 		expect(screen.getByText("Approve for me")).toBeTruthy();
@@ -2112,9 +2238,9 @@ describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 		// Opening Profile Details must surface the RAW Checking Wake availability,
 		// never the replayed Available snapshot (Codex M1 leak guard).
 		fireEvent.click(
-			screen.getByRole("button", { name: "About Felix's Codex" })
+			screen.getByRole("button", { name: "Check Felix's Codex Profile" })
 		);
-		expect(await screen.findByText("Checking Wake availability")).toBeTruthy();
+		expect(await screen.findByText("Checking")).toBeTruthy();
 		expect(screen.queryByText("Available for Wake")).toBeNull();
 	});
 });

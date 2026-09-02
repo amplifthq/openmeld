@@ -41,10 +41,7 @@ import type { CSSProperties } from "react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
-import {
-	type AgentProfileEditDialogContext,
-	AgentProfileEditDialogController,
-} from "#/components/agents/agent-profile-edit-dialog-controller";
+import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { SpaceCreateProfileButton } from "#/components/profiles/space-create-profile-button";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
@@ -58,7 +55,6 @@ import {
 } from "#/query/organizations/organization-directory";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
-import { buildEditableSpaceAgentProfilesById } from "./space-agent-profile-edit-access";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { isSameOwnerUserId } from "./space-member-ownership";
@@ -642,27 +638,6 @@ function SpaceMembersBody(input: {
 		checkingAgentWakeAvailabilityProfileId,
 		setCheckingAgentWakeAvailabilityProfileId,
 	] = useState<string | null>(null);
-	const [editingAgentProfileId, setEditingAgentProfileId] = useState<
-		string | null
-	>(null);
-	const editableAgentProfilesById = useMemo(() => {
-		return buildEditableSpaceAgentProfilesById({
-			accountProfiles: input.accountProfiles,
-			currentOwnerUserId: input.currentOwnerUserId,
-			editContextAvailable: Boolean(input.agentProfileEditContext),
-		});
-	}, [
-		input.accountProfiles,
-		input.agentProfileEditContext,
-		input.currentOwnerUserId,
-	]);
-	const editingAgentProfile = editingAgentProfileId
-		? (editableAgentProfilesById.get(editingAgentProfileId) ?? null)
-		: null;
-	const editableAgentProfileIds = useMemo(
-		() => new Set(editableAgentProfilesById.keys()),
-		[editableAgentProfilesById]
-	);
 	const handleCheckAgentWakeAvailability = async (profileId: string) => {
 		setCheckingAgentWakeAvailabilityProfileId(profileId);
 		try {
@@ -681,116 +656,87 @@ function SpaceMembersBody(input: {
 	};
 
 	return (
-		<>
-			<div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
-				<div className="flex flex-col gap-4">
-					<div
-						className={
-							input.isAddMembersFlashing
-								? "add-members-recall-flash"
-								: undefined
-						}
-					>
-						<SpaceAddProfilesSection
-							accountProfiles={input.accountProfiles}
-							currentOwnerUserId={input.currentOwnerUserId}
-							currentProfileId={input.currentProfileId}
-							key={input.spaceId ?? "no-space"}
-							onAddOrganizationDirectoryProfiles={
-								input.onAddOrganizationDirectoryProfiles
-							}
-							onAddProfiles={input.onAddProfiles}
-							onConvertDirectMessageToSpace={
-								input.onConvertDirectMessageToSpace
-							}
-							onOpenChange={input.onAddMembersOpenChange}
-							onRefresh={input.onRefresh}
-							open={input.isAddMembersOpen}
-							orgSlug={input.orgSlug}
-							snapshot={input.snapshot}
-							spaceId={input.spaceId}
-							spaceName={input.spaceName}
-						/>
-					</div>
-
-					{shouldShowAddMembersEmptyCta ? (
-						<button
-							className="flex flex-col items-center gap-2 rounded-md border border-border border-dashed px-3 py-4 text-center transition-colors hover:bg-muted/40"
-							onClick={() => input.onAddMembersOpenChange(true)}
-							type="button"
-						>
-							<span className="text-muted-foreground text-xs">
-								It is just you here so far.
-							</span>
-							<span className="flex items-center gap-1.5 font-medium text-sm">
-								<PlusIcon aria-hidden className="size-3.5" />
-								Add members
-							</span>
-						</button>
-					) : null}
-
-					<SpaceMembersSearchField
-						onQueryChange={input.onQueryChange}
-						open={input.searchOpen}
-						query={input.query}
-					/>
-
-					<SpaceMembersList
-						activeWakeDisplayTargetProfileIds={
-							input.activeWakeDisplayTargetProfileIds
-						}
-						activeWakeWaitingTargetProfileIds={
-							input.activeWakeWaitingTargetProfileIds
-						}
-						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
-						autoRefreshExhaustedProfileIds={
-							input.autoRefreshExhaustedProfileIds
-						}
-						centerAgentProfileId={input.centerAgentProfileId}
+		<div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
+			<div className="flex flex-col gap-4">
+				<div
+					className={
+						input.isAddMembersFlashing ? "add-members-recall-flash" : undefined
+					}
+				>
+					<SpaceAddProfilesSection
+						accountProfiles={input.accountProfiles}
 						currentOwnerUserId={input.currentOwnerUserId}
 						currentProfileId={input.currentProfileId}
-						displayWakeOverrideByProfileId={
-							input.displayWakeOverrideByProfileId
+						key={input.spaceId ?? "no-space"}
+						onAddOrganizationDirectoryProfiles={
+							input.onAddOrganizationDirectoryProfiles
 						}
-						editableAgentProfileIds={editableAgentProfileIds}
-						filteredDirectory={input.filteredDirectory}
-						isAgentRecoveryPending={input.isAgentRecoveryPending}
-						isAgentWakeAvailabilityCheckPending={(profileId) =>
-							checkingAgentWakeAvailabilityProfileId === profileId
-						}
-						isLoading={input.isLoading}
-						membersError={input.membersError}
-						modelCatalog={input.modelCatalog}
-						onAgentRecoveryAction={input.onAgentRecoveryAction}
-						onCheckAgentWakeAvailability={handleCheckAgentWakeAvailability}
-						onEditAgentProfile={
-							input.agentProfileEditContext
-								? setEditingAgentProfileId
-								: undefined
-						}
+						onAddProfiles={input.onAddProfiles}
+						onConvertDirectMessageToSpace={input.onConvertDirectMessageToSpace}
+						onOpenChange={input.onAddMembersOpenChange}
 						onRefresh={input.onRefresh}
-						onRemoveMember={input.onRemoveMember}
+						open={input.isAddMembersOpen}
 						orgSlug={input.orgSlug}
-						prepareSetupHref={input.prepareSetupHref}
-						query={input.query}
 						snapshot={input.snapshot}
+						spaceId={input.spaceId}
+						spaceName={input.spaceName}
 					/>
 				</div>
-			</div>
-			{editingAgentProfile && input.agentProfileEditContext ? (
-				<AgentProfileEditDialogController
-					context={input.agentProfileEditContext}
-					modelCatalog={input.modelCatalog}
-					onOpenChange={(open) => {
-						if (!open) {
-							setEditingAgentProfileId(null);
-						}
-					}}
-					open={true}
-					profile={editingAgentProfile}
+
+				{shouldShowAddMembersEmptyCta ? (
+					<button
+						className="flex flex-col items-center gap-2 rounded-md border border-border border-dashed px-3 py-4 text-center transition-colors hover:bg-muted/40"
+						onClick={() => input.onAddMembersOpenChange(true)}
+						type="button"
+					>
+						<span className="text-muted-foreground text-xs">
+							It is just you here so far.
+						</span>
+						<span className="flex items-center gap-1.5 font-medium text-sm">
+							<PlusIcon aria-hidden className="size-3.5" />
+							Add members
+						</span>
+					</button>
+				) : null}
+
+				<SpaceMembersSearchField
+					onQueryChange={input.onQueryChange}
+					open={input.searchOpen}
+					query={input.query}
 				/>
-			) : null}
-		</>
+
+				<SpaceMembersList
+					activeWakeDisplayTargetProfileIds={
+						input.activeWakeDisplayTargetProfileIds
+					}
+					activeWakeWaitingTargetProfileIds={
+						input.activeWakeWaitingTargetProfileIds
+					}
+					agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
+					autoRefreshExhaustedProfileIds={input.autoRefreshExhaustedProfileIds}
+					centerAgentProfileId={input.centerAgentProfileId}
+					currentOwnerUserId={input.currentOwnerUserId}
+					currentProfileId={input.currentProfileId}
+					displayWakeOverrideByProfileId={input.displayWakeOverrideByProfileId}
+					filteredDirectory={input.filteredDirectory}
+					isAgentRecoveryPending={input.isAgentRecoveryPending}
+					isAgentWakeAvailabilityCheckPending={(profileId) =>
+						checkingAgentWakeAvailabilityProfileId === profileId
+					}
+					isLoading={input.isLoading}
+					membersError={input.membersError}
+					modelCatalog={input.modelCatalog}
+					onAgentRecoveryAction={input.onAgentRecoveryAction}
+					onCheckAgentWakeAvailability={handleCheckAgentWakeAvailability}
+					onRefresh={input.onRefresh}
+					onRemoveMember={input.onRemoveMember}
+					orgSlug={input.orgSlug}
+					prepareSetupHref={input.prepareSetupHref}
+					query={input.query}
+					snapshot={input.snapshot}
+				/>
+			</div>
+		</div>
 	);
 }
 
@@ -1780,7 +1726,6 @@ function SpaceMembersList(input: {
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
-	editableAgentProfileIds: ReadonlySet<string>;
 	filteredDirectory: ReturnType<typeof filterSpaceMemberDirectory> | null;
 	isLoading: boolean;
 	isAgentWakeAvailabilityCheckPending: (profileId: string) => boolean;
@@ -1791,7 +1736,6 @@ function SpaceMembersList(input: {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onCheckAgentWakeAvailability: (profileId: string) => Promise<void>;
-	onEditAgentProfile?: (profileId: string) => void;
 	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRemoveMember?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	orgSlug: string;
@@ -1937,12 +1881,6 @@ function SpaceMembersList(input: {
 										onAgentRecoveryAction={input.onAgentRecoveryAction}
 										onCheckAgentWakeAvailability={
 											input.onCheckAgentWakeAvailability
-										}
-										onEditAgentProfile={
-											input.onEditAgentProfile &&
-											input.editableAgentProfileIds.has(entry.profileId)
-												? input.onEditAgentProfile
-												: undefined
 										}
 										onRemoveFromSpace={removeMemberAction}
 										orgSlug={input.orgSlug}
