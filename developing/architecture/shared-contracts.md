@@ -3869,12 +3869,15 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 progress read model, including the optional `startedAtMs` timing projection and
 the optional `wakeStopEligibility` projection. It may also expose the bounded
 optional `waitReasonCode=runtime.agent_controller_conversation.occupied` from
-RuntimeCoordinator lifecycle evidence. That neutral projection never exposes
+RuntimeCoordinator lifecycle evidence. Clients request that projection with
+`includeWaitReason=true`; Core must omit the field entirely when the caller
+does not opt in. That neutral projection never exposes
 the controller conversation id, does not grant execution authority, and must be
-cleared when the latest occupancy transition is `available`. The timing and
-Stop projections are
+cleared when the latest occupancy transition is `available`. The timing, wait
+reason, and Stop projections are
 mixed-version opt-in: clients request authoritative elapsed-time timing with
-`includeTiming=true` and Stop eligibility with
+`includeTiming=true`, the occupancy wait reason with
+`includeWaitReason=true`, and Stop eligibility with
 `includeWakeStopEligibility=true` on Wake progress and active Wake progress
 reads. Core must omit each field when the corresponding request does not opt
 in, so new Core does not break older strict clients. `startedAtMs` is the

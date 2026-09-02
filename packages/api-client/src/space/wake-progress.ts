@@ -18,6 +18,7 @@ export async function getSpaceWakeProgress(
   input: SpaceRequestInput & {
     clientMessageId: string;
     includeTiming?: boolean;
+    includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     targetProfileId?: string;
   }
@@ -26,6 +27,9 @@ export async function getSpaceWakeProgress(
   searchParams.set("clientMessageId", input.clientMessageId);
   if (input.includeTiming === true) {
     searchParams.set("includeTiming", "true");
+  }
+  if (input.includeWaitReason === true) {
+    searchParams.set("includeWaitReason", "true");
   }
   if (input.includeWakeStopEligibility === true) {
     searchParams.set("includeWakeStopEligibility", "true");
@@ -54,6 +58,7 @@ export async function getActiveSpaceWakeProgress(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
     includeTiming?: boolean;
+    includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     targetProfileId?: string;
   }
@@ -61,6 +66,9 @@ export async function getActiveSpaceWakeProgress(
   const searchParams = new URLSearchParams();
   if (input.includeTiming === true) {
     searchParams.set("includeTiming", "true");
+  }
+  if (input.includeWaitReason === true) {
+    searchParams.set("includeWaitReason", "true");
   }
   if (input.includeWakeStopEligibility === true) {
     searchParams.set("includeWakeStopEligibility", "true");

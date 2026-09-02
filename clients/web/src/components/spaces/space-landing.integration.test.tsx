@@ -2871,6 +2871,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -2980,6 +2981,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getActiveWakeProgressMock).toHaveBeenCalledWith({
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3173,6 +3175,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3291,6 +3294,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3380,6 +3384,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3488,6 +3493,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3802,6 +3808,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3910,6 +3917,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -7416,6 +7424,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,

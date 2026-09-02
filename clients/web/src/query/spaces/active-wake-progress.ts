@@ -29,6 +29,7 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 					openMeldProfileId: input.openMeldProfileId,
 				}).getActiveWakeProgress({
 					includeTiming: true,
+					includeWaitReason: true,
 					includeWakeStopEligibility: false,
 					spaceId: input.spaceId,
 					timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,

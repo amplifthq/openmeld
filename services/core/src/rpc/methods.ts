@@ -2353,6 +2353,7 @@ export type GetSpaceWakeProgressInput = {
   spaceId: string;
   clientMessageId: string;
   includeTiming?: boolean;
+  includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
   targetProfileId?: string;
   password?: string;
@@ -2363,6 +2364,7 @@ export type GetSpaceWakeProgressInput = {
 export type GetActiveSpaceWakeProgressInput = {
   spaceId: string;
   includeTiming?: boolean;
+  includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
   targetProfileId?: string;
   password?: string;
@@ -19557,6 +19559,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includeWaitReason === undefined
+      ? {}
+      : { includeWaitReason: input.includeWaitReason }),
     ...(input.includeWakeStopEligibility === undefined
       ? {}
       : { includeWakeStopEligibility: input.includeWakeStopEligibility }),
@@ -19585,6 +19590,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includeWaitReason === undefined
+      ? {}
+      : { includeWaitReason: parsed.data.includeWaitReason }),
     ...(parsed.data.includeWakeStopEligibility === undefined
       ? {}
       : { includeWakeStopEligibility: parsed.data.includeWakeStopEligibility }),
@@ -19604,6 +19612,9 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includeWaitReason === undefined
+      ? {}
+      : { includeWaitReason: input.includeWaitReason }),
     ...(input.includeWakeStopEligibility === undefined
       ? {}
       : { includeWakeStopEligibility: input.includeWakeStopEligibility }),
@@ -19631,6 +19642,9 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includeWaitReason === undefined
+      ? {}
+      : { includeWaitReason: parsed.data.includeWaitReason }),
     ...(parsed.data.includeWakeStopEligibility === undefined
       ? {}
       : { includeWakeStopEligibility: parsed.data.includeWakeStopEligibility }),

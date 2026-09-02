@@ -52,6 +52,7 @@ describe("spaceActiveWakeProgressSummaryQueryOptions", () => {
 		});
 		expect(getActiveWakeProgressMock).toHaveBeenCalledWith({
 			includeTiming: true,
+			includeWaitReason: true,
 			includeWakeStopEligibility: false,
 			spaceId: "space-123",
 			timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,

@@ -23,6 +23,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
     const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
       spaceId,
       includeTiming: c.req.query("includeTiming"),
+      includeWaitReason: c.req.query("includeWaitReason"),
       includeWakeStopEligibility: c.req.query("includeWakeStopEligibility"),
       targetProfileId: c.req.query("targetProfileId"),
     });
@@ -51,6 +52,9 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
           ...(parsed.data.includeTiming === undefined
             ? {}
             : { includeTiming: parsed.data.includeTiming }),
+          ...(parsed.data.includeWaitReason === undefined
+            ? {}
+            : { includeWaitReason: parsed.data.includeWaitReason }),
           ...(parsed.data.includeWakeStopEligibility === undefined
             ? {}
             : {
@@ -73,6 +77,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
       spaceId,
       clientMessageId: c.req.query("clientMessageId"),
       includeTiming: c.req.query("includeTiming"),
+      includeWaitReason: c.req.query("includeWaitReason"),
       includeWakeStopEligibility: c.req.query("includeWakeStopEligibility"),
       targetProfileId: c.req.query("targetProfileId"),
     });
@@ -101,6 +106,9 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
           ...(parsed.data.includeTiming === undefined
             ? {}
             : { includeTiming: parsed.data.includeTiming }),
+          ...(parsed.data.includeWaitReason === undefined
+            ? {}
+            : { includeWaitReason: parsed.data.includeWaitReason }),
           ...(parsed.data.includeWakeStopEligibility === undefined
             ? {}
             : {
