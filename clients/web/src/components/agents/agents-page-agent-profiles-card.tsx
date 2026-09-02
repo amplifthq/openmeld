@@ -1525,11 +1525,7 @@ function AgentProfilesCardView(input: {
 	const {
 		agentProfiles,
 		agentProfilesQueryState,
-		bulkReconnectCandidates,
-		handleBulkReconnectProfiles,
 		pendingRemoveProfileId,
-		pendingRepairProfileIds,
-		visibleAgentProfileGroups,
 		visibleAgentProfiles,
 	} = input.controller;
 	const cardInput = input.input;
@@ -1580,11 +1576,32 @@ function AgentProfilesCardView(input: {
 		return <AgentProfilesInlineState message="No Agents match this filter." />;
 	}
 
-	const renderAgentProfileRow = (profile: AuthProfileView) => (
-		<AgentProfileDirectoryRow
+	return (
+		<AgentProfilesPopulatedView
 			cardInput={cardInput}
 			controller={input.controller}
 			presentation={presentation}
+		/>
+	);
+}
+
+function AgentProfilesPopulatedView(input: {
+	cardInput: AgentProfilesCardProps;
+	controller: AgentProfilesCardController;
+	presentation: "cards" | "detail";
+}) {
+	const {
+		bulkReconnectCandidates,
+		handleBulkReconnectProfiles,
+		pendingRepairProfileIds,
+		visibleAgentProfileGroups,
+		visibleAgentProfiles,
+	} = input.controller;
+	const renderAgentProfileRow = (profile: AuthProfileView) => (
+		<AgentProfileDirectoryRow
+			cardInput={input.cardInput}
+			controller={input.controller}
+			presentation={input.presentation}
 			profile={profile}
 		/>
 	);
@@ -1599,10 +1616,11 @@ function AgentProfilesCardView(input: {
 			/>
 		) : null;
 
-	if (presentation === "detail") {
+	if (input.presentation === "detail") {
 		const selectedProfile =
 			visibleAgentProfiles.find(
-				(profile) => profile.openMeldProfileId === cardInput.focusProfileId
+				(profile) =>
+					profile.openMeldProfileId === input.cardInput.focusProfileId
 			) ?? visibleAgentProfiles[0];
 		return selectedProfile ? (
 			<>
@@ -1612,7 +1630,7 @@ function AgentProfilesCardView(input: {
 		) : null;
 	}
 
-	if (!cardInput.showOwnerGroups) {
+	if (!input.cardInput.showOwnerGroups) {
 		return (
 			<>
 				{bulkReconnectNotice}
@@ -4417,56 +4435,32 @@ function AgentProfileInlineEditorContent(
 					Update settings for {input.profileName}.
 				</p>
 			</div>
-			{input.runtime ? (
-				<div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
-					<div className="min-w-0">
-						<p className="text-muted-foreground text-xs">Runtime</p>
-						<p className="truncate font-medium text-sm">
-							{input.runtime.controllerName} on {input.runtime.computerName}
-						</p>
-					</div>
-					<Link
-						className={buttonVariants({ size: "sm", variant: "outline" })}
-						to={input.runtime.managePath}
-					>
-						Manage on Computer
-					</Link>
-				</div>
-			) : null}
-			{input.isLoading ? (
-				<p className="py-6 text-muted-foreground text-sm">
-					Loading Agent settings...
-				</p>
-			) : null}
-			{!input.isLoading && input.loadErrorMessage ? (
-				<p className="rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm">
-					{input.loadErrorMessage}
-				</p>
-			) : null}
-			{input.isLoading || input.loadErrorMessage ? null : (
-				<AgentProfileEditDialogFields
-					activeDraft={draft}
-					activeEditState={activeEditState}
-					confirmationId={confirmationId}
-					controllerChangeEligibilityStatus={
-						input.controllerChangeEligibilityStatus ?? "allowed"
-					}
-					controllerChangeOptions={input.controllerChangeOptions}
-					controllerCollaborationMode={controllerCollaborationMode}
-					controllerPermissionMode={controllerPermissionMode}
-					dialogState={dialogState}
-					disabled={input.isPending}
-					draftKey={draftKey}
-					editState={input.editState}
-					modelCatalog={input.modelCatalog}
-					modelCompatibilityContext={input.modelCompatibilityContext}
-					modelSelection={modelSelection}
-					onDraftChange={setDraft}
-					openCodePermission={openCodePermission}
-					permissionControlRef={permissionControlRef}
-					profileNameInputId={profileNameInputId}
-				/>
-			)}
+			<AgentProfileEditRuntimeSummary runtime={input.runtime} />
+			<AgentProfileEditFieldsState
+				fields={{
+					activeDraft: draft,
+					activeEditState,
+					confirmationId,
+					controllerChangeEligibilityStatus:
+						input.controllerChangeEligibilityStatus ?? "allowed",
+					controllerChangeOptions: input.controllerChangeOptions,
+					controllerCollaborationMode,
+					controllerPermissionMode,
+					dialogState,
+					disabled: input.isPending,
+					draftKey,
+					editState: input.editState,
+					modelCatalog: input.modelCatalog,
+					modelCompatibilityContext: input.modelCompatibilityContext,
+					modelSelection,
+					onDraftChange: setDraft,
+					openCodePermission,
+					permissionControlRef,
+					profileNameInputId,
+				}}
+				isLoading={input.isLoading === true}
+				loadErrorMessage={input.loadErrorMessage ?? null}
+			/>
 			{saveErrorMessage ? (
 				<p
 					className="rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm"
@@ -4643,56 +4637,32 @@ function AgentProfileEditDialogContent(
 						Update settings for {input.profileName}.
 					</DialogDescription>
 				</DialogHeader>
-				{input.runtime ? (
-					<div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
-						<div className="min-w-0">
-							<p className="text-muted-foreground text-xs">Runtime</p>
-							<p className="truncate font-medium text-sm">
-								{input.runtime.controllerName} on {input.runtime.computerName}
-							</p>
-						</div>
-						<Link
-							className={buttonVariants({ size: "sm", variant: "outline" })}
-							to={input.runtime.managePath}
-						>
-							Manage on Computer
-						</Link>
-					</div>
-				) : null}
-				{input.isLoading ? (
-					<p className="py-6 text-muted-foreground text-sm">
-						Loading Agent settings...
-					</p>
-				) : null}
-				{!input.isLoading && input.loadErrorMessage ? (
-					<p className="rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm">
-						{input.loadErrorMessage}
-					</p>
-				) : null}
-				{input.isLoading || input.loadErrorMessage ? null : (
-					<AgentProfileEditDialogFields
-						activeDraft={activeDraft}
-						activeEditState={activeEditState}
-						confirmationId={confirmationId}
-						controllerChangeEligibilityStatus={
-							input.controllerChangeEligibilityStatus ?? "allowed"
-						}
-						controllerChangeOptions={input.controllerChangeOptions}
-						controllerCollaborationMode={controllerCollaborationMode}
-						controllerPermissionMode={controllerPermissionMode}
-						dialogState={dialogState}
-						disabled={input.isPending}
-						draftKey={draftKey}
-						editState={input.editState}
-						modelCatalog={input.modelCatalog}
-						modelCompatibilityContext={input.modelCompatibilityContext}
-						modelSelection={modelSelection}
-						onDraftChange={setDraft}
-						openCodePermission={openCodePermission}
-						permissionControlRef={permissionControlRef}
-						profileNameInputId={profileNameInputId}
-					/>
-				)}
+				<AgentProfileEditRuntimeSummary runtime={input.runtime} />
+				<AgentProfileEditFieldsState
+					fields={{
+						activeDraft,
+						activeEditState,
+						confirmationId,
+						controllerChangeEligibilityStatus:
+							input.controllerChangeEligibilityStatus ?? "allowed",
+						controllerChangeOptions: input.controllerChangeOptions,
+						controllerCollaborationMode,
+						controllerPermissionMode,
+						dialogState,
+						disabled: input.isPending,
+						draftKey,
+						editState: input.editState,
+						modelCatalog: input.modelCatalog,
+						modelCompatibilityContext: input.modelCompatibilityContext,
+						modelSelection,
+						onDraftChange: setDraft,
+						openCodePermission,
+						permissionControlRef,
+						profileNameInputId,
+					}}
+					isLoading={input.isLoading === true}
+					loadErrorMessage={input.loadErrorMessage ?? null}
+				/>
 				<DialogFooter>
 					<DialogClose
 						render={
@@ -4739,6 +4709,52 @@ function AgentProfileEditDialogContent(
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function AgentProfileEditRuntimeSummary(input: {
+	runtime: Parameters<typeof AgentProfileEditDialog>[0]["runtime"];
+}) {
+	if (!input.runtime) {
+		return null;
+	}
+	return (
+		<div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
+			<div className="min-w-0">
+				<p className="text-muted-foreground text-xs">Runtime</p>
+				<p className="truncate font-medium text-sm">
+					{input.runtime.controllerName} on {input.runtime.computerName}
+				</p>
+			</div>
+			<Link
+				className={buttonVariants({ size: "sm", variant: "outline" })}
+				to={input.runtime.managePath}
+			>
+				Manage on Computer
+			</Link>
+		</div>
+	);
+}
+
+function AgentProfileEditFieldsState(input: {
+	fields: Parameters<typeof AgentProfileEditDialogFields>[0];
+	isLoading: boolean;
+	loadErrorMessage: string | null;
+}) {
+	if (input.isLoading) {
+		return (
+			<p className="py-6 text-muted-foreground text-sm">
+				Loading Agent settings...
+			</p>
+		);
+	}
+	if (input.loadErrorMessage) {
+		return (
+			<p className="rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm">
+				{input.loadErrorMessage}
+			</p>
+		);
+	}
+	return <AgentProfileEditDialogFields {...input.fields} />;
 }
 
 function AgentProfileEditDialogFields(input: {
