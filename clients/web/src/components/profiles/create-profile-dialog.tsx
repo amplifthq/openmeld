@@ -388,7 +388,7 @@ export function CreateAgentProfilePage(
 		{ agentOnly: true, templateNaming: true }
 	);
 	return (
-		<div className="flex min-h-full min-w-0 flex-col overflow-y-auto px-5 py-8 sm:px-8 lg:px-12">
+		<div className="flex min-h-full min-w-0 flex-1 flex-col overflow-y-auto px-5 py-8 sm:px-8 lg:px-12">
 			<div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6">
 				<header className="grid gap-1.5">
 					<h1 className="font-medium text-2xl tracking-tight">{view.title}</h1>
