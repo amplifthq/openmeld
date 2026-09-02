@@ -12,9 +12,10 @@ import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-ro
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 const agentsRouteSearchSchema = z.object({
+	activityPreview: z.literal(1).optional(),
 	profileId: z.string().trim().min(1).optional(),
 	requestId: z.string().trim().min(1).optional(),
-	view: z.enum(["agents", "requests"]).optional(),
+	view: z.enum(["agents", "create", "requests"]).optional(),
 });
 
 export const Route = createFileRoute("/o/$orgSlug/agents")({
@@ -50,16 +51,18 @@ function AgentsRoute() {
 		<PeopleAndAgentsPage
 			activeAgentView={search.view ?? "agents"}
 			activeSectionId="agents"
+			activityPreview={search.activityPreview === 1}
 			focusProfileId={search.profileId ?? null}
 			focusRequestId={search.requestId ?? null}
 			initialSidebarStates={sidebarStates}
 			onAgentViewChange={(view, profileId) => {
 				const selectedProfileId = profileId ?? search.profileId;
 				navigate({
-					search:
-						view === "agents"
-							? { profileId: selectedProfileId }
-							: { profileId: selectedProfileId, view },
+					search: resolveAgentsRouteSearch({
+						activityPreview: search.activityPreview,
+						profileId: selectedProfileId,
+						view,
+					}),
 					to: buildOrganizationAgentsPath(orgSlug),
 				}).catch((error: unknown) => {
 					console.error("Failed to change the Agents view.", error);
@@ -67,4 +70,22 @@ function AgentsRoute() {
 			}}
 		/>
 	);
+}
+
+function resolveAgentsRouteSearch(input: {
+	activityPreview: 1 | undefined;
+	profileId: string | undefined;
+	view: "agents" | "create" | "requests";
+}) {
+	if (input.view === "agents") {
+		return {
+			activityPreview: input.activityPreview,
+			profileId: input.profileId,
+		};
+	}
+	return {
+		activityPreview: input.activityPreview,
+		profileId: input.profileId,
+		view: input.view,
+	};
 }

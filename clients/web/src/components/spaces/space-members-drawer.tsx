@@ -36,15 +36,18 @@ import {
 	XIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "framer-motion";
+import {
+	AnimatePresence,
+	domAnimation,
+	LazyMotion,
+	MotionConfig,
+	m,
+} from "motion/react";
 import type { CSSProperties } from "react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
-import {
-	type AgentProfileEditDialogContext,
-	AgentProfileEditDialogController,
-} from "#/components/agents/agent-profile-edit-dialog-controller";
+import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { SpaceCreateProfileButton } from "#/components/profiles/space-create-profile-button";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
@@ -58,7 +61,6 @@ import {
 } from "#/query/organizations/organization-directory";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
-import { buildEditableSpaceAgentProfilesById } from "./space-agent-profile-edit-access";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { isSameOwnerUserId } from "./space-member-ownership";
@@ -123,8 +125,8 @@ type SpaceMembersSurfaceProps = {
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
-	isLoading: boolean;
 	isAgentRecoveryPending: (profileId: string) => boolean;
+	isLoading: boolean;
 	membersError: string | null;
 	modelCatalog?: ModelCatalog | null;
 	onAgentRecoveryAction: (
@@ -255,10 +257,6 @@ export function SpaceMembersSidePanel(
 				currentProfileId={input.currentProfileId}
 				displayWakeOverrideByProfileId={input.displayWakeOverrideByProfileId}
 				filteredDirectory={model.filteredDirectory}
-				isAddMembersFlashing={model.isAddMembersFlashing}
-				isAddMembersOpen={model.isAddMembersOpen}
-				isAgentRecoveryPending={input.isAgentRecoveryPending}
-				isLoading={input.isLoading}
 				membersError={input.membersError}
 				modelCatalog={input.modelCatalog ?? null}
 				onAddMembersOpenChange={model.setIsAddMembersOpen}
@@ -278,6 +276,12 @@ export function SpaceMembersSidePanel(
 				snapshot={input.snapshot}
 				spaceId={input.spaceId}
 				spaceName={input.spaceName}
+				viewState={{
+					isAddMembersFlashing: model.isAddMembersFlashing,
+					isAddMembersOpen: model.isAddMembersOpen,
+					isAgentRecoveryPending: input.isAgentRecoveryPending,
+					isLoading: input.isLoading,
+				}}
 			/>
 		</SpaceInlineSidePanel>
 	);
@@ -364,10 +368,6 @@ export function SpaceMembersDrawer(
 								input.displayWakeOverrideByProfileId
 							}
 							filteredDirectory={model.filteredDirectory}
-							isAddMembersFlashing={model.isAddMembersFlashing}
-							isAddMembersOpen={model.isAddMembersOpen}
-							isAgentRecoveryPending={input.isAgentRecoveryPending}
-							isLoading={input.isLoading}
 							membersError={input.membersError}
 							modelCatalog={input.modelCatalog ?? null}
 							onAddMembersOpenChange={model.setIsAddMembersOpen}
@@ -389,6 +389,12 @@ export function SpaceMembersDrawer(
 							snapshot={input.snapshot}
 							spaceId={input.spaceId}
 							spaceName={input.spaceName}
+							viewState={{
+								isAddMembersFlashing: model.isAddMembersFlashing,
+								isAddMembersOpen: model.isAddMembersOpen,
+								isAgentRecoveryPending: input.isAgentRecoveryPending,
+								isLoading: input.isLoading,
+							}}
 						/>
 					</div>
 				</Drawer.Content>
@@ -430,31 +436,37 @@ function SpaceAddMembersHeaderButton(input: {
 	open: boolean;
 }) {
 	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Button
-						aria-controls={SPACE_ADD_MEMBERS_REGION_ID}
-						aria-expanded={input.open}
-						aria-label="Add members"
-						id={SPACE_ADD_MEMBERS_TRIGGER_ID}
-						onClick={input.onToggle}
-						size="icon-sm"
-						type="button"
-						variant="ghost"
-					>
-						<motion.span
-							animate={{ rotate: input.open ? 45 : 0 }}
-							className="flex"
-							transition={springs.moderate}
-						>
-							<PlusIcon />
-						</motion.span>
-					</Button>
-				}
-			/>
-			<TooltipContent>Add members</TooltipContent>
-		</Tooltip>
+		<LazyMotion features={domAnimation} strict>
+			<MotionConfig reducedMotion="user">
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-controls={SPACE_ADD_MEMBERS_REGION_ID}
+								aria-expanded={input.open}
+								aria-label="Add members"
+								id={SPACE_ADD_MEMBERS_TRIGGER_ID}
+								onClick={input.onToggle}
+								size="icon-sm"
+								type="button"
+								variant="ghost"
+							>
+								<m.span
+									animate={{
+										transform: input.open ? "rotate(45deg)" : "rotate(0deg)",
+									}}
+									className="flex"
+									transition={springs.moderate}
+								>
+									<PlusIcon />
+								</m.span>
+							</Button>
+						}
+					/>
+					<TooltipContent>Add members</TooltipContent>
+				</Tooltip>
+			</MotionConfig>
+		</LazyMotion>
 	);
 }
 
@@ -589,7 +601,7 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 	};
 }
 
-function SpaceMembersBody(input: {
+type SpaceMembersBodyProps = {
 	accountProfiles: readonly AuthProfileView[];
 	agentProfileEditContext?: AgentProfileEditDialogContext;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -604,15 +616,11 @@ function SpaceMembersBody(input: {
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
 	filteredDirectory: ReturnType<typeof filterSpaceMemberDirectory> | null;
-	isLoading: boolean;
-	isAgentRecoveryPending: (profileId: string) => boolean;
 	membersError: string | null;
 	modelCatalog: ModelCatalog | null;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
-	isAddMembersFlashing?: boolean;
-	isAddMembersOpen: boolean;
 	onAddMembersOpenChange: (open: boolean) => void;
 	onAddOrganizationDirectoryProfiles?: (
 		input: SpaceAddOrganizationDirectoryProfilesInput
@@ -633,36 +641,23 @@ function SpaceMembersBody(input: {
 	spaceId?: string;
 	spaceName?: string | null;
 	snapshot: SpaceMembersSnapshot | null;
-}) {
+	viewState: {
+		isAddMembersFlashing?: boolean;
+		isAddMembersOpen: boolean;
+		isAgentRecoveryPending: (profileId: string) => boolean;
+		isLoading: boolean;
+	};
+};
+
+function SpaceMembersBody(input: SpaceMembersBodyProps) {
 	const shouldShowAddMembersEmptyCta =
 		Boolean(input.onAddProfiles || input.onAddOrganizationDirectoryProfiles) &&
-		!input.isAddMembersOpen &&
+		!input.viewState.isAddMembersOpen &&
 		input.snapshot?.summary.totalCount === 1;
 	const [
 		checkingAgentWakeAvailabilityProfileId,
 		setCheckingAgentWakeAvailabilityProfileId,
 	] = useState<string | null>(null);
-	const [editingAgentProfileId, setEditingAgentProfileId] = useState<
-		string | null
-	>(null);
-	const editableAgentProfilesById = useMemo(() => {
-		return buildEditableSpaceAgentProfilesById({
-			accountProfiles: input.accountProfiles,
-			currentOwnerUserId: input.currentOwnerUserId,
-			editContextAvailable: Boolean(input.agentProfileEditContext),
-		});
-	}, [
-		input.accountProfiles,
-		input.agentProfileEditContext,
-		input.currentOwnerUserId,
-	]);
-	const editingAgentProfile = editingAgentProfileId
-		? (editableAgentProfilesById.get(editingAgentProfileId) ?? null)
-		: null;
-	const editableAgentProfileIds = useMemo(
-		() => new Set(editableAgentProfilesById.keys()),
-		[editableAgentProfilesById]
-	);
 	const handleCheckAgentWakeAvailability = async (profileId: string) => {
 		setCheckingAgentWakeAvailabilityProfileId(profileId);
 		try {
@@ -681,116 +676,101 @@ function SpaceMembersBody(input: {
 	};
 
 	return (
-		<>
-			<div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
-				<div className="flex flex-col gap-4">
-					<div
-						className={
-							input.isAddMembersFlashing
-								? "add-members-recall-flash"
-								: undefined
-						}
-					>
-						<SpaceAddProfilesSection
-							accountProfiles={input.accountProfiles}
+		<LazyMotion features={domAnimation} strict>
+			<MotionConfig reducedMotion="user">
+				<div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
+					<div className="flex flex-col gap-4">
+						<div
+							className={
+								input.viewState.isAddMembersFlashing
+									? "add-members-recall-flash"
+									: undefined
+							}
+						>
+							<SpaceAddProfilesSection
+								accountProfiles={input.accountProfiles}
+								currentOwnerUserId={input.currentOwnerUserId}
+								currentProfileId={input.currentProfileId}
+								key={`${input.spaceId ?? "no-space"}:${input.viewState.isAddMembersOpen ? "open" : "closed"}`}
+								onAddOrganizationDirectoryProfiles={
+									input.onAddOrganizationDirectoryProfiles
+								}
+								onAddProfiles={input.onAddProfiles}
+								onConvertDirectMessageToSpace={
+									input.onConvertDirectMessageToSpace
+								}
+								onOpenChange={input.onAddMembersOpenChange}
+								onRefresh={input.onRefresh}
+								open={input.viewState.isAddMembersOpen}
+								orgSlug={input.orgSlug}
+								snapshot={input.snapshot}
+								spaceId={input.spaceId}
+								spaceName={input.spaceName}
+							/>
+						</div>
+
+						{shouldShowAddMembersEmptyCta ? (
+							<button
+								className="flex flex-col items-center gap-2 rounded-md border border-border border-dashed px-3 py-4 text-center transition-colors hover:bg-muted/40"
+								onClick={() => input.onAddMembersOpenChange(true)}
+								type="button"
+							>
+								<span className="text-muted-foreground text-xs">
+									It is just you here so far.
+								</span>
+								<span className="flex items-center gap-1.5 font-medium text-sm">
+									<PlusIcon aria-hidden className="size-3.5" />
+									Add members
+								</span>
+							</button>
+						) : null}
+
+						<SpaceMembersSearchField
+							onQueryChange={input.onQueryChange}
+							open={input.searchOpen}
+							query={input.query}
+						/>
+
+						<SpaceMembersList
+							activeWakeDisplayTargetProfileIds={
+								input.activeWakeDisplayTargetProfileIds
+							}
+							activeWakeWaitingTargetProfileIds={
+								input.activeWakeWaitingTargetProfileIds
+							}
+							agentRecoveryPlansByProfileId={
+								input.agentRecoveryPlansByProfileId
+							}
+							autoRefreshExhaustedProfileIds={
+								input.autoRefreshExhaustedProfileIds
+							}
+							centerAgentProfileId={input.centerAgentProfileId}
 							currentOwnerUserId={input.currentOwnerUserId}
 							currentProfileId={input.currentProfileId}
-							key={input.spaceId ?? "no-space"}
-							onAddOrganizationDirectoryProfiles={
-								input.onAddOrganizationDirectoryProfiles
+							displayWakeOverrideByProfileId={
+								input.displayWakeOverrideByProfileId
 							}
-							onAddProfiles={input.onAddProfiles}
-							onConvertDirectMessageToSpace={
-								input.onConvertDirectMessageToSpace
+							filteredDirectory={input.filteredDirectory}
+							isAgentRecoveryPending={input.viewState.isAgentRecoveryPending}
+							isAgentWakeAvailabilityCheckPending={(profileId) =>
+								checkingAgentWakeAvailabilityProfileId === profileId
 							}
-							onOpenChange={input.onAddMembersOpenChange}
+							isLoading={input.viewState.isLoading}
+							membersError={input.membersError}
+							modelCatalog={input.modelCatalog}
+							onAgentRecoveryAction={input.onAgentRecoveryAction}
+							onCheckAgentWakeAvailability={handleCheckAgentWakeAvailability}
 							onRefresh={input.onRefresh}
-							open={input.isAddMembersOpen}
+							onRemoveMember={input.onRemoveMember}
 							orgSlug={input.orgSlug}
+							prepareSetupHref={input.prepareSetupHref}
+							query={input.query}
 							snapshot={input.snapshot}
-							spaceId={input.spaceId}
-							spaceName={input.spaceName}
 						/>
 					</div>
-
-					{shouldShowAddMembersEmptyCta ? (
-						<button
-							className="flex flex-col items-center gap-2 rounded-md border border-border border-dashed px-3 py-4 text-center transition-colors hover:bg-muted/40"
-							onClick={() => input.onAddMembersOpenChange(true)}
-							type="button"
-						>
-							<span className="text-muted-foreground text-xs">
-								It is just you here so far.
-							</span>
-							<span className="flex items-center gap-1.5 font-medium text-sm">
-								<PlusIcon aria-hidden className="size-3.5" />
-								Add members
-							</span>
-						</button>
-					) : null}
-
-					<SpaceMembersSearchField
-						onQueryChange={input.onQueryChange}
-						open={input.searchOpen}
-						query={input.query}
-					/>
-
-					<SpaceMembersList
-						activeWakeDisplayTargetProfileIds={
-							input.activeWakeDisplayTargetProfileIds
-						}
-						activeWakeWaitingTargetProfileIds={
-							input.activeWakeWaitingTargetProfileIds
-						}
-						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
-						autoRefreshExhaustedProfileIds={
-							input.autoRefreshExhaustedProfileIds
-						}
-						centerAgentProfileId={input.centerAgentProfileId}
-						currentOwnerUserId={input.currentOwnerUserId}
-						currentProfileId={input.currentProfileId}
-						displayWakeOverrideByProfileId={
-							input.displayWakeOverrideByProfileId
-						}
-						editableAgentProfileIds={editableAgentProfileIds}
-						filteredDirectory={input.filteredDirectory}
-						isAgentRecoveryPending={input.isAgentRecoveryPending}
-						isAgentWakeAvailabilityCheckPending={(profileId) =>
-							checkingAgentWakeAvailabilityProfileId === profileId
-						}
-						isLoading={input.isLoading}
-						membersError={input.membersError}
-						modelCatalog={input.modelCatalog}
-						onAgentRecoveryAction={input.onAgentRecoveryAction}
-						onCheckAgentWakeAvailability={handleCheckAgentWakeAvailability}
-						onEditAgentProfile={
-							input.agentProfileEditContext
-								? setEditingAgentProfileId
-								: undefined
-						}
-						onRefresh={input.onRefresh}
-						onRemoveMember={input.onRemoveMember}
-						orgSlug={input.orgSlug}
-						prepareSetupHref={input.prepareSetupHref}
-						query={input.query}
-						snapshot={input.snapshot}
-					/>
 				</div>
-			</div>
-			{editingAgentProfile && input.agentProfileEditContext ? (
-				<AgentProfileEditDialogController
-					context={input.agentProfileEditContext}
-					modelCatalog={input.modelCatalog}
-					onOpenChange={(open) => {
-						if (!open) {
-							setEditingAgentProfileId(null);
-						}
-					}}
-					open={true}
-					profile={editingAgentProfile}
-				/>
-			) : null}
-		</>
+			</MotionConfig>
+		</LazyMotion>
 	);
 }
 
@@ -800,19 +780,19 @@ function SpaceMembersSearchField(input: {
 	query: string;
 }) {
 	return (
-		<AnimatePresence initial={false}>
+		<AnimatePresence initial={false} mode="popLayout">
 			{input.open ? (
-				<motion.div
-					animate={{ height: "auto", marginBottom: "0rem", opacity: 1 }}
+				<m.div
+					animate={{ opacity: 1, transform: "scaleY(1)" }}
 					className="overflow-hidden"
 					exit={{
-						height: 0,
-						marginBottom: "-1rem",
 						opacity: 0,
+						transform: "scaleY(0.96)",
 						transition: { ...springs.moderate, bounce: 0 },
 					}}
 					id={SPACE_MEMBERS_SEARCH_REGION_ID}
-					initial={{ height: 0, marginBottom: "-1rem", opacity: 0 }}
+					initial={{ opacity: 0, transform: "scaleY(0.96)" }}
+					style={{ transformOrigin: "top" }}
 					transition={springs.moderate}
 				>
 					<Input
@@ -825,7 +805,7 @@ function SpaceMembersSearchField(input: {
 						spellCheck={false}
 						value={input.query}
 					/>
-				</motion.div>
+				</m.div>
 			) : null}
 		</AnimatePresence>
 	);
@@ -834,7 +814,7 @@ function SpaceMembersSearchField(input: {
 const SPACE_ADD_MEMBERS_REGION_ID = "space-add-members-region";
 const SPACE_ADD_MEMBERS_TRIGGER_ID = "space-add-members-trigger";
 
-function SpaceAddProfilesSection(input: {
+type SpaceAddProfilesSectionProps = {
 	accountProfiles: readonly AuthProfileView[];
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
@@ -854,7 +834,17 @@ function SpaceAddProfilesSection(input: {
 	spaceId?: string;
 	spaceName?: string | null;
 	snapshot: SpaceMembersSnapshot | null;
-}) {
+};
+
+function SpaceAddProfilesSection(input: SpaceAddProfilesSectionProps) {
+	const model = useSpaceAddProfilesSectionModel(input);
+	if (!(input.onAddProfiles || input.onAddOrganizationDirectoryProfiles)) {
+		return null;
+	}
+	return <SpaceAddProfilesSectionView input={input} model={model} />;
+}
+
+function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	const [selectedProfileIds, setSelectedProfileIds] = useState<
 		ReadonlySet<string>
 	>(() => new Set());
@@ -890,9 +880,6 @@ function SpaceAddProfilesSection(input: {
 		if (!input.open) {
 			return;
 		}
-		setErrorMessage(null);
-		setSuccessMessage(null);
-		setAddQuery("");
 		const region = regionRef.current;
 		const firstControl =
 			region?.querySelector<HTMLInputElement>("input[type='search']") ??
@@ -1017,10 +1004,6 @@ function SpaceAddProfilesSection(input: {
 		selectedCount > 0 &&
 		!isSubmitting;
 
-	if (!(input.onAddProfiles || input.onAddOrganizationDirectoryProfiles)) {
-		return null;
-	}
-
 	const handleSubmit = () => {
 		if (!canSubmit) {
 			return Promise.resolve();
@@ -1129,67 +1112,103 @@ function SpaceAddProfilesSection(input: {
 		});
 	};
 
+	return {
+		activeSelectedProfileIds,
+		addQuery,
+		agentCandidates,
+		allCandidates,
+		canSubmit,
+		clearMessages,
+		conversionRequest,
+		directoryQuery,
+		errorMessage,
+		handleConfirmConversion,
+		handleSubmit,
+		humanCandidates,
+		isSubmitting,
+		organization,
+		organizationDirectoryCandidates,
+		personalProfilesPlan,
+		setAddQuery,
+		setConversionRequest,
+		setErrorMessage,
+		setSelectedProfileIds,
+		setRegionNode,
+		successMessage,
+		toggleProfile,
+		usesOrganizationDirectory,
+	};
+}
+
+function SpaceAddProfilesSectionView({
+	input,
+	model,
+}: {
+	input: SpaceAddProfilesSectionProps;
+	model: ReturnType<typeof useSpaceAddProfilesSectionModel>;
+}) {
 	return (
 		<>
 			<SpaceAddProfilesPanel
-				addQuery={addQuery}
-				agentCandidates={agentCandidates}
-				canSubmit={canSubmit}
-				directoryHasData={Boolean(directoryQuery.data)}
-				directoryIsError={directoryQuery.isError}
-				directoryIsPending={directoryQuery.isPending}
+				addQuery={model.addQuery}
+				agentCandidates={model.agentCandidates}
+				canSubmit={model.canSubmit}
+				directoryHasData={Boolean(model.directoryQuery.data)}
+				directoryIsError={model.directoryQuery.isError}
+				directoryIsPending={model.directoryQuery.isPending}
 				emptyMessage={resolveAddMembersEmptyMessage({
-					addQuery,
-					organizationDirectoryCandidates,
-					organizationName: organization?.name ?? "Organization",
-					personalProfilesPlan,
-					usesOrganizationDirectory,
+					addQuery: model.addQuery,
+					organizationDirectoryCandidates:
+						model.organizationDirectoryCandidates,
+					organizationName: model.organization?.name ?? "Organization",
+					personalProfilesPlan: model.personalProfilesPlan,
+					usesOrganizationDirectory: model.usesOrganizationDirectory,
 				})}
-				errorMessage={errorMessage}
-				humanCandidates={humanCandidates}
-				isSubmitting={isSubmitting}
-				onAddQueryChange={setAddQuery}
+				errorMessage={model.errorMessage}
+				humanCandidates={model.humanCandidates}
+				isSubmitting={model.isSubmitting}
+				onAddQueryChange={model.setAddQuery}
 				onAddSuccess={() => input.onOpenChange(false)}
 				onClear={() => {
-					setSelectedProfileIds(new Set());
-					clearMessages();
+					model.setSelectedProfileIds(new Set());
+					model.clearMessages();
 				}}
 				onRefresh={input.onRefresh}
 				onRetryDirectory={() => {
-					directoryQuery.refetch().catch((error) => {
+					model.directoryQuery.refetch().catch((error) => {
 						console.error(
 							"Failed to reload the Organization Directory.",
 							error
 						);
 					});
 				}}
-				onSubmit={handleSubmit}
+				onSubmit={model.handleSubmit}
 				onSubmitError={(error) =>
-					setErrorMessage(formatAddProfilesError(error))
+					model.setErrorMessage(formatAddProfilesError(error))
 				}
-				onToggle={toggleProfile}
+				onToggle={model.toggleProfile}
 				open={input.open}
-				organizationName={organization?.name ?? "Organization"}
+				organizationName={model.organization?.name ?? "Organization"}
 				orgSlug={input.orgSlug}
-				selectedProfileIds={activeSelectedProfileIds}
-				setRegionNode={setRegionNode}
+				selectedProfileIds={model.activeSelectedProfileIds}
+				setRegionNode={model.setRegionNode}
 				snapshot={input.snapshot}
 				spaceId={input.spaceId}
 				spaceName={input.spaceName}
-				successMessage={successMessage}
-				usesOrganizationDirectory={usesOrganizationDirectory}
+				successMessage={model.successMessage}
+				usesOrganizationDirectory={model.usesOrganizationDirectory}
 			/>
 			<DirectMessageConversionDialog
-				defaultName={conversionRequest?.defaultName ?? ""}
-				isPending={isSubmitting}
-				onConfirm={handleConfirmConversion}
+				defaultName={model.conversionRequest?.defaultName ?? ""}
+				isPending={model.isSubmitting}
+				onConfirm={model.handleConfirmConversion}
 				onOpenChange={(open) => {
 					if (!open) {
-						setConversionRequest(null);
+						model.setConversionRequest(null);
 					}
 				}}
-				open={conversionRequest !== null}
-				selectedNames={conversionRequest?.selectedNames ?? []}
+				open={model.conversionRequest !== null}
+				selectedNames={model.conversionRequest?.selectedNames ?? []}
 			/>
 		</>
 	);
@@ -1238,7 +1257,7 @@ async function executeSpaceAddProfilesMutation(input: {
 	});
 }
 
-function SpaceAddProfilesPanel(input: {
+type SpaceAddProfilesPanelProps = {
 	addQuery: string;
 	agentCandidates: readonly SpaceAddMembersCandidateSummary[];
 	canSubmit: boolean;
@@ -1267,8 +1286,49 @@ function SpaceAddProfilesPanel(input: {
 	spaceName?: string | null;
 	successMessage: string | null;
 	usesOrganizationDirectory: boolean;
-}) {
+};
+
+function SpaceAddProfilesPanel(input: SpaceAddProfilesPanelProps) {
 	const { setRegionNode } = input;
+	return (
+		<AnimatePresence initial={false} mode="popLayout">
+			{input.open ? (
+				// The wrapper owns the collapse so the section's full layout
+				// footprint reaches exactly zero before unmount: the border lives
+				// on the inner section (clipped at height 0 instead of leaving a
+				// 2px sliver), the negative bottom margin cancels the parent's
+				// gap-4 inside the same spring, and the exit spring drops bounce
+				// so AnimatePresence unmounts the moment the value settles.
+				<m.div
+					animate={{ opacity: 1, transform: "scaleY(1)" }}
+					className="overflow-hidden"
+					exit={{
+						opacity: 0,
+						transform: "scaleY(0.98)",
+						transition: { ...springs.moderate, bounce: 0 },
+					}}
+					initial={{ opacity: 0, transform: "scaleY(0.98)" }}
+					style={{ transformOrigin: "top" }}
+					transition={springs.moderate}
+				>
+					<div
+						className="@container rounded-lg border border-border bg-card"
+						id={SPACE_ADD_MEMBERS_REGION_ID}
+						ref={setRegionNode}
+					>
+						<SpaceAddProfilesPanelContent input={input} />
+					</div>
+				</m.div>
+			) : null}
+		</AnimatePresence>
+	);
+}
+
+function SpaceAddProfilesPanelContent({
+	input,
+}: {
+	input: SpaceAddProfilesPanelProps;
+}) {
 	const searchLabel = input.usesOrganizationDirectory
 		? "Search members and agents"
 		: "Search profiles";
@@ -1281,102 +1341,86 @@ function SpaceAddProfilesPanel(input: {
 		input.snapshot &&
 			(!input.usesOrganizationDirectory || input.directoryHasData)
 	);
-
 	return (
-		<AnimatePresence initial={false}>
-			{input.open ? (
-				// The wrapper owns the collapse so the section's full layout
-				// footprint reaches exactly zero before unmount: the border lives
-				// on the inner section (clipped at height 0 instead of leaving a
-				// 2px sliver), the negative bottom margin cancels the parent's
-				// gap-4 inside the same spring, and the exit spring drops bounce
-				// so AnimatePresence unmounts the moment the value settles.
-				<motion.div
-					animate={{ height: "auto", marginBottom: "0rem", opacity: 1 }}
-					className="overflow-hidden"
-					exit={{
-						height: 0,
-						marginBottom: "-1rem",
-						opacity: 0,
-						transition: { ...springs.moderate, bounce: 0 },
+		<div className="flex flex-col gap-3 p-3">
+			<SpaceAddProfilesPanelHeader input={input} />
+			<p className="w-full text-muted-foreground text-xs">{description}</p>
+			<Input
+				aria-label={searchLabel}
+				autoComplete="off"
+				onChange={(event) => input.onAddQueryChange(event.target.value)}
+				placeholder={searchLabel}
+				type="search"
+				value={input.addQuery}
+			/>
+			<SpaceAddProfilesStatus
+				errorMessage={input.errorMessage}
+				snapshot={input.snapshot}
+				successMessage={input.successMessage}
+			/>
+			<SpaceAddProfilesDirectoryState
+				isError={waitsForDirectory && input.directoryIsError}
+				isPending={waitsForDirectory && input.directoryIsPending}
+				onRetry={input.onRetryDirectory}
+				organizationName={input.organizationName}
+			/>
+			{showCandidates ? <SpaceAddProfilesCandidateList input={input} /> : null}
+			<SpaceAddProfilesFooter
+				canSubmit={input.canSubmit}
+				isSubmitting={input.isSubmitting}
+				onClear={input.onClear}
+				onSubmit={input.onSubmit}
+				onSubmitError={input.onSubmitError}
+				selectedCount={input.selectedProfileIds.size}
+			/>
+		</div>
+	);
+}
+
+function SpaceAddProfilesPanelHeader({
+	input,
+}: {
+	input: SpaceAddProfilesPanelProps;
+}) {
+	return (
+		<div className="flex @min-[20rem]:flex-row flex-col @min-[20rem]:items-start @min-[20rem]:justify-between gap-2">
+			<h3 className="font-medium text-sm">Add members</h3>
+			{input.spaceId ? (
+				<SpaceCreateProfileButton
+					className="@min-[20rem]:w-auto w-full"
+					label="Create Agent"
+					onAfterJoin={async (profile) => {
+						input.onAddSuccess();
+						await input.onRefresh(
+							profile.profileKind === "agent"
+								? { agentProfileIds: [profile.openMeldProfileId] }
+								: undefined
+						);
 					}}
-					initial={{ height: 0, marginBottom: "-1rem", opacity: 0 }}
-					transition={springs.moderate}
-				>
-					<div
-						className="@container rounded-lg border border-border bg-card"
-						id={SPACE_ADD_MEMBERS_REGION_ID}
-						ref={setRegionNode}
-					>
-						<div className="flex flex-col gap-3 p-3">
-							<div className="flex @min-[20rem]:flex-row flex-col @min-[20rem]:items-start @min-[20rem]:justify-between gap-2">
-								<h3 className="font-medium text-sm">Add members</h3>
-								{input.spaceId ? (
-									<SpaceCreateProfileButton
-										className="@min-[20rem]:w-auto w-full"
-										label="Create Agent"
-										onAfterJoin={async (profile) => {
-											input.onAddSuccess();
-											await input.onRefresh(
-												profile.profileKind === "agent"
-													? { agentProfileIds: [profile.openMeldProfileId] }
-													: undefined
-											);
-										}}
-										orgSlug={input.orgSlug}
-										spaceId={input.spaceId}
-										spaceName={input.spaceName ?? null}
-									/>
-								) : null}
-							</div>
-							<p className="w-full text-muted-foreground text-xs">
-								{description}
-							</p>
-							<Input
-								aria-label={searchLabel}
-								autoComplete="off"
-								onChange={(event) => input.onAddQueryChange(event.target.value)}
-								placeholder={searchLabel}
-								type="search"
-								value={input.addQuery}
-							/>
-							<SpaceAddProfilesStatus
-								errorMessage={input.errorMessage}
-								snapshot={input.snapshot}
-								successMessage={input.successMessage}
-							/>
-							<SpaceAddProfilesDirectoryState
-								isError={waitsForDirectory && input.directoryIsError}
-								isPending={waitsForDirectory && input.directoryIsPending}
-								onRetry={input.onRetryDirectory}
-								organizationName={input.organizationName}
-							/>
-							{showCandidates ? (
-								<SpaceAddMembersCandidates
-									agentCandidates={input.agentCandidates}
-									emptyMessage={input.emptyMessage}
-									humanCandidates={input.humanCandidates}
-									humanGroupLabel={
-										input.usesOrganizationDirectory ? "Members" : "Humans"
-									}
-									isSubmitting={input.isSubmitting}
-									onToggle={input.onToggle}
-									selectedProfileIds={input.selectedProfileIds}
-								/>
-							) : null}
-							<SpaceAddProfilesFooter
-								canSubmit={input.canSubmit}
-								isSubmitting={input.isSubmitting}
-								onClear={input.onClear}
-								onSubmit={input.onSubmit}
-								onSubmitError={input.onSubmitError}
-								selectedCount={input.selectedProfileIds.size}
-							/>
-						</div>
-					</div>
-				</motion.div>
+					orgSlug={input.orgSlug}
+					spaceId={input.spaceId}
+					spaceName={input.spaceName ?? null}
+				/>
 			) : null}
-		</AnimatePresence>
+		</div>
+	);
+}
+
+function SpaceAddProfilesCandidateList({
+	input,
+}: {
+	input: SpaceAddProfilesPanelProps;
+}) {
+	return (
+		<SpaceAddMembersCandidates
+			agentCandidates={input.agentCandidates}
+			emptyMessage={input.emptyMessage}
+			humanCandidates={input.humanCandidates}
+			humanGroupLabel={input.usesOrganizationDirectory ? "Members" : "Humans"}
+			isSubmitting={input.isSubmitting}
+			onToggle={input.onToggle}
+			selectedProfileIds={input.selectedProfileIds}
+		/>
 	);
 }
 
@@ -1790,7 +1834,6 @@ function SpaceMembersList(input: {
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
-	editableAgentProfileIds: ReadonlySet<string>;
 	filteredDirectory: ReturnType<typeof filterSpaceMemberDirectory> | null;
 	isLoading: boolean;
 	isAgentWakeAvailabilityCheckPending: (profileId: string) => boolean;
@@ -1801,7 +1844,6 @@ function SpaceMembersList(input: {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onCheckAgentWakeAvailability: (profileId: string) => Promise<void>;
-	onEditAgentProfile?: (profileId: string) => void;
 	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRemoveMember?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	orgSlug: string;
@@ -1954,12 +1996,6 @@ function SpaceMembersList(input: {
 										onCheckAgentWakeAvailability={
 											input.onCheckAgentWakeAvailability
 										}
-										onEditAgentProfile={
-											input.onEditAgentProfile &&
-											input.editableAgentProfileIds.has(entry.profileId)
-												? input.onEditAgentProfile
-												: undefined
-										}
 										onRemoveFromSpace={removeMemberAction}
 										orgSlug={input.orgSlug}
 										prepareSetupHref={input.prepareSetupHref}
@@ -2001,28 +2037,29 @@ function buildRequiredAgentOwnerHumanProfileIds(input: {
 	centerAgentProfileId: string | null;
 	snapshot: SpaceMembersSnapshot | null;
 }): ReadonlySet<string> {
-	const requiredOwnerUserIds = new Set(
-		(input.snapshot?.agents ?? [])
-			.filter(
-				(agent) =>
-					agent.status === "active" &&
-					agent.profileId !== input.centerAgentProfileId
-			)
-			.map((agent) => agent.ownerUserId?.trim())
-			.filter((ownerUserId): ownerUserId is string => Boolean(ownerUserId))
-	);
-	return new Set(
-		(input.snapshot?.humans ?? [])
-			.filter(
-				(human) =>
-					human.status === "active" &&
-					Boolean(
-						human.ownerUserId &&
-							requiredOwnerUserIds.has(human.ownerUserId.trim())
-					)
-			)
-			.map((human) => human.profileId)
-	);
+	const requiredOwnerUserIds = new Set<string>();
+	for (const agent of input.snapshot?.agents ?? []) {
+		const ownerUserId = agent.ownerUserId?.trim();
+		if (
+			agent.status === "active" &&
+			agent.profileId !== input.centerAgentProfileId &&
+			ownerUserId
+		) {
+			requiredOwnerUserIds.add(ownerUserId);
+		}
+	}
+	const requiredHumanProfileIds = new Set<string>();
+	for (const human of input.snapshot?.humans ?? []) {
+		const ownerUserId = human.ownerUserId?.trim();
+		if (
+			human.status === "active" &&
+			ownerUserId &&
+			requiredOwnerUserIds.has(ownerUserId)
+		) {
+			requiredHumanProfileIds.add(human.profileId);
+		}
+	}
+	return requiredHumanProfileIds;
 }
 
 function buildSpaceCreatorProfileIds(

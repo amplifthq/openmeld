@@ -162,12 +162,14 @@ export function SettingsAddComputerCardContent({
   descriptionClassName,
   iconContainerClassName,
   title = "Add a Computer",
+  titleAriaHidden,
   titleClassName,
 }: {
   description?: ReactNode;
   descriptionClassName?: string;
   iconContainerClassName?: string;
   title?: string;
+  titleAriaHidden?: boolean;
   titleClassName?: string;
 }) {
   return (
@@ -182,6 +184,7 @@ export function SettingsAddComputerCardContent({
       </span>
       <span className="flex flex-col items-center gap-1">
         <span
+          aria-hidden={titleAriaHidden}
           className={cn("font-medium text-foreground text-sm", titleClassName)}
         >
           {title}
@@ -1537,59 +1540,76 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
           </button>
         </div>
       ) : null}
-      {hasDialog ? (
-        <Dialog
-          onOpenChange={(open) => {
-            if (!open) {
-              closedAtRef.current = Date.now();
-            }
-            setDetailsOpen(open);
-          }}
-          open={detailsOpen}
-        >
-          <DialogContent className="max-h-[calc(100dvh-6rem)] sm:max-w-2xl">
-            <DialogHeader className="min-w-0 pr-8">
-              <div className="flex min-w-0 items-center gap-3">
-                <SettingsLocalAgentIcon
-                  agentId={row.logoAgentId ?? row.id}
-                  muted={status.tone === "muted"}
-                  size="lg"
-                />
-                <div className="min-w-0 space-y-1">
-                  <DialogTitle className="font-medium text-base">
-                    {row.displayName}
-                  </DialogTitle>
-                  <p className="flex items-center gap-1.5 font-medium text-xs">
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        "h-2 w-2 shrink-0 rounded-full",
-                        resolveStatusToneIndicatorClassName(
-                          status.tone ?? "muted"
-                        )
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        resolveLocalAgentSummaryStatusClassName(status.tone)
-                      )}
-                    >
-                      {status.label}
-                    </span>
-                  </p>
-                  {row.description ? (
-                    <DialogDescription>{row.description}</DialogDescription>
-                  ) : null}
-                </div>
-              </div>
-            </DialogHeader>
-            {row.detail ? (
-              <div className="border-border/70 border-t pt-3">{row.detail}</div>
-            ) : null}
-          </DialogContent>
-        </Dialog>
-      ) : null}
+      <SettingsLocalAgentDetailsDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            closedAtRef.current = Date.now();
+          }
+          setDetailsOpen(open);
+        }}
+        open={detailsOpen}
+        row={row}
+        status={status}
+      />
     </FluidCardItem>
+  );
+}
+
+function SettingsLocalAgentDetailsDialog({
+  onOpenChange,
+  open,
+  row,
+  status,
+}: {
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  row: SettingsLocalAgentRow;
+  status: SettingsLocalAgentRowSummaryStatus;
+}) {
+  if (!(row.detail || row.description)) {
+    return null;
+  }
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="max-h-[calc(100dvh-6rem)] sm:max-w-2xl">
+        <DialogHeader className="min-w-0 pr-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <SettingsLocalAgentIcon
+              agentId={row.logoAgentId ?? row.id}
+              muted={status.tone === "muted"}
+              size="lg"
+            />
+            <div className="min-w-0 space-y-1">
+              <DialogTitle className="font-medium text-base">
+                {row.displayName}
+              </DialogTitle>
+              <p className="flex items-center gap-1.5 font-medium text-xs">
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "h-2 w-2 shrink-0 rounded-full",
+                    resolveStatusToneIndicatorClassName(status.tone ?? "muted")
+                  )}
+                />
+                <span
+                  className={cn(
+                    resolveLocalAgentSummaryStatusClassName(status.tone)
+                  )}
+                >
+                  {status.label}
+                </span>
+              </p>
+              {row.description ? (
+                <DialogDescription>{row.description}</DialogDescription>
+              ) : null}
+            </div>
+          </div>
+        </DialogHeader>
+        {row.detail ? (
+          <div className="border-border/70 border-t pt-3">{row.detail}</div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 

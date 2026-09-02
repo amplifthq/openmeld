@@ -70,9 +70,9 @@ type AgentProfileBindingUpdateResult = {
 };
 
 export function formatAgentProfileRuntimeSettingsSavedMessage(
-	profileName: string
+	_profileName: string
 ): string {
-	return `Settings saved for ${profileName}. This computer must sync the changes before new work starts. Permission mode changes can also reach running sessions when the local agent supports live updates.`;
+	return "Agent settings saved.";
 }
 
 export async function changeAgentProfileController(input: {

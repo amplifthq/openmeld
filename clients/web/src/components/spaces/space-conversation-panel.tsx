@@ -22,7 +22,14 @@ import {
 	XIcon,
 } from "@phosphor-icons/react";
 import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+	AnimatePresence,
+	domAnimation,
+	LazyMotion,
+	MotionConfig,
+	m,
+	useReducedMotion,
+} from "motion/react";
 import {
 	Fragment,
 	memo,
@@ -198,7 +205,7 @@ import type {
 } from "./use-space-mention-authoring";
 import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
 
-type SpaceConversationPanelProps = {
+type SpaceConversationPanelResolvedProps = {
 	activeSpaceView: SpaceView;
 	allowedActions: readonly string[];
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -308,6 +315,30 @@ type SpaceConversationPanelProps = {
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	unreadCount: number;
 	unreadStateReady: boolean;
+};
+
+type SpaceConversationPanelViewState = Pick<
+	SpaceConversationPanelResolvedProps,
+	| "composerFileLimitReached"
+	| "composerHasAuthoredMentions"
+	| "hasEarlierHistory"
+	| "historyIsPending"
+	| "isCenterAgentDirectMessage"
+	| "isCreatingThread"
+	| "isDirectMessage"
+	| "isLoadingEarlierHistory"
+	| "isPersonalContext"
+	| "isSendingMessage"
+	| "readOnly"
+	| "threadsIsLoading"
+	| "unreadStateReady"
+>;
+
+type SpaceConversationPanelProps = Omit<
+	SpaceConversationPanelResolvedProps,
+	keyof SpaceConversationPanelViewState
+> & {
+	viewState: SpaceConversationPanelViewState;
 };
 
 const MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS = 9;
@@ -432,7 +463,392 @@ function resolveConversationComposerContext(input: {
 	return "space";
 }
 
-export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
+export function SpaceConversationPanel(
+	publicInput: SpaceConversationPanelProps
+) {
+	const { viewState, ...props } = publicInput;
+	const input: SpaceConversationPanelResolvedProps = { ...props, ...viewState };
+	const presentation = useSpaceConversationPresentationController(input);
+	const {
+		canSendMessage,
+		composerAccessibleName,
+		composerPlaceholder,
+		composerSendBlocked,
+		conversationTopOverlayElement,
+		dismissedUnreadTargetKeys,
+		entries,
+		isReadOnly,
+		loadedMainTimelineSignalIds,
+		mainTimelineItems,
+		messageDetailsItem,
+		messageDetailsProgressEntries,
+		messageDetailsReplyItems,
+		messageDetailsWakeStopTarget,
+		onOpenThread,
+		onReportMessage,
+		onViewMessageInGraph,
+		profilePresentationsById,
+		sendButtonLabel,
+		setConversationTopOverlayElement,
+		setDismissedUnreadTargetKeys,
+		setMessageDetailsItem,
+		setStuckConversationDateMs,
+		showComposer,
+		showEarlierHistoryLoadingIndicator,
+		spaceGraph,
+		spaceGraphFocusRequest,
+		spaceGraphLayout,
+		threadsByRootSignalId,
+		wakeStopTargetLabelsByProfileId,
+		wakeTextHint,
+	} = presentation;
+	const navigation = useSpaceConversationNavigationController({
+		activeSpaceView: input.activeSpaceView,
+		ephemeralActivityItems: input.ephemeralActivityItems,
+		hasEarlierHistory: input.hasEarlierHistory,
+		historyActionErrorMessage: input.historyActionErrorMessage,
+		historyIsPending: input.historyIsPending,
+		initialFocusInteractionId: input.initialFocusInteractionId,
+		initialFocusSignalId: input.initialFocusSignalId,
+		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
+		isLoadingEarlierHistory: input.isLoadingEarlierHistory,
+		mainTimelineItems,
+		onLoadEarlierHistory: input.onLoadEarlierHistory,
+		onOpenThread,
+		onOpenUnreadThread: input.onOpenUnreadThread,
+		onSpaceViewChange: input.onSpaceViewChange,
+		onViewingLatestChange: input.onViewingLatestChange,
+		presentedWakeProgressItems: input.presentedWakeProgressItems,
+		spaceId: input.spaceId,
+		threadsByRootSignalId,
+		threadsErrorMessage: input.threadsErrorMessage,
+		threadsIsLoading: input.threadsIsLoading === true,
+		unreadTargets: input.unreadTargets ?? [],
+	});
+	const {
+		conversationScrollElement,
+		loadEarlierHistory,
+		mainFocusStatusMessage,
+		onJumpToMessage,
+		registerConversationScrollElement,
+		requestUnreadMeasurement,
+		revealUnreadTarget,
+		threadFocusStatusMessage,
+		unreadNavigation,
+	} = navigation;
+	const setupGuidance = resolveSpaceSetupGuidanceSlots({
+		hasConversationEntries: entries.length > 0,
+		renderSetupGuidance: input.renderSetupGuidance,
+	});
+	const conversationBody = renderPanelConversationBody({
+		emptyStateActions: setupGuidance.emptyStateActions,
+		input,
+		navigation,
+		presentation,
+	});
+	const submitComposer = () => {
+		if (composerSendBlocked || !canSendMessage || input.isSendingMessage) {
+			return;
+		}
+		input.onSend().catch((error) => {
+			console.error("Failed to send a space message from composer.", error);
+		});
+	};
+	return (
+		<section
+			aria-label="Space conversation"
+			className={cn(
+				"flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
+				input.className
+			)}
+		>
+			{input.historyActionErrorMessage || input.historyErrorMessage ? (
+				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">
+					{input.historyActionErrorMessage ?? input.historyErrorMessage}
+				</div>
+			) : null}
+			{renderInitialSpaceFocusStatus({
+				mainMessage: mainFocusStatusMessage,
+				threadMessage: threadFocusStatusMessage,
+			})}
+
+			<SpacePrimaryView
+				activeView={input.activeSpaceView}
+				files={input.files}
+				graph={
+					<SpaceGraph
+						focusRequest={spaceGraphFocusRequest}
+						graph={spaceGraph}
+						hasEarlierHistory={input.hasEarlierHistory}
+						isLoadingEarlierHistory={input.isLoadingEarlierHistory}
+						nodePositions={spaceGraphLayout.nodePositions}
+						onLoadEarlierHistory={() => {
+							loadEarlierHistory().catch((error) => {
+								console.error(
+									"Failed to load earlier activity in the Space Graph.",
+									error
+								);
+							});
+						}}
+						onNodePositionChange={spaceGraphLayout.onNodePositionChange}
+						onOpenMessageDetails={setMessageDetailsItem}
+						onResetNodePositions={spaceGraphLayout.onResetNodePositions}
+					/>
+				}
+				idPrefix={input.spaceViewIdPrefix}
+				messages={
+					<MessageScrollerProvider
+						autoScroll={true}
+						defaultScrollPosition="end"
+					>
+						<SpaceConversationSendScrollController
+							isSendingMessage={input.isSendingMessage}
+						/>
+						<MessageScroller className="relative min-h-0 flex-1">
+							<ConversationLatestObserver
+								onChange={input.onViewingLatestChange}
+							/>
+							<SpaceConversationTopOverlay
+								overlayRef={setConversationTopOverlayElement}
+							>
+								<EarlierHistoryLoadingIndicator
+									visible={showEarlierHistoryLoadingIndicator}
+								/>
+								{setupGuidance.banner}
+								<SpaceUnreadAboveControl
+									dismissedTargetKeys={dismissedUnreadTargetKeys}
+									navigation={unreadNavigation}
+									onDismiss={() => {
+										setDismissedUnreadTargetKeys((current) =>
+											mergeUnreadTargetKeys(
+												current,
+												unreadNavigation.aboveTargetKeys
+											)
+										);
+									}}
+									onNavigate={revealUnreadTarget}
+								/>
+							</SpaceConversationTopOverlay>
+							<MessageScrollerViewport
+								aria-busy={
+									input.historyIsPending || input.isLoadingEarlierHistory
+								}
+								aria-label="Conversation history"
+								aria-live="polite"
+								className="h-full py-4"
+								data-scroll-restoration-id={buildSpaceConversationScrollRestorationId(
+									input.spaceId
+								)}
+								onScroll={(event) => {
+									const conversationScrollElement = event.currentTarget;
+									requestUnreadMeasurement();
+									if (conversationScrollElement.scrollTop > 48) {
+										return;
+									}
+
+									loadEarlierHistory().catch((error) => {
+										console.error(
+											"Failed to lazy-load earlier space history from scroll.",
+											error
+										);
+									});
+								}}
+								ref={registerConversationScrollElement}
+								role="log"
+							>
+								<SpaceConversationStickyDate
+									loadedSignalCount={loadedMainTimelineSignalIds.size}
+									onActiveDateMsChange={setStuckConversationDateMs}
+									onJumpToDate={input.onJumpToDate}
+									scrollElement={conversationScrollElement}
+									topOverlayElement={conversationTopOverlayElement}
+								/>
+								<MessageScrollerContent
+									className="w-full gap-0 pt-[var(--space-conversation-top-overlay-height,0px)]"
+									data-space-conversation-content-width=""
+								>
+									{conversationBody}
+								</MessageScrollerContent>
+							</MessageScrollerViewport>
+
+							<ConversationJumpButton
+								dismissedTargetKeys={dismissedUnreadTargetKeys}
+								navigation={unreadNavigation}
+								onDismissUnread={() => {
+									setDismissedUnreadTargetKeys((current) =>
+										mergeUnreadTargetKeys(
+											current,
+											unreadNavigation.belowTargetKeys
+										)
+									);
+								}}
+								onNavigateUnread={revealUnreadTarget}
+							/>
+						</MessageScroller>
+					</MessageScrollerProvider>
+				}
+			/>
+
+			{showComposer ? (
+				<>
+					{input.pendingActionSurface}
+					<SpaceComposerSection
+						canSendMessage={canSendMessage}
+						composerAccessibleName={composerAccessibleName}
+						composerPlaceholder={composerPlaceholder}
+						composerSendBlocked={composerSendBlocked}
+						input={input}
+						sendButtonLabel={sendButtonLabel}
+						submitComposer={submitComposer}
+						wakeTextHint={wakeTextHint}
+					/>
+				</>
+			) : null}
+			{messageDetailsItem && input.spaceId ? (
+				<SpaceMessageDetailsDrawer
+					canJumpToMessage={(signalId) =>
+						loadedMainTimelineSignalIds.has(signalId)
+					}
+					diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
+						isPending: input.isDiagnosticReportPending(messageDetailsItem.id),
+						isSent: input.isDiagnosticReportSent(messageDetailsItem.id),
+					})}
+					errorLogMessage="Failed to report a space message."
+					isAgentRecoveryPending={input.isAgentRecoveryPending}
+					isPersonalContext={input.isPersonalContext}
+					item={messageDetailsItem}
+					onAgentRecoveryAction={input.onAgentRecoveryAction}
+					onJumpToMessage={onJumpToMessage}
+					onOpenChange={(open) => {
+						if (!open) {
+							setMessageDetailsItem(null);
+						}
+					}}
+					onRecoverExecution={resolveWritableSpaceAction(
+						isReadOnly,
+						input.onRecoverExecution
+					)}
+					onReportMessage={onReportMessage}
+					onRetryWakeTarget={resolveWritableSpaceAction(
+						isReadOnly,
+						input.onRetryWakeTarget
+					)}
+					onViewInGraph={onViewMessageInGraph}
+					onWakeStopRequest={input.onWakeStopRequest}
+					open={true}
+					openMeldProfileId={input.selfProfileId}
+					orgSlug={input.orgSlug}
+					prepareSetupHref={input.prepareSetupHref}
+					profilePresentationsById={profilePresentationsById}
+					replyItems={messageDetailsReplyItems}
+					spaceId={input.spaceId}
+					spaceReferencesById={input.spaceReferencesById}
+					targetProfileDisplayNamesByProfileId={wakeStopTargetLabelsByProfileId}
+					wakeFailureTargetContextsByProfileId={
+						input.wakeFailureTargetContextsByProfileId
+					}
+					wakeIssueEntries={messageDetailsProgressEntries.issueEntries}
+					wakeProgressEntries={messageDetailsProgressEntries.thinkingEntries}
+					wakeStopTarget={messageDetailsWakeStopTarget}
+				/>
+			) : null}
+		</section>
+	);
+}
+
+function renderPanelConversationBody(input: {
+	emptyStateActions: ReactNode;
+	input: SpaceConversationPanelResolvedProps;
+	navigation: ReturnType<typeof useSpaceConversationNavigationController>;
+	presentation: ReturnType<typeof useSpaceConversationPresentationController>;
+}): ReactNode {
+	const panel = input.input;
+	const navigation = input.navigation;
+	const presentation = input.presentation;
+	return renderConversationBody({
+		agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
+		anchoredOutcomeNoticesBySourceSignalId:
+			presentation.anchoredOutcomeNoticesBySourceSignalId,
+		centerAgentProfileId: panel.centerAgentProfileId,
+		computerSetupContext: resolveCenterAgentComputerSetupContext({
+			isCenterAgentDirectMessage: panel.isCenterAgentDirectMessage,
+			orgSlug: panel.orgSlug,
+			profileId: panel.selfProfileId,
+			spaceId: panel.spaceId,
+		}),
+		currentOwnerUserId: panel.currentOwnerUserId,
+		emptyStateActions: input.emptyStateActions,
+		emptyStateDescription: panel.emptyStateDescription,
+		emptyStateTitle: panel.emptyStateTitle,
+		editableAgentProfileIds: panel.editableAgentProfileIds,
+		entries: presentation.entries,
+		ephemeralActivityItems: panel.ephemeralActivityItems,
+		firstUnreadSignalId: panel.firstUnreadSignalId,
+		historyIsPending: panel.historyIsPending,
+		actionableAgentInteractionPlacement: resolveSpaceAgentInteractionPlacement(
+			panel.actionableAgentInteractionPlacement
+		),
+		isAgentRecoveryPending: panel.isAgentRecoveryPending,
+		isCenterAgentDirectMessage:
+			presentation.messageStateTuningVisibility.isCenterAgentDirectMessage,
+		isSendingMessage: panel.isSendingMessage,
+		isCreatingThread: panel.isCreatingThread,
+		isPersonalContext: panel.isPersonalContext === true,
+		loadedMainTimelineSignalIds: presentation.loadedMainTimelineSignalIds,
+		membersSnapshot: panel.membersSnapshot,
+		modelCatalog: panel.modelCatalog,
+		onAgentRecoveryAction: presentation.onAgentRecoveryAction,
+		onAgentInteractionResponse: panel.onAgentInteractionResponse,
+		onEditAgentProfile: panel.onEditAgentProfile,
+		onCreateThread: presentation.onCreateThread,
+		onJumpToDate: panel.onJumpToDate,
+		onJumpToMessage: navigation.onJumpToMessage,
+		onOpenMessageDetails: presentation.setMessageDetailsItem,
+		onOpenThread: presentation.onOpenThread,
+		onOpenSpaceFile: panel.onOpenSpaceFile,
+		onReplyToMessage: presentation.onReplyToMessage,
+		onReportMessage: presentation.onReportMessage,
+		onRecoverExecution: presentation.messageDetailsItem
+			? undefined
+			: panel.onRecoverExecution,
+		onRetryWakeTarget: panel.onRetryWakeTarget,
+		onSendStarterPrompt: panel.onSendStarterPrompt,
+		onStartComputerSetup: () => presentation.setStarterComputerSetupOpen(true),
+		onWakeStopRequest: panel.onWakeStopRequest
+			? presentation.onWakeStopRequest
+			: undefined,
+		orgSlug: panel.orgSlug,
+		prepareSetupHref: panel.prepareSetupHref,
+		profileEntriesById: presentation.profileEntriesById,
+		profilePresentationsById: presentation.profilePresentationsById,
+		readOnly: presentation.isReadOnly,
+		showCenterAgentStarterActions:
+			presentation.messageStateTuningVisibility.showCenterAgentStarterActions,
+		showStarterComputerSetup: presentation.starterComputerSetupOpen,
+		registerMessageElement: navigation.registerMessageElement,
+		selfAvatarImageUrl: panel.selfAvatarImageUrl ?? null,
+		selfProfileId: panel.selfProfileId,
+		spaceId: panel.spaceId,
+		spaceReferencesById: panel.spaceReferencesById,
+		stuckDateMs: presentation.stuckConversationDateMs,
+		highlightedSignalId: navigation.highlightedSignalId,
+		timelineItems: presentation.mainTimelineItems,
+		wakeOutcomeIndex: presentation.wakeOutcomeIndex,
+		threadsByRootSignalId: presentation.threadsByRootSignalId,
+		threadPreviewByThreadId: presentation.threadPreviewByThreadId,
+		wakeFailureTargetContextsByProfileId:
+			panel.wakeFailureTargetContextsByProfileId,
+		wakeProblemSourceSignalIds: presentation.wakeProblemSourceSignalIds,
+		wakeStopRequestStatusBySelectorKey:
+			panel.wakeStopRequestStatusBySelectorKey,
+		wakeStopTargetLabelsByProfileId:
+			presentation.wakeStopTargetLabelsByProfileId,
+	});
+}
+
+function useSpaceConversationPresentationController(
+	input: SpaceConversationPanelResolvedProps
+) {
 	const isReadOnly = input.readOnly === true;
 	const canSendMessage =
 		!isReadOnly && input.allowedActions.includes("post_message");
@@ -450,41 +866,17 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		isReadOnly,
 		showComposerWhenReadOnly: input.readOnlyComposerPlaceholder !== undefined,
 	});
-	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
-	const unreadMeasurementRequestRef = useRef<() => void>(() => undefined);
-	const [conversationScrollElement, setConversationScrollElement] =
-		useState<HTMLDivElement | null>(null);
 	const [stuckConversationDateMs, setStuckConversationDateMs] = useState<
 		number | null
 	>(null);
-	const registerConversationScrollElement = useCallback(
-		(element: HTMLDivElement | null) => {
-			conversationScrollRef.current = element;
-			setConversationScrollElement(element);
-		},
-		[]
-	);
 	const [conversationTopOverlayElement, setConversationTopOverlayElement] =
 		useState<HTMLDivElement | null>(null);
-	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
-	const highlightMessageTimerRef = useRef<number | null>(null);
-	const appliedInitialFocusRef = useRef<string | null>(null);
-	const appliedInitialThreadFocusRef = useRef<string | null>(null);
-	const focusHistorySearchRef = useRef({ attempts: 0, targetKey: "" });
 	const graphFocusRequestIdRef = useRef(0);
 	const [messageDetailsItem, setMessageDetailsItem] =
 		useState<SpaceTimelineItem | null>(null);
 	const [spaceGraphFocusRequest, setSpaceGraphFocusRequest] =
 		useState<SpaceGraphFocusRequest | null>(null);
 	const spaceGraphLayout = useSpaceGraphLayout(input.spaceId);
-	const [highlightedSignalId, setHighlightedSignalId] = useState<string | null>(
-		null
-	);
-	const [mainFocusStatusMessage, setMainFocusStatusMessage] = useState<
-		string | null
-	>(null);
-	const [unreadNavigation, setUnreadNavigation] =
-		useState<SpaceUnreadNavigationState>(EMPTY_SPACE_UNREAD_NAVIGATION_STATE);
 	const [dismissedUnreadTargetKeys, setDismissedUnreadTargetKeys] = useState(
 		() => new Set<string>()
 	);
@@ -723,6 +1115,102 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 				timelineItems: mainTimelineItems,
 			})
 		: [];
+
+	return {
+		anchoredOutcomeNoticesBySourceSignalId,
+		canSendMessage,
+		composerAccessibleName,
+		composerPlaceholder,
+		composerSendBlocked,
+		conversationTopOverlayElement,
+		dismissedUnreadTargetKeys,
+		entries,
+		isReadOnly,
+		loadedMainTimelineSignalIds,
+		mainTimelineItems,
+		messageDetailsItem,
+		messageDetailsProgressEntries,
+		messageDetailsReplyItems,
+		messageDetailsWakeStopTarget,
+		messageStateTuningVisibility,
+		onAgentRecoveryAction,
+		onCreateThread,
+		onOpenThread,
+		onReportMessage,
+		onReplyToMessage,
+		onViewMessageInGraph,
+		onWakeStopRequest,
+		profileEntriesById,
+		profilePresentationsById,
+		sendButtonLabel,
+		setConversationTopOverlayElement,
+		setDismissedUnreadTargetKeys,
+		setMessageDetailsItem,
+		setStarterComputerSetupOpen,
+		setStuckConversationDateMs,
+		showComposer,
+		showEarlierHistoryLoadingIndicator,
+		spaceGraph,
+		spaceGraphFocusRequest,
+		spaceGraphLayout,
+		starterComputerSetupOpen,
+		stuckConversationDateMs,
+		threadPreviewByThreadId,
+		threadsByRootSignalId,
+		wakeOutcomeIndex,
+		wakeProblemSourceSignalIds,
+		wakeStopTargetLabelsByProfileId,
+		wakeTextHint,
+	};
+}
+
+function useSpaceConversationNavigationController(input: {
+	activeSpaceView: SpaceView;
+	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
+	hasEarlierHistory: boolean;
+	historyActionErrorMessage: string | null;
+	historyIsPending: boolean;
+	initialFocusInteractionId?: string;
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+	isLoadingEarlierHistory: boolean;
+	mainTimelineItems: readonly SpaceTimelineItem[];
+	onLoadEarlierHistory: () => Promise<void>;
+	onOpenThread: (threadId: string) => void;
+	onOpenUnreadThread?: SpaceConversationPanelResolvedProps["onOpenUnreadThread"];
+	onSpaceViewChange: (view: SpaceView) => void;
+	onViewingLatestChange?: (isViewingLatest: boolean) => void;
+	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+	spaceId?: string;
+	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
+	threadsErrorMessage?: string | null;
+	threadsIsLoading: boolean;
+	unreadTargets: readonly SpaceInboxUnreadTarget[];
+}) {
+	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
+	const unreadMeasurementRequestRef = useRef<() => void>(() => undefined);
+	const [conversationScrollElement, setConversationScrollElement] =
+		useState<HTMLDivElement | null>(null);
+	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
+	const highlightMessageTimerRef = useRef<number | null>(null);
+	const appliedInitialFocusRef = useRef<string | null>(null);
+	const appliedInitialThreadFocusRef = useRef<string | null>(null);
+	const focusHistorySearchRef = useRef({ attempts: 0, targetKey: "" });
+	const [highlightedSignalId, setHighlightedSignalId] = useState<string | null>(
+		null
+	);
+	const [mainFocusStatusMessage, setMainFocusStatusMessage] = useState<
+		string | null
+	>(null);
+	const [unreadNavigation, setUnreadNavigation] =
+		useState<SpaceUnreadNavigationState>(EMPTY_SPACE_UNREAD_NAVIGATION_STATE);
+	const registerConversationScrollElement = useCallback(
+		(element: HTMLDivElement | null) => {
+			conversationScrollRef.current = element;
+			setConversationScrollElement(element);
+		},
+		[]
+	);
 	const registerMessageElement = useCallback(
 		(signalId: string, element: HTMLElement | null) => {
 			if (element) {
@@ -742,10 +1230,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		}
 		const scrollElement = conversationScrollRef.current;
 		if (scrollElement) {
-			scrollMessageIntoConversationViewport({
-				messageElement,
-				scrollElement,
-			});
+			scrollMessageIntoConversationViewport({ messageElement, scrollElement });
 		} else {
 			messageElement.scrollIntoView({ block: "center" });
 		}
@@ -767,94 +1252,10 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		input.onSpaceViewChange("messages");
 		window.requestAnimationFrame(() => jumpToMessage(signalId));
 	});
-	const centerAgentComputerSetupContext =
-		resolveCenterAgentComputerSetupContext({
-			isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
-			orgSlug: input.orgSlug,
-			profileId: input.selfProfileId,
-			spaceId: input.spaceId,
-		});
-	const setupGuidance = resolveSpaceSetupGuidanceSlots({
-		hasConversationEntries: entries.length > 0,
-		renderSetupGuidance: input.renderSetupGuidance,
-	});
-	const conversationBody = renderConversationBody({
-		agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
-		anchoredOutcomeNoticesBySourceSignalId,
-		centerAgentProfileId: input.centerAgentProfileId,
-		computerSetupContext: centerAgentComputerSetupContext,
-		currentOwnerUserId: input.currentOwnerUserId,
-		emptyStateActions: setupGuidance.emptyStateActions,
-		emptyStateDescription: input.emptyStateDescription,
-		emptyStateTitle: input.emptyStateTitle,
-		editableAgentProfileIds: input.editableAgentProfileIds,
-		entries,
-		ephemeralActivityItems: input.ephemeralActivityItems,
-		firstUnreadSignalId: input.firstUnreadSignalId,
-		historyIsPending: input.historyIsPending,
-		actionableAgentInteractionPlacement: resolveSpaceAgentInteractionPlacement(
-			input.actionableAgentInteractionPlacement
-		),
-		isAgentRecoveryPending: input.isAgentRecoveryPending,
-		isCenterAgentDirectMessage:
-			messageStateTuningVisibility.isCenterAgentDirectMessage,
-		isSendingMessage: input.isSendingMessage,
-		isCreatingThread: input.isCreatingThread,
-		isPersonalContext: input.isPersonalContext === true,
-		loadedMainTimelineSignalIds,
-		membersSnapshot: input.membersSnapshot,
-		modelCatalog: input.modelCatalog,
-		onAgentRecoveryAction,
-		onAgentInteractionResponse: input.onAgentInteractionResponse,
-		onEditAgentProfile: input.onEditAgentProfile,
-		onCreateThread,
-		onJumpToDate: input.onJumpToDate,
-		onJumpToMessage,
-		onOpenMessageDetails: setMessageDetailsItem,
-		onOpenThread,
-		onOpenSpaceFile: input.onOpenSpaceFile,
-		onReplyToMessage,
-		onReportMessage,
-		// The details panel renders the same exact recovery action. Suppress the
-		// timeline copy while details are open so one execution has one CTA.
-		onRecoverExecution: messageDetailsItem
-			? undefined
-			: input.onRecoverExecution,
-		onRetryWakeTarget: input.onRetryWakeTarget,
-		onSendStarterPrompt: input.onSendStarterPrompt,
-		onStartComputerSetup: () => setStarterComputerSetupOpen(true),
-		onWakeStopRequest: input.onWakeStopRequest ? onWakeStopRequest : undefined,
-		orgSlug: input.orgSlug,
-		prepareSetupHref: input.prepareSetupHref,
-		profileEntriesById,
-		profilePresentationsById,
-		readOnly: isReadOnly,
-		showCenterAgentStarterActions:
-			messageStateTuningVisibility.showCenterAgentStarterActions,
-		showStarterComputerSetup: starterComputerSetupOpen,
-		registerMessageElement,
-		selfAvatarImageUrl: input.selfAvatarImageUrl ?? null,
-		selfProfileId: input.selfProfileId,
-		spaceId: input.spaceId,
-		spaceReferencesById: input.spaceReferencesById,
-		stuckDateMs: stuckConversationDateMs,
-		highlightedSignalId,
-		timelineItems: mainTimelineItems,
-		wakeOutcomeIndex,
-		threadsByRootSignalId,
-		threadPreviewByThreadId,
-		wakeFailureTargetContextsByProfileId:
-			input.wakeFailureTargetContextsByProfileId,
-		wakeProblemSourceSignalIds,
-		wakeStopRequestStatusBySelectorKey:
-			input.wakeStopRequestStatusBySelectorKey,
-		wakeStopTargetLabelsByProfileId,
-	});
 	const loadEarlierHistory = useCallback(async () => {
 		if (!input.hasEarlierHistory || input.isLoadingEarlierHistory) {
 			return;
 		}
-
 		await input.onLoadEarlierHistory();
 	}, [
 		input.hasEarlierHistory,
@@ -867,7 +1268,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 				hasEarlierHistory: input.hasEarlierHistory,
 				messageElementsBySignalId: messageElementsBySignalIdRef.current,
 				scrollElement: conversationScrollRef.current,
-				targets: input.unreadTargets ?? [],
+				targets: input.unreadTargets,
 			})
 		);
 	}, [input.hasEarlierHistory, input.unreadTargets]);
@@ -893,12 +1294,11 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		measureUnreadNavigation();
 	}, [measureUnreadNavigation]);
 	useEffect(() => {
-		const scrollElement = conversationScrollElement;
-		if (!scrollElement) {
+		if (!conversationScrollElement) {
 			return;
 		}
 		const observer = new ResizeObserver(requestUnreadMeasurement);
-		observer.observe(scrollElement);
+		observer.observe(conversationScrollElement);
 		return () => observer.disconnect();
 	}, [conversationScrollElement, requestUnreadMeasurement]);
 	const openUnreadThreadTarget = useLatestCallback(
@@ -906,7 +1306,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			if (!target.threadRootSignalId) {
 				return true;
 			}
-			const thread = threadsByRootSignalId.get(target.threadRootSignalId);
+			const thread = input.threadsByRootSignalId.get(target.threadRootSignalId);
 			return (
 				(await input.onOpenUnreadThread?.({
 					rootSignalId: target.threadRootSignalId,
@@ -926,10 +1326,9 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			) {
 				if (messageElementsBySignalIdRef.current.has(anchorSignalId)) {
 					jumpToMessage(anchorSignalId);
-					if (!target.threadRootSignalId) {
-						return;
+					if (target.threadRootSignalId) {
+						await openUnreadThreadTarget(target);
 					}
-					await openUnreadThreadTarget(target);
 					return;
 				}
 				if (
@@ -949,18 +1348,13 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			}
 		}
 	);
-	const initialMainFocusSignalId = resolveInitialMainFocusSignalId({
-		ephemeralActivityItems: input.ephemeralActivityItems,
-		initialFocusInteractionId: input.initialFocusInteractionId,
-		initialFocusSignalId: input.initialFocusSignalId,
-		presentedWakeProgressItems: input.presentedWakeProgressItems,
-	});
+	const initialMainFocusSignalId = resolveInitialMainFocusSignalId(input);
 	const initialFocusThread = input.initialFocusThreadRootSignalId
-		? threadsByRootSignalId.get(input.initialFocusThreadRootSignalId)
+		? input.threadsByRootSignalId.get(input.initialFocusThreadRootSignalId)
 		: undefined;
 	const threadFocusStatusMessage = resolveInitialThreadFocusStatusMessage({
 		hasTargetThread: initialFocusThread !== undefined,
-		isLoading: input.threadsIsLoading === true,
+		isLoading: input.threadsIsLoading,
 		rootSignalId: input.initialFocusThreadRootSignalId,
 		threadsErrorMessage: input.threadsErrorMessage,
 	});
@@ -971,18 +1365,18 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			return;
 		}
 		const targetKey = `${input.spaceId ?? "space"}:${rootSignalId}`;
-		if (appliedInitialThreadFocusRef.current === targetKey) {
-			return;
-		}
-		if (initialFocusThread) {
+		if (
+			appliedInitialThreadFocusRef.current !== targetKey &&
+			initialFocusThread
+		) {
 			appliedInitialThreadFocusRef.current = targetKey;
-			onOpenThread(initialFocusThread.threadId);
+			input.onOpenThread(initialFocusThread.threadId);
 		}
 	}, [
 		input.initialFocusThreadRootSignalId,
 		input.spaceId,
 		initialFocusThread,
-		onOpenThread,
+		input.onOpenThread,
 	]);
 	useEffect(() => {
 		if (input.initialFocusThreadRootSignalId) {
@@ -1017,7 +1411,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			isLoadingEarlierHistory: input.isLoadingEarlierHistory,
 			jumpToMessage,
 			loadEarlierHistory,
-			mainTimelineItemCount: mainTimelineItems.length,
+			mainTimelineItemCount: input.mainTimelineItems.length,
 			messageElementsBySignalIdRef,
 			setMainFocusStatusMessage,
 			signalId: initialMainFocusSignalId,
@@ -1025,6 +1419,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			targetKey,
 		});
 	}, [
+		input.activeSpaceView,
 		input.hasEarlierHistory,
 		input.historyActionErrorMessage,
 		input.historyIsPending,
@@ -1032,43 +1427,32 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		input.initialFocusSignalId,
 		input.initialFocusThreadRootSignalId,
 		input.isLoadingEarlierHistory,
+		input.mainTimelineItems.length,
+		input.onSpaceViewChange,
 		input.spaceId,
 		initialMainFocusSignalId,
 		jumpToMessage,
 		loadEarlierHistory,
-		mainTimelineItems,
-		input.activeSpaceView,
-		input.onSpaceViewChange,
 	]);
 	useEffect(() => {
 		if (input.activeSpaceView === "graph") {
 			input.onViewingLatestChange?.(false);
 		}
 	}, [input.activeSpaceView, input.onViewingLatestChange]);
-	const submitComposer = () => {
-		if (composerSendBlocked || !canSendMessage || input.isSendingMessage) {
-			return;
-		}
-		input.onSend().catch((error) => {
-			console.error("Failed to send a space message from composer.", error);
-		});
-	};
 	useEffect(() => {
-		const conversationScrollElement = conversationScrollRef.current;
+		const scrollElement = conversationScrollRef.current;
 		if (
 			input.initialFocusInteractionId ||
 			input.initialFocusSignalId ||
 			input.initialFocusThreadRootSignalId ||
-			!(conversationScrollElement && input.hasEarlierHistory) ||
+			!(scrollElement && input.hasEarlierHistory) ||
 			input.isLoadingEarlierHistory ||
-			mainTimelineItems.length === 0 ||
-			conversationScrollElement.clientHeight === 0 ||
-			conversationScrollElement.scrollHeight >
-				conversationScrollElement.clientHeight
+			input.mainTimelineItems.length === 0 ||
+			scrollElement.clientHeight === 0 ||
+			scrollElement.scrollHeight > scrollElement.clientHeight
 		) {
 			return;
 		}
-
 		loadEarlierHistory().catch((error) => {
 			console.error("Failed to auto-load earlier space history.", error);
 		});
@@ -1078,10 +1462,9 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		input.initialFocusSignalId,
 		input.initialFocusThreadRootSignalId,
 		input.isLoadingEarlierHistory,
+		input.mainTimelineItems.length,
 		loadEarlierHistory,
-		mainTimelineItems.length,
 	]);
-
 	useEffect(
 		() => () => {
 			if (highlightMessageTimerRef.current !== null) {
@@ -1091,206 +1474,19 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		[]
 	);
 
-	return (
-		<section
-			aria-label="Space conversation"
-			className={cn(
-				"flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
-				input.className
-			)}
-		>
-			{input.historyActionErrorMessage || input.historyErrorMessage ? (
-				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">
-					{input.historyActionErrorMessage ?? input.historyErrorMessage}
-				</div>
-			) : null}
-			{renderInitialSpaceFocusStatus({
-				mainMessage: mainFocusStatusMessage,
-				threadMessage: threadFocusStatusMessage,
-			})}
-
-			<SpacePrimaryView
-				activeView={input.activeSpaceView}
-				files={input.files}
-				graph={
-					<SpaceGraph
-						focusRequest={spaceGraphFocusRequest}
-						graph={spaceGraph}
-						hasEarlierHistory={input.hasEarlierHistory}
-						isLoadingEarlierHistory={input.isLoadingEarlierHistory}
-						nodePositions={spaceGraphLayout.nodePositions}
-						onLoadEarlierHistory={() => {
-							loadEarlierHistory().catch((error) => {
-								console.error(
-									"Failed to load earlier activity in the Space Graph.",
-									error
-								);
-							});
-						}}
-						onNodePositionChange={spaceGraphLayout.onNodePositionChange}
-						onOpenMessageDetails={setMessageDetailsItem}
-						onResetNodePositions={spaceGraphLayout.onResetNodePositions}
-					/>
-				}
-				idPrefix={input.spaceViewIdPrefix}
-				messages={
-					<MessageScrollerProvider
-						autoScroll={true}
-						defaultScrollPosition="end"
-					>
-						<SpaceConversationSendScrollController
-							isSendingMessage={input.isSendingMessage}
-						/>
-						<MessageScroller className="relative min-h-0 flex-1">
-							<ConversationLatestObserver
-								onChange={input.onViewingLatestChange}
-							/>
-							<SpaceConversationTopOverlay
-								overlayRef={setConversationTopOverlayElement}
-							>
-								<EarlierHistoryLoadingIndicator
-									visible={showEarlierHistoryLoadingIndicator}
-								/>
-								{setupGuidance.banner}
-								<SpaceUnreadAboveControl
-									dismissedTargetKeys={dismissedUnreadTargetKeys}
-									navigation={unreadNavigation}
-									onDismiss={() => {
-										setDismissedUnreadTargetKeys((current) =>
-											mergeUnreadTargetKeys(
-												current,
-												unreadNavigation.aboveTargetKeys
-											)
-										);
-									}}
-									onNavigate={revealUnreadTarget}
-								/>
-							</SpaceConversationTopOverlay>
-							<MessageScrollerViewport
-								aria-busy={
-									input.historyIsPending || input.isLoadingEarlierHistory
-								}
-								aria-label="Conversation history"
-								aria-live="polite"
-								className="h-full py-4"
-								data-scroll-restoration-id={buildSpaceConversationScrollRestorationId(
-									input.spaceId
-								)}
-								onScroll={(event) => {
-									const conversationScrollElement = event.currentTarget;
-									requestUnreadMeasurement();
-									if (conversationScrollElement.scrollTop > 48) {
-										return;
-									}
-
-									loadEarlierHistory().catch((error) => {
-										console.error(
-											"Failed to lazy-load earlier space history from scroll.",
-											error
-										);
-									});
-								}}
-								ref={registerConversationScrollElement}
-								role="log"
-							>
-								<SpaceConversationStickyDate
-									loadedSignalCount={loadedMainTimelineSignalIds.size}
-									onActiveDateMsChange={setStuckConversationDateMs}
-									onJumpToDate={input.onJumpToDate}
-									scrollElement={conversationScrollElement}
-									topOverlayElement={conversationTopOverlayElement}
-								/>
-								<MessageScrollerContent
-									className="w-full gap-0 pt-[var(--space-conversation-top-overlay-height,0px)]"
-									data-space-conversation-content-width=""
-								>
-									{conversationBody}
-								</MessageScrollerContent>
-							</MessageScrollerViewport>
-
-							<ConversationJumpButton
-								dismissedTargetKeys={dismissedUnreadTargetKeys}
-								navigation={unreadNavigation}
-								onDismissUnread={() => {
-									setDismissedUnreadTargetKeys((current) =>
-										mergeUnreadTargetKeys(
-											current,
-											unreadNavigation.belowTargetKeys
-										)
-									);
-								}}
-								onNavigateUnread={revealUnreadTarget}
-							/>
-						</MessageScroller>
-					</MessageScrollerProvider>
-				}
-			/>
-
-			{showComposer ? (
-				<>
-					{input.pendingActionSurface}
-					<SpaceComposerSection
-						canSendMessage={canSendMessage}
-						composerAccessibleName={composerAccessibleName}
-						composerPlaceholder={composerPlaceholder}
-						composerSendBlocked={composerSendBlocked}
-						input={input}
-						sendButtonLabel={sendButtonLabel}
-						submitComposer={submitComposer}
-						wakeTextHint={wakeTextHint}
-					/>
-				</>
-			) : null}
-			{messageDetailsItem && input.spaceId ? (
-				<SpaceMessageDetailsDrawer
-					canJumpToMessage={(signalId) =>
-						loadedMainTimelineSignalIds.has(signalId)
-					}
-					diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
-						isPending: input.isDiagnosticReportPending(messageDetailsItem.id),
-						isSent: input.isDiagnosticReportSent(messageDetailsItem.id),
-					})}
-					errorLogMessage="Failed to report a space message."
-					isAgentRecoveryPending={input.isAgentRecoveryPending}
-					isPersonalContext={input.isPersonalContext}
-					item={messageDetailsItem}
-					onAgentRecoveryAction={input.onAgentRecoveryAction}
-					onJumpToMessage={onJumpToMessage}
-					onOpenChange={(open) => {
-						if (!open) {
-							setMessageDetailsItem(null);
-						}
-					}}
-					onRecoverExecution={resolveWritableSpaceAction(
-						isReadOnly,
-						input.onRecoverExecution
-					)}
-					onReportMessage={onReportMessage}
-					onRetryWakeTarget={resolveWritableSpaceAction(
-						isReadOnly,
-						input.onRetryWakeTarget
-					)}
-					onViewInGraph={onViewMessageInGraph}
-					onWakeStopRequest={input.onWakeStopRequest}
-					open={true}
-					openMeldProfileId={input.selfProfileId}
-					orgSlug={input.orgSlug}
-					prepareSetupHref={input.prepareSetupHref}
-					profilePresentationsById={profilePresentationsById}
-					replyItems={messageDetailsReplyItems}
-					spaceId={input.spaceId}
-					spaceReferencesById={input.spaceReferencesById}
-					targetProfileDisplayNamesByProfileId={wakeStopTargetLabelsByProfileId}
-					wakeFailureTargetContextsByProfileId={
-						input.wakeFailureTargetContextsByProfileId
-					}
-					wakeIssueEntries={messageDetailsProgressEntries.issueEntries}
-					wakeProgressEntries={messageDetailsProgressEntries.thinkingEntries}
-					wakeStopTarget={messageDetailsWakeStopTarget}
-				/>
-			) : null}
-		</section>
-	);
+	return {
+		conversationScrollElement,
+		highlightedSignalId,
+		loadEarlierHistory,
+		mainFocusStatusMessage,
+		onJumpToMessage,
+		registerConversationScrollElement,
+		registerMessageElement,
+		requestUnreadMeasurement,
+		revealUnreadTarget,
+		threadFocusStatusMessage,
+		unreadNavigation,
+	};
 }
 
 function SpacePrimaryView(input: {
@@ -1321,7 +1517,7 @@ function SpacePrimaryView(input: {
 
 function resolveInitialMainFocusSignalId(
 	input: Pick<
-		SpaceConversationPanelProps,
+		SpaceConversationPanelResolvedProps,
 		| "ephemeralActivityItems"
 		| "initialFocusInteractionId"
 		| "initialFocusSignalId"
@@ -1446,7 +1642,7 @@ function ConversationLatestObserver(input: {
 }) {
 	const { end: canScrollToEnd } = useMessageScrollerScrollable();
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		input.onChange?.(!canScrollToEnd);
 	}, [canScrollToEnd, input.onChange]);
 
@@ -1673,30 +1869,34 @@ function EarlierHistoryLoadingIndicator(input: { visible: boolean }) {
 		: { opacity: 1, transform: "translateY(0px)" };
 
 	return (
-		<AnimatePresence initial={false}>
-			{input.visible ? (
-				<motion.div
-					animate={visibleFrame}
-					className="pointer-events-none h-16 shrink-0"
-					data-slot="earlier-history-loading"
-					exit={hiddenFrame}
-					initial={hiddenFrame}
-					key="earlier-history-loading"
-					transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-				>
-					<div
-						className="relative mx-auto flex h-full items-center justify-center"
-						data-space-conversation-content-width=""
-					>
-						<ProgressiveBlur blurAmount="6px" height="100%" />
-						<output className="relative z-10 inline-flex max-w-full items-center gap-2 overflow-hidden px-3 text-muted-foreground text-xs">
-							<Bars aria-hidden="true" className="h-3 w-5 shrink-0" />
-							<span className="truncate">Loading earlier messages...</span>
-						</output>
-					</div>
-				</motion.div>
-			) : null}
-		</AnimatePresence>
+		<MotionConfig reducedMotion="user">
+			<LazyMotion features={domAnimation} strict>
+				<AnimatePresence initial={false}>
+					{input.visible ? (
+						<m.div
+							animate={visibleFrame}
+							className="pointer-events-none h-16 shrink-0"
+							data-slot="earlier-history-loading"
+							exit={hiddenFrame}
+							initial={hiddenFrame}
+							key="earlier-history-loading"
+							transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+						>
+							<div
+								className="relative mx-auto flex h-full items-center justify-center"
+								data-space-conversation-content-width=""
+							>
+								<ProgressiveBlur blurAmount="6px" height="100%" />
+								<output className="relative z-10 inline-flex max-w-full items-center gap-2 overflow-hidden px-3 text-muted-foreground text-xs">
+									<Bars aria-hidden="true" className="h-3 w-5 shrink-0" />
+									<span className="truncate">Loading earlier messages...</span>
+								</output>
+							</div>
+						</m.div>
+					) : null}
+				</AnimatePresence>
+			</LazyMotion>
+		</MotionConfig>
 	);
 }
 
@@ -1720,7 +1920,7 @@ function SpaceComposerSection(input: {
 	composerAccessibleName: string;
 	composerSendBlocked: boolean;
 	composerPlaceholder: string;
-	input: SpaceConversationPanelProps;
+	input: SpaceConversationPanelResolvedProps;
 	sendButtonLabel: string;
 	submitComposer: () => void;
 	wakeTextHint: string | null;
@@ -1759,37 +1959,12 @@ function SpaceComposerSection(input: {
 				data-space-conversation-content-width=""
 			>
 				<div className="relative">
-					{isDraggingFiles ? (
-						<div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border border-foreground/30 bg-background/90 text-foreground text-sm shadow-sm backdrop-blur-sm">
-							Drop files to add them
-						</div>
-					) : null}
-					{panel.composerReplyToSignalId ? (
-						<div
-							className="mb-2 flex items-center justify-between gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
-							data-slot="composer-reply-banner"
-						>
-							<p className="min-w-0 truncate text-muted-foreground">
-								Replying to{" "}
-								<span className="font-bold text-foreground">
-									{resolveReplyToDisplayText({
-										signalId: panel.composerReplyToSignalId,
-										timelineItems: panel.timelineItems,
-									})}
-								</span>
-							</p>
-							<Button
-								aria-label="Cancel reply"
-								className="size-7 shrink-0"
-								onClick={panel.onClearComposerReplyTo}
-								size="icon-sm"
-								type="button"
-								variant="ghost"
-							>
-								<XIcon aria-hidden="true" />
-							</Button>
-						</div>
-					) : null}
+					<ComposerFileDropOverlay visible={isDraggingFiles} />
+					<ComposerReplyBanner
+						onClear={panel.onClearComposerReplyTo}
+						signalId={panel.composerReplyToSignalId}
+						timelineItems={panel.timelineItems}
+					/>
 					<PromptInput
 						className="w-full"
 						maxHeight={240}
@@ -1819,82 +1994,163 @@ function SpaceComposerSection(input: {
 							placeholder={input.composerPlaceholder}
 							text={panel.composerText}
 						/>
-						<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
-							<div className="flex min-w-0 flex-1 items-center gap-0">
-								<SpaceComposerFileMenu
-									addFiles={addFiles}
-									disabled={composerActionsDisabled}
-									limitReached={panel.composerFileLimitReached}
-								/>
-								{panel.isCenterAgentDirectMessage ||
-								panel.agentDirectConversationKind ? null : (
-									<Button
-										aria-label="Mention a member"
-										className="size-8 text-base"
-										disabled={composerActionsDisabled}
-										onClick={panel.onMentionButtonClick}
-										size="icon-sm"
-										type="button"
-										variant="ghost"
-									>
-										<span aria-hidden="true">@</span>
-									</Button>
-								)}
-								{composerHint ? (
-									<p
-										aria-live="polite"
-										className={cn(
-											"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
-											composerHintClassName
-										)}
-									>
-										{composerHint}
-									</p>
-								) : null}
-							</div>
-							<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
-								{panel.profileControl}
-								{panel.composerPrimaryAction ?? (
-									<PromptInputAction
-										className="hidden sm:inline-flex"
-										tooltip={
-											panel.isSendingMessage ? "Sending…" : "Send message"
-										}
-									>
-										<Button
-											aria-label={input.sendButtonLabel}
-											disabled={
-												panel.isSendingMessage ||
-												!input.canSendMessage ||
-												input.composerSendBlocked
-											}
-											onClick={input.submitComposer}
-											size="icon-sm"
-											type="button"
-										>
-											<ArrowUpIcon aria-hidden="true" weight="bold" />
-										</Button>
-									</PromptInputAction>
-								)}
-							</div>
-						</PromptInputActions>
+						<SpaceComposerToolbar
+							addFiles={addFiles}
+							canSendMessage={input.canSendMessage}
+							composerActionsDisabled={composerActionsDisabled}
+							composerHint={composerHint}
+							composerHintClassName={composerHintClassName}
+							composerSendBlocked={input.composerSendBlocked}
+							panel={panel}
+							sendButtonLabel={input.sendButtonLabel}
+							submitComposer={input.submitComposer}
+						/>
 					</PromptInput>
 				</div>
-				{panel.composerErrorMessage ? (
-					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
-						<p>{panel.composerErrorMessage}</p>
-						{renderComposerBlockedWakeRecoveryAction({
-							agentRecoveryPlansByProfileId:
-								panel.agentRecoveryPlansByProfileId,
-							blockedWakeProfileId: panel.composerBlockedWakeProfileId,
-							isAgentRecoveryPending: panel.isAgentRecoveryPending,
-							onAgentRecoveryAction: panel.onAgentRecoveryAction,
-							orgSlug: panel.orgSlug,
-							prepareSetupHref: panel.prepareSetupHref,
-						})}
-					</div>
-				) : null}
+				<ComposerError panel={panel} />
 			</div>
+		</div>
+	);
+}
+
+function ComposerFileDropOverlay(input: { visible: boolean }) {
+	return input.visible ? (
+		<div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border border-foreground/30 bg-background/90 text-foreground text-sm shadow-sm backdrop-blur-sm">
+			Drop files to add them
+		</div>
+	) : null;
+}
+
+function ComposerReplyBanner(input: {
+	onClear: () => void;
+	signalId: string | null;
+	timelineItems: readonly SpaceTimelineItem[];
+}) {
+	if (!input.signalId) {
+		return null;
+	}
+	return (
+		<div
+			className="mb-2 flex items-center justify-between gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
+			data-slot="composer-reply-banner"
+		>
+			<p className="min-w-0 truncate text-muted-foreground">
+				Replying to{" "}
+				<span className="font-bold text-foreground">
+					{resolveReplyToDisplayText({
+						signalId: input.signalId,
+						timelineItems: input.timelineItems,
+					})}
+				</span>
+			</p>
+			<Button
+				aria-label="Cancel reply"
+				className="size-7 shrink-0"
+				onClick={input.onClear}
+				size="icon-sm"
+				type="button"
+				variant="ghost"
+			>
+				<XIcon aria-hidden="true" />
+			</Button>
+		</div>
+	);
+}
+
+function SpaceComposerToolbar(input: {
+	addFiles: (files: readonly File[]) => void;
+	canSendMessage: boolean;
+	composerActionsDisabled: boolean;
+	composerHint: string | null;
+	composerHintClassName: string;
+	composerSendBlocked: boolean;
+	panel: SpaceConversationPanelResolvedProps;
+	sendButtonLabel: string;
+	submitComposer: () => void;
+}) {
+	const panel = input.panel;
+	const mentionButton =
+		panel.isCenterAgentDirectMessage ||
+		panel.agentDirectConversationKind ? null : (
+			<Button
+				aria-label="Mention a member"
+				className="size-8 text-base"
+				disabled={input.composerActionsDisabled}
+				onClick={panel.onMentionButtonClick}
+				size="icon-sm"
+				type="button"
+				variant="ghost"
+			>
+				<span aria-hidden="true">@</span>
+			</Button>
+		);
+	const composerHint = input.composerHint ? (
+		<p
+			aria-live="polite"
+			className={cn(
+				"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
+				input.composerHintClassName
+			)}
+		>
+			{input.composerHint}
+		</p>
+	) : null;
+	const primaryAction = panel.composerPrimaryAction ?? (
+		<PromptInputAction
+			className="hidden sm:inline-flex"
+			tooltip={panel.isSendingMessage ? "Sending…" : "Send message"}
+		>
+			<Button
+				aria-label={input.sendButtonLabel}
+				disabled={
+					panel.isSendingMessage ||
+					!input.canSendMessage ||
+					input.composerSendBlocked
+				}
+				onClick={input.submitComposer}
+				size="icon-sm"
+				type="button"
+			>
+				<ArrowUpIcon aria-hidden="true" weight="bold" />
+			</Button>
+		</PromptInputAction>
+	);
+
+	return (
+		<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
+			<div className="flex min-w-0 flex-1 items-center gap-0">
+				<SpaceComposerFileMenu
+					addFiles={input.addFiles}
+					disabled={input.composerActionsDisabled}
+					limitReached={panel.composerFileLimitReached}
+				/>
+				{mentionButton}
+				{composerHint}
+			</div>
+			<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
+				{panel.profileControl}
+				{primaryAction}
+			</div>
+		</PromptInputActions>
+	);
+}
+
+function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
+	const panel = input.panel;
+	if (!panel.composerErrorMessage) {
+		return null;
+	}
+	return (
+		<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
+			<p>{panel.composerErrorMessage}</p>
+			{renderComposerBlockedWakeRecoveryAction({
+				agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
+				blockedWakeProfileId: panel.composerBlockedWakeProfileId,
+				isAgentRecoveryPending: panel.isAgentRecoveryPending,
+				onAgentRecoveryAction: panel.onAgentRecoveryAction,
+				orgSlug: panel.orgSlug,
+				prepareSetupHref: panel.prepareSetupHref,
+			})}
 		</div>
 	);
 }
@@ -2343,7 +2599,7 @@ function CenterAgentDirectMessageIntro(input: {
 	);
 }
 
-const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
+type ConversationBubbleRunInput = {
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -2413,28 +2669,22 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		SpaceWakeStopRequestStatus
 	>;
 	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
-}) {
-	const agentControlLabel = formatSpaceAgentControlLabel({
-		agentControllerRef: input.run.speaker.agentControllerRef,
-		controllerDisplay: input.run.speaker.controllerDisplay,
-		profileKind: input.run.speaker.profileKind,
-		runtimeDeviceDisplayName: input.run.speaker.runtimeDeviceDisplayName,
-	});
+};
+
+const ConversationBubbleRun = memo(function ConversationBubbleRun(
+	input: ConversationBubbleRunInput
+) {
 	const messageAlign = resolveSpaceMessageDirectionalAlign(input.run.isSelf);
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: input.run.isSelf });
 	const messageContentPaddingClassName =
 		resolveSpaceMessageContentPaddingClassName({ isSelf: input.run.isSelf });
-	const isCenterAgentRun = resolveIsCenterAgentConversationRun({
-		centerAgentProfileId: input.centerAgentProfileId,
-		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
-		run: input.run,
-	});
 	const detailsDialog = useSpaceProfileDetailsDialog({
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
 		entriesByProfileId: input.profileEntriesById,
 		modelCatalog: input.modelCatalog,
+		orgSlug: input.orgSlug,
 	});
 	const computerSetupContext = resolveCenterAgentComputerSetupContext({
 		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
@@ -2442,36 +2692,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		profileId: input.selfProfileId,
 		spaceId: input.spaceId,
 	});
-	const speakerHeaderContent = (
-		<>
-			<SpaceMessageProfileAvatar
-				agentControllerPending={input.run.speaker.agentControllerPending}
-				agentControllerRef={input.run.speaker.agentControllerRef}
-				avatarImageUrl={
-					input.run.speaker.avatarImageUrl ??
-					(input.run.speaker.profileId === input.selfProfileId
-						? input.selfAvatarImageUrl
-						: null)
-				}
-				displayName={input.run.speaker.displayName}
-				isCenterAgent={isCenterAgentRun}
-				profileId={input.run.speaker.profileId}
-				profileKind={input.run.speaker.profileKind}
-			/>
-			<span className="min-w-0 break-words font-bold text-foreground text-sm">
-				{input.run.speaker.displayName}
-			</span>
-			{agentControlLabel ? (
-				<>
-					<span className="shrink-0 text-muted-foreground">·</span>
-					<span className="min-w-0 text-muted-foreground">
-						{agentControlLabel}
-					</span>
-				</>
-			) : null}
-		</>
-	);
-
 	return (
 		<>
 			{input.run.items.map((item, index) => {
@@ -2600,25 +2820,20 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 								{index === 0 ? (
 									<>
 										<MessageHeader className="px-0">
-											{detailsDialog.canOpenProfileDetails ? (
-												<button
-													aria-label={`About ${input.run.speaker.displayName}`}
-													className={cn(
-														APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
-														"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-													)}
-													onClick={detailsDialog.openProfileDetails}
-													type="button"
-												>
-													{speakerHeaderContent}
-												</button>
-											) : (
-												<div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
-													{speakerHeaderContent}
-												</div>
-											)}
+											<ConversationSpeakerHeader
+												centerAgentProfileId={input.centerAgentProfileId}
+												detailsDialog={detailsDialog}
+												isCenterAgentDirectMessage={
+													input.isCenterAgentDirectMessage
+												}
+												run={input.run}
+												selfAvatarImageUrl={input.selfAvatarImageUrl}
+												selfProfileId={input.selfProfileId}
+											/>
 										</MessageHeader>
-										{detailsDialog.profileDetailsDialog}
+										{detailsDialog.profileDetailsPopoverTrigger
+											? null
+											: detailsDialog.profileDetailsDialog}
 									</>
 								) : null}
 								<BubbleGroup className="w-full gap-0">
@@ -2633,116 +2848,25 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 											align={messageAlign}
 											className={messageBubbleVisibilityClassName}
 										>
-											<BubbleContent
-												className={cn(
-													"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
-													messageContentPaddingClassName,
-													SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
-													selfMessageContentLayoutClassName,
-													bubblePresentationClass,
-													getTimelineItemDeliveryClass(item)
-												)}
-												data-highlighted={isHighlighted ? "true" : undefined}
-												data-signal-id={item.id}
-												ref={(element) => {
-													input.registerMessageElement(item.id, element);
-												}}
-												tabIndex={-1}
-											>
-												<ReplyPreview
-													align={messageAlign}
-													item={item}
-													loadedMainTimelineSignalIds={
-														input.loadedMainTimelineSignalIds
-													}
-													onJumpToMessage={input.onJumpToMessage}
-													spaceReferencesById={input.spaceReferencesById}
-												/>
-												<SpaceMessageBody
-													computerSetupContext={
-														computerSetupPresentation.context
-													}
-													computerSetupSourceSignalId={item.id}
-													containerClassName={selfMessageContentLayoutClassName}
-													item={item}
-													onOpenAgentProfile={
-														detailsDialog.openProfileDetailsById
-													}
-													onOpenSpaceFile={input.onOpenSpaceFile}
-													openMeldProfileId={input.selfProfileId}
-													orgSlug={input.orgSlug}
-													profilePresentationsById={
-														input.profilePresentationsById
-													}
-													spaceReferencesById={input.spaceReferencesById}
-												/>
-												{answerProgressStatus}
-												<SpaceMessageInteractionSource
-													source={item.centerAgentInteractionSource}
-												/>
-												{agentInteractionItems.map((interactionItem) =>
-													input.actionableAgentInteractionPlacement ===
-														"pending-surface" &&
-													interactionItem.pendingInteraction
-														?.canRespond ? null : (
-														<SpaceAgentInteractionCard
-															item={interactionItem}
-															key={resolveSpacePendingAgentActionIdentity(
-																interactionItem
-															)}
-															onEditAgentProfile={
-																input.editableAgentProfileIds?.has(
-																	interactionItem.targetProfileId
-																)
-																	? input.onEditAgentProfile
-																	: undefined
-															}
-															onRespond={
-																input.readOnly
-																	? undefined
-																	: input.onAgentInteractionResponse
-															}
-														/>
-													)
-												)}
-												{renderDurableAgentActivity({
-													item,
-													onOpenDetails: getOpenMessageDetailsHandler({
-														enabled: canUseMessageActions,
-														item,
-														onOpenMessageDetails: input.onOpenMessageDetails,
-													}),
-												})}
-												<ReplyStalenessMarker
-													align={messageAlign}
-													item={item}
-												/>
-												<ThreadPreview
-													membersSnapshot={input.membersSnapshot}
-													onOpenThread={input.onOpenThread}
-													preview={
-														input.threadPreviewByThreadId.get(
-															input.threadsByRootSignalId.get(item.id)
-																?.threadId ?? ""
-														) ?? null
-													}
-													spaceReferencesById={input.spaceReferencesById}
-													thread={
-														input.threadsByRootSignalId.get(item.id) ?? null
-													}
-												/>
-												{renderAnchoredSpaceOutcomeRows({
-													align: messageAlign,
-													notices: anchoredOutcomeNotices,
-													onOpenMessageDetails: input.onOpenMessageDetails,
-													onRecoverExecution: input.onRecoverExecution,
-													onRetryWakeTarget: input.onRetryWakeTarget,
-													profileEntriesById: input.profileEntriesById,
-													readOnly: input.readOnly,
-													sourceItem: item,
-													spaceReferencesById: input.spaceReferencesById,
-												})}
-											</BubbleContent>
+											<ConversationBubbleContent
+												agentInteractionItems={agentInteractionItems}
+												anchoredOutcomeNotices={anchoredOutcomeNotices}
+												answerProgressStatus={answerProgressStatus}
+												bubblePresentationClass={bubblePresentationClass}
+												canUseMessageActions={canUseMessageActions}
+												computerSetupContext={computerSetupPresentation.context}
+												detailsDialog={detailsDialog}
+												isHighlighted={isHighlighted}
+												item={item}
+												messageAlign={messageAlign}
+												messageContentPaddingClassName={
+													messageContentPaddingClassName
+												}
+												parent={input}
+												selfMessageContentLayoutClassName={
+													selfMessageContentLayoutClassName
+												}
+											/>
 										</Bubble>
 										{renderConversationMessageFooter({
 											anchoredOutcomeNotices,
@@ -2773,6 +2897,198 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		</>
 	);
 });
+
+function ConversationBubbleContent(input: {
+	agentInteractionItems: ReturnType<
+		typeof resolveSpaceMessageAgentInteractionItems
+	>;
+	anchoredOutcomeNotices: readonly SpaceTimelineItem[];
+	answerProgressStatus: ReactNode;
+	bubblePresentationClass?: string;
+	canUseMessageActions: boolean;
+	computerSetupContext?: CenterAgentComputerSetupContext;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	isHighlighted: boolean;
+	item: SpaceTimelineItem;
+	messageAlign: "start" | "end";
+	messageContentPaddingClassName: string;
+	parent: ConversationBubbleRunInput;
+	selfMessageContentLayoutClassName?: string;
+}) {
+	const parent = input.parent;
+	return (
+		<BubbleContent
+			className={cn(
+				"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
+				input.messageContentPaddingClassName,
+				SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
+				input.selfMessageContentLayoutClassName,
+				input.bubblePresentationClass,
+				getTimelineItemDeliveryClass(input.item)
+			)}
+			data-highlighted={input.isHighlighted ? "true" : undefined}
+			data-signal-id={input.item.id}
+			ref={(element) => {
+				parent.registerMessageElement(input.item.id, element);
+			}}
+			tabIndex={-1}
+		>
+			<ReplyPreview
+				align={input.messageAlign}
+				item={input.item}
+				loadedMainTimelineSignalIds={parent.loadedMainTimelineSignalIds}
+				onJumpToMessage={parent.onJumpToMessage}
+				spaceReferencesById={parent.spaceReferencesById}
+			/>
+			<SpaceMessageBody
+				computerSetupContext={input.computerSetupContext}
+				computerSetupSourceSignalId={input.item.id}
+				containerClassName={input.selfMessageContentLayoutClassName}
+				item={input.item}
+				onOpenAgentProfile={input.detailsDialog.openProfileDetailsById}
+				onOpenSpaceFile={parent.onOpenSpaceFile}
+				openMeldProfileId={parent.selfProfileId}
+				orgSlug={parent.orgSlug}
+				profilePresentationsById={parent.profilePresentationsById}
+				renderAgentProfileTrigger={
+					input.detailsDialog.profileDetailsPopoverTriggerById
+				}
+				spaceReferencesById={parent.spaceReferencesById}
+			/>
+			{input.answerProgressStatus}
+			<SpaceMessageInteractionSource
+				source={input.item.centerAgentInteractionSource}
+			/>
+			{input.agentInteractionItems.map((interactionItem) =>
+				parent.actionableAgentInteractionPlacement === "pending-surface" &&
+				interactionItem.pendingInteraction?.canRespond ? null : (
+					<SpaceAgentInteractionCard
+						item={interactionItem}
+						key={resolveSpacePendingAgentActionIdentity(interactionItem)}
+						onEditAgentProfile={
+							parent.editableAgentProfileIds?.has(
+								interactionItem.targetProfileId
+							)
+								? parent.onEditAgentProfile
+								: undefined
+						}
+						onRespond={
+							parent.readOnly ? undefined : parent.onAgentInteractionResponse
+						}
+					/>
+				)
+			)}
+			{renderDurableAgentActivity({
+				item: input.item,
+				onOpenDetails: getOpenMessageDetailsHandler({
+					enabled: input.canUseMessageActions,
+					item: input.item,
+					onOpenMessageDetails: parent.onOpenMessageDetails,
+				}),
+			})}
+			<ReplyStalenessMarker align={input.messageAlign} item={input.item} />
+			<ThreadPreview
+				membersSnapshot={parent.membersSnapshot}
+				onOpenThread={parent.onOpenThread}
+				preview={
+					parent.threadPreviewByThreadId.get(
+						parent.threadsByRootSignalId.get(input.item.id)?.threadId ?? ""
+					) ?? null
+				}
+				spaceReferencesById={parent.spaceReferencesById}
+				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
+			/>
+			{renderAnchoredSpaceOutcomeRows({
+				align: input.messageAlign,
+				notices: input.anchoredOutcomeNotices,
+				onOpenMessageDetails: parent.onOpenMessageDetails,
+				onRecoverExecution: parent.onRecoverExecution,
+				onRetryWakeTarget: parent.onRetryWakeTarget,
+				profileEntriesById: parent.profileEntriesById,
+				readOnly: parent.readOnly,
+				sourceItem: input.item,
+				spaceReferencesById: parent.spaceReferencesById,
+			})}
+		</BubbleContent>
+	);
+}
+
+function ConversationSpeakerHeader(input: {
+	centerAgentProfileId: string | null;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	isCenterAgentDirectMessage: boolean;
+	run: SpaceConversationBubbleRun;
+	selfAvatarImageUrl: string | null;
+	selfProfileId: string;
+}) {
+	const agentControlLabel = formatSpaceAgentControlLabel({
+		agentControllerRef: input.run.speaker.agentControllerRef,
+		controllerDisplay: input.run.speaker.controllerDisplay,
+		profileKind: input.run.speaker.profileKind,
+		runtimeDeviceDisplayName: input.run.speaker.runtimeDeviceDisplayName,
+	});
+	const isCenterAgentRun = resolveIsCenterAgentConversationRun({
+		centerAgentProfileId: input.centerAgentProfileId,
+		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+		run: input.run,
+	});
+	const content = (
+		<>
+			<SpaceMessageProfileAvatar
+				agentControllerPending={input.run.speaker.agentControllerPending}
+				agentControllerRef={input.run.speaker.agentControllerRef}
+				avatarImageUrl={
+					input.run.speaker.avatarImageUrl ??
+					(input.run.speaker.profileId === input.selfProfileId
+						? input.selfAvatarImageUrl
+						: null)
+				}
+				displayName={input.run.speaker.displayName}
+				isCenterAgent={isCenterAgentRun}
+				profileId={input.run.speaker.profileId}
+				profileKind={input.run.speaker.profileKind}
+			/>
+			<span className="min-w-0 break-words font-bold text-foreground text-sm">
+				{input.run.speaker.displayName}
+			</span>
+			{agentControlLabel ? (
+				<>
+					<span className="shrink-0 text-muted-foreground">·</span>
+					<span className="min-w-0 text-muted-foreground">
+						{agentControlLabel}
+					</span>
+				</>
+			) : null}
+		</>
+	);
+	if (!input.detailsDialog.canOpenProfileDetails) {
+		return (
+			<div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+				{content}
+			</div>
+		);
+	}
+	const trigger = (
+		<button
+			aria-label={`Check ${input.run.speaker.displayName} Profile`}
+			className={cn(
+				APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+				"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			)}
+			onClick={
+				input.detailsDialog.profileDetailsPopoverTrigger
+					? undefined
+					: input.detailsDialog.openProfileDetails
+			}
+			type="button"
+		>
+			{content}
+		</button>
+	);
+	return input.detailsDialog.profileDetailsPopoverTrigger
+		? input.detailsDialog.profileDetailsPopoverTrigger(trigger)
+		: trigger;
+}
 
 function useLatestCallback<Arguments extends unknown[], Result>(
 	callback: (...args: Arguments) => Result
@@ -3599,7 +3915,7 @@ function renderComposerBlockedWakeRecoveryAction(input: {
 
 function resolveDirectMessageTargetName(
 	input: Pick<
-		SpaceConversationPanelProps,
+		SpaceConversationPanelResolvedProps,
 		| "agentDirectConversationKind"
 		| "isCenterAgentDirectMessage"
 		| "isDirectMessage"
@@ -3639,4 +3955,5 @@ const TIMELINE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	hour: "numeric",
 	minute: "2-digit",
 	second: "2-digit",
+	timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 });

@@ -396,7 +396,6 @@ const REVIEWER_OPTION_NAME = /Reviewer/;
 const RUNNER_OPTION_NAME = /Runner/;
 const SCOUT_OPTION_NAME = /Scout/;
 const WATCHER_OPTION_NAME = /Watcher/;
-const CREATE_PROFILE_BUTTON_NAME = /Create profile/i;
 const DIAGNOSTIC_REPORT_POINTER_COPY =
 	/The report sends message IDs and system trace pointers, not the message text\./;
 const LOCAL_SETUP_PREFERENCE_TEXT = /Local setup preference/;
@@ -1660,11 +1659,20 @@ describe("SpaceLanding", () => {
 		const dialog = await screen.findByRole("dialog", {
 			name: "Create a new Agent",
 		});
-		fireEvent.change(within(dialog).getByLabelText("Profile name"), {
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Edit Runs on" })
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Create and connect later",
+			})
+		);
+		fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+		fireEvent.change(await within(dialog).findByLabelText("Agent name"), {
 			target: { value: "Scout" },
 		});
 		const submitButton = within(dialog).getByRole("button", {
-			name: CREATE_PROFILE_BUTTON_NAME,
+			name: "Create Agent",
 		}) as HTMLButtonElement;
 		await waitFor(() => {
 			expect(submitButton.disabled).toBe(false);

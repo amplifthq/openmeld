@@ -120,6 +120,7 @@ import { buildDirectMessageConversionDefaultName } from "./direct-message-conver
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
 import type { SpaceAgentProfileEditHandler } from "./space-agent-interaction-card";
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
+import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
@@ -1476,8 +1477,6 @@ function SpaceLandingReady({
 		modelCatalog,
 		navigate,
 		organizationId,
-		recovery,
-		refreshCurrentSpaceMemberFacts,
 		setupRecallAction,
 		spaceFileNavigation,
 		spaceInboxReadPosition,
@@ -1494,53 +1493,27 @@ function SpaceLandingReady({
 		handleConvertDirectMessageToSpace,
 		showDeleteSpaceAction: controller.showDeleteSpaceAction,
 	});
-	const historyErrorMessage =
-		controller.historyError && controller.timelineItems.length === 0
-			? `Couldn't load recent history. ${controller.historyError.message}${
-					controller.historyError.requestId
-						? ` Request ID: ${controller.historyError.requestId}`
-						: ""
-				}`
-			: null;
-	const membersControl =
-		currentSpaceIsCenterAgentDirectMessage ||
-		!controller.isCurrentAccessConfirmed ? null : (
-			<SpaceMembersToggleButton
-				controlsId={
-					isDesktopMembersPanel ? "space-members-panel" : "space-members-drawer"
-				}
-				memberCount={controller.status.members.totalCount}
-				onOpenChange={handleMembersOpenChange}
-				open={membersOpen}
-			/>
-		);
-	const currentHumanViewer = resolveCurrentSpaceHumanViewer({
-		accountProfiles,
-		currentProfileId: controller.profileId,
-		membersSnapshot: controller.membersSnapshot,
-	});
-	const currentProfileIsActiveSpaceMember =
-		controller.currentProfileMembershipState === "member";
-	const currentProfileName = currentHumanViewer.profileName;
-	const agentOwnerDirectMessageObserver =
-		resolveAgentOwnerDirectMessageObserver({
-			currentOwnerUserId,
-			humanProfile: currentHumanViewer.humanProfile,
-			isActiveSpaceMember: currentProfileIsActiveSpaceMember,
-			isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
-			isDirectMessage,
-			snapshot: controller.membersSnapshot,
-		});
-	const agentOwnerDirectMessageJoin = useAgentOwnerDirectMessageJoin({
-		currentSpaceName: controller.status.name,
-		onJoin: handleConvertDirectMessageToSpace,
-		observer: agentOwnerDirectMessageObserver,
-	});
-	const agentOwnerVisibilityLabel = resolveAgentOwnerVisibilityLabel({
-		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
-		isDirectMessage,
-		snapshot: controller.membersSnapshot,
-	});
+	const historyErrorMessage = resolveSpaceHistoryErrorMessage(controller);
+	const membersControl = (
+		<SpaceLandingMembersControl
+			currentSpaceIsCenterAgentDirectMessage={
+				currentSpaceIsCenterAgentDirectMessage
+			}
+			isCurrentAccessConfirmed={controller.isCurrentAccessConfirmed}
+			isDesktopMembersPanel={isDesktopMembersPanel}
+			memberCount={controller.status.members.totalCount}
+			onOpenChange={handleMembersOpenChange}
+			open={membersOpen}
+		/>
+	);
+	const {
+		agentOwnerDirectMessageJoin,
+		agentOwnerDirectMessageObserver,
+		agentOwnerVisibilityLabel,
+		currentHumanViewer,
+		currentProfileIsActiveSpaceMember,
+		currentProfileName,
+	} = useSpaceLandingViewerState({ controller, state });
 	const humanJoinControl = (
 		<SpaceHumanJoinControl
 			humanProfile={currentHumanViewer.humanProfile}
@@ -1554,16 +1527,11 @@ function SpaceLandingReady({
 		/>
 	);
 	const managementControl = (
-		<>
-			{currentSpaceControls.managementControl}
-			{agentOwnerDirectMessageJoin ? (
-				<AgentOwnerDirectMessageJoinHeaderControl
-					control={agentOwnerDirectMessageJoin}
-				/>
-			) : (
-				humanJoinControl
-			)}
-		</>
+		<SpaceLandingManagementControl
+			agentOwnerDirectMessageJoin={agentOwnerDirectMessageJoin}
+			humanJoinControl={humanJoinControl}
+			managementControl={currentSpaceControls.managementControl}
+		/>
 	);
 	const currentProfileLeaveAction = resolveCurrentProfileLeaveAction({
 		isAccessConfirmed: controller.isCurrentAccessConfirmed,
@@ -1596,37 +1564,16 @@ function SpaceLandingReady({
 		session: "fresh",
 		spaceId: controller.spaceId,
 	});
-	const agentProfileEditContext = resolveAgentProfileEditDialogContext({
-		onSaved: async (profileId) => {
-			await Promise.all([
-				refreshCurrentSpaceMemberFacts({
-					agentProfileIds: [profileId],
-					forceNetwork: true,
-				}),
-				recovery.refreshAll(),
-			]);
-		},
-		organizationId,
-		recovery,
-	});
-	const pendingAgentActions = useSpacePendingAgentActions({
-		accountProfiles,
-		agentProfileEditContext,
-		currentOwnerUserId,
-		membersSnapshot: controller.membersSnapshot,
-		modelCatalog,
-		onRespond: controller.onAgentInteractionResponse,
-		presentedItems: controller.presentedWakeProgressItems,
-		threadItems: controller.threadEphemeralActivityItems,
-	});
 	const isCompactPresentation = input.presentation === "compact";
-	const pendingActionSurfacePlacement =
-		resolveSpacePendingAgentActionSurfacePlacement({
-			hasActiveThread:
-				!isCompactPresentation &&
-				controller.isCurrentAccessConfirmed &&
-				controller.activeThread !== null,
-		});
+	const {
+		agentProfileEditContext,
+		pendingActionSurfacePlacement,
+		pendingAgentActions,
+	} = useSpaceLandingPendingAgentActions({
+		controller,
+		isCompactPresentation,
+		state,
+	});
 	const pendingActionSurface = (
 		<SpacePendingAgentActions
 			{...pendingAgentActions.surfaceProps}
@@ -1639,7 +1586,14 @@ function SpaceLandingReady({
 	);
 
 	return (
-		<>
+		<SpaceAgentProfileEditProvider
+			accountProfiles={accountProfiles}
+			context={agentProfileEditContext ?? null}
+			currentOwnerUserId={currentOwnerUserId}
+			modelCatalog={modelCatalog}
+			organizationId={organizationId}
+			orgSlug={input.orgSlug}
+		>
 			<SpaceFileNavigationGuards navigation={spaceFileNavigation} />
 			<AppMainContent
 				bodyClassName="flex"
@@ -1779,6 +1733,154 @@ function SpaceLandingReady({
 				control={agentOwnerDirectMessageJoin}
 			/>
 			{pendingAgentActions.profileEditDialog}
+		</SpaceAgentProfileEditProvider>
+	);
+}
+
+function useSpaceLandingViewerState({
+	controller,
+	state,
+}: {
+	controller: ReadySpaceLandingController;
+	state: SpaceLandingState;
+}) {
+	const currentHumanViewer = resolveCurrentSpaceHumanViewer({
+		accountProfiles: state.accountProfiles,
+		currentProfileId: controller.profileId,
+		membersSnapshot: controller.membersSnapshot,
+	});
+	const currentProfileIsActiveSpaceMember =
+		controller.currentProfileMembershipState === "member";
+	const agentOwnerDirectMessageObserver =
+		resolveAgentOwnerDirectMessageObserver({
+			currentOwnerUserId: state.currentOwnerUserId,
+			humanProfile: currentHumanViewer.humanProfile,
+			isActiveSpaceMember: currentProfileIsActiveSpaceMember,
+			isCenterAgentDirectMessage: state.currentSpaceIsCenterAgentDirectMessage,
+			isDirectMessage: state.isDirectMessage,
+			snapshot: controller.membersSnapshot,
+		});
+	const agentOwnerDirectMessageJoin = useAgentOwnerDirectMessageJoin({
+		currentSpaceName: controller.status.name,
+		onJoin: state.handleConvertDirectMessageToSpace,
+		observer: agentOwnerDirectMessageObserver,
+	});
+	return {
+		agentOwnerDirectMessageJoin,
+		agentOwnerDirectMessageObserver,
+		agentOwnerVisibilityLabel: resolveAgentOwnerVisibilityLabel({
+			isCenterAgentDirectMessage: state.currentSpaceIsCenterAgentDirectMessage,
+			isDirectMessage: state.isDirectMessage,
+			snapshot: controller.membersSnapshot,
+		}),
+		currentHumanViewer,
+		currentProfileIsActiveSpaceMember,
+		currentProfileName: currentHumanViewer.profileName,
+	};
+}
+
+function useSpaceLandingPendingAgentActions({
+	controller,
+	isCompactPresentation,
+	state,
+}: {
+	controller: ReadySpaceLandingController;
+	isCompactPresentation: boolean;
+	state: SpaceLandingState;
+}) {
+	const agentProfileEditContext = resolveAgentProfileEditDialogContext({
+		onSaved: async (profileId) => {
+			await Promise.all([
+				state.refreshCurrentSpaceMemberFacts({
+					agentProfileIds: [profileId],
+					forceNetwork: true,
+				}),
+				state.recovery.refreshAll(),
+			]);
+		},
+		organizationId: state.organizationId,
+		recovery: state.recovery,
+	});
+	const pendingAgentActions = useSpacePendingAgentActions({
+		accountProfiles: state.accountProfiles,
+		agentProfileEditContext,
+		currentOwnerUserId: state.currentOwnerUserId,
+		membersSnapshot: controller.membersSnapshot,
+		modelCatalog: state.modelCatalog,
+		onRespond: controller.onAgentInteractionResponse,
+		presentedItems: controller.presentedWakeProgressItems,
+		threadItems: controller.threadEphemeralActivityItems,
+	});
+	return {
+		agentProfileEditContext,
+		pendingActionSurfacePlacement:
+			resolveSpacePendingAgentActionSurfacePlacement({
+				hasActiveThread:
+					!isCompactPresentation &&
+					controller.isCurrentAccessConfirmed &&
+					controller.activeThread !== null,
+			}),
+		pendingAgentActions,
+	};
+}
+
+function resolveSpaceHistoryErrorMessage(
+	controller: ReadySpaceLandingController
+): string | null {
+	if (!(controller.historyError && controller.timelineItems.length === 0)) {
+		return null;
+	}
+	const requestId = controller.historyError.requestId
+		? ` Request ID: ${controller.historyError.requestId}`
+		: "";
+	return `Couldn't load recent history. ${controller.historyError.message}${requestId}`;
+}
+
+function SpaceLandingMembersControl(input: {
+	currentSpaceIsCenterAgentDirectMessage: boolean;
+	isCurrentAccessConfirmed: boolean;
+	isDesktopMembersPanel: boolean;
+	memberCount: number;
+	onOpenChange: (open: boolean) => void;
+	open: boolean;
+}) {
+	if (
+		input.currentSpaceIsCenterAgentDirectMessage ||
+		!input.isCurrentAccessConfirmed
+	) {
+		return null;
+	}
+	return (
+		<SpaceMembersToggleButton
+			controlsId={
+				input.isDesktopMembersPanel
+					? "space-members-panel"
+					: "space-members-drawer"
+			}
+			memberCount={input.memberCount}
+			onOpenChange={input.onOpenChange}
+			open={input.open}
+		/>
+	);
+}
+
+function SpaceLandingManagementControl(input: {
+	agentOwnerDirectMessageJoin: ReturnType<
+		typeof useAgentOwnerDirectMessageJoin
+	>;
+	humanJoinControl: ReactNode;
+	managementControl: ReactNode;
+}) {
+	return (
+		<>
+			{input.managementControl}
+			{input.agentOwnerDirectMessageJoin ? (
+				<AgentOwnerDirectMessageJoinHeaderControl
+					control={input.agentOwnerDirectMessageJoin}
+				/>
+			) : (
+				input.humanJoinControl
+			)}
 		</>
 	);
 }
@@ -1884,9 +1986,7 @@ function SpaceLandingConversation({
 			composerAuthoredMentions={controller.composerAuthoredMentions}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
-			composerFileLimitReached={controller.composerFileLimitReached}
 			composerFiles={controller.composerFiles}
-			composerHasAuthoredMentions={controller.composerHasAuthoredMentions}
 			composerMentionPickerItems={controller.composerMentionPickerItems}
 			composerPrimaryAction={composerPrimaryAction}
 			composerReplyToSignalId={controller.composerReplyToSignalId}
@@ -1911,22 +2011,14 @@ function SpaceLandingConversation({
 				/>
 			}
 			firstUnreadSignalId={controller.firstUnreadSignalId}
-			hasEarlierHistory={controller.hasEarlierHistory}
 			historyActionErrorMessage={controller.historyActionErrorMessage}
 			historyErrorMessage={historyErrorMessage}
-			historyIsPending={controller.historyIsPending}
 			initialFocusInteractionId={input.initialFocusInteractionId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			isAgentRecoveryPending={controller.isAgentRecoveryPending}
-			isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
-			isCreatingThread={controller.isCreatingThread}
 			isDiagnosticReportPending={controller.isDiagnosticReportPending}
 			isDiagnosticReportSent={controller.isDiagnosticReportSent}
-			isDirectMessage={isDirectMessage}
-			isLoadingEarlierHistory={controller.isLoadingEarlierHistory}
-			isPersonalContext={input.isPersonalContext === true}
-			isSendingMessage={controller.isSendingMessage}
 			membersSnapshot={controller.presentationMembersSnapshot}
 			modelCatalog={modelCatalog}
 			onAddComposerFiles={controller.onAddComposerFiles}
@@ -1957,12 +2049,6 @@ function SpaceLandingConversation({
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
-			readOnly={
-				!(
-					controller.isCurrentAccessConfirmed &&
-					currentProfileIsActiveSpaceMember
-				)
-			}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
 			renderSetupGuidance={(presentation) =>
 				controller.isCurrentAccessConfirmed ? (
@@ -1991,11 +2077,27 @@ function SpaceLandingConversation({
 			threadPreviews={controller.threadPreviews}
 			threads={controller.threads}
 			threadsErrorMessage={controller.threadsErrorMessage}
-			threadsIsLoading={controller.threadsIsLoading}
 			timelineItems={controller.timelineItems}
 			unreadCount={controller.unreadCount}
-			unreadStateReady={controller.unreadStateReady}
 			unreadTargets={spaceInboxReadPosition.targets}
+			viewState={{
+				composerFileLimitReached: controller.composerFileLimitReached,
+				composerHasAuthoredMentions: controller.composerHasAuthoredMentions,
+				hasEarlierHistory: controller.hasEarlierHistory,
+				historyIsPending: controller.historyIsPending,
+				isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+				isCreatingThread: controller.isCreatingThread,
+				isDirectMessage,
+				isLoadingEarlierHistory: controller.isLoadingEarlierHistory,
+				isPersonalContext: input.isPersonalContext === true,
+				isSendingMessage: controller.isSendingMessage,
+				readOnly: !(
+					controller.isCurrentAccessConfirmed &&
+					currentProfileIsActiveSpaceMember
+				),
+				threadsIsLoading: controller.threadsIsLoading,
+				unreadStateReady: controller.unreadStateReady,
+			}}
 			wakeFailureTargetContextsByProfileId={
 				wakeFailureTargetContextsByProfileId
 			}

@@ -2,6 +2,7 @@
 
 import {
 	DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
+	listAgentControllerCollaborationModeOptions,
 	listAgentControllerPermissionModeOptions,
 	parseAgentControllerRef,
 	resolveAgentControllerPermissionModeForController,
@@ -54,13 +55,24 @@ import type { useLocalAgentRecoveryController } from "#/components/agents/use-lo
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
-import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationCenterAgentChatPath,
+	buildOrganizationComputerPath,
+} from "#/lib/organizations/organization-routes";
 import { resolveRememberedAgentProfileCreationDefaults } from "#/lib/profiles/agent-profile-creation-defaults";
+import {
+	type AgentProfileCreationJourneyDraft,
+	buildAgentProfileCreationJourneyDraftStorageKey,
+	clearAgentProfileCreationJourneyDraft,
+	readAgentProfileCreationJourneyDraft,
+	writeAgentProfileCreationJourneyDraft,
+} from "#/lib/profiles/agent-profile-creation-journey-draft";
 import {
 	continuePendingAgentProfileCreationLocalSetup,
 	rememberPendingAgentProfileCreationLocalSetup,
 } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { createAgentProfileCreationRequest } from "#/lib/profiles/agent-profile-creation-requests";
+import { buildAgentProfileTemplateName } from "#/lib/profiles/agent-profile-template-name";
 import type {
 	NewProfileErrorState,
 	NewProfileKind,
@@ -100,6 +112,7 @@ import {
 } from "#/query/profiles/profile-capabilities";
 import { startQueryKeys } from "#/query/query-keys";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
+import { AgentProfileGenerator } from "./agent-profile-generator";
 import {
 	AgentProfileOwnerChoice,
 	type AgentProfileOwnerMode,
@@ -110,6 +123,7 @@ import {
 	type AgentProfileSessionMode,
 } from "./agent-profile-session-choice";
 import {
+	type AgentProfileLocalAgentEmptyState,
 	type AgentProfileModelCompatibilityContext,
 	CreateProfileForm,
 } from "./create-profile-form";
@@ -118,6 +132,8 @@ import { isOpenCodeAgentId } from "./open-code-permissions-field";
 import { RequestedAgentProjectField } from "./requested-agent-project-field";
 
 type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
+const PROJECT_PATH_SEPARATOR_PATTERN = /[\\/]/u;
+const PROJECT_PATH_TRAILING_SEPARATOR_PATTERN = /[\\/]+$/u;
 
 export type { CreateProfileSpaceContext } from "#/lib/profiles/create-profile-orchestration";
 
@@ -148,6 +164,7 @@ type CreateProfileDialogFormState = {
 	ownerMode: AgentProfileOwnerMode;
 	profileKind: NewProfileKind | null;
 	profileName: string;
+	profileNameEdited: boolean;
 	projectFolderPath: string;
 	projectWorkspaceFallback: "advanced" | "managed" | null;
 	selectedProjectBindingGeneration: string | null;
@@ -165,16 +182,42 @@ type CreateProfileDialogFormAction =
 	| {
 			state: CreateProfileDialogFormState;
 			type: "reset";
+	  }
+	| {
+			draft: AgentProfileCreationJourneyDraft;
+			type: "restore_journey_draft";
 	  };
 
 function reduceCreateProfileDialogFormState(
 	state: CreateProfileDialogFormState,
 	action: CreateProfileDialogFormAction
 ): CreateProfileDialogFormState {
-	return action.type === "reset" ? action.state : { ...state, ...action.patch };
+	if (action.type === "reset") {
+		return action.state;
+	}
+	if (action.type === "restore_journey_draft") {
+		return {
+			...state,
+			boundAgentControllerCollaborationMode:
+				action.draft.agentControllerCollaborationMode,
+			boundAgentControllerPermissionMode:
+				action.draft.agentControllerPermissionMode,
+			boundAgentControllerPermissionModeConfirmed: false,
+			boundAgentId: action.draft.agentId,
+			boundModelId: action.draft.modelId,
+			boundOpenCodePermission: action.draft.openCodePermission,
+			boundReasoningLevel: action.draft.reasoningLevel,
+			projectWorkspaceFallback: resolveJourneyDraftProjectWorkspaceFallback(
+				action.draft.selectedProjectId
+			),
+			selectedProjectId: action.draft.selectedProjectId,
+		};
+	}
+	return { ...state, ...action.patch };
 }
 
 function createInitialCreateProfileDialogFormState(input: {
+	initialProfileKind: NewProfileKind | null;
 	initialOwnerMode: AgentProfileOwnerMode;
 	initialSessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
 }): CreateProfileDialogFormState {
@@ -196,8 +239,9 @@ function createInitialCreateProfileDialogFormState(input: {
 		boundReasoningLevel: "",
 		errorState: null,
 		ownerMode: input.initialOwnerMode,
-		profileKind: input.initialSessionPreset ? "agent" : null,
+		profileKind: input.initialProfileKind,
 		profileName: resolveSessionPresetProfileName(input.initialSessionPreset),
+		profileNameEdited: false,
 		projectFolderPath: "",
 		projectWorkspaceFallback: null,
 		selectedProjectBindingGeneration: null,
@@ -243,6 +287,7 @@ function createProfileDialogFormSetters(
 		setOwnerMode: setField("ownerMode"),
 		setProfileKind: setField("profileKind"),
 		setProfileName: setField("profileName"),
+		setProfileNameEdited: setField("profileNameEdited"),
 		setProjectFolderPath: setField("projectFolderPath"),
 		setProjectWorkspaceFallback: setField("projectWorkspaceFallback"),
 		setSelectedProjectBindingGeneration: setField(
@@ -263,14 +308,58 @@ function resolveInitialAgentProfileSessionMode(
 		: "new";
 }
 
+function resolveInitialOwnerMode(input: {
+	currentUserId: string;
+	sessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
+}): AgentProfileOwnerMode {
+	if (!(input.sessionPreset && input.currentUserId)) {
+		return "self";
+	}
+	return input.sessionPreset.ownerUserId === input.currentUserId
+		? "self"
+		: "teammate";
+}
+
+function resolveInitialCreateProfileKind(input: {
+	agentOnly: boolean;
+	hasSessionPreset: boolean;
+}): NewProfileKind | null {
+	return input.agentOnly || input.hasSessionPreset ? "agent" : null;
+}
+
+function resolveAdditionalHumanProfileCreationEnabled(input: {
+	accountAllowsAdditionalHumanProfileCreation: boolean;
+	agentOnly: boolean;
+}): boolean {
+	return !input.agentOnly && input.accountAllowsAdditionalHumanProfileCreation;
+}
+
+function resolveEffectiveCreateProfileName(input: {
+	profileKind: NewProfileKind | null;
+	profileName: string;
+	profileNameEdited: boolean;
+	suggestedProfileName: string;
+	templateNaming: boolean;
+}): string {
+	if (
+		input.templateNaming &&
+		input.profileKind === "agent" &&
+		!input.profileNameEdited
+	) {
+		return input.suggestedProfileName;
+	}
+	return input.profileName;
+}
+
 // Standalone, route-free Create Profile dialog. Reused from Profiles, legacy
 // agent redirects, and Spaces — the only difference is `spaceContext`: when
 // present, the freshly created profile is also joined to that Space (always as a
 // human acting profile); when absent, it is created in the selected Organization
 // without Space membership. Carries zero dependency on retired start pages or
 // route intents.
-type CreateProfileDialogProps = {
+export type CreateProfileDialogProps = {
 	agentActivitySessionPreset?: CreateProfileAgentActivitySessionPreset;
+	agentOnly?: boolean;
 	allowTeammateRequests?: boolean;
 	currentUserId?: string;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
@@ -285,7 +374,28 @@ type CreateProfileDialogProps = {
 };
 
 export function CreateProfileDialog(input: CreateProfileDialogProps) {
-	const view = useCreateProfileDialogController(input);
+	const view = useCreateProfileDialogController(input, {
+		agentOnly: input.agentOnly === true,
+		templateNaming: true,
+	});
+	return (
+		<Dialog onOpenChange={view.onOpenChange} open={input.open}>
+			<DialogContent className="flex max-h-[min(46rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
+				<DialogHeader>
+					<DialogTitle>{view.title}</DialogTitle>
+					<DialogDescription>{view.description}</DialogDescription>
+				</DialogHeader>
+				<AgentProfileGenerator form={view.formProps} surface="dialog" />
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+export function LegacyCreateProfileDialog(input: CreateProfileDialogProps) {
+	const view = useCreateProfileDialogController(input, {
+		agentOnly: input.agentOnly === true,
+		templateNaming: false,
+	});
 	return (
 		<Dialog onOpenChange={view.onOpenChange} open={input.open}>
 			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-xl">
@@ -299,18 +409,55 @@ export function CreateProfileDialog(input: CreateProfileDialogProps) {
 	);
 }
 
-function useCreateProfileDialogController(input: CreateProfileDialogProps) {
+export function CreateAgentProfilePage(
+	input: Omit<CreateProfileDialogProps, "onOpenChange" | "open"> & {
+		onCancel: () => void;
+	}
+) {
+	const view = useCreateProfileDialogController(
+		{
+			...input,
+			onOpenChange: () => undefined,
+			open: true,
+		},
+		{ agentOnly: true, templateNaming: true }
+	);
+	return (
+		<div className="flex min-h-full min-w-0 flex-1 flex-col overflow-y-auto px-5 py-8 sm:px-8 lg:px-12">
+			<div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6">
+				<header className="grid gap-1.5">
+					<h1 className="font-medium text-2xl tracking-tight">{view.title}</h1>
+					<p className="max-w-2xl text-pretty text-muted-foreground text-sm leading-6">
+						{view.description}
+					</p>
+				</header>
+				<AgentProfileGenerator
+					form={view.formProps}
+					onCancel={input.onCancel}
+					surface="page"
+				/>
+			</div>
+		</div>
+	);
+}
+
+function useCreateProfileDialogController(
+	input: CreateProfileDialogProps,
+	options: { agentOnly: boolean; templateNaming: boolean }
+) {
 	const initialSessionPreset = input.agentActivitySessionPreset;
 	const currentUserId = input.currentUserId ?? "";
-	const initialOwnerMode: AgentProfileOwnerMode =
-		initialSessionPreset &&
-		currentUserId &&
-		initialSessionPreset.ownerUserId !== currentUserId
-			? "teammate"
-			: "self";
+	const initialOwnerMode = resolveInitialOwnerMode({
+		currentUserId,
+		sessionPreset: initialSessionPreset,
+	});
+	const initialProfileKind = resolveInitialCreateProfileKind({
+		agentOnly: options.agentOnly,
+		hasSessionPreset: Boolean(initialSessionPreset),
+	});
 	const [formState, dispatchForm] = useReducer(
 		reduceCreateProfileDialogFormState,
-		{ initialOwnerMode, initialSessionPreset },
+		{ initialOwnerMode, initialProfileKind, initialSessionPreset },
 		createInitialCreateProfileDialogFormState
 	);
 	const formSetters = useMemo(
@@ -319,21 +466,23 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	);
 	const {
 		agentBindingValue,
-		boundAgentControllerCollaborationMode,
-		boundAgentControllerPermissionMode,
+		boundAgentControllerCollaborationMode:
+			rawBoundAgentControllerCollaborationMode,
+		boundAgentControllerPermissionMode: rawBoundAgentControllerPermissionMode,
 		boundAgentControllerPermissionModeConfirmed,
-		boundAgentId,
-		boundModelId,
-		boundOpenCodePermission,
-		boundReasoningLevel,
+		boundAgentId: rawBoundAgentId,
+		boundModelId: rawBoundModelId,
+		boundOpenCodePermission: rawBoundOpenCodePermission,
+		boundReasoningLevel: rawBoundReasoningLevel,
 		errorState,
 		ownerMode,
 		profileKind,
 		profileName,
+		profileNameEdited,
 		projectFolderPath,
 		projectWorkspaceFallback,
 		selectedProjectBindingGeneration,
-		selectedProjectId,
+		selectedProjectId: rawSelectedProjectId,
 		sessionMode,
 		sessionPreset,
 		targetOwnerUserId,
@@ -351,6 +500,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		setOwnerMode,
 		setProfileKind,
 		setProfileName,
+		setProfileNameEdited,
 		setProjectFolderPath,
 		setProjectWorkspaceFallback,
 		setSelectedProjectBindingGeneration,
@@ -367,8 +517,13 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		selectDefaultWhenMissing: true,
 	});
 	const profileCapabilitiesQuery = useQuery(profileCapabilitiesQueryOptions());
-	const additionalHumanProfileCreationEnabled =
+	const accountAllowsAdditionalHumanProfileCreation =
 		isAdditionalHumanProfileCreationEnabled(profileCapabilitiesQuery);
+	const additionalHumanProfileCreationEnabled =
+		resolveAdditionalHumanProfileCreationEnabled({
+			accountAllowsAdditionalHumanProfileCreation,
+			agentOnly: options.agentOnly,
+		});
 	const selectableProfileKind = resolveSelectableProfileKind({
 		additionalHumanProfileCreationEnabled,
 		profileKind,
@@ -389,20 +544,24 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	const currentOrgSlug = useOptionalCurrentOrganizationSlug();
 	const orgSlug = input.orgSlug ?? currentOrgSlug;
 	const organizationId = input.organizationId;
+	const journeyDraftStorageKey =
+		buildAgentProfileCreationJourneyDraftStorageKey({
+			organizationId,
+			userId: currentUserId,
+		});
 	const dialogTitle = resolveCreateProfileDialogTitle({
 		additionalHumanProfileCreationEnabled,
 	});
 	const canRequestForTeammate = canRequestTeammateAgent({
-		allowTeammateRequests:
-			!initialSessionPreset || initialOwnerMode === "teammate"
-				? input.allowTeammateRequests
-				: false,
+		allowTeammateRequests: input.allowTeammateRequests,
 		currentUserId,
+		hasInitialSessionPreset: Boolean(initialSessionPreset),
+		initialOwnerMode,
 	});
 	const teammateQueriesEnabled = input.open && canRequestForTeammate;
 	const organizationDirectoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
-			enabled: teammateQueriesEnabled,
+			enabled: input.open,
 			organizationId,
 		})
 	);
@@ -436,19 +595,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			organizationId,
 		})
 	);
-	const agentControllerRef = resolveAgentControllerRef(boundAgentId);
-	const creationDefaultsQuery = useQuery(
-		agentProfileCreationDefaultsQueryOptions({
-			agentControllerRef,
-			enabled: shouldReadCreationDefaults({
-				agentControllerRef,
-				open: input.open,
-				organizationId,
-				ownerMode,
-			}),
-			organizationId,
-		})
-	);
+	const availableProjects = resolveAvailableProjects(projectsQuery.data);
 	const recovery = input.recovery;
 	const spaceContext = input.spaceContext;
 	// Resolve the execution target once: it provides both the bindable local
@@ -481,13 +628,6 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	const selectedTeammateBinding = teammateBindingOptions.find(
 		(option) => option.choice.value === agentBindingValue
 	);
-	const modelCompatibilityContext = resolveCreateModelCompatibilityContext({
-		bindingTarget,
-		boundAgentId,
-		orgSlug,
-		ownerMode,
-		selectedTeammateBinding,
-	});
 	const { availableLocalAgentIds, isResolvingLocalAgents } =
 		resolveAvailableLocalAgents({
 			organizationComputersPending: organizationComputersQuery.isPending,
@@ -496,9 +636,85 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			recovery,
 			teammateBindingOptions,
 		});
+	const restoredJourneyDraft = useAgentProfileCreationJourneyDraft({
+		availableLocalAgentIds,
+		canRestore: !creationDefaultsEditedRef.current,
+		current: {
+			agentControllerCollaborationMode:
+				rawBoundAgentControllerCollaborationMode,
+			agentControllerPermissionMode: rawBoundAgentControllerPermissionMode,
+			agentId: rawBoundAgentId,
+			modelId: rawBoundModelId,
+			openCodePermission: rawBoundOpenCodePermission,
+			reasoningLevel: rawBoundReasoningLevel,
+			selectedProjectId: rawSelectedProjectId,
+			version: 1,
+		},
+		enabled: shouldUseAgentProfileCreationJourneyDraft({
+			hasInitialSessionPreset: Boolean(initialSessionPreset),
+			isResolvingLocalAgents,
+			modelCatalog,
+			open: input.open,
+			ownerMode,
+			projectsPending: projectsQuery.isPending,
+		}),
+		key: journeyDraftStorageKey,
+		modelCatalog,
+		projects: availableProjects,
+	});
+	const effectiveFormState = restoredJourneyDraft
+		? reduceCreateProfileDialogFormState(formState, {
+				draft: restoredJourneyDraft,
+				type: "restore_journey_draft",
+			})
+		: formState;
+	const {
+		boundAgentControllerCollaborationMode,
+		boundAgentControllerPermissionMode,
+		boundAgentId,
+		boundModelId,
+		boundOpenCodePermission,
+		boundReasoningLevel,
+		selectedProjectId,
+	} = effectiveFormState;
+	const agentControllerRef = resolveAgentControllerRef(boundAgentId);
+	const creationDefaultsQuery = useQuery(
+		agentProfileCreationDefaultsQueryOptions({
+			agentControllerRef,
+			enabled: shouldReadCreationDefaults({
+				agentControllerRef,
+				open: input.open,
+				organizationId,
+				ownerMode,
+			}),
+			organizationId,
+		})
+	);
+	const modelCompatibilityContext = resolveCreateModelCompatibilityContext({
+		bindingTarget,
+		boundAgentId,
+		orgSlug,
+		ownerMode,
+		selectedTeammateBinding,
+	});
 	const recoveryActionHref = buildConnectComputerPath({
 		orgSlug,
 		session: "fresh",
+	});
+	const localAgentEmptyState = resolveLocalAgentEmptyState({
+		centerAgentHref: orgSlug
+			? buildOrganizationCenterAgentChatPath(orgSlug)
+			: null,
+		computerHref:
+			orgSlug && bindingTarget
+				? buildOrganizationComputerPath({
+						deviceId: bindingTarget.deviceId,
+						orgSlug,
+					})
+				: null,
+		hasBindingTarget: Boolean(bindingTarget),
+		ownerMode,
+		recoveryActionHref,
 	});
 	const localFolderPickerDeviceId = resolveLocalFolderPickerDeviceId(
 		recovery.currentComputer
@@ -521,6 +737,48 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		resolveAgentActivitySessionConversationId(sessionPreset);
 	const sessionInventorySelection =
 		resolveAgentActivitySessionInventorySelection(sessionPreset);
+	const targetOwnerName = resolveCreateProfileOwnerName({
+		currentUserId,
+		directory: organizationDirectoryQuery.data ?? null,
+		ownerMode,
+		selectedHumanProfile,
+		targetOwnerUserId,
+	});
+	const existingAgentProfileNames = useMemo(
+		() =>
+			resolveExistingAgentProfileNames({
+				currentUserId,
+				directory: organizationDirectoryQuery.data ?? null,
+				ownerMode,
+				profiles: profilesQuery.data ?? [],
+				targetOwnerUserId,
+			}),
+		[
+			currentUserId,
+			organizationDirectoryQuery.data,
+			ownerMode,
+			profilesQuery.data,
+			targetOwnerUserId,
+		]
+	);
+	const suggestedProfileName = buildAgentProfileTemplateName({
+		agentId: boundAgentId,
+		existingNames: existingAgentProfileNames,
+		localAgentDisplayName: boundAgentId
+			? formatLocalAgentDisplayName(boundAgentId)
+			: "Agent",
+		modelCatalog,
+		modelId: boundModelId,
+		ownerDisplayName: targetOwnerName ?? "",
+		reasoningLevel: boundReasoningLevel,
+	});
+	const effectiveProfileName = resolveEffectiveCreateProfileName({
+		profileKind: selectableProfileKind,
+		profileName,
+		profileNameEdited,
+		suggestedProfileName,
+		templateNaming: options.templateNaming,
+	});
 
 	useDefaultTeammateSelection({
 		currentUserId,
@@ -567,10 +825,11 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			state: {
 				...createInitialCreateProfileDialogFormState({
 					initialOwnerMode,
+					initialProfileKind,
 					initialSessionPreset,
 				}),
 				boundAgentId: sessionPresetAgentId ?? "",
-				profileKind: null,
+				profileKind: initialProfileKind,
 				selectedProjectId: "",
 			},
 			type: "reset",
@@ -603,7 +862,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				organizationId,
 				ownerMode,
 				profileKind: selectableProfileKind,
-				profileName,
+				profileName: effectiveProfileName,
 				profileCreationExecutionTarget,
 				projectFolderPath,
 				queryClient,
@@ -630,7 +889,8 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				setupRefreshAvailable: false,
 			});
 		},
-		onSuccess: (result) =>
+		onSuccess: (result) => {
+			clearCreationJourneyDraft(journeyDraftStorageKey);
 			handleProfileCreationSuccess({
 				onAfterJoin: input.onAfterJoin,
 				onAgentRequestCreated: input.onAgentRequestCreated,
@@ -642,7 +902,8 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				result,
 				spaceContext,
 				storageScope: recovery.storageScope,
-			}),
+			});
+		},
 		onSettled: () => {
 			submissionInFlightRef.current = false;
 		},
@@ -679,9 +940,10 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		setSelectedProjectBindingGeneration,
 		setSelectedProjectId,
 	});
-	const ownerChoice = initialSessionPreset
-		? null
-		: renderAgentProfileOwnerChoice({
+	const ownerChoice = resolveCreateProfileOwnerChoice({
+		hasInitialSessionPreset: Boolean(initialSessionPreset),
+		render: () =>
+			renderAgentProfileOwnerChoice({
 				canRequestForTeammate,
 				currentUserId,
 				disabled: createProfileMutation.isPending,
@@ -725,7 +987,8 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 				ownerMode,
 				setOwnerMode,
 				targetOwnerUserId,
-			});
+			}),
+	});
 	const teammateBindingChoices = resolveTeammateBindingChoices({
 		ownerMode,
 		options: teammateBindingOptions,
@@ -796,10 +1059,25 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 	const formProps = {
 		additionalHumanProfileCreationEnabled,
 		additionalSubmitBlockReason,
-		agentBindingChoices: teammateBindingChoices,
-		agentBindingValue: ownerMode === "self" ? boundAgentId : agentBindingValue,
+		agentBindingChoices: resolveOwnerBindingChoices({
+			ownerMode,
+			teammateBindingChoices,
+		}),
+		agentBindingValue: resolveOwnerBindingValue({
+			agentBindingValue,
+			boundAgentId,
+			ownerMode,
+		}),
 		agentOwnershipSlot: ownerChoice,
+		agentOwnershipSummary: resolveAgentOwnershipSummary({
+			ownerMode,
+			targetOwnerName,
+		}),
 		agentSessionSlot: sessionChoice,
+		agentSessionSummary: resolveAgentSessionSummary({
+			sessionMode,
+			sessionPreset,
+		}),
 		allowProfileKindSelection: !initialSessionPreset,
 		availableLocalAgentIds,
 		boundAgentControllerCollaborationMode,
@@ -813,19 +1091,21 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 		isResolvingAccount: profilesQuery.isPending,
 		isResolvingLocalAgents,
 		isSubmitting: createProfileMutation.isPending,
-		localFolderPickerDeviceId:
-			ownerMode === "self" ? localFolderPickerDeviceId : null,
+		localAgentEmptyState,
+		localFolderPickerDeviceId: resolveOwnerLocalFolderPickerDeviceId({
+			localFolderPickerDeviceId,
+			ownerMode,
+		}),
 		lockLocalAgentSelection: Boolean(sessionPreset),
 		modelCatalog,
 		modelCompatibilityContext,
 		onChangeAgentBindingValue: (value: string) => {
 			setAgentBindingValue(value);
-			const nextAgentId =
-				ownerMode === "self"
-					? value
-					: (teammateBindingOptions.find(
-							(option) => option.choice.value === value
-						)?.agentId ?? "");
+			const nextAgentId = resolveOwnerBoundAgentId({
+				ownerMode,
+				teammateBindingOptions,
+				value,
+			});
 			appliedCreationDefaultsKeyRef.current = null;
 			creationDefaultsEditedRef.current = false;
 			setBoundAgentId(nextAgentId);
@@ -840,7 +1120,9 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			setProjectFolderPath("");
 			setSelectedProjectId("");
 			setSelectedProjectBindingGeneration(null);
-			setProjectWorkspaceFallback(ownerMode === "self" ? "managed" : null);
+			setProjectWorkspaceFallback(
+				resolveOwnerProjectWorkspaceFallback(ownerMode)
+			);
 			setErrorState(null);
 		},
 		onChangeBoundAgentControllerCollaborationMode: (
@@ -903,6 +1185,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			setErrorState(null);
 		},
 		onChangeProfileName: (nextProfileName: string) => {
+			setProfileNameEdited(true);
 			setProfileName(nextProfileName);
 			setErrorState(null);
 		},
@@ -951,7 +1234,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 					organizationId,
 					ownerMode,
 					profileKind: selectableProfileKind,
-					profileName,
+					profileName: effectiveProfileName,
 					selectedHumanProfileId:
 						selectedHumanProfile?.openMeldProfileId ?? null,
 					selectedProjectId,
@@ -966,13 +1249,18 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			});
 		},
 		profileKind: selectableProfileKind,
-		profileName,
+		profileName: effectiveProfileName,
 		projectFolderPath,
 		projectSelectionBlockReason,
 		projectSelectionSlot,
+		projectSelectionSummary: resolveProjectSelectionSummary({
+			projectFolderPath,
+			projects: availableProjects,
+			projectWorkspaceFallback,
+			selectedProjectId,
+		}),
 		recoveryActionHref,
-		submitLabel: ownerMode === "teammate" ? "Request Agent" : undefined,
-		submittingLabel: ownerMode === "teammate" ? "Requesting Agent…" : undefined,
+		...resolveCreateProfileSubmitLabels(ownerMode),
 	} satisfies ComponentProps<typeof CreateProfileForm>;
 
 	return {
@@ -981,10 +1269,7 @@ function useCreateProfileDialogController(input: CreateProfileDialogProps) {
 			additionalHumanProfileCreationEnabled,
 			ownerMode,
 			spaceContext,
-			targetOwnerName:
-				organizationDirectoryQuery.data?.members.find(
-					(member) => member.userId === targetOwnerUserId
-				)?.user.name ?? null,
+			targetOwnerName,
 		}),
 		formProps,
 		onOpenChange: (nextOpen: boolean) => {
@@ -1009,6 +1294,115 @@ function resolveSessionOwnerUserId(input: {
 		return input.targetOwnerUserId;
 	}
 	return input.currentUserId || input.initialSessionPreset?.ownerUserId || "";
+}
+
+function resolveCreateProfileOwnerName(input: {
+	currentUserId: string;
+	directory: OrganizationDirectoryResponse | null;
+	ownerMode: AgentProfileOwnerMode;
+	selectedHumanProfile: AuthProfileView | null;
+	targetOwnerUserId: string;
+}): string | null {
+	const ownerUserId =
+		input.ownerMode === "teammate"
+			? input.targetOwnerUserId
+			: input.currentUserId;
+	const directoryName = input.directory?.members.find(
+		(member) => member.userId === ownerUserId
+	)?.user.name;
+	if (directoryName?.trim()) {
+		return directoryName.trim();
+	}
+	if (input.ownerMode === "self") {
+		return (
+			input.selectedHumanProfile?.ownerName?.trim() ||
+			input.selectedHumanProfile?.profileName.trim() ||
+			null
+		);
+	}
+	return null;
+}
+
+function resolveAgentOwnershipSummary(input: {
+	ownerMode: AgentProfileOwnerMode;
+	targetOwnerName: string | null;
+}): string {
+	if (input.targetOwnerName) {
+		return input.targetOwnerName;
+	}
+	return input.ownerMode === "self" ? "You" : "Teammate";
+}
+
+function resolveAgentSessionSummary(input: {
+	sessionMode: AgentProfileSessionMode;
+	sessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
+}): string {
+	if (input.sessionMode === "new") {
+		return "New session";
+	}
+	if (input.sessionPreset?.nativeSessionTitle) {
+		return input.sessionPreset.nativeSessionTitle;
+	}
+	return input.sessionMode === "resume" ? "Resume session" : "Fork session";
+}
+
+function resolveProjectSelectionSummary(input: {
+	projectFolderPath: string;
+	projects: ListProjectsResponse["projects"];
+	projectWorkspaceFallback: "advanced" | "managed" | null;
+	selectedProjectId: string;
+}): string {
+	const selectedProject = input.projects.find(
+		(project) => project.id === input.selectedProjectId
+	);
+	if (selectedProject) {
+		return selectedProject.name;
+	}
+	if (input.projectWorkspaceFallback === "advanced") {
+		const normalizedPath = input.projectFolderPath
+			.trim()
+			.replace(PROJECT_PATH_TRAILING_SEPARATOR_PATTERN, "");
+		return (
+			normalizedPath.split(PROJECT_PATH_SEPARATOR_PATTERN).at(-1) ??
+			"Custom folder"
+		);
+	}
+	return "OpenMeld managed";
+}
+
+function resolveAvailableProjects(
+	response: ListProjectsResponse | undefined
+): ListProjectsResponse["projects"] {
+	return response?.projects ?? [];
+}
+
+function resolveExistingAgentProfileNames(input: {
+	currentUserId: string;
+	directory: OrganizationDirectoryResponse | null;
+	ownerMode: AgentProfileOwnerMode;
+	profiles: readonly AuthProfileView[];
+	targetOwnerUserId: string;
+}): string[] {
+	const ownerUserId =
+		input.ownerMode === "teammate"
+			? input.targetOwnerUserId
+			: input.currentUserId;
+	const names = new Set<string>();
+	for (const profile of input.directory?.agentProfiles ?? []) {
+		if (profile.ownerUserId === ownerUserId && profile.profileName.trim()) {
+			names.add(profile.profileName.trim());
+		}
+	}
+	for (const profile of input.profiles) {
+		if (
+			profile.profileKind === "agent" &&
+			profile.ownerUserId === ownerUserId &&
+			profile.profileName.trim()
+		) {
+			names.add(profile.profileName.trim());
+		}
+	}
+	return [...names];
 }
 
 function shouldReadAgentProfileSessionChoices(input: {
@@ -1054,6 +1448,147 @@ function resolveAgentProfileProjectSelectionBlockReason(
 		return null;
 	}
 	return resolveOwnerProjectSelectionBlockReason(input);
+}
+
+function useAgentProfileCreationJourneyDraft(input: {
+	availableLocalAgentIds: readonly string[];
+	canRestore: boolean;
+	current: AgentProfileCreationJourneyDraft;
+	enabled: boolean;
+	key: string | null;
+	modelCatalog: ModelCatalog | null;
+	projects: ListProjectsResponse["projects"];
+}): AgentProfileCreationJourneyDraft | null {
+	const lastWrittenDraftRef = useRef<string | null>(null);
+	const restoredDraft = useMemo(() => {
+		if (
+			!(
+				typeof window !== "undefined" &&
+				input.canRestore &&
+				input.enabled &&
+				input.key &&
+				input.modelCatalog
+			)
+		) {
+			return null;
+		}
+		const remembered = readAgentProfileCreationJourneyDraft({
+			key: input.key,
+			storage: window.localStorage,
+		});
+		if (
+			!(
+				remembered &&
+				isJourneyDraftAvailable({
+					availableLocalAgentIds: input.availableLocalAgentIds,
+					draft: remembered,
+					modelCatalog: input.modelCatalog,
+					projects: input.projects,
+				})
+			)
+		) {
+			return null;
+		}
+		return remembered;
+	}, [input]);
+	useEffect(() => {
+		if (!(input.enabled && input.key && input.modelCatalog)) {
+			lastWrittenDraftRef.current = null;
+			return;
+		}
+		const storage = window.localStorage;
+		if (restoredDraft) {
+			lastWrittenDraftRef.current = JSON.stringify(restoredDraft);
+			return;
+		}
+		const serializedDraft = JSON.stringify(input.current);
+		if (lastWrittenDraftRef.current === serializedDraft) {
+			return;
+		}
+		writeAgentProfileCreationJourneyDraft({
+			draft: input.current,
+			key: input.key,
+			storage,
+		});
+		lastWrittenDraftRef.current = serializedDraft;
+	}, [input, restoredDraft]);
+	return restoredDraft;
+}
+
+function shouldUseAgentProfileCreationJourneyDraft(input: {
+	hasInitialSessionPreset: boolean;
+	isResolvingLocalAgents: boolean;
+	modelCatalog: ModelCatalog | null;
+	open: boolean;
+	ownerMode: AgentProfileOwnerMode;
+	projectsPending: boolean;
+}): boolean {
+	return (
+		input.open &&
+		input.ownerMode === "self" &&
+		!input.hasInitialSessionPreset &&
+		!input.isResolvingLocalAgents &&
+		Boolean(input.modelCatalog) &&
+		!input.projectsPending
+	);
+}
+
+function resolveJourneyDraftProjectWorkspaceFallback(
+	selectedProjectId: string
+): "managed" | null {
+	return selectedProjectId ? null : "managed";
+}
+
+function clearCreationJourneyDraft(key: string | null): void {
+	clearAgentProfileCreationJourneyDraft({
+		key,
+		storage: window.localStorage,
+	});
+}
+
+function isJourneyDraftAvailable(input: {
+	availableLocalAgentIds: readonly string[];
+	draft: AgentProfileCreationJourneyDraft;
+	modelCatalog: ModelCatalog;
+	projects: ListProjectsResponse["projects"];
+}): boolean {
+	if (!input.availableLocalAgentIds.includes(input.draft.agentId)) {
+		return false;
+	}
+	const controller = input.modelCatalog.agentControllers[input.draft.agentId];
+	if (!controller) {
+		return false;
+	}
+	if (
+		input.draft.modelId &&
+		!controller.models.some(
+			(model) => model.id === input.draft.modelId && !model.unavailable
+		)
+	) {
+		return false;
+	}
+	if (
+		input.draft.selectedProjectId &&
+		!input.projects.some(
+			(project) => project.id === input.draft.selectedProjectId
+		)
+	) {
+		return false;
+	}
+	const agentControllerRef = buildBuiltinAgentControllerRef(
+		input.draft.agentId
+	);
+	const permissionAvailable = listAgentControllerPermissionModeOptions({
+		agentControllerRef,
+	}).some(
+		(option) => option.value === input.draft.agentControllerPermissionMode
+	);
+	const collaborationAvailable =
+		input.draft.agentControllerCollaborationMode === null ||
+		listAgentControllerCollaborationModeOptions({ agentControllerRef }).some(
+			(option) => option.value === input.draft.agentControllerCollaborationMode
+		);
+	return permissionAvailable && collaborationAvailable;
 }
 
 function renderAgentProfileSessionChoice(input: {
@@ -1778,6 +2313,78 @@ function resolveTeammateBindingChoices(input: {
 	];
 }
 
+function resolveCreateProfileOwnerChoice(input: {
+	hasInitialSessionPreset: boolean;
+	render: () => ReactNode;
+}): ReactNode {
+	return input.hasInitialSessionPreset ? null : input.render();
+}
+
+function resolveOwnerBindingChoices(input: {
+	ownerMode: AgentProfileOwnerMode;
+	teammateBindingChoices: readonly AgentProfileBindingChoice[] | undefined;
+}): readonly AgentProfileBindingChoice[] | undefined {
+	return input.ownerMode === "teammate"
+		? input.teammateBindingChoices
+		: undefined;
+}
+
+function resolveOwnerBindingValue(input: {
+	agentBindingValue: string;
+	boundAgentId: string;
+	ownerMode: AgentProfileOwnerMode;
+}): string {
+	return input.ownerMode === "self"
+		? input.boundAgentId
+		: input.agentBindingValue;
+}
+
+function resolveOwnerLocalFolderPickerDeviceId(input: {
+	localFolderPickerDeviceId: string | null;
+	ownerMode: AgentProfileOwnerMode;
+}): string | null {
+	return input.ownerMode === "self" ? input.localFolderPickerDeviceId : null;
+}
+
+function resolveOwnerBoundAgentId(input: {
+	ownerMode: AgentProfileOwnerMode;
+	teammateBindingOptions: readonly TeammateBindingOption[];
+	value: string;
+}): string {
+	if (input.ownerMode !== "teammate") {
+		return input.value;
+	}
+	return (
+		input.teammateBindingOptions.find(
+			(option) => option.choice.value === input.value
+		)?.agentId ?? ""
+	);
+}
+
+function resolveOwnerProjectWorkspaceFallback(
+	ownerMode: AgentProfileOwnerMode
+): "managed" | null {
+	return ownerMode === "self" ? "managed" : null;
+}
+
+function resolveCreateProfileSubmitLabels(
+	ownerMode: AgentProfileOwnerMode
+): Pick<
+	ComponentProps<typeof CreateProfileForm>,
+	"submitLabel" | "submittingLabel"
+> {
+	if (ownerMode === "teammate") {
+		return {
+			submitLabel: "Request Agent",
+			submittingLabel: "Requesting Agent…",
+		};
+	}
+	return {
+		submitLabel: undefined,
+		submittingLabel: undefined,
+	};
+}
+
 function resolveOwnerSubmitBlockReason(input: {
 	directoryPending: boolean;
 	ownerMode: AgentProfileOwnerMode;
@@ -1804,8 +2411,16 @@ function resolveSelectableProfileKind(input: {
 function canRequestTeammateAgent(input: {
 	allowTeammateRequests: boolean | undefined;
 	currentUserId: string;
+	hasInitialSessionPreset: boolean;
+	initialOwnerMode: AgentProfileOwnerMode;
 }): boolean {
-	return input.allowTeammateRequests === true && Boolean(input.currentUserId);
+	const initialSessionAllowsTeammateRequest =
+		!input.hasInitialSessionPreset || input.initialOwnerMode === "teammate";
+	return (
+		initialSessionAllowsTeammateRequest &&
+		input.allowTeammateRequests === true &&
+		Boolean(input.currentUserId)
+	);
 }
 
 function shouldReadCreationDefaults(input: {
@@ -1824,6 +2439,34 @@ function shouldReadCreationDefaults(input: {
 
 function resolveAgentControllerRef(boundAgentId: string): string {
 	return boundAgentId ? buildBuiltinAgentControllerRef(boundAgentId) : "";
+}
+
+function resolveLocalAgentEmptyState(input: {
+	centerAgentHref: string | null;
+	computerHref: string | null;
+	hasBindingTarget: boolean;
+	ownerMode: AgentProfileOwnerMode;
+	recoveryActionHref: string;
+}): AgentProfileLocalAgentEmptyState {
+	if (input.ownerMode === "teammate") {
+		return {
+			centerAgentHref: input.centerAgentHref,
+			kind: "teammate_local_agents_unavailable",
+			primaryActionHref: null,
+		};
+	}
+	if (input.hasBindingTarget) {
+		return {
+			centerAgentHref: input.centerAgentHref,
+			kind: "set_up_local_agents",
+			primaryActionHref: input.computerHref,
+		};
+	}
+	return {
+		centerAgentHref: input.centerAgentHref,
+		kind: "connect_computer",
+		primaryActionHref: input.recoveryActionHref,
+	};
 }
 
 function resolveAvailableLocalAgents(input: {
@@ -2163,8 +2806,7 @@ function resolveTeammateBindingOptions(input: {
 		for (const localAgent of computer.localAgents) {
 			const controller = parseAgentControllerRef(localAgent.agentControllerRef);
 			if (
-				!controller ||
-				controller.kind !== "builtin" ||
+				controller?.kind !== "builtin" ||
 				!localAgent.enabled ||
 				localAgent.status !== "ready"
 			) {

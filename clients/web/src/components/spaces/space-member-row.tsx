@@ -32,7 +32,6 @@ import {
 	DotsThreeIcon,
 	InfoIcon,
 	TrashIcon,
-	WrenchIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -75,7 +74,6 @@ type SpaceMemberRowProps = {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onCheckAgentWakeAvailability: (profileId: string) => Promise<void>;
-	onEditAgentProfile?: (profileId: string) => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	orgSlug: string;
 	prepareSetupHref?: string;
@@ -113,15 +111,98 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 		currentOwnerUserId: input.currentOwnerUserId,
 		ownerUserId: input.entry.ownerUserId,
 	});
-	const manageableAgentRecoveryPlan = canManageAgentProfile
-		? input.agentRecoveryPlan
+	const presentation = resolveAgentSpaceMemberRowPresentation({
+		canManageAgentProfile,
+		input,
+	});
+	const detailsDialog = useSpaceProfileDetailsDialog({
+		currentOwnerUserId: input.currentOwnerUserId,
+		entry: input.entry,
+		modelCatalog: input.modelCatalog ?? null,
+		orgSlug: input.orgSlug,
+	});
+	const actions = renderSpaceMemberActions({
+		onOpenProfileDetails: detailsDialog.openProfileDetails,
+		onRemoveFromSpace: input.onRemoveFromSpace,
+		profileId: input.entry.profileId,
+		profileName: input.entry.profileName,
+		variant: input.variant,
+	});
+
+	return (
+		<>
+			<AgentProfileListItem
+				actions={actions}
+				badges={
+					<SpaceMemberBadges
+						canCheckAgentWakeAvailability={
+							presentation.canCheckAgentWakeAvailability
+						}
+						entry={presentation.visualEntry}
+						isAgentWakeAvailabilityCheckPending={
+							input.isAgentWakeAvailabilityCheckPending
+						}
+						isSelf={false}
+						onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
+						statusIsRefreshing={presentation.availabilityIndicatorIsRefreshing}
+						statusLabel={null}
+						statusTooltip={presentation.availabilityIndicatorTooltip}
+						variant={input.variant}
+					/>
+				}
+				className={cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)}
+				dimName={shouldDimProfileName({
+					entry: input.entry,
+					memberTransientState:
+						presentation.visualDisplayedMemberTransientState,
+				})}
+				icon={
+					<SpaceProfileIcon
+						agentControllerRef={input.entry.agentControllerRef}
+						avatarImageUrl={input.entry.avatarUrl}
+						className="mt-0.5"
+						isCenterAgent={input.entry.profileId === input.centerAgentProfileId}
+						profileId={input.entry.profileId}
+						profileKind={input.entry.profileKind}
+						profileName={input.entry.profileName}
+					/>
+				}
+				onProfileSummaryClick={detailsDialog.openProfileDetails}
+				primaryDetail={presentation.primaryDetail}
+				profileName={input.entry.profileName}
+				profileNameAdornment={
+					<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
+				}
+				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
+				profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
+			>
+				<AgentSpaceMemberRecoveryAction
+					input={input}
+					presentation={presentation}
+				/>
+			</AgentProfileListItem>
+			{detailsDialog.profileDetailsDialog}
+		</>
+	);
+}
+
+type AgentSpaceMemberRowPresentation = ReturnType<
+	typeof resolveAgentSpaceMemberRowPresentation
+>;
+
+function resolveAgentSpaceMemberRowPresentation(input: {
+	canManageAgentProfile: boolean;
+	input: AgentSpaceMemberRowProps;
+}) {
+	const manageableAgentRecoveryPlan = input.canManageAgentProfile
+		? input.input.agentRecoveryPlan
 		: null;
-	const manageableMemberTransientState = canManageAgentProfile
-		? input.memberTransientState
+	const manageableMemberTransientState = input.canManageAgentProfile
+		? input.input.memberTransientState
 		: null;
 	const rawDisplayedMemberTransientState = resolveDisplayedMemberTransientState(
 		{
-			entry: input.entry,
+			entry: input.input.entry,
 			manageableMemberTransientState,
 		}
 	);
@@ -129,16 +210,16 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 	// Available snapshot (visualEntry), but every decision/diagnostic path keeps
 	// reading the raw entry (input.entry) -- notably useSpaceProfileDetailsDialog,
 	// the recovery plan, Check-again gating, controller/model detail, and sorting.
-	const visualEntry = input.wakeDisplayEntry ?? input.entry;
-	const visualDisplayedMemberTransientState = input.wakeDisplayEntry
+	const visualEntry = input.input.wakeDisplayEntry ?? input.input.entry;
+	const visualDisplayedMemberTransientState = input.input.wakeDisplayEntry
 		? null
 		: rawDisplayedMemberTransientState;
 	const displayedAgentRecoveryPlan =
-		input.entry.presenceStatus === "wakeable" ||
+		input.input.entry.presenceStatus === "wakeable" ||
 		rawDisplayedMemberTransientState === "checking" ||
-		(input.entry.availabilityReasonCode !== null &&
+		(input.input.entry.availabilityReasonCode !== null &&
 			isAgentProfileWorkspaceBlockerReasonCode(
-				input.entry.availabilityReasonCode
+				input.input.entry.availabilityReasonCode
 			))
 			? null
 			: manageableAgentRecoveryPlan;
@@ -157,119 +238,89 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 		memberTransientState: visualDisplayedMemberTransientState,
 	});
 	const availabilityIndicatorHref =
-		canManageAgentProfile && visualDisplayedMemberTransientState === null
+		input.canManageAgentProfile && visualDisplayedMemberTransientState === null
 			? resolvePresenceIndicatorHref({
 					entry: visualEntry,
-					orgSlug: input.orgSlug,
+					orgSlug: input.input.orgSlug,
 				})
 			: undefined;
-	const availabilityIndicator = availabilityIndicatorLabel ? (
-		<SpaceAgentAvailabilityIndicator
-			action={visualEntry.availabilityAction}
-			category={visualEntry.availabilityCategory}
-			href={availabilityIndicatorHref}
-			isRefreshing={availabilityIndicatorIsRefreshing}
-			label={availabilityIndicatorLabel}
-			phase={visualEntry.availabilityPhase}
-			reasonCode={visualEntry.availabilityReasonCode}
-			tone={resolvePresenceIndicatorTone({
-				agentRecoveryPlan: displayedAgentRecoveryPlan,
-				entry: visualEntry,
-				memberTransientState: visualDisplayedMemberTransientState,
-			})}
-			tooltip={availabilityIndicatorTooltip}
-		/>
-	) : null;
 	const canCheckAgentWakeAvailability =
-		canManageAgentProfile &&
-		input.entry.availabilityReasonCode === "wake_route.registration_expired" &&
+		input.canManageAgentProfile &&
+		input.input.entry.availabilityReasonCode ===
+			"wake_route.registration_expired" &&
 		rawDisplayedMemberTransientState === null;
 
 	const primaryDetail =
-		input.variant === "compact"
+		input.input.variant === "compact"
 			? resolveCompactDetail(visualEntry, false)
 			: resolvePrimaryDetail(
 					visualEntry,
 					false,
 					displayedAgentRecoveryPlan,
 					visualDisplayedMemberTransientState,
-					canManageAgentProfile
+					input.canManageAgentProfile
 				);
-	const recoveryActionControl =
-		input.variant === "full" &&
-		shouldShowAgentRecoveryActionControl(displayedAgentRecoveryPlan) &&
-		rawDisplayedMemberTransientState === null ? (
-			<SpaceAgentRecoveryActionControl
-				isPending={input.isAgentRecoveryPending}
-				onAction={input.onAgentRecoveryAction}
-				orgSlug={input.orgSlug}
-				plan={displayedAgentRecoveryPlan}
-				prepareSetupHref={input.prepareSetupHref}
-			/>
-		) : null;
-	const detailsDialog = useSpaceProfileDetailsDialog({
-		currentOwnerUserId: input.currentOwnerUserId,
-		entry: input.entry,
-		modelCatalog: input.modelCatalog ?? null,
-	});
-	const actions = renderSpaceMemberActions({
-		onEditAgentProfile: resolveOwnedAgentProfileEditAction({
-			canManageAgentProfile,
-			onEditAgentProfile: input.onEditAgentProfile,
+	return {
+		availabilityIndicatorHref,
+		availabilityIndicatorIsRefreshing,
+		availabilityIndicatorLabel,
+		availabilityIndicatorTone: resolvePresenceIndicatorTone({
+			agentRecoveryPlan: displayedAgentRecoveryPlan,
+			entry: visualEntry,
+			memberTransientState: visualDisplayedMemberTransientState,
 		}),
-		onOpenProfileDetails: detailsDialog.openProfileDetails,
-		onRemoveFromSpace: input.onRemoveFromSpace,
-		profileId: input.entry.profileId,
-		profileName: input.entry.profileName,
-		variant: input.variant,
-	});
+		availabilityIndicatorTooltip,
+		canCheckAgentWakeAvailability,
+		displayedAgentRecoveryPlan,
+		primaryDetail,
+		rawDisplayedMemberTransientState,
+		visualDisplayedMemberTransientState,
+		visualEntry,
+	};
+}
 
+function AgentSpaceMemberAvailabilityIndicator(input: {
+	presentation: AgentSpaceMemberRowPresentation;
+}) {
+	if (!input.presentation.availabilityIndicatorLabel) {
+		return null;
+	}
 	return (
-		<>
-			<AgentProfileListItem
-				actions={actions}
-				badges={
-					<SpaceMemberBadges
-						canCheckAgentWakeAvailability={canCheckAgentWakeAvailability}
-						entry={visualEntry}
-						isAgentWakeAvailabilityCheckPending={
-							input.isAgentWakeAvailabilityCheckPending
-						}
-						isSelf={false}
-						onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
-						statusIsRefreshing={availabilityIndicatorIsRefreshing}
-						statusLabel={null}
-						statusTooltip={availabilityIndicatorTooltip}
-						variant={input.variant}
-					/>
-				}
-				className={cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)}
-				dimName={shouldDimProfileName({
-					entry: input.entry,
-					memberTransientState: visualDisplayedMemberTransientState,
-				})}
-				icon={
-					<SpaceProfileIcon
-						agentControllerRef={input.entry.agentControllerRef}
-						avatarImageUrl={input.entry.avatarUrl}
-						className="mt-0.5"
-						isCenterAgent={input.entry.profileId === input.centerAgentProfileId}
-						profileId={input.entry.profileId}
-						profileKind={input.entry.profileKind}
-						profileName={input.entry.profileName}
-					/>
-				}
-				onProfileSummaryClick={detailsDialog.openProfileDetails}
-				primaryDetail={primaryDetail}
-				profileName={input.entry.profileName}
-				profileNameAdornment={availabilityIndicator}
-				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
-				profileSummaryAriaLabel={`About ${input.entry.profileName}`}
-			>
-				{recoveryActionControl}
-			</AgentProfileListItem>
-			{detailsDialog.profileDetailsDialog}
-		</>
+		<SpaceAgentAvailabilityIndicator
+			action={input.presentation.visualEntry.availabilityAction}
+			category={input.presentation.visualEntry.availabilityCategory}
+			href={input.presentation.availabilityIndicatorHref}
+			isRefreshing={input.presentation.availabilityIndicatorIsRefreshing}
+			label={input.presentation.availabilityIndicatorLabel}
+			phase={input.presentation.visualEntry.availabilityPhase}
+			reasonCode={input.presentation.visualEntry.availabilityReasonCode}
+			tone={input.presentation.availabilityIndicatorTone}
+			tooltip={input.presentation.availabilityIndicatorTooltip}
+		/>
+	);
+}
+
+function AgentSpaceMemberRecoveryAction(input: {
+	input: AgentSpaceMemberRowProps;
+	presentation: AgentSpaceMemberRowPresentation;
+}) {
+	if (
+		input.input.variant !== "full" ||
+		!shouldShowAgentRecoveryActionControl(
+			input.presentation.displayedAgentRecoveryPlan
+		) ||
+		input.presentation.rawDisplayedMemberTransientState !== null
+	) {
+		return null;
+	}
+	return (
+		<SpaceAgentRecoveryActionControl
+			isPending={input.input.isAgentRecoveryPending}
+			onAction={input.input.onAgentRecoveryAction}
+			orgSlug={input.input.orgSlug}
+			plan={input.presentation.displayedAgentRecoveryPlan}
+			prepareSetupHref={input.input.prepareSetupHref}
+		/>
 	);
 }
 
@@ -306,6 +357,7 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.entry,
 		modelCatalog: input.modelCatalog ?? null,
+		orgSlug: input.orgSlug,
 	});
 	const actions = renderSpaceMemberActions({
 		onRemoveFromSpace: input.onRemoveFromSpace,
@@ -353,7 +405,7 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 				primaryDetail={primaryDetail}
 				profileName={input.entry.profileName}
 				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
-				profileSummaryAriaLabel={`About ${input.entry.profileName}`}
+				profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
 			/>
 			{detailsDialog.profileDetailsDialog}
 		</>
@@ -434,7 +486,6 @@ function SpaceMemberBadges(input: {
 }
 
 function renderSpaceMemberActions(input: {
-	onEditAgentProfile?: (profileId: string) => void;
 	onOpenProfileDetails?: () => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	profileId: string;
@@ -443,17 +494,12 @@ function renderSpaceMemberActions(input: {
 }) {
 	if (
 		input.variant !== "full" ||
-		!(
-			input.onOpenProfileDetails ||
-			input.onEditAgentProfile ||
-			input.onRemoveFromSpace
-		)
+		!(input.onOpenProfileDetails || input.onRemoveFromSpace)
 	) {
 		return null;
 	}
 	return (
 		<SpaceMemberActionsMenu
-			onEditAgentProfile={input.onEditAgentProfile}
 			onOpenProfileDetails={input.onOpenProfileDetails}
 			onRemoveFromSpace={input.onRemoveFromSpace}
 			profileId={input.profileId}
@@ -462,18 +508,7 @@ function renderSpaceMemberActions(input: {
 	);
 }
 
-function resolveOwnedAgentProfileEditAction(input: {
-	canManageAgentProfile: boolean;
-	onEditAgentProfile?: (profileId: string) => void;
-}): ((profileId: string) => void) | undefined {
-	if (!input.canManageAgentProfile) {
-		return undefined;
-	}
-	return input.onEditAgentProfile;
-}
-
 function SpaceMemberActionsMenu(input: {
-	onEditAgentProfile?: (profileId: string) => void;
 	onOpenProfileDetails?: () => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	profileId: string;
@@ -508,18 +543,7 @@ function SpaceMemberActionsMenu(input: {
 							onClick={input.onOpenProfileDetails}
 						>
 							<InfoIcon aria-hidden="true" />
-							About profile
-						</DropdownMenuItem>
-					) : null}
-					{input.onEditAgentProfile ? (
-						<DropdownMenuItem
-							className="text-sm"
-							onClick={() => {
-								input.onEditAgentProfile?.(input.profileId);
-							}}
-						>
-							<WrenchIcon aria-hidden="true" />
-							Edit Agent
+							Check this Profile
 						</DropdownMenuItem>
 					) : null}
 					{input.onRemoveFromSpace ? (

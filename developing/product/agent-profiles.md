@@ -34,16 +34,22 @@ An Agent Profile owns product identity and collaboration meaning:
 - visible teammate identity
 - Space membership meaning
 
-An Agent Profile name should describe the AI teammate's practical role, not
-the Runtime, provider, or Agent Controller behind it. When an assistant creates
-an Agent Profile and the user did not supply a name, it should infer a short,
-plain name from the user's current goal and Space context, usually two to four
-words such as `Release Reviewer`, `API Debugger`, or `Docs Editor`. Bare
-infrastructure names such as `Codex`, `Claude`, `Claude Code`, `Cursor`, `Grok Build`, or `OpenCode`,
-and vague names such as `Assistant`, `Agent`, or `Helper`, are not meaningful
-teammate identities. Preserve an explicit user-provided name. If the available
-context does not support a meaningful role, ask for a name before creating the
-profile.
+An Agent Profile name is a practical label for distinguishing the member,
+Session, and execution configuration. Ordinary interactive creation must not
+make a user invent a role or create one profile per task. It proposes a factual,
+editable template name from the owner, selected Agent Controller, model, and,
+when useful, reasoning level, for example `Felix Lu Codex GPT-5.6 Sol Xhigh`.
+The template uses plain spaces rather than possessives or decorative separators.
+If the proposed visible name already exists for that owner, the creation surface
+adds the first available numeric suffix such as `(1)` or `(2)`.
+
+The name field appears at the final review rather than blocking the first
+decision. While the name still matches the managed template, configuration
+changes update it automatically. Once the user edits the name, later
+configuration changes must preserve the user's text. When the Center Agent or
+another assistant creates an Agent from an explicit work goal, it may instead
+infer a short practical role name such as `Release Reviewer` or `API Debugger`.
+An explicit user-provided name always wins.
 
 It does not own local execution truth.
 
@@ -671,6 +677,19 @@ different Agent Controller's choices. Failed or cancelled creation does not
 replace the remembered values, and dangerous permission confirmations are
 never remembered as approved.
 
+Web may also keep an unfinished creation journey as a browser-local draft so a
+member can leave the flow and return without rebuilding ordinary selections.
+This draft is scoped by Organization and user, is advisory rather than
+authoritative, and may contain only the selected Agent Controller, supported
+model and reasoning choice, supported controller settings, and a cloud Project
+id. It never stores a custom absolute folder path or a dangerous-permission
+confirmation. Web restores the draft only after validating every value against
+the current local-agent catalog, model catalog, permission options, and Project
+list; otherwise it discards the stale draft and uses current defaults. A
+successful creation clears the journey draft. Restoring or abandoning this
+browser draft never writes or replaces the Core-owned remembered creation
+defaults.
+
 The Center Agent can read every saved controller-specific row for the
 represented member before creating a local Agent Profile. These values are
 concrete user preferences, not a rules engine or a forced configuration: the
@@ -986,13 +1005,16 @@ exception grants no local diagnostics or computer-management authority.
 
 The Agents home and compact About dialog are two presentations of the same
 Profile Details and edit contract, not separate Agent-management systems. The
-Agents home renders the selected Agent as persistent read-only detail and may
-enter owner-authorized editing in place with explicit save and cancel actions.
-It must reuse the existing mutations, execution-target locks, permissions, and
-failure diagnostics. A failed save preserves both the draft and the error
-instead of falling back to stale read-only state. Space Members continues to
-use the compact About dialog for quick preview. Presentation choice does not
-create another Profile, Binding, readiness, request, or edit source of truth.
+Agents home renders the selected Agent as persistent detail. Owner-authorized
+fields edit from their own anchored card or value; the page must not switch into
+a separate all-fields edit mode. Read-only facts such as Owner have no edit
+affordance. Each editable field keeps explicit save and cancel actions and reuses
+the existing mutations, execution-target locks, permissions, and failure
+diagnostics. A failed save preserves that field's draft and error instead of
+replacing the whole detail surface or falling back to stale state. Space Members
+continues to use the compact About dialog for quick preview. Presentation choice
+does not create another Profile, Binding, readiness, request, or edit source of
+truth.
 
 ## Owner Boundaries
 

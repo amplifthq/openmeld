@@ -1,10 +1,48 @@
-import type { AgentProfileCreationPreferenceSelection } from "@openmeld/schemas/types";
+import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import type {
+  AgentProfileCreationPreferenceSelection,
+  ModelCatalog,
+} from "@openmeld/schemas/types";
 import { readProjectRecord } from "../../projects/project-repository";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
   type AgentProfileCreationDefaultsRecord,
   upsertAgentProfileCreationDefaultsRecord,
 } from "../infrastructure/d1/agent-profile-creation-defaults-repo";
+
+const FIRST_USE_REASONING_LEVEL_BY_AGENT_CONTROLLER_ID: Readonly<
+  Record<string, string>
+> = {
+  codex: "high",
+};
+
+export function resolveFirstUseAgentProfileCreationDefaults(input: {
+  agentControllerRef: string;
+  modelCatalog: ModelCatalog;
+}): Pick<
+  AgentProfileCreationPreferenceSelection,
+  "modelId" | "reasoningLevel"
+> {
+  const parsedRef = parseAgentControllerRef(input.agentControllerRef);
+  if (parsedRef?.kind !== "builtin") {
+    return { modelId: null, reasoningLevel: null };
+  }
+  const controller = input.modelCatalog.agentControllers[parsedRef.id];
+  const defaultModel = controller?.models.find(
+    (model) => model.id === controller.defaultModelId && !model.unavailable
+  );
+  if (!defaultModel) {
+    return { modelId: null, reasoningLevel: null };
+  }
+  const preferredReasoningLevel =
+    FIRST_USE_REASONING_LEVEL_BY_AGENT_CONTROLLER_ID[parsedRef.id] ?? null;
+  const reasoningLevel =
+    preferredReasoningLevel &&
+    defaultModel.supportedReasoningLevels.includes(preferredReasoningLevel)
+      ? preferredReasoningLevel
+      : null;
+  return { modelId: defaultModel.id, reasoningLevel };
+}
 
 export async function rememberAgentProfileCreationDefaults(input: {
   agentControllerRef: string;
