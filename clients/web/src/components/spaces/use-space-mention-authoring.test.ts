@@ -6,7 +6,6 @@ import {
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-	buildSpaceComposerAddressingSummary,
 	buildSpaceComposerAddressingTargets,
 	buildSpaceMentionTargetItems,
 	resolveSpaceComposerAddressingMentions,
@@ -302,7 +301,6 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 				relation: "mention",
 			}),
 		]);
-		expect(composer.result.current.addressingSummary).toBeNull();
 		expect(
 			composer.result.current.prepareSubmission("Members are required.")
 				.messageEnvelope
@@ -360,93 +358,6 @@ describe("buildSpaceMentionTargetItems", () => {
 		expect(items.map((item) => item.memberEntry.profileName)).toEqual(
 			items.map((item) => item.suggestion.profileName)
 		);
-	});
-});
-
-describe("buildSpaceComposerAddressingSummary", () => {
-	it("states the Agent action for a single structured target", () => {
-		expect(
-			buildSpaceComposerAddressingSummary([
-				{
-					profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-					relation: "wake",
-					text: "@Runner",
-				},
-			])
-		).toBe("Waking 1 agent");
-	});
-
-	it("summarizes multiple structured relations without changing them", () => {
-		expect(
-			buildSpaceComposerAddressingSummary([
-				{
-					profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-					relation: "wake",
-					text: "@Runner",
-				},
-				{
-					profileId: "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-					relation: "wake",
-					text: "@Reviewer",
-				},
-				{
-					profileId: "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-					relation: "reference",
-					text: "@Mira",
-				},
-			])
-		).toBe("Waking 2 agents · Referencing 1 agent");
-	});
-
-	it("does not expose a CC relation in the multi-target summary", () => {
-		expect(
-			buildSpaceComposerAddressingSummary([
-				{
-					profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-					relation: "wake",
-					text: "@Runner",
-				},
-				{
-					profileId: "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-					relation: "reference",
-					text: "@Mira",
-				},
-			])
-		).toBe("Waking 1 agent · Referencing 1 agent");
-	});
-
-	it("counts each profile once and uses its first authored relation", () => {
-		expect(
-			buildSpaceComposerAddressingSummary([
-				{
-					profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-					relation: "wake",
-					text: "@Runner",
-				},
-				{
-					profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-					relation: "reference",
-					text: "@Runner",
-				},
-				{
-					profileId: "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-					relation: "wake",
-					text: "@Reviewer",
-				},
-			])
-		).toBe("Waking 2 agents");
-	});
-
-	it("omits Human Mentions from the Agent-only summary", () => {
-		expect(
-			buildSpaceComposerAddressingSummary([
-				{
-					profileId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-					relation: "mention",
-					text: "@Felix",
-				},
-			])
-		).toBeNull();
 	});
 });
 

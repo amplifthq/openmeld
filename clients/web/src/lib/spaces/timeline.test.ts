@@ -852,6 +852,34 @@ describe("space timeline helpers", () => {
 		});
 	});
 
+	it("preserves Agent Reference targets without inventing Wake details", () => {
+		const items = buildSpaceTimelineItems({
+			envelopes: [
+				createTextSignal({
+					id: "sig-reference",
+					ts: 10,
+					text: "@watcher context only",
+					messageEnvelope: {
+						activationTargets: [],
+						referenceTargets: ["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+						text: "@watcher context only",
+					},
+					meta: {
+						clientMessageId: "client-message-1",
+					},
+				}),
+			],
+			membersSnapshot: createMembersSnapshot(),
+		});
+
+		expect(items[0]).toMatchObject({
+			referenceTargetProfileIds: ["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+			wakeClientMessageId: null,
+			wakeSourceSignalId: null,
+			wakeTargetProfileIds: [],
+		});
+	});
+
 	it("does not project agent session details from source Wake messages", () => {
 		const items = buildSpaceTimelineItems({
 			envelopes: [

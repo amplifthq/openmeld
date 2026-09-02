@@ -995,7 +995,6 @@ export type SpaceLandingController =
 	| {
 			activeThread: SpaceThread | null;
 			agentStreams: readonly SpaceConversationVisibleStreamProjection[];
-			composerAddressingSummary: string | null;
 			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
 			composerMentionPickerItems: readonly SpaceMentionPickerItem[];
@@ -1096,7 +1095,6 @@ export type SpaceLandingController =
 			spaceId: string;
 			status: GetSpaceStatusResponse;
 			threadComposerBlockedWakeProfileId: string | null;
-			threadComposerAddressingSummary: string | null;
 			threadComposerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 			threadComposerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
 			threadComposerMentionPickerItems: readonly SpaceMentionPickerItem[];
@@ -2140,7 +2138,6 @@ export function useSpaceLandingController(input: {
 	return {
 		activeThread: threadController.activeThread,
 		agentStreams: agentStreamProjections,
-		composerAddressingSummary: mentionAuthoring.addressingSummary,
 		composerAddressingTargets: mentionAuthoring.addressingTargets,
 		composerAuthoredMentions: mentionAuthoring.authoredMentions,
 		composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
@@ -2251,8 +2248,6 @@ export function useSpaceLandingController(input: {
 		status: statusSnapshot,
 		threadComposerBlockedWakeProfileId:
 			threadController.threadComposerBlockedWakeProfileId,
-		threadComposerAddressingSummary:
-			threadController.threadComposerAddressingSummary,
 		threadComposerAddressingTargets:
 			threadController.threadComposerAddressingTargets,
 		threadComposerAuthoredMentions:
@@ -3139,7 +3134,6 @@ function useSpaceThreadController(input: {
 		onAddThreadComposerFiles: composerFilesController.addFiles,
 		onRemoveThreadComposerFile: composerFilesController.removeFile,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
-		threadComposerAddressingSummary: mentionAuthoring.addressingSummary,
 		threadComposerAddressingTargets: mentionAuthoring.addressingTargets,
 		threadComposerAuthoredMentions: mentionAuthoring.authoredMentions,
 		threadComposerMentionPickerItems: mentionAuthoring.mentionPickerItems,

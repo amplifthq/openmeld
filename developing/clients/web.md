@@ -2874,10 +2874,10 @@ create an empty message bubble before text arrives in ordinary Spaces or
 threads.
 
 Space messages and Thread messages do not render a separate `woke Agent Name`
-receipt. The visible `@Name` in the message body is sufficient for people;
-Graph and the structured message envelope retain the exact Wake or Reference
-relation for agents and diagnostics. Message details remains the drill-in for
-complete execution and failure context.
+receipt. Instead, the inline Agent token shows its exact Wake or Reference
+relation. Graph and the structured message envelope retain that relation for
+agents and diagnostics. Message details remains the drill-in for complete
+execution and failure context.
 
 Each recorded message reserves one stable footer for its timestamp and actions.
 When a message has a failure, the visible footer keeps only Message details,
@@ -2898,15 +2898,17 @@ hover actions change opacity, so pointer interaction does not move later
 messages.
 
 In the full message body on the main timeline and in the Thread panel, the
-first visible mention owned by each structured Agent Wake renders as one compact
-inline identity: `@`, the Agent's 14-pixel Profile icon, and its semibold
-canonical name. The `@`, icon, and name use equal 4-pixel gaps and share one
-optical middle alignment.
-The Agent name underlines on hover or keyboard focus, and activating the exact
-structured mention opens that Agent Profile's existing details dialog. Web
-derives this presentation only from the structured Wake target and resolved
-Profile presentation. It does not decorate ordinary mention-like text, code,
-links, or quoted reply previews.
+first visible mention owned by each structured Agent Wake or Reference renders
+as one compact read-only token: `@`, the Agent's 14-pixel Profile icon, its
+semibold canonical name, and the exact relation. Later appearances of the same
+structured Agent render as Reference tokens, matching the Composer's duplicate
+rule without adding another Wake target. The token uses the same visual family
+as the Composer control but has no selector or caret. Activating any point in
+the token opens that Agent Profile's existing details dialog; hover and
+keyboard focus use the token surface and never underline the name. Web derives
+this presentation only from structured targets and resolved Profile
+presentation. It does not decorate ordinary mention-like text in messages with
+no structured target, code, links, or quoted reply previews.
 
 For a durable final reply, Web prefers the complete
 `signal.text.data.meta.agentWorkSummary` projection. It reads the legacy
@@ -3134,13 +3136,24 @@ Reference uses a link-style symbol. Selecting a Human Profile creates a fixed
 Human Mention mark; people never receive an Agent relation selector.
 
 After selection, Web renders one persistent editable semantic control per
-structured target. The control identifies both the target and its current
-relation, and a multi-target message shows a quiet summary such as
-`Waking 3 agents · Referencing 1 agent`. Human Mentions are intentionally omitted
-from this Agent-only summary. Web submits all structured relations
-explicitly instead of relying on Core to infer Wake from arbitrary bare text.
-Changing a semantic control changes the authored structured relation; AI
-interpretation must never silently rewrite it.
+structured target. An Agent control places `@`, the Agent Profile icon,
+canonical name, and the current Wake or Reference relation in that order. The
+relation control sizes to its current label instead of reserving the longer
+choice, while the name uses the remaining available width. Because every token
+already states its relation, Web does not repeat the same information in a
+bottom count summary. Human Mention tokens omit the Agent relation control. Web
+provides a direct remove control for every Composer token in addition to
+keyboard deletion. The control appears without changing token layout on hover
+or keyboard focus and remains available on touch-only surfaces. Web submits all
+structured relations explicitly instead of relying on Core to infer Wake from
+arbitrary bare text. Changing a semantic control changes the authored structured
+relation; AI interpretation must never silently rewrite it.
+
+The Composer member picker reuses the shared Fluid layout indicator for its
+active row. Pointer hover and combobox keyboard navigation update that one
+indicator through the same active-item state, so Web never paints separate
+hover and keyboard backgrounds. Result groups keep deliberate row separation
+and popover-edge padding rather than using each row's margin as layout.
 
 The shared Web API client sends the current Space Addressing response-version
 header, and the Web Gateway proxy forwards it unchanged. The live Space proxy

@@ -1828,7 +1828,6 @@ function SpaceLandingConversation({
 			allowedActions={controller.status.allowedActions}
 			centerAgentProfileId={centerAgentState.centerAgentProfileId}
 			className="min-w-0"
-			composerAddressingSummary={controller.composerAddressingSummary}
 			composerAddressingTargets={controller.composerAddressingTargets}
 			composerAuthoredMentions={controller.composerAuthoredMentions}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
@@ -2155,7 +2154,6 @@ function SpaceLandingSecondaryPanels({
 				agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
 				agentStreams={controller.agentStreams}
 				centerAgentProfileId={centerAgentState.centerAgentProfileId}
-				composerAddressingSummary={controller.threadComposerAddressingSummary}
 				composerAddressingTargets={controller.threadComposerAddressingTargets}
 				composerAuthoredMentions={controller.threadComposerAuthoredMentions}
 				composerBlockedWakeProfileId={
