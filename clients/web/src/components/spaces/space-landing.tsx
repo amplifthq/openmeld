@@ -84,7 +84,7 @@ import {
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import {
-	applyCurrentSpaceMembersToBootstrapCache,
+	applyConfirmedHumanSpaceMemberToCache,
 	applySpaceMemberRemovalToCache,
 	applySpaceMembersResponseToCache,
 } from "#/lib/spaces/member-cache";
@@ -1267,6 +1267,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		});
 	const handleConvertDirectMessageToSpace =
 		useConvertDirectMessageToSpaceHandler({
+			accountProfiles,
 			controller,
 			navigate,
 			orgSlug: input.orgSlug,
@@ -2806,6 +2807,7 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 }
 
 function useConvertDirectMessageToSpaceHandler(input: {
+	accountProfiles: readonly AuthProfileView[];
 	controller: ReturnType<typeof useSpaceLandingController>;
 	navigate: ReturnType<typeof useNavigate>;
 	orgSlug: string;
@@ -2859,18 +2861,21 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				(sections) =>
 					applyDirectMessageConversionToAccountSpaceSections(sections, result)
 			);
-			try {
-				await controller.onHardRefreshStatusAndMembers();
-				applyCurrentSpaceMembersToBootstrapCache({
+			const joiningHumanProfile = findActiveProfileById(input.accountProfiles, {
+				profileId: controller.profileId,
+				profileKind: "human",
+			});
+			if (
+				joiningHumanProfile &&
+				result.addedMemberIds.includes(joiningHumanProfile.openMeldProfileId)
+			) {
+				applyConfirmedHumanSpaceMemberToCache({
+					addedAt: result.convertedAt,
+					profile: joiningHumanProfile,
 					queryClient: input.queryClient,
 					spaceId: controller.spaceId,
 					viewerProfileId: controller.profileId,
 				});
-			} catch (error) {
-				console.warn(
-					"OpenMeld turned the Direct Message into a Space but could not refresh its members before opening it.",
-					{ error, spaceId: controller.spaceId }
-				);
 			}
 
 			const navigation = input.navigate({
@@ -2906,7 +2911,13 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				alreadyMemberCount: result.alreadyMemberIds.length,
 			};
 		},
-		[input.controller, input.navigate, input.orgSlug, input.queryClient]
+		[
+			input.accountProfiles,
+			input.controller,
+			input.navigate,
+			input.orgSlug,
+			input.queryClient,
+		]
 	);
 }
 

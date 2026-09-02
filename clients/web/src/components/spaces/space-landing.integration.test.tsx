@@ -4971,18 +4971,22 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("refreshes members before moving a converted Direct Message to Spaces", async () => {
+	it("keeps the joining Agent owner in membership cache while opening the converted Space", async () => {
 		const pendingInvalidation = new Promise<void>(() => undefined);
 		const invalidateQueriesMock = vi.fn().mockReturnValue(pendingInvalidation);
-		let resolveMembersRefresh: (() => void) | undefined;
-		const pendingMembersRefresh = new Promise<void>((resolve) => {
-			resolveMembersRefresh = resolve;
-		});
-		const fetchQueryMock = vi.fn((options: { queryKey: readonly unknown[] }) =>
-			options.queryKey[1] === "members"
-				? pendingMembersRefresh
-				: Promise.resolve(undefined)
-		);
+		const members = createMembersSnapshot({
+			defaultAgentOwnerName: "Mira",
+			defaultAgentOwnerUserId: "user-mira",
+			defaultAgentProfileName: "Runner",
+			defaultHumanOwnerName: "Alice",
+			defaultHumanOwnerUserId: "user-alice",
+		}) as SpaceMembersSnapshot;
+		members.humans[0] = {
+			...members.humans[0],
+			profileId: "33333333-3333-4333-8333-333333333333",
+			profileName: "Alice",
+		};
+		let cachedMembers = members;
 		let cachedStatus: GetSpaceStatusResponse = {
 			...createSpaceStatus(),
 			accessMode: "members_only",
@@ -5011,8 +5015,19 @@ describe("SpaceLanding", () => {
 				},
 			],
 		};
+		let joiningProfileCachedAtNavigation = false;
+		let memberCountAtNavigation = 0;
 		const setQueryDataMock = vi.fn(
 			(queryKey: readonly unknown[], updater: unknown) => {
+				if (
+					queryKey[0] === "spaces" &&
+					queryKey[1] === "members" &&
+					typeof updater === "function"
+				) {
+					cachedMembers = (
+						updater as (members: SpaceMembersSnapshot) => SpaceMembersSnapshot
+					)(cachedMembers);
+				}
 				if (
 					queryKey[0] === "spaces" &&
 					queryKey[1] === "status" &&
@@ -5035,14 +5050,22 @@ describe("SpaceLanding", () => {
 		});
 		useQueryClientMock.mockReturnValue({
 			cancelQueries: vi.fn().mockResolvedValue(undefined),
-			fetchQuery: fetchQueryMock,
-			getQueryData: vi.fn(() => undefined),
+			fetchQuery: vi.fn().mockResolvedValue(undefined),
+			getQueryData: vi.fn((queryKey: readonly unknown[]) =>
+				queryKey[0] === "spaces" && queryKey[1] === "members"
+					? cachedMembers
+					: undefined
+			),
 			invalidateQueries: invalidateQueriesMock,
 			resetQueries: vi.fn().mockResolvedValue(undefined),
 			setQueriesData: setQueriesDataMock,
 			setQueryData: setQueryDataMock,
 		});
 		useNavigateMock.mockImplementation(() => {
+			joiningProfileCachedAtNavigation = cachedMembers.humans.some(
+				(member) => member.profileId === DEFAULT_SPACE_PROFILE_ID
+			);
+			memberCountAtNavigation = cachedMembers.summary.totalCount;
 			expect(cachedStatus.directMessageConvertedAt).toBe(
 				"2026-08-08T00:00:00.000Z"
 			);
@@ -5055,7 +5078,7 @@ describe("SpaceLanding", () => {
 		});
 		const convertToSpaceMock = vi.fn().mockResolvedValue({
 			accessMode: "members_only",
-			addedMemberIds: [SECOND_AGENT_PROFILE_ID],
+			addedMemberIds: [DEFAULT_SPACE_PROFILE_ID],
 			alreadyMemberIds: [],
 			convertedAt: "2026-08-08T00:00:00.000Z",
 			name: "Launch Team",
@@ -5069,10 +5092,7 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: cachedStatus,
 			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot(),
-			}),
+			members: createQueryResult({ isSuccess: true, data: members }),
 			history: createQueryResult({
 				isSuccess: true,
 				data: { envelopes: [], nextCursor: null },
@@ -5087,22 +5107,10 @@ describe("SpaceLanding", () => {
 					profileKind: "human",
 					profileName: "Mira",
 				}),
-				createLandingAccountProfile({
-					openMeldProfileId: SECOND_AGENT_PROFILE_ID,
-					ownerUserId: "user-mira",
-					profileKind: "agent",
-					profileName: "Scout",
-				}),
 			],
-			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
-		fireEvent.click(
-			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
-		fireEvent.click(screen.getByRole("checkbox", { name: SCOUT_OPTION_NAME }));
-		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
+		fireEvent.click(screen.getByRole("button", { name: "Join conversation" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {
 			target: { value: "Launch Team" },
 		});
@@ -5111,20 +5119,11 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(convertToSpaceMock).toHaveBeenCalledWith({
 				name: "Launch Team",
-				profileIds: [SECOND_AGENT_PROFILE_ID],
+				profileIds: [DEFAULT_SPACE_PROFILE_ID],
 				spaceId: "space-123",
 			});
 		});
 		await flushPromiseQueue();
-		expect(fetchQueryMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				queryKey: ["spaces", "members", "space-123", DEFAULT_SPACE_PROFILE_ID],
-				staleTime: 0,
-			})
-		);
-		expect(useNavigateMock).not.toHaveBeenCalled();
-
-		resolveMembersRefresh?.();
 
 		await waitFor(() => {
 			expect(useNavigateMock).toHaveBeenCalledWith({
@@ -5133,6 +5132,8 @@ describe("SpaceLanding", () => {
 				to: "/o/acme/spaces/space-123",
 			});
 		});
+		expect(joiningProfileCachedAtNavigation).toBe(true);
+		expect(memberCountAtNavigation).toBe(3);
 	});
 
 	it("shows only Connect this computer in a Direct Message with the user's own local Agent", () => {

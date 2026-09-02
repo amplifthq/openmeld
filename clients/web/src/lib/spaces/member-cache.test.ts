@@ -1,5 +1,6 @@
 import type {
 	AgentWakeAvailability,
+	AuthProfileView,
 	SignalEnvelope,
 	SpaceMemberAgentSnapshot,
 	SpaceMemberHumanSnapshot,
@@ -10,28 +11,40 @@ import { describe, expect, it } from "vitest";
 import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
-	applyCurrentSpaceMembersToBootstrapCache,
+	applyConfirmedHumanSpaceMemberToCache,
 	applySpaceBootstrapSnapshotToCache,
 	applySpaceMemberRemovalToCache,
 	mergeSpaceMembersSnapshot,
 } from "./member-cache";
 
 describe("mergeSpaceMembersSnapshot", () => {
-	it("keeps bootstrap membership aligned with a newer authoritative members read", () => {
+	it("keeps a confirmed joining Human in members and bootstrap caches", () => {
 		const queryClient = new QueryClient();
 		const viewerProfileId = "viewer-profile";
 		const spaceId = "space-123";
 		const currentMembers = createSpaceMembersSnapshot({
-			agents: [],
-			generatedAt: "2026-09-02T00:00:02.000Z",
-			humans: [
-				createHumanMember(),
-				createHumanMember({
-					profileId: "22222222-2222-4222-8222-222222222222",
-					profileName: "New Member",
-				}),
-			],
+			agents: [createAgentMember()],
+			generatedAt: "2026-09-02T00:00:01.000Z",
+			humans: [createHumanMember()],
 		});
+		const joiningProfile: AuthProfileView = {
+			avatarUrl: "https://example.com/mira.png",
+			createdAt: "2026-08-01T00:00:00.000Z",
+			createdByUserId: "user-mira",
+			creatorProfileId: null,
+			isDefault: true,
+			lastUsedAt: null,
+			managedRole: null,
+			openMeldProfileId: "22222222-2222-4222-8222-222222222222",
+			ownerName: "Mira Owner",
+			ownerUserId: "user-mira",
+			profileHandle: "mira-owner",
+			profileKind: "human",
+			profileName: "Mira Owner",
+			source: "manual",
+			status: "active",
+			updatedAt: "2026-08-01T00:00:00.000Z",
+		};
 
 		try {
 			queryClient.setQueryData(
@@ -42,14 +55,16 @@ describe("mergeSpaceMembersSnapshot", () => {
 				spaceQueryKeys.bootstrap(spaceId, viewerProfileId),
 				createBootstrapSnapshot({
 					members: createSpaceMembersSnapshot({
-						agents: [],
+						agents: [createAgentMember()],
 						generatedAt: "2026-09-02T00:00:01.000Z",
 						humans: [createHumanMember()],
 					}),
 				})
 			);
 
-			applyCurrentSpaceMembersToBootstrapCache({
+			applyConfirmedHumanSpaceMemberToCache({
+				addedAt: "2026-09-02T00:00:02.000Z",
+				profile: joiningProfile,
 				queryClient,
 				spaceId,
 				viewerProfileId,
@@ -58,8 +73,20 @@ describe("mergeSpaceMembersSnapshot", () => {
 			const bootstrap = queryClient.getQueryData<SpaceBootstrapSnapshot>(
 				spaceQueryKeys.bootstrap(spaceId, viewerProfileId)
 			);
-			expect(bootstrap?.members).toStrictEqual(currentMembers);
-			expect(bootstrap?.members.summary.totalCount).toBe(2);
+			const members = queryClient.getQueryData<SpaceMembersSnapshot>(
+				spaceQueryKeys.members(spaceId, viewerProfileId)
+			);
+			for (const snapshot of [members, bootstrap?.members]) {
+				expect(snapshot?.generatedAt).toBe("2026-09-02T00:00:02.000Z");
+				expect(snapshot?.summary.totalCount).toBe(3);
+				expect(snapshot?.humans.at(-1)).toMatchObject({
+					avatarUrl: "https://example.com/mira.png",
+					memberSourceLabel: "Added by Mira Owner",
+					ownerUserId: "user-mira",
+					profileId: joiningProfile.openMeldProfileId,
+					profileName: "Mira Owner",
+				});
+			}
 		} finally {
 			queryClient.clear();
 		}
