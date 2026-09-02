@@ -859,10 +859,12 @@ summary. A multi-provider controller shows at most three labelled provider
 summary rings plus an overflow count; each ring uses that provider's most
 constrained quantified window and never averages windows or providers. Its
 tooltip previews every reported provider and window. Selecting the existing row
-reveals one card per provider, with separate rings for every real quota window
-inside that card. Each window keeps reset and last-observed times visible
-without a full-width progress bar. Owned and teammate Computers use the same
-shared summary and accessible gauge component.
+reveals one flat group per provider, with separate rings for every real quota
+window and no nested provider or window cards. Providers without quantified
+evidence share compact status rows instead of empty placeholder cards. Each
+window keeps reset and last-observed times visible without a full-width progress
+bar. Owned and teammate Computers use the same shared summary and accessible
+gauge component.
 A provider with no quantified evidence does not add a collapsed-row badge or
 placeholder gauge. Web explicitly opts in to both owner and Organization
 projections and refreshes them while People or a Computer detail is active.
