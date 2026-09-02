@@ -3533,7 +3533,7 @@ function AgentProfileWorkspacePresentation(input: {
 	);
 }
 
-export function AgentProfileConfigurationOverview(input: {
+type AgentProfileConfigurationOverviewProps = {
 	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	controllerDisplayName: string | null;
@@ -3569,12 +3569,23 @@ export function AgentProfileConfigurationOverview(input: {
 	} | null;
 	showHeading?: boolean;
 	compact?: boolean;
-}) {
-	type EditorId = "controller" | "model" | "collaboration" | "permissions";
+};
+
+type AgentProfileConfigurationEditorId =
+	| "controller"
+	| "model"
+	| "collaboration"
+	| "permissions";
+
+function useAgentProfileConfigurationEditor(
+	input: AgentProfileConfigurationOverviewProps
+) {
 	const confirmationId = useId();
 	const permissionControlRef = useRef<HTMLButtonElement>(null);
-	const [activeEditor, setActiveEditor] = useState<EditorId | null>(null);
-	const [savedEditor, setSavedEditor] = useState<EditorId | null>(null);
+	const [activeEditor, setActiveEditor] =
+		useState<AgentProfileConfigurationEditorId | null>(null);
+	const [savedEditor, setSavedEditor] =
+		useState<AgentProfileConfigurationEditorId | null>(null);
 	const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 	const draftInput = useMemo(
 		() =>
@@ -3612,7 +3623,10 @@ export function AgentProfileConfigurationOverview(input: {
 		openCodePermission,
 		profileName: draftInput.profileName,
 	});
-	const setEditorOpen = (editor: EditorId, open: boolean) => {
+	const setEditorOpen = (
+		editor: AgentProfileConfigurationEditorId,
+		open: boolean
+	) => {
 		setSaveErrorMessage(null);
 		if (open) {
 			setDraft(createAgentProfileEditDraft(draftInput));
@@ -3621,7 +3635,7 @@ export function AgentProfileConfigurationOverview(input: {
 		}
 		setActiveEditor((current) => (current === editor ? null : current));
 	};
-	const saveEditor = async (editor: EditorId) => {
+	const saveEditor = async (editor: AgentProfileConfigurationEditorId) => {
 		setSaveErrorMessage(null);
 		try {
 			await submitAgentProfileEditDialogChanges({
@@ -3651,7 +3665,7 @@ export function AgentProfileConfigurationOverview(input: {
 			);
 		}
 	};
-	const editorFooter = (editor: EditorId) => (
+	const editorFooter = (editor: AgentProfileConfigurationEditorId) => (
 		<>
 			{saveErrorMessage && activeEditor === editor ? (
 				<p className="mb-3 text-destructive text-xs leading-5" role="alert">
@@ -3682,6 +3696,29 @@ export function AgentProfileConfigurationOverview(input: {
 			</div>
 		</>
 	);
+	return {
+		activeEditState,
+		activeEditor,
+		confirmationId,
+		controllerCollaborationMode,
+		controllerPermissionMode,
+		dialogState,
+		draft,
+		draftInput,
+		editorFooter,
+		modelSelection,
+		openCodePermission,
+		permissionControlRef,
+		savedEditor,
+		setDraft,
+		setEditorOpen,
+	};
+}
+
+export function AgentProfileConfigurationOverview(
+	input: AgentProfileConfigurationOverviewProps
+) {
+	const editor = useAgentProfileConfigurationEditor(input);
 	const collaboration = input.editState?.controllerCollaborationMode;
 	const collaborationSummary = collaboration
 		? (collaboration.options.find(
@@ -3711,178 +3748,283 @@ export function AgentProfileConfigurationOverview(input: {
 			className="grid min-w-0 gap-3"
 			data-testid="agent-configuration-overview"
 		>
-			{input.showHeading === false ? null : (
-				<div className="flex items-end justify-between gap-3">
-					<div className="grid gap-1">
-						<h2 className="font-medium text-sm">How this Agent works</h2>
-						<p className="text-muted-foreground text-xs leading-5">
-							Open a card to change its setup.
-						</p>
-					</div>
-				</div>
-			)}
+			<AgentProfileConfigurationHeading visible={input.showHeading !== false} />
 			<AgentConfigurationGrid
 				className={input.compact ? "lg:grid-cols-2" : "lg:grid-cols-3"}
 			>
-				<AgentConfigurationCard
-					icon={
-						<DitherProfileAvatar
-							avatarImageUrl={input.ownerAvatarUrl}
-							profileId={ownerProfileId}
-							profileKind="human"
-							profileName={owner}
-							size={28}
-						/>
-					}
-					itemId="owner"
-					label="Owner"
-					readOnly
-					summary={owner}
+				<AgentProfileOwnerConfigurationCard
+					avatarUrl={input.ownerAvatarUrl}
+					owner={owner}
+					profileId={ownerProfileId}
 				/>
-				<AgentConfigurationCard
-					description="The local tool and computer that run this Agent."
-					disabled={input.disabled}
-					icon={<DesktopTowerIcon aria-hidden="true" />}
-					itemId="runs-on"
-					label="Runs on"
-					onOpenChange={(open) => setEditorOpen("controller", open)}
-					open={activeEditor === "controller"}
-					readOnly={!input.editState}
-					status={resolveAgentConfigurationCardStatus({
-						active: activeEditor === "controller",
-						disabled: input.disabled,
-						saved: savedEditor === "controller",
-					})}
+				<AgentProfileControllerConfigurationCard
+					editor={editor}
+					input={input}
 					summary={controllerSummary}
-				>
-					{input.editState && activeEditState ? (
-						<>
-							<AgentProfileControllerChangeEditSection
-								activeDraft={draft}
-								currentAgentControllerRef={input.editState.agentControllerRef}
-								currentControllerCollaborationMode={
-									input.editState.controllerCollaborationMode
-								}
-								currentControllerPermissionMode={
-									input.editState.controllerPermissionMode
-								}
-								currentModelSelection={input.editState.modelSelection}
-								disabled={
-									input.disabled ||
-									input.controllerChangeEligibilityStatus !== "allowed"
-								}
-								draftKey={draftInput.draftKey}
-								modelCatalog={input.modelCatalog}
-								onDraftChange={setDraft}
-								options={input.controllerChangeOptions}
-							/>
-							<ControllerChangeAvailabilityNote
-								status={input.controllerChangeEligibilityStatus}
-							/>
-							{editorFooter("controller")}
-						</>
-					) : null}
-				</AgentConfigurationCard>
-				<AgentConfigurationCard
-					disabled={input.disabled || !input.onOpenProjectSettings}
-					icon={<FolderOpenIcon aria-hidden="true" />}
-					itemId="working-folder"
-					label="Working folder"
-					onClick={input.onOpenProjectSettings}
-					readOnly={!input.onOpenProjectSettings}
+				/>
+				<AgentProfileWorkingFolderConfigurationCard
+					disabled={input.disabled}
+					onOpen={input.onOpenProjectSettings}
 					summary={workingFolder}
 				/>
-				<AgentConfigurationCard
-					disabled={input.disabled}
-					icon={<BrainIcon aria-hidden="true" />}
-					itemId="model"
-					label="Model"
-					onOpenChange={(open) => setEditorOpen("model", open)}
-					open={activeEditor === "model"}
-					readOnly={!modelSelection}
-					status={resolveAgentConfigurationCardStatus({
-						active: activeEditor === "model",
-						disabled: input.disabled,
-						saved: savedEditor === "model",
-					})}
-					summary={input.controllerModelSummary}
-				>
-					<AgentProfileModelSelectionEditSection
-						activeDraft={draft}
-						disabled={input.disabled}
-						draftKey={draftInput.draftKey}
-						modelCatalog={input.modelCatalog}
-						modelCompatibilityContext={input.modelCompatibilityContext}
-						modelSelection={modelSelection}
-						onDraftChange={setDraft}
-					/>
-					{editorFooter("model")}
-				</AgentConfigurationCard>
-				<AgentConfigurationCard
-					disabled={input.disabled}
-					icon={<HandIcon aria-hidden="true" />}
-					itemId="collaboration"
-					label="Collaboration"
-					onOpenChange={(open) => setEditorOpen("collaboration", open)}
-					open={activeEditor === "collaboration"}
-					readOnly={!controllerCollaborationMode?.editable}
-					status={resolveAgentConfigurationCardStatus({
-						active: activeEditor === "collaboration",
-						disabled: input.disabled,
-						saved: savedEditor === "collaboration",
-					})}
+				<AgentProfileModelConfigurationCard editor={editor} input={input} />
+				<AgentProfileCollaborationConfigurationCard
+					editor={editor}
+					input={input}
 					summary={collaborationSummary}
-				>
-					<AgentProfileCollaborationModeEditSection
-						activeDraft={draft}
-						controllerCollaborationMode={controllerCollaborationMode}
-						disabled={input.disabled}
-						draftKey={draftInput.draftKey}
-						onDraftChange={setDraft}
-					/>
-					{editorFooter("collaboration")}
-				</AgentConfigurationCard>
-				<AgentConfigurationCard
-					disabled={input.disabled}
-					icon={<LockKeyIcon aria-hidden="true" />}
-					itemId="permissions"
-					label="Permissions"
-					onOpenChange={(open) => setEditorOpen("permissions", open)}
-					open={activeEditor === "permissions"}
-					readOnly={!(controllerPermissionMode || openCodePermission)}
-					status={resolveAgentConfigurationCardStatus({
-						active: activeEditor === "permissions",
-						disabled: input.disabled,
-						saved: savedEditor === "permissions",
-					})}
+				/>
+				<AgentProfilePermissionsConfigurationCard
+					editor={editor}
+					input={input}
 					summary={permissionSummary}
-				>
-					<div className="grid gap-4">
-						<AgentProfilePermissionModeEditSection
-							activeDraft={draft}
-							confirmationId={confirmationId}
-							controllerPermissionMode={controllerPermissionMode}
-							disabled={input.disabled}
-							draftKey={draftInput.draftKey}
-							focusRef={permissionControlRef}
-							isAgentWorking={
-								input.controllerChangeEligibilityStatus === "blocked"
-							}
-							onDraftChange={setDraft}
-							selectedPolicy={dialogState.selectedPolicy}
-						/>
-						<AgentProfileOpenCodePermissionEditSection
-							activeDraft={draft}
-							disabled={input.disabled}
-							draftKey={draftInput.draftKey}
-							onDraftChange={setDraft}
-							openCodePermission={openCodePermission}
-						/>
-					</div>
-					{editorFooter("permissions")}
-				</AgentConfigurationCard>
+				/>
 			</AgentConfigurationGrid>
 		</section>
+	);
+}
+
+type AgentProfileConfigurationEditor = ReturnType<
+	typeof useAgentProfileConfigurationEditor
+>;
+
+function AgentProfileConfigurationHeading(input: { visible: boolean }) {
+	if (!input.visible) {
+		return null;
+	}
+	return (
+		<div className="flex items-end justify-between gap-3">
+			<div className="grid gap-1">
+				<h2 className="font-medium text-sm">How this Agent works</h2>
+				<p className="text-muted-foreground text-xs leading-5">
+					Open a card to change its setup.
+				</p>
+			</div>
+		</div>
+	);
+}
+
+function AgentProfileOwnerConfigurationCard(input: {
+	avatarUrl: string | null | undefined;
+	owner: string;
+	profileId: string;
+}) {
+	return (
+		<AgentConfigurationCard
+			icon={
+				<DitherProfileAvatar
+					avatarImageUrl={input.avatarUrl}
+					profileId={input.profileId}
+					profileKind="human"
+					profileName={input.owner}
+					size={28}
+				/>
+			}
+			itemId="owner"
+			label="Owner"
+			readOnly
+			summary={input.owner}
+		/>
+	);
+}
+
+function AgentProfileControllerConfigurationCard(input: {
+	editor: AgentProfileConfigurationEditor;
+	input: AgentProfileConfigurationOverviewProps;
+	summary: string;
+}) {
+	const { editor, input: props } = input;
+	return (
+		<AgentConfigurationCard
+			description="The local tool and computer that run this Agent."
+			disabled={props.disabled}
+			icon={<DesktopTowerIcon aria-hidden="true" />}
+			itemId="runs-on"
+			label="Runs on"
+			onOpenChange={(open) => editor.setEditorOpen("controller", open)}
+			open={editor.activeEditor === "controller"}
+			readOnly={!props.editState}
+			status={resolveAgentConfigurationCardStatus({
+				active: editor.activeEditor === "controller",
+				disabled: props.disabled,
+				saved: editor.savedEditor === "controller",
+			})}
+			summary={input.summary}
+		>
+			<AgentProfileControllerConfigurationEditor
+				editor={editor}
+				input={props}
+			/>
+		</AgentConfigurationCard>
+	);
+}
+
+function AgentProfileControllerConfigurationEditor(input: {
+	editor: AgentProfileConfigurationEditor;
+	input: AgentProfileConfigurationOverviewProps;
+}) {
+	if (!(input.input.editState && input.editor.activeEditState)) {
+		return null;
+	}
+	return (
+		<>
+			<AgentProfileControllerChangeEditSection
+				activeDraft={input.editor.draft}
+				currentAgentControllerRef={input.input.editState.agentControllerRef}
+				currentControllerCollaborationMode={
+					input.input.editState.controllerCollaborationMode
+				}
+				currentControllerPermissionMode={
+					input.input.editState.controllerPermissionMode
+				}
+				currentModelSelection={input.input.editState.modelSelection}
+				disabled={
+					input.input.disabled ||
+					input.input.controllerChangeEligibilityStatus !== "allowed"
+				}
+				draftKey={input.editor.draftInput.draftKey}
+				modelCatalog={input.input.modelCatalog}
+				onDraftChange={input.editor.setDraft}
+				options={input.input.controllerChangeOptions}
+			/>
+			<ControllerChangeAvailabilityNote
+				status={input.input.controllerChangeEligibilityStatus}
+			/>
+			{input.editor.editorFooter("controller")}
+		</>
+	);
+}
+
+function AgentProfileWorkingFolderConfigurationCard(input: {
+	disabled: boolean;
+	onOpen: (() => void) | undefined;
+	summary: string;
+}) {
+	return (
+		<AgentConfigurationCard
+			disabled={input.disabled || !input.onOpen}
+			icon={<FolderOpenIcon aria-hidden="true" />}
+			itemId="working-folder"
+			label="Working folder"
+			onClick={input.onOpen}
+			readOnly={!input.onOpen}
+			summary={input.summary}
+		/>
+	);
+}
+
+function AgentProfileModelConfigurationCard(input: {
+	editor: AgentProfileConfigurationEditor;
+	input: AgentProfileConfigurationOverviewProps;
+}) {
+	const { editor, input: props } = input;
+	return (
+		<AgentConfigurationCard
+			disabled={props.disabled}
+			icon={<BrainIcon aria-hidden="true" />}
+			itemId="model"
+			label="Model"
+			onOpenChange={(open) => editor.setEditorOpen("model", open)}
+			open={editor.activeEditor === "model"}
+			readOnly={!editor.modelSelection}
+			status={resolveAgentConfigurationCardStatus({
+				active: editor.activeEditor === "model",
+				disabled: props.disabled,
+				saved: editor.savedEditor === "model",
+			})}
+			summary={props.controllerModelSummary}
+		>
+			<AgentProfileModelSelectionEditSection
+				activeDraft={editor.draft}
+				disabled={props.disabled}
+				draftKey={editor.draftInput.draftKey}
+				modelCatalog={props.modelCatalog}
+				modelCompatibilityContext={props.modelCompatibilityContext}
+				modelSelection={editor.modelSelection}
+				onDraftChange={editor.setDraft}
+			/>
+			{editor.editorFooter("model")}
+		</AgentConfigurationCard>
+	);
+}
+
+function AgentProfileCollaborationConfigurationCard(input: {
+	editor: AgentProfileConfigurationEditor;
+	input: AgentProfileConfigurationOverviewProps;
+	summary: string;
+}) {
+	const { editor, input: props } = input;
+	return (
+		<AgentConfigurationCard
+			disabled={props.disabled}
+			icon={<HandIcon aria-hidden="true" />}
+			itemId="collaboration"
+			label="Collaboration"
+			onOpenChange={(open) => editor.setEditorOpen("collaboration", open)}
+			open={editor.activeEditor === "collaboration"}
+			readOnly={!editor.controllerCollaborationMode?.editable}
+			status={resolveAgentConfigurationCardStatus({
+				active: editor.activeEditor === "collaboration",
+				disabled: props.disabled,
+				saved: editor.savedEditor === "collaboration",
+			})}
+			summary={input.summary}
+		>
+			<AgentProfileCollaborationModeEditSection
+				activeDraft={editor.draft}
+				controllerCollaborationMode={editor.controllerCollaborationMode}
+				disabled={props.disabled}
+				draftKey={editor.draftInput.draftKey}
+				onDraftChange={editor.setDraft}
+			/>
+			{editor.editorFooter("collaboration")}
+		</AgentConfigurationCard>
+	);
+}
+
+function AgentProfilePermissionsConfigurationCard(input: {
+	editor: AgentProfileConfigurationEditor;
+	input: AgentProfileConfigurationOverviewProps;
+	summary: string;
+}) {
+	const { editor, input: props } = input;
+	return (
+		<AgentConfigurationCard
+			disabled={props.disabled}
+			icon={<LockKeyIcon aria-hidden="true" />}
+			itemId="permissions"
+			label="Permissions"
+			onOpenChange={(open) => editor.setEditorOpen("permissions", open)}
+			open={editor.activeEditor === "permissions"}
+			readOnly={!(editor.controllerPermissionMode || editor.openCodePermission)}
+			status={resolveAgentConfigurationCardStatus({
+				active: editor.activeEditor === "permissions",
+				disabled: props.disabled,
+				saved: editor.savedEditor === "permissions",
+			})}
+			summary={input.summary}
+		>
+			<div className="grid gap-4">
+				<AgentProfilePermissionModeEditSection
+					activeDraft={editor.draft}
+					confirmationId={editor.confirmationId}
+					controllerPermissionMode={editor.controllerPermissionMode}
+					disabled={props.disabled}
+					draftKey={editor.draftInput.draftKey}
+					focusRef={editor.permissionControlRef}
+					isAgentWorking={props.controllerChangeEligibilityStatus === "blocked"}
+					onDraftChange={editor.setDraft}
+					selectedPolicy={editor.dialogState.selectedPolicy}
+				/>
+				<AgentProfileOpenCodePermissionEditSection
+					activeDraft={editor.draft}
+					disabled={props.disabled}
+					draftKey={editor.draftInput.draftKey}
+					onDraftChange={editor.setDraft}
+					openCodePermission={editor.openCodePermission}
+				/>
+			</div>
+			{editor.editorFooter("permissions")}
+		</AgentConfigurationCard>
 	);
 }
 
