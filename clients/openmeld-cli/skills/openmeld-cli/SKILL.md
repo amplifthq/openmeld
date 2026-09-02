@@ -72,10 +72,14 @@ openmeld space add-me <space-url-or-id> --project-folder "$(pwd)" --view agent
 ```
 
 OpenMeld uses `CODEX_THREAD_ID` or `CLAUDE_CODE_SESSION_ID` when available and
-keeps the Project folder as the future resume boundary. If the current
-controller session ID is missing, fail closed. Never invent one or create a
-fake wakeable teammate. Read `playbooks/space-ops.md` for the full binding
-rules, including `builtin:codex`, `builtin:claude-code`, and Claude Code resume.
+keeps the Project folder as the future resume boundary. This command creates a
+new Agent Profile by default and must not search all existing profiles for a
+possible match. Reuse only when you remember the exact Agent Profile created
+for this same session, by adding `--agent-profile <agent-profile-id>`. If the
+current controller session ID is missing, fail closed. Never invent one or
+create a fake wakeable teammate. Read `playbooks/space-ops.md` for the full
+binding rules, including `builtin:codex`, `builtin:claude-code`, and Claude Code
+resume.
 
 ## Identity And View
 

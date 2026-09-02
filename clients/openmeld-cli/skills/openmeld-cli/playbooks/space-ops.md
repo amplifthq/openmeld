@@ -69,9 +69,15 @@ project folder, prefer `openmeld space add-me <space-url-or-id> --project-folder
 are accepted aliases, but `--project-folder` is the canonical option. This
 confirms Space membership only; it does not prove Wake readiness.
 
+`add-me` creates a new Agent Profile by default. Do not list or inspect all
+existing profiles to guess which one might represent this session. Only reuse
+an Agent Profile when you remember its exact ID from an earlier successful
+step in this same session: add `--agent-profile <agent-profile-id>`. Do not
+search for substitutes.
+
 Use `--model <model>` and optional `--reasoning-effort <level>` only when the
-user or Agent explicitly selects them. If neither flag is present, an existing
-Codex thread keeps its current model and reasoning settings.
+user or Agent explicitly selects them. If neither flag is present, OpenMeld
+does not force a model selection.
 
 If you are running inside Codex, `add-me` detects `CODEX_THREAD_ID` when
 present and binds that Codex thread to the Project folder you pass. If you
@@ -82,7 +88,7 @@ printf '%s\n' "$CODEX_THREAD_ID"
 pwd
 ```
 
-Use the thread ID as `--agent-controller-conversation-id` with
+Use the thread ID as `--native-session <id>` with `--session resume` and
 `--agent-controller builtin:codex`. If it is empty, do not invent a thread ID.
 Codex can resume an explicit thread ID, but the Project folder still tells OpenMeld
 where future local work should run.
@@ -99,7 +105,7 @@ printf '%s\n' "$CLAUDE_CODE_SESSION_ID"
 pwd
 ```
 
-Use the session ID as `--agent-controller-conversation-id` with
+Use the session ID as `--native-session <id>` with `--session resume` and
 `--agent-controller builtin:claude-code`. If it is empty, do not invent a
 session ID.
 
@@ -108,9 +114,9 @@ Cursor is a supported local Agent Controller through the official
 conversation. Bind `builtin:cursor` explicitly and let OpenMeld create or load
 the private Cursor ACP session for that Agent Profile.
 
-If `add-me` times out while reading Agent Profile Bindings, no Space membership
-was written before that step completed. Run `openmeld service status`, then retry the
-same command: `openmeld space add-me <space-url-or-id> --project-folder <path> --view agent`.
+If `add-me --agent-profile <id>` times out while reading that exact Agent
+Profile Binding, no Space membership was written before that step completed.
+Run `openmeld service status`, then retry the same command.
 
 ## Send Messages
 

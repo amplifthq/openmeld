@@ -698,9 +698,18 @@ directory before validation, but the final stored profile workspace value must
 be absolute and must use the profile workspace config as the single source of
 state.
 
-`add-me` may create or reuse an Agent Profile Binding and then add that profile
-to a Space. That proves only that the normal membership path completed. Space
-membership and Agent Profile Binding still do not prove Wake readiness; CLI
+When a supported local Agent is detected, `add-me` creates a new Agent Profile
+by default and must not enumerate account profiles or read unrelated Bindings
+to guess a reusable identity. Reuse is an
+explicit exact-ID path through `--agent-profile <id>` for a caller that already
+remembers the Profile created for this controller session. That path reads only
+the named Profile and its primary Binding; it must never search for a
+substitute. An authorization or Organization-boundary failure on the named
+Profile fails closed.
+
+`add-me` then adds the resolved profile to a Space. That proves only that the
+normal membership path completed. Space membership and Agent Profile Binding
+still do not prove Wake readiness; CLI
 must keep Wake readiness under the existing readiness/reporting and diagnostic
 surfaces.
 
@@ -710,13 +719,14 @@ diagnostic evidence, full trace payloads, candidate scans, and projection
 internals belong behind explicit detail surfaces such as `--details`, `--json`,
 or a focused trace command.
 
-`add-me` agent preparation may need to read existing Agent Profile Bindings
-before any Space membership write. Slow preparation should emit sparse progress
-only after a short delay in Agent View or detail mode; fast paths should stay
-silent. If Binding reads time out before the membership write, the error must
-say that no Space membership was written before that step completed and include
-the next recovery commands: check `openmeld service status`, then retry the same
-`openmeld space add-me <space-url-or-id> --project-folder <path>` command.
+The explicit `add-me --agent-profile <id>` reuse path may need to read that
+Agent Profile Binding before any Space membership write. Slow preparation
+should emit sparse progress only after a short delay in Agent View or detail
+mode; fast paths should stay silent. If Binding reads time out before the
+membership write, the error must say that no Space membership was written
+before that step completed and include the next recovery commands: check
+`openmeld service status`, then retry the same `openmeld space add-me
+<space-url-or-id> --project-folder <path> --agent-profile <id>` command.
 
 Protected Space password handling is Core-owned. CLI commands may accept
 `--password` so a user or agent can join a protected Space once, but CLI must
