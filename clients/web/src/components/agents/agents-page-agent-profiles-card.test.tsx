@@ -968,7 +968,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			"agent-current-interrupted-work"
 		);
 		expect(within(interruptedWork).getByText("Release room")).toBeTruthy();
-		expect(within(interruptedWork).getByText("Interrupted")).toBeTruthy();
+		expect(within(interruptedWork).getByText("Needs attention")).toBeTruthy();
 		expect(
 			screen.queryByRole("button", { name: "Skip interrupted work" })
 		).toBeNull();
@@ -976,6 +976,24 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			within(interruptedWork).getByRole("button", { name: "Skip" })
 		);
 
+		expect(executeAgentProfileWorkRecoveryMock).not.toHaveBeenCalled();
+		const confirmation = screen.getByRole("alertdialog", {
+			name: "Skip this work?",
+		});
+		expect(
+			within(confirmation).getByText(
+				"This work will not continue. Any queued work can start after you skip it."
+			)
+		).toBeTruthy();
+		fireEvent.click(
+			within(confirmation).getByRole("button", { name: "Cancel" })
+		);
+		expect(screen.queryByRole("alertdialog")).toBeNull();
+
+		fireEvent.click(
+			within(interruptedWork).getByRole("button", { name: "Skip" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Skip work" }));
 		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledWith({
 			action: "skip_interrupted_work",
 			agentProfileId: AGENT_PROFILE_ID,
@@ -1011,6 +1029,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 
 		fireEvent.click(await screen.findByRole("button", { name: "Skip" }));
+		fireEvent.click(screen.getByRole("button", { name: "Skip work" }));
 
 		expect(executeAgentProfileWorkRecoveryMock).not.toHaveBeenCalled();
 		expect(toastMock.error).toHaveBeenCalledWith(

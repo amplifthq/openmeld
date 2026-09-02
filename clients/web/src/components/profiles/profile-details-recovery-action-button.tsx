@@ -1,7 +1,19 @@
 "use client";
 
 import type { ProfileDetailsRecoveryAction } from "@openmeld/schemas/types";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@openmeld/ui/components/alert-dialog";
 import { Button } from "@openmeld/ui/components/button";
+import { useState } from "react";
 
 export function ProfileDetailsRecoveryActionButton(input: {
 	compact?: boolean;
@@ -9,6 +21,68 @@ export function ProfileDetailsRecoveryActionButton(input: {
 	onRecoveryAction: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	recoveryAction: ProfileDetailsRecoveryAction;
 }) {
+	const [isSkipConfirmationOpen, setIsSkipConfirmationOpen] = useState(false);
+	const buttonLabel = input.isPending
+		? formatProfileDetailsRecoveryActionPendingLabel(
+				input.recoveryAction,
+				input.compact
+			)
+		: formatProfileDetailsRecoveryActionLabel(
+				input.recoveryAction,
+				input.compact
+			);
+
+	if (input.recoveryAction.kind === "skip_interrupted_work") {
+		return (
+			<AlertDialog
+				onOpenChange={(open) => {
+					if (!input.isPending) {
+						setIsSkipConfirmationOpen(open);
+					}
+				}}
+				open={isSkipConfirmationOpen}
+			>
+				<AlertDialogTrigger
+					render={
+						<Button
+							disabled={input.isPending}
+							size={input.compact ? "xs" : "sm"}
+							type="button"
+							variant="outline"
+						/>
+					}
+				>
+					{buttonLabel}
+				</AlertDialogTrigger>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Skip this work?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This work will not continue. Any queued work can start after you
+							skip it.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel disabled={input.isPending}>
+							Cancel
+						</AlertDialogCancel>
+						<AlertDialogAction
+							disabled={input.isPending}
+							onClick={() => {
+								setIsSkipConfirmationOpen(false);
+								input.onRecoveryAction(input.recoveryAction);
+							}}
+							type="button"
+							variant="destructive"
+						>
+							Skip work
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		);
+	}
+
 	return (
 		<Button
 			disabled={input.isPending}
@@ -17,15 +91,7 @@ export function ProfileDetailsRecoveryActionButton(input: {
 			type="button"
 			variant="outline"
 		>
-			{input.isPending
-				? formatProfileDetailsRecoveryActionPendingLabel(
-						input.recoveryAction,
-						input.compact
-					)
-				: formatProfileDetailsRecoveryActionLabel(
-						input.recoveryAction,
-						input.compact
-					)}
+			{buttonLabel}
 		</Button>
 	);
 }

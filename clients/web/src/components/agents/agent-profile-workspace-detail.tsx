@@ -655,7 +655,7 @@ function resolveActivityDestinationStateLabel(
 		return "Up next";
 	}
 	if (state === "interrupted") {
-		return "Interrupted";
+		return "Needs attention";
 	}
 	return "Next work";
 }
@@ -707,7 +707,7 @@ function InterruptedWorkFallbackItem(input: {
 					className={resolveStatusToneBadgeClassName("warning")}
 					variant="outline"
 				>
-					Interrupted
+					Needs attention
 				</Badge>
 				<div className="shrink-0">{input.recoveryAction}</div>
 			</div>
