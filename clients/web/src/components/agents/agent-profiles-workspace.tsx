@@ -11,12 +11,14 @@ import type {
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import { ADD_CARD_PICKER_CLASS_NAME } from "@openmeld/ui/lib/card-picker-contract";
 import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -356,26 +358,37 @@ function AgentProfilesWorkspaceEmptyState(input: {
 }) {
 	const isFiltered = input.input.hasAnyProfiles === true;
 	const isSearchActive = input.input.isSearchActive === true;
-	let title = "No Agents yet";
-	let description = "Create an Agent to give your team an AI teammate.";
+	if (!(isSearchActive || isFiltered)) {
+		return (
+			<div className="grid min-h-full flex-1 place-items-center px-6 py-12 sm:px-10">
+				<button
+					className={cn(ADD_CARD_PICKER_CLASS_NAME, "h-auto w-full max-w-3xl")}
+					data-testid="create-agent-empty-state"
+					onClick={input.input.onCreateAgent}
+					type="button"
+				>
+					<SettingsAddComputerCardContent
+						description="Give your team an AI teammate that can work and reply in Spaces."
+						descriptionClassName="max-w-sm"
+						title="Create Agent"
+					/>
+				</button>
+			</div>
+		);
+	}
+
+	let title = "No Agents match this filter";
+	let description =
+		"Choose another Wake availability filter to see more Agents.";
 	if (isSearchActive) {
 		title = "No Agents found";
 		description = "Try another name, owner, Controller, or model.";
-	} else if (isFiltered) {
-		title = "No Agents match this filter";
-		description = "Choose another Wake availability filter to see more Agents.";
 	}
 	return (
 		<div className="grid min-h-full place-items-center px-6 py-12 text-center">
 			<div className="max-w-sm space-y-2">
 				<h1 className="font-medium text-base">{title}</h1>
 				<p className="text-muted-foreground text-sm">{description}</p>
-				{isFiltered ? null : (
-					<Button onClick={input.input.onCreateAgent} size="sm" type="button">
-						<PlusIcon aria-hidden="true" data-icon="inline-start" />
-						Create Agent
-					</Button>
-				)}
 			</div>
 		</div>
 	);

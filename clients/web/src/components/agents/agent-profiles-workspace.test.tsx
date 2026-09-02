@@ -459,6 +459,22 @@ describe("AgentProfilesWorkspace", () => {
 		expect(screen.getByTestId("profiles-controller")).toBeTruthy();
 	});
 
+	it("turns the ready empty workspace into one centered creation action", () => {
+		const onCreateAgent = vi.fn();
+		renderWorkspace({ onCreateAgent, profiles: [] });
+
+		const createCard = screen.getByTestId("create-agent-empty-state");
+		expect(createCard.tagName).toBe("BUTTON");
+		expect(createCard.parentElement?.className).toContain("flex-1");
+		expect(createCard.parentElement?.className).toContain("place-items-center");
+		expect(createCard.textContent).toContain("Create Agent");
+		expect(createCard.textContent).toContain(
+			"Give your team an AI teammate that can work and reply in Spaces."
+		);
+		fireEvent.click(createCard);
+		expect(onCreateAgent).toHaveBeenCalledOnce();
+	});
+
 	it("explains an empty Agent search without blaming the availability filter", () => {
 		renderWorkspace({
 			hasAnyProfiles: true,
@@ -520,7 +536,7 @@ describe("AgentProfilesWorkspace", () => {
 				selectedProfileId={null}
 			/>
 		);
-		expect(screen.getByRole("heading", { name: "No Agents yet" })).toBeTruthy();
+		expect(screen.getByTestId("create-agent-empty-state")).toBeTruthy();
 	});
 });
 
