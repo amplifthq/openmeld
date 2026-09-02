@@ -491,8 +491,9 @@ Composer authoring keeps these relations explicit without imposing a required
 confirmation step after every `@` selection. Agent Profiles default to Wake and
 may be changed to Reference. Human Profiles always create Human Mention, so Web
 shows a fixed `@Name` mark instead of a meaningless Wake/Reference selector.
-The bottom summary counts only Agent relations (`Waking N agents` and
-`Referencing N agents`); Human Mentions stay visible in the message itself.
+Each inline Agent token shows its own Wake or Reference relation, so Web does
+not repeat those relations in a bottom count summary. Human Mentions stay
+visible in the message itself without an Agent relation label.
 The system may warn about a possible semantic mismatch, but it must not silently
 convert one structured Agent relation into another. Repeating the same Agent mention in one message is not a second
 structured relation: the first occurrence owns the selected Wake or Reference,
@@ -508,14 +509,14 @@ stale name fails closed and the sender must use the fresh label or stable ID.
 Profile appears only once in the structured target set and therefore can be
 woken only once.
 
-Web may enrich the first visible `@Name` owned by a structured Agent Wake with
-the Agent Profile icon and stronger name emphasis. This is presentation of the
-existing structured relation, not inference from message text; an ordinary
-bare `@Agent Name` remains ordinary prose.
-
-When a message has multiple structured targets, the composer shows a quiet
-summary of the exact unique target set. The summary is a preview of structured
-addressing, not an AI inference from prose.
+Web presents the first visible `@Name` owned by each structured Agent Wake or
+Reference as one inline Agent token. The token includes the Agent Profile icon,
+canonical name, and exact relation. If the same structured Agent appears again
+in that message, the later appearance remains an explicit Reference token,
+matching the Composer's duplicate rule without creating a second Wake target.
+This is presentation of existing structured authoring, not inference from an
+otherwise unstructured message; a message with no structured target keeps a
+bare `@Agent Name` as ordinary prose.
 
 Delivery intent matters. If a human or agent asks one Agent Profile to deliver
 work to another Agent Profile, the publishing agent must use Wake or Reply +
