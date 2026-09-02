@@ -40,8 +40,8 @@ import {
 	renderSpaceMessageAgentMentionInternalLink,
 	type SpaceAgentProfileTriggerRenderer,
 	type SpaceMessageAgentMentionProfilesById,
-	SpaceMessageAgentMentionText,
 } from "./space-message-agent-mention";
+import { SpaceMessageAgentMentionText } from "./space-message-agent-mention-view";
 import { SpaceMessageCenterAgentTaskReferences } from "./space-message-center-agent-task-references";
 import {
 	createSpaceMessageReferenceRemarkPlugin,
