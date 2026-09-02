@@ -14,14 +14,18 @@ import {
 import { cn } from "@openmeld/ui/lib/utils";
 import { CheckIcon, RobotIcon } from "@phosphor-icons/react";
 import { useId } from "react";
+import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
+import type { AgentProfileLocalAgentEmptyState } from "./create-profile-form";
 
 export type LocalAgentSelectorProps = {
 	choices: readonly AgentProfileBindingChoice[];
 	disabled: boolean;
+	emptyState?: AgentProfileLocalAgentEmptyState;
 	isResolving: boolean;
 	locked?: boolean;
 	onChange: (value: string) => void;
+	surface?: "dialog" | "page";
 	value: string;
 };
 
@@ -128,13 +132,10 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			) : null}
 
 			{!input.isResolving && choices.length === 0 ? (
-				<div className="rounded-xl border border-border/70 bg-muted/25 px-4 py-5 text-center">
-					<p className="font-medium text-sm">No local agents are available</p>
-					<p className="mt-1 text-pretty text-muted-foreground text-xs leading-5">
-						Connect or enable a local agent on this computer, or use Advanced to
-						create this Agent without one for now.
-					</p>
-				</div>
+				<LocalAgentSelectorEmptyState
+					emptyState={input.emptyState}
+					surface={input.surface}
+				/>
 			) : null}
 
 			{selectedChoice ? (
@@ -146,6 +147,53 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 				</output>
 			) : null}
 		</fieldset>
+	);
+}
+
+function LocalAgentSelectorEmptyState(input: {
+	emptyState?: AgentProfileLocalAgentEmptyState;
+	surface?: "dialog" | "page";
+}) {
+	const emptyState = input.emptyState;
+	const className = cn("min-h-48", input.surface === "page" && "min-h-64");
+	if (emptyState?.kind === "connect_computer") {
+		return (
+			<ComputerSetupChoiceCard
+				actionHref={emptyState.primaryActionHref ?? undefined}
+				actionLabel="Connect Computer"
+				centerAgentHref={emptyState.centerAgentHref}
+				className={className}
+				descriptionLead="No computer is connected yet."
+			/>
+		);
+	}
+	if (emptyState?.kind === "teammate_local_agents_unavailable") {
+		return (
+			<section
+				className={cn(
+					"grid place-items-center rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-8 text-center",
+					className
+				)}
+			>
+				<div className="grid max-w-sm gap-1.5">
+					<p className="font-medium text-sm">
+						No local agents are available for this teammate
+					</p>
+					<p className="text-pretty text-muted-foreground text-xs leading-5">
+						Use Advanced to request an Agent without a local agent for now.
+					</p>
+				</div>
+			</section>
+		);
+	}
+	return (
+		<ComputerSetupChoiceCard
+			actionHref={emptyState?.primaryActionHref ?? undefined}
+			actionLabel="Set up local agents"
+			centerAgentHref={emptyState?.centerAgentHref}
+			className={className}
+			descriptionLead="This computer is connected, but no local agents are ready yet."
+		/>
 	);
 }
 

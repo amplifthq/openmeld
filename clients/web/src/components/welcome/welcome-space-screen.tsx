@@ -9,13 +9,12 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
-import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
-import { ADD_CARD_PICKER_CLASS_NAME } from "@openmeld/ui/lib/card-picker-contract";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowRightIcon, PlusIcon } from "@phosphor-icons/react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import { SpaceAccessModeRadioGroup } from "#/components/spaces/space-access-editor";
 import { ScrollArea } from "#/components/ui/scroll-area";
 import { WelcomeLayout } from "./welcome-layout";
@@ -347,34 +346,13 @@ function AddComputerChoiceCard(props: {
 	onConnectComputer: () => void;
 }) {
 	return (
-		<div className={`${ADD_CARD_PICKER_CLASS_NAME} relative`}>
-			<button
-				aria-label="Connect Computer"
-				className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				onClick={props.onConnectComputer}
-				type="button"
-			/>
-			<div className="pointer-events-none relative z-[1] flex flex-col items-center justify-center gap-3">
-				<SettingsAddComputerCardContent
-					description={
-						<>
-							Or ask a{" "}
-							<a
-								className="pointer-events-auto underline decoration-muted-foreground/70 underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-								href={props.centerAgentPath}
-							>
-								Center Agent
-							</a>{" "}
-							to walk you through.
-						</>
-					}
-					descriptionClassName="max-w-none"
-					iconContainerClassName="welcome-add-computer-icon-breathe"
-					title="Connect Computer"
-					titleClassName="welcome-add-computer-title-breathe"
-				/>
-			</div>
-		</div>
+		<ComputerSetupChoiceCard
+			actionLabel="Connect Computer"
+			centerAgentHref={props.centerAgentPath}
+			iconContainerClassName="welcome-add-computer-icon-breathe"
+			onAction={props.onConnectComputer}
+			titleClassName="welcome-add-computer-title-breathe"
+		/>
 	);
 }
 

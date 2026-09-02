@@ -75,18 +75,50 @@ describe("LocalAgentSelector", () => {
 		expect(onChange).toHaveBeenCalledWith("claude-code");
 	});
 
-	it("explains the empty state without inventing an available agent", () => {
+	it("guides a connected computer to set up local agents", () => {
 		render(
 			<LocalAgentSelector
 				choices={[]}
 				disabled={false}
+				emptyState={{
+					centerAgentHref: null,
+					kind: "set_up_local_agents",
+					primaryActionHref: null,
+				}}
 				isResolving={false}
 				onChange={vi.fn()}
 				value=""
 			/>
 		);
 
-		expect(screen.getByText("No local agents are available")).toBeTruthy();
+		expect(screen.getByText("Set up local agents")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"This computer is connected, but no local agents are ready yet."
+			)
+		).toBeTruthy();
+		expect(screen.queryByRole("radio")).toBeNull();
+	});
+
+	it("guides a computer-less account to Connect Computer", () => {
+		render(
+			<LocalAgentSelector
+				choices={[]}
+				disabled={false}
+				emptyState={{
+					centerAgentHref: null,
+					kind: "connect_computer",
+					primaryActionHref: null,
+				}}
+				isResolving={false}
+				onChange={vi.fn()}
+				surface="page"
+				value=""
+			/>
+		);
+
+		expect(screen.getByText("Connect Computer")).toBeTruthy();
+		expect(screen.getByText("No computer is connected yet.")).toBeTruthy();
 		expect(screen.queryByRole("radio")).toBeNull();
 	});
 });

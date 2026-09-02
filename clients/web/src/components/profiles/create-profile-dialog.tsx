@@ -54,7 +54,10 @@ import type { useLocalAgentRecoveryController } from "#/components/agents/use-lo
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
-import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationCenterAgentChatPath,
+	buildOrganizationComputerPath,
+} from "#/lib/organizations/organization-routes";
 import { resolveRememberedAgentProfileCreationDefaults } from "#/lib/profiles/agent-profile-creation-defaults";
 import {
 	continuePendingAgentProfileCreationLocalSetup,
@@ -112,6 +115,7 @@ import {
 	type AgentProfileSessionMode,
 } from "./agent-profile-session-choice";
 import {
+	type AgentProfileLocalAgentEmptyState,
 	type AgentProfileModelCompatibilityContext,
 	CreateProfileForm,
 } from "./create-profile-form";
@@ -269,6 +273,18 @@ function resolveInitialAgentProfileSessionMode(
 		: "new";
 }
 
+function resolveInitialOwnerMode(input: {
+	currentUserId: string;
+	sessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
+}): AgentProfileOwnerMode {
+	if (!(input.sessionPreset && input.currentUserId)) {
+		return "self";
+	}
+	return input.sessionPreset.ownerUserId === input.currentUserId
+		? "self"
+		: "teammate";
+}
+
 function resolveInitialCreateProfileKind(input: {
 	agentOnly: boolean;
 	hasSessionPreset: boolean;
@@ -396,12 +412,10 @@ function useCreateProfileDialogController(
 ) {
 	const initialSessionPreset = input.agentActivitySessionPreset;
 	const currentUserId = input.currentUserId ?? "";
-	const initialOwnerMode: AgentProfileOwnerMode =
-		initialSessionPreset &&
-		currentUserId &&
-		initialSessionPreset.ownerUserId !== currentUserId
-			? "teammate"
-			: "self";
+	const initialOwnerMode = resolveInitialOwnerMode({
+		currentUserId,
+		sessionPreset: initialSessionPreset,
+	});
 	const initialProfileKind = resolveInitialCreateProfileKind({
 		agentOnly: options.agentOnly,
 		hasSessionPreset: Boolean(initialSessionPreset),
@@ -498,11 +512,10 @@ function useCreateProfileDialogController(
 		additionalHumanProfileCreationEnabled,
 	});
 	const canRequestForTeammate = canRequestTeammateAgent({
-		allowTeammateRequests:
-			!initialSessionPreset || initialOwnerMode === "teammate"
-				? input.allowTeammateRequests
-				: false,
+		allowTeammateRequests: input.allowTeammateRequests,
 		currentUserId,
+		hasInitialSessionPreset: Boolean(initialSessionPreset),
+		initialOwnerMode,
 	});
 	const teammateQueriesEnabled = input.open && canRequestForTeammate;
 	const organizationDirectoryQuery = useQuery(
@@ -604,6 +617,21 @@ function useCreateProfileDialogController(
 	const recoveryActionHref = buildConnectComputerPath({
 		orgSlug,
 		session: "fresh",
+	});
+	const localAgentEmptyState = resolveLocalAgentEmptyState({
+		centerAgentHref: orgSlug
+			? buildOrganizationCenterAgentChatPath(orgSlug)
+			: null,
+		computerHref:
+			orgSlug && bindingTarget
+				? buildOrganizationComputerPath({
+						deviceId: bindingTarget.deviceId,
+						orgSlug,
+					})
+				: null,
+		hasBindingTarget: Boolean(bindingTarget),
+		ownerMode,
+		recoveryActionHref,
 	});
 	const localFolderPickerDeviceId = resolveLocalFolderPickerDeviceId(
 		recovery.currentComputer
@@ -944,7 +972,8 @@ function useCreateProfileDialogController(
 	const formProps = {
 		additionalHumanProfileCreationEnabled,
 		additionalSubmitBlockReason,
-		agentBindingChoices: teammateBindingChoices,
+		agentBindingChoices:
+			ownerMode === "teammate" ? teammateBindingChoices : undefined,
 		agentBindingValue: ownerMode === "self" ? boundAgentId : agentBindingValue,
 		agentOwnershipSlot: ownerChoice,
 		agentSessionSlot: sessionChoice,
@@ -961,6 +990,7 @@ function useCreateProfileDialogController(
 		isResolvingAccount: profilesQuery.isPending,
 		isResolvingLocalAgents,
 		isSubmitting: createProfileMutation.isPending,
+		localAgentEmptyState,
 		localFolderPickerDeviceId:
 			ownerMode === "self" ? localFolderPickerDeviceId : null,
 		lockLocalAgentSelection: Boolean(sessionPreset),
@@ -2006,8 +2036,16 @@ function resolveSelectableProfileKind(input: {
 function canRequestTeammateAgent(input: {
 	allowTeammateRequests: boolean | undefined;
 	currentUserId: string;
+	hasInitialSessionPreset: boolean;
+	initialOwnerMode: AgentProfileOwnerMode;
 }): boolean {
-	return input.allowTeammateRequests === true && Boolean(input.currentUserId);
+	const initialSessionAllowsTeammateRequest =
+		!input.hasInitialSessionPreset || input.initialOwnerMode === "teammate";
+	return (
+		initialSessionAllowsTeammateRequest &&
+		input.allowTeammateRequests === true &&
+		Boolean(input.currentUserId)
+	);
 }
 
 function shouldReadCreationDefaults(input: {
@@ -2026,6 +2064,34 @@ function shouldReadCreationDefaults(input: {
 
 function resolveAgentControllerRef(boundAgentId: string): string {
 	return boundAgentId ? buildBuiltinAgentControllerRef(boundAgentId) : "";
+}
+
+function resolveLocalAgentEmptyState(input: {
+	centerAgentHref: string | null;
+	computerHref: string | null;
+	hasBindingTarget: boolean;
+	ownerMode: AgentProfileOwnerMode;
+	recoveryActionHref: string;
+}): AgentProfileLocalAgentEmptyState {
+	if (input.ownerMode === "teammate") {
+		return {
+			centerAgentHref: input.centerAgentHref,
+			kind: "teammate_local_agents_unavailable",
+			primaryActionHref: null,
+		};
+	}
+	if (input.hasBindingTarget) {
+		return {
+			centerAgentHref: input.centerAgentHref,
+			kind: "set_up_local_agents",
+			primaryActionHref: input.computerHref,
+		};
+	}
+	return {
+		centerAgentHref: input.centerAgentHref,
+		kind: "connect_computer",
+		primaryActionHref: input.recoveryActionHref,
+	};
 }
 
 function resolveAvailableLocalAgents(input: {

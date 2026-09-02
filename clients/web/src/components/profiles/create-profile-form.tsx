@@ -68,6 +68,15 @@ export type AgentProfileModelCompatibilityContext = {
 	reportedModelIds: readonly string[] | null;
 };
 
+export type AgentProfileLocalAgentEmptyState = {
+	centerAgentHref: string | null;
+	kind:
+		| "connect_computer"
+		| "set_up_local_agents"
+		| "teammate_local_agents_unavailable";
+	primaryActionHref: string | null;
+};
+
 // Presentational, route-free Create Profile form. All state lives in the
 // parent dialog; this component only renders an available kind choice, the
 // name input, the agent binding radio, and the recoverable error block. It
@@ -96,6 +105,7 @@ export type CreateProfileFormProps = {
 	modelCatalog: ModelCatalog | null;
 	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	localFolderPickerDeviceId: string | null;
+	localAgentEmptyState?: AgentProfileLocalAgentEmptyState;
 	projectSelectionBlockReason?: string | null;
 	projectSelectionSlot?: ReactNode;
 	projectFolderPath: string;

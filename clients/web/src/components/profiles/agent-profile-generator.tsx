@@ -93,6 +93,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 						selectedBinding={selectedBinding ?? null}
 						selectedBindingValue={selectedBindingValue}
 						step={step}
+						surface={input.surface}
 					/>
 				</div>
 				<GeneratorActions
@@ -119,6 +120,7 @@ function GeneratorStepContent(input: {
 	reduceMotion: boolean;
 	selectedBinding: AgentProfileBindingChoice | null;
 	selectedBindingValue: string;
+	surface: "dialog" | "page";
 	step: "configure" | "review";
 }) {
 	return (
@@ -135,6 +137,7 @@ function GeneratorStepContent(input: {
 					<LocalAgentSelector
 						choices={input.bindingChoices}
 						disabled={input.form.isSubmitting}
+						emptyState={input.form.localAgentEmptyState}
 						isResolving={input.form.isResolvingLocalAgents}
 						locked={input.form.lockLocalAgentSelection}
 						onChange={(value) => {
@@ -144,6 +147,7 @@ function GeneratorStepContent(input: {
 								input.form.onChangeBoundAgentId
 							)(value);
 						}}
+						surface={input.surface}
 						value={input.selectedBindingValue}
 					/>
 					<AdvancedSetup

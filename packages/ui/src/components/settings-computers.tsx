@@ -162,12 +162,14 @@ export function SettingsAddComputerCardContent({
   descriptionClassName,
   iconContainerClassName,
   title = "Add a Computer",
+  titleAriaHidden,
   titleClassName,
 }: {
   description?: ReactNode;
   descriptionClassName?: string;
   iconContainerClassName?: string;
   title?: string;
+  titleAriaHidden?: boolean;
   titleClassName?: string;
 }) {
   return (
@@ -182,6 +184,7 @@ export function SettingsAddComputerCardContent({
       </span>
       <span className="flex flex-col items-center gap-1">
         <span
+          aria-hidden={titleAriaHidden}
           className={cn("font-medium text-foreground text-sm", titleClassName)}
         >
           {title}

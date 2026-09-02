@@ -38,7 +38,7 @@ describe("AgentProfileGenerator", () => {
 	it("allows an explicit unbound Agent without inventing an available local agent", async () => {
 		render(<GeneratorHarness availableLocalAgentIds={[]} initialAgentId="" />);
 
-		expect(screen.getByText("No local agents are available")).toBeTruthy();
+		expect(screen.getByText("Set up local agents")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: ADVANCED_BUTTON_NAME }));
 		fireEvent.click(
 			screen.getByRole("button", { name: "Create without a local agent" })
