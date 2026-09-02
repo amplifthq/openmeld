@@ -33,8 +33,10 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 ## 1. Goal and current owner
 
 Current Web uses the fixed
-**Home / Spaces / Direct Messages / People / Agents / Projects / Documents / Agent Activity**
-product rail, with **Settings** as a separated utility. The bottom toolbar puts
+**Home / Spaces / Direct Messages / People / Agents** product rail, with
+**Settings** as a separated utility. **Projects**, **Documents**, and **Agent
+Activity** retain their routes and product surfaces but are temporarily hidden
+from this rail. The bottom toolbar puts
 the signed-in member's current **Computer** at the far-left edge of the inset
 content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
@@ -46,10 +48,11 @@ Graph / Files / Tasks / Routines / Skills / Apps** live in its header, while
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **Home / Spaces / Direct Messages / People / Agents / Projects /
-  Documents / Agent Activity** as the fixed product destinations, separates
-  Settings as a utility, and opens the current Computer, Center Agent, and
-  Inbox from the app canvas's global toolbar;
+- keeps **Home / Spaces / Direct Messages / People / Agents** as the fixed
+  visible product destinations, temporarily omits **Projects / Documents /
+  Agent Activity** without relocating them, separates Settings as a utility,
+  and opens the current Computer, Center Agent, and Inbox from the app canvas's
+  global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
 - gives Human teammates and ordinary Agent Profiles the parallel first-level
@@ -79,14 +82,14 @@ following canonical terms and hard constraints:
 
 **Canonical terms (use these in user copy):**
 
-| Concept | UI copy | Reserved for diagnostics/schemas |
-| --- | --- | --- |
-| The local service daemon | **OpenMeld Service** | `ServiceRuntime` (internal durable record) |
-| The agent program on a machine (Codex / Claude Code / Grok Build / Cursor / OpenCode / OpenClaw) | **local agent** (+ its product name) | `Agent Controller` (execution of one Agent Profile) |
-| An account-level agent identity (name/model/reasoning) | **Agent** | `Agent Profile` |
-| "Which machine runs which agent" | "**Agent X runs on Computer Y**" / "Use this agent on this machine" | `Binding` (`Agent Profile → openMeldServiceRuntimeId + agentControllerRef`) |
-| Service liveness | **Connected** / **OpenMeld Service is running** | heartbeat-fresh `ServiceRuntime` |
-| Agent reachability | **Available for Wake / Checking / Offline / Unavailable** | projection states (registered/pending/skipped/rejected/expired/unavailable) |
+| Concept                                                                                          | UI copy                                                             | Reserved for diagnostics/schemas                                            |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| The local service daemon                                                                         | **OpenMeld Service**                                                | `ServiceRuntime` (internal durable record)                                  |
+| The agent program on a machine (Codex / Claude Code / Grok Build / Cursor / OpenCode / OpenClaw) | **local agent** (+ its product name)                                | `Agent Controller` (execution of one Agent Profile)                         |
+| An account-level agent identity (name/model/reasoning)                                           | **Agent**                                                           | `Agent Profile`                                                             |
+| "Which machine runs which agent"                                                                 | "**Agent X runs on Computer Y**" / "Use this agent on this machine" | `Binding` (`Agent Profile → openMeldServiceRuntimeId + agentControllerRef`) |
+| Service liveness                                                                                 | **Connected** / **OpenMeld Service is running**                     | heartbeat-fresh `ServiceRuntime`                                            |
+| Agent reachability                                                                               | **Available for Wake / Checking / Offline / Unavailable**           | projection states (registered/pending/skipped/rejected/expired/unavailable) |
 
 We keep **local agent** (not "agent runtime"): "agent runtime" appears zero times
 in the owner docs, and `Connect local agent` is a **shipped, owner-doc-protected
@@ -109,7 +112,7 @@ sanctioned (agent-transport-contract.md:408/414).
    Agent bound to this Computer = a Binding exists. Service health is NOT product
    readiness — never derive a green "agent can reply" from service status alone.
 4. **Availability states are Core-owned** — render `Available for Wake / Checking
-   / Offline / Unavailable`, sourced from the projection; never synthesized from
+/ Offline / Unavailable`, sourced from the projection; never synthesized from
    service health or binding presence.
 5. **Diagnostic data must not pollute availability.** EvidenceSyncHealth, stale
    controller reports, aged/progress evidence, evidence freshness are
@@ -117,7 +120,7 @@ sanctioned (agent-transport-contract.md:408/414).
 6. **Status surfaces are read-only.** Status displays never silently
    start/stop/repair/reinstall/toggle. Explicit user-visible actions only.
 7. **Setup action labels come from the Local Components Manifest** (`Connect OpenMeld
-   Service`, `Reconnect OpenMeld Service`, `Update OpenMeld Service`, `Connect local agent`,
+Service`, `Reconnect OpenMeld Service`, `Update OpenMeld Service`, `Connect local agent`,
    `Update OpenMeld skills`, `Everything is up to date`) — never invented copy like
    "Service not running". Status (Running/Stopped/Not installed) is a SEPARATE
    concern from the manifest action label — show both; never infer the action from
@@ -226,8 +229,10 @@ The Web shell is a stable two-layer composition built from the shared
 - **Outer app rail** — always reachable on Home, Spaces, Direct
   Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
-  is the first destination; the remaining fixed destinations are grouped under
-  **Work**, **Team**, and **Resources**, while Settings remains a bottom
+  is the first destination; the remaining visible destinations are grouped
+  under **Work** and **Team**. Projects, Documents, and Agent Activity routes
+  render the same rail without a matching primary destination while their
+  future placement remains unsettled. Settings remains a bottom
   utility that opens Account settings. The workspace switcher offers a second
   link to that same global Settings destination below its separated
   Organization actions; it does not create a second Settings surface. Send
@@ -496,7 +501,7 @@ same PR.
 
 - **Shared shell is purely presentational** — router/query/IPC/storage/window-chrome
   are ALL injected via props (`activeSectionId / onNavigate / renderLink / width /
-  onWidthChange / sections`), never imported. `app-shell.tsx`'s TanStack-Router
+onWidthChange / sections`), never imported. `app-shell.tsx`'s TanStack-Router
   coupling (`useMatches` + `shell-layout.ts` module augmentation) and Web cookie
   persistence STAY in `clients/web` and never move to `packages/ui`. Enforce with
   a boundary test (mirror the mention-boundary scan): `packages/ui` fails CI if it

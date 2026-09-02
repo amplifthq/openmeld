@@ -220,13 +220,17 @@ authorization.
 
 The rail places the current workspace switcher at the top and has no separate
 OpenMeld brand row or account entry. **Home** is the first destination. The
-remaining seven product destinations are organized into three fixed,
+remaining four visible product destinations are organized into two fixed,
 user-collapsible groups:
 
 - **Home** — the current Organization's adaptive overview and product entry.
 - **Work** — **Spaces**, **Direct Messages**.
 - **Team** — **People**, **Agents**.
-- **Resources** — **Projects**, **Documents**, **Agent Activity**.
+
+**Projects**, **Documents**, and **Agent Activity** keep their canonical routes,
+pages, and contextual entry points but are temporarily absent from the primary
+rail while their future placement is redesigned. This interim navigation
+change does not retire, redirect, combine, or relocate those products.
 
 In the full rail, each labeled group uses its heading as an accessible
 disclosure trigger and restores the browser's collapsed groups from the same
@@ -236,7 +240,7 @@ destination visible because those tiers do not render group headings or a
 disclosure trigger; returning to the full tier restores the remembered group
 state.
 
-The destinations resolve in that group order:
+The visible destinations resolve in that group order:
 
 1. **Home** — the current Organization's concise overview. It leads with the
    designated Center Agent, then composes existing Agent Activity, Inbox, Tasks,
@@ -272,19 +276,21 @@ The destinations resolve in that group order:
    authoritative readiness, and execution relationship in plain language such
    as **Uses Codex on Felix's MacBook Pro**. The managed Center Agent remains in
    the separate Center Agent product home.
-6. **Projects** — the first-level home for choosing, creating, and connecting
-   the code Projects used by local Agents. Project records are scoped to the
-   selected Organization; local folder connections remain owner-self,
-   device-local execution facts.
-7. **Documents** — the Organization-scoped Markdown home for the
-   Organization Brief, Profile Reports, and shared knowledge, organized into
-   nested folders. It has no secondary sidebar; the current folder's child
-   folders and files live inside the page itself.
-8. **Agent Activity** — the first-level home for local coding-agent session
-   visibility. Its canonical route is `/o/{orgSlug}/agent-activity`; the full
-   label prevents confusion with human activity and the Center Agent Audit Log.
-   Its secondary sidebar groups **Overview**, **Sessions**, and **Changes** under
-   **Monitor**.
+   The temporarily hidden product homes retain their current contracts:
+
+- **Projects** is the canonical home for choosing, creating, and connecting the
+  code Projects used by local Agents. Project records are scoped to the selected
+  Organization; local folder connections remain owner-self, device-local
+  execution facts.
+- **Documents** is the Organization-scoped Markdown home for the Organization
+  Brief, Profile Reports, and shared knowledge, organized into nested folders.
+  It has no secondary sidebar; the current folder's child folders and files live
+  inside the page itself.
+- **Agent Activity** is the canonical home for local coding-agent session
+  visibility. Its route remains `/o/{orgSlug}/agent-activity`; the full label
+  prevents confusion with human activity and the Center Agent Audit Log. Its
+  secondary sidebar groups **Overview**, **Sessions**, and **Changes** under
+  **Monitor**.
 
 **Settings** remains a utility rather than a product peer. Its persistent main
 sidebar entry is the final footer item after **Toggle Sidebar**, without a

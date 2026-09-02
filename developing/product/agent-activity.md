@@ -20,10 +20,10 @@ privacy-safe answer to two related questions:
 > which native Session can a person or agent unambiguously reference?
 
 `Agent Activity` is the canonical product and code term. Its canonical Web
-route is `/o/{orgSlug}/agent-activity`, and the primary rail label is
-**Agent Activity**. The page, navigation, API, schema, and code term use that
-full name so it cannot be confused with human activity or the Center Agent
-Audit Log. `Session Sync`,
+route is `/o/{orgSlug}/agent-activity`. The product is temporarily absent from
+the primary rail without moving or renaming it. The page, contextual
+navigation, API, schema, and code term use the full **Agent Activity** name so
+it cannot be confused with human activity or the Center Agent Audit Log. `Session Sync`,
 `Shared Context`, and `Pillar 3` must not be introduced as current names in
 code, schemas, API fields, docs, or product copy.
 
@@ -311,13 +311,13 @@ Session.
 The current provider contract is intentionally asymmetric where the provider
 surface is asymmetric:
 
-| Provider    | Complete retained discovery                                                                                                                                        | Native title                              | Status without fresh lifecycle       | Resume                                  | Fork                                                         |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------ | --------------------------------------- | ------------------------------------------------------------ |
-| Codex       | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion; only explicit null or a non-empty string is a valid page cursor | current `Thread.name`, else null          | archived is Ended; otherwise Unknown | retained non-archived threads           | app-server `thread/fork`                                     |
-| Claude Code | top-level retained JSONL plus the complete live/job registry and hooks                                                                                             | explicit native custom title, else null   | Unknown                              | retained Sessions                       | native SDK `forkSession`                                     |
-| Cursor      | no complete documented machine-readable inventory; report unsupported coverage                                                                                     | unavailable for the complete inventory    | Unknown                              | unsupported from the complete inventory | unsupported                                                  |
-| OpenCode    | complete local Session table or official API pagination                                                                                                            | current persisted `session.title`         | archived is Ended; otherwise Unknown | retained usable Sessions                | native `/session/{id}/fork`                                  |
-| Grok Build  | complete retained `summary.json` index                                                                                                                             | current generated or renamed native title | Unknown                              | retained Sessions                       | unsupported by the current ACP v1 controller contract        |
+| Provider    | Complete retained discovery                                                                                                                                        | Native title                              | Status without fresh lifecycle       | Resume                                  | Fork                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------ | --------------------------------------- | ----------------------------------------------------- |
+| Codex       | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion; only explicit null or a non-empty string is a valid page cursor | current `Thread.name`, else null          | archived is Ended; otherwise Unknown | retained non-archived threads           | app-server `thread/fork`                              |
+| Claude Code | top-level retained JSONL plus the complete live/job registry and hooks                                                                                             | explicit native custom title, else null   | Unknown                              | retained Sessions                       | native SDK `forkSession`                              |
+| Cursor      | no complete documented machine-readable inventory; report unsupported coverage                                                                                     | unavailable for the complete inventory    | Unknown                              | unsupported from the complete inventory | unsupported                                           |
+| OpenCode    | complete local Session table or official API pagination                                                                                                            | current persisted `session.title`         | archived is Ended; otherwise Unknown | retained usable Sessions                | native `/session/{id}/fork`                           |
+| Grok Build  | complete retained `summary.json` index                                                                                                                             | current generated or renamed native title | Unknown                              | retained Sessions                       | unsupported by the current ACP v1 controller contract |
 
 Archived or otherwise unusable Sessions return false for an operation unless
 the installed provider version and adapter have proved that exact operation.
