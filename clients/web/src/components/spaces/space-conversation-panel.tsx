@@ -2410,7 +2410,7 @@ function CenterAgentDirectMessageIntro(input: {
 	);
 }
 
-const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
+type ConversationBubbleRunInput = {
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -2480,23 +2480,16 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		SpaceWakeStopRequestStatus
 	>;
 	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
-}) {
-	const agentControlLabel = formatSpaceAgentControlLabel({
-		agentControllerRef: input.run.speaker.agentControllerRef,
-		controllerDisplay: input.run.speaker.controllerDisplay,
-		profileKind: input.run.speaker.profileKind,
-		runtimeDeviceDisplayName: input.run.speaker.runtimeDeviceDisplayName,
-	});
+};
+
+const ConversationBubbleRun = memo(function ConversationBubbleRun(
+	input: ConversationBubbleRunInput
+) {
 	const messageAlign = resolveSpaceMessageDirectionalAlign(input.run.isSelf);
 	const selfMessageContentLayoutClassName =
 		resolveSpaceMessageContentLayoutClassName({ isSelf: input.run.isSelf });
 	const messageContentPaddingClassName =
 		resolveSpaceMessageContentPaddingClassName({ isSelf: input.run.isSelf });
-	const isCenterAgentRun = resolveIsCenterAgentConversationRun({
-		centerAgentProfileId: input.centerAgentProfileId,
-		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
-		run: input.run,
-	});
 	const detailsDialog = useSpaceProfileDetailsDialog({
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
@@ -2510,57 +2503,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		profileId: input.selfProfileId,
 		spaceId: input.spaceId,
 	});
-	const speakerHeaderContent = (
-		<>
-			<SpaceMessageProfileAvatar
-				agentControllerPending={input.run.speaker.agentControllerPending}
-				agentControllerRef={input.run.speaker.agentControllerRef}
-				avatarImageUrl={
-					input.run.speaker.avatarImageUrl ??
-					(input.run.speaker.profileId === input.selfProfileId
-						? input.selfAvatarImageUrl
-						: null)
-				}
-				displayName={input.run.speaker.displayName}
-				isCenterAgent={isCenterAgentRun}
-				profileId={input.run.speaker.profileId}
-				profileKind={input.run.speaker.profileKind}
-			/>
-			<span className="min-w-0 break-words font-bold text-foreground text-sm">
-				{input.run.speaker.displayName}
-			</span>
-			{agentControlLabel ? (
-				<>
-					<span className="shrink-0 text-muted-foreground">·</span>
-					<span className="min-w-0 text-muted-foreground">
-						{agentControlLabel}
-					</span>
-				</>
-			) : null}
-		</>
-	);
-	const speakerHeaderTrigger = detailsDialog.canOpenProfileDetails ? (
-		<button
-			aria-label={`Check ${input.run.speaker.displayName} Profile`}
-			className={cn(
-				APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
-				"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-			)}
-			onClick={
-				detailsDialog.profileDetailsPopoverTrigger
-					? undefined
-					: detailsDialog.openProfileDetails
-			}
-			type="button"
-		>
-			{speakerHeaderContent}
-		</button>
-	) : null;
-	const speakerHeader =
-		speakerHeaderTrigger && detailsDialog.profileDetailsPopoverTrigger
-			? detailsDialog.profileDetailsPopoverTrigger(speakerHeaderTrigger)
-			: speakerHeaderTrigger;
-
 	return (
 		<>
 			{input.run.items.map((item, index) => {
@@ -2689,11 +2631,16 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 								{index === 0 ? (
 									<>
 										<MessageHeader className="px-0">
-											{speakerHeader ?? (
-												<div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
-													{speakerHeaderContent}
-												</div>
-											)}
+											<ConversationSpeakerHeader
+												centerAgentProfileId={input.centerAgentProfileId}
+												detailsDialog={detailsDialog}
+												isCenterAgentDirectMessage={
+													input.isCenterAgentDirectMessage
+												}
+												run={input.run}
+												selfAvatarImageUrl={input.selfAvatarImageUrl}
+												selfProfileId={input.selfProfileId}
+											/>
 										</MessageHeader>
 										{detailsDialog.profileDetailsPopoverTrigger
 											? null
@@ -2712,119 +2659,25 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 											align={messageAlign}
 											className={messageBubbleVisibilityClassName}
 										>
-											<BubbleContent
-												className={cn(
-													"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
-													messageContentPaddingClassName,
-													SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
-													selfMessageContentLayoutClassName,
-													bubblePresentationClass,
-													getTimelineItemDeliveryClass(item)
-												)}
-												data-highlighted={isHighlighted ? "true" : undefined}
-												data-signal-id={item.id}
-												ref={(element) => {
-													input.registerMessageElement(item.id, element);
-												}}
-												tabIndex={-1}
-											>
-												<ReplyPreview
-													align={messageAlign}
-													item={item}
-													loadedMainTimelineSignalIds={
-														input.loadedMainTimelineSignalIds
-													}
-													onJumpToMessage={input.onJumpToMessage}
-													spaceReferencesById={input.spaceReferencesById}
-												/>
-												<SpaceMessageBody
-													computerSetupContext={
-														computerSetupPresentation.context
-													}
-													computerSetupSourceSignalId={item.id}
-													containerClassName={selfMessageContentLayoutClassName}
-													item={item}
-													onOpenAgentProfile={
-														detailsDialog.openProfileDetailsById
-													}
-													onOpenSpaceFile={input.onOpenSpaceFile}
-													openMeldProfileId={input.selfProfileId}
-													orgSlug={input.orgSlug}
-													profilePresentationsById={
-														input.profilePresentationsById
-													}
-													renderAgentProfileTrigger={
-														detailsDialog.profileDetailsPopoverTriggerById
-													}
-													spaceReferencesById={input.spaceReferencesById}
-												/>
-												{answerProgressStatus}
-												<SpaceMessageInteractionSource
-													source={item.centerAgentInteractionSource}
-												/>
-												{agentInteractionItems.map((interactionItem) =>
-													input.actionableAgentInteractionPlacement ===
-														"pending-surface" &&
-													interactionItem.pendingInteraction
-														?.canRespond ? null : (
-														<SpaceAgentInteractionCard
-															item={interactionItem}
-															key={resolveSpacePendingAgentActionIdentity(
-																interactionItem
-															)}
-															onEditAgentProfile={
-																input.editableAgentProfileIds?.has(
-																	interactionItem.targetProfileId
-																)
-																	? input.onEditAgentProfile
-																	: undefined
-															}
-															onRespond={
-																input.readOnly
-																	? undefined
-																	: input.onAgentInteractionResponse
-															}
-														/>
-													)
-												)}
-												{renderDurableAgentActivity({
-													item,
-													onOpenDetails: getOpenMessageDetailsHandler({
-														enabled: canUseMessageActions,
-														item,
-														onOpenMessageDetails: input.onOpenMessageDetails,
-													}),
-												})}
-												<ReplyStalenessMarker
-													align={messageAlign}
-													item={item}
-												/>
-												<ThreadPreview
-													membersSnapshot={input.membersSnapshot}
-													onOpenThread={input.onOpenThread}
-													preview={
-														input.threadPreviewByThreadId.get(
-															input.threadsByRootSignalId.get(item.id)
-																?.threadId ?? ""
-														) ?? null
-													}
-													spaceReferencesById={input.spaceReferencesById}
-													thread={
-														input.threadsByRootSignalId.get(item.id) ?? null
-													}
-												/>
-												{renderAnchoredSpaceOutcomeRows({
-													align: messageAlign,
-													notices: anchoredOutcomeNotices,
-													onOpenMessageDetails: input.onOpenMessageDetails,
-													onRecoverExecution: input.onRecoverExecution,
-													onRetryWakeTarget: input.onRetryWakeTarget,
-													profileEntriesById: input.profileEntriesById,
-													readOnly: input.readOnly,
-													sourceItem: item,
-													spaceReferencesById: input.spaceReferencesById,
-												})}
-											</BubbleContent>
+											<ConversationBubbleContent
+												agentInteractionItems={agentInteractionItems}
+												anchoredOutcomeNotices={anchoredOutcomeNotices}
+												answerProgressStatus={answerProgressStatus}
+												bubblePresentationClass={bubblePresentationClass}
+												canUseMessageActions={canUseMessageActions}
+												computerSetupContext={computerSetupPresentation.context}
+												detailsDialog={detailsDialog}
+												isHighlighted={isHighlighted}
+												item={item}
+												messageAlign={messageAlign}
+												messageContentPaddingClassName={
+													messageContentPaddingClassName
+												}
+												parent={input}
+												selfMessageContentLayoutClassName={
+													selfMessageContentLayoutClassName
+												}
+											/>
 										</Bubble>
 										{renderConversationMessageFooter({
 											anchoredOutcomeNotices,
@@ -2855,6 +2708,198 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		</>
 	);
 });
+
+function ConversationBubbleContent(input: {
+	agentInteractionItems: ReturnType<
+		typeof resolveSpaceMessageAgentInteractionItems
+	>;
+	anchoredOutcomeNotices: readonly SpaceTimelineItem[];
+	answerProgressStatus: ReactNode;
+	bubblePresentationClass?: string;
+	canUseMessageActions: boolean;
+	computerSetupContext?: CenterAgentComputerSetupContext;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	isHighlighted: boolean;
+	item: SpaceTimelineItem;
+	messageAlign: "start" | "end";
+	messageContentPaddingClassName: string;
+	parent: ConversationBubbleRunInput;
+	selfMessageContentLayoutClassName?: string;
+}) {
+	const parent = input.parent;
+	return (
+		<BubbleContent
+			className={cn(
+				"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
+				input.messageContentPaddingClassName,
+				SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
+				input.selfMessageContentLayoutClassName,
+				input.bubblePresentationClass,
+				getTimelineItemDeliveryClass(input.item)
+			)}
+			data-highlighted={input.isHighlighted ? "true" : undefined}
+			data-signal-id={input.item.id}
+			ref={(element) => {
+				parent.registerMessageElement(input.item.id, element);
+			}}
+			tabIndex={-1}
+		>
+			<ReplyPreview
+				align={input.messageAlign}
+				item={input.item}
+				loadedMainTimelineSignalIds={parent.loadedMainTimelineSignalIds}
+				onJumpToMessage={parent.onJumpToMessage}
+				spaceReferencesById={parent.spaceReferencesById}
+			/>
+			<SpaceMessageBody
+				computerSetupContext={input.computerSetupContext}
+				computerSetupSourceSignalId={input.item.id}
+				containerClassName={input.selfMessageContentLayoutClassName}
+				item={input.item}
+				onOpenAgentProfile={input.detailsDialog.openProfileDetailsById}
+				onOpenSpaceFile={parent.onOpenSpaceFile}
+				openMeldProfileId={parent.selfProfileId}
+				orgSlug={parent.orgSlug}
+				profilePresentationsById={parent.profilePresentationsById}
+				renderAgentProfileTrigger={
+					input.detailsDialog.profileDetailsPopoverTriggerById
+				}
+				spaceReferencesById={parent.spaceReferencesById}
+			/>
+			{input.answerProgressStatus}
+			<SpaceMessageInteractionSource
+				source={input.item.centerAgentInteractionSource}
+			/>
+			{input.agentInteractionItems.map((interactionItem) =>
+				parent.actionableAgentInteractionPlacement === "pending-surface" &&
+				interactionItem.pendingInteraction?.canRespond ? null : (
+					<SpaceAgentInteractionCard
+						item={interactionItem}
+						key={resolveSpacePendingAgentActionIdentity(interactionItem)}
+						onEditAgentProfile={
+							parent.editableAgentProfileIds?.has(
+								interactionItem.targetProfileId
+							)
+								? parent.onEditAgentProfile
+								: undefined
+						}
+						onRespond={
+							parent.readOnly ? undefined : parent.onAgentInteractionResponse
+						}
+					/>
+				)
+			)}
+			{renderDurableAgentActivity({
+				item: input.item,
+				onOpenDetails: getOpenMessageDetailsHandler({
+					enabled: input.canUseMessageActions,
+					item: input.item,
+					onOpenMessageDetails: parent.onOpenMessageDetails,
+				}),
+			})}
+			<ReplyStalenessMarker align={input.messageAlign} item={input.item} />
+			<ThreadPreview
+				membersSnapshot={parent.membersSnapshot}
+				onOpenThread={parent.onOpenThread}
+				preview={
+					parent.threadPreviewByThreadId.get(
+						parent.threadsByRootSignalId.get(input.item.id)?.threadId ?? ""
+					) ?? null
+				}
+				spaceReferencesById={parent.spaceReferencesById}
+				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
+			/>
+			{renderAnchoredSpaceOutcomeRows({
+				align: input.messageAlign,
+				notices: input.anchoredOutcomeNotices,
+				onOpenMessageDetails: parent.onOpenMessageDetails,
+				onRecoverExecution: parent.onRecoverExecution,
+				onRetryWakeTarget: parent.onRetryWakeTarget,
+				profileEntriesById: parent.profileEntriesById,
+				readOnly: parent.readOnly,
+				sourceItem: input.item,
+				spaceReferencesById: parent.spaceReferencesById,
+			})}
+		</BubbleContent>
+	);
+}
+
+function ConversationSpeakerHeader(input: {
+	centerAgentProfileId: string | null;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	isCenterAgentDirectMessage: boolean;
+	run: SpaceConversationBubbleRun;
+	selfAvatarImageUrl: string | null;
+	selfProfileId: string;
+}) {
+	const agentControlLabel = formatSpaceAgentControlLabel({
+		agentControllerRef: input.run.speaker.agentControllerRef,
+		controllerDisplay: input.run.speaker.controllerDisplay,
+		profileKind: input.run.speaker.profileKind,
+		runtimeDeviceDisplayName: input.run.speaker.runtimeDeviceDisplayName,
+	});
+	const isCenterAgentRun = resolveIsCenterAgentConversationRun({
+		centerAgentProfileId: input.centerAgentProfileId,
+		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+		run: input.run,
+	});
+	const content = (
+		<>
+			<SpaceMessageProfileAvatar
+				agentControllerPending={input.run.speaker.agentControllerPending}
+				agentControllerRef={input.run.speaker.agentControllerRef}
+				avatarImageUrl={
+					input.run.speaker.avatarImageUrl ??
+					(input.run.speaker.profileId === input.selfProfileId
+						? input.selfAvatarImageUrl
+						: null)
+				}
+				displayName={input.run.speaker.displayName}
+				isCenterAgent={isCenterAgentRun}
+				profileId={input.run.speaker.profileId}
+				profileKind={input.run.speaker.profileKind}
+			/>
+			<span className="min-w-0 break-words font-bold text-foreground text-sm">
+				{input.run.speaker.displayName}
+			</span>
+			{agentControlLabel ? (
+				<>
+					<span className="shrink-0 text-muted-foreground">·</span>
+					<span className="min-w-0 text-muted-foreground">
+						{agentControlLabel}
+					</span>
+				</>
+			) : null}
+		</>
+	);
+	if (!input.detailsDialog.canOpenProfileDetails) {
+		return (
+			<div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+				{content}
+			</div>
+		);
+	}
+	const trigger = (
+		<button
+			aria-label={`Check ${input.run.speaker.displayName} Profile`}
+			className={cn(
+				APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+				"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			)}
+			onClick={
+				input.detailsDialog.profileDetailsPopoverTrigger
+					? undefined
+					: input.detailsDialog.openProfileDetails
+			}
+			type="button"
+		>
+			{content}
+		</button>
+	);
+	return input.detailsDialog.profileDetailsPopoverTrigger
+		? input.detailsDialog.profileDetailsPopoverTrigger(trigger)
+		: trigger;
+}
 
 function useLatestCallback<Arguments extends unknown[], Result>(
 	callback: (...args: Arguments) => Result
