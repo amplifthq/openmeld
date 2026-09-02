@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-02T10:15:48.601Z",
+  "updatedAt": "2026-09-02T11:43:11.174Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.146",
+      "packageVersion": "0.3.147",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible; older Core retries without the optional provider-scoped Usage fields."
+      "reason": "Existing CLI commands remain compatible; the new current-session read is additive and is used only after cloud receivers are deployed."
     },
     "service": {
-      "bundleHash": "b4794d8275f55ac2ee3e823ec42259f7629c2d2c7ca1ce98cf16499b28daca14",
-      "bundleVersion": "0.3.146",
+      "bundleHash": "55a292e3f2937356a1a2ab2d3bc7d31f3bd32b419a293e48b163f019d5148663",
+      "bundleVersion": "0.3.147",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services keep current Wake behavior; provider-scoped Usage activates only after a compatible report and Core are present."
+      "reason": "No Runtime Transport or Wake execution contract changed, so existing Services can continue current and new Wake work."
     },
     "skills": {
-      "bundleHash": "401cc873760f7ff783e2f3ef80c685c8248c760a4e0fd23c33bc9364daae17fb",
+      "bundleHash": "013fefa7a3fcc16e1cdd32194ef389d8ed06fe50313a0b3a317c774cc27581c7",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Existing skills remain valid; the updated guidance uses the already supported CLI contract."
+      "reason": "Existing installed Skills remain valid; the new Agent guidance is additive and ships with the matching CLI release."
     }
   }
 }
