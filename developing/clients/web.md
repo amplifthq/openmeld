@@ -1793,8 +1793,16 @@ or recovery action.
 a failed save keeps the draft and its diagnostic visible. Dangerous or
 low-frequency actions remain in the overflow menu. This presentation does not
 create a second Agent Profile, Binding, readiness, request, or edit authority.
-The Members panel continues to open the compact Profile Details dialog as a
-quick preview rather than navigating into this workspace.
+Agent identity controls in messages, Threads, and other in-context collaboration
+surfaces open one compact Profile Details popover. The Members panel opens the
+same content in a larger **Check this Profile** dialog. Both presentations show
+the Agent identity, current Presence and Activity, a **Direct Message** action,
+the same configuration cards, and **More Details** navigation to the canonical
+Agent route. Owners edit supported settings from those cards; other viewers see
+the same cards read-only. The overflow contains only non-destructive actions.
+Web must not maintain a separate About-versus-Edit presentation or mutation
+path. Disruptive Controller and working-folder changes keep the account-wide
+execution lock and Core writer guard described below.
 
 Below `md`, Agents uses the shared modal secondary-sidebar drawer with the
 **Agents** title and dismisses it after selection. At `md` and wider, the same
@@ -2918,7 +2926,7 @@ semibold canonical name, and the exact relation. Later appearances of the same
 structured Agent render as Reference tokens, matching the Composer's duplicate
 rule without adding another Wake target. The token uses the same visual family
 as the Composer control but has no selector or caret. Activating any point in
-the token opens that Agent Profile's existing details dialog; hover and
+the token opens that Agent Profile's compact Profile Details popover; hover and
 keyboard focus use the token surface and never underline the name. Web derives
 this presentation only from structured targets and resolved Profile
 presentation. It does not decorate ordinary mention-like text in messages with
