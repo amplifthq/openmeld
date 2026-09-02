@@ -2530,9 +2530,10 @@ RuntimeCoordinator execution truth. Organization directory presence cannot be
 used as coding-session evidence, and coding-session presence cannot make a
 Profile Wake-ready.
 
-Web labels the product's first-level destination **Agent Activity** and uses
-`/o/{orgSlug}/agent-activity`. The full label must never be shortened to the
-generic **Activity** or reused for the Center Agent audit journal.
+Web uses `/o/{orgSlug}/agent-activity` as the canonical **Agent Activity**
+product home. It is temporarily absent from the primary rail without being
+relocated or renamed. The full label must never be shortened to the generic
+**Activity** or reused for the Center Agent audit journal.
 
 ## MVP Boundary
 
