@@ -36,9 +36,11 @@ import {
 	CreateProfileErrorNotice,
 	CreateProfileForm,
 	type CreateProfileFormProps,
+} from "./create-profile-form";
+import {
 	resolveAgentProfileConfigurationSummaries,
 	resolveCreateProfileSubmitBlockReason,
-} from "./create-profile-form";
+} from "./create-profile-form-logic";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { LocalAgentSelector } from "./local-agent-selector";
 
