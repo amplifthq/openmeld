@@ -261,31 +261,90 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 		}
 	};
 	return (
+		<LocalAgentProfileProjectSettingsDialogView
+			closeDialog={closeDialog}
+			currentMode={currentMode}
+			defaultProjectId={defaultProjectId}
+			defaultProjectName={defaultProject?.name ?? null}
+			errorMessage={errorMessage}
+			input={input}
+			isPending={isPending}
+			projects={projects}
+			projectsError={projectsQuery.isError}
+			projectsPending={projectsQuery.isPending}
+			saveDisabled={saveDisabled}
+			saveSelection={saveSelection}
+			selectedBindingGeneration={selectedBindingGeneration}
+			selectedIndex={selectedIndex}
+			selectedProjectId={selectedProjectId}
+			selectionMode={selectionMode}
+			setErrorMessage={setErrorMessage}
+			setSelectedBindingGeneration={setSelectedBindingGeneration}
+			setSelectedConnection={setSelectedConnection}
+			setSelectedProjectId={setSelectedProjectId}
+			setSelectionMode={setSelectionMode}
+			setWorkspacePath={setWorkspacePath}
+			workspaceChangeDisabled={workspaceChangeDisabled}
+			workspacePath={workspacePath}
+		/>
+	);
+}
+
+function LocalAgentProfileProjectSettingsDialogView(input: {
+	closeDialog: () => void;
+	currentMode: Exclude<ProjectSelectionMode, null>;
+	defaultProjectId: string | null;
+	defaultProjectName: string | null;
+	errorMessage: string | null;
+	input: Parameters<typeof LocalAgentProfileProjectSettingsDialog>[0];
+	isPending: boolean;
+	projects: readonly Project[];
+	projectsError: boolean;
+	projectsPending: boolean;
+	saveDisabled: boolean;
+	saveSelection: () => Promise<void>;
+	selectedBindingGeneration: string | null;
+	selectedIndex: number;
+	selectedProjectId: string;
+	selectionMode: ProjectSelectionMode;
+	setErrorMessage: (message: string | null) => void;
+	setSelectedBindingGeneration: (generation: string | null) => void;
+	setSelectedConnection: (
+		connection: LocalProjectControlConnection | null
+	) => void;
+	setSelectedProjectId: (projectId: string) => void;
+	setSelectionMode: (mode: ProjectSelectionMode) => void;
+	setWorkspacePath: (path: string) => void;
+	workspaceChangeDisabled: boolean;
+	workspacePath: string;
+}) {
+	const dialog = input.input;
+	return (
 		<Dialog
 			onOpenChange={(open) => {
-				if (!(open || isPending)) {
-					closeDialog();
+				if (!(open || input.isPending)) {
+					input.closeDialog();
 				}
 			}}
-			open={input.open}
+			open={dialog.open}
 		>
 			<DialogContent className="sm:max-w-xl">
 				<DialogHeader>
 					<DialogTitle>Working folder</DialogTitle>
 					<DialogDescription>
-						Choose where {input.profile.profileName} starts new work on this
+						Choose where {dialog.profile.profileName} starts new work on this
 						computer.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="grid gap-4">
 					<RadioGroup
-						aria-disabled={workspaceChangeDisabled || undefined}
+						aria-disabled={input.workspaceChangeDisabled || undefined}
 						aria-label="Starting location"
 						className={cn(
 							"w-full gap-1",
-							workspaceChangeDisabled && "pointer-events-none opacity-70"
+							input.workspaceChangeDisabled && "pointer-events-none opacity-70"
 						)}
-						selectedIndex={selectedIndex}
+						selectedIndex={input.selectedIndex}
 					>
 						<RadioItem
 							className="px-3 py-2.5"
@@ -293,31 +352,31 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 							index={0}
 							label="A folder on this computer"
 							onSelect={() => {
-								setSelectionMode("workspace");
-								setWorkspacePath(
-									currentMode === "workspace"
-										? (input.currentWorkingFolder ?? "")
+								input.setSelectionMode("workspace");
+								input.setWorkspacePath(
+									input.currentMode === "workspace"
+										? (dialog.currentWorkingFolder ?? "")
 										: ""
 								);
-								setSelectedConnection(null);
-								setErrorMessage(null);
+								input.setSelectedConnection(null);
+								input.setErrorMessage(null);
 							}}
 						/>
 						<RadioItem
 							className="px-3 py-2.5"
 							description={
-								defaultProject
-									? `${defaultProject.name} is the current Project.`
+								input.defaultProjectName
+									? `${input.defaultProjectName} is the current Project.`
 									: "Use a Project’s connected folder across computers."
 							}
 							index={1}
 							label="A Project folder"
 							onSelect={() => {
-								setSelectionMode("project");
-								setSelectedProjectId(defaultProjectId ?? "");
-								setSelectedBindingGeneration(null);
-								setSelectedConnection(null);
-								setErrorMessage(null);
+								input.setSelectionMode("project");
+								input.setSelectedProjectId(input.defaultProjectId ?? "");
+								input.setSelectedBindingGeneration(null);
+								input.setSelectedConnection(null);
+								input.setErrorMessage(null);
 							}}
 						/>
 						<RadioItem
@@ -326,76 +385,80 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 							index={2}
 							label="OpenMeld managed"
 							onSelect={() => {
-								setSelectionMode("managed");
-								setSelectedConnection(null);
-								setErrorMessage(null);
+								input.setSelectionMode("managed");
+								input.setSelectedConnection(null);
+								input.setErrorMessage(null);
 							}}
 						/>
 					</RadioGroup>
 					<p className="text-muted-foreground text-xs leading-5">
 						{FUTURE_WAKES_PROJECT_SETTINGS_NOTICE}
 					</p>
-					{input.executionTargetChangeEligibilityStatus === "blocked" ? (
+					{dialog.executionTargetChangeEligibilityStatus === "blocked" ? (
 						<p className="text-muted-foreground text-xs leading-5">
 							Working folder changes are unavailable while this Agent is working
 							because changing folders would interrupt the current Wake.
 						</p>
 					) : null}
-					{input.executionTargetChangeEligibilityStatus === "unavailable" ? (
+					{dialog.executionTargetChangeEligibilityStatus === "unavailable" ? (
 						<p className="text-muted-foreground text-xs leading-5">
 							OpenMeld couldn’t confirm whether this Agent is working, so
 							working folder changes are temporarily unavailable. Try again.
 						</p>
 					) : null}
 					<ProjectSettingsSelectionControls
-						disabled={workspaceChangeDisabled}
-						isProjectsPending={projectsQuery.isPending}
-						mode={selectionMode}
+						disabled={input.workspaceChangeDisabled}
+						isProjectsPending={input.projectsPending}
+						mode={input.selectionMode}
 						onConnectionReady={(connection) => {
-							setSelectedBindingGeneration(connection.bindingGeneration);
-							setSelectedConnection(connection);
+							input.setSelectedBindingGeneration(connection.bindingGeneration);
+							input.setSelectedConnection(connection);
 						}}
 						onManualPathChange={(path) => {
-							setWorkspacePath(path);
-							setErrorMessage(null);
+							input.setWorkspacePath(path);
+							input.setErrorMessage(null);
 						}}
 						onProjectChange={(projectId) => {
-							setSelectedProjectId(projectId);
-							setSelectedBindingGeneration(null);
+							input.setSelectedProjectId(projectId);
+							input.setSelectedBindingGeneration(null);
 						}}
-						organizationId={input.organizationId}
-						projectId={selectedProjectId}
-						projects={projects}
-						selectedBindingGeneration={selectedBindingGeneration}
-						workspacePath={workspacePath}
+						organizationId={dialog.organizationId}
+						projectId={input.selectedProjectId}
+						projects={input.projects}
+						selectedBindingGeneration={input.selectedBindingGeneration}
+						workspacePath={input.workspacePath}
 					/>
-					{projectsQuery.isError ? (
+					{input.projectsError ? (
 						<p className="text-destructive text-sm">
 							OpenMeld couldn’t load Projects for this organization.
 						</p>
 					) : null}
-					{errorMessage ? (
-						<p className="text-destructive text-sm">{errorMessage}</p>
+					{input.errorMessage ? (
+						<p className="text-destructive text-sm">{input.errorMessage}</p>
 					) : null}
 				</div>
 				<DialogFooter>
 					<DialogClose
 						render={
-							<Button disabled={isPending} type="button" variant="ghost" />
+							<Button
+								disabled={input.isPending}
+								type="button"
+								variant="ghost"
+							/>
 						}
 					>
 						Cancel
 					</DialogClose>
 					<Button
-						disabled={saveDisabled}
+						disabled={input.saveDisabled}
 						onClick={() => {
-							saveSelection().catch((error) => {
+							input.saveSelection().catch((error) => {
 								console.error("Failed to update working folder.", error);
 							});
 						}}
 						type="button"
 					>
-						{isPending ? "Saving…" : "Save changes"}
+						{input.isPending ? "Saving…" : "Save changes"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
