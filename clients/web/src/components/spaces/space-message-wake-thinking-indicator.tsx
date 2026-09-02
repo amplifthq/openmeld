@@ -23,20 +23,6 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 	onOpenMessageDetails?: () => void;
 	showAgentWorkingState?: boolean;
 }) {
-	const elapsedEntry = resolveSingleElapsedEntry(
-		input.entries.filter((entry) => entry.kind === "progress")
-	);
-	return (
-		<SpaceMessageWakeThinkingIndicatorContent
-			{...input}
-			key={elapsedEntry ? resolveElapsedEntryIdentity(elapsedEntry) : "none"}
-		/>
-	);
-}
-
-function SpaceMessageWakeThinkingIndicatorContent(
-	input: Parameters<typeof SpaceMessageWakeThinkingIndicator>[0]
-) {
 	const isEndAligned = input.align === "end";
 	const previewEntries = input.entries.filter(
 		(entry) => entry.kind === "preview"
@@ -49,61 +35,25 @@ function SpaceMessageWakeThinkingIndicatorContent(
 		(entry) => entry.kind === "status"
 	);
 	const rawElapsedEntry = resolveSingleElapsedEntry(progressEntries);
-	const [elapsedStartedAtMs] = useState(
-		() => rawElapsedEntry?.elapsedStartedAtMs ?? null
-	);
-	const elapsedEntry = resolveStableElapsedEntry({
-		elapsedStartedAtMs,
-		entry: rawElapsedEntry,
-	});
-	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
-	const isWaitingForFinalStatus = isSpaceWakeProgressWaitingForFinalStatus({
-		lastEvidenceAtMs: rawElapsedEntry?.elapsedStartedAtMs ?? null,
-		nowMs,
-	});
-	const words = progressEntries.map((entry) =>
-		formatThinkingEntryText({
-			entry,
-			isWaitingForFinalStatus,
-			nowMs,
-			showAgentWorkingState: input.showAgentWorkingState === true,
-			showElapsedTime: entry === elapsedEntry,
-		})
-	);
 
 	if (input.entries.length === 0 && !input.control) {
 		return null;
 	}
 
-	const indicator = buildWakeThinkingIndicator({
-		className: input.className,
-		elapsedEntry,
-		isWaitingForFinalStatus,
-		latestPreviewEntry,
-		nowMs,
-		onOpenMessageDetails: input.onOpenMessageDetails !== undefined,
-		progressEntries,
-		showAgentWorkingState: input.showAgentWorkingState === true,
-		words,
-	});
-
-	const indicatorContent =
-		input.onOpenMessageDetails && indicator ? (
-			<button
-				aria-label="Open message details"
-				className={cn(
-					"w-fit min-w-0 max-w-full cursor-pointer appearance-none overflow-hidden border-0 bg-transparent p-0 text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-4",
-					isEndAligned ? "text-right" : "text-left"
-				)}
-				data-testid="space-wake-thinking-indicator"
-				onClick={input.onOpenMessageDetails}
-				type="button"
-			>
-				{indicator}
-			</button>
-		) : (
-			indicator
-		);
+	const indicatorContent = (
+		<WakeThinkingIndicatorContent
+			className={input.className}
+			isEndAligned={isEndAligned}
+			key={
+				rawElapsedEntry ? resolveElapsedEntryIdentity(rawElapsedEntry) : "none"
+			}
+			latestPreviewEntry={latestPreviewEntry}
+			onOpenMessageDetails={input.onOpenMessageDetails}
+			progressEntries={progressEntries}
+			rawElapsedEntry={rawElapsedEntry}
+			showAgentWorkingState={input.showAgentWorkingState === true}
+		/>
+	);
 	const statusContent = statusEntries.map((entry) => (
 		<output
 			className="text-[13px] text-muted-foreground"
@@ -132,6 +82,67 @@ function SpaceMessageWakeThinkingIndicatorContent(
 				{statusContent}
 			</div>
 		</SpaceMessageProgressRow>
+	);
+}
+
+function WakeThinkingIndicatorContent(input: {
+	className?: string;
+	isEndAligned: boolean;
+	latestPreviewEntry: SpaceMessageWakeThinkingEntry | null;
+	onOpenMessageDetails?: () => void;
+	progressEntries: readonly SpaceMessageWakeThinkingEntry[];
+	rawElapsedEntry: SpaceMessageWakeThinkingEntry | null;
+	showAgentWorkingState: boolean;
+}) {
+	const [elapsedStartedAtMs] = useState(
+		() => input.rawElapsedEntry?.elapsedStartedAtMs ?? null
+	);
+	const elapsedEntry = resolveStableElapsedEntry({
+		elapsedStartedAtMs,
+		entry: input.rawElapsedEntry,
+	});
+	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
+	const isWaitingForFinalStatus = isSpaceWakeProgressWaitingForFinalStatus({
+		lastEvidenceAtMs: input.rawElapsedEntry?.elapsedStartedAtMs ?? null,
+		nowMs,
+	});
+	const words = input.progressEntries.map((entry) =>
+		formatThinkingEntryText({
+			entry,
+			isWaitingForFinalStatus,
+			nowMs,
+			showAgentWorkingState: input.showAgentWorkingState,
+			showElapsedTime: entry === elapsedEntry,
+		})
+	);
+
+	const indicator = buildWakeThinkingIndicator({
+		className: input.className,
+		elapsedEntry,
+		isWaitingForFinalStatus,
+		latestPreviewEntry: input.latestPreviewEntry,
+		nowMs,
+		onOpenMessageDetails: input.onOpenMessageDetails !== undefined,
+		progressEntries: input.progressEntries,
+		showAgentWorkingState: input.showAgentWorkingState,
+		words,
+	});
+
+	return input.onOpenMessageDetails && indicator ? (
+		<button
+			aria-label="Open message details"
+			className={cn(
+				"w-fit min-w-0 max-w-full cursor-pointer appearance-none overflow-hidden border-0 bg-transparent p-0 text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-4",
+				input.isEndAligned ? "text-right" : "text-left"
+			)}
+			data-testid="space-wake-thinking-indicator"
+			onClick={input.onOpenMessageDetails}
+			type="button"
+		>
+			{indicator}
+		</button>
+	) : (
+		indicator
 	);
 }
 
