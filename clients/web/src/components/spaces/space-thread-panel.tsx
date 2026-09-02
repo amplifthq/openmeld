@@ -656,47 +656,90 @@ export function SpaceThreadPanel(input: {
 			{profileDetailsDialog.profileDetailsDialog}
 			{input.pendingActionSurface}
 			{renderThreadComposer(input)}
-			{messageDetailsItem && input.activeThread ? (
-				<SpaceMessageDetailsDrawer
-					canJumpToMessage={() => false}
-					diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
-						isPending: input.isDiagnosticReportPending(messageDetailsItem.id),
-						isSent: input.isDiagnosticReportSent(messageDetailsItem.id),
-					})}
-					errorLogMessage="Failed to report a space thread message."
-					isAgentRecoveryPending={input.isAgentRecoveryPending}
-					isPersonalContext={input.isPersonalContext}
-					item={messageDetailsItem}
-					onAgentRecoveryAction={input.onAgentRecoveryAction}
-					onJumpToMessage={() => undefined}
-					onOpenChange={(open) => {
-						if (!open) {
-							setMessageDetailsSelection(null);
-						}
-					}}
-					onRecoverExecution={onRecoverExecution}
-					onReportMessage={input.onReportMessage}
-					onRetryWakeTarget={onThreadRetryWakeTarget}
-					onWakeStopRequest={
-						input.onWakeStopRequest ? onWakeStopRequest : undefined
-					}
-					open={true}
-					openMeldProfileId={input.selfProfileId}
-					orgSlug={input.orgSlug}
-					prepareSetupHref={input.prepareSetupHref}
-					profilePresentationsById={profilePresentationsById}
-					replyItems={messageDetailsReplyItems}
-					spaceId={input.activeThread.spaceId}
-					spaceReferencesById={input.spaceReferencesById}
-					targetProfileDisplayNamesByProfileId={wakeStopTargetLabelsByProfileId}
-					wakeFailureTargetContextsByProfileId={
-						input.wakeFailureTargetContextsByProfileId
-					}
-					wakeIssueEntries={messageDetailsWakeProgressState?.issueEntries ?? []}
-					wakeStopTarget={messageDetailsWakeStopTarget}
-				/>
-			) : null}
+			<ThreadSelectedMessageDetails
+				activeThread={input.activeThread}
+				messageDetailsItem={messageDetailsItem}
+				onClose={() => setMessageDetailsSelection(null)}
+				onRecoverExecution={onRecoverExecution}
+				onRetryWakeTarget={onThreadRetryWakeTarget}
+				onWakeStopRequest={onWakeStopRequest}
+				panelInput={input}
+				profilePresentationsById={profilePresentationsById}
+				replyItems={messageDetailsReplyItems}
+				wakeIssueEntries={messageDetailsWakeProgressState?.issueEntries ?? []}
+				wakeStopTarget={messageDetailsWakeStopTarget}
+				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
+			/>
 		</SpaceInlineSidePanel>
+	);
+}
+
+function ThreadSelectedMessageDetails(input: {
+	activeThread: SpaceThread | null;
+	messageDetailsItem: SpaceTimelineItem | null;
+	onClose: () => void;
+	onRecoverExecution?: SpaceExecutionRecoveryHandler;
+	onRetryWakeTarget?: SpaceWakeRetryHandler;
+	onWakeStopRequest: SpaceWakeStopRequestHandler;
+	panelInput: Parameters<typeof SpaceThreadPanel>[0];
+	profilePresentationsById: ReadonlyMap<
+		string,
+		SpaceCollaborationProfilePresentation
+	>;
+	replyItems: readonly SpaceTimelineItem[];
+	wakeIssueEntries: ReturnType<
+		typeof resolveSpaceMessageWakeProgressState
+	>["issueEntries"];
+	wakeStopTarget: SpaceWakeStopTargetResolution | null;
+	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
+}) {
+	if (!(input.messageDetailsItem && input.activeThread)) {
+		return null;
+	}
+	const panelInput = input.panelInput;
+	return (
+		<SpaceMessageDetailsDrawer
+			canJumpToMessage={() => false}
+			diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
+				isPending: panelInput.isDiagnosticReportPending(
+					input.messageDetailsItem.id
+				),
+				isSent: panelInput.isDiagnosticReportSent(input.messageDetailsItem.id),
+			})}
+			errorLogMessage="Failed to report a space thread message."
+			isAgentRecoveryPending={panelInput.isAgentRecoveryPending}
+			isPersonalContext={panelInput.isPersonalContext}
+			item={input.messageDetailsItem}
+			onAgentRecoveryAction={panelInput.onAgentRecoveryAction}
+			onJumpToMessage={() => undefined}
+			onOpenChange={(open) => {
+				if (!open) {
+					input.onClose();
+				}
+			}}
+			onRecoverExecution={input.onRecoverExecution}
+			onReportMessage={panelInput.onReportMessage}
+			onRetryWakeTarget={input.onRetryWakeTarget}
+			onWakeStopRequest={
+				panelInput.onWakeStopRequest ? input.onWakeStopRequest : undefined
+			}
+			open={true}
+			openMeldProfileId={panelInput.selfProfileId}
+			orgSlug={panelInput.orgSlug}
+			prepareSetupHref={panelInput.prepareSetupHref}
+			profilePresentationsById={input.profilePresentationsById}
+			replyItems={input.replyItems}
+			spaceId={input.activeThread.spaceId}
+			spaceReferencesById={panelInput.spaceReferencesById}
+			targetProfileDisplayNamesByProfileId={
+				input.wakeStopTargetLabelsByProfileId
+			}
+			wakeFailureTargetContextsByProfileId={
+				panelInput.wakeFailureTargetContextsByProfileId
+			}
+			wakeIssueEntries={input.wakeIssueEntries}
+			wakeStopTarget={input.wakeStopTarget}
+		/>
 	);
 }
 
@@ -1412,36 +1455,66 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							{showProgressInAnswerArea ? progressStatus : null}
 						</BubbleContent>
 					</Bubble>
-					{input.item.transientActivityPurpose === null ? (
-						<SpaceMessageFooter
-							addressingTargets={addressingTargets}
-							align={messageAlign}
-							details={
-								messageDetailsItem
-									? {
-											hasProblem: hasWakeProblem || failureSummary !== null,
-											onSelect: () =>
-												input.onOpenMessageDetails(messageDetailsItem),
-										}
-									: undefined
-							}
-							failureSummary={failureSummary}
-							onCopy={() =>
-								copySpaceTimelineItemWithFeedback({
-									item: input.item,
-									openMeldProfileId: input.selfProfileId,
-									organizationSlug: input.orgSlug,
-								})
-							}
-							timestamp={THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
-						/>
-					) : null}
+					<ThreadTimelineMessageFooter
+						addressingTargets={addressingTargets}
+						align={messageAlign}
+						failureSummary={failureSummary}
+						hasWakeProblem={hasWakeProblem}
+						item={input.item}
+						messageDetailsItem={messageDetailsItem}
+						onOpenMessageDetails={input.onOpenMessageDetails}
+						openMeldProfileId={input.selfProfileId}
+						organizationSlug={input.orgSlug}
+					/>
 					{showProgressInAnswerArea ? null : progressStatus}
 				</MessageContent>
 			</Message>
 		</MessageScrollerItem>
 	);
 });
+
+function ThreadTimelineMessageFooter(input: {
+	addressingTargets: ReturnType<
+		typeof resolveSpaceMessageFooterAddressingTargets
+	>;
+	align: "start" | "end";
+	failureSummary: ReturnType<typeof resolveSpaceMessageFooterFailureSummary>;
+	hasWakeProblem: boolean;
+	item: SpaceTimelineItem;
+	messageDetailsItem: SpaceTimelineItem | null;
+	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	openMeldProfileId: string;
+	organizationSlug?: string;
+}) {
+	if (input.item.transientActivityPurpose !== null) {
+		return null;
+	}
+	const details = input.messageDetailsItem
+		? {
+				hasProblem: input.hasWakeProblem || input.failureSummary !== null,
+				onSelect: () =>
+					input.onOpenMessageDetails(
+						input.messageDetailsItem as SpaceTimelineItem
+					),
+			}
+		: undefined;
+	return (
+		<SpaceMessageFooter
+			addressingTargets={input.addressingTargets}
+			align={input.align}
+			details={details}
+			failureSummary={input.failureSummary}
+			onCopy={() =>
+				copySpaceTimelineItemWithFeedback({
+					item: input.item,
+					openMeldProfileId: input.openMeldProfileId,
+					organizationSlug: input.organizationSlug,
+				})
+			}
+			timestamp={THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
+		/>
+	);
+}
 
 function renderThreadMessageProgressStatus(input: {
 	align: "start" | "end";
