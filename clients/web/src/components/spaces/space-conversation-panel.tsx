@@ -22,7 +22,14 @@ import {
 	XIcon,
 } from "@phosphor-icons/react";
 import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+	AnimatePresence,
+	domAnimation,
+	LazyMotion,
+	MotionConfig,
+	m,
+	useReducedMotion,
+} from "motion/react";
 import {
 	Fragment,
 	memo,
@@ -1446,7 +1453,7 @@ function ConversationLatestObserver(input: {
 }) {
 	const { end: canScrollToEnd } = useMessageScrollerScrollable();
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		input.onChange?.(!canScrollToEnd);
 	}, [canScrollToEnd, input.onChange]);
 
@@ -1673,30 +1680,34 @@ function EarlierHistoryLoadingIndicator(input: { visible: boolean }) {
 		: { opacity: 1, transform: "translateY(0px)" };
 
 	return (
-		<AnimatePresence initial={false}>
-			{input.visible ? (
-				<motion.div
-					animate={visibleFrame}
-					className="pointer-events-none h-16 shrink-0"
-					data-slot="earlier-history-loading"
-					exit={hiddenFrame}
-					initial={hiddenFrame}
-					key="earlier-history-loading"
-					transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-				>
-					<div
-						className="relative mx-auto flex h-full items-center justify-center"
-						data-space-conversation-content-width=""
-					>
-						<ProgressiveBlur blurAmount="6px" height="100%" />
-						<output className="relative z-10 inline-flex max-w-full items-center gap-2 overflow-hidden px-3 text-muted-foreground text-xs">
-							<Bars aria-hidden="true" className="h-3 w-5 shrink-0" />
-							<span className="truncate">Loading earlier messages...</span>
-						</output>
-					</div>
-				</motion.div>
-			) : null}
-		</AnimatePresence>
+		<MotionConfig reducedMotion="user">
+			<LazyMotion features={domAnimation} strict>
+				<AnimatePresence initial={false}>
+					{input.visible ? (
+						<m.div
+							animate={visibleFrame}
+							className="pointer-events-none h-16 shrink-0"
+							data-slot="earlier-history-loading"
+							exit={hiddenFrame}
+							initial={hiddenFrame}
+							key="earlier-history-loading"
+							transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+						>
+							<div
+								className="relative mx-auto flex h-full items-center justify-center"
+								data-space-conversation-content-width=""
+							>
+								<ProgressiveBlur blurAmount="6px" height="100%" />
+								<output className="relative z-10 inline-flex max-w-full items-center gap-2 overflow-hidden px-3 text-muted-foreground text-xs">
+									<Bars aria-hidden="true" className="h-3 w-5 shrink-0" />
+									<span className="truncate">Loading earlier messages...</span>
+								</output>
+							</div>
+						</m.div>
+					) : null}
+				</AnimatePresence>
+			</LazyMotion>
+		</MotionConfig>
 	);
 }
 
@@ -3654,4 +3665,5 @@ const TIMELINE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	hour: "numeric",
 	minute: "2-digit",
 	second: "2-digit",
+	timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 });
