@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { TextShimmer } from "./text-shimmer";
 
 vi.mock("motion/react", () => ({
-	motion: {
+	domAnimation: {},
+	LazyMotion: ({ children }: { children: React.ReactNode }) => children,
+	m: {
 		create: (component: string) => component,
 	},
 	useReducedMotion: () => true,
