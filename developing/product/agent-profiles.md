@@ -112,10 +112,14 @@ source; exact internal identifiers remain an Advanced detail.
 When a supported local Agent asks to add itself to a Space, that intent creates
 a new Agent Profile by default. A client must not enumerate the account's
 profiles or inspect unrelated Bindings to guess which identity to reuse. Reuse
-is allowed only when the caller supplies the exact Agent Profile ID it remembers creating
-for the same controller Session; the client validates only that Profile's
-ownership, Organization, Binding, and Project folder. Ambiguous ownership or
-session identity fails closed instead of selecting a nearby match.
+is allowed only when the caller supplies the exact Agent Profile ID it remembers
+creating for the same controller Session; the client validates only that
+Profile's ownership, Organization, Binding, and Project folder. An exact active
+Profile with a confirmed missing Binding is a resumable partial creation: the
+client completes that Profile instead of creating a duplicate. A Profile already
+bound to another controller Session is not repurposed; the default new-Profile
+path remains authoritative. Ambiguous ownership, an unavailable Binding read, or
+an ambiguous session identity fails closed instead of selecting a nearby match.
 
 ## Agent Profile Creation Requests
 

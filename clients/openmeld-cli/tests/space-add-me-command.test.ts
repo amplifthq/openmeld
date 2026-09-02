@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 
 const {
   createOpenMeldAgentProfileMock,
+  readPrimaryBindingMock,
   ensureAgentProfileRuntimeBindingMock,
   listOpenMeldProfilesMock,
   prepareAuthenticatedSpaceCommandContextMock,
@@ -26,6 +27,7 @@ const {
   validateCustomProfileWorkspacePathMock,
 } = vi.hoisted(() => ({
   createOpenMeldAgentProfileMock: vi.fn(),
+  readPrimaryBindingMock: vi.fn(),
   ensureAgentProfileRuntimeBindingMock: vi.fn(),
   listOpenMeldProfilesMock: vi.fn(),
   prepareAuthenticatedSpaceCommandContextMock: vi.fn(),
@@ -96,6 +98,12 @@ vi.mock("../src/profile-workspace/service", () => ({
 vi.mock("../src/system/agent-profile-primary-binding", () => ({
   resolveAgentProfilePrimaryAgentControllerReport:
     resolveAgentProfilePrimaryAgentControllerReportMock,
+}));
+
+vi.mock("../src/system/primary-binding-read-session", () => ({
+  createPrimaryBindingReadSession: () => ({
+    readPrimaryBinding: readPrimaryBindingMock,
+  }),
 }));
 
 vi.mock(
@@ -169,6 +177,12 @@ describe("space add-me command", () => {
     listOpenMeldProfilesMock.mockResolvedValue([]);
     createOpenMeldAgentProfileMock.mockResolvedValue(CREATED_AGENT_PROFILE);
     resolveOpenMeldProfileMock.mockResolvedValue(CREATED_AGENT_PROFILE);
+    readPrimaryBindingMock.mockResolvedValue({
+      binding: {
+        bindingState: "enabled_primary",
+      },
+      status: "found",
+    });
     readProfileWorkspaceConfigMock.mockResolvedValue({ status: "missing" });
     setCustomProfileWorkspaceMock.mockResolvedValue({});
     validateCustomProfileWorkspacePathMock.mockImplementation(
@@ -390,7 +404,7 @@ describe("space add-me command", () => {
     resolveOpenMeldProfileMock.mockResolvedValue(existingAgentProfile);
     resolveAgentProfilePrimaryAgentControllerReportMock.mockResolvedValue({
       agentControllerRef: "builtin:claude-code",
-      bindingState: "bound",
+      bindingState: "enabled_primary",
       primaryBinding: {
         executionTarget: {
           agentControllerConversationId: "claude-session",
@@ -597,7 +611,7 @@ describe("space add-me command", () => {
     resolveOpenMeldProfileMock.mockResolvedValue(existingAgentProfile);
     resolveAgentProfilePrimaryAgentControllerReportMock.mockResolvedValue({
       agentControllerRef: "builtin:codex",
-      bindingState: "bound",
+      bindingState: "enabled_primary",
       primaryBinding: {
         executionTarget: {
           agentControllerConversationId: "codex-thread",
@@ -644,7 +658,7 @@ describe("space add-me command", () => {
     });
     resolveAgentProfilePrimaryAgentControllerReportMock.mockResolvedValue({
       agentControllerRef: "builtin:codex",
-      bindingState: "bound",
+      bindingState: "enabled_primary",
       primaryBinding: {
         executionTarget: {
           agentControllerConversationId: "older-codex-thread",
@@ -674,6 +688,219 @@ describe("space add-me command", () => {
       expect.objectContaining({
         members: [CREATED_AGENT_PROFILE.openMeldProfileId],
       })
+    );
+  });
+
+  it("continues the exact unbound Agent Profile instead of creating a duplicate", async () => {
+    const { runSpaceAddMe } = await import("../src/space/add-me-command");
+    const project = await mkdtemp(join(tmpdir(), "openmeld-add-me-project-"));
+    const partialAgentProfile = {
+      ...CREATED_AGENT_PROFILE,
+      openMeldProfileId: "agt_partial",
+    };
+    resolveOpenMeldProfileMock.mockResolvedValue(partialAgentProfile);
+    readPrimaryBindingMock.mockResolvedValue({
+      binding: {
+        bindingState: "missing",
+        reasonCodes: ["agent_profile_binding.missing"],
+      },
+      status: "missing",
+    });
+
+    await runSpaceAddMe({
+      addMembers: runSpaceAddMembersMock,
+      agentProfile: partialAgentProfile.openMeldProfileId,
+      env: { CODEX_THREAD_ID: "codex-thread" },
+      projectFolders: { projectFolder: [project] },
+      space: SPACE_ID,
+      workingDirectory: project,
+    });
+
+    expect(createOpenMeldAgentProfileMock).not.toHaveBeenCalled();
+    expect(
+      resolveAgentProfilePrimaryAgentControllerReportMock
+    ).not.toHaveBeenCalled();
+    expect(setCustomProfileWorkspaceMock).toHaveBeenCalledWith({
+      openMeldProfileId: partialAgentProfile.openMeldProfileId,
+      customWorkspacePath: project,
+    });
+    expect(ensureAgentProfileRuntimeBindingMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentControllerConversationId: "codex-thread",
+        profile: partialAgentProfile,
+      })
+    );
+    expect(runSpaceAddMembersMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        members: [partialAgentProfile.openMeldProfileId],
+      })
+    );
+  });
+
+  it("fails closed when the exact Profile Binding read is unavailable", async () => {
+    const { runSpaceAddMe } = await import("../src/space/add-me-command");
+    const project = await mkdtemp(join(tmpdir(), "openmeld-add-me-project-"));
+    const partialAgentProfile = {
+      ...CREATED_AGENT_PROFILE,
+      openMeldProfileId: "agt_unknown_binding",
+    };
+    resolveOpenMeldProfileMock.mockResolvedValue(partialAgentProfile);
+    readPrimaryBindingMock.mockResolvedValue({
+      binding: {
+        bindingState: "missing",
+        reasonCodes: ["agent_profile_binding.read_unavailable"],
+      },
+      status: "unavailable",
+    });
+
+    await expect(
+      runSpaceAddMe({
+        addMembers: runSpaceAddMembersMock,
+        agentProfile: partialAgentProfile.openMeldProfileId,
+        env: { CODEX_THREAD_ID: "codex-thread" },
+        projectFolders: { projectFolder: [project] },
+        space: SPACE_ID,
+        workingDirectory: project,
+      })
+    ).rejects.toThrow("could not confirm whether Agent Profile");
+
+    expect(createOpenMeldAgentProfileMock).not.toHaveBeenCalled();
+    expect(ensureAgentProfileRuntimeBindingMock).not.toHaveBeenCalled();
+    expect(runSpaceAddMembersMock).not.toHaveBeenCalled();
+  });
+
+  it("creates a new Profile instead of reviving an exact historical Binding", async () => {
+    const { runSpaceAddMe } = await import("../src/space/add-me-command");
+    const project = await mkdtemp(join(tmpdir(), "openmeld-add-me-project-"));
+    resolveOpenMeldProfileMock.mockResolvedValue({
+      ...CREATED_AGENT_PROFILE,
+      openMeldProfileId: "agt_historical",
+    });
+    readPrimaryBindingMock.mockResolvedValue({
+      binding: {
+        bindingState: "disabled_historical",
+        reasonCodes: ["agent_profile_binding.disabled_historical"],
+      },
+      status: "found",
+    });
+
+    await runSpaceAddMe({
+      addMembers: runSpaceAddMembersMock,
+      agentProfile: "agt_historical",
+      env: { CODEX_THREAD_ID: "codex-thread" },
+      projectFolders: { projectFolder: [project] },
+      space: SPACE_ID,
+      workingDirectory: project,
+    });
+
+    expect(createOpenMeldAgentProfileMock).toHaveBeenCalledOnce();
+    expect(
+      resolveAgentProfilePrimaryAgentControllerReportMock
+    ).not.toHaveBeenCalled();
+    expect(runSpaceAddMembersMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        members: [CREATED_AGENT_PROFILE.openMeldProfileId],
+      })
+    );
+  });
+
+  it("emits the created Profile ID and exact resume command before later setup fails", async () => {
+    const { runSpaceAddMe } = await import("../src/space/add-me-command");
+    const project = await mkdtemp(join(tmpdir(), "openmeld-add-me-project-"));
+    const presenter = createPresenterCapture();
+    prepareAuthenticatedSpaceCommandContextMock.mockResolvedValueOnce({
+      status: "ready",
+      runtime: { resolvedView: "agent", interactive: false },
+      interactive: false,
+      presenter,
+      baseUrl: "https://gateway.openmeld.ai",
+      authenticatedGatewayUrl: "https://gateway.openmeld.ai",
+    });
+    ensureAgentProfileRuntimeBindingMock.mockResolvedValueOnce({
+      reason: "binding_write_failed",
+      reasonCodes: ["agent_profile_binding.write_failed"],
+      routable: false,
+      source: "agent_profile_binding_api",
+      status: "unavailable",
+    });
+
+    await expect(
+      runSpaceAddMe({
+        addMembers: runSpaceAddMembersMock,
+        env: { CODEX_THREAD_ID: "codex-thread" },
+        model: "gpt-5.5",
+        password: "super-secret-password",
+        projectFolders: { projectFolder: [project] },
+        reasoningEffort: "high",
+        space: SPACE_ID,
+        workingDirectory: project,
+      })
+    ).rejects.toThrow(
+      `Agent Profile Binding was not accepted for ${CREATED_AGENT_PROFILE.openMeldProfileId}`
+    );
+
+    const receipt = presenter.lines.find(
+      (entry) => entry.code === "space.add_me.profile_created"
+    );
+    expect(receipt?.text).toContain(
+      `Agent Profile ${CREATED_AGENT_PROFILE.openMeldProfileId} was created`
+    );
+    expect(receipt?.data).toEqual(
+      expect.objectContaining({
+        agentProfileId: CREATED_AGENT_PROFILE.openMeldProfileId,
+        profileCreation: "completed",
+        profileSetup: "in_progress",
+        passwordRequiredOnRetry: true,
+        spaceMembership: "not_confirmed",
+        wakeReadiness: "not_checked",
+      })
+    );
+    expect(receipt?.data?.resumeCommand).toContain(
+      `--agent-profile ${CREATED_AGENT_PROFILE.openMeldProfileId}`
+    );
+    expect(receipt?.data?.resumeCommand).toContain(
+      `--project-folder ${project}`
+    );
+    expect(receipt?.data?.resumeCommand).toContain("--model gpt-5.5");
+    expect(receipt?.data?.resumeCommand).toContain("--reasoning-effort high");
+    expect(JSON.stringify(receipt)).not.toContain("super-secret-password");
+    expect(runSpaceAddMembersMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the recovery receipt when the later Space membership write fails", async () => {
+    const { runSpaceAddMe } = await import("../src/space/add-me-command");
+    const project = await mkdtemp(join(tmpdir(), "openmeld-add-me-project-"));
+    const presenter = createPresenterCapture();
+    const membershipError = new Error("membership transport failed");
+    prepareAuthenticatedSpaceCommandContextMock.mockResolvedValueOnce({
+      status: "ready",
+      runtime: { resolvedView: "agent", interactive: false },
+      interactive: false,
+      presenter,
+      baseUrl: "https://gateway.openmeld.ai",
+      authenticatedGatewayUrl: "https://gateway.openmeld.ai",
+    });
+    runSpaceAddMembersMock.mockRejectedValueOnce(membershipError);
+
+    await expect(
+      runSpaceAddMe({
+        addMembers: runSpaceAddMembersMock,
+        env: { CODEX_THREAD_ID: "codex-thread" },
+        projectFolders: { projectFolder: [project] },
+        space: SPACE_ID,
+        workingDirectory: project,
+      })
+    ).rejects.toBe(membershipError);
+
+    expect(
+      presenter.lines.some(
+        (entry) =>
+          entry.code === "space.add_me.profile_created" &&
+          entry.data?.agentProfileId === CREATED_AGENT_PROFILE.openMeldProfileId
+      )
+    ).toBe(true);
+    expect(presenter.lines.some((entry) => entry.code === "space.add_me")).toBe(
+      false
     );
   });
 
@@ -746,9 +973,7 @@ describe("space add-me command", () => {
       { code: "network.timeout" }
     );
     resolveOpenMeldProfileMock.mockResolvedValue(existingAgentProfile);
-    resolveAgentProfilePrimaryAgentControllerReportMock.mockRejectedValue(
-      timeout
-    );
+    readPrimaryBindingMock.mockRejectedValue(timeout);
 
     let thrownError: Error | null = null;
     try {
@@ -771,11 +996,10 @@ describe("space add-me command", () => {
       `openmeld space add-me ${SPACE_ID} --project-folder ${project} --agent-profile ${existingAgentProfile.openMeldProfileId}`
     );
     expect(thrownError?.message).toContain(timeout.message);
+    expect(readPrimaryBindingMock).toHaveBeenCalledWith(existingAgentProfile);
     expect(
       resolveAgentProfilePrimaryAgentControllerReportMock
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({ bindingReads: expect.any(Object) })
-    );
+    ).not.toHaveBeenCalled();
     expect(createOpenMeldAgentProfileMock).not.toHaveBeenCalled();
     expect(ensureAgentProfileRuntimeBindingMock).not.toHaveBeenCalled();
     expect(listOpenMeldProfilesMock).not.toHaveBeenCalled();

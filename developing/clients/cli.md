@@ -705,7 +705,22 @@ explicit exact-ID path through `--agent-profile <id>` for a caller that already
 remembers the Profile created for this controller session. That path reads only
 the named Profile and its primary Binding; it must never search for a
 substitute. An authorization or Organization-boundary failure on the named
-Profile fails closed.
+Profile fails closed. If Core confirms that the exact active Profile has no
+primary Binding, `add-me` treats it as an incomplete earlier attempt and resumes
+its Project-folder, runtime-reporting, Binding, and membership steps. A Profile
+bound to another controller Session is left unchanged and the ordinary
+new-Profile path is used. An unavailable or ambiguous Binding read never counts
+as an unbound Profile.
+
+Profile creation is an observable commit point inside `add-me`, not proof that
+the remaining setup completed. Immediately after a new Profile is committed,
+CLI emits one compact recovery receipt with the exact Profile ID, the facts that
+setup and Space membership are still unconfirmed, and a retry command containing
+that ID. The retry command preserves non-secret identity, Project-folder,
+permission, and model selections. It never prints the Space password; when the
+original attempt supplied one, the receipt says that the caller may need to add
+`--password` again. A later Binding or membership failure preserves its original
+error and must not emit the final `space.add_me` success result.
 
 `add-me` then adds the resolved profile to a Space. That proves only that the
 normal membership path completed. Space membership and Agent Profile Binding
