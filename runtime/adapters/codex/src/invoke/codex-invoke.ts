@@ -224,14 +224,6 @@ async function invokeCodexAppServerOnceWithAdmissionRetry(
 }
 
 function isCodexAppServerContextLostError(error: unknown): boolean {
-  if (
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "context.resume_timeout"
-  ) {
-    return true;
-  }
   return isLikelyContextLostError(
     error instanceof Error ? error.message : String(error)
   );

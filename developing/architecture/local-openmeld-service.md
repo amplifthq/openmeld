@@ -419,8 +419,9 @@ exact App Server `-32600` response `thread <id> already has an active writer`
 for that resume is structured Agent Controller conversation occupancy, not a
 Wake failure. OpenMeld keeps the task at the Profile FIFO head, observes the
 official lock release, and retries that same metadata-only resume immediately.
-A low-frequency recovery retry handles a missed filesystem event or abrupt
-writer exit. If the exact lock is unexpectedly not visible after Codex reports
+A low-frequency recovery check handles a missed filesystem event or abrupt
+writer exit without starting another App Server process while the official lock
+still exists. If the exact lock is unexpectedly not visible after Codex reports
 writer occupancy, the retry uses a short bounded backoff instead of spinning.
 Wake Stop aborts the task's lock watcher and retry boundary immediately, and
 that task must not issue another `thread/resume`. Normal execution adds no extra
@@ -445,12 +446,13 @@ the additive field so an older Core can still observe fresh local ownership.
 Current Core may recover a lost transition after a WebSocket reconnect or
 Service restart without polling Codex or delaying normal Wake admission.
 
-If an existing controller conversation
-is missing or does not acknowledge resume within the short resume admission
-window, the adapter starts one fresh thread and delivers the complete current
+If Codex explicitly reports that an existing controller conversation is
+missing, the adapter starts one fresh thread and delivers the complete current
 instruction plan exactly once. The resulting context delta replaces the
 inaccessible provider conversation transparently; a person must never be asked
-to create a new Task or Space to repair it.
+to create a new Task or Space to repair it. A resume timeout is ambiguous: it
+must fail closed while preserving the exact controller conversation id, and
+must never silently replace that user-selected Session with a fresh thread.
 
 A Codex reply-repair turn uses one ephemeral fork of the canonical controller
 conversation and keeps the canonical conversation id as continuity truth. The
