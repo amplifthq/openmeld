@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { TooltipProvider } from "#components/tooltip";
 import {
@@ -15,6 +21,7 @@ const LOW_WEEKLY_USAGE_GAUGE_NAME =
   /Codex Weekly usage, 12% left, Low, Resets in 7 days, Updated 10 minutes ago/u;
 const STALE_USAGE_GAUGE_NAME = /Codex Last-known usage, 35% left, Stale/u;
 const USAGE_UNSUPPORTED_COPY = /Usage unsupported/u;
+const OPENCODE_GO_SUMMARY_NAME = /OpenCode Go usage, 12% left, Low/u;
 
 afterEach(cleanup);
 
@@ -122,6 +129,86 @@ describe("Settings Local Agent usage limits", () => {
     );
 
     expect(screen.queryByTestId("local-agent-usage-summary")).toBeNull();
+  });
+
+  it("shows one collapsed summary per provider and groups detail windows", () => {
+    const limits = [
+      {
+        key: "opencode-go:rolling",
+        label: "5-hour usage",
+        observedAt: "2026-08-20T07:57:00.000Z",
+        provider: { displayName: "OpenCode Go", id: "opencode-go" },
+        resetsAt: "2026-08-20T10:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 42,
+      },
+      {
+        key: "opencode-go:weekly",
+        label: "Weekly usage",
+        observedAt: "2026-08-20T07:50:00.000Z",
+        provider: { displayName: "OpenCode Go", id: "opencode-go" },
+        resetsAt: "2026-08-27T08:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 88,
+      },
+      {
+        key: "company-proxy:daily",
+        label: "Daily usage",
+        observedAt: "2026-08-20T07:50:00.000Z",
+        provider: { displayName: "Company Proxy", id: "company-proxy" },
+        resetsAt: "2026-08-21T08:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 25,
+      },
+      {
+        key: "openai:provider",
+        label: "Usage limits",
+        observedAt: "2026-08-20T07:50:00.000Z",
+        provider: { displayName: "OpenAI", id: "openai" },
+        resetsAt: null,
+        status: "unsupported" as const,
+        usedPercent: null,
+      },
+    ];
+    const { rerender } = render(
+      <TooltipProvider>
+        <SettingsLocalAgentUsageSummary
+          agentName="OpenCode"
+          limits={limits}
+          nowMs={NOW_MS}
+        />
+      </TooltipProvider>
+    );
+
+    const summary = screen.getByTestId("local-agent-usage-summary");
+    expect(summary.textContent).toBe("OpenCode Go12%Company Proxy75%");
+    expect(within(summary).getAllByRole("progressbar")).toHaveLength(2);
+    expect(
+      within(summary).getByRole("progressbar", {
+        name: OPENCODE_GO_SUMMARY_NAME,
+      })
+    ).toBeTruthy();
+    expect(summary.textContent).not.toContain("OpenAI");
+
+    rerender(
+      <SettingsLocalAgentUsageLimits
+        agentName="OpenCode"
+        limits={limits}
+        nowMs={NOW_MS}
+      />
+    );
+    const providerGrid = screen.getByTestId("local-agent-usage-provider-grid");
+    expect(
+      within(providerGrid).getByRole("region", {
+        name: "OpenCode Go usage limits",
+      })
+    ).toBeTruthy();
+    expect(
+      within(providerGrid).getByRole("region", {
+        name: "OpenAI usage limits",
+      }).textContent
+    ).toContain("Not reported by provider.");
+    expect(within(providerGrid).getAllByRole("progressbar")).toHaveLength(3);
   });
 
   it("renders multiple accessible gauges and every public capacity status", () => {

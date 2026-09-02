@@ -1,5 +1,7 @@
 import { type ChildProcessByStdio, spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
+import { homedir } from "node:os";
 import type { Readable } from "node:stream";
 import {
   createOpencodeClient,
@@ -7,13 +9,18 @@ import {
 } from "@opencode-ai/sdk/v2";
 import {
   buildCliLaunchInvocation,
+  createUnavailableProviderUsageLimits,
+  createUnsupportedProviderUsageLimits,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
+import { parseOpenCodeGoUsageResponse } from "@openmeld/adapter-opencode";
 import type {
   AgentControllerInterfaceAuthSnapshot,
   AgentControllerInterfaceModel,
   AgentControllerInterfaceStatus,
+  AgentControllerUsageLimits,
 } from "@openmeld/schemas/types";
+import { resolveOpenCodeAuthPath } from "../../agent-activity/opencode-storage";
 
 const DEFAULT_PROBE_TIMEOUT_MS = 8000;
 const SDK_READ_TIMEOUT_MS = 4000;
@@ -23,6 +30,8 @@ const OPENCODE_PROBE_HOSTNAME = "127.0.0.1";
 const OPENCODE_SERVER_READY_PREFIX = "opencode server listening";
 const OPENCODE_SERVER_URL_RE = /on\s+(https?:\/\/[^\s]+)/u;
 const ANSI_ESCAPE = String.fromCharCode(27);
+const OPENCODE_GO_PROVIDER_ID = "opencode-go";
+const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 
 export type OpenCodeReadinessProbeResult = {
   auth: AgentControllerInterfaceAuthSnapshot;
@@ -34,6 +43,7 @@ export type OpenCodeReadinessProbeResult = {
   // controller truth.
   probeCompleted: boolean;
   status: AgentControllerInterfaceStatus;
+  usageLimits?: AgentControllerUsageLimits;
 };
 
 export async function probeOpenCodeReadiness(input: {
@@ -58,7 +68,16 @@ export async function probeOpenCodeReadiness(input: {
       SDK_READ_TIMEOUT_MS,
       `Timed out while reading OpenCode provider status after ${SDK_READ_TIMEOUT_MS}ms.`
     );
-    return resolveOpenCodeReadinessFromProviderList(providerListResult.data);
+    const readiness = resolveOpenCodeReadinessFromProviderList(
+      providerListResult.data
+    );
+    const usageLimits = providerListResult.data
+      ? await readOpenCodeProviderUsageLimits({
+          observedAt: new Date().toISOString(),
+          providerList: providerListResult.data,
+        })
+      : undefined;
+    return { ...readiness, ...(usageLimits ? { usageLimits } : {}) };
   } catch (error: unknown) {
     const auth = resolveOpenCodeAuthSnapshotFromProbeError(error);
     return {
@@ -74,6 +93,93 @@ export async function probeOpenCodeReadiness(input: {
     if (server) {
       await stopOpenCodeProbeServer(server.child);
     }
+  }
+}
+
+export async function readOpenCodeProviderUsageLimits(input: {
+  authContent?: string | null;
+  fetchFn?: typeof fetch;
+  observedAt: string;
+  providerList: ProviderListResponse;
+  readAuthFile?: (path: string) => Promise<string>;
+}): Promise<AgentControllerUsageLimits> {
+  const providersById = new Map<string, { displayName: string; id: string }>();
+  for (const connectedProviderId of input.providerList.connected) {
+    const id = normalizeOptionalText(connectedProviderId);
+    if (!(id && id.length <= 256) || providersById.has(id)) {
+      continue;
+    }
+    const displayName = (
+      normalizeOptionalText(
+        input.providerList.all.find((provider) => provider.id === id)?.name
+      ) ?? id
+    ).slice(0, 256);
+    providersById.set(id, { displayName, id });
+  }
+  const providers = [...providersById.values()];
+
+  const usageLimits = await Promise.all(
+    providers.map(async (provider) => {
+      if (provider.id !== OPENCODE_GO_PROVIDER_ID) {
+        return createUnsupportedProviderUsageLimits(input.observedAt, provider);
+      }
+      const apiKey = await resolveOpenCodeProviderApiKey({
+        authContent: input.authContent,
+        providerId: provider.id,
+        readAuthFile: input.readAuthFile,
+      });
+      if (!apiKey) {
+        return createUnavailableProviderUsageLimits(input.observedAt, provider);
+      }
+      try {
+        const response = await (input.fetchFn ?? fetch)(OPENCODE_GO_USAGE_URL, {
+          headers: { authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(SDK_READ_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+          return createUnavailableProviderUsageLimits(
+            input.observedAt,
+            provider
+          );
+        }
+        return parseOpenCodeGoUsageResponse({
+          observedAt: input.observedAt,
+          value: await response.json(),
+        });
+      } catch {
+        return createUnavailableProviderUsageLimits(input.observedAt, provider);
+      }
+    })
+  );
+  return usageLimits.flat().slice(0, 32);
+}
+
+async function resolveOpenCodeProviderApiKey(input: {
+  authContent?: string | null;
+  providerId: string;
+  readAuthFile?: (path: string) => Promise<string>;
+}): Promise<string | null> {
+  let authContent = input.authContent ?? process.env.OPENCODE_AUTH_CONTENT;
+  if (!authContent) {
+    try {
+      const authPath = resolveOpenCodeAuthPath({
+        homeDir: homedir(),
+        xdgDataHome: process.env.XDG_DATA_HOME,
+      });
+      authContent = input.readAuthFile
+        ? await input.readAuthFile(authPath)
+        : await readFile(authPath, "utf8");
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const providerAuth = toRecord(JSON.parse(authContent)?.[input.providerId]);
+    return providerAuth?.type === "api"
+      ? normalizeOptionalText(providerAuth.key)
+      : null;
+  } catch {
+    return null;
   }
 }
 

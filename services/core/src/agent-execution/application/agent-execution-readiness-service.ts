@@ -15,6 +15,7 @@ import {
   type PrepareReadinessSummary,
   parseAgentControllerRef,
   resolveAgentControllerUsageLimitSupport,
+  resolveAgentControllerUsageProviderId,
   resolveAgentExecutionStatus,
   resolveAgentProfileUsageWakeability,
   resolvePrepareReadinessFromAgentControllerReports,
@@ -1228,6 +1229,10 @@ async function resolveAgentRuntimeReadiness(input: {
     const usageWakeability = resolveAgentProfileUsageWakeability({
       agentControllerRef: executionTarget.agentControllerRef,
       nowMs: parseGeneratedAtMs(input.generatedAt),
+      providerId: resolveAgentControllerUsageProviderId({
+        agentControllerRef: executionTarget.agentControllerRef,
+        modelId: input.binding.modelSelection?.modelId,
+      }),
       report: currentReport
         ? {
             expiresAtMs: currentReport.expiresAtMs,

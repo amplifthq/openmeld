@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
   resolveAgentControllerUsageLimitSupport,
+  resolveAgentControllerUsageProviderId,
   resolveAgentProfileUsageRecoveryAvailability,
   resolveAgentProfileUsageWakeability,
 } from "../src";
@@ -248,8 +249,111 @@ describe("resolveAgentProfileUsageWakeability", () => {
     }
   });
 
+  it("checks only the selected OpenCode provider", () => {
+    const providerLimit = (
+      providerId: string,
+      status: "available" | "exhausted"
+    ) => ({
+      ...createUsageLimit(status),
+      key: `${providerId}:five_hour`,
+      provider: { displayName: providerId, id: providerId },
+    });
+    const report = {
+      expiresAtMs: NOW_MS + 60_000,
+      status: "ready" as const,
+      usageLimits: [
+        providerLimit("opencode-go", "available"),
+        providerLimit("openai", "exhausted"),
+      ],
+      usageLimitsSupportMatrixVersion:
+        AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+    };
+
+    expect(
+      resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:opencode",
+        nowMs: NOW_MS,
+        providerId: "opencode-go",
+        report,
+      })
+    ).toEqual({
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
+    });
+    expect(
+      resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:opencode",
+        nowMs: NOW_MS,
+        providerId: "openai",
+        report,
+      })
+    ).toEqual({
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
+    });
+  });
+
+  it("blocks OpenCode Go when its selected provider is exhausted", () => {
+    expect(
+      resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:opencode",
+        nowMs: NOW_MS,
+        providerId: "opencode-go",
+        report: {
+          expiresAtMs: NOW_MS + 60_000,
+          status: "ready",
+          usageLimits: [
+            {
+              ...createUsageLimit("exhausted"),
+              key: "opencode-go:rolling",
+              provider: {
+                displayName: "OpenCode Go",
+                id: "opencode-go",
+              },
+            },
+          ],
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+        },
+      })
+    ).toEqual({
+      blocksNewWork: true,
+      reasonCode: "usage_exhausted",
+      status: "unavailable",
+    });
+  });
+
+  it("keeps OpenCode Go checking when only another provider reported usage", () => {
+    expect(
+      resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:opencode",
+        nowMs: NOW_MS,
+        providerId: "opencode-go",
+        report: {
+          expiresAtMs: NOW_MS + 60_000,
+          status: "ready",
+          usageLimits: [
+            {
+              ...createUsageLimit("available"),
+              key: "openai:provider",
+              provider: { displayName: "OpenAI", id: "openai" },
+            },
+          ],
+          usageLimitsSupportMatrixVersion:
+            AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+        },
+      })
+    ).toEqual({
+      blocksNewWork: true,
+      reasonCode: "usage_checking",
+      status: "checking",
+    });
+  });
+
   it("keeps one versioned Usage support matrix for Core and the Local Service", () => {
-    expect(AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION).toBe(1);
+    expect(AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION).toBe(2);
     expect(resolveAgentControllerUsageLimitSupport("builtin:codex")).toBe(
       "native"
     );
@@ -262,6 +366,15 @@ describe("resolveAgentProfileUsageWakeability", () => {
     expect(resolveAgentControllerUsageLimitSupport("builtin:cursor")).toBe(
       "unsupported"
     );
+    expect(resolveAgentControllerUsageLimitSupport("builtin:opencode")).toBe(
+      "provider_scoped"
+    );
+    expect(
+      resolveAgentControllerUsageProviderId({
+        agentControllerRef: "builtin:opencode",
+        modelId: "opencode-go/qwen3-coder",
+      })
+    ).toBe("opencode-go");
   });
 
   it("keeps known supported Usage in Checking while its controller report is non-ready", () => {

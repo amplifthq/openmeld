@@ -848,28 +848,34 @@ owner-only controls remain private.
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
 automatically. In the collapsed row, a compact summary follows the existing
-version and update metadata; its tooltip previews every reported window, and
-selecting the existing row reveals a responsive grid of compact Usage Limit
-cards in its details. Each card reuses the collapsed summary's circular gauge
-and keeps the reset and last-observed times visible without a full-width
-progress bar. Owned and teammate Computers use the same shared summary and
-accessible gauge component.
+version and update metadata. Single-provider controllers retain one compact
+summary. A multi-provider controller shows at most three labelled provider
+summary rings plus an overflow count; each ring uses that provider's most
+constrained quantified window and never averages windows or providers. Its
+tooltip previews every reported provider and window. Selecting the existing row
+reveals one card per provider, with separate rings for every real quota window
+inside that card. Each window keeps reset and last-observed times visible
+without a full-width progress bar. Owned and teammate Computers use the same
+shared summary and accessible gauge component.
 A provider with no quantified evidence does not add a collapsed-row badge or
 placeholder gauge. Web explicitly opts in to both owner and Organization
 projections and refreshes them while People or a Computer detail is active.
-A gauge names the limit, exposes its 0–100 used value to assistive technology,
-shows the used percentage in text, shows reset and last-observed time, and names
-the state so color is never the only signal. The UI derives **Low** when a fresh
+A gauge names the limit, derives and exposes its 0–100 remaining value to
+assistive technology, shows the remaining percentage in text, shows reset and
+last-observed time, and names the state so color is never the only signal. The
+UI derives **Low** when a fresh
 available limit is at least 80% used; it does not store a second status or
 remaining percentage. Unknown values have no gauge and never appear as 0%,
 100%, or unlimited.
 
-The UI keeps multiple provider windows separate and handles offline Computers,
+The UI keeps providers and their windows separate and handles offline Computers,
 expired evidence, temporary provider failure, permanent lack of support, and a
 supported provider that has never returned evidence. Last-known percentages on
 an offline or expired Computer are **Stale**. A temporary first-read failure is
 **Unavailable**; no native provider source is **Unsupported**. Copy states that
-capacity information does not control whether the Local Agent can run.
+OpenMeld checks supported current limits before starting new work. Exhausted or
+unavailable evidence from an unselected nested provider does not affect the
+current Agent Profile's Wakeability.
 
 Owned and teammate Computers reuse the same Computer summary, **OpenMeld
 Tools**, and **Local agents** presentation components. Web applies visibility
