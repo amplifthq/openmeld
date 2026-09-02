@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-02T05:18:46.817Z",
+  "updatedAt": "2026-09-02T06:54:43.209Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.143",
+      "packageVersion": "0.3.144",
       "updatePolicy": "available",
-      "reason": "The menu rerun fix changes only local process invocation; existing CLI commands and all cloud and Service contracts remain compatible in both directions."
+      "reason": "Existing CLI commands remain compatible; the add-me flow improves defaults without changing cloud contracts."
     },
     "service": {
-      "bundleHash": "f7cca4926ed95f65ed872b23b2ce624ebcb9fe34f1c630737fdbf7da9a246b07",
-      "bundleVersion": "0.3.143",
+      "bundleHash": "d0db87d5270f645008ec40e1216cab3a66b9d36acd89534c08437540f06aaf53",
+      "bundleVersion": "0.3.144",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing and updated Services use the same Runtime Transport and Wake contracts; this release only adds an optional Core-to-Web Wake Progress reason field."
+      "reason": "Old Services can continue Wake work; this update fixes occupied Codex task admission without changing wire contracts."
     },
     "skills": {
-      "bundleHash": "73e31d09533eac76338fb95bcfab855aeeca940ca587925095ab0c63371abf7d",
+      "bundleHash": "401cc873760f7ff783e2f3ef80c685c8248c760a4e0fd23c33bc9364daae17fb",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The Skill update documents optional model selection and the safe no-selection behavior without changing action or command contracts; older bundles remain usable."
+      "reason": "Existing skills remain valid; the updated guidance uses the already supported CLI contract."
     }
   }
 }
