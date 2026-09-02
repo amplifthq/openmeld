@@ -318,6 +318,76 @@ describe("SpaceMembersSidePanel", () => {
 		).toBeNull();
 	});
 
+	it("hides owner removal until their ordinary Agent leaves the Space", () => {
+		const onRemoveMember = vi.fn(async () => ({
+			alreadyAbsentCount: 0,
+			removedCount: 1,
+		}));
+		const commonProps = {
+			activeWakeWaitingTargetProfileIds: new Set<string>(),
+			agentRecoveryPlansByProfileId: new Map(),
+			autoRefreshExhaustedProfileIds: new Set<string>(),
+			currentOwnerUserId: "user_felix",
+			currentProfileId: "11111111-1111-4111-8111-111111111111",
+			isAgentRecoveryPending: () => false,
+			isLoading: false,
+			membersError: null,
+			onAgentRecoveryAction: async () => undefined,
+			onOpenChange: vi.fn(),
+			onRefresh: async () => undefined,
+			onRemoveMember,
+			open: true,
+			orgSlug: "acme",
+		};
+		const owner = createSpaceMemberHumanSnapshot({
+			memberSource: "added_by_member",
+			ownerUserId: "user_mira",
+			profileId: "22222222-2222-4222-8222-222222222222",
+			profileName: "Mira",
+		});
+		const creator = createSpaceMemberHumanSnapshot({
+			memberSource: "space_creator",
+			ownerUserId: "user_felix",
+			profileId: "11111111-1111-4111-8111-111111111111",
+			profileName: "Felix",
+		});
+		const { rerender } = renderWithQueryClient(
+			<SpaceMembersSidePanel
+				{...commonProps}
+				snapshot={createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							memberSource: "added_by_member",
+							ownerUserId: "user_mira",
+							profileId: "agt_33333333-3333-4333-8333-333333333333",
+							profileName: "Mira Runner",
+						}),
+					],
+					humans: [creator, owner],
+				})}
+			/>
+		);
+
+		expect(
+			screen.queryByRole("button", { name: "Member options for Mira" })
+		).toBeNull();
+
+		rerender(
+			<TestQueryClientProvider>
+				<SpaceMembersSidePanel
+					{...commonProps}
+					snapshot={createSpaceMembersSnapshot({
+						humans: [creator, owner],
+					})}
+				/>
+			</TestQueryClientProvider>
+		);
+
+		expect(
+			screen.getByRole("button", { name: "Member options for Mira" })
+		).toBeTruthy();
+	});
+
 	it("opens the shared Agent Profile editor for an owned Agent member", async () => {
 		const agentProfileId = "agt_22222222-2222-4222-8222-222222222222";
 		const queryClient = createTestQueryClient();
