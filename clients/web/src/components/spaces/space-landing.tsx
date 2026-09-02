@@ -1495,26 +1495,19 @@ function SpaceLandingReady({
 		handleConvertDirectMessageToSpace,
 		showDeleteSpaceAction: controller.showDeleteSpaceAction,
 	});
-	const historyErrorMessage =
-		controller.historyError && controller.timelineItems.length === 0
-			? `Couldn't load recent history. ${controller.historyError.message}${
-					controller.historyError.requestId
-						? ` Request ID: ${controller.historyError.requestId}`
-						: ""
-				}`
-			: null;
-	const membersControl =
-		currentSpaceIsCenterAgentDirectMessage ||
-		!controller.isCurrentAccessConfirmed ? null : (
-			<SpaceMembersToggleButton
-				controlsId={
-					isDesktopMembersPanel ? "space-members-panel" : "space-members-drawer"
-				}
-				memberCount={controller.status.members.totalCount}
-				onOpenChange={handleMembersOpenChange}
-				open={membersOpen}
-			/>
-		);
+	const historyErrorMessage = resolveSpaceHistoryErrorMessage(controller);
+	const membersControl = (
+		<SpaceLandingMembersControl
+			currentSpaceIsCenterAgentDirectMessage={
+				currentSpaceIsCenterAgentDirectMessage
+			}
+			isCurrentAccessConfirmed={controller.isCurrentAccessConfirmed}
+			isDesktopMembersPanel={isDesktopMembersPanel}
+			memberCount={controller.status.members.totalCount}
+			onOpenChange={handleMembersOpenChange}
+			open={membersOpen}
+		/>
+	);
 	const currentHumanViewer = resolveCurrentSpaceHumanViewer({
 		accountProfiles,
 		currentProfileId: controller.profileId,
@@ -1555,16 +1548,11 @@ function SpaceLandingReady({
 		/>
 	);
 	const managementControl = (
-		<>
-			{currentSpaceControls.managementControl}
-			{agentOwnerDirectMessageJoin ? (
-				<AgentOwnerDirectMessageJoinHeaderControl
-					control={agentOwnerDirectMessageJoin}
-				/>
-			) : (
-				humanJoinControl
-			)}
-		</>
+		<SpaceLandingManagementControl
+			agentOwnerDirectMessageJoin={agentOwnerDirectMessageJoin}
+			humanJoinControl={humanJoinControl}
+			managementControl={currentSpaceControls.managementControl}
+		/>
 	);
 	const currentProfileLeaveAction = resolveCurrentProfileLeaveAction({
 		isAccessConfirmed: controller.isCurrentAccessConfirmed,
@@ -1788,6 +1776,67 @@ function SpaceLandingReady({
 			/>
 			{pendingAgentActions.profileEditDialog}
 		</SpaceAgentProfileEditProvider>
+	);
+}
+
+function resolveSpaceHistoryErrorMessage(
+	controller: ReadySpaceLandingController
+): string | null {
+	if (!(controller.historyError && controller.timelineItems.length === 0)) {
+		return null;
+	}
+	const requestId = controller.historyError.requestId
+		? ` Request ID: ${controller.historyError.requestId}`
+		: "";
+	return `Couldn't load recent history. ${controller.historyError.message}${requestId}`;
+}
+
+function SpaceLandingMembersControl(input: {
+	currentSpaceIsCenterAgentDirectMessage: boolean;
+	isCurrentAccessConfirmed: boolean;
+	isDesktopMembersPanel: boolean;
+	memberCount: number;
+	onOpenChange: (open: boolean) => void;
+	open: boolean;
+}) {
+	if (
+		input.currentSpaceIsCenterAgentDirectMessage ||
+		!input.isCurrentAccessConfirmed
+	) {
+		return null;
+	}
+	return (
+		<SpaceMembersToggleButton
+			controlsId={
+				input.isDesktopMembersPanel
+					? "space-members-panel"
+					: "space-members-drawer"
+			}
+			memberCount={input.memberCount}
+			onOpenChange={input.onOpenChange}
+			open={input.open}
+		/>
+	);
+}
+
+function SpaceLandingManagementControl(input: {
+	agentOwnerDirectMessageJoin: ReturnType<
+		typeof useAgentOwnerDirectMessageJoin
+	>;
+	humanJoinControl: ReactNode;
+	managementControl: ReactNode;
+}) {
+	return (
+		<>
+			{input.managementControl}
+			{input.agentOwnerDirectMessageJoin ? (
+				<AgentOwnerDirectMessageJoinHeaderControl
+					control={input.agentOwnerDirectMessageJoin}
+				/>
+			) : (
+				input.humanJoinControl
+			)}
+		</>
 	);
 }
 
