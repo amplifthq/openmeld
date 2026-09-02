@@ -3989,7 +3989,7 @@ describe("organization Core RPC", () => {
         },
       },
       membership: {
-        addedMemberIds: [SECOND_AGENT_PROFILE_ID],
+        addedMemberIds: [SECOND_AGENT_PROFILE_ID, HUMAN_PROFILE_ID],
       },
       organizationId: "org-a",
       resource: { id: JOINED_PRIVATE_SPACE_ID, type: "space" },
@@ -4002,6 +4002,12 @@ describe("organization Core RPC", () => {
             profileId: SECOND_AGENT_PROFILE_ID,
             profileKind: "agent",
             profileName: "Planner",
+          }),
+          expect.objectContaining({
+            ownerUserId: "user-a",
+            profileId: HUMAN_PROFILE_ID,
+            profileKind: "human",
+            profileName: "Ava",
           }),
         ],
         spaceId: JOINED_PRIVATE_SPACE_ID,
@@ -4113,7 +4119,10 @@ describe("organization Core RPC", () => {
       ],
       spaceId: created.spaceId,
     });
-    expect(agents.membership.addedMemberIds).toEqual([SECOND_AGENT_PROFILE_ID]);
+    expect(agents.membership.addedMemberIds).toEqual([
+      SECOND_AGENT_PROFILE_ID,
+      HUMAN_PROFILE_ID,
+    ]);
     if (wake.publicationStatus === "pending") {
       throw new Error("direct Center Agent Wake must be accepted");
     }
@@ -4141,6 +4150,11 @@ describe("organization Core RPC", () => {
           expect.objectContaining({
             profileId: SECOND_AGENT_PROFILE_ID,
             profileKind: "agent",
+          }),
+          expect.objectContaining({
+            ownerUserId: "user-a",
+            profileId: HUMAN_PROFILE_ID,
+            profileKind: "human",
           }),
         ],
         spaceId: created.spaceId,
