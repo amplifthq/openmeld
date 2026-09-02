@@ -4,6 +4,10 @@ title: Add the current Agent to a Space without profile scans
 kind: improved
 areas: ["cli", "agents", "spaces"]
 audiences: ["agents", "members"]
+publishedAt: 2026-09-02
+release: v0.3.145
+evidence:
+  ["pr:552", "pr:556", "pr:558", "commit:c47ecb9c0ee838cbdbdb8e735fc8c124e06d011f", "workflow:33604684089"]
 ---
 
 `openmeld space add-me` now creates a fresh Agent Profile by default instead of
