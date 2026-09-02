@@ -12,4 +12,6 @@ Profile details without repeating a count below the Composer. Composer tokens
 also have a direct remove action on hover, keyboard focus, and touch surfaces.
 The member picker now gives each result deliberate spacing and moves one Fluid
 selection background between pointer and keyboard targets instead of drawing
-competing hover and active backgrounds.
+competing hover and active backgrounds. Clicking an empty part of the visible
+Composer now places the caret in the editor, while attachment, mention, send,
+and token controls keep their own interactions.
