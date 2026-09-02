@@ -84,6 +84,13 @@ export function AgentProfileWorkspaceDetail(input: {
 	const hasReducedProminence =
 		availabilityCategory === "offline" ||
 		availabilityCategory === "unavailable";
+	const visibleActivityNavigation = showOwnerOperationalContext
+		? input.activityNavigation
+		: null;
+	const currentActivityDestination = resolveCurrentActivityDestination({
+		activityNavigation: visibleActivityNavigation,
+		currentSession: input.currentSession,
+	});
 	let operationalRecoveryAction: ReactNode = null;
 	if (
 		showOwnerOperationalContext &&
@@ -128,6 +135,7 @@ export function AgentProfileWorkspaceDetail(input: {
 							</p>
 						) : null}
 						<AgentProfilePresence
+							currentDestination={currentActivityDestination}
 							operationalContext={input.operationalContext}
 							wakeAvailability={displayedWakeAvailability}
 							wakeAvailabilityErrorMessage={input.wakeAvailabilityErrorMessage}
@@ -155,9 +163,7 @@ export function AgentProfileWorkspaceDetail(input: {
 				</div>
 			</div>
 			<AgentProfileCurrentActivity
-				activityNavigation={
-					showOwnerOperationalContext ? input.activityNavigation : null
-				}
+				activityNavigation={visibleActivityNavigation}
 				currentSession={input.currentSession}
 				operationalContext={input.operationalContext}
 				recoveryAction={operationalRecoveryAction}
@@ -180,6 +186,7 @@ type AgentProfilePresenceStatus =
 	| "working";
 
 function AgentProfilePresence(input: {
+	currentDestination: AgentProfileActivityDestination | null;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityErrorMessage: string | null;
@@ -190,6 +197,66 @@ function AgentProfilePresence(input: {
 	const waitingWork = formatWaitingWork({
 		operationalContext: input.operationalContext,
 	});
+	const linkableDestination =
+		presentation.status === "working" ||
+		presentation.status === "needs_attention" ||
+		presentation.status === "waiting"
+			? input.currentDestination
+			: null;
+	const interactiveLabelClassName = linkableDestination
+		? "underline-offset-4 group-hover/presence:underline group-focus-visible/presence:underline"
+		: null;
+	const presenceIcon = (
+		<span
+			className={cn(
+				"inline-flex size-5 shrink-0 items-center justify-center",
+				presentation.textClassName
+			)}
+		>
+			<AgentProfilePresenceIcon status={presentation.status} />
+		</span>
+	);
+	const presenceLabel = presentation.shimmer ? (
+		<TextShimmer
+			as="span"
+			className={cn(
+				"font-medium text-sm leading-5",
+				presentation.textClassName,
+				presentation.status === "working"
+					? null
+					: "[--base-color:var(--color-sky-700)] [--base-gradient-color:var(--color-sky-300)] dark:[--base-color:var(--color-sky-300)] dark:[--base-gradient-color:var(--color-sky-100)]",
+				interactiveLabelClassName
+			)}
+			duration={1.8}
+		>
+			{presentation.label}
+		</TextShimmer>
+	) : (
+		<span
+			className={cn(
+				"font-medium text-sm leading-5",
+				presentation.textClassName,
+				interactiveLabelClassName
+			)}
+		>
+			{presentation.label}
+		</span>
+	);
+	const presenceStatus = linkableDestination ? (
+		<a
+			aria-label={resolveActivityDestinationAriaLabel(linkableDestination)}
+			className="group/presence inline-flex min-w-0 items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+			href={linkableDestination.href}
+		>
+			{presenceIcon}
+			{presenceLabel}
+		</a>
+	) : (
+		<>
+			{presenceIcon}
+			{presenceLabel}
+		</>
+	);
 	return (
 		<div
 			aria-live="polite"
@@ -198,38 +265,7 @@ function AgentProfilePresence(input: {
 			data-testid="agent-profile-presence"
 			title={presentation.tooltip}
 		>
-			<span
-				className={cn(
-					"inline-flex size-5 shrink-0 items-center justify-center",
-					presentation.textClassName
-				)}
-			>
-				<AgentProfilePresenceIcon status={presentation.status} />
-			</span>
-			{presentation.shimmer ? (
-				<TextShimmer
-					as="span"
-					className={cn(
-						"font-medium text-sm leading-5",
-						presentation.textClassName,
-						presentation.status === "working"
-							? null
-							: "[--base-color:var(--color-sky-700)] [--base-gradient-color:var(--color-sky-300)] dark:[--base-color:var(--color-sky-300)] dark:[--base-gradient-color:var(--color-sky-100)]"
-					)}
-					duration={1.8}
-				>
-					{presentation.label}
-				</TextShimmer>
-			) : (
-				<span
-					className={cn(
-						"font-medium text-sm leading-5",
-						presentation.textClassName
-					)}
-				>
-					{presentation.label}
-				</span>
-			)}
+			{presenceStatus}
 			{waitingWork ? (
 				<span
 					className={cn(
@@ -252,6 +288,7 @@ function AgentProfilePresence(input: {
 }
 
 function resolveAgentProfilePresence(input: {
+	currentDestination: AgentProfileActivityDestination | null;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityErrorMessage: string | null;
@@ -274,13 +311,16 @@ function resolveAgentProfilePresence(input: {
 		};
 	}
 	if (operationalContext?.status === "working") {
+		const currentWorkLocation = input.currentDestination?.title ?? null;
 		return {
-			label: "Working",
+			label: currentWorkLocation
+				? `Working in ${currentWorkLocation}`
+				: "Working",
 			shimmer: true,
 			status: "working",
 			textClassName: "text-foreground",
-			tooltip: operationalContext.currentWorkLocation
-				? `Working in ${operationalContext.currentWorkLocation}`
+			tooltip: currentWorkLocation
+				? `Working in ${currentWorkLocation}`
 				: "This Agent is working now.",
 		};
 	}
@@ -556,7 +596,7 @@ function ActivityDestinationLink(input: {
 	return (
 		<div className="flex min-w-0 items-center">
 			<a
-				aria-label={`Open ${sourceLabel}: ${input.destination.title}`}
+				aria-label={resolveActivityDestinationAriaLabel(input.destination)}
 				className="group flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-md bg-transparent px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
 				href={input.destination.href}
 			>
@@ -587,6 +627,12 @@ function ActivityDestinationLink(input: {
 			) : null}
 		</div>
 	);
+}
+
+function resolveActivityDestinationAriaLabel(
+	destination: AgentProfileActivityDestination
+): string {
+	return `Open ${resolveActivitySourceLabel(destination.source)}: ${destination.title}`;
 }
 
 function InterruptedWorkFallback(input: {

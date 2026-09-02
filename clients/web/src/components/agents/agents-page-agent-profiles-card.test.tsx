@@ -433,18 +433,35 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.queryByText("Technical details")).toBeNull();
 		expect(screen.queryByText("Profile type")).toBeNull();
 		const presence = screen.getByTestId("agent-profile-presence");
-		const workingLabel = within(presence).getByText("Working");
+		const workingLabel = within(presence).getByText(
+			"Working in Launch planning"
+		);
 		expect(workingLabel.className).toContain("bg-clip-text");
 		expect(workingLabel.className).toContain("text-foreground");
 		expect(workingLabel.className).not.toContain("text-emerald");
+		expect(workingLabel.className).toContain("group-hover/presence:underline");
+		expect(workingLabel.className).toContain(
+			"group-focus-visible/presence:underline"
+		);
 		expect(presence.getAttribute("data-agent-presence-status")).toBe("working");
 		expect(screen.getByText("Launch planning")).toBeTruthy();
 		expect(screen.getByText("1 queued")).toBeTruthy();
 		expect(screen.queryByText("Next: Customer follow-up")).toBeNull();
-		const spaceLink = screen.getByRole("link", {
+		const presenceLink = within(presence).getByRole("link", {
 			name: "Open Space: Launch planning",
 		});
-		expect(spaceLink.getAttribute("href")).toBe("/o/acme/spaces/space-launch");
+		expect(presenceLink.getAttribute("href")).toBe(
+			"/o/acme/spaces/space-launch"
+		);
+		const spaceLinks = screen.getAllByRole("link", {
+			name: "Open Space: Launch planning",
+		});
+		expect(spaceLinks).toHaveLength(2);
+		expect(
+			spaceLinks.every(
+				(link) => link.getAttribute("href") === "/o/acme/spaces/space-launch"
+			)
+		).toBe(true);
 		const directMessageLink = screen.getByRole("link", {
 			name: "Open Direct Message: Customer follow-up",
 		});
@@ -620,6 +637,19 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			{},
 			createPrimaryBindingResponse("codex:approveForMe").binding,
 			{
+				agentProfileActivityNavigationByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							current: {
+								href: "/o/acme/spaces/space-launch",
+								source: "space",
+								title: "Launch planning",
+							},
+							queued: [],
+						},
+					],
+				]),
 				agentProfileOperationalContextByProfileId: new Map([
 					[
 						AGENT_PROFILE_ID,
@@ -646,6 +676,14 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const attentionLabel = within(presence).getByText("Needs attention");
 		expect(attentionLabel.className).toContain("text-amber-700");
 		expect(attentionLabel.className).toContain("dark:text-amber-400");
+		expect(attentionLabel.className).toContain(
+			"group-hover/presence:underline"
+		);
+		expect(
+			within(presence)
+				.getByRole("link", { name: "Open Space: Launch planning" })
+				.getAttribute("href")
+		).toBe("/o/acme/spaces/space-launch");
 		fireEvent.click(
 			screen.getByRole("button", { name: "Continue interrupted work" })
 		);
@@ -654,6 +692,52 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			kind: "continue_interrupted_work",
 			visibility: "owner_self",
 		});
+	});
+
+	it("links waiting Presence directly to the current work", () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileActivityNavigationByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							current: {
+								href: "/o/acme/computers/computer-felix",
+								source: "computer",
+								title: "Research",
+							},
+							queued: [],
+						},
+					],
+				]),
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Research",
+							queuedWorkLocations: [],
+							recoveryAction: null,
+							status: "paused",
+							waitingCount: 0,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(presence.getAttribute("data-agent-presence-status")).toBe("waiting");
+		const waitingLabel = within(presence).getByText("Waiting to continue");
+		expect(waitingLabel.className).toContain("bg-clip-text");
+		expect(waitingLabel.className).toContain("group-hover/presence:underline");
+		expect(
+			within(presence)
+				.getByRole("link", { name: "Open Computer: Research" })
+				.getAttribute("href")
+		).toBe("/o/acme/computers/computer-felix");
 	});
 
 	it("renders owner recovery actions in the selected Agent detail", async () => {
