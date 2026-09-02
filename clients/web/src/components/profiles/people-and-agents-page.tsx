@@ -593,81 +593,136 @@ function AgentsWorkspaceHome(input: {
 	}
 
 	return (
-		<AgentProfilesWorkspace
-			activeView={input.activeView}
-			createPanel={input.createPanel}
-			currentUserId={input.currentUserId}
-			filterControl={input.filterControl}
-			hasAnyProfiles={agentProfiles.length > 0}
-			initialSidebarStates={input.initialSidebarStates}
-			isSearchActive={normalizedSearchQuery.length > 0}
-			onCreateAgent={input.onCreateAgent}
-			onSelectProfile={input.onSelectProfile}
-			onViewChange={input.onViewChange}
+		<AgentsWorkspaceHomeView
+			accountComputerSetupPath={accountComputerSetupPath}
+			accountServiceUpdatePath={accountServiceUpdatePath}
+			activityPresentation={activityPresentation}
+			agentProfiles={agentProfiles}
+			errorByProfileId={errorByProfileId}
+			input={input}
+			normalizedSearchQuery={normalizedSearchQuery}
 			operationalContextByProfileId={operationalContextByProfileId}
+			pendingProfileIds={pendingProfileIds}
 			pendingRequestCount={pendingRequestCount}
-			profiles={sidebarAgentProfiles}
 			profilesErrorMessage={profilesErrorMessage}
 			profilesStatus={profilesStatus}
+			queryClient={queryClient}
 			readinessByProfileId={readinessByProfileId}
-			readinessErrorByProfileId={errorByProfileId}
-			readinessPendingProfileIds={pendingProfileIds}
+			requestPanel={requestPanel}
+			sidebarAgentProfiles={sidebarAgentProfiles}
+			sidebarSelectedProfileId={sidebarSelectedProfileId}
+		/>
+	);
+}
+
+function AgentsWorkspaceHomeView(input: {
+	accountComputerSetupPath: string;
+	accountServiceUpdatePath: string;
+	activityPresentation: {
+		navigationByProfileId: ReadonlyMap<string, AgentProfileActivityNavigation>;
+		operationalContextByProfileId: ReadonlyMap<
+			string,
+			AgentProfileOperationalContextInput
+		>;
+	};
+	agentProfiles: readonly AuthProfileView[];
+	errorByProfileId: ReadonlyMap<string, string>;
+	input: Parameters<typeof AgentsWorkspaceHome>[0];
+	normalizedSearchQuery: string;
+	operationalContextByProfileId: ReadonlyMap<
+		string,
+		AgentProfileOperationalContextInput
+	>;
+	pendingProfileIds: ReadonlySet<string>;
+	pendingRequestCount: number;
+	profilesErrorMessage: string | undefined;
+	profilesStatus: "error" | "loading" | "ready";
+	queryClient: ReturnType<typeof useQueryClient>;
+	readinessByProfileId: ReadonlyMap<
+		string,
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
+	>;
+	requestPanel: ReactNode;
+	sidebarAgentProfiles: readonly AuthProfileView[];
+	sidebarSelectedProfileId: string | null;
+}) {
+	const workspace = input.input;
+	return (
+		<AgentProfilesWorkspace
+			activeView={workspace.activeView}
+			createPanel={workspace.createPanel}
+			currentUserId={workspace.currentUserId}
+			filterControl={workspace.filterControl}
+			hasAnyProfiles={input.agentProfiles.length > 0}
+			initialSidebarStates={workspace.initialSidebarStates}
+			isSearchActive={input.normalizedSearchQuery.length > 0}
+			onCreateAgent={workspace.onCreateAgent}
+			onSelectProfile={workspace.onSelectProfile}
+			onViewChange={workspace.onViewChange}
+			operationalContextByProfileId={input.operationalContextByProfileId}
+			pendingRequestCount={input.pendingRequestCount}
+			profiles={input.sidebarAgentProfiles}
+			profilesErrorMessage={input.profilesErrorMessage}
+			profilesStatus={input.profilesStatus}
+			readinessByProfileId={input.readinessByProfileId}
+			readinessErrorByProfileId={input.errorByProfileId}
+			readinessPendingProfileIds={input.pendingProfileIds}
 			renderProfileDetail={(profile) => (
 				<AgentProfilesCard
-					agentExecutionReadinessByProfileId={readinessByProfileId}
-					agentExecutionReadinessErrorByProfileId={errorByProfileId}
-					agentExecutionReadinessPendingProfileIds={pendingProfileIds}
+					agentExecutionReadinessByProfileId={input.readinessByProfileId}
+					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
+					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
 					agentProfileActivityNavigationByProfileId={
-						activityPresentation.navigationByProfileId
+						input.activityPresentation.navigationByProfileId
 					}
 					agentProfileOperationalContextByProfileId={
-						operationalContextByProfileId
+						input.operationalContextByProfileId
 					}
-					agentProfiles={agentProfiles}
+					agentProfiles={input.agentProfiles}
 					agentProfilesQueryState={{ isError: false, isPending: false }}
 					availabilityFilter="all"
 					canManageProfile={(candidate) =>
-						candidate.ownerUserId === input.currentUserId
+						candidate.ownerUserId === workspace.currentUserId
 					}
-					fallbackOwnerLabel={input.fallbackOwnerLabel}
+					fallbackOwnerLabel={workspace.fallbackOwnerLabel}
 					focusProfileId={profile.openMeldProfileId}
 					isCurrentComputer={true}
 					key={profile.openMeldProfileId}
 					presentation="detail"
-					queryClient={queryClient}
-					recovery={input.recovery}
-					serviceUpdatePath={accountServiceUpdatePath}
-					setupPath={accountComputerSetupPath}
+					queryClient={input.queryClient}
+					recovery={workspace.recovery}
+					serviceUpdatePath={input.accountServiceUpdatePath}
+					setupPath={input.accountComputerSetupPath}
 				/>
 			)}
 			renderProfilesController={() => (
 				<AgentProfilesCard
-					agentExecutionReadinessByProfileId={readinessByProfileId}
-					agentExecutionReadinessErrorByProfileId={errorByProfileId}
-					agentExecutionReadinessPendingProfileIds={pendingProfileIds}
+					agentExecutionReadinessByProfileId={input.readinessByProfileId}
+					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
+					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
 					agentProfileOperationalContextByProfileId={
-						operationalContextByProfileId
+						input.operationalContextByProfileId
 					}
-					agentProfiles={agentProfiles}
+					agentProfiles={input.agentProfiles}
 					agentProfilesQueryState={{ isError: false, isPending: false }}
 					availabilityFilter="all"
 					canManageProfile={(candidate) =>
-						candidate.ownerUserId === input.currentUserId
+						candidate.ownerUserId === workspace.currentUserId
 					}
-					fallbackOwnerLabel={input.fallbackOwnerLabel}
+					fallbackOwnerLabel={workspace.fallbackOwnerLabel}
 					focusProfileId={null}
 					isCurrentComputer={true}
 					presentation="controller"
-					queryClient={queryClient}
-					recovery={input.recovery}
-					serviceUpdatePath={accountServiceUpdatePath}
-					setupPath={accountComputerSetupPath}
+					queryClient={input.queryClient}
+					recovery={workspace.recovery}
+					serviceUpdatePath={input.accountServiceUpdatePath}
+					setupPath={input.accountComputerSetupPath}
 				/>
 			)}
-			requestPanel={requestPanel}
-			searchControl={input.searchControl}
-			selectedProfileId={sidebarSelectedProfileId}
-			showAgentRequests={input.isOrganizationContext}
+			requestPanel={input.requestPanel}
+			searchControl={workspace.searchControl}
+			selectedProfileId={input.sidebarSelectedProfileId}
+			showAgentRequests={workspace.isOrganizationContext}
 		/>
 	);
 }
