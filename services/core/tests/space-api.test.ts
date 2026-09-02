@@ -1989,6 +1989,30 @@ describe("OpenMeld Core", () => {
       spacePurpose: "openmeld_dm_space",
     });
 
+    const ownerSpaceAccess = createAuthenticatedSpaceAccessContext({
+      requestContext: ownerContext,
+      spaceId,
+    });
+    await expect(
+      stub.rpcListSpaceFiles({ spaceAccess: ownerSpaceAccess, spaceId })
+    ).resolves.toBeDefined();
+    const readOnlyFileWriteError = await stub
+      .rpcCreateSpaceFolder({
+        body: {
+          clientMutationId: "agent-owner-read-only-folder",
+          name: "Should not be created",
+        },
+        spaceAccess: ownerSpaceAccess,
+        spaceId,
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+    expect((readOnlyFileWriteError as Error).message).toContain(
+      "space.access.read_only"
+    );
+
     const readOnlyWriteError = await stub
       .rpcPostSignal({
         authoringPolicy: "user_authored",
@@ -2163,8 +2187,9 @@ describe("OpenMeld Core", () => {
       organizationId,
       ownerUserId: ordinaryAgentOwnerUserId,
     });
-    await insertTestManagedCenterAgentProfile({
+    await ensureTestCenterAgentDesignation({
       agentProfileId: managedAgentProfileId,
+      agentProfileName: "Center Agent",
       organizationId,
       ownerUserId: managedAgentOwnerUserId,
     });

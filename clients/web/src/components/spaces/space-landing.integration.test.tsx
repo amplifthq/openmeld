@@ -419,6 +419,7 @@ const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
 const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
 const ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN = /^Add people or agents/;
 const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
+const CAN_VIEW_TEXT_PATTERN = /can view$/;
 type TestAgentExecutionReadiness = ReturnType<
 	typeof createSpaceMemberAgentExecutionReadiness
 >;
@@ -4834,12 +4835,17 @@ describe("SpaceLanding", () => {
 					profileName: "Mira",
 				}),
 			],
+			isCenterAgentDirectMessage: true,
 		});
 
 		expect(screen.queryByRole("region", { name: "Get set up" })).toBeNull();
 		expect(screen.queryByText("Connect this computer")).toBeNull();
 		expect(screen.queryByText("Bring your agents")).toBeNull();
 		expect(screen.queryByText("Add your first agent")).toBeNull();
+		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Join conversation" })
+		).toBeNull();
 	});
 
 	it("lets an Agent owner view a Direct Message read-only and join explicitly", async () => {
@@ -4916,6 +4922,53 @@ describe("SpaceLanding", () => {
 				spaceId: "space-123",
 			});
 		});
+	});
+
+	it("tells the active Direct Message participant that the Agent owner can view", () => {
+		const members = createMembersSnapshot({
+			defaultAgentOwnerName: "Mira",
+			defaultAgentOwnerUserId: "user-mira",
+			defaultAgentProfileName: "Runner",
+			defaultHumanOwnerName: "Alice",
+			defaultHumanOwnerUserId: "user-alice",
+		});
+		members.humans[0] = {
+			...members.humans[0],
+			profileId: "33333333-3333-4333-8333-333333333333",
+			profileName: "Alice",
+		};
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: {
+					...createSpaceStatus(),
+					accessMode: "members_only",
+					name: "Alice and Runner",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				},
+			}),
+			members: createQueryResult({ isSuccess: true, data: members }),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding({
+			accountProfiles: [
+				createLandingAccountProfile({
+					openMeldProfileId: "33333333-3333-4333-8333-333333333333",
+					ownerUserId: "user-alice",
+					profileKind: "human",
+					profileName: "Alice",
+				}),
+			],
+		});
+
+		expect(screen.getByText("Mira can view")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Join conversation" })
+		).toBeNull();
 	});
 
 	it("moves a converted Direct Message to Spaces without waiting for cache reconciliation", async () => {
@@ -5193,6 +5246,10 @@ describe("SpaceLanding", () => {
 			screen.queryByRole("button", {
 				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
 			})
+		).toBeNull();
+		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Join conversation" })
 		).toBeNull();
 	});
 

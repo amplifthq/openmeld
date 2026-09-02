@@ -1602,6 +1602,12 @@ function buildOrganizationDirectoryAddCandidates(input: {
 		...(input.snapshot?.humans.map((member) => member.profileId) ?? []),
 		...(input.snapshot?.agents.map((member) => member.profileId) ?? []),
 	]);
+	const joinedHumanOwnerUserIds = new Set(
+		input.snapshot?.humans
+			.map((member) => member.ownerUserId?.trim())
+			.filter((ownerUserId): ownerUserId is string => Boolean(ownerUserId)) ??
+			[]
+	);
 	let alreadyJoinedCount = 0;
 	const memberCandidates = (input.directory?.members ?? []).flatMap(
 		(member): readonly SpaceAddMembersCandidateSummary[] => {
@@ -1640,6 +1646,7 @@ function buildOrganizationDirectoryAddCandidates(input: {
 			const description = resolveOrganizationAgentDescription({
 				isCenterAgent: agent.isCenterAgent === true,
 				organizationName: input.organizationName,
+				ownerAlreadyJoined: joinedHumanOwnerUserIds.has(agent.ownerUserId),
 				ownerName: agent.ownerName,
 			});
 			return [
@@ -1688,13 +1695,16 @@ function toAddMembersCandidateSummary(
 function resolveOrganizationAgentDescription(input: {
 	isCenterAgent: boolean;
 	organizationName: string;
+	ownerAlreadyJoined: boolean;
 	ownerName?: string;
 }): string {
 	if (input.isCenterAgent) {
 		return `Center Agent for ${input.organizationName}`;
 	}
 	if (input.ownerName) {
-		return `Owned by ${input.ownerName}`;
+		return input.ownerAlreadyJoined
+			? `Owned by ${input.ownerName}`
+			: `${input.ownerName} will join too`;
 	}
 	return "Organization Agent";
 }

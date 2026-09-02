@@ -157,6 +157,7 @@ export type OrganizationSpaceProfileCandidates = {
 		OrganizationDirectoryAgentProfile,
 		| "isCenterAgent"
 		| "ownerName"
+		| "ownerUserId"
 		| "profileHandle"
 		| "profileId"
 		| "profileName"
@@ -302,6 +303,7 @@ export function organizationSpaceProfileCandidatesQueryOptions(input: {
 				.map((profile) => ({
 					isCenterAgent: profile.isCenterAgent,
 					ownerName: profile.ownerName,
+					ownerUserId: profile.ownerUserId,
 					profileHandle: profile.profileHandle,
 					profileId: profile.profileId,
 					profileName: profile.profileName,

@@ -11503,6 +11503,23 @@ export class Space extends DurableObject<CoreBindings> {
         >
       >;
     }> = [];
+    let designatedCenterAgentProfileId: string | null;
+    try {
+      designatedCenterAgentProfileId =
+        (
+          await readCenterAgentDesignationRecord({
+            db,
+            organizationId: metaRecord.organizationId,
+          })
+        )?.agentProfileId ?? null;
+    } catch (error) {
+      console.error("[core.space.agent_owner_reconciliation_failed]", {
+        error: formatUnknownErrorMessage(error),
+        reason: "center_agent_designation_unavailable",
+        spaceId: this.spaceId,
+      });
+      return;
+    }
     for (const agent of agentCandidates) {
       try {
         const profileContext = await readAgentProfileOrganizationContext({
@@ -11513,6 +11530,7 @@ export class Space extends DurableObject<CoreBindings> {
           !profileContext ||
           profileContext.profileKind !== "agent" ||
           profileContext.managedRole !== null ||
+          agent.profileId === designatedCenterAgentProfileId ||
           profileContext.organizationId !== metaRecord.organizationId
         ) {
           continue;

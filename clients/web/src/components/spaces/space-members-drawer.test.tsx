@@ -1053,6 +1053,7 @@ describe("SpaceMembersSidePanel", () => {
 		expect(screen.getByRole("checkbox", { name: "Mira" })).toBeTruthy();
 		expect(screen.queryByRole("checkbox", { name: "Center Agent" })).toBeNull();
 		fireEvent.change(searchInput, { target: { value: "" } });
+		expect(screen.getByText("Mira will join too")).toBeTruthy();
 
 		const membersGroup = screen.getByRole("group", { name: "Members" });
 		const agentsGroup = screen.getByRole("group", { name: "Agents" });
@@ -1874,6 +1875,28 @@ function buildOrganizationDirectory(input: {
 }): OrganizationDirectoryResponse {
 	return {
 		agentProfiles: [
+			{
+				createdAt: "2026-07-14T00:00:00.000Z",
+				createdByUserId: "user_mira",
+				creatorProfileId: null,
+				isCenterAgent: false,
+				isDefault: false,
+				lastUsedAt: null,
+				managedRole: null,
+				organizationId: "org-acme",
+				ownerName: "Mira",
+				ownerUserId: "user_mira",
+				profileHandle: "research-agent",
+				profileId: "agt_88888888-8888-4888-8888-888888888888",
+				profileKind: "agent",
+				profileName: "Research Agent",
+				readiness: buildRemoteCenterAgentReadiness("available", {
+					agentProfileId: "agt_88888888-8888-4888-8888-888888888888",
+				}),
+				source: "user",
+				status: "active",
+				updatedAt: "2026-07-14T00:00:00.000Z",
+			},
 			{
 				createdAt: "2026-07-14T00:00:00.000Z",
 				createdByUserId: "user_felix",

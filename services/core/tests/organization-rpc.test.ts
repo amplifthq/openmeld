@@ -9429,6 +9429,70 @@ describe("organization Core RPC", () => {
     });
   });
 
+  it("does not expand a designated Center Agent with legacy unmanaged identity", async () => {
+    const spaceId =
+      "aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae";
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          managedRole: null,
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "legacy-center-agent",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Center Agent",
+          status: "active",
+        },
+      ],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "member"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Legacy Center Agent",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+
+    await rpcAddSpaceMembers(env, {
+      context,
+      members: [
+        {
+          agentControllerRef: null,
+          ownerName: "Ben",
+          ownerUserId: "user-b",
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          profileName: "Center Agent",
+        },
+      ],
+      spaceId,
+    });
+
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledWith({
+      context,
+      members: [expect.objectContaining({ profileId: AGENT_PROFILE_ID })],
+      spaceId,
+    });
+  });
+
   it("rejects Center Agent DM member, lifecycle, and access mutations while ordinary DMs still forward them", async () => {
     const centerAgentDirectMessageSpaceId =
       "5555555555555555555555555555555555555555555555555555555555555555";

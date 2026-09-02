@@ -20008,13 +20008,18 @@ async function resolveAgentOwnerHumanMembers(input: {
   organizationId: string;
   profileContexts: readonly (AgentProfileOrganizationContext | null)[];
 }): Promise<readonly ResolvedSpaceMemberProfile[]> {
+  const designation = await readCenterAgentDesignationRecord({
+    db: input.db,
+    organizationId: input.organizationId,
+  });
   const ownerUserIds = new Set<string>();
   for (const [index, member] of input.members.entries()) {
     const profileContext = input.profileContexts[index] ?? null;
     if (
       member.profileKind === "agent" &&
       profileContext?.profileKind === "agent" &&
-      profileContext.managedRole === null
+      profileContext.managedRole === null &&
+      member.profileId !== designation?.agentProfileId
     ) {
       ownerUserIds.add(profileContext.ownerUserId);
     }
