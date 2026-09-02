@@ -43,7 +43,6 @@ import {
 	type ComponentProps,
 	type Dispatch,
 	type FormEvent,
-	type MutableRefObject,
 	type ReactNode,
 	useEffect,
 	useMemo,
@@ -467,13 +466,14 @@ function useCreateProfileDialogController(
 	);
 	const {
 		agentBindingValue,
-		boundAgentControllerCollaborationMode,
-		boundAgentControllerPermissionMode,
+		boundAgentControllerCollaborationMode:
+			rawBoundAgentControllerCollaborationMode,
+		boundAgentControllerPermissionMode: rawBoundAgentControllerPermissionMode,
 		boundAgentControllerPermissionModeConfirmed,
-		boundAgentId,
-		boundModelId,
-		boundOpenCodePermission,
-		boundReasoningLevel,
+		boundAgentId: rawBoundAgentId,
+		boundModelId: rawBoundModelId,
+		boundOpenCodePermission: rawBoundOpenCodePermission,
+		boundReasoningLevel: rawBoundReasoningLevel,
 		errorState,
 		ownerMode,
 		profileKind,
@@ -482,7 +482,7 @@ function useCreateProfileDialogController(
 		projectFolderPath,
 		projectWorkspaceFallback,
 		selectedProjectBindingGeneration,
-		selectedProjectId,
+		selectedProjectId: rawSelectedProjectId,
 		sessionMode,
 		sessionPreset,
 		targetOwnerUserId,
@@ -596,19 +596,6 @@ function useCreateProfileDialogController(
 		})
 	);
 	const availableProjects = resolveAvailableProjects(projectsQuery.data);
-	const agentControllerRef = resolveAgentControllerRef(boundAgentId);
-	const creationDefaultsQuery = useQuery(
-		agentProfileCreationDefaultsQueryOptions({
-			agentControllerRef,
-			enabled: shouldReadCreationDefaults({
-				agentControllerRef,
-				open: input.open,
-				organizationId,
-				ownerMode,
-			}),
-			organizationId,
-		})
-	);
 	const recovery = input.recovery;
 	const spaceContext = input.spaceContext;
 	// Resolve the execution target once: it provides both the bindable local
@@ -641,13 +628,6 @@ function useCreateProfileDialogController(
 	const selectedTeammateBinding = teammateBindingOptions.find(
 		(option) => option.choice.value === agentBindingValue
 	);
-	const modelCompatibilityContext = resolveCreateModelCompatibilityContext({
-		bindingTarget,
-		boundAgentId,
-		orgSlug,
-		ownerMode,
-		selectedTeammateBinding,
-	});
 	const { availableLocalAgentIds, isResolvingLocalAgents } =
 		resolveAvailableLocalAgents({
 			organizationComputersPending: organizationComputersQuery.isPending,
@@ -656,17 +636,18 @@ function useCreateProfileDialogController(
 			recovery,
 			teammateBindingOptions,
 		});
-	useAgentProfileCreationJourneyDraft({
+	const restoredJourneyDraft = useAgentProfileCreationJourneyDraft({
 		availableLocalAgentIds,
-		creationDefaultsEditedRef,
+		canRestore: !creationDefaultsEditedRef.current,
 		current: {
-			agentControllerCollaborationMode: boundAgentControllerCollaborationMode,
-			agentControllerPermissionMode: boundAgentControllerPermissionMode,
-			agentId: boundAgentId,
-			modelId: boundModelId,
-			openCodePermission: boundOpenCodePermission,
-			reasoningLevel: boundReasoningLevel,
-			selectedProjectId,
+			agentControllerCollaborationMode:
+				rawBoundAgentControllerCollaborationMode,
+			agentControllerPermissionMode: rawBoundAgentControllerPermissionMode,
+			agentId: rawBoundAgentId,
+			modelId: rawBoundModelId,
+			openCodePermission: rawBoundOpenCodePermission,
+			reasoningLevel: rawBoundReasoningLevel,
+			selectedProjectId: rawSelectedProjectId,
 			version: 1,
 		},
 		enabled: shouldUseAgentProfileCreationJourneyDraft({
@@ -679,8 +660,42 @@ function useCreateProfileDialogController(
 		}),
 		key: journeyDraftStorageKey,
 		modelCatalog,
-		restoreDraft: dispatchForm,
 		projects: availableProjects,
+	});
+	const effectiveFormState = restoredJourneyDraft
+		? reduceCreateProfileDialogFormState(formState, {
+				draft: restoredJourneyDraft,
+				type: "restore_journey_draft",
+			})
+		: formState;
+	const {
+		boundAgentControllerCollaborationMode,
+		boundAgentControllerPermissionMode,
+		boundAgentId,
+		boundModelId,
+		boundOpenCodePermission,
+		boundReasoningLevel,
+		selectedProjectId,
+	} = effectiveFormState;
+	const agentControllerRef = resolveAgentControllerRef(boundAgentId);
+	const creationDefaultsQuery = useQuery(
+		agentProfileCreationDefaultsQueryOptions({
+			agentControllerRef,
+			enabled: shouldReadCreationDefaults({
+				agentControllerRef,
+				open: input.open,
+				organizationId,
+				ownerMode,
+			}),
+			organizationId,
+		})
+	);
+	const modelCompatibilityContext = resolveCreateModelCompatibilityContext({
+		bindingTarget,
+		boundAgentId,
+		orgSlug,
+		ownerMode,
+		selectedTeammateBinding,
 	});
 	const recoveryActionHref = buildConnectComputerPath({
 		orgSlug,
@@ -925,9 +940,10 @@ function useCreateProfileDialogController(
 		setSelectedProjectBindingGeneration,
 		setSelectedProjectId,
 	});
-	const ownerChoice = initialSessionPreset
-		? null
-		: renderAgentProfileOwnerChoice({
+	const ownerChoice = resolveCreateProfileOwnerChoice({
+		hasInitialSessionPreset: Boolean(initialSessionPreset),
+		render: () =>
+			renderAgentProfileOwnerChoice({
 				canRequestForTeammate,
 				currentUserId,
 				disabled: createProfileMutation.isPending,
@@ -971,7 +987,8 @@ function useCreateProfileDialogController(
 				ownerMode,
 				setOwnerMode,
 				targetOwnerUserId,
-			});
+			}),
+	});
 	const teammateBindingChoices = resolveTeammateBindingChoices({
 		ownerMode,
 		options: teammateBindingOptions,
@@ -1042,9 +1059,15 @@ function useCreateProfileDialogController(
 	const formProps = {
 		additionalHumanProfileCreationEnabled,
 		additionalSubmitBlockReason,
-		agentBindingChoices:
-			ownerMode === "teammate" ? teammateBindingChoices : undefined,
-		agentBindingValue: ownerMode === "self" ? boundAgentId : agentBindingValue,
+		agentBindingChoices: resolveOwnerBindingChoices({
+			ownerMode,
+			teammateBindingChoices,
+		}),
+		agentBindingValue: resolveOwnerBindingValue({
+			agentBindingValue,
+			boundAgentId,
+			ownerMode,
+		}),
 		agentOwnershipSlot: ownerChoice,
 		agentOwnershipSummary: resolveAgentOwnershipSummary({
 			ownerMode,
@@ -1069,19 +1092,20 @@ function useCreateProfileDialogController(
 		isResolvingLocalAgents,
 		isSubmitting: createProfileMutation.isPending,
 		localAgentEmptyState,
-		localFolderPickerDeviceId:
-			ownerMode === "self" ? localFolderPickerDeviceId : null,
+		localFolderPickerDeviceId: resolveOwnerLocalFolderPickerDeviceId({
+			localFolderPickerDeviceId,
+			ownerMode,
+		}),
 		lockLocalAgentSelection: Boolean(sessionPreset),
 		modelCatalog,
 		modelCompatibilityContext,
 		onChangeAgentBindingValue: (value: string) => {
 			setAgentBindingValue(value);
-			const nextAgentId =
-				ownerMode === "self"
-					? value
-					: (teammateBindingOptions.find(
-							(option) => option.choice.value === value
-						)?.agentId ?? "");
+			const nextAgentId = resolveOwnerBoundAgentId({
+				ownerMode,
+				teammateBindingOptions,
+				value,
+			});
 			appliedCreationDefaultsKeyRef.current = null;
 			creationDefaultsEditedRef.current = false;
 			setBoundAgentId(nextAgentId);
@@ -1096,7 +1120,9 @@ function useCreateProfileDialogController(
 			setProjectFolderPath("");
 			setSelectedProjectId("");
 			setSelectedProjectBindingGeneration(null);
-			setProjectWorkspaceFallback(ownerMode === "self" ? "managed" : null);
+			setProjectWorkspaceFallback(
+				resolveOwnerProjectWorkspaceFallback(ownerMode)
+			);
 			setErrorState(null);
 		},
 		onChangeBoundAgentControllerCollaborationMode: (
@@ -1234,8 +1260,7 @@ function useCreateProfileDialogController(
 			selectedProjectId,
 		}),
 		recoveryActionHref,
-		submitLabel: ownerMode === "teammate" ? "Request Agent" : undefined,
-		submittingLabel: ownerMode === "teammate" ? "Requesting Agent…" : undefined,
+		...resolveCreateProfileSubmitLabels(ownerMode),
 	} satisfies ComponentProps<typeof CreateProfileForm>;
 
 	return {
@@ -1427,30 +1452,32 @@ function resolveAgentProfileProjectSelectionBlockReason(
 
 function useAgentProfileCreationJourneyDraft(input: {
 	availableLocalAgentIds: readonly string[];
-	creationDefaultsEditedRef: MutableRefObject<boolean>;
+	canRestore: boolean;
 	current: AgentProfileCreationJourneyDraft;
 	enabled: boolean;
 	key: string | null;
 	modelCatalog: ModelCatalog | null;
-	restoreDraft: Dispatch<CreateProfileDialogFormAction>;
 	projects: ListProjectsResponse["projects"];
-}) {
-	const restoredKeyRef = useRef<string | null>(null);
+}): AgentProfileCreationJourneyDraft | null {
 	const lastWrittenDraftRef = useRef<string | null>(null);
-	useEffect(() => {
-		if (!(input.enabled && input.key && input.modelCatalog)) {
-			restoredKeyRef.current = null;
-			lastWrittenDraftRef.current = null;
-			return;
+	const restoredDraft = useMemo(() => {
+		if (
+			!(
+				typeof window !== "undefined" &&
+				input.canRestore &&
+				input.enabled &&
+				input.key &&
+				input.modelCatalog
+			)
+		) {
+			return null;
 		}
-		const storage = window.localStorage;
-		if (restoredKeyRef.current !== input.key) {
-			restoredKeyRef.current = input.key;
-			const remembered = readAgentProfileCreationJourneyDraft({
-				key: input.key,
-				storage,
-			});
-			if (
+		const remembered = readAgentProfileCreationJourneyDraft({
+			key: input.key,
+			storage: window.localStorage,
+		});
+		if (
+			!(
 				remembered &&
 				isJourneyDraftAvailable({
 					availableLocalAgentIds: input.availableLocalAgentIds,
@@ -1458,15 +1485,21 @@ function useAgentProfileCreationJourneyDraft(input: {
 					modelCatalog: input.modelCatalog,
 					projects: input.projects,
 				})
-			) {
-				lastWrittenDraftRef.current = JSON.stringify(remembered);
-				input.creationDefaultsEditedRef.current = true;
-				input.restoreDraft({
-					draft: remembered,
-					type: "restore_journey_draft",
-				});
-				return;
-			}
+			)
+		) {
+			return null;
+		}
+		return remembered;
+	}, [input]);
+	useEffect(() => {
+		if (!(input.enabled && input.key && input.modelCatalog)) {
+			lastWrittenDraftRef.current = null;
+			return;
+		}
+		const storage = window.localStorage;
+		if (restoredDraft) {
+			lastWrittenDraftRef.current = JSON.stringify(restoredDraft);
+			return;
 		}
 		const serializedDraft = JSON.stringify(input.current);
 		if (lastWrittenDraftRef.current === serializedDraft) {
@@ -1478,7 +1511,8 @@ function useAgentProfileCreationJourneyDraft(input: {
 			storage,
 		});
 		lastWrittenDraftRef.current = serializedDraft;
-	}, [input]);
+	}, [input, restoredDraft]);
+	return restoredDraft;
 }
 
 function shouldUseAgentProfileCreationJourneyDraft(input: {
@@ -2277,6 +2311,78 @@ function resolveTeammateBindingChoices(input: {
 		},
 		...input.options.map((option) => option.choice),
 	];
+}
+
+function resolveCreateProfileOwnerChoice(input: {
+	hasInitialSessionPreset: boolean;
+	render: () => ReactNode;
+}): ReactNode {
+	return input.hasInitialSessionPreset ? null : input.render();
+}
+
+function resolveOwnerBindingChoices(input: {
+	ownerMode: AgentProfileOwnerMode;
+	teammateBindingChoices: readonly AgentProfileBindingChoice[] | undefined;
+}): readonly AgentProfileBindingChoice[] | undefined {
+	return input.ownerMode === "teammate"
+		? input.teammateBindingChoices
+		: undefined;
+}
+
+function resolveOwnerBindingValue(input: {
+	agentBindingValue: string;
+	boundAgentId: string;
+	ownerMode: AgentProfileOwnerMode;
+}): string {
+	return input.ownerMode === "self"
+		? input.boundAgentId
+		: input.agentBindingValue;
+}
+
+function resolveOwnerLocalFolderPickerDeviceId(input: {
+	localFolderPickerDeviceId: string | null;
+	ownerMode: AgentProfileOwnerMode;
+}): string | null {
+	return input.ownerMode === "self" ? input.localFolderPickerDeviceId : null;
+}
+
+function resolveOwnerBoundAgentId(input: {
+	ownerMode: AgentProfileOwnerMode;
+	teammateBindingOptions: readonly TeammateBindingOption[];
+	value: string;
+}): string {
+	if (input.ownerMode !== "teammate") {
+		return input.value;
+	}
+	return (
+		input.teammateBindingOptions.find(
+			(option) => option.choice.value === input.value
+		)?.agentId ?? ""
+	);
+}
+
+function resolveOwnerProjectWorkspaceFallback(
+	ownerMode: AgentProfileOwnerMode
+): "managed" | null {
+	return ownerMode === "self" ? "managed" : null;
+}
+
+function resolveCreateProfileSubmitLabels(
+	ownerMode: AgentProfileOwnerMode
+): Pick<
+	ComponentProps<typeof CreateProfileForm>,
+	"submitLabel" | "submittingLabel"
+> {
+	if (ownerMode === "teammate") {
+		return {
+			submitLabel: "Request Agent",
+			submittingLabel: "Requesting Agent…",
+		};
+	}
+	return {
+		submitLabel: undefined,
+		submittingLabel: undefined,
+	};
 }
 
 function resolveOwnerSubmitBlockReason(input: {
