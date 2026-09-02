@@ -1,11 +1,17 @@
 "use client";
 
+import { Collapsible } from "@base-ui/react/collapsible";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ArrowLeftIcon, DesktopTowerIcon } from "@phosphor-icons/react";
+import {
+	ArrowLeftIcon,
+	CaretDownIcon,
+	DesktopTowerIcon,
+	SlidersHorizontalIcon,
+} from "@phosphor-icons/react";
 import {
 	AnimatePresence,
 	domAnimation,
@@ -27,6 +33,7 @@ import {
 	CreateProfileErrorNotice,
 	CreateProfileForm,
 	type CreateProfileFormProps,
+	resolveAgentProfileConfigurationSummaries,
 	resolveCreateProfileSubmitBlockReason,
 } from "./create-profile-form";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
@@ -73,6 +80,7 @@ export function AgentProfileGenerator(input: AgentProfileGeneratorProps) {
 function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const reduceMotion = useReducedMotion() === true;
 	const [allowWithoutLocalAgent, setAllowWithoutLocalAgent] = useState(false);
+	const [configurationExpanded, setConfigurationExpanded] = useState(false);
 	const [step, setStep] = useState<GeneratorStep>("configure");
 	const [stepDirection, setStepDirection] = useState<GeneratorStepDirection>(1);
 	const submitBlockReasonId = useId();
@@ -91,6 +99,12 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 		reduceMotion,
 	};
 	const handleStepChange = (nextStep: GeneratorStep) => {
+		if (
+			nextStep === "configure" &&
+			resolveCreateProfileSubmitBlockReason(form) !== null
+		) {
+			setConfigurationExpanded(true);
+		}
 		setStepDirection(nextStep === "review" ? 1 : -1);
 		setStep(nextStep);
 	};
@@ -129,8 +143,10 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 								<GeneratorStepContent
 									allowWithoutLocalAgent={allowWithoutLocalAgent}
 									bindingChoices={bindingChoices}
+									configurationExpanded={configurationExpanded}
 									form={form}
 									onAllowWithoutLocalAgentChange={setAllowWithoutLocalAgent}
+									onConfigurationExpandedChange={setConfigurationExpanded}
 									selectedBinding={selectedBinding ?? null}
 									selectedBindingValue={selectedBindingValue}
 									step={step}
@@ -156,8 +172,10 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 function GeneratorStepContent(input: {
 	allowWithoutLocalAgent: boolean;
 	bindingChoices: readonly AgentProfileBindingChoice[];
+	configurationExpanded: boolean;
 	form: CreateProfileFormProps;
 	onAllowWithoutLocalAgentChange: (allowed: boolean) => void;
+	onConfigurationExpandedChange: (expanded: boolean) => void;
 	selectedBinding: AgentProfileBindingChoice | null;
 	selectedBindingValue: string;
 	surface: "dialog" | "page";
@@ -183,8 +201,10 @@ function GeneratorStepContent(input: {
 			/>
 			<AdvancedSetup
 				allowWithoutLocalAgent={input.allowWithoutLocalAgent}
+				expanded={input.configurationExpanded}
 				form={input.form}
 				onAllowWithoutLocalAgentChange={input.onAllowWithoutLocalAgentChange}
+				onExpandedChange={input.onConfigurationExpandedChange}
 			/>
 		</div>
 	) : (
@@ -301,20 +321,14 @@ function GeneratorReviewActions(input: {
 
 function AdvancedSetup(input: {
 	allowWithoutLocalAgent: boolean;
+	expanded: boolean;
 	form: CreateProfileFormProps;
 	onAllowWithoutLocalAgentChange: (allowed: boolean) => void;
+	onExpandedChange: (expanded: boolean) => void;
 }) {
-	return (
-		<section className="grid min-w-0 gap-3 pt-1">
-			<div className="grid gap-1">
-				<h2 className="font-medium text-sm">Fine-tune the setup</h2>
-				<p className="text-muted-foreground text-xs leading-5">
-					The defaults are ready. Open a card only when you want to change it.
-				</p>
-			</div>
-			{input.form.boundAgentId ? (
-				<AgentProfileConfigurationCards input={input.form} />
-			) : (
+	if (!input.form.boundAgentId) {
+		return (
+			<section className="grid min-w-0 gap-3 pt-1">
 				<AgentConfigurationCard
 					description="Connect a controller later from this Agent's details."
 					icon={<DesktopTowerIcon aria-hidden="true" />}
@@ -346,8 +360,49 @@ function AdvancedSetup(input: {
 						</Button>
 					</div>
 				</AgentConfigurationCard>
-			)}
-		</section>
+			</section>
+		);
+	}
+
+	const summaries = resolveAgentProfileConfigurationSummaries(input.form);
+	const disclosureSummary = [
+		summaries.session,
+		summaries.workingFolder,
+		summaries.model,
+		summaries.permission,
+	].join(" · ");
+
+	return (
+		<Collapsible.Root
+			className="group/agent-configuration min-w-0 pt-1"
+			onOpenChange={(expanded) => input.onExpandedChange(expanded)}
+			open={input.expanded}
+		>
+			<Collapsible.Trigger className="group/agent-configuration-trigger flex min-h-14 w-full min-w-0 items-center gap-3 rounded-2xl border border-border/65 bg-card/35 px-4 py-3 text-left shadow-[0_1px_0_rgb(255_255_255/0.025)_inset] outline-none transition-[background-color,border-color] duration-150 hover:border-border hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+				<SlidersHorizontalIcon
+					aria-hidden="true"
+					className="size-4 shrink-0 text-muted-foreground"
+				/>
+				<span className="shrink-0 font-medium text-sm">
+					Customize this Agent
+				</span>
+				<span
+					className="min-w-0 flex-1 truncate text-right text-muted-foreground text-xs"
+					title={disclosureSummary}
+				>
+					{disclosureSummary}
+				</span>
+				<CaretDownIcon
+					aria-hidden="true"
+					className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[cubic-bezier(0.645,0.045,0.355,1)] group-data-[panel-open]/agent-configuration-trigger:rotate-180 motion-reduce:transition-none"
+				/>
+			</Collapsible.Trigger>
+			<Collapsible.Panel className="overflow-hidden transition-[height,opacity] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] data-[ending-style]:h-0 data-[starting-style]:h-0 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-[opacity] data-[open]:[height:var(--collapsible-panel-height)]">
+				<div className="pt-3">
+					<AgentProfileConfigurationCards input={input.form} />
+				</div>
+			</Collapsible.Panel>
+		</Collapsible.Root>
 	);
 }
 

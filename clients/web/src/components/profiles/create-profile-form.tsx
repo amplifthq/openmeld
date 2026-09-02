@@ -327,6 +327,119 @@ export function AgentProfileConfigurationCards(input: {
 	if (!form.boundAgentId) {
 		return null;
 	}
+	const summaries = resolveAgentProfileConfigurationSummaries(form);
+
+	return (
+		<AgentConfigurationGrid>
+			{form.agentOwnershipSlot ? (
+				<AgentConfigurationCard
+					description="Who owns and maintains this Agent."
+					icon={<UserCircleIcon aria-hidden="true" />}
+					label="Owner"
+					summary={summaries.owner}
+				>
+					{form.agentOwnershipSlot}
+				</AgentConfigurationCard>
+			) : null}
+			{form.agentSessionSlot ? (
+				<AgentConfigurationCard
+					description="Start fresh or continue existing work."
+					icon={<WaveformIcon aria-hidden="true" />}
+					label="Session"
+					summary={summaries.session}
+				>
+					{form.agentSessionSlot}
+				</AgentConfigurationCard>
+			) : null}
+			<AgentConfigurationCard
+				description="Where this Agent starts work."
+				icon={<FolderOpenIcon aria-hidden="true" />}
+				label="Working folder"
+				summary={summaries.workingFolder}
+			>
+				{form.projectSelectionSlot ?? (
+					<ProjectFolderField
+						disabled={form.isSubmitting}
+						onChange={form.onChangeProjectFolderPath}
+						pickerDeviceId={form.localFolderPickerDeviceId}
+						value={form.projectFolderPath}
+					/>
+				)}
+			</AgentConfigurationCard>
+			<AgentConfigurationCard
+				description="Choose the model and how deeply it reasons."
+				icon={<BrainIcon aria-hidden="true" />}
+				label="Model"
+				summary={summaries.model}
+			>
+				<AgentProfileModelSelectionFields
+					agentId={form.boundAgentId}
+					disabled={form.isSubmitting}
+					modelCatalog={form.modelCatalog}
+					modelCompatibilityContext={form.modelCompatibilityContext}
+					modelId={form.boundModelId}
+					onChangeModelId={form.onChangeBoundModelId}
+					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
+					reasoningLevel={form.boundReasoningLevel}
+				/>
+			</AgentConfigurationCard>
+			{summaries.collaboration ? (
+				<AgentConfigurationCard
+					description="How Codex works with you during a task."
+					icon={<HandIcon aria-hidden="true" />}
+					label="Collaboration"
+					summary={summaries.collaboration}
+				>
+					<AgentControllerCollaborationModeFields
+						agentId={form.boundAgentId}
+						disabled={form.isSubmitting}
+						onChange={form.onChangeBoundAgentControllerCollaborationMode}
+						value={form.boundAgentControllerCollaborationMode}
+					/>
+				</AgentConfigurationCard>
+			) : null}
+			<AgentConfigurationCard
+				description="What this Agent can do without asking."
+				icon={<LockKeyIcon aria-hidden="true" />}
+				label="Permissions"
+				summary={summaries.permission}
+			>
+				<div className="grid gap-4">
+					<AgentControllerPermissionModeFields
+						agentId={form.boundAgentId}
+						confirmed={form.boundAgentControllerPermissionModeConfirmed}
+						disabled={form.isSubmitting}
+						onChange={form.onChangeBoundAgentControllerPermissionMode}
+						onConfirmChange={
+							form.onChangeBoundAgentControllerPermissionModeConfirmed
+						}
+						value={form.boundAgentControllerPermissionMode}
+					/>
+					{isOpenCodeAgentId(form.boundAgentId) ? (
+						<OpenCodePermissionsField
+							disabled={form.isSubmitting}
+							onChange={form.onChangeBoundOpenCodePermission}
+							value={form.boundOpenCodePermission}
+						/>
+					) : null}
+				</div>
+			</AgentConfigurationCard>
+		</AgentConfigurationGrid>
+	);
+}
+
+export type AgentProfileConfigurationSummaries = {
+	collaboration: string | null;
+	model: string;
+	owner: string;
+	permission: string;
+	session: string;
+	workingFolder: string;
+};
+
+export function resolveAgentProfileConfigurationSummaries(
+	form: CreateProfileFormProps
+): AgentProfileConfigurationSummaries {
 	const controller = form.modelCatalog?.agentControllers[form.boundAgentId];
 	const effectiveModelId =
 		form.boundModelId || controller?.defaultModelId || "";
@@ -353,106 +466,17 @@ export function AgentProfileConfigurationCards(input: {
 		{ agentControllerRef: buildBuiltinAgentControllerRef(form.boundAgentId) }
 	).label;
 
-	return (
-		<AgentConfigurationGrid>
-			{form.agentOwnershipSlot ? (
-				<AgentConfigurationCard
-					description="Who owns and maintains this Agent."
-					icon={<UserCircleIcon aria-hidden="true" />}
-					label="Owner"
-					summary={form.agentOwnershipSummary ?? "You"}
-				>
-					{form.agentOwnershipSlot}
-				</AgentConfigurationCard>
-			) : null}
-			{form.agentSessionSlot ? (
-				<AgentConfigurationCard
-					description="Start fresh or continue existing work."
-					icon={<WaveformIcon aria-hidden="true" />}
-					label="Session"
-					summary={form.agentSessionSummary ?? "New session"}
-				>
-					{form.agentSessionSlot}
-				</AgentConfigurationCard>
-			) : null}
-			<AgentConfigurationCard
-				description="Where this Agent starts work."
-				icon={<FolderOpenIcon aria-hidden="true" />}
-				label="Working folder"
-				summary={
-					form.projectSelectionSummary ??
-					resolveProjectFolderCardSummary(form.projectFolderPath)
-				}
-			>
-				{form.projectSelectionSlot ?? (
-					<ProjectFolderField
-						disabled={form.isSubmitting}
-						onChange={form.onChangeProjectFolderPath}
-						pickerDeviceId={form.localFolderPickerDeviceId}
-						value={form.projectFolderPath}
-					/>
-				)}
-			</AgentConfigurationCard>
-			<AgentConfigurationCard
-				description="Choose the model and how deeply it reasons."
-				icon={<BrainIcon aria-hidden="true" />}
-				label="Model"
-				summary={`${modelSummary} · ${reasoningSummary}`}
-			>
-				<AgentProfileModelSelectionFields
-					agentId={form.boundAgentId}
-					disabled={form.isSubmitting}
-					modelCatalog={form.modelCatalog}
-					modelCompatibilityContext={form.modelCompatibilityContext}
-					modelId={form.boundModelId}
-					onChangeModelId={form.onChangeBoundModelId}
-					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
-					reasoningLevel={form.boundReasoningLevel}
-				/>
-			</AgentConfigurationCard>
-			{collaborationOptions.length > 0 ? (
-				<AgentConfigurationCard
-					description="How Codex works with you during a task."
-					icon={<HandIcon aria-hidden="true" />}
-					label="Collaboration"
-					summary={collaborationSummary}
-				>
-					<AgentControllerCollaborationModeFields
-						agentId={form.boundAgentId}
-						disabled={form.isSubmitting}
-						onChange={form.onChangeBoundAgentControllerCollaborationMode}
-						value={form.boundAgentControllerCollaborationMode}
-					/>
-				</AgentConfigurationCard>
-			) : null}
-			<AgentConfigurationCard
-				description="What this Agent can do without asking."
-				icon={<LockKeyIcon aria-hidden="true" />}
-				label="Permissions"
-				summary={permissionSummary}
-			>
-				<div className="grid gap-4">
-					<AgentControllerPermissionModeFields
-						agentId={form.boundAgentId}
-						confirmed={form.boundAgentControllerPermissionModeConfirmed}
-						disabled={form.isSubmitting}
-						onChange={form.onChangeBoundAgentControllerPermissionMode}
-						onConfirmChange={
-							form.onChangeBoundAgentControllerPermissionModeConfirmed
-						}
-						value={form.boundAgentControllerPermissionMode}
-					/>
-					{isOpenCodeAgentId(form.boundAgentId) ? (
-						<OpenCodePermissionsField
-							disabled={form.isSubmitting}
-							onChange={form.onChangeBoundOpenCodePermission}
-							value={form.boundOpenCodePermission}
-						/>
-					) : null}
-				</div>
-			</AgentConfigurationCard>
-		</AgentConfigurationGrid>
-	);
+	return {
+		collaboration:
+			collaborationOptions.length > 0 ? collaborationSummary : null,
+		model: `${modelSummary} · ${reasoningSummary}`,
+		owner: form.agentOwnershipSummary ?? "You",
+		permission: permissionSummary,
+		session: form.agentSessionSummary ?? "New session",
+		workingFolder:
+			form.projectSelectionSummary ??
+			resolveProjectFolderCardSummary(form.projectFolderPath),
+	};
 }
 
 function resolveProjectFolderCardSummary(projectFolderPath: string): string {

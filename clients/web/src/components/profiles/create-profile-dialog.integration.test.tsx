@@ -41,6 +41,7 @@ const DEFAULT_GPT_55_MODEL_PATTERN = /GPT-5.5 \(default\)/;
 const AUTHORIZE_PATTERN = /authorize/i;
 const USE_CONTROLLER_DEFAULT_PATTERN = /use controller default/i;
 const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
+const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Customize this Agent/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
@@ -738,6 +739,11 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			await screen.findByRole("radio", {
 				name: CURRENT_CODEX_RADIO_PATTERN,
+			})
+		);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
 			})
 		);
 		await waitFor(() => {
