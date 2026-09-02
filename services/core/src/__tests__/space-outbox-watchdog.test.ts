@@ -482,7 +482,7 @@ describe("space outbox watchdog", () => {
       expect.objectContaining({
         deliveryRecoveryReason: "agent_profile_work_coordinator_promoted",
         dispatchId: outboxRecord.dispatchId,
-        enqueuedAtMs: outboxRecord.enqueuedAtMs,
+        enqueuedAtMs: handedOffOutboxCandidate.handedOffAtMs,
         sourceSignalSnapshot: {
           profileId: "human-1",
           profileKind: "human",
