@@ -1550,7 +1550,7 @@ function SpaceUnreadNavigationPill(input: {
 	const dismissLabel = `Hide ${label}`;
 	return (
 		<div
-			className="pointer-events-auto inline-flex overflow-hidden rounded-full border border-border bg-background/95 text-foreground shadow-md backdrop-blur-sm"
+			className="pointer-events-auto inline-flex self-center overflow-hidden rounded-full border border-border bg-background/95 text-foreground shadow-md backdrop-blur-sm"
 			data-unread-direction={input.direction}
 		>
 			<Button

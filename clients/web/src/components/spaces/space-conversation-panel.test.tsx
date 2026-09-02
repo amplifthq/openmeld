@@ -1056,6 +1056,10 @@ describe("SpaceConversationPanel", () => {
 		const jumpButton = await screen.findByRole("button", {
 			name: "1 new message above. Jump to the nearest new message",
 		});
+		const unreadPill = jumpButton.closest<HTMLElement>(
+			"[data-unread-direction='above']"
+		);
+		expect(unreadPill?.className).toContain("self-center");
 		fireEvent.click(
 			screen.getByRole("button", { name: "Hide 1 new message above" })
 		);
