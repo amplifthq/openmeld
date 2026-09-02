@@ -493,13 +493,15 @@ may be changed to Reference. Human Profiles always create Human Mention, so Web
 shows a fixed `@Name` mark instead of a meaningless Wake/Reference selector.
 Each inline Agent token shows its own Wake or Reference relation, so Web does
 not repeat those relations in a bottom count summary. Human Mentions stay
-visible in the message itself without an Agent relation label.
+visible in the message itself without an Agent relation label. Every Composer
+inline target provides a direct remove action in addition to keyboard deletion.
 The system may warn about a possible semantic mismatch, but it must not silently
-convert one structured Agent relation into another. Repeating the same Agent mention in one message is not a second
-structured relation: the first occurrence owns the selected Wake or Reference,
-and later occurrences remain ordinary visible text. Web preserves the authored
-visible text. The generic CLI accepts an exact current mention label or stable
-Profile ID inside `@target(wake)`, `@target(reference)`, or
+convert one structured Agent relation into another. Repeating the same Agent
+mention in one message keeps every occurrence explicit: the first token owns
+the selected Wake or Reference, while later tokens resolve to Reference and
+never create another Wake. Web preserves the authored visible text. The generic
+CLI accepts an exact current mention label or stable Profile ID inside
+`@target(wake)`, `@target(reference)`, or
 `@target(mention)`. It resolves that private selector against one current member
 snapshot, publishes `@primaryMentionLabel` without the relation suffix or raw
 machine ID, and retains the exact Profile ID and relation in the structured

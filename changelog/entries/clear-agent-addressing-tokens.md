@@ -8,4 +8,5 @@ audiences: ["members"]
 
 Agent Wakes and References now use compact, consistent inline tokens in the
 Composer and sent messages. Each token shows the exact relation and opens Agent
-Profile details without repeating a count below the Composer.
+Profile details without repeating a count below the Composer. Composer tokens
+also have a direct remove action on hover, keyboard focus, and touch surfaces.

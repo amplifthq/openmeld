@@ -3142,9 +3142,12 @@ relation control sizes to its current label instead of reserving the longer
 choice, while the name uses the remaining available width. Because every token
 already states its relation, Web does not repeat the same information in a
 bottom count summary. Human Mention tokens omit the Agent relation control. Web
-submits all structured relations explicitly instead of relying on Core to infer
-Wake from arbitrary bare text. Changing a semantic control changes the authored
-structured relation; AI interpretation must never silently rewrite it.
+provides a direct remove control for every Composer token in addition to
+keyboard deletion. The control appears without changing token layout on hover
+or keyboard focus and remains available on touch-only surfaces. Web submits all
+structured relations explicitly instead of relying on Core to infer Wake from
+arbitrary bare text. Changing a semantic control changes the authored structured
+relation; AI interpretation must never silently rewrite it.
 
 The shared Web API client sends the current Space Addressing response-version
 header, and the Web Gateway proxy forwards it unchanged. The live Space proxy
