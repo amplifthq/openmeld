@@ -67,7 +67,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			{!input.isResolving && choices.length > 0 ? (
 				<MagnifyingDock
 					aria-labelledby={headingId}
-					className="min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden pt-3 pb-4"
+					className="-mx-3 min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-3 pb-4"
 				>
 					{choices.map((choice) => {
 						const selected = choice.value === input.value;
@@ -82,10 +82,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 							>
 								<label
 									className={cn(
-										"relative grid size-14 place-items-center rounded-2xl border bg-background/85 shadow-sm transition-[border-color,background-color] duration-100 has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-ring",
-										selected
-											? "border-foreground/40 bg-muted/60"
-											: "border-border/70",
+										"relative grid size-14 place-items-center rounded-[22%] outline-none has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-2",
 										selectionDisabled && "cursor-default"
 									)}
 								>
@@ -101,7 +98,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 									/>
 									<LocalAgentChoiceIcon agentId={choice.agentId} />
 									{selected ? (
-										<span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full border-2 border-background bg-foreground text-background">
+										<span className="absolute -right-0.5 -bottom-0.5 grid size-5 place-items-center rounded-full border border-background bg-foreground text-background shadow-sm">
 											<CheckIcon
 												aria-hidden="true"
 												className="size-3"
@@ -213,7 +210,7 @@ function LocalAgentChoiceIcon(input: { agentId: string }) {
 	return (
 		<LocalAgentLogo
 			agentId={input.agentId}
-			className="size-11 overflow-hidden rounded-[22%]"
+			className="size-14 overflow-hidden rounded-[22%] drop-shadow-sm"
 			size="md"
 		/>
 	);
