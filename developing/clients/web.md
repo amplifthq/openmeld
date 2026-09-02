@@ -671,6 +671,14 @@ as an intermediate destination.
   setting on unless the member has explicitly turned it off. **Not now** only
   dismisses the introduction for that member in that browser, and Settings and
   Space Info remain the durable discovery and control surfaces.
+- **Play OpenMeld sounds** is a member- and browser-local preference that
+  defaults on. Web plays `ready` for ordinary directly addressed updates and
+  `chime` for urgent or open action-required notifications, only after the
+  native browser notification was successfully created. A 350-millisecond
+  batch produces one cue, with `chime` winning mixed bursts. Playback stays at
+  the fixed full app volume, and the setting explains that browser or operating
+  system notification sounds are controlled separately. Blocked or failed
+  audio does not change delivery truth or trigger a notification retry.
 - **Email for urgent items** is a durable account preference, enabled by
   default, and may be disabled without hiding Inbox items.
 
