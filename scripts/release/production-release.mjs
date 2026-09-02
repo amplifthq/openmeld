@@ -946,7 +946,6 @@ function readWorkspacePackages() {
       );
       const dependencyNames = new Set([
         ...Object.keys(packageJson.dependencies ?? {}),
-        ...Object.keys(packageJson.devDependencies ?? {}),
         ...Object.keys(packageJson.optionalDependencies ?? {}),
         ...Object.keys(packageJson.peerDependencies ?? {}),
       ]);

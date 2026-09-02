@@ -147,11 +147,12 @@ It also accepts comma-separated scopes, `cloud`, and `full`.
 - Selecting `cli` owns its required Core projection; adding `core` does not
   deploy Core twice.
 
-`auto` is the default local plan. It follows changed workspace dependencies and
-local-component release paths, so it intentionally prefers a safe superset for
-shared package changes. Review the plan. An operator may narrow it with an
-explicit scope only when the changed contract and mixed-version behavior prove
-that narrower rollout is safe.
+`auto` is the default local plan. It follows changed runtime-capable workspace
+dependencies and local-component release paths, so it intentionally prefers a
+safe superset for shared package changes. Development-only dependencies do not
+expand production release scope. Review the plan. An operator may narrow it
+with an explicit scope only when the changed contract and mixed-version behavior
+prove that narrower rollout is safe.
 
 The planner selects the `remote-agent-receiver-first` deploy-order profile when
 the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
