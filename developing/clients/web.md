@@ -490,14 +490,30 @@ projection falls back to `An agent is working`, and a raw `agt_...` identifier
 is never user-facing copy. This live indicator remains distinct from a
 persisted reply's historical **Work summary**.
 Opening a route alone does not clear the indicator. The shared Space message
-view writes the same Core-owned per-Space monotonic read-through watermark only
-after the document is visible and the member remains at the latest message for
-the normal debounce. If the unread summary is unavailable, Space navigation
-remains usable in Account Space Index order without inventing read state. Web
-treats cursor persistence failure as failure and retries it; a missing Core
-Inbox writer cannot be mistaken for a successful write. Main-timeline and
-thread Inbox state remain separate: a main-timeline read position cannot clear
-a thread item. Implausible future cursor positions are rejected rather than
+view reads the exact Core Inbox unread targets for that Space instead of deriving
+unread state from its browser Space cursor. It writes the Core-owned
+main-conversation monotonic read-through watermark only after the document is
+visible and the member remains at the latest main message for the normal
+debounce. An open thread writes its own thread-root watermark under the same
+visibility and latest-message rule. If the unread summary or exact targets are
+unavailable, Space navigation remains usable in Account Space Index order
+without inventing read state. Web treats read-through persistence failure as
+failure and retries it; a missing Core Inbox writer cannot be mistaken for a
+successful write. Main-timeline and thread Inbox state remain separate:
+viewing main cannot clear a thread, and viewing one thread cannot clear another.
+
+The open Messages view groups each exact unread target at its visible main
+message or thread root. When unread targets are above the viewport, a compact
+`N new messages above` control appears below the date navigation; when targets
+are below, the existing bottom jump location becomes an `N new messages`
+control. Activating either control goes to the nearest unread target in that
+direction. A thread target first locates its root, opens the thread, and focuses
+the exact unread reply. Each control has a separate close action that hides the
+current unread target set only for that page session: it does not mark anything
+read, mutate the sidebar indicator, or reappear from scrolling alone. A newly
+arrived unread target can show the control again, and refresh or re-entry starts
+a new dismissal session. The Space sidebar row, unread-dot, and pin interaction
+remain unchanged. Implausible future cursor positions are rejected rather than
 suppressing future messages. When Web observes a new Inbox item, it invalidates
 the full Inbox facts projection so per-conversation indicators and aggregate
 launchers refresh from the same Core truth.
@@ -655,6 +671,14 @@ as an intermediate destination.
   setting on unless the member has explicitly turned it off. **Not now** only
   dismisses the introduction for that member in that browser, and Settings and
   Space Info remain the durable discovery and control surfaces.
+- **Play OpenMeld sounds** is a member- and browser-local preference that
+  defaults on. Web plays `ready` for ordinary directly addressed updates and
+  `chime` for urgent or open action-required notifications, only after the
+  native browser notification was successfully created. A 350-millisecond
+  batch produces one cue, with `chime` winning mixed bursts. Playback stays at
+  the fixed full app volume, and the setting explains that browser or operating
+  system notification sounds are controlled separately. Blocked or failed
+  audio does not change delivery truth or trigger a notification retry.
 - **Email for urgent items** is a durable account preference, enabled by
   default, and may be disabled without hiding Inbox items.
 
@@ -1582,6 +1606,11 @@ tooltips. Local Agent identity
 uses the same catalog-owned logo and name as Computer detail; Web never creates
 a second name or logo map for People.
 
+People reads the lightweight Profile Directory and does not wait for or request
+the Agent Runtime Overview. Its Agent counts and controller icons come from the
+permission-scoped lightweight summary, so unavailable Runtime Transport cannot
+blank member identity or delay the People workspace.
+
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
 bounded visible-session heartbeat; Core re-verifies the active member and that
@@ -1709,6 +1738,15 @@ copy is **Approve requests for Agents you’re being asked to own, and track
 requests you sent.** A pending badge counts only the existing Core-owned Agent
 Profile Creation Request projection; Web never creates a parallel request
 state.
+
+Agents reads the same lightweight Profile Directory first, renders Agent
+identity immediately, and loads the Agent Runtime Overview independently.
+Missing initial runtime evidence is shown as checking for the affected Agent;
+a failed runtime refresh keeps the identity list and last successful runtime
+projection instead of replacing the workspace with a page-level loading or
+error state. Automatic readiness refresh invalidates only the runtime overview;
+identity refresh remains tied to membership, Profile, designation, and Binding
+summary changes.
 
 The sidebar groups ordinary Agents by owner name. The signed-in member’s group
 is first, and remaining groups use a stable owner-name and owner-ID order. Each
@@ -2260,6 +2298,15 @@ timed-out restore hydrates an isolated cache first and may merge into the app
 cache only while its original segment is still current; it rechecks that fact
 before subscribing, so a late old-account restore is discarded.
 
+When one current bootstrap contains both the bounded history and the current
+member presentation, Web may fill a missing Agent `agentControllerRef` on only
+those Agent signal profiles already present in that same bounded history before
+the existing history query is persisted. This is a display-only repair for
+legacy messages so a returning view can paint the bound Agent Controller icon
+without first presenting the generic unbound icon. It does not persist the
+members query, add profiles that are absent from the history, or establish
+membership, readiness, Binding, or mutation authority.
+
 When a saved Space list is visible and background refresh fails, Web keeps that
 list visible, labels it as the last saved browser view, and offers Retry. Actions
 that would change server state, such as joining a Space, remain disabled until a
@@ -2588,6 +2635,18 @@ Organization's designation or Direct Message projection. Public Space surfaces
 use the optional Center Agent identity from the Space status projection. No
 surface may infer that identity from a Profile name or the Space kind.
 
+The first bootstrap-backed conversation frame resolves Agent presentation from
+the members included in that same bootstrap instead of waiting for a second
+cache-notification render. If saved legacy history becomes visible before the
+current bootstrap, a static reserved icon placeholder represents the unresolved
+controller; Web must not present the generic unbound icon until current members
+confirm that the Agent is actually unbound or unknown. After bootstrap, a newer
+members presentation replaces any older per-message controller snapshot so
+rebinding updates the icon and unbinding clears the previous controller mark.
+Re-entering a Space must not let an older cached bootstrap patch a newer members
+generation; bootstrap history enrichment uses the newer of those two identity
+presentations.
+
 It should keep the familiar conversation model clear:
 
 The authenticated Space header exposes **Messages | Graph | Files** as one
@@ -2815,10 +2874,10 @@ create an empty message bubble before text arrives in ordinary Spaces or
 threads.
 
 Space messages and Thread messages do not render a separate `woke Agent Name`
-receipt. The visible `@Name` in the message body is sufficient for people;
-Graph and the structured message envelope retain the exact Wake or Reference
-relation for agents and diagnostics. Message details remains the drill-in for
-complete execution and failure context.
+receipt. Instead, the inline Agent token shows its exact Wake or Reference
+relation. Graph and the structured message envelope retain that relation for
+agents and diagnostics. Message details remains the drill-in for complete
+execution and failure context.
 
 Each recorded message reserves one stable footer for its timestamp and actions.
 When a message has a failure, the visible footer keeps only Message details,
@@ -2826,7 +2885,9 @@ the concise failure summary, More actions, and the timestamp at every width;
 Copy, Reply, Thread, and Addressing move into More actions. Footer icon controls
 use a compact 28-pixel container with 6-pixel visual padding. A failure colors
 the Message details icon red but does not show a persistent hover or selected
-background; that background appears only through real interaction state.
+background; that background appears only through real interaction state. The
+concise failure summary opens the same Message details drawer and gains an
+underline on hover or keyboard focus.
 
 Message rhythm follows the existing speaker grouping instead of the current
 member's alignment. Message content sits 2 pixels above its reserved footer. A
@@ -2839,12 +2900,17 @@ hover actions change opacity, so pointer interaction does not move later
 messages.
 
 In the full message body on the main timeline and in the Thread panel, the
-first visible mention owned by each structured Agent Wake renders as one compact
-inline identity: `@`, the Agent's 14-pixel Profile icon, and its semibold
-canonical name. The `@` and icon use a 6-pixel gap, while the icon and name use
-a 4-pixel gap. Web derives this presentation only from the structured Wake
-target and resolved Profile presentation. It does not decorate ordinary
-mention-like text, code, links, or quoted reply previews.
+first visible mention owned by each structured Agent Wake or Reference renders
+as one compact read-only token: `@`, the Agent's 14-pixel Profile icon, its
+semibold canonical name, and the exact relation. Later appearances of the same
+structured Agent render as Reference tokens, matching the Composer's duplicate
+rule without adding another Wake target. The token uses the same visual family
+as the Composer control but has no selector or caret. Activating any point in
+the token opens that Agent Profile's existing details dialog; hover and
+keyboard focus use the token surface and never underline the name. Web derives
+this presentation only from structured targets and resolved Profile
+presentation. It does not decorate ordinary mention-like text in messages with
+no structured target, code, links, or quoted reply previews.
 
 For a durable final reply, Web prefers the complete
 `signal.text.data.meta.agentWorkSummary` projection. It reads the legacy
@@ -2944,9 +3010,11 @@ Read-only viewers must still see the outcome.
 
 A persisted terminal system failure is visible in that outcome row without
 hover and remains visible when the timeline is loaded again after refresh. Its
-Message details recovery is state-aware and always includes `Open diagnostics`;
-it must not reuse an Agent Profile configuration action such as
-`Review agent settings`. A late result does not rewrite that failure's reason.
+Message details recovery is state-aware and must not reuse an Agent Profile
+configuration action such as `Review agent settings`. Message details itself is
+the diagnostic path: it renders the failure explanation in red and keeps
+Technical details available without a duplicate `Open diagnostics` action. A
+late result does not rewrite that failure's reason.
 Web correlates the original `terminal_failure` with a separate nonterminal
 `execution_recovery_available` notice by exact dispatch, target, and result
 reference, then inspects Core's current Execution Recovery projection. It
@@ -2966,11 +3034,12 @@ normalizes it to **Recover reply** for users. It preserves the terminal failure
 rather than presenting retained evidence as an already-published reply. The
 recovery notice never creates a second terminal outcome row.
 
-Message details presents one cause-specific primary action per failed target,
-plus **Open diagnostics**. It must not pair unrelated actions: a Cursor plan
-limit opens Cursor plan management, a setup problem shows the exact relevant
-setup action, and a reply-publication failure shows exact reply recovery when
-available. These controls use the same button height and visual density.
+Message details presents one cause-specific primary action per failed target.
+It must not pair unrelated actions: a Cursor plan limit opens Cursor plan
+management, a setup problem shows the exact relevant setup action, and a
+reply-publication failure shows exact reply recovery when available. The red
+failure explanation and expandable Technical details provide diagnostic context
+without a second diagnostics button.
 
 The recovery action is owned by the exact
 `dispatchId + targetProfileId + resultRef` key. Timeline, thread, and Message
@@ -3072,13 +3141,24 @@ Reference uses a link-style symbol. Selecting a Human Profile creates a fixed
 Human Mention mark; people never receive an Agent relation selector.
 
 After selection, Web renders one persistent editable semantic control per
-structured target. The control identifies both the target and its current
-relation, and a multi-target message shows a quiet summary such as
-`Waking 3 agents · Referencing 1 agent`. Human Mentions are intentionally omitted
-from this Agent-only summary. Web submits all structured relations
-explicitly instead of relying on Core to infer Wake from arbitrary bare text.
-Changing a semantic control changes the authored structured relation; AI
-interpretation must never silently rewrite it.
+structured target. An Agent control places `@`, the Agent Profile icon,
+canonical name, and the current Wake or Reference relation in that order. The
+relation control sizes to its current label instead of reserving the longer
+choice, while the name uses the remaining available width. Because every token
+already states its relation, Web does not repeat the same information in a
+bottom count summary. Human Mention tokens omit the Agent relation control. Web
+provides a direct remove control for every Composer token in addition to
+keyboard deletion. The control appears without changing token layout on hover
+or keyboard focus and remains available on touch-only surfaces. Web submits all
+structured relations explicitly instead of relying on Core to infer Wake from
+arbitrary bare text. Changing a semantic control changes the authored structured
+relation; AI interpretation must never silently rewrite it.
+
+The Composer member picker reuses the shared Fluid layout indicator for its
+active row. Pointer hover and combobox keyboard navigation update that one
+indicator through the same active-item state, so Web never paints separate
+hover and keyboard backgrounds. Result groups keep deliberate row separation
+and popover-edge padding rather than using each row's margin as layout.
 
 The shared Web API client sends the current Space Addressing response-version
 header, and the Web Gateway proxy forwards it unchanged. The live Space proxy
@@ -3110,7 +3190,7 @@ time. Each Wake target receives one Activity row. Transient work updates that
 row in place while the target is active; the recorded reply, failure, stop, or
 other terminal outcome then replaces the transient content in the same row.
 The final status, reply preview, failure explanation, recovery action, and
-diagnostic action stay together on that target row. Web must not render a
+diagnostic context stay together on that target row. Web must not render a
 separate Replies section, a detached `Why this failed` summary, or an extra
 `replied` event for the same final reply. Transient live progress can enrich
 that presentation model but cannot become a second status source or final
@@ -3254,6 +3334,11 @@ Web shows elapsed running time, it uses the optional authoritative
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
+When Core projects the bounded controller-conversation occupancy wait reason,
+Web shows `Waiting for Codex task` and explains that the Wake will start when
+that task becomes available. It must not present that state as `Agent is
+working` or the generic `Sending to agent`, and it must return to ordinary Wake
+progress as soon as Core projects the conversation as available.
 
 When active Wake progress includes a pending Agent Interaction for the current
 Binding owner, Web projects it into one collapsed Pending Action Surface above

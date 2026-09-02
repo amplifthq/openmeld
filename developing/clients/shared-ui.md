@@ -98,6 +98,11 @@ hover and delegated-focus highlighting. Card content remains transparent so it
 cannot hide that shared indicator, and consumers must not add a competing CSS
 hover background.
 
+`SharedLayoutGroup` also accepts controlled active-item state for listbox and
+combobox compositions. Controlled consumers must feed pointer and delegated
+focus changes back into the same owning selection store; they must not add a
+second local hover background beside the shared indicator.
+
 `TabsSubtle` also exposes an `underline` variant for flat navigation embedded
 against a structural divider. It keeps selection rectangular, uses the owning
 surface edge as the indicator baseline, and does not introduce a second rounded

@@ -122,6 +122,71 @@ describe("local service process inventory", () => {
     expect(processes).toEqual([]);
   });
 
+  it("ignores observer shell commands that quote a service launch command", async () => {
+    const launcherPath = daemonServiceLauncherPath();
+    const processes = await listDaemonOwnedProcesses({
+      listProcesses: async () => [
+        {
+          pid: 105,
+          parentPid: 1,
+          command: `/bin/zsh -c ps -axo pid,command | rg '${launcherPath} service run'`,
+        },
+        {
+          pid: 106,
+          parentPid: 1,
+          command: `/bin/zsh -c ps -axo pid,command | rg '${daemonServiceExecutableWrapperPath()} service run --mode foreground'`,
+        },
+      ],
+    });
+
+    expect(processes).toEqual([]);
+  });
+
+  it("does not treat a custom dev-local service launcher as prod owned", async () => {
+    const processes = await listDaemonOwnedProcesses({
+      pathInput: {
+        env: { ...process.env, OPENMELD_ENV_PRESET: "prod" },
+        homeDir: "/Users/felix",
+      },
+      listProcesses: async () => [
+        {
+          pid: 107,
+          parentPid: 1,
+          command:
+            "/Users/felix/worktree/.turbo/dev/isolated/lane/openmeld-home/runtime/daemon/service-manager/OpenMeld Service Binary Dev service run --mode foreground",
+        },
+      ],
+    });
+
+    expect(processes).toEqual([]);
+  });
+
+  it("does not claim the canonical prod service from a custom prod home", async () => {
+    const canonicalProdServicePath = daemonServiceExecutableWrapperPath({
+      env: { ...process.env, OPENMELD_ENV_PRESET: "prod" },
+      homeDir: "/Users/felix",
+    });
+    const processes = await listDaemonOwnedProcesses({
+      pathInput: {
+        env: {
+          ...process.env,
+          OPENMELD_ENV_PRESET: "prod",
+          OPENMELD_HOME: "/tmp/openmeld-isolated-prod",
+        },
+        homeDir: "/Users/felix",
+      },
+      listProcesses: async () => [
+        {
+          pid: 108,
+          parentPid: 1,
+          command: `${canonicalProdServicePath} service run --mode foreground`,
+        },
+      ],
+    });
+
+    expect(processes).toEqual([]);
+  });
+
   it("keeps repo-local and stable-launcher service run processes in the owned-process inventory", async () => {
     await withDaemonEnvPreset("dev-local", async () => {
       const processes = await listDaemonOwnedProcesses({

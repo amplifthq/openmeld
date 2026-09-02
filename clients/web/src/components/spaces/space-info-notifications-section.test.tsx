@@ -12,6 +12,7 @@ const useOptionalAppOrganizationMock = vi.hoisted(() => vi.fn());
 const enableMock = vi.hoisted(() => vi.fn());
 const disableMock = vi.hoisted(() => vi.fn());
 const readSettingsMock = vi.hoisted(() => vi.fn());
+const setSoundEnabledMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/lib/organizations/organization-context", () => ({
@@ -27,6 +28,7 @@ vi.mock("#/lib/inbox/browser-notifications", () => {
 			permission === "denied"
 				? "Notifications are blocked. Allow them in your browser’s site settings, then return here."
 				: "Notification permission is not available.",
+		setInboxBrowserNotificationSoundEnabled: setSoundEnabledMock,
 		subscribeInboxBrowserNotificationSettings: (...args: unknown[]) =>
 			subscribeMock(...args),
 	};
@@ -63,7 +65,9 @@ describe("SpaceInfoNotificationsSection", () => {
 		readSettingsMock.mockReset().mockReturnValue({
 			enabled: false,
 			permission: "granted",
+			soundEnabled: true,
 		});
+		setSoundEnabledMock.mockReset();
 		subscribeMock.mockReset().mockReturnValue(() => undefined);
 	});
 
@@ -103,6 +107,7 @@ describe("SpaceInfoNotificationsSection", () => {
 		readSettingsMock.mockReturnValue({
 			enabled: false,
 			permission: "denied",
+			soundEnabled: true,
 		});
 
 		render(<SpaceInfoNotificationsSection />);

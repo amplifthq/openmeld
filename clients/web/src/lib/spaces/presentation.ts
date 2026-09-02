@@ -44,6 +44,7 @@ export type SpaceConversationBubbleRun = {
 	speaker: {
 		controllerDisplay: string | null;
 		agentControllerRef: string | null;
+		agentControllerPending?: boolean;
 		avatarImageUrl: string | null;
 		displayName: string;
 		ownerDisplay: string | null;
@@ -137,6 +138,7 @@ export function buildSpaceConversationEntries(input: {
 				speaker: {
 					controllerDisplay: item.actorControllerDisplay,
 					agentControllerRef: item.actorAgentControllerRef,
+					agentControllerPending: item.actorAgentControllerPending,
 					avatarImageUrl: item.actorAvatarImageUrl,
 					displayName: item.actorName,
 					ownerDisplay: item.actorOwnerDisplay,

@@ -342,21 +342,25 @@ rollback, remove the Web caller and Gateway route before removing Core's RPC
 method. No database migration is required because the canonical clear timestamp
 already exists.
 
-Space unread uses two additive Inbox contracts. The grouped summary returns at
+Space unread uses three additive Inbox contracts. The grouped summary returns at
 most 500 accessible Space ids for the current member, with unread message
 counts and latest unread Signal occurrence watermarks. Account Space Index
-remains the owner of names, visibility, and ordering facts. Read-through accepts
-one exact Space id and a
-nonnegative source occurrence watermark. Core verifies current human Space
-membership, advances the watermark monotonically, and marks only matching
-Space message projections at or before it read. Agent interaction requests are
-not part of this message timeline, and reading never resolves source work. Inbox
-insertion consults the same watermark so delayed older projections do not
-reappear unread. Existing Center Agent summary and read-through contracts remain
-available during mixed-version rollout and use the same existing watermark
-ledger. The canonical Center Agent target contains both `spaceId` and `signalId`;
-the legacy target with neither remains readable during rollout, while a target
-with only one is invalid.
+remains the owner of names, visibility, and ordering facts. The exact-target
+read returns at most 500 accessible unread projections for one Space, including
+the source Signal id, occurrence watermark, and nullable thread-root Signal id;
+it does not copy message content or create another unread owner. Read-through
+accepts one exact Space id, a nonnegative source occurrence watermark, and an
+optional thread-root Signal id. Core verifies current human Space membership,
+advances either the main-conversation watermark or that exact thread watermark
+monotonically, and marks only matching Space message projections at or before
+it read. Agent interaction requests are not part of this message timeline, and
+reading never resolves source work. Inbox insertion consults the matching
+scope's watermark so delayed older projections do not reappear unread. Existing
+Center Agent summary and read-through contracts remain available during
+mixed-version rollout and use the main-conversation watermark ledger. The
+canonical Center Agent target contains both `spaceId` and `signalId`; the legacy
+target with neither remains readable during rollout, while a target with only
+one is invalid.
 
 The grouped summary also carries the optional `ordinarySpaceUnreadCount`
 aggregate. Core derives it across every accessible unread message in an ordinary
@@ -816,6 +820,20 @@ Organization id fails the Directory read closed with
 public `OrganizationDirectoryResponse` adds only the optional member-level
 `lastActiveAt` field. Gateway strips it unless the query opts in, so older Web
 and CLI clients continue to receive the prior strict shape during rollout.
+
+The broad `OrganizationDirectoryResponse` remains a compatibility contract.
+Current Web People and Agents use two narrower Core-owned read projections so
+identity is never blocked by runtime fan-out. `OrganizationProfileDirectoryResponse`
+contains Auth-owned member and Agent Profile identity, Center Agent designation,
+the optional member-activity overlay, and only the current viewer's
+permission-scoped primary Agent Controller summary. It does not read Runtime
+Transport or RuntimeCoordinator. `OrganizationAgentRuntimeOverviewResponse`
+contains readiness and Agent Profile Operational Context keyed by Profile id.
+Core resolves its inputs in bounded owner batches: one route batch, one owner
+Service read, and one local-runtime display inventory per owner, with bounded
+per-Profile readiness work. Splitting transport does not split authority: Auth,
+Core readiness, Binding, and RuntimeCoordinator remain the same owners, and the
+browser never derives or writes either projection.
 
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member
@@ -3841,7 +3859,12 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 
 `packages/schemas/src/schemas/http/space-wake-progress.ts` owns the Wake
 progress read model, including the optional `startedAtMs` timing projection and
-the optional `wakeStopEligibility` projection. Both projections are
+the optional `wakeStopEligibility` projection. It may also expose the bounded
+optional `waitReasonCode=runtime.agent_controller_conversation.occupied` from
+RuntimeCoordinator lifecycle evidence. That neutral projection never exposes
+the controller conversation id, does not grant execution authority, and must be
+cleared when the latest occupancy transition is `available`. The timing and
+Stop projections are
 mixed-version opt-in: clients request authoritative elapsed-time timing with
 `includeTiming=true` and Stop eligibility with
 `includeWakeStopEligibility=true` on Wake progress and active Wake progress
@@ -3859,6 +3882,11 @@ strict RPC input. Existing CLI versions do not send `includeTiming=true`, so
 new Core preserves their previous strict response shape. This additive HTTP/RPC
 projection changes no OpenMeld Service, daemon, Prepare, Runtime Transport,
 RuntimeCoordinator authority, or local-component contract version.
+
+The occupancy wait-reason rollout is Web receiver first, then Core producer.
+The field is optional so new Web remains compatible with old Core; an old
+strict Web response parser must not receive the additive field before the new
+Web is live.
 
 Wake Stop eligibility is a read model, not execution authority. It may make a
 Wake appear stoppable only when Core can project one of three control modes:

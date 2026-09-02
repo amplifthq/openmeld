@@ -4,14 +4,25 @@ import {
   OPENMELD_CLI_CONTEXT_ENV_KEY,
   resolveCliContext,
 } from "../config/session-profile";
+import { isBinaryDistribution } from "../runtime/distribution";
 
 export function rerunCurrentCommandWithEnv(input: {
   argv: string[];
   env: Record<string, string>;
 }): Promise<number> {
   const scriptPath = input.argv[1];
-  if (!scriptPath) {
+  const binaryDistribution = isBinaryDistribution();
+  if (!(binaryDistribution || scriptPath)) {
     return Promise.resolve(1);
+  }
+
+  // Node-based installs need their JavaScript entry path. A compiled Bun
+  // binary is already the entry program, and argv[1] is Bun's virtual source
+  // path (for example /$bunfs/root/openmeld-cli-...). Passing that path back
+  // to the upgraded binary turns it into a bogus top-level command.
+  const rerunArgs = input.argv.slice(2);
+  if (!binaryDistribution && scriptPath) {
+    rerunArgs.unshift(scriptPath);
   }
 
   const cliContext = resolveCliContext();
@@ -30,14 +41,10 @@ export function rerunCurrentCommandWithEnv(input: {
   }
 
   return new Promise<number>((resolve) => {
-    const child = spawn(
-      process.execPath,
-      [scriptPath, ...input.argv.slice(2)],
-      {
-        stdio: "inherit",
-        env: childEnv,
-      }
-    );
+    const child = spawn(process.execPath, rerunArgs, {
+      stdio: "inherit",
+      env: childEnv,
+    });
     child.once("error", () => resolve(1));
     child.once("exit", (code, signal) => {
       if (signal) {

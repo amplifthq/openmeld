@@ -7,6 +7,7 @@ import type {
 	MessageChannelConnectionProjection,
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
 import type { AppShellAccount } from "#/components/app/app-shell-account";
@@ -114,7 +115,10 @@ export type DirectoryHumanProfileRow = {
 };
 
 export function buildOrganizationHumanProfileRows(input: {
-	agentProfiles: OrganizationDirectoryResponse["agentProfiles"];
+	agentProfiles: readonly (
+		| OrganizationProfileDirectoryResponse["agentProfiles"][number]
+		| OrganizationDirectoryResponse["agentProfiles"][number]
+	)[];
 	canManageConnectedAccounts: boolean;
 	canManageMessageChannels: boolean;
 	computerGroups: readonly OrganizationComputerGroup[];
@@ -125,7 +129,7 @@ export function buildOrganizationHumanProfileRows(input: {
 	documentsStatus: DirectoryDocumentsStatus;
 	messageChannels: MessageChannelConnectionListResponse | null;
 	messageChannelsStatus: DirectoryProjectionStatus;
-	members: OrganizationDirectoryResponse["members"];
+	members: OrganizationProfileDirectoryResponse["members"];
 	orgSlug: string;
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
@@ -313,7 +317,10 @@ function buildPersonalAgentProfileSummaries(
 }
 
 function indexAgentProfilesByOwner(
-	agentProfiles: OrganizationDirectoryResponse["agentProfiles"]
+	agentProfiles: readonly (
+		| OrganizationProfileDirectoryResponse["agentProfiles"][number]
+		| OrganizationDirectoryResponse["agentProfiles"][number]
+	)[]
 ): ReadonlyMap<string, readonly DirectoryAgentProfileSummary[]> {
 	const profilesByOwner = new Map<string, DirectoryAgentProfileSummary[]>();
 	for (const profile of agentProfiles) {
@@ -321,10 +328,12 @@ function indexAgentProfilesByOwner(
 			continue;
 		}
 		const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
+		const agentControllerRef =
+			"agentControllerRef" in profile
+				? profile.agentControllerRef
+				: profile.readiness.agentControllerRef;
 		profiles.push({
-			agentId:
-				parseAgentControllerRef(profile.readiness.agentControllerRef)?.id ??
-				null,
+			agentId: parseAgentControllerRef(agentControllerRef)?.id ?? null,
 			avatarImageUrl: profile.avatarUrl ?? null,
 			id: profile.profileId,
 			name: profile.profileName,

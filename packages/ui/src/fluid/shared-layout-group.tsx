@@ -17,11 +17,13 @@ type SharedLayoutGroupContextValue = {
   activeItemId: string | null;
   indicatorLayoutId: string;
   reduceMotion: boolean;
-  setActiveItemId: (itemId: string | null) => void;
+  setActiveItemId?: (itemId: string | null) => void;
 };
 
 type SharedLayoutGroupProps = HTMLAttributes<HTMLDivElement> & {
+  activeItemId?: string | null;
   children: ReactNode;
+  onActiveItemIdChange?: (itemId: string | null) => void;
 };
 
 type SharedLayoutItemProps = HTMLAttributes<HTMLDivElement> & {
@@ -42,8 +44,29 @@ function useSharedLayoutGroup() {
 }
 
 const SharedLayoutGroup = forwardRef<HTMLDivElement, SharedLayoutGroupProps>(
-  ({ children, className, onBlur, onPointerLeave, ...props }, ref) => {
-    const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  (
+    {
+      activeItemId: controlledActiveItemId,
+      children,
+      className,
+      onActiveItemIdChange,
+      onBlur,
+      onPointerLeave,
+      ...props
+    },
+    ref
+  ) => {
+    const [uncontrolledActiveItemId, setUncontrolledActiveItemId] = useState<
+      string | null
+    >(null);
+    const activeItemId =
+      controlledActiveItemId === undefined
+        ? uncontrolledActiveItemId
+        : controlledActiveItemId;
+    const setActiveItemId =
+      controlledActiveItemId === undefined
+        ? setUncontrolledActiveItemId
+        : onActiveItemIdChange;
     const generatedId = useId();
     const reduceMotion = useReducedMotion() === true;
 
@@ -67,12 +90,12 @@ const SharedLayoutGroup = forwardRef<HTMLDivElement, SharedLayoutGroupProps>(
             if (
               !event.currentTarget.contains(event.relatedTarget as Node | null)
             ) {
-              setActiveItemId(null);
+              setActiveItemId?.(null);
             }
           }}
           onPointerLeave={(event) => {
             onPointerLeave?.(event);
-            setActiveItemId(null);
+            setActiveItemId?.(null);
           }}
           ref={ref}
         >
@@ -113,11 +136,11 @@ const SharedLayoutItem = forwardRef<HTMLDivElement, SharedLayoutItemProps>(
           data-slot="shared-layout-item"
           onFocus={(event) => {
             onFocus?.(event);
-            setActiveItemId(itemId);
+            setActiveItemId?.(itemId);
           }}
           onPointerEnter={(event) => {
             onPointerEnter?.(event);
-            setActiveItemId(itemId);
+            setActiveItemId?.(itemId);
           }}
           ref={ref}
         >

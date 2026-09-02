@@ -643,6 +643,35 @@ export async function resolveConnectedLocalRuntimeDisplayNameUseCase(input: {
   runtimeLane: DaemonServiceLane;
   now?: Date;
 }): Promise<string | null> {
+  const [result] = await resolveConnectedLocalRuntimeDisplayNamesUseCase({
+    ...(input.now ? { now: input.now } : {}),
+    store: input.store,
+    targets: [
+      {
+        deviceId: input.deviceId,
+        runtimeLane: input.runtimeLane,
+      },
+    ],
+    userId: input.userId,
+  });
+  return result?.displayName ?? null;
+}
+
+export async function resolveConnectedLocalRuntimeDisplayNamesUseCase(input: {
+  store: ConnectedLocalRuntimeDisplayNameStore;
+  targets: readonly {
+    deviceId: string;
+    runtimeLane: DaemonServiceLane;
+  }[];
+  userId: string;
+  now?: Date;
+}): Promise<
+  {
+    deviceId: string;
+    displayName: string | null;
+    runtimeLane: DaemonServiceLane;
+  }[]
+> {
   // Read-only projection lookup for display. Do not adopt legacy devices, create
   // placeholders, or repair connected computer identity from readiness reads.
   const currentDeviceTarget = await input.store.readCurrentDeviceTarget({
@@ -664,9 +693,8 @@ export async function resolveConnectedLocalRuntimeDisplayNameUseCase(input: {
       userId: input.userId,
     }) ?? Promise.resolve([]),
   ]);
-
-  const matchingComputer = groupConnectedComputerDevices(devices)
-    .map((connectedDevices) =>
+  const computers = groupConnectedComputerDevices(devices).map(
+    (connectedDevices) =>
       buildConnectedLocalRuntimeComputer({
         currentDeviceId,
         currentRuntimeLane,
@@ -679,38 +707,41 @@ export async function resolveConnectedLocalRuntimeDisplayNameUseCase(input: {
         localAgentControlByDeviceLane: new Map(),
         localProjectControlByDeviceLane: new Map(),
       })
-    )
-    .map((computer) => ({
-      computer,
-      matchPriority: resolveConnectedLocalRuntimeRouteMatchPriority({
-        computer,
-        deviceId: input.deviceId,
-        runtimeLane: input.runtimeLane,
-      }),
-    }))
-    .filter(
-      (
-        item
-      ): item is {
-        computer: LocalRuntimeComputer;
-        matchPriority: number;
-      } => item.matchPriority !== null
-    )
-    .sort(
-      (left, right) =>
-        left.matchPriority - right.matchPriority ||
-        left.computer.deviceId.localeCompare(right.computer.deviceId)
-    )[0]?.computer;
+  );
 
-  if (
-    !(
-      matchingComputer &&
-      hasUserVisibleConnectedComputerDisplay(matchingComputer)
-    )
-  ) {
-    return null;
-  }
-  return matchingComputer.deviceDisplayName;
+  return input.targets.map((target) => {
+    const matchingComputer = computers
+      .map((computer) => ({
+        computer,
+        matchPriority: resolveConnectedLocalRuntimeRouteMatchPriority({
+          computer,
+          deviceId: target.deviceId,
+          runtimeLane: target.runtimeLane,
+        }),
+      }))
+      .filter(
+        (
+          item
+        ): item is {
+          computer: LocalRuntimeComputer;
+          matchPriority: number;
+        } => item.matchPriority !== null
+      )
+      .sort(
+        (left, right) =>
+          left.matchPriority - right.matchPriority ||
+          left.computer.deviceId.localeCompare(right.computer.deviceId)
+      )[0]?.computer;
+    return {
+      deviceId: target.deviceId,
+      displayName:
+        matchingComputer &&
+        hasUserVisibleConnectedComputerDisplay(matchingComputer)
+          ? matchingComputer.deviceDisplayName
+          : null,
+      runtimeLane: target.runtimeLane,
+    };
+  });
 }
 
 export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {

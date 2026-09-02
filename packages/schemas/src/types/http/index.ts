@@ -659,12 +659,16 @@ export type {
   CenterAgentListOrganizationMembersBody,
   CenterAgentListOrganizationMembersResponse,
   CenterAgentListOrganizationMembersToolRpcInput,
+  OrganizationAgentRuntimeOverviewItem,
+  OrganizationAgentRuntimeOverviewResponse,
   OrganizationDirectoryAgentProfile,
   OrganizationDirectoryAgentProfileIdentity,
   OrganizationDirectoryHumanProfile,
   OrganizationDirectoryMember,
   OrganizationDirectoryResponse,
   OrganizationMemberWebActivityResponse,
+  OrganizationProfileDirectoryAgentProfile,
+  OrganizationProfileDirectoryResponse,
 } from "./organization-directory";
 export type {
   ApproveOrganizationDocumentDraftBody,
@@ -1194,6 +1198,7 @@ export type {
   GetSpaceWakeProgressResponse,
   WakeProgressItem,
   WakeProgressPhase,
+  WakeProgressWaitReasonCode,
   WakeStopEligibilityReadModel,
 } from "./space-wake-progress";
 export type {

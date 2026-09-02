@@ -187,7 +187,7 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 	if (organizationId.length > 0) {
 		refreshes.push(
 			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.directory(organizationId),
+				queryKey: organizationQueryKeys.agentRuntimeOverview(organizationId),
 				refetchType: "active",
 			})
 		);

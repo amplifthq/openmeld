@@ -84,9 +84,11 @@ advances one ref per completed scope under
 append-only evidence chain whose latest record contains the exact released
 first-parent `main` commit and completion time. `release:status` combines those
 records with hosted release jobs and uses the latest completed event for each
-scope. A workstation release therefore cannot disappear merely because no
-GitHub deployment job ran, and an explicit rollback remains visible as the
-latest deployed source instead of being mistaken for a failed evidence write.
+scope. A successful redeploy of the same source SHA is still a new completed
+event and must advance that scope's evidence ref with its later completion time.
+A workstation release therefore cannot disappear merely because no GitHub
+deployment job ran, and an explicit rollback remains visible as the latest
+deployed source instead of being mistaken for a failed evidence write.
 
 `--deployed` remains a one-run diagnostic override for historical releases that
 predate these refs. It is not the normal completion path:
@@ -145,11 +147,12 @@ It also accepts comma-separated scopes, `cloud`, and `full`.
 - Selecting `cli` owns its required Core projection; adding `core` does not
   deploy Core twice.
 
-`auto` is the default local plan. It follows changed workspace dependencies and
-local-component release paths, so it intentionally prefers a safe superset for
-shared package changes. Review the plan. An operator may narrow it with an
-explicit scope only when the changed contract and mixed-version behavior prove
-that narrower rollout is safe.
+`auto` is the default local plan. It follows changed runtime-capable workspace
+dependencies and local-component release paths, so it intentionally prefers a
+safe superset for shared package changes. Development-only dependencies do not
+expand production release scope. Review the plan. An operator may narrow it
+with an explicit scope only when the changed contract and mixed-version behavior
+prove that narrower rollout is safe.
 
 The planner selects the `remote-agent-receiver-first` deploy-order profile when
 the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
@@ -575,6 +578,13 @@ full
 - `cloud` deploys only the five cloud components.
 - `full` runs Database, Auth, Web, Gateway, Core, and Remote Agent in order.
 - CLI publishing is not available in this workflow.
+
+The separate CLI Release workflow also deploys the Core projection required by
+the published CLI channel. Before any CLI or Core mutation, it proves that the
+Production D1 pending migration list is empty. If migrations remain, release
+the exact SHA with the `database` scope first, then rerun CLI Release. This gate
+prevents a new Core writer from reaching an older database constraint or
+schema.
 
 For a Center Agent bridge release that includes Context Scope Plan, first run
 the `remote-agent` scope from the approved commit and verify it succeeds. Then

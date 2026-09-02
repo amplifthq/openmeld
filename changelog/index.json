@@ -2,6 +2,33 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "converge-openmeld-tools-updates",
+      "title": "Keep one OpenMeld Tools update in control",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "computers",
+        "openmeld-service",
+        "setup"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-09-01",
+      "release": "v0.3.142",
+      "evidence": [
+        "pr:532",
+        "pr:539",
+        "pr:541",
+        "pr:543",
+        "commit:d8067f9ffbb3c851ffb98e28f29b18a1a2713e31",
+        "workflow:33551034027",
+        "workflow:33556392417"
+      ],
+      "body": "OpenMeld Tools updates now join an update already in progress instead of\nstarting a competing CLI or Setup path. Manual Setup waits and continues\nautomatically. On the Computer page, the button stays disabled with an active\n`Updating…` cue after a refresh, and the concise status moves through\n`Checking…`, `Finishing…`, `Updating…`, or `Verifying…`.\n\nAutomatic updates can also respond to a newly available release over the\nService's existing connection when that Service explicitly supports the\nrequest. Update actions bypass an older version cached by the running Service,\nwhile simultaneous checks still share one fresh request. Startup, reconnect,\nand hourly checks remain as fallbacks, failed connections can retry promptly,\nand active Agent work still finishes before OpenMeld switches the Service\nversion.\n\nThe CLI update prompt now also restarts a newly installed standalone binary\nwithout treating its internal build path as a command, so the menu continues\ncleanly after the upgrade.\n\nUpdate cleanup is also isolated to the current OpenMeld lane, so a Development\nor Canary Service cannot block or be stopped by a Production update. After a\nrepair reaches the requested version, the Computer page now shows the current\nhealthy result instead of keeping a historical update failure on screen."
+    },
+    {
       "id": "find-people-and-their-computers-together",
       "title": "Find people and their computers together",
       "kind": "improved",

@@ -4,6 +4,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	within,
 } from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
 import type { ReactNode } from "react";
@@ -20,6 +21,8 @@ const INTERNAL_ACTION_CATALOG_PATTERN = /action catalog/i;
 const REFERENCED_SPACE_ID = "a".repeat(64);
 const WAKE_TARGET_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const WAKE_TARGET_PROFILE_NAME = "Production Smoke Codex — Aug 28";
+const REFERENCE_TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
+const REFERENCE_TARGET_PROFILE_NAME = "Review Agent";
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -101,7 +104,8 @@ describe("SpaceMessageBody", () => {
 		expect(screen.queryByRole("link", { name: "Docs" })).toBeNull();
 	});
 
-	it("renders a structured Wake target as an inline Agent identity", () => {
+	it("renders a structured Wake target as a compact clickable Agent token", () => {
+		const onOpenAgentProfile = vi.fn();
 		const view = render(
 			<SpaceMessageBody
 				item={{
@@ -109,6 +113,7 @@ describe("SpaceMessageBody", () => {
 					text: `@${WAKE_TARGET_PROFILE_NAME} hi`,
 					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
 				}}
+				onOpenAgentProfile={onOpenAgentProfile}
 				profilePresentationsById={createWakeTargetProfilePresentations()}
 			/>
 		);
@@ -117,21 +122,87 @@ describe("SpaceMessageBody", () => {
 			'[data-slot="space-message-agent-mention"]'
 		);
 
+		const mentionButton = screen.getByRole("button", {
+			name: `Open ${WAKE_TARGET_PROFILE_NAME} profile (Wake)`,
+		});
+		expect(mentionButton).toBe(mention);
+		expect(mentionButton.className).toContain("items-center");
+		expect(mentionButton.className).toContain("gap-1");
+		expect(mentionButton.className).toContain("align-middle");
 		const atMark = mention?.querySelector('[aria-hidden="true"]');
 		expect(atMark?.textContent).toBe("@");
-		expect(atMark?.className).toContain("me-1.5");
 		expect(mention?.childNodes.item(2).textContent).toBe(
 			WAKE_TARGET_PROFILE_NAME
 		);
 		const profileIcon = screen.getByTestId(
 			`space-profile-icon-${WAKE_TARGET_PROFILE_ID}`
 		);
-		expect(profileIcon.className).toContain("me-1");
+		expect(profileIcon.className).not.toContain("me-");
 		const profileName = screen.getByText(WAKE_TARGET_PROFILE_NAME);
 		expect(profileName.tagName).toBe("STRONG");
 		expect(profileName.className).toContain("font-semibold");
+		expect(profileName.className).not.toContain("underline");
 		expect(profileName.className).not.toContain("font-bold");
+		expect(within(mentionButton).getByText("Wake")).toBeTruthy();
 		expect(mention?.nextSibling?.textContent).toBe(" hi");
+
+		fireEvent.click(mentionButton);
+		expect(onOpenAgentProfile).toHaveBeenCalledOnce();
+		expect(onOpenAgentProfile).toHaveBeenCalledWith(WAKE_TARGET_PROFILE_ID);
+	});
+
+	it("renders a structured Agent Reference with the same profile-details behavior", () => {
+		const onOpenAgentProfile = vi.fn();
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					referenceTargetProfileIds: [REFERENCE_TARGET_PROFILE_ID],
+					text: `Ask @${REFERENCE_TARGET_PROFILE_NAME} for context.`,
+					wakeTargetProfileIds: [],
+				}}
+				onOpenAgentProfile={onOpenAgentProfile}
+				profilePresentationsById={createWakeTargetProfilePresentations()}
+			/>
+		);
+
+		const referenceButton = screen.getByRole("button", {
+			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Reference)`,
+		});
+		expect(within(referenceButton).getByText("Reference")).toBeTruthy();
+		fireEvent.click(referenceButton);
+		expect(onOpenAgentProfile).toHaveBeenCalledWith(
+			REFERENCE_TARGET_PROFILE_ID
+		);
+	});
+
+	it("keeps repeated structured Agent appearances explicit after sending", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `@${WAKE_TARGET_PROFILE_NAME} leads; @${WAKE_TARGET_PROFILE_NAME} is referenced again.`,
+					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
+				}}
+				profilePresentationsById={createWakeTargetProfilePresentations()}
+			/>
+		);
+
+		expect(
+			view.container.querySelectorAll(
+				'[data-slot="space-message-agent-mention"]'
+			)
+		).toHaveLength(2);
+		expect(
+			screen.getByText("Wake", {
+				selector: '[data-slot="space-message-agent-mention"] span',
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByText("Reference", {
+				selector: '[data-slot="space-message-agent-mention"] span',
+			})
+		).toBeTruthy();
 	});
 
 	it("keeps an ordinary unstructured @Agent name as plain text", () => {
@@ -1050,6 +1121,17 @@ function createWakeTargetProfilePresentations() {
 				profileId: WAKE_TARGET_PROFILE_ID,
 				profileKind: "agent" as const,
 				profileName: WAKE_TARGET_PROFILE_NAME,
+			},
+		] as const,
+		[
+			REFERENCE_TARGET_PROFILE_ID,
+			{
+				agentControllerRef: "builtin:codex",
+				avatarImageUrl: null,
+				isCenterAgent: false,
+				profileId: REFERENCE_TARGET_PROFILE_ID,
+				profileKind: "agent" as const,
+				profileName: REFERENCE_TARGET_PROFILE_NAME,
 			},
 		] as const,
 	]);

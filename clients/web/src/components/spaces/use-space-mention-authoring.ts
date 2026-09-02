@@ -136,10 +136,6 @@ export function useSpaceMentionAuthoring(input: {
 			}),
 		[authoredMentions, composerText, input.snapshot]
 	);
-	const addressingSummary = useMemo(
-		() => buildSpaceComposerAddressingSummary(addressingMentions),
-		[addressingMentions]
-	);
 	const addressingTargets = useMemo(
 		() =>
 			buildSpaceComposerAddressingTargets({
@@ -262,7 +258,6 @@ export function useSpaceMentionAuthoring(input: {
 	});
 
 	return {
-		addressingSummary,
 		addressingTargets,
 		authoredMentions,
 		composerSelection,
@@ -547,41 +542,6 @@ export function resolveDefaultSpaceComposerMentionRelation(
 	}
 
 	return null;
-}
-
-export function buildSpaceComposerAddressingSummary(
-	mentions: readonly SpaceComposerAddressingMention[]
-): string | null {
-	const relationByProfileId = new Map<string, MessageMentionType>();
-	for (const mention of mentions) {
-		if (!relationByProfileId.has(mention.profileId)) {
-			relationByProfileId.set(mention.profileId, mention.relation);
-		}
-	}
-	const relationCounts: Record<MessageMentionType, number> = {
-		mention: 0,
-		reference: 0,
-		wake: 0,
-	};
-	for (const relation of relationByProfileId.values()) {
-		relationCounts[relation] += 1;
-	}
-
-	const segments: string[] = [];
-	if (relationCounts.wake > 0) {
-		const agentLabel = relationCounts.wake === 1 ? "agent" : "agents";
-		segments.push(`Waking ${String(relationCounts.wake)} ${agentLabel}`);
-	}
-	if (relationCounts.reference > 0) {
-		const agentLabel = relationCounts.reference === 1 ? "agent" : "agents";
-		segments.push(
-			`Referencing ${String(relationCounts.reference)} ${agentLabel}`
-		);
-	}
-	if (segments.length === 0) {
-		return null;
-	}
-	return segments.join(" · ");
 }
 
 function normalizeRestoredHumanMentionRelations(input: {

@@ -491,14 +491,17 @@ Composer authoring keeps these relations explicit without imposing a required
 confirmation step after every `@` selection. Agent Profiles default to Wake and
 may be changed to Reference. Human Profiles always create Human Mention, so Web
 shows a fixed `@Name` mark instead of a meaningless Wake/Reference selector.
-The bottom summary counts only Agent relations (`Waking N agents` and
-`Referencing N agents`); Human Mentions stay visible in the message itself.
+Each inline Agent token shows its own Wake or Reference relation, so Web does
+not repeat those relations in a bottom count summary. Human Mentions stay
+visible in the message itself without an Agent relation label. Every Composer
+inline target provides a direct remove action in addition to keyboard deletion.
 The system may warn about a possible semantic mismatch, but it must not silently
-convert one structured Agent relation into another. Repeating the same Agent mention in one message is not a second
-structured relation: the first occurrence owns the selected Wake or Reference,
-and later occurrences remain ordinary visible text. Web preserves the authored
-visible text. The generic CLI accepts an exact current mention label or stable
-Profile ID inside `@target(wake)`, `@target(reference)`, or
+convert one structured Agent relation into another. Repeating the same Agent
+mention in one message keeps every occurrence explicit: the first token owns
+the selected Wake or Reference, while later tokens resolve to Reference and
+never create another Wake. Web preserves the authored visible text. The generic
+CLI accepts an exact current mention label or stable Profile ID inside
+`@target(wake)`, `@target(reference)`, or
 `@target(mention)`. It resolves that private selector against one current member
 snapshot, publishes `@primaryMentionLabel` without the relation suffix or raw
 machine ID, and retains the exact Profile ID and relation in the structured
@@ -508,14 +511,14 @@ stale name fails closed and the sender must use the fresh label or stable ID.
 Profile appears only once in the structured target set and therefore can be
 woken only once.
 
-Web may enrich the first visible `@Name` owned by a structured Agent Wake with
-the Agent Profile icon and stronger name emphasis. This is presentation of the
-existing structured relation, not inference from message text; an ordinary
-bare `@Agent Name` remains ordinary prose.
-
-When a message has multiple structured targets, the composer shows a quiet
-summary of the exact unique target set. The summary is a preview of structured
-addressing, not an AI inference from prose.
+Web presents the first visible `@Name` owned by each structured Agent Wake or
+Reference as one inline Agent token. The token includes the Agent Profile icon,
+canonical name, and exact relation. If the same structured Agent appears again
+in that message, the later appearance remains an explicit Reference token,
+matching the Composer's duplicate rule without creating a second Wake target.
+This is presentation of existing structured authoring, not inference from an
+otherwise unstructured message; a message with no structured target keeps a
+bare `@Agent Name` as ordinary prose.
 
 Delivery intent matters. If a human or agent asks one Agent Profile to deliver
 work to another Agent Profile, the publishing agent must use Wake or Reply +
@@ -710,8 +713,9 @@ Each failed target presents one primary next step chosen from the specific
 cause and available recovery evidence. For example, a Cursor plan limit offers
 **Manage Cursor plan**, an unavailable local Agent may offer its relevant setup
 action, and an exact retained reply offers recovery. Unrelated actions must not
-appear beside that primary step. Diagnostics remains available as the separate
-explanation path.
+appear beside that primary step. Message details is the separate diagnostic
+path and keeps its technical evidence available without a duplicate diagnostics
+button.
 
 For one exact failed target, Space renders one recovery control, not separate
 timeline and Message details controls with different operation ids. Opening
@@ -787,7 +791,7 @@ model. The drawer always begins with the actual message preview, author, and
 sent time, then represents each Wake target with one Activity row. Live work
 updates that row in place. A recorded reply or terminal outcome replaces the
 transient work in the same row and keeps its final status, content, explanation,
-recovery action, and diagnostic action together. The drawer must not create a
+recovery action, and diagnostic context together. The drawer must not create a
 separate Replies section, detached failure summary, or redundant `replied`
 event for the same target. Web must not create a second "work message" details
 UI or derive an alternate final status from component-local state. Live

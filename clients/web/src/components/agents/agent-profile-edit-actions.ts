@@ -7,6 +7,7 @@ import type {
 	GetAgentProfilePrimaryBindingResponse,
 	LocalRuntimeExecutionTarget,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
 import {
@@ -25,7 +26,10 @@ import {
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { renameOpenMeldProfile } from "#/lib/profiles/rename-profile";
 import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readiness";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import {
+	organizationDirectoryQueryFilters,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
 import {
 	agentProfilePrimaryBindingQueryKeys,
 	agentProfilePrimaryBindingQueryOptions,
@@ -246,7 +250,9 @@ export async function renameAgentProfile(input: {
 			),
 		}),
 		input.context.queryClient.cancelQueries({
-			queryKey: organizationQueryKeys.directory(input.context.organizationId),
+			...organizationDirectoryQueryFilters({
+				organizationId: input.context.organizationId,
+			}),
 		}),
 	]);
 	updateAgentProfileListCaches({
@@ -263,7 +269,9 @@ export async function renameAgentProfile(input: {
 			refetchType: "none",
 		}),
 		input.context.queryClient.invalidateQueries({
-			queryKey: organizationQueryKeys.directory(input.context.organizationId),
+			...organizationDirectoryQueryFilters({
+				organizationId: input.context.organizationId,
+			}),
 			refetchType: "none",
 		}),
 	]);
@@ -289,6 +297,25 @@ export function updateAgentProfileListCaches(input: {
 	);
 	input.queryClient.setQueryData<OrganizationDirectoryResponse>(
 		organizationQueryKeys.directory(input.organizationId),
+		(current) =>
+			current
+				? {
+						...current,
+						agentProfiles: current.agentProfiles.map((profile) =>
+							profile.profileId === input.profile.openMeldProfileId
+								? {
+										...profile,
+										profileHandle: input.profile.profileHandle,
+										profileName: input.profile.profileName,
+										updatedAt: input.profile.updatedAt,
+									}
+								: profile
+						),
+					}
+				: current
+	);
+	input.queryClient.setQueryData<OrganizationProfileDirectoryResponse>(
+		organizationQueryKeys.profileDirectory(input.organizationId),
 		(current) =>
 			current
 				? {

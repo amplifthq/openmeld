@@ -7,7 +7,8 @@ import {
 } from "@openmeld/agent-runtime";
 import type {
 	AuthProfileView,
-	OrganizationDirectoryResponse,
+	OrganizationAgentRuntimeOverviewResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Input } from "@openmeld/ui/components/input";
 import {
@@ -25,7 +26,6 @@ import { AgentProfilesWorkspace } from "#/components/agents/agent-profiles-works
 import {
 	type AgentProfileAvailabilityFilter,
 	type AgentProfileAvailabilityFilterCounts,
-	resolveAgentProfileAvailabilityFilterState,
 	sortAgentProfilesForDisplay,
 } from "#/components/agents/agents-page-agent-profile-helpers";
 import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profiles-card";
@@ -39,7 +39,8 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import {
-	organizationDirectoryQueryOptions,
+	organizationAgentRuntimeOverviewQueryOptions,
+	organizationProfileDirectoryQueryOptions,
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
 import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent-profile-creation-requests";
@@ -105,19 +106,38 @@ export function PeopleAndAgentsPage(input: {
 		loadAgentProfiles: false,
 		loadSetupState: false,
 	});
-	const organizationDirectoryQuery = useQuery(
-		organizationDirectoryQueryOptions({
+	const organizationProfileDirectoryQuery = useQuery(
+		organizationProfileDirectoryQueryOptions({
 			enabled: true,
 			organizationId: currentOrganization.id,
 		})
 	);
+	const organizationAgentRuntimeOverviewQuery = useQuery(
+		organizationAgentRuntimeOverviewQueryOptions({
+			enabled:
+				activeAgentView === "agents" && input.activeSectionId === "agents",
+			organizationId: currentOrganization.id,
+		})
+	);
 	const agentProfileFilterCounts = useMemo(() => {
-		return summarizeOrganizationAgentProfileAvailabilityFilters(
-			(organizationDirectoryQuery.data?.agentProfiles ?? []).filter(
-				(profile) => profile.managedRole !== "center_agent"
-			)
-		);
-	}, [organizationDirectoryQuery.data?.agentProfiles]);
+		return summarizeOrganizationAgentProfileAvailabilityFilters({
+			profiles: (
+				organizationProfileDirectoryQuery.data?.agentProfiles ?? []
+			).filter((profile) => profile.managedRole !== "center_agent"),
+			runtimeOverview: organizationAgentRuntimeOverviewQuery.data,
+			runtimeOverviewFailed:
+				organizationAgentRuntimeOverviewQuery.isError &&
+				!organizationAgentRuntimeOverviewQuery.data,
+			runtimeOverviewPending:
+				organizationAgentRuntimeOverviewQuery.isPending &&
+				!organizationAgentRuntimeOverviewQuery.data,
+		});
+	}, [
+		organizationAgentRuntimeOverviewQuery.data,
+		organizationAgentRuntimeOverviewQuery.isError,
+		organizationAgentRuntimeOverviewQuery.isPending,
+		organizationProfileDirectoryQuery.data?.agentProfiles,
+	]);
 	const handleProfileCreated = (profile: AuthProfileView) => {
 		Promise.all([
 			queryClient.invalidateQueries({
@@ -125,6 +145,16 @@ export function PeopleAndAgentsPage(input: {
 			}),
 			queryClient.invalidateQueries({
 				queryKey: organizationQueryKeys.directory(currentOrganization.id),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.profileDirectory(
+					currentOrganization.id
+				),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.agentRuntimeOverview(
+					currentOrganization.id
+				),
 			}),
 		]).catch((error: unknown) => {
 			console.error(
@@ -173,7 +203,7 @@ export function PeopleAndAgentsPage(input: {
 					account={account}
 					currentOrganization={currentOrganization}
 					currentUserId={currentUserId}
-					directoryQuery={organizationDirectoryQuery}
+					directoryQuery={organizationProfileDirectoryQuery}
 					focusProfileId={input.focusProfileId}
 					initialSidebarStates={input.initialSidebarStates}
 					onCreateProfile={() => setIsCreateProfileOpen(true)}
@@ -193,7 +223,6 @@ export function PeopleAndAgentsPage(input: {
 					agentProfileFilter
 				)}
 				currentUserId={currentUserId}
-				directoryQuery={organizationDirectoryQuery}
 				fallbackOwnerLabel={fallbackOwnerLabel}
 				filterControl={
 					<AgentProfileFilterSelect
@@ -220,7 +249,9 @@ export function PeopleAndAgentsPage(input: {
 				}
 				organizationId={currentOrganization.id}
 				orgSlug={orgSlug}
+				profileDirectoryQuery={organizationProfileDirectoryQuery}
 				recovery={recovery}
+				runtimeOverviewQuery={organizationAgentRuntimeOverviewQuery}
 				searchControl={
 					<AgentProfileSearchInput
 						onValueChange={setAgentProfileSearchQuery}
@@ -251,7 +282,8 @@ function AgentsWorkspaceHome(input: {
 	availabilityFilter: AgentProfileAvailabilityFilter;
 	agentProfileSearchQuery: string;
 	currentUserId: string;
-	directoryQuery: OrganizationDirectoryQueryState;
+	runtimeOverviewQuery: OrganizationAgentRuntimeOverviewQueryState;
+	profileDirectoryQuery: OrganizationProfileDirectoryQueryState;
 	fallbackOwnerLabel: string;
 	filterControl: ReactNode;
 	focusRequestId: string | null;
@@ -277,38 +309,79 @@ function AgentsWorkspaceHome(input: {
 	});
 	const organizationAgentProjection = useMemo(() => {
 		const profiles: AuthProfileView[] = [];
+		const profileById = new Map<
+			string,
+			OrganizationProfileDirectoryResponse["agentProfiles"][number]
+		>();
 		const operationalContextByProfileId = new Map<
 			string,
 			AgentProfileOperationalContextInput
 		>();
 		const readinessByProfileId = new Map<
 			string,
-			OrganizationDirectoryResponse["agentProfiles"][number]["readiness"]
+			OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
 		>();
-		for (const profile of input.directoryQuery.data?.agentProfiles ?? []) {
+		for (const profile of input.profileDirectoryQuery.data?.agentProfiles ??
+			[]) {
 			if (profile.managedRole === "center_agent") {
 				continue;
 			}
+			profileById.set(profile.profileId, profile);
 			profiles.push(buildAuthProfileViewFromOrganizationAgentProfile(profile));
-			readinessByProfileId.set(profile.profileId, profile.readiness);
-			if (profile.operationalContext) {
+		}
+		for (const runtime of input.runtimeOverviewQuery.data?.agentProfiles ??
+			[]) {
+			readinessByProfileId.set(runtime.profileId, runtime.readiness);
+			const profile = profileById.get(runtime.profileId);
+			if (profile && runtime.operationalContext) {
 				operationalContextByProfileId.set(
-					profile.profileId,
+					runtime.profileId,
 					projectAgentProfileOperationalContext(
-						profile.operationalContext,
+						runtime.operationalContext,
 						profile.ownerUserId === input.currentUserId
 					)
 				);
 			}
 		}
 		return { operationalContextByProfileId, profiles, readinessByProfileId };
-	}, [input.currentUserId, input.directoryQuery.data?.agentProfiles]);
+	}, [
+		input.currentUserId,
+		input.profileDirectoryQuery.data?.agentProfiles,
+		input.runtimeOverviewQuery.data?.agentProfiles,
+	]);
 	const agentProfiles = organizationAgentProjection.profiles;
 	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
 	const operationalContextByProfileId =
 		organizationAgentProjection.operationalContextByProfileId;
-	const errorByProfileId = EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID;
-	const pendingProfileIds = EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS;
+	const errorByProfileId = useMemo(
+		() =>
+			input.runtimeOverviewQuery.isError && !input.runtimeOverviewQuery.data
+				? new Map(
+						agentProfiles.map((profile) => [
+							profile.openMeldProfileId,
+							input.runtimeOverviewQuery.error?.message ??
+								"OpenMeld couldn't load this Agent's current availability.",
+						])
+					)
+				: EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID,
+		[
+			agentProfiles,
+			input.runtimeOverviewQuery.data,
+			input.runtimeOverviewQuery.error?.message,
+			input.runtimeOverviewQuery.isError,
+		]
+	);
+	const pendingProfileIds = useMemo(
+		() =>
+			input.runtimeOverviewQuery.isPending && !input.runtimeOverviewQuery.data
+				? new Set(agentProfiles.map((profile) => profile.openMeldProfileId))
+				: EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS,
+		[
+			agentProfiles,
+			input.runtimeOverviewQuery.data,
+			input.runtimeOverviewQuery.isPending,
+		]
+	);
 	const availabilityFilteredAgentProfiles = useMemo(
 		() =>
 			sortAgentProfilesForDisplay({
@@ -317,14 +390,20 @@ function AgentsWorkspaceHome(input: {
 			}).filter(
 				(profile) =>
 					input.availabilityFilter === "all" ||
-					resolveAgentProfileAvailabilityFilterState({
+					resolveOrganizationAgentProfileAvailabilityState({
 						errorByProfileId,
 						pendingProfileIds,
 						profileId: profile.openMeldProfileId,
 						readinessByProfileId,
 					}) === input.availabilityFilter
 			),
-		[agentProfiles, input.availabilityFilter, readinessByProfileId]
+		[
+			agentProfiles,
+			errorByProfileId,
+			input.availabilityFilter,
+			pendingProfileIds,
+			readinessByProfileId,
+		]
 	);
 	const normalizedSearchQuery = normalizeAgentProfileSearchText(
 		input.agentProfileSearchQuery
@@ -387,16 +466,16 @@ function AgentsWorkspaceHome(input: {
 			(request) => request.status === "pending"
 		).length ?? 0;
 	const profilesStatus = resolveAgentProfilesStatus({
-		isError: input.directoryQuery.isError,
-		isPending: input.directoryQuery.isPending,
+		isError: input.profileDirectoryQuery.isError,
+		isPending: input.profileDirectoryQuery.isPending,
 	});
-	const profilesErrorMessage = input.directoryQuery.error?.message;
+	const profilesErrorMessage = input.profileDirectoryQuery.error?.message;
 	let requestPanel: ReactNode = null;
-	if (input.directoryQuery.data) {
+	if (input.profileDirectoryQuery.data) {
 		requestPanel = (
 			<AgentProfileCreationRequestsPanel
 				currentUserId={input.currentUserId}
-				directory={input.directoryQuery.data}
+				directory={input.profileDirectoryQuery.data}
 				focusRequestId={input.focusRequestId}
 				onCreateAgent={input.onCreateAgent}
 				onOpenAgent={(profileId) => {
@@ -406,10 +485,11 @@ function AgentsWorkspaceHome(input: {
 				storageScope={input.recovery.storageScope}
 			/>
 		);
-	} else if (input.directoryQuery.isError) {
+	} else if (input.profileDirectoryQuery.isError) {
 		requestPanel = (
 			<p className="rounded-md border border-destructive/30 px-4 py-4 text-destructive text-sm">
-				{input.directoryQuery.error?.message ?? "Couldn’t load Agent requests."}
+				{input.profileDirectoryQuery.error?.message ??
+					"Couldn’t load Agent requests."}
 			</p>
 		);
 	} else if (input.isOrganizationContext) {
@@ -525,7 +605,7 @@ function matchesAgentProfileSearch(input: {
 	profile: AuthProfileView;
 	query: string;
 	readiness:
-		| OrganizationDirectoryResponse["agentProfiles"][number]["readiness"]
+		| OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
 		| null;
 }): boolean {
 	const agentControllerRef =
@@ -660,34 +740,84 @@ function formatAgentProfileFilterOptionName(input: {
 	return `${input.label}, ${input.count} ${profileLabel}`;
 }
 
-type OrganizationDirectoryQueryState = {
-	data?: OrganizationDirectoryResponse;
+type OrganizationProfileDirectoryQueryState = {
+	data?: OrganizationProfileDirectoryResponse;
 	error: { message?: string } | null;
 	isError: boolean;
 	isPending: boolean;
 };
 
-function summarizeOrganizationAgentProfileAvailabilityFilters(
-	profiles: readonly OrganizationDirectoryResponse["agentProfiles"][number][]
-): AgentProfileAvailabilityFilterCounts {
+type OrganizationAgentRuntimeOverviewQueryState = {
+	data?: OrganizationAgentRuntimeOverviewResponse;
+	error: { message?: string } | null;
+	isError: boolean;
+	isPending: boolean;
+};
+
+function summarizeOrganizationAgentProfileAvailabilityFilters(input: {
+	profiles: readonly OrganizationProfileDirectoryResponse["agentProfiles"][number][];
+	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
+	runtimeOverviewFailed: boolean;
+	runtimeOverviewPending: boolean;
+}): AgentProfileAvailabilityFilterCounts {
 	const summary: AgentProfileAvailabilityFilterCounts = {
-		all: profiles.length,
+		all: input.profiles.length,
 		available: 0,
 		checking: 0,
 		offline: 0,
 		unavailable: 0,
 	};
-	for (const profile of profiles) {
-		const category = resolveAgentWakeAvailabilityDisplayCategory(
-			profile.readiness.agentWakeAvailability
-		);
+	const readinessByProfileId = new Map(
+		(input.runtimeOverview?.agentProfiles ?? []).map((profile) => [
+			profile.profileId,
+			profile.readiness,
+		])
+	);
+	const errorByProfileId = input.runtimeOverviewFailed
+		? new Map(
+				input.profiles.map((profile) => [profile.profileId, "unavailable"])
+			)
+		: EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID;
+	const pendingProfileIds = input.runtimeOverviewPending
+		? new Set(input.profiles.map((profile) => profile.profileId))
+		: EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS;
+	for (const profile of input.profiles) {
+		const category = resolveOrganizationAgentProfileAvailabilityState({
+			errorByProfileId,
+			pendingProfileIds,
+			profileId: profile.profileId,
+			readinessByProfileId,
+		});
 		summary[category] += 1;
 	}
 	return summary;
 }
 
+function resolveOrganizationAgentProfileAvailabilityState(input: {
+	errorByProfileId: ReadonlyMap<string, string>;
+	pendingProfileIds: ReadonlySet<string>;
+	profileId: string;
+	readinessByProfileId: ReadonlyMap<
+		string,
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
+	>;
+}): Exclude<AgentProfileAvailabilityFilter, "all"> {
+	if (input.pendingProfileIds.has(input.profileId)) {
+		return "checking";
+	}
+	if (input.errorByProfileId.has(input.profileId)) {
+		return "unavailable";
+	}
+	const readiness = input.readinessByProfileId.get(input.profileId);
+	return readiness
+		? resolveAgentWakeAvailabilityDisplayCategory(
+				readiness.agentWakeAvailability
+			)
+		: "checking";
+}
+
 function buildAuthProfileViewFromOrganizationAgentProfile(
-	profile: OrganizationDirectoryResponse["agentProfiles"][number]
+	profile: OrganizationProfileDirectoryResponse["agentProfiles"][number]
 ): AuthProfileView {
 	return {
 		avatarUrl: profile.avatarUrl,
@@ -711,7 +841,7 @@ function buildAuthProfileViewFromOrganizationAgentProfile(
 
 function projectAgentProfileOperationalContext(
 	operationalContext: NonNullable<
-		OrganizationDirectoryResponse["agentProfiles"][number]["operationalContext"]
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["operationalContext"]
 	>,
 	isOwner: boolean
 ): AgentProfileOperationalContextInput {

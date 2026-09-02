@@ -3,6 +3,28 @@ import { describe, expect, it } from "vitest";
 import { resolveWakeProgressThinkingStep } from "./wake-details-view";
 
 describe("wake details view", () => {
+	it("shows when a Wake is waiting for the bound Codex task", () => {
+		expect(
+			resolveWakeProgressThinkingStep({
+				clientMessageId: "client-message-occupied",
+				dispatchId: "dispatch-occupied",
+				message: "Connecting to @runner on this computer...",
+				phase: "connecting",
+				sourceSignalId: "sig-source-occupied",
+				targetLabel: "@runner",
+				targetProfileId: "agt-runner",
+				terminal: false,
+				updatedAtMs: Date.UTC(2026, 8, 2, 1, 30),
+				waitReasonCode: "runtime.agent_controller_conversation.occupied",
+			} as WakeProgressItem)
+		).toEqual({
+			description:
+				"This Wake will start when this Codex task becomes available.",
+			label: "Waiting for Codex task",
+			status: "active",
+		});
+	});
+
 	it("tells the user when a Wake is waiting in the Agent queue", () => {
 		expect(
 			resolveWakeProgressThinkingStep({

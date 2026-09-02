@@ -1,12 +1,15 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import type {
+	ModelCatalog,
 	SignalEnvelope,
+	SpaceInboxUnreadTarget,
 	SpaceMembersSnapshot,
 	SpaceThread,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon, XIcon } from "@phosphor-icons/react";
+import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
 import type { ReactNode } from "react";
 import {
 	Fragment,
@@ -152,6 +155,7 @@ import type {
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
 import { useSpacePanelWidth } from "./use-space-panel-width";
+import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
 
 const SINGLE_MESSAGE_GROUP_POSITION = {
 	isFirstInGroup: true,
@@ -229,7 +233,6 @@ export function SpaceThreadPanel(input: {
 	>;
 	centerAgentProfileId?: string | null;
 	className?: string;
-	composerAddressingSummary?: string | null;
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions?: readonly ComposerDraftAuthoredMention[];
 	composerMentionPickerItems?: readonly SpaceMentionPickerItem[];
@@ -239,6 +242,7 @@ export function SpaceThreadPanel(input: {
 	composerText: string;
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
+	currentOwnerUserId: string | null;
 	pendingActionSurface?: ReactNode;
 	profileControl?: ReactNode;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
@@ -257,6 +261,7 @@ export function SpaceThreadPanel(input: {
 	isPersonalContext?: boolean;
 	isSendingMessage: boolean;
 	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
 	onClose: () => void;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
@@ -273,6 +278,7 @@ export function SpaceThreadPanel(input: {
 	onSendText?: (text: string) => Promise<void>;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	onSend: () => Promise<void>;
+	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	orgSlug?: string;
 	prepareSetupHref?: string;
@@ -290,6 +296,7 @@ export function SpaceThreadPanel(input: {
 		string,
 		SpaceWakeStopRequestStatus
 	>;
+	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 }) {
 	const panelWidth = useSpacePanelWidth({ panel: "thread" });
 	const initialFocusElementRef = useRef<{
@@ -344,6 +351,15 @@ export function SpaceThreadPanel(input: {
 		() => orderSpaceTimelineItemsForConversation(rawThreadTimelineItems),
 		[rawThreadTimelineItems]
 	);
+	const activeUnreadTargets = useMemo(
+		() =>
+			(input.unreadTargets ?? []).filter(
+				(target) => target.threadRootSignalId === activeThreadRootSignalId
+			),
+		[activeThreadRootSignalId, input.unreadTargets]
+	);
+	const firstUnreadSignalId = activeUnreadTargets[0]?.signalId ?? null;
+	const latestThreadOccurredAtMs = threadTimelineItems.at(-1)?.createdAtMs ?? 0;
 	const focusStatusMessage = resolveThreadFocusStatusMessage({
 		activeThread: input.activeThread,
 		hasTargetSignal: rawThreadTimelineItems.some(
@@ -393,6 +409,12 @@ export function SpaceThreadPanel(input: {
 			}),
 		[input.centerAgentProfileId, profileEntriesById]
 	);
+	const profileDetailsDialog = useSpaceProfileDetailsDialog({
+		currentOwnerUserId: input.currentOwnerUserId,
+		entriesByProfileId: profileEntriesById,
+		entry: null,
+		modelCatalog: input.modelCatalog,
+	});
 	const openMessageDetails = useCallback(
 		(item: SpaceTimelineItem) => {
 			if (!(activeThreadId && activeThreadRootSignalId)) {
@@ -593,15 +615,19 @@ export function SpaceThreadPanel(input: {
 				editableAgentProfileIds={input.editableAgentProfileIds}
 				ephemeralActivityItems={input.ephemeralActivityItems}
 				errorMessage={input.signalsErrorMessage}
+				firstUnreadSignalId={firstUnreadSignalId}
 				isLoading={input.signalsIsLoading}
 				isPersonalContext={input.isPersonalContext === true}
 				items={threadTimelineItems}
+				latestThreadOccurredAtMs={latestThreadOccurredAtMs}
 				onAgentInteractionResponse={input.onAgentInteractionResponse}
 				onEditAgentProfile={input.onEditAgentProfile}
+				onOpenAgentProfile={profileDetailsDialog.openProfileDetailsById}
 				onOpenMessageDetails={onOpenMessageDetails}
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				onRecoverExecution={messageDetailsItem ? undefined : onRecoverExecution}
 				onRetryWakeTarget={onThreadRetryWakeTarget}
+				onViewedThroughTs={input.onViewedThroughTs}
 				onWakeStopRequest={
 					input.onWakeStopRequest ? onWakeStopRequest : undefined
 				}
@@ -622,6 +648,7 @@ export function SpaceThreadPanel(input: {
 				}
 				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
 			/>
+			{profileDetailsDialog.profileDetailsDialog}
 			{input.pendingActionSurface}
 			{renderThreadComposer(input)}
 			{messageDetailsItem && input.activeThread ? (
@@ -678,7 +705,6 @@ function renderThreadComposer(
 		<ThreadComposer
 			agentDirectConversationKind={input.agentDirectConversationKind}
 			blockedWakeProfileId={input.composerBlockedWakeProfileId}
-			composerAddressingSummary={input.composerAddressingSummary ?? null}
 			composerAddressingTargets={input.composerAddressingTargets ?? []}
 			composerAuthoredMentions={input.composerAuthoredMentions ?? []}
 			composerErrorMessage={input.composerErrorMessage}
@@ -859,6 +885,7 @@ function ThreadTimeline(input: {
 		readonly SpaceTimelineItem[]
 	>;
 	errorMessage: string | null;
+	firstUnreadSignalId: string | null;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	editableAgentProfileIds?: ReadonlySet<string>;
 	centerAgentProfileId: string | null;
@@ -866,8 +893,11 @@ function ThreadTimeline(input: {
 	computerSetupContext?: CenterAgentComputerSetupContext;
 	items: readonly SpaceTimelineItem[];
 	isLoading: boolean;
+	latestThreadOccurredAtMs: number;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	onOpenAgentProfile: (profileId: string) => void;
+	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onEditAgentProfile?: SpaceAgentProfileEditHandler;
@@ -930,6 +960,10 @@ function ThreadTimeline(input: {
 	return (
 		<MessageScrollerProvider autoScroll={true} defaultScrollPosition="end">
 			<MessageScroller className="min-h-0 flex-1">
+				<ThreadReadThroughObserver
+					latestThreadOccurredAtMs={input.latestThreadOccurredAtMs}
+					onViewedThroughTs={input.onViewedThroughTs}
+				/>
 				<MessageScrollerViewport className="px-4 py-4">
 					<MessageScrollerContent className="gap-0">
 						{input.items.map((item) => {
@@ -973,6 +1007,11 @@ function ThreadTimeline(input: {
 								SINGLE_MESSAGE_GROUP_POSITION;
 							return (
 								<Fragment key={item.id}>
+									{item.id === input.firstUnreadSignalId ? (
+										<div className="my-2 flex items-center gap-3 text-foreground text-xs before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
+											<span>New messages</span>
+										</div>
+									) : null}
 									{item.conversationCompaction ? (
 										<SpaceConversationCompactionMarker
 											id={`${item.id}:conversation-compaction`}
@@ -1004,6 +1043,7 @@ function ThreadTimeline(input: {
 											input.onAgentInteractionResponse
 										}
 										onEditAgentProfile={input.onEditAgentProfile}
+										onOpenAgentProfile={input.onOpenAgentProfile}
 										onOpenMessageDetails={input.onOpenMessageDetails}
 										onOpenSpaceFile={input.onOpenSpaceFile}
 										onRecoverExecution={input.onRecoverExecution}
@@ -1038,6 +1078,61 @@ function ThreadTimeline(input: {
 	);
 }
 
+function ThreadReadThroughObserver(input: {
+	latestThreadOccurredAtMs: number;
+	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
+}) {
+	const { end: canScrollToEnd } = useMessageScrollerScrollable();
+	const [documentVisible, setDocumentVisible] = useState(
+		() =>
+			typeof document === "undefined" || document.visibilityState === "visible"
+	);
+	const [retryAttempt, setRetryAttempt] = useState(0);
+	useEffect(() => {
+		const onVisibilityChange = () =>
+			setDocumentVisible(document.visibilityState === "visible");
+		document.addEventListener("visibilitychange", onVisibilityChange);
+		return () =>
+			document.removeEventListener("visibilitychange", onVisibilityChange);
+	}, []);
+	useEffect(() => {
+		if (
+			canScrollToEnd ||
+			!documentVisible ||
+			!input.onViewedThroughTs ||
+			input.latestThreadOccurredAtMs <= 0
+		) {
+			return;
+		}
+		let active = true;
+		const debounceMs = 800 + Math.min(retryAttempt, 4) * 200;
+		const timer = window.setTimeout(() => {
+			Promise.resolve(
+				input.onViewedThroughTs?.(input.latestThreadOccurredAtMs)
+			).catch((error: unknown) => {
+				console.warn(
+					"Failed to persist the Space thread Inbox read position.",
+					error
+				);
+				if (active) {
+					setRetryAttempt((current) => current + 1);
+				}
+			});
+		}, debounceMs);
+		return () => {
+			active = false;
+			window.clearTimeout(timer);
+		};
+	}, [
+		canScrollToEnd,
+		documentVisible,
+		input.latestThreadOccurredAtMs,
+		input.onViewedThroughTs,
+		retryAttempt,
+	]);
+	return null;
+}
+
 const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	centerAgentProfileId: string | null;
 	computerSetupActionSignalId: string | null;
@@ -1059,6 +1154,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	isPersonalContext: boolean;
 	item: SpaceTimelineItem;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	onOpenAgentProfile: (profileId: string) => void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onEditAgentProfile?: SpaceAgentProfileEditHandler;
@@ -1197,6 +1293,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				>
 					<MessageHeader className="flex-wrap gap-x-1.5 gap-y-1 px-0">
 						<SpaceMessageProfileAvatar
+							agentControllerPending={input.item.actorAgentControllerPending}
 							agentControllerRef={input.item.actorAgentControllerRef}
 							avatarImageUrl={resolveThreadMessageAvatarImageUrl({
 								item: input.item,
@@ -1247,6 +1344,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								computerSetupSourceSignalId={input.item.id}
 								containerClassName={selfMessageContentLayoutClassName}
 								item={input.item}
+								onOpenAgentProfile={input.onOpenAgentProfile}
 								onOpenSpaceFile={input.onOpenSpaceFile}
 								openMeldProfileId={input.selfProfileId}
 								orgSlug={input.orgSlug}
@@ -1451,7 +1549,6 @@ function shouldShowThreadComposerMentionButton(input: {
 function ThreadComposer(input: {
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	blockedWakeProfileId: string | null;
-	composerAddressingSummary: string | null;
 	composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions: readonly ComposerDraftAuthoredMention[];
 	composerErrorMessage: string | null;
@@ -1496,7 +1593,7 @@ function ThreadComposer(input: {
 	const composerHintClassName = wakeTextHint
 		? "text-foreground"
 		: "text-muted-foreground";
-	let composerHint = input.composerAddressingSummary ?? wakeTextHint;
+	let composerHint = wakeTextHint;
 	if (uploadInProgress) {
 		composerHint = "Uploading files before sending…";
 	}

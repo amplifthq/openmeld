@@ -3,6 +3,7 @@ import type {
 	OrganizationComputerRecord,
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 
 export type OrganizationComputerAgent = {
@@ -40,10 +41,17 @@ export type CurrentOrganizationComputerServiceState = {
 	state: NonNullable<OrganizationComputer["serviceState"]>;
 };
 
-type DirectoryAgentProfile =
+type FullDirectoryAgentProfile =
 	OrganizationDirectoryResponse["agentProfiles"][number];
-type VisibleOrganizationComputerProfile = DirectoryAgentProfile & {
-	readiness: DirectoryAgentProfile["readiness"] & {
+type DirectoryAgentProfile =
+	| FullDirectoryAgentProfile
+	| OrganizationProfileDirectoryResponse["agentProfiles"][number];
+type OrganizationComputerDirectory = {
+	agentProfiles: readonly DirectoryAgentProfile[];
+	members: OrganizationProfileDirectoryResponse["members"];
+};
+type VisibleOrganizationComputerProfile = FullDirectoryAgentProfile & {
+	readiness: FullDirectoryAgentProfile["readiness"] & {
 		routeDeviceId: string;
 		runtimeDeviceDisplayName: string;
 	};
@@ -90,7 +98,7 @@ export function formatOrganizationComputerPlatform(
 export function resolveOrganizationComputerGroups(input: {
 	currentComputerServiceState?: CurrentOrganizationComputerServiceState | null;
 	currentUserId: string;
-	directory: OrganizationDirectoryResponse | null;
+	directory: OrganizationComputerDirectory | null;
 	organizationComputers?: OrganizationComputersResponse | null;
 	ownedComputers: readonly LocalRuntimeComputer[];
 }): OrganizationComputerGroup[] {
@@ -123,7 +131,7 @@ export function resolveOrganizationComputerGroups(input: {
 function resolveOwnedComputerGroup(input: {
 	currentComputerServiceState: CurrentOrganizationComputerServiceState | null;
 	currentUserId: string;
-	directory: OrganizationDirectoryResponse | null;
+	directory: OrganizationComputerDirectory | null;
 	organizationComputers: OrganizationComputersResponse | null;
 	ownedComputers: readonly LocalRuntimeComputer[];
 	ownerLabel: string;
@@ -217,7 +225,7 @@ function ownedComputerIncludesDevice(
 
 function resolveOtherMemberComputerGroups(input: {
 	currentUserId: string;
-	directory: OrganizationDirectoryResponse | null;
+	directory: OrganizationComputerDirectory | null;
 	memberNameByUserId: ReadonlyMap<string, string>;
 	organizationComputers: OrganizationComputersResponse | null;
 }): OrganizationComputerGroup[] {
@@ -315,7 +323,7 @@ function resolveReportedMemberComputers(input: {
 
 function groupVisibleProfilesByOwner(input: {
 	currentUserId: string;
-	directory: OrganizationDirectoryResponse;
+	directory: OrganizationComputerDirectory;
 	memberNameByUserId: ReadonlyMap<string, string>;
 }) {
 	const profilesByOwnerUserId = new Map<
@@ -395,7 +403,8 @@ function isVisibleOrganizationComputerProfile(
 	profile: DirectoryAgentProfile
 ): profile is VisibleOrganizationComputerProfile {
 	return Boolean(
-		profile.status === "active" &&
+		"readiness" in profile &&
+			profile.status === "active" &&
 			profile.managedRole !== "center_agent" &&
 			profile.readiness.routeDeviceId?.trim() &&
 			profile.readiness.runtimeDeviceDisplayName?.trim()

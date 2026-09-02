@@ -1360,6 +1360,10 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 				queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
 				refetchType: "active",
 			}),
+			input.queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
+				refetchType: "active",
+			}),
 			refreshWebAgentReadinessSharedCaches({
 				agentProfileIds: [createdAgentProfileId],
 				includeLocalRuntimeCaches: false,
@@ -1393,6 +1397,10 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 		refreshes.push(
 			input.queryClient.invalidateQueries({
 				queryKey: organizationQueryKeys.directory(input.organizationId),
+				refetchType: "active",
+			}),
+			input.queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
 				refetchType: "active",
 			})
 		);
@@ -2429,10 +2437,18 @@ async function refreshCreatedProfileCaches(input: {
 			input.createdProfile.profileKind === "agent" &&
 			input.boundAgentId.trim().length > 0
 		) {
-			await input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.directory(input.organizationId),
-				refetchType: "active",
-			});
+			await Promise.all([
+				input.queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.directory(input.organizationId),
+					refetchType: "active",
+				}),
+				input.queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.profileDirectory(
+						input.organizationId
+					),
+					refetchType: "active",
+				}),
+			]);
 			await refreshCreatedAgentProfileLocalState(input);
 			if (input.spaceContext && input.spaceJoined) {
 				await Promise.resolve(input.onAfterJoin?.(input.createdProfile)).catch(

@@ -10,6 +10,7 @@ import type {
 	RespondToSpaceAgentInteractionBody,
 	SignalEnvelope,
 	SpaceAccessMode,
+	SpaceInboxUnreadTarget,
 	SpaceMembersSnapshot,
 	SpaceMessageFileReference,
 	SpaceThread,
@@ -67,7 +68,11 @@ import {
 	resolveSpaceComposerSendErrorMessage,
 	runSpaceComposerIdempotentRequestWithRetry,
 } from "#/lib/spaces/errors";
-import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
+import {
+	applySpaceBootstrapSnapshotToCache,
+	enrichSpaceHistoryAgentControllerPresentation,
+	resolveSpaceMembersPresentationSnapshot,
+} from "#/lib/spaces/member-cache";
 import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
 import {
@@ -102,7 +107,9 @@ import {
 	spaceConversationDisplaySnapshotQueryOptions,
 } from "#/query/spaces/display-snapshot";
 import {
+	mergeSpaceHistorySnapshots,
 	readEarlierSpaceHistory,
+	type SpaceHistorySnapshot,
 	spaceHistoryDateWindowQueryOptions,
 	spaceHistoryQueryOptions,
 } from "#/query/spaces/history";
@@ -733,6 +740,20 @@ export async function hardRefreshSpaceStatusAndMembers(input: {
 	]);
 }
 
+function resolveSpaceLandingHistorySnapshot(input: {
+	bootstrap: SpaceBootstrapSnapshot;
+	history: SpaceHistorySnapshot | undefined;
+	members: SpaceMembersSnapshot;
+}): SpaceHistorySnapshot | null {
+	return mergeSpaceHistorySnapshots({
+		current: input.history,
+		incoming: enrichSpaceHistoryAgentControllerPresentation({
+			history: input.bootstrap.history,
+			members: input.members,
+		}),
+	});
+}
+
 function useSpaceLandingBootstrapState(input: {
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
@@ -799,6 +820,12 @@ function useSpaceLandingBootstrapState(input: {
 		})
 	);
 	const membersSnapshot = membersQuery.data ?? null;
+	const presentationMembersSnapshot = bootstrapQuery.data
+		? resolveSpaceMembersPresentationSnapshot({
+				bootstrap: bootstrapQuery.data.members,
+				current: membersSnapshot,
+			})
+		: membersSnapshot;
 	const historyQuery = useQuery(
 		spaceHistoryQueryOptions({
 			spaceId: input.spaceId,
@@ -806,8 +833,19 @@ function useSpaceLandingBootstrapState(input: {
 			enabled: false,
 		})
 	);
-	const historySnapshot =
-		historyQuery.data ?? bootstrapQuery.data?.history ?? null;
+	const historySnapshot = useMemo(() => {
+		if (!bootstrapQuery.data) {
+			return historyQuery.data ?? null;
+		}
+		if (!presentationMembersSnapshot) {
+			return null;
+		}
+		return resolveSpaceLandingHistorySnapshot({
+			bootstrap: bootstrapQuery.data,
+			history: historyQuery.data,
+			members: presentationMembersSnapshot,
+		});
+	}, [bootstrapQuery.data, historyQuery.data, presentationMembersSnapshot]);
 	const restoredDisplayStatus =
 		currentAccessRejection === null &&
 		currentStatusSnapshot === null &&
@@ -853,6 +891,7 @@ function useSpaceLandingBootstrapState(input: {
 		membersQuery,
 		membersReady: membersSnapshot !== null || membersQuery.isSuccess,
 		membersSnapshot,
+		presentationMembersSnapshot,
 		statusQuery,
 		statusReady: currentStatusSnapshot !== null,
 		statusSnapshot,
@@ -956,7 +995,6 @@ export type SpaceLandingController =
 	| {
 			activeThread: SpaceThread | null;
 			agentStreams: readonly SpaceConversationVisibleStreamProjection[];
-			composerAddressingSummary: string | null;
 			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
 			composerMentionPickerItems: readonly SpaceMentionPickerItem[];
@@ -996,6 +1034,7 @@ export type SpaceLandingController =
 			onReconnectLiveUpdates: () => void;
 			membersError: StructuredApiClientFailure | null;
 			membersSnapshot: SpaceMembersSnapshot | null;
+			presentationMembersSnapshot: SpaceMembersSnapshot | null;
 			mode: "ready";
 			onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onClearComposerReplyTo: () => void;
@@ -1010,6 +1049,11 @@ export type SpaceLandingController =
 			onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
 			onMentionButtonClick: () => void;
 			onOpenThread: (threadId: string) => void;
+			onOpenUnreadThread: (input: {
+				rootSignalId: string;
+				signalId: string;
+				threadId?: string;
+			}) => Promise<boolean>;
 			onRefresh: () => Promise<void>;
 			onRefreshMembers: () => Promise<void>;
 			onHardRefreshStatusAndMembers: () => Promise<void>;
@@ -1051,7 +1095,6 @@ export type SpaceLandingController =
 			spaceId: string;
 			status: GetSpaceStatusResponse;
 			threadComposerBlockedWakeProfileId: string | null;
-			threadComposerAddressingSummary: string | null;
 			threadComposerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 			threadComposerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
 			threadComposerMentionPickerItems: readonly SpaceMentionPickerItem[];
@@ -1069,6 +1112,10 @@ export type SpaceLandingController =
 			threadSignalsErrorMessage: string | null;
 			threadsIsLoading: boolean;
 			threadSignalsIsLoading: boolean;
+			threadUnreadFocus: {
+				rootSignalId: string;
+				signalId: string;
+			} | null;
 			isCreatingThread: boolean;
 			isSendingThreadMessage: boolean;
 			threadTextareaRef: SpaceComposerInputRef;
@@ -1229,6 +1276,8 @@ export function useSpaceLandingController(input: {
 	}) => Promise<void> | void;
 	onInitialPendingMessageConsumed?: () => void;
 	onViewedThroughTs?: (throughTs: number) => Promise<void> | void;
+	unreadStateReady?: boolean;
+	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	organizationId?: string | null;
 	orgSlug: string;
 	ownerAccountId: string;
@@ -1380,6 +1429,7 @@ export function useSpaceLandingController(input: {
 		membersQuery,
 		membersReady,
 		membersSnapshot,
+		presentationMembersSnapshot,
 		statusQuery,
 		statusReady,
 		statusSnapshot,
@@ -1474,14 +1524,15 @@ export function useSpaceLandingController(input: {
 		measuredViewingIdentity === conversationViewingIdentity &&
 		isConversationViewingLatest;
 	const unreadState = useSpaceUnread({
-		openMeldProfileId: input.profileId,
 		envelopes: timelineEnvelopes,
+		isReady: input.unreadStateReady === true,
 		isViewingLatest: isViewingLatestForCurrentConversation,
 		onViewedThroughTs: resolveConfirmedViewedThroughHandler({
 			isCurrentAccessConfirmed: statusReady,
 			onViewedThroughTs: input.onViewedThroughTs,
 		}),
 		spaceId: input.spaceId,
+		targets: input.unreadTargets ?? [],
 	});
 	const mentionAuthoring = useSpaceMentionAuthoring({
 		composerDraftMigrationScopes: input.composerDraftMigrationScopes,
@@ -1637,6 +1688,44 @@ export function useSpaceLandingController(input: {
 		statusReady,
 		statusRefetch: statusQuery.refetch,
 	});
+	const [threadUnreadFocus, setThreadUnreadFocus] = useState<{
+		rootSignalId: string;
+		signalId: string;
+		spaceId: string;
+	} | null>(null);
+	const closeThread = useCallback(() => {
+		setThreadUnreadFocus(null);
+		threadController.onCloseThread();
+	}, [threadController.onCloseThread]);
+	const openThread = useCallback(
+		(threadId: string) => {
+			setThreadUnreadFocus(null);
+			threadController.onOpenThread(threadId);
+		},
+		[threadController.onOpenThread]
+	);
+	const openUnreadThread = useCallback(
+		async (target: {
+			rootSignalId: string;
+			signalId: string;
+			threadId?: string;
+		}) => {
+			const opened = await threadController.onOpenUnreadThread({
+				rootSignalId: target.rootSignalId,
+				...(target.threadId ? { threadId: target.threadId } : {}),
+			});
+			if (!opened) {
+				return false;
+			}
+			setThreadUnreadFocus({
+				rootSignalId: target.rootSignalId,
+				signalId: target.signalId,
+				spaceId: input.spaceId,
+			});
+			return true;
+		},
+		[input.spaceId, threadController.onOpenUnreadThread]
+	);
 	useEffect(() => {
 		if (input.spaceId.trim().length === 0) {
 			return;
@@ -1922,12 +2011,12 @@ export function useSpaceLandingController(input: {
 				agentStreams: agentStreamProjections,
 				agentStreamScope: { kind: "main" },
 				envelopes: timelinePresentationEnvelopes,
-				membersSnapshot,
+				membersSnapshot: presentationMembersSnapshot,
 				pendingFilePreviewUrlsById,
 			}),
 		[
 			agentStreamProjections,
-			membersSnapshot,
+			presentationMembersSnapshot,
 			pendingFilePreviewUrlsById,
 			timelinePresentationEnvelopes,
 		]
@@ -2049,7 +2138,6 @@ export function useSpaceLandingController(input: {
 	return {
 		activeThread: threadController.activeThread,
 		agentStreams: agentStreamProjections,
-		composerAddressingSummary: mentionAuthoring.addressingSummary,
 		composerAddressingTargets: mentionAuthoring.addressingTargets,
 		composerAuthoredMentions: mentionAuthoring.authoredMentions,
 		composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
@@ -2089,6 +2177,7 @@ export function useSpaceLandingController(input: {
 		onReconnectLiveUpdates: reconnectNow,
 		membersError,
 		membersSnapshot,
+		presentationMembersSnapshot,
 		mode: "ready",
 		onComposerEditorChange: (change) => {
 			mentionAuthoring.onComposerEditorChange(change);
@@ -2099,14 +2188,15 @@ export function useSpaceLandingController(input: {
 		onAddComposerFiles: composerFilesController.addFiles,
 		onRemoveComposerFile: composerFilesController.removeFile,
 		onConversationViewingLatestChange: setIsConversationViewingLatest,
-		onCloseThread: threadController.onCloseThread,
+		onCloseThread: closeThread,
 		onCreateThread: threadController.onCreateThread,
 		onDeleteSpace: handleDeleteSpace,
 		onJumpToDate: handleJumpToDate,
 		onLoadEarlierHistory: handleLoadEarlierHistory,
 		onLeaveSpace: handleLeaveSpace,
 		onMentionButtonClick: mentionAuthoring.onMentionButtonClick,
-		onOpenThread: threadController.onOpenThread,
+		onOpenThread: openThread,
+		onOpenUnreadThread: openUnreadThread,
 		onRefresh: async () => {
 			await refreshLanding({
 				historyRefetch: historyQuery.refetch,
@@ -2158,8 +2248,6 @@ export function useSpaceLandingController(input: {
 		status: statusSnapshot,
 		threadComposerBlockedWakeProfileId:
 			threadController.threadComposerBlockedWakeProfileId,
-		threadComposerAddressingSummary:
-			threadController.threadComposerAddressingSummary,
 		threadComposerAddressingTargets:
 			threadController.threadComposerAddressingTargets,
 		threadComposerAuthoredMentions:
@@ -2182,6 +2270,13 @@ export function useSpaceLandingController(input: {
 		threadSignalsErrorMessage: threadController.threadSignalsErrorMessage,
 		threadsIsLoading: threadController.threadsIsLoading,
 		threadSignalsIsLoading: threadController.threadSignalsIsLoading,
+		threadUnreadFocus:
+			threadUnreadFocus?.spaceId === input.spaceId
+				? {
+						rootSignalId: threadUnreadFocus.rootSignalId,
+						signalId: threadUnreadFocus.signalId,
+					}
+				: null,
 		isCreatingThread: threadController.isCreatingThread,
 		isSendingThreadMessage: threadController.isSendingThreadMessage,
 		threadTextareaRef: threadController.threadTextareaRef,
@@ -3025,6 +3120,7 @@ function useSpaceThreadController(input: {
 		isSendingThreadMessage: isSendingMessage,
 		onCloseThread: closeThread,
 		onCreateThread: createThread,
+		onOpenUnreadThread: openUnreadThread,
 		onOpenThread: openThread,
 		onRetryWakeTarget: retryWakeTarget,
 		onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => {
@@ -3038,7 +3134,6 @@ function useSpaceThreadController(input: {
 		onAddThreadComposerFiles: composerFilesController.addFiles,
 		onRemoveThreadComposerFile: composerFilesController.removeFile,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
-		threadComposerAddressingSummary: mentionAuthoring.addressingSummary,
 		threadComposerAddressingTargets: mentionAuthoring.addressingTargets,
 		threadComposerAuthoredMentions: mentionAuthoring.authoredMentions,
 		threadComposerMentionPickerItems: mentionAuthoring.mentionPickerItems,
@@ -3081,6 +3176,30 @@ function useSpaceThreadController(input: {
 		setComposerBlockedWakeProfileId(null);
 		setPendingOutgoingSignals([]);
 		composerFilesController.clearFiles();
+	}
+
+	async function openUnreadThread(threadInput: {
+		rootSignalId: string;
+		threadId?: string;
+	}): Promise<boolean> {
+		let threadId = threadInput.threadId;
+		if (!threadId) {
+			threadId = threads.find(
+				(thread) => thread.rootSignalId === threadInput.rootSignalId
+			)?.threadId;
+		}
+		if (!threadId) {
+			const refreshed = await threadsQuery.refetch();
+			threadId = refreshed.data?.threads.find(
+				(thread) => thread.rootSignalId === threadInput.rootSignalId
+			)?.threadId;
+		}
+		if (!threadId) {
+			return false;
+		}
+
+		openThread(threadId);
+		return true;
 	}
 
 	async function createThread(threadInput: { rootSignalId: string }) {

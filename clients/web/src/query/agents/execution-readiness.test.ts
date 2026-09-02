@@ -145,7 +145,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 		).toBe(false);
 	});
 
-	it("also invalidates the organization Directory projection after Core readiness changes", async () => {
+	it("invalidates only the Agent runtime projection after Core readiness changes", async () => {
 		const queryClient = createTestQueryClient();
 		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
 
@@ -158,7 +158,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 		});
 
 		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
-			queryKey: ["organizations", "org-123", "directory"],
+			queryKey: ["organizations", "org-123", "agent-runtime-overview"],
 			refetchType: "active",
 		});
 	});

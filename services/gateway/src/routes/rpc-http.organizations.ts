@@ -14,11 +14,13 @@ import {
   getAgentProfileCreationApprovalPreferenceResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
+  organizationAgentRuntimeOverviewResponseSchema,
   organizationComputersResponseSchema,
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
   organizationMemberWebActivityResponseSchema,
+  organizationProfileDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
@@ -29,7 +31,10 @@ import {
   updateFeedbackReportingPolicyBodySchema,
   updateOrganizationInformationProtectionPolicyBodySchema,
 } from "@openmeld/schemas";
-import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
+import type {
+  OrganizationDirectoryResponse,
+  OrganizationProfileDirectoryResponse,
+} from "@openmeld/schemas/types";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
@@ -42,6 +47,10 @@ import { readJsonRequestBody } from "./rpc-http.parsers";
 
 const CURRENT_ORGANIZATION_DIRECTORY_ROUTE =
   "/v1/organizations/current/directory";
+const CURRENT_ORGANIZATION_PROFILE_DIRECTORY_ROUTE =
+  "/v1/organizations/current/profile-directory";
+const CURRENT_ORGANIZATION_AGENT_RUNTIME_OVERVIEW_ROUTE =
+  "/v1/organizations/current/agent-runtime-overview";
 const CURRENT_ORGANIZATION_COMPUTERS_ROUTE =
   "/v1/organizations/current/computers";
 const CURRENT_ORGANIZATION_MEMBER_OPENMELD_SERVICE_STATUSES_ROUTE =
@@ -337,6 +346,59 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
             ? { includeMemberLastActiveAt: true }
             : {}),
         }),
+    });
+  });
+
+  app.get(CURRENT_ORGANIZATION_PROFILE_DIRECTORY_ROUTE, (c) => {
+    const includeHumanProfileLastUsedAt =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER
+      ) === "true";
+    const includeMemberLastActiveAt =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER
+      ) === "true";
+
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getCurrentOrganizationProfileDirectory({
+          context: buildCoreRpcContext(c),
+          ...(includeMemberLastActiveAt
+            ? { includeMemberLastActiveAt: true }
+            : {}),
+        }),
+      method: "GET",
+      resolveSuccessPayload: (result) =>
+        projectOrganizationProfileDirectoryResponse({
+          includeHumanProfileLastUsedAt,
+          includeMemberLastActiveAt,
+          result,
+        }),
+      responseSchema: organizationProfileDirectoryResponseSchema,
+      route: CURRENT_ORGANIZATION_PROFILE_DIRECTORY_ROUTE,
+    });
+  });
+
+  app.get(CURRENT_ORGANIZATION_AGENT_RUNTIME_OVERVIEW_ROUTE, (c) => {
+    const agentProfileWorkRecoveryVersion =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER
+      ) === "2"
+        ? 2
+        : undefined;
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getCurrentOrganizationAgentRuntimeOverview({
+          ...(agentProfileWorkRecoveryVersion
+            ? { agentProfileWorkRecoveryVersion }
+            : {}),
+          context: buildCoreRpcContext(c),
+        }),
+      method: "GET",
+      responseSchema: organizationAgentRuntimeOverviewResponseSchema,
+      route: CURRENT_ORGANIZATION_AGENT_RUNTIME_OVERVIEW_ROUTE,
     });
   });
 
@@ -746,30 +808,57 @@ function projectOrganizationDirectoryResponse(input: {
 
   return {
     ...parsed.data,
-    members: parsed.data.members.map((member) => {
-      const humanProfile = member.humanProfile;
-      return {
-        ...(input.includeMemberLastActiveAt && member.lastActiveAt
-          ? { lastActiveAt: member.lastActiveAt }
-          : {}),
-        memberId: member.memberId,
-        organizationId: member.organizationId,
-        userId: member.userId,
-        role: member.role,
-        joinedAt: member.joinedAt,
-        user: member.user,
-        humanProfile: humanProfile
-          ? {
-              ...(input.includeHumanProfileLastUsedAt && humanProfile.lastUsedAt
-                ? { lastUsedAt: humanProfile.lastUsedAt }
-                : {}),
-              profileId: humanProfile.profileId,
-              profileName: humanProfile.profileName,
-              profileHandle: humanProfile.profileHandle,
-              status: humanProfile.status,
-            }
-          : null,
-      };
-    }),
+    members: parsed.data.members.map((member) =>
+      projectOrganizationDirectoryMember({ ...input, member })
+    ),
   } satisfies OrganizationDirectoryResponse;
+}
+
+function projectOrganizationProfileDirectoryResponse(input: {
+  includeHumanProfileLastUsedAt: boolean;
+  includeMemberLastActiveAt: boolean;
+  result: unknown;
+}): unknown {
+  const parsed = organizationProfileDirectoryResponseSchema.safeParse(
+    input.result
+  );
+  if (!parsed.success) {
+    return input.result;
+  }
+  return {
+    ...parsed.data,
+    members: parsed.data.members.map((member) =>
+      projectOrganizationDirectoryMember({ ...input, member })
+    ),
+  } satisfies OrganizationProfileDirectoryResponse;
+}
+
+function projectOrganizationDirectoryMember(input: {
+  includeHumanProfileLastUsedAt: boolean;
+  includeMemberLastActiveAt: boolean;
+  member: OrganizationDirectoryResponse["members"][number];
+}): OrganizationDirectoryResponse["members"][number] {
+  const humanProfile = input.member.humanProfile;
+  return {
+    ...(input.includeMemberLastActiveAt && input.member.lastActiveAt
+      ? { lastActiveAt: input.member.lastActiveAt }
+      : {}),
+    memberId: input.member.memberId,
+    organizationId: input.member.organizationId,
+    userId: input.member.userId,
+    role: input.member.role,
+    joinedAt: input.member.joinedAt,
+    user: input.member.user,
+    humanProfile: humanProfile
+      ? {
+          ...(input.includeHumanProfileLastUsedAt && humanProfile.lastUsedAt
+            ? { lastUsedAt: humanProfile.lastUsedAt }
+            : {}),
+          profileId: humanProfile.profileId,
+          profileName: humanProfile.profileName,
+          profileHandle: humanProfile.profileHandle,
+          status: humanProfile.status,
+        }
+      : null,
+  };
 }

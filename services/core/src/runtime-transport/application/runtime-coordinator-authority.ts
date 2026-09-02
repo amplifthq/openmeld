@@ -564,6 +564,11 @@ export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
       };
 
 export type RuntimeCoordinatorHeadLifecycleRecord = {
+  /**
+   * When this Wake most recently became the profile's active FIFO head.
+   * Legacy records are normalized from their last authoritative transition.
+   */
+  acceptedAtMs?: number;
   acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   createdAtMs: number;
   duplicateDispatches: RuntimeCoordinatorHeadLifecycleDuplicateObservation[];
@@ -593,6 +598,11 @@ export type RuntimeCoordinatorHeadLifecycleRecord = {
   updatedAtMs: number;
   waitingBoundary?: RuntimeCoordinatorHeadWaitingBoundary;
 };
+
+const resolveRuntimeCoordinatorHeadAcceptedAtMs = (
+  record: RuntimeCoordinatorHeadLifecycleRecord
+): number =>
+  record.acceptedAtMs ?? Math.max(record.createdAtMs, record.updatedAtMs);
 
 export type RuntimeCoordinatorPreExecutionHandoffPublicationStatus =
   | "legacy_evidence_only"
@@ -790,7 +800,8 @@ export const resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMsFromRecord
       }
       nextAlarmAtMs = minNullableTimestamp(
         nextAlarmAtMs,
-        record.createdAtMs + RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS
+        resolveRuntimeCoordinatorHeadAcceptedAtMs(record) +
+          RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS
       );
     }
     return nextAlarmAtMs;
@@ -2175,12 +2186,44 @@ export const isAcceptedHeadAwaitingExecution = (
   !record.publicationIntent &&
   !record.waitingBoundary;
 
+export const normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming = (
+  record: RuntimeCoordinatorHeadLifecycleRecord,
+  promotionEvidence?: { acceptedAtMs: number }
+): RuntimeCoordinatorHeadLifecycleRecord => {
+  if (record.acceptedAtMs !== undefined) {
+    return record;
+  }
+  const acceptedAtMs =
+    promotionEvidence?.acceptedAtMs ??
+    (record.status === "waiting"
+      ? record.createdAtMs
+      : resolveRuntimeCoordinatorHeadAcceptedAtMs(record));
+  if (record.status !== "waiting" || !record.waitingBoundary) {
+    return { ...record, acceptedAtMs };
+  }
+  if (record.waitingBoundary.waitingSinceMs >= acceptedAtMs) {
+    return { ...record, acceptedAtMs };
+  }
+  return {
+    ...record,
+    acceptedAtMs,
+    waitingBoundary: {
+      ...record.waitingBoundary,
+      deadlineAtMs:
+        acceptedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+      softDeadlineAtMs:
+        acceptedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+      waitingSinceMs: acceptedAtMs,
+    },
+  };
+};
+
 export const shouldEscalateAcceptedHeadToWaitingBoundary = (input: {
   nowMs: number;
   record: RuntimeCoordinatorHeadLifecycleRecord;
 }): boolean =>
   isAcceptedHeadAwaitingExecution(input.record) &&
-  input.record.createdAtMs +
+  resolveRuntimeCoordinatorHeadAcceptedAtMs(input.record) +
     RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS <=
     input.nowMs;
 
@@ -2321,6 +2364,8 @@ export const isRuntimeCoordinatorHeadLifecycleRecord = (
   const record = value as RuntimeCoordinatorHeadLifecycleRecord;
   return (
     record.modelVersion === RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION &&
+    (record.acceptedAtMs === undefined ||
+      (Number.isInteger(record.acceptedAtMs) && record.acceptedAtMs >= 0)) &&
     typeof record.targetWakeLifecycleId === "string" &&
     typeof record.ownerUserId === "string" &&
     typeof record.primaryDispatchId === "string" &&

@@ -18,6 +18,13 @@ vi.mock("@tanstack/react-query", async () => {
 	);
 	return {
 		...actual,
+		useQuery: () => ({
+			data: {
+				targets: [],
+				totalUnreadCount: 0,
+			},
+			isSuccess: true,
+		}),
 		useQueryClient: () => queryClient,
 	};
 });
@@ -28,6 +35,7 @@ vi.mock("#/lib/organizations/inbox", () => ({
 
 vi.mock("#/query/organizations/inbox", () => ({
 	invalidateInboxFacts: invalidateInboxFactsMock,
+	spaceInboxUnreadTargetsQueryOptions: vi.fn(() => ({})),
 }));
 
 describe("useSpaceInboxReadPosition", () => {
@@ -46,12 +54,8 @@ describe("useSpaceInboxReadPosition", () => {
 			})
 		);
 
-		const persistReadPosition = result.current;
-		expect(persistReadPosition).toBeTypeOf("function");
-		if (!persistReadPosition) {
-			throw new Error("Expected a read-position persistence handler");
-		}
-		await persistReadPosition(42);
+		expect(result.current.isReady).toBe(true);
+		await result.current.markReadThrough(42);
 
 		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledWith({
 			organizationId: "org-acme",
@@ -64,7 +68,7 @@ describe("useSpaceInboxReadPosition", () => {
 		});
 	});
 
-	it("does not expose a successful persistence handler without an Organization identity", () => {
+	it("does not write without an Organization identity", async () => {
 		const { result } = renderHook(() =>
 			useSpaceInboxReadPosition({
 				organizationId: null,
@@ -72,7 +76,7 @@ describe("useSpaceInboxReadPosition", () => {
 			})
 		);
 
-		expect(result.current).toBeUndefined();
+		await result.current.markReadThrough(42);
 		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
 		expect(invalidateInboxFactsMock).not.toHaveBeenCalled();
 	});

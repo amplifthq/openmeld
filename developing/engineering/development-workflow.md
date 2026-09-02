@@ -167,6 +167,10 @@ environment callback, or no coordination best fits the actual work.
   the latest-main combination when available; strict up-to-date protection owns
   it otherwise. Agents should inspect those facts and choose their next action
   without CI/CD making a business or review decision for them.
+- For a coordinated delivery train, integrate compatible ready leaf branches
+  into one batch PR, sync `main` once, and run one Final Candidate on that
+  combined tree. Leaf work keeps focused evidence; it does not need a separate
+  paid candidate that will be invalidated by the same train.
 
 ## Standard Lanes
 
@@ -545,29 +549,30 @@ environment contracts, Changelog and documentation contracts, formatting
 support contracts, and retired identifiers. It does not replace workspace type
 checks, unit tests, integration tests, or release-ready verification.
 
-`verify:pr` runs changed-workspace checks and unit tests. The Final Candidate
-policy keeps this lane for executable changes because unit tests have
-independent defect-finding value. It does not run for a documentation-only or
-delivery-infrastructure-only candidate when the scoped contract suite proves
-that diff directly. Checks and unit tests run as two explicit phases: packages
+`verify:pr` runs changed-workspace checks and unit tests. Agents use this lane
+when changed-workspace validation has practical defect-finding value during
+development or review; standard Final Candidate does not repeat it. Checks and
+unit tests run as two explicit phases: packages
 may still run in parallel within one phase, but a memory-heavy package never
 runs its type-check and unit-test processes at the same time on one runner. The
 isolated Final Candidate wrapper also gives Node processes one explicit 6 GiB
 heap ceiling so Core type-checking is not constrained by Node's smaller default
 heap on a hosted runner.
 
-`test:integration:affected` is selected when a shared package, service,
-runtime, or persistence boundary changes. `db:check` is added for database
-owner paths. Local-component paths select strict release-ready verification on
-an exact versioned release branch and deferred base-aware verification on an
-ordinary feature branch. These selections are implemented and behavior-tested
-in `scripts/ci/final-candidate-policy.mjs`; do not copy the path policy into
+`test:integration:affected` is an agent-chosen development or review lane when
+a shared package, service, runtime, or persistence interaction cannot be proved
+more cheaply. Standard Final Candidate does not repeat it. `db:check` remains a
+standard candidate check for database owner paths. Local-component paths select
+strict release-ready verification on an exact versioned release branch and
+deferred base-aware verification on an ordinary feature branch. These
+selections are implemented and behavior-tested in
+`scripts/ci/final-candidate-policy.mjs`; do not copy the path policy into
 another workflow or document.
 
-`verify:pr:full` is explicit stronger local confidence. Manually dispatched
-Deep Confidence remains the exhaustive diagnostic lane for risk that warrants
-broad Worker, CLI, or runtime integration coverage. Neither is a default paid
-gate.
+`verify:pr:full` is the explicit stronger Final Candidate confidence lane.
+Manually dispatched Deep Confidence remains the exhaustive diagnostic lane for
+risk that warrants broad Worker, CLI, or runtime integration coverage. Neither
+is a default paid gate.
 
 Inspect the exact plan with:
 

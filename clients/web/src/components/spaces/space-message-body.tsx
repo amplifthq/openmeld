@@ -38,6 +38,7 @@ import {
 	createSpaceMessageAgentMentionRemarkPlugin,
 	EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES,
 	renderSpaceMessageAgentMentionInternalLink,
+	type SpaceMessageAgentMentionProfilesById,
 	SpaceMessageAgentMentionText,
 } from "./space-message-agent-mention";
 import { SpaceMessageCenterAgentTaskReferences } from "./space-message-center-agent-task-references";
@@ -74,10 +75,12 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 				| "actorProfileKind"
 				| "attachments"
 				| "files"
+				| "referenceTargetProfileIds"
 				| "spaceId"
 				| "wakeTargetProfileIds"
 			>
 		>;
+	onOpenAgentProfile?: (profileId: string) => void;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	openMeldProfileId?: string;
 	orgSlug?: string;
@@ -121,9 +124,14 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 				profilePresentationsById:
 					input.profilePresentationsById ??
 					EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES,
+				referenceTargetProfileIds: input.item.referenceTargetProfileIds ?? [],
 				wakeTargetProfileIds: input.item.wakeTargetProfileIds ?? [],
 			}),
-		[input.item.wakeTargetProfileIds, input.profilePresentationsById]
+		[
+			input.item.referenceTargetProfileIds,
+			input.item.wakeTargetProfileIds,
+			input.profilePresentationsById,
+		]
 	);
 	const additionalRemarkPlugins = useMemo(() => {
 		const plugins: NonNullable<
@@ -145,6 +153,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		({ children, href }: { children: ReactNode; href: string }) => {
 			const agentMention = renderSpaceMessageAgentMentionInternalLink({
 				href,
+				onOpenAgentProfile: input.onOpenAgentProfile,
 				profilesById: agentMentionProfilesById,
 			});
 			if (agentMention) {
@@ -156,7 +165,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 				referencesById: spaceReferencesById,
 			});
 		},
-		[agentMentionProfilesById, spaceReferencesById]
+		[agentMentionProfilesById, input.onOpenAgentProfile, spaceReferencesById]
 	);
 	const shouldRenderMarkdown =
 		input.item.actorProfileKind === "agent" ||
@@ -190,6 +199,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		agentMentionProfilesById,
 		className,
 		isStreaming,
+		onOpenAgentProfile: input.onOpenAgentProfile,
 		referencesById: spaceReferencesById,
 		renderInternalLink,
 		renderedText,
@@ -256,12 +266,10 @@ function renderSpaceMessageTextContent(input: {
 	additionalRemarkPlugins: ComponentProps<
 		typeof MessageResponse
 	>["additionalRemarkPlugins"];
-	agentMentionProfilesById: ReadonlyMap<
-		string,
-		SpaceCollaborationProfilePresentation
-	>;
+	agentMentionProfilesById: SpaceMessageAgentMentionProfilesById;
 	className: string;
 	isStreaming: boolean;
+	onOpenAgentProfile?: (profileId: string) => void;
 	referencesById: SpaceMessageReferencesById;
 	renderInternalLink: ComponentProps<
 		typeof MessageResponse
@@ -287,6 +295,7 @@ function renderSpaceMessageTextContent(input: {
 	return (
 		<p className={cn("whitespace-pre-wrap", input.className)}>
 			<SpaceMessageAgentMentionText
+				onOpenAgentProfile={input.onOpenAgentProfile}
 				profilesById={input.agentMentionProfilesById}
 				renderText={(text) => (
 					<SpaceMessageReferenceText

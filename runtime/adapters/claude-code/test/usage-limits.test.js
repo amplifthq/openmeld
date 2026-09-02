@@ -33,6 +33,57 @@ test("projects a native Claude SDK rate-limit event into 0-100 semantics", () =>
   );
 });
 
+test("projects every primary window from Claude Code unifiedWindows events", () => {
+  // This shape was captured from a live Claude.ai OAuth rate_limit_event in
+  // BytePioneer-AI/codex-host@e11f02c2d210373619b7e07a68874deca5fd8e7a.
+  assert.deepEqual(
+    projectClaudeCodeUsageLimits({
+      event: {
+        rate_limit_info: {
+          isUsingOverage: false,
+          overageDisabledReason: "org_level_disabled",
+          overageStatus: "rejected",
+          rateLimitType: "five_hour",
+          resetsAt: 1_787_674_200,
+          status: "allowed",
+          unifiedWindows: {
+            five_hour: {
+              resetsAt: 1_787_674_200,
+              utilization: 0.28,
+            },
+            seven_day: {
+              resetsAt: 1_787_940_000,
+              utilization: 0.1,
+            },
+          },
+        },
+        session_id: "must-not-be-projected",
+        type: "rate_limit_event",
+        uuid: "must-not-be-projected",
+      },
+      observedAt: "2026-08-25T10:00:00.000Z",
+    }),
+    [
+      {
+        key: "claude-code:five-hour",
+        label: "5-hour usage limit",
+        observedAt: "2026-08-25T10:00:00.000Z",
+        resetsAt: "2026-08-25T16:10:00.000Z",
+        status: "available",
+        usedPercent: 28,
+      },
+      {
+        key: "claude-code:seven-day",
+        label: "Weekly usage limit",
+        observedAt: "2026-08-25T10:00:00.000Z",
+        resetsAt: "2026-08-28T18:00:00.000Z",
+        status: "available",
+        usedPercent: 10,
+      },
+    ]
+  );
+});
+
 test("supports provider-reported shared and model weekly windows", () => {
   const cases = [
     ["seven_day", "claude-code:seven-day", "Weekly usage limit"],

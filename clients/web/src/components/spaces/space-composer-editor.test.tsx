@@ -58,11 +58,74 @@ describe("SpaceComposerEditor", () => {
 		expect(editor.getAttribute("contenteditable")).toBe("true");
 		const token = within(editor).getByTestId("space-composer-profile-token");
 		expect(within(token).getByText("Runner")).toBeTruthy();
-		expect(
-			within(editor).getByRole("combobox", {
-				name: "Change relation for Runner",
-			})
-		).toBeTruthy();
+		const relation = within(editor).getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		expect(relation).toBeTruthy();
+		const relationLabel = within(token).getByTestId(
+			"space-composer-profile-token-relation-width"
+		);
+		expect(relationLabel.textContent).toBe("Wake");
+		expect(relationLabel.parentElement?.className).toContain("gap-0.5");
+		expect(relation.className).toContain("absolute");
+		expect(relation.className).not.toContain("pr-4");
+		const visibleParts = Array.from(token.children).map((element) =>
+			element.getAttribute("data-slot")
+		);
+		expect(visibleParts.slice(0, 3)).toEqual([
+			"space-composer-profile-token-at",
+			"space-composer-profile-token-icon",
+			"space-composer-profile-token-name",
+		]);
+		expect(within(token).getByText("Runner").className).not.toContain(
+			"max-w-40"
+		);
+	});
+
+	it("removes an inline profile token from its hover and focus control", async () => {
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[createAgentTarget()]}
+				ariaLabel="Message this space"
+				authoredMentions={[
+					{
+						end: 7,
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+						start: 0,
+						text: "@Runner",
+					},
+				]}
+				mentionPickerItems={[]}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="To wake an agent, type @, then pick the agent."
+				text="@Runner review this."
+			/>
+		);
+
+		const removeButton = screen.getByRole("button", {
+			name: "Remove Runner from message",
+		});
+		expect(removeButton.className).toContain("absolute");
+		expect(removeButton.className).toContain("opacity-0");
+		expect(removeButton.className).toContain(
+			"group-hover/profile-token:opacity-100"
+		);
+		expect(removeButton.className).toContain("focus-visible:opacity-100");
+
+		fireEvent.click(removeButton);
+
+		await waitFor(() => {
+			expect(screen.queryByTestId("space-composer-profile-token")).toBeNull();
+			expect(onChange).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					authoredMentions: [],
+					text: "review this.",
+				})
+			);
+		});
 	});
 
 	it("keeps Human Mention inline without inventing a Wake or Reference selector", () => {
@@ -170,6 +233,26 @@ describe("SpaceComposerEditor", () => {
 		const runnerOption = await screen.findByRole("option", {
 			name: RUNNER_OPTION_NAME,
 		});
+		const memberOptions = screen.getByRole("listbox", {
+			name: "Member options",
+		});
+		const sharedLayoutGroup = memberOptions.querySelector(
+			'[data-slot="shared-layout-group"]'
+		);
+		const sharedLayoutItem = runnerOption.closest(
+			'[data-slot="shared-layout-item"]'
+		);
+		expect(sharedLayoutGroup?.className).toContain("p-1.5");
+		expect(sharedLayoutItem?.parentElement?.className).toContain("gap-1");
+		expect(
+			sharedLayoutGroup?.querySelectorAll(
+				'[data-slot="shared-layout-background"]'
+			)
+		).toHaveLength(1);
+		expect(runnerOption.className).not.toContain("hover:bg-accent");
+		expect(runnerOption.className).not.toContain(
+			"data-[active-item=true]:bg-accent"
+		);
 		fireEvent.mouseDown(runnerOption);
 		fireEvent.click(runnerOption);
 

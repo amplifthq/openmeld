@@ -9,6 +9,7 @@ import {
   listActiveRuntimeCoordinatorExecutionProjectionsBySpace,
   listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace,
   readRuntimeCoordinatorExecutionProjectionById,
+  writeRuntimeCoordinatorExecutionEventFromParts,
   writeRuntimeCoordinatorExecutionProjection,
 } from "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import {
@@ -173,6 +174,10 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
     );
     applyDrizzleMigrationForTable(harness, "openMeldDaemon_dispatch_ledger");
     applyDrizzleMigrationForTable(harness, "openMeldDaemon_dispatch_attempts");
+    applyDrizzleMigrationForTable(
+      harness,
+      "openMeldDaemon_runtime_coordinator_execution_events"
+    );
     try {
       await writeExecution(harness.db, {
         dispatchId: "dispatch-native-delivery",
@@ -238,6 +243,21 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
 					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 				`,
       });
+      await writeRuntimeCoordinatorExecutionEventFromParts({
+        db: harness.db,
+        eventType: "lifecycle_accepted_local",
+        idempotencyKey: "occupancy:occupied",
+        observedAtMs: 120,
+        payload: {
+          agentControllerConversationOccupancy: {
+            agentControllerConversationId: "conversation-private",
+            contractVersion: 1,
+            state: "occupied",
+          },
+        },
+        runtimeCoordinatorExecutionId: "rce-native-delivery",
+        statusAfter: "accepted_local",
+      });
 
       await expect(
         listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
@@ -250,6 +270,34 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
           latestDispatchAttemptStatus: "waiting_result",
           sourceEventId: "signal-native-delivery",
           status: "created",
+          waitReasonCode: "runtime.agent_controller_conversation.occupied",
+        }),
+      ]);
+
+      await writeRuntimeCoordinatorExecutionEventFromParts({
+        db: harness.db,
+        eventType: "lifecycle_running",
+        idempotencyKey: "occupancy:available",
+        observedAtMs: 130,
+        payload: {
+          agentControllerConversationOccupancy: {
+            agentControllerConversationId: "conversation-private",
+            contractVersion: 1,
+            state: "available",
+          },
+        },
+        runtimeCoordinatorExecutionId: "rce-native-delivery",
+        statusAfter: "running",
+      });
+
+      await expect(
+        listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+          db: harness.db,
+          spaceId: "space-1",
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({
+          waitReasonCode: null,
         }),
       ]);
     } finally {

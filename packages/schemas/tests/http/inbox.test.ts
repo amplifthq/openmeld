@@ -10,6 +10,7 @@ import {
   markInboxItemReadBodySchema,
   markSpaceInboxReadThroughBodySchema,
   spaceInboxSummaryResponseSchema,
+  spaceInboxUnreadTargetsResponseSchema,
 } from "../../src/schemas";
 
 const item = {
@@ -346,11 +347,45 @@ describe("Inbox HTTP contracts", () => {
       throughOccurredAtMs: 1_722_736_800_000,
     });
     expect(
+      markSpaceInboxReadThroughBodySchema.parse({
+        spaceId: "space_1",
+        threadRootSignalId: "thread_root_1",
+        throughOccurredAtMs: 1_722_736_800_000,
+      })
+    ).toEqual({
+      spaceId: "space_1",
+      threadRootSignalId: "thread_root_1",
+      throughOccurredAtMs: 1_722_736_800_000,
+    });
+    expect(
       markSpaceInboxReadThroughBodySchema.safeParse({
         spaceId: "space_1",
         throughOccurredAtMs: -1,
       }).success
     ).toBe(false);
+  });
+
+  it("returns exact main and thread targets from the Space Inbox", () => {
+    expect(
+      spaceInboxUnreadTargetsResponseSchema.parse({
+        hasMoreTargets: false,
+        organizationId: "org_1",
+        spaceId: "space_1",
+        targets: [
+          {
+            occurredAtMs: 1000,
+            signalId: "main_signal",
+            threadRootSignalId: null,
+          },
+          {
+            occurredAtMs: 1100,
+            signalId: "thread_reply",
+            threadRootSignalId: "thread_root",
+          },
+        ],
+        totalUnreadCount: 2,
+      })
+    ).toMatchObject({ totalUnreadCount: 2 });
   });
 });
 

@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T12:08:46.285Z",
+  "updatedAt": "2026-09-02T05:18:46.817Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.138",
+      "packageVersion": "0.3.143",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible through optional inputs and negotiated legacy trace projections; older CLIs can safely continue current setup, Wake, Space, and diagnostic work."
+      "reason": "The menu rerun fix changes only local process invocation; existing CLI commands and all cloud and Service contracts remain compatible in both directions."
     },
     "service": {
-      "bundleHash": "c8737285e4509692e38ebb68e3e4f4919a7683ebe78266e83d277393a3030f65",
-      "bundleVersion": "0.3.138",
+      "bundleHash": "f7cca4926ed95f65ed872b23b2ce624ebcb9fe34f1c630737fdbf7da9a246b07",
+      "bundleVersion": "0.3.143",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
-      "updatePolicy": "required",
-      "reason": "Older Services can override an existing Codex thread's controller-owned model when the Binding has no explicit selection; require 0.3.138 before admitting new Wake work so resumed threads preserve their chosen model and reasoning behavior."
+      "updatePolicy": "available",
+      "reason": "Existing and updated Services use the same Runtime Transport and Wake contracts; this release only adds an optional Core-to-Web Wake Progress reason field."
     },
     "skills": {
       "bundleHash": "73e31d09533eac76338fb95bcfab855aeeca940ca587925095ab0c63371abf7d",

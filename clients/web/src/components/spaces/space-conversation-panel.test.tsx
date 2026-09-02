@@ -946,19 +946,172 @@ describe("SpaceConversationPanel", () => {
 		).toBeLessThan(conversationItems.indexOf(firstNewMessage as Element));
 	});
 
-	it("labels the floating jump control with the unread message count", () => {
+	it("shows and temporarily hides the lower new-message control", async () => {
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return domRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					const conversation = this.closest<HTMLElement>("[role='log']");
+					const scrollTop = conversation?.scrollTop ?? 0;
+					return domRect({
+						bottom: 760 - scrollTop,
+						top: 700 - scrollTop,
+					});
+				}
+				return domRect({ bottom: 0, top: 0 });
+			});
 		renderSpaceConversationPanel({
 			firstUnreadSignalId: "signal-1",
-			timelineItems: [createTimelineItem({ text: "First new message" })],
+			timelineItems: [
+				createTimelineItem({ id: "signal-1", text: "First new message" }),
+				createTimelineItem({ id: "signal-2", text: "Second new message" }),
+				createTimelineItem({ id: "signal-3", text: "Third new message" }),
+			],
+			unreadTargets: [
+				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
+				{ occurredAtMs: 2, signalId: "signal-2", threadRootSignalId: null },
+				{ occurredAtMs: 3, signalId: "signal-3", threadRootSignalId: null },
+			],
 			unreadCount: 3,
 			unreadStateReady: true,
 		});
 
-		const jumpButton = screen.getByRole("button", {
-			name: "3 new messages. Jump to first new message",
+		const jumpButton = await screen.findByRole("button", {
+			name: "3 new messages. Jump to the nearest new message",
 		});
 		expect(jumpButton.textContent).toContain("3 new messages");
-		expect(jumpButton.className).toContain("rounded-full");
+		fireEvent.click(
+			screen.getByRole("button", { name: "Hide 3 new messages" })
+		);
+		expect(document.body.contains(jumpButton)).toBe(false);
+		rectSpy.mockRestore();
+	});
+
+	it("keeps a lower unread target inside the conversation viewport", async () => {
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return domRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					return domRect({ bottom: 760, top: 700 });
+				}
+				return domRect({ bottom: 0, top: 0 });
+			});
+		renderSpaceConversationPanel({
+			timelineItems: [
+				createTimelineItem({ id: "signal-1", text: "First new message" }),
+			],
+			unreadTargets: [
+				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		});
+
+		const conversation = screen.getByRole("log", {
+			name: "Conversation history",
+		});
+		conversation.scrollTop = 0;
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "1 new message. Jump to the nearest new message",
+			})
+		);
+
+		await waitFor(() => {
+			expect(conversation.scrollTop).toBe(480);
+		});
+		expect(document.activeElement).toBe(
+			screen.getByText("First new message").closest("[data-signal-id]")
+		);
+		rectSpy.mockRestore();
+	});
+
+	it("shows and temporarily hides the upper new-message control", async () => {
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return domRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					return domRect({ bottom: -40, top: -100 });
+				}
+				return domRect({ bottom: 0, top: 0 });
+			});
+		renderSpaceConversationPanel({
+			timelineItems: [createTimelineItem({ id: "signal-1" })],
+			unreadTargets: [
+				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		});
+
+		const jumpButton = await screen.findByRole("button", {
+			name: "1 new message above. Jump to the nearest new message",
+		});
+		const unreadPill = jumpButton.closest<HTMLElement>(
+			"[data-unread-direction='above']"
+		);
+		expect(unreadPill?.className).toContain("self-center");
+		fireEvent.click(
+			screen.getByRole("button", { name: "Hide 1 new message above" })
+		);
+		expect(document.body.contains(jumpButton)).toBe(false);
+		rectSpy.mockRestore();
+	});
+
+	it("delegates an unread thread target even when the local thread catalog is stale", async () => {
+		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+			configurable: true,
+			value: vi.fn(),
+		});
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return domRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					return domRect({ bottom: -40, top: -100 });
+				}
+				return domRect({ bottom: 0, top: 0 });
+			});
+		const onOpenUnreadThread = vi.fn(async () => true);
+		renderSpaceConversationPanel({
+			onOpenUnreadThread,
+			timelineItems: [createTimelineItem({ id: "thread-root" })],
+			threads: [],
+			unreadTargets: [
+				{
+					occurredAtMs: 1,
+					signalId: "thread-reply",
+					threadRootSignalId: "thread-root",
+				},
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		});
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "1 new message above. Jump to the nearest new message",
+			})
+		);
+
+		await waitFor(() => {
+			expect(onOpenUnreadThread).toHaveBeenCalledWith({
+				rootSignalId: "thread-root",
+				signalId: "thread-reply",
+			});
+		});
+		rectSpy.mockRestore();
 	});
 
 	it("opens date shortcuts and delegates a selected history window", async () => {
@@ -3828,6 +3981,31 @@ describe("SpaceConversationPanel", () => {
 		expect(dialog.getByText(profileId)).toBeTruthy();
 	});
 
+	it("opens the exact structured Wake target from an inline Agent mention", () => {
+		const membersSnapshot = createWakeReceiptMembersSnapshot();
+		renderSpaceConversationPanel({
+			membersSnapshot,
+			timelineItems: [
+				createStructuredWakeTimelineItem({
+					activationTargets: [TARGET_PROFILE_ID],
+					membersSnapshot,
+					text: "@Codex 5.6 Sol please review this.",
+				}),
+			],
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Open Codex 5.6 Sol profile (Wake)",
+			})
+		);
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.getByText("About profile")).toBeTruthy();
+		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
+		expect(dialog.getByText(TARGET_PROFILE_ID)).toBeTruthy();
+	});
+
 	it("keeps historical profile headers passive when the member entry is unavailable", () => {
 		renderSpaceConversationPanel({
 			membersSnapshot: null,
@@ -4330,6 +4508,7 @@ function createSpaceConversationPanelProps(
 		threadPreviews: [],
 		threads: [],
 		timelineItems: [],
+		unreadTargets: [],
 		unreadCount: 0,
 		unreadStateReady: false,
 		wakeFailureTargetContextsByProfileId: new Map(),
@@ -4355,6 +4534,20 @@ function createReadyComposerFile() {
 		progress: 1,
 		publishMutationId: "publish-file-1",
 		status: "ready" as const,
+	};
+}
+
+function domRect(input: { bottom: number; top: number }): DOMRect {
+	return {
+		bottom: input.bottom,
+		height: input.bottom - input.top,
+		left: 0,
+		right: 0,
+		toJSON: () => ({}),
+		top: input.top,
+		width: 0,
+		x: 0,
+		y: input.top,
 	};
 }
 

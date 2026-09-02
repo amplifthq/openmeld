@@ -414,7 +414,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	);
 	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
 	const organizationId = resolveOptionalAppOrganizationId(organizationContext);
-	const persistSpaceInboxReadPosition = useSpaceInboxReadPosition({
+	const spaceInboxReadPosition = useSpaceInboxReadPosition({
 		organizationId,
 		spaceId: input.spaceId,
 	});
@@ -502,7 +502,10 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	);
 	const controller = useSpaceLandingController({
 		...input,
-		onViewedThroughTs: persistSpaceInboxReadPosition,
+		onViewedThroughTs: (throughOccurredAtMs) =>
+			spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
+		unreadStateReady: spaceInboxReadPosition.isReady,
+		unreadTargets: spaceInboxReadPosition.targets,
 		onAgentReadinessInvalidated: refreshAgentReadinessInvalidated,
 		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
 		onWakeFinalOutcomeFactsRefresh: refreshWakeFinalOutcomeFacts,
@@ -1320,6 +1323,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		spaceName,
 		spaceFileToOpen,
 		spaceFileNavigation,
+		spaceInboxReadPosition,
 		spaceReferencesById,
 		spaceView,
 		spaceViewIdPrefix,
@@ -1470,6 +1474,7 @@ function SpaceLandingReady({
 		refreshCurrentSpaceMemberFacts,
 		setupRecallAction,
 		spaceFileNavigation,
+		spaceInboxReadPosition,
 		spaceView,
 		spaceViewIdPrefix,
 	} = state;
@@ -1645,7 +1650,7 @@ function SpaceLandingReady({
 						}
 						spaceNameErrorMessage={controller.spaceNameErrorMessage}
 						status={controller.status}
-						unreadCount={controller.unreadCount}
+						unreadCount={spaceInboxReadPosition.totalUnreadCount}
 						viewControl={
 							currentSpaceIsCenterAgentDirectMessage ? (
 								<CenterAgentHeaderTabs
@@ -1811,6 +1816,7 @@ function SpaceLandingConversation({
 		spaceView,
 		spaceViewIdPrefix,
 		spaceFileNavigation,
+		spaceInboxReadPosition,
 		wakeFailureTargetContextsByProfileId,
 	} = state;
 	return (
@@ -1822,7 +1828,6 @@ function SpaceLandingConversation({
 			allowedActions={controller.status.allowedActions}
 			centerAgentProfileId={centerAgentState.centerAgentProfileId}
 			className="min-w-0"
-			composerAddressingSummary={controller.composerAddressingSummary}
 			composerAddressingTargets={controller.composerAddressingTargets}
 			composerAuthoredMentions={controller.composerAuthoredMentions}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
@@ -1867,7 +1872,7 @@ function SpaceLandingConversation({
 			isLoadingEarlierHistory={controller.isLoadingEarlierHistory}
 			isPersonalContext={input.isPersonalContext === true}
 			isSendingMessage={controller.isSendingMessage}
-			membersSnapshot={controller.membersSnapshot}
+			membersSnapshot={controller.presentationMembersSnapshot}
 			modelCatalog={modelCatalog}
 			onAddComposerFiles={controller.onAddComposerFiles}
 			onAgentInteractionResponse={controller.onAgentInteractionResponse}
@@ -1881,6 +1886,7 @@ function SpaceLandingConversation({
 			onMentionButtonClick={controller.onMentionButtonClick}
 			onOpenSpaceFile={openSpaceFile}
 			onOpenThread={controller.onOpenThread}
+			onOpenUnreadThread={controller.onOpenUnreadThread}
 			onRecoverExecution={controller.onRecoverExecution}
 			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
@@ -1938,6 +1944,7 @@ function SpaceLandingConversation({
 			timelineItems={controller.timelineItems}
 			unreadCount={controller.unreadCount}
 			unreadStateReady={controller.unreadStateReady}
+			unreadTargets={spaceInboxReadPosition.targets}
 			wakeFailureTargetContextsByProfileId={
 				wakeFailureTargetContextsByProfileId
 			}
@@ -2102,6 +2109,7 @@ function SpaceLandingSecondaryPanels({
 		openSpaceFile,
 		refreshCurrentSpaceMemberFacts,
 		spaceMemberRemovalHandler,
+		spaceInboxReadPosition,
 		spaceReferencesById,
 		wakeDisplayOverrideByProfileId,
 		wakeFailureTargetContextsByProfileId,
@@ -2146,7 +2154,6 @@ function SpaceLandingSecondaryPanels({
 				agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
 				agentStreams={controller.agentStreams}
 				centerAgentProfileId={centerAgentState.centerAgentProfileId}
-				composerAddressingSummary={controller.threadComposerAddressingSummary}
 				composerAddressingTargets={controller.threadComposerAddressingTargets}
 				composerAuthoredMentions={controller.threadComposerAuthoredMentions}
 				composerBlockedWakeProfileId={
@@ -2160,18 +2167,25 @@ function SpaceLandingSecondaryPanels({
 				}
 				composerMentionPickerItems={controller.threadComposerMentionPickerItems}
 				composerText={controller.threadComposerText}
+				currentOwnerUserId={currentOwnerUserId}
 				editableAgentProfileIds={editableAgentProfileIds}
 				ephemeralActivityItems={controller.threadEphemeralActivityItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
-				initialFocusSignalId={input.initialFocusSignalId}
-				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
+				initialFocusSignalId={
+					controller.threadUnreadFocus?.signalId ?? input.initialFocusSignalId
+				}
+				initialFocusThreadRootSignalId={
+					controller.threadUnreadFocus?.rootSignalId ??
+					input.initialFocusThreadRootSignalId
+				}
 				isAgentRecoveryPending={controller.isAgentRecoveryPending}
 				isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
 				isDiagnosticReportPending={controller.isDiagnosticReportPending}
 				isDiagnosticReportSent={controller.isDiagnosticReportSent}
 				isPersonalContext={input.isPersonalContext === true}
 				isSendingMessage={controller.isSendingThreadMessage}
-				membersSnapshot={controller.membersSnapshot}
+				membersSnapshot={controller.presentationMembersSnapshot}
+				modelCatalog={modelCatalog}
 				onAddComposerFiles={controller.onAddThreadComposerFiles}
 				onAgentInteractionResponse={controller.onAgentInteractionResponse}
 				onAgentRecoveryAction={handleAgentRecoveryAction}
@@ -2189,6 +2203,15 @@ function SpaceLandingSecondaryPanels({
 				onRetryWakeTarget={controller.onRetryWakeTarget}
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
+				onViewedThroughTs={async (throughOccurredAtMs) => {
+					const rootSignalId = controller.activeThread?.rootSignalId;
+					if (rootSignalId) {
+						await spaceInboxReadPosition.markReadThrough(
+							throughOccurredAtMs,
+							rootSignalId
+						);
+					}
+				}}
 				onWakeStopRequest={controller.onWakeStopRequest}
 				orgSlug={input.orgSlug}
 				pendingActionSurface={pendingActionSurface}
@@ -2203,6 +2226,7 @@ function SpaceLandingSecondaryPanels({
 				spaceReferencesById={spaceReferencesById}
 				spaceTimelineItems={controller.timelineItems}
 				textareaRef={controller.threadTextareaRef}
+				unreadTargets={spaceInboxReadPosition.targets}
 				wakeFailureTargetContextsByProfileId={
 					wakeFailureTargetContextsByProfileId
 				}

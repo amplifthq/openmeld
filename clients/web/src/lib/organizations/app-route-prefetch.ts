@@ -7,7 +7,8 @@ import {
 } from "#/query/organizations/app-connections";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
-	organizationDirectoryQueryOptions,
+	organizationAgentRuntimeOverviewQueryOptions,
+	organizationProfileDirectoryQueryOptions,
 	organizationSpacesQueryOptions,
 } from "#/query/organizations/organization-directory";
 import {
@@ -83,7 +84,13 @@ export async function prefetchAgentsRouteData(
 	if (scope.currentOrganization.isPersonal !== true) {
 		queries.push(
 			input.queryClient.prefetchQuery(
-				organizationDirectoryQueryOptions({
+				organizationProfileDirectoryQueryOptions({
+					enabled: true,
+					organizationId: scope.currentOrganization.id,
+				})
+			),
+			input.queryClient.prefetchQuery(
+				organizationAgentRuntimeOverviewQueryOptions({
 					enabled: true,
 					organizationId: scope.currentOrganization.id,
 				})

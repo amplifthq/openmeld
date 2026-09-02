@@ -197,6 +197,7 @@ import type {
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
   GetSpaceInboxSummaryRpcInput,
+  GetSpaceInboxUnreadTargetsRpcInput,
   GetSpaceMessageDetailsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
@@ -254,6 +255,7 @@ import type {
   NotifyAgentProfileRouteCatalogChangedResponse,
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
+  OrganizationAgentRuntimeOverviewResponse,
   OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   OrganizationDocumentPromptContextResponse,
@@ -261,6 +263,7 @@ import type {
   OrganizationInformationProtectionPolicyResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
   OrganizationMemberWebActivityResponse,
+  OrganizationProfileDirectoryResponse,
   OrganizationSkillRuntimeSnapshotResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
@@ -324,6 +327,7 @@ import type {
   SpaceFileDescriptor,
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
+  SpaceInboxUnreadTargetsResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceViewerMembershipResponse,
@@ -418,6 +422,7 @@ import {
   rpcGetInboxNotificationPreferences,
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
+  rpcGetSpaceInboxUnreadTargets,
   rpcListInboxItems,
   rpcMarkAllInboxItemsRead,
   rpcMarkCenterAgentInboxReadThrough,
@@ -630,9 +635,11 @@ import {
   type GetCurrentDeviceTargetInput,
   type GetCurrentLocalAgentInstallationsInput,
   type GetCurrentLocalRuntimeReplyReadinessInput,
+  type GetCurrentOrganizationAgentRuntimeOverviewInput,
   type GetCurrentOrganizationComputersInput,
   type GetCurrentOrganizationDirectoryInput,
   type GetCurrentOrganizationMemberOpenMeldServiceStatusesInput,
+  type GetCurrentOrganizationProfileDirectoryInput,
   type GetCurrentOrganizationSpaceDirectoryInput,
   type GetLocalRuntimeExpectedRoutesInput,
   type GetLocalRuntimesInput,
@@ -842,9 +849,11 @@ import {
   rpcGetCurrentDeviceTarget,
   rpcGetCurrentLocalAgentInstallations,
   rpcGetCurrentLocalRuntimeReplyReadiness,
+  rpcGetCurrentOrganizationAgentRuntimeOverview,
   rpcGetCurrentOrganizationComputers,
   rpcGetCurrentOrganizationDirectory,
   rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses,
+  rpcGetCurrentOrganizationProfileDirectory,
   rpcGetCurrentOrganizationSpaceDirectory,
   rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts,
   rpcGetLocalRuntimeExpectedRoutes,
@@ -1407,6 +1416,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetSpaceInboxSummaryRpcInput
   ): Promise<SpaceInboxSummaryResponse> {
     return rpcGetSpaceInboxSummary(this.env, input);
+  }
+
+  getSpaceInboxUnreadTargets(
+    input: GetSpaceInboxUnreadTargetsRpcInput
+  ): Promise<SpaceInboxUnreadTargetsResponse> {
+    return rpcGetSpaceInboxUnreadTargets(this.env, input);
   }
 
   markCenterAgentInboxReadThrough(
@@ -2411,6 +2426,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return rpcGetCurrentOrganizationDirectory(this.env, input);
+  }
+
+  getCurrentOrganizationProfileDirectory(
+    input: GetCurrentOrganizationProfileDirectoryInput
+  ): Promise<OrganizationProfileDirectoryResponse> {
+    return rpcGetCurrentOrganizationProfileDirectory(this.env, input);
+  }
+
+  getCurrentOrganizationAgentRuntimeOverview(
+    input: GetCurrentOrganizationAgentRuntimeOverviewInput
+  ): Promise<OrganizationAgentRuntimeOverviewResponse> {
+    return rpcGetCurrentOrganizationAgentRuntimeOverview(this.env, input);
   }
 
   recordCurrentOrganizationWebActivity(
@@ -3506,6 +3533,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getSpaceInboxSummary(input);
   }
 
+  getSpaceInboxUnreadTargets(
+    input: GetSpaceInboxUnreadTargetsRpcInput
+  ): Promise<SpaceInboxUnreadTargetsResponse> {
+    return super.getSpaceInboxUnreadTargets(input);
+  }
+
   markCenterAgentInboxReadThrough(
     input: MarkCenterAgentInboxReadThroughRpcInput
   ): Promise<MarkCenterAgentInboxReadThroughResponse> {
@@ -4329,6 +4362,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return super.getCurrentOrganizationDirectory(input);
+  }
+
+  getCurrentOrganizationProfileDirectory(
+    input: GetCurrentOrganizationProfileDirectoryInput
+  ): Promise<OrganizationProfileDirectoryResponse> {
+    return super.getCurrentOrganizationProfileDirectory(input);
+  }
+
+  getCurrentOrganizationAgentRuntimeOverview(
+    input: GetCurrentOrganizationAgentRuntimeOverviewInput
+  ): Promise<OrganizationAgentRuntimeOverviewResponse> {
+    return super.getCurrentOrganizationAgentRuntimeOverview(input);
   }
 
   recordCurrentOrganizationWebActivity(

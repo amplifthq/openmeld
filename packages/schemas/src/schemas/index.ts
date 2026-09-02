@@ -1588,6 +1588,8 @@ export {
   centerAgentListOrganizationMembersBodySchema,
   centerAgentListOrganizationMembersResponseSchema,
   centerAgentListOrganizationMembersToolRpcInputSchema,
+  organizationAgentRuntimeOverviewItemSchema,
+  organizationAgentRuntimeOverviewResponseSchema,
   organizationDirectoryAgentProfileIdentitySchema,
   organizationDirectoryAgentProfileOperationalContextSchema,
   organizationDirectoryAgentProfileSchema,
@@ -1596,6 +1598,8 @@ export {
   organizationDirectoryMemberSchema,
   organizationDirectoryResponseSchema,
   organizationMemberWebActivityResponseSchema,
+  organizationProfileDirectoryAgentProfileSchema,
+  organizationProfileDirectoryResponseSchema,
 } from "./http/organization-directory";
 export {
   approveOrganizationDocumentDraftBodySchema,
@@ -2284,8 +2288,10 @@ export {
   getActiveSpaceWakeProgressResponseSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeProgressResponseSchema,
+  WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
   wakeProgressItemSchema,
   wakeProgressPhaseSchema,
+  wakeProgressWaitReasonCodeSchema,
   wakeStopEligibilityReadModelSchema,
   wakeStopEligibilityReasonCodeSchema,
 } from "./http/space-wake-progress";

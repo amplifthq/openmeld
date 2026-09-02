@@ -179,6 +179,7 @@ describe("space Wake progress HTTP schemas", () => {
           startedAtMs: 1_804_999_990_000,
           updatedAtMs: 1_805_000_000_000,
           terminal: false,
+          waitReasonCode: "runtime.agent_controller_conversation.occupied",
         },
       ],
     });

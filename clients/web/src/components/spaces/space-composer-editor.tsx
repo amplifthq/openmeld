@@ -2,9 +2,9 @@
 
 import type { MessageMentionType } from "@openmeld/schemas/types";
 import { listSpaceMentionRelationChoices } from "@openmeld/space";
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
-import type { TElement } from "platejs";
+import { PathApi, type TElement, TextApi } from "platejs";
 import {
 	createPlatePlugin,
 	ParagraphPlugin,
@@ -414,12 +414,23 @@ function SpaceComposerProfileToken(
 		profileKind === "agent" && isRepeatedProfileElement(editor, element);
 	let relationControl: ReactNode = null;
 	if (profileKind === "agent" && choices.length > 0 && !isRepeatedAgent) {
+		const selectedRelationLabel =
+			choices.find((choice) => choice.relation === element.relation)?.label ??
+			(element.relation === "wake" ? "Wake" : "Reference");
 		relationControl = (
-			<label className="relative inline-flex h-6 items-center border-border border-l pl-1 text-muted-foreground">
+			<label className="relative inline-flex h-6 shrink-0 items-center gap-0.5 border-border border-l pr-1 pl-2 text-muted-foreground">
 				<span className="sr-only">Relation</span>
+				<span
+					aria-hidden="true"
+					className="whitespace-pre font-medium text-xs"
+					data-testid="space-composer-profile-token-relation-width"
+				>
+					{selectedRelationLabel}
+				</span>
+				<CaretDownIcon aria-hidden="true" className="size-3" />
 				<select
 					aria-label={`Change relation for ${profileName}`}
-					className="h-6 cursor-pointer appearance-none bg-transparent pr-4 pl-1 font-medium text-xs outline-none"
+					className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 outline-none"
 					onChange={(event) => {
 						const path = editor.api.findPath(element);
 						if (!path) {
@@ -442,10 +453,6 @@ function SpaceComposerProfileToken(
 						</option>
 					))}
 				</select>
-				<CaretDownIcon
-					aria-hidden="true"
-					className="pointer-events-none absolute right-0 size-3"
-				/>
 			</label>
 		);
 	} else if (isRepeatedAgent) {
@@ -459,26 +466,79 @@ function SpaceComposerProfileToken(
 	return (
 		<PlateElement {...props} as="span">
 			<span
-				className="mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
+				className="group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
 				contentEditable={false}
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"
 			>
-				<SpaceProfileIcon
-					agentControllerRef={
-						pickerItem?.memberEntry.agentControllerRef ?? null
-					}
-					avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
-					className="size-4"
-					profileId={element.profileId}
-					profileKind={profileKind}
-					profileName={profileName}
-				/>
-				<span aria-hidden="true" className="font-semibold">
+				<span
+					aria-hidden="true"
+					className="shrink-0 font-semibold"
+					data-slot="space-composer-profile-token-at"
+				>
 					@
 				</span>
-				<span className="max-w-40 truncate font-medium">{profileName}</span>
+				<span
+					className="inline-flex shrink-0"
+					data-slot="space-composer-profile-token-icon"
+				>
+					<SpaceProfileIcon
+						agentControllerRef={
+							pickerItem?.memberEntry.agentControllerRef ?? null
+						}
+						avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
+						className="size-4"
+						profileId={element.profileId}
+						profileKind={profileKind}
+						profileName={profileName}
+					/>
+				</span>
+				<span
+					className="min-w-0 truncate font-medium"
+					data-slot="space-composer-profile-token-name"
+				>
+					{profileName}
+				</span>
 				{relationControl}
+				<button
+					aria-label={`Remove ${profileName} from message`}
+					className="pointer-events-none absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-100 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/profile-token:pointer-events-auto group-focus-within/profile-token:opacity-100 group-hover/profile-token:pointer-events-auto group-hover/profile-token:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+					onClick={(event) => {
+						event.stopPropagation();
+						const path = editor.api.findPath(element);
+						if (!path) {
+							return;
+						}
+						const nextPath = PathApi.next(path);
+						const nextNode = (editor.children as SpaceComposerEditorValue)[
+							nextPath[0]
+						]?.children[nextPath[1] ?? 0];
+
+						editor.tf.withoutNormalizing(() => {
+							if (
+								nextNode &&
+								TextApi.isText(nextNode) &&
+								nextNode.text.startsWith(" ")
+							) {
+								editor.tf.delete({
+									at: {
+										anchor: { offset: 0, path: nextPath },
+										focus: { offset: 1, path: nextPath },
+									},
+								});
+							}
+							editor.tf.removeNodes({ at: path });
+						});
+						editor.tf.focus();
+					}}
+					onMouseDown={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+					}}
+					type="button"
+				>
+					<XIcon aria-hidden="true" className="size-3" />
+				</button>
 			</span>
 			{props.children}
 		</PlateElement>

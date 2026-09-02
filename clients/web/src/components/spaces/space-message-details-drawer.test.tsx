@@ -635,7 +635,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 		expect(actions.map((action) => action.textContent)).toEqual([
 			"Choose local agent",
-			"Open diagnostics",
 		]);
 		expect(onRetryWakeTarget).not.toHaveBeenCalled();
 	});
@@ -763,7 +762,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeNull();
 	});
 
-	it("offers recovery-controlled Retry and Open diagnostics for a persisted system failure", async () => {
+	it("keeps the failed reason prominent with one recovery action", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -796,6 +795,10 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const reasonSection = getActivityRegion("Center Agent");
+		const failureReason = within(reasonSection).getByText(
+			"OpenMeld ran into a system problem before Center Agent could reply. Try again. If it keeps happening, open diagnostics."
+		);
+		expect(failureReason.closest("p")?.className).toContain("text-destructive");
 		await within(reasonSection).findByRole("button", {
 			name: "Retry as new execution",
 		});
@@ -805,24 +808,26 @@ describe("SpaceMessageDetailsDrawer", () => {
 					"button, a"
 				)
 			).map((action) => action.textContent)
-		).toEqual(["Retry as new execution", "Open diagnostics"]);
+		).toEqual(["Retry as new execution"]);
 		expect(
 			screen.queryByRole("link", { name: "Review agent settings" })
 		).toBeNull();
 
-		fireEvent.click(
-			within(reasonSection).getByRole("button", { name: "Open diagnostics" })
-		);
+		expect(
+			within(reasonSection).queryByRole("button", {
+				name: "Open diagnostics",
+			})
+		).toBeNull();
 		const technicalDetails = screen
 			.getByText("Technical details")
 			.closest("details") as HTMLDetailsElement;
-		expect(technicalDetails.open).toBe(true);
+		expect(technicalDetails.open).toBe(false);
 		expect(
 			within(technicalDetails).getByText("dispatch.storage.schema_missing")
 		).toBeTruthy();
 	});
 
-	it("explains a reply-publication failure with one recovery action and diagnostics", async () => {
+	it("explains a reply-publication failure with one recovery action", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -887,7 +892,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 					"button, a"
 				)
 			).map((action) => action.textContent)
-		).toEqual(["Recover reply", "Open diagnostics"]);
+		).toEqual(["Recover reply"]);
 		expect(
 			within(reasonSection).queryByRole("link", {
 				name: "Connect local agent",
@@ -921,15 +926,16 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const managePlan = within(reasonSection).getByRole("link", {
 			name: "Manage Cursor plan",
 		});
-		const diagnostics = within(reasonSection).getByRole("button", {
-			name: "Open diagnostics",
-		});
 		expect(managePlan.getAttribute("href")).toBe(
 			"https://cursor.com/dashboard"
 		);
 		expect(managePlan.getAttribute("target")).toBe("_blank");
 		expect(managePlan.className).toContain("h-7");
-		expect(diagnostics.className).toContain("h-7");
+		expect(
+			within(reasonSection).queryByRole("button", {
+				name: "Open diagnostics",
+			})
+		).toBeNull();
 		expect(
 			within(reasonSection).queryByRole("link", {
 				name: "Connect local agent",
@@ -937,7 +943,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeNull();
 	});
 
-	it("offers recovery-controlled Retry and Open diagnostics for an oversized Center Agent tool result", async () => {
+	it("offers recovery-controlled Retry for an oversized Center Agent tool result", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -979,7 +985,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 					"button, a"
 				)
 			).map((action) => action.textContent)
-		).toEqual(["Retry as new execution", "Open diagnostics"]);
+		).toEqual(["Retry as new execution"]);
 	});
 
 	it("shows one exact Recover result action for an independent late-result notice", async () => {
@@ -1196,7 +1202,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toEqual(["Choose local agent"]);
 	});
 
-	it("opens diagnostics for a known storage failure without a settings action", () => {
+	it("keeps technical details without a duplicate diagnostics action", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -1219,8 +1225,9 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeNull();
 		expect(screen.queryByRole("link")).toBeNull();
 		expect(
-			screen.getByRole("button", { name: "Open diagnostics" })
-		).toBeTruthy();
+			screen.queryByRole("button", { name: "Open diagnostics" })
+		).toBeNull();
+		expect(screen.getByText("Technical details")).toBeTruthy();
 	});
 
 	it("links a manageable local-service failure to its shared recovery target", () => {

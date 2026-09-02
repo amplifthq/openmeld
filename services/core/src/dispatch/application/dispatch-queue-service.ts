@@ -5526,6 +5526,7 @@ const emitFrozenPreHeadFailurePublication = async (input: {
     await emitSpaceSystemNoticeSignal({
       env: input.env,
       ...input.intent.publicationCommand,
+      finalOutcomeAuthority: "runtime_coordinator_failure_publication",
     });
     return "persisted";
   } catch (error) {

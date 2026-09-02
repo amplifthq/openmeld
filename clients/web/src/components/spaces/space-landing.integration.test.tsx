@@ -8054,6 +8054,195 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("managed by Mira")).toBeNull();
 	});
 
+	it("uses current bootstrap Agent identity over stale unbound caches in the first frame", () => {
+		const members = createMembersSnapshot();
+		const history = {
+			envelopes: [
+				createTextSignal({
+					id: "sig-agent-bootstrap-identity",
+					profile: {
+						kind: "agent",
+						profileId: DEFAULT_AGENT_PROFILE_ID,
+						profileName: "Runner",
+					},
+					text: "Rendered from bootstrap",
+				}),
+			],
+			nextCursor: null,
+		};
+		mockSpaceQueries({
+			bootstrap: createQueryResult({
+				data: {
+					history,
+					members,
+					status: createSpaceStatus(),
+					threads: { previews: [], threads: [] },
+				},
+				isSuccess: true,
+			}),
+			status: createQueryResult({
+				data: createSpaceStatus(),
+				isSuccess: true,
+			}),
+			members: createQueryResult({
+				data: createMembersSnapshot({ defaultAgentControllerRef: null }),
+				isSuccess: true,
+			}),
+			history: createQueryResult({ data: history, isSuccess: true }),
+		});
+
+		renderSpaceLanding();
+
+		expect(
+			screen.getByTestId(
+				`space-agent-profile-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByTestId(
+				`space-agent-profile-fallback-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeNull();
+	});
+
+	it("does not write stale bootstrap Agent identity over newer restored history", async () => {
+		const queryClient = createTestQueryClient();
+		useQueryClientMock.mockReturnValue(queryClient);
+		const currentMembers = {
+			...createMembersSnapshot({
+				defaultAgentControllerRef: "builtin:claude",
+			}),
+			generatedAt: "2026-07-01T00:00:02.000Z",
+		};
+		const bootstrapMembers = {
+			...createMembersSnapshot({
+				defaultAgentControllerRef: "builtin:codex",
+			}),
+			generatedAt: "2026-07-01T00:00:01.000Z",
+		};
+		const currentSignal = {
+			...createTextSignal({
+				id: "sig-restored-newer-agent-identity",
+				profile: {
+					kind: "agent",
+					profileId: DEFAULT_AGENT_PROFILE_ID,
+					profileName: "Runner",
+				},
+				text: "Keep the restored identity current",
+			}),
+			profile: {
+				agentControllerRef: "builtin:claude",
+				kind: "agent",
+				profileId: DEFAULT_AGENT_PROFILE_ID,
+				profileName: "Runner",
+			},
+		} as SignalEnvelope;
+		const bootstrapSignal = {
+			...currentSignal,
+			profile: {
+				...currentSignal.profile,
+				agentControllerRef: "builtin:codex",
+			},
+		} as SignalEnvelope;
+		const currentHistory = {
+			envelopes: [currentSignal],
+			nextCursor: null,
+		};
+
+		queryClient.setQueryData(
+			spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
+			currentMembers
+		);
+		queryClient.setQueryData(
+			spaceQueryKeys.history("space-123", DEFAULT_SPACE_PROFILE_ID),
+			currentHistory
+		);
+		mockSpaceQueries({
+			bootstrap: createQueryResult({
+				data: {
+					history: {
+						envelopes: [bootstrapSignal],
+						nextCursor: null,
+					},
+					members: bootstrapMembers,
+					status: createSpaceStatus(),
+					threads: { previews: [], threads: [] },
+				},
+				isSuccess: true,
+			}),
+			history: createQueryResult({ data: currentHistory, isSuccess: true }),
+			members: createQueryResult({ data: currentMembers, isSuccess: true }),
+			status: createQueryResult({
+				data: createSpaceStatus(),
+				isSuccess: true,
+			}),
+		});
+
+		renderSpaceLanding({ queryClient });
+		await flushPromiseQueue();
+
+		expect(
+			queryClient
+				.getQueryData<{
+					envelopes: readonly SignalEnvelope[];
+				}>(spaceQueryKeys.history("space-123", DEFAULT_SPACE_PROFILE_ID))
+				?.envelopes.find(
+					(signal) => signal.id === "sig-restored-newer-agent-identity"
+				)?.profile.agentControllerRef
+		).toBe("builtin:claude");
+		queryClient.clear();
+	});
+
+	it("uses successful bootstrap Agent identity while the empty members query retains an error", () => {
+		const history = {
+			envelopes: [
+				createTextSignal({
+					id: "sig-agent-bootstrap-after-members-error",
+					profile: {
+						kind: "agent",
+						profileId: DEFAULT_AGENT_PROFILE_ID,
+						profileName: "Runner",
+					},
+					text: "Rendered after a stale members error",
+				}),
+			],
+			nextCursor: null,
+		};
+		mockSpaceQueries({
+			bootstrap: createQueryResult({
+				data: {
+					history,
+					members: createMembersSnapshot(),
+					status: createSpaceStatus(),
+					threads: { previews: [], threads: [] },
+				},
+				isSuccess: true,
+			}),
+			status: createQueryResult({
+				data: createSpaceStatus(),
+				isSuccess: true,
+			}),
+			members: createQueryResult({
+				error: new Error("stale members failure"),
+				isError: true,
+			}),
+			history: createQueryResult({ data: history, isSuccess: true }),
+		});
+
+		renderSpaceLanding();
+
+		expect(
+			screen.getByTestId(
+				`space-agent-profile-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByTestId(
+				`space-agent-profile-fallback-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeNull();
+	});
+
 	it("uses the Center Agent Dither identity in an ordinary Space", () => {
 		mockSpaceQueries({
 			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
@@ -8308,8 +8497,12 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "@Runner wake please reply");
 
-		expect(screen.getByTestId("space-composer-profile-token")).toBeTruthy();
-		expect(screen.getByText("Waking 1 agent")).toBeTruthy();
+		const token = screen.getByTestId("space-composer-profile-token");
+		const relation = within(token).getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		expect(relation).toHaveProperty("value", "wake");
+		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
 	it("sends a Wake mention for a not-ready agent instead of blocking before send", async () => {
@@ -8627,7 +8820,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows a quiet summary for multiple structured targets", async () => {
+	it("keeps multiple structured targets self-explanatory without a duplicate summary", async () => {
 		const reviewerProfileId = "agt_33333333-3333-4333-8333-333333333333";
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
@@ -8676,7 +8869,10 @@ describe("SpaceLanding", () => {
 
 		await insertComposerMember(REVIEWER_OPTION_NAME, "Rev");
 
-		expect(await screen.findByText("Waking 2 agents")).toBeTruthy();
+		expect(screen.getAllByTestId("space-composer-profile-token")).toHaveLength(
+			2
+		);
+		expect(screen.queryByText("Waking 2 agents")).toBeNull();
 
 		await appendComposerText(
 			textarea,
@@ -9216,6 +9412,47 @@ describe("SpaceLanding", () => {
 				.getByRole("log", { name: "Conversation history" })
 				.getAttribute("aria-busy")
 		).toBe("false");
+	});
+
+	it("keeps an unresolved cached Agent identity as a placeholder while bootstrap loads", () => {
+		mockSpaceQueries({
+			bootstrap: createQueryResult({ isPending: true }),
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({ isPending: true }),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [
+						createTextSignal({
+							id: "sig-saved-agent-history",
+							profile: {
+								kind: "agent",
+								profileId: DEFAULT_AGENT_PROFILE_ID,
+								profileName: "Runner",
+							},
+							text: "Visible from the saved browser view",
+						}),
+					],
+					nextCursor: null,
+				},
+			}),
+		});
+
+		renderSpaceLanding();
+
+		expect(
+			screen.getByTestId(
+				`space-agent-profile-pending-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByTestId(
+				`space-agent-profile-fallback-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeNull();
 	});
 
 	it("routes live thread replies to thread state instead of the main conversation", async () => {

@@ -460,12 +460,14 @@ export function PublicSpacePage(input: {
 						composerFileLimitReached={false}
 						composerFiles={[]}
 						composerText=""
+						currentOwnerUserId={null}
 						ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
 						isAgentRecoveryPending={() => false}
 						isDiagnosticReportPending={() => false}
 						isDiagnosticReportSent={() => false}
 						isSendingMessage={false}
 						membersSnapshot={null}
+						modelCatalog={null}
 						onAddComposerFiles={noopPromise}
 						onAgentRecoveryAction={noopPromise}
 						onClose={() => setSelectedThreadId(null)}

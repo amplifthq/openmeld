@@ -859,9 +859,18 @@ test("claude Agent SDK publishes sanitized passive usage-limit evidence", async 
             rate_limit_info: {
               canUserPurchaseCredits: true,
               rateLimitType: "five_hour",
-              resetsAt: 1_787_191_200,
+              resetsAt: 1_787_674_200,
               status: "allowed_warning",
-              utilization: 0.91,
+              unifiedWindows: {
+                five_hour: {
+                  resetsAt: 1_787_674_200,
+                  utilization: 0.28,
+                },
+                seven_day: {
+                  resetsAt: 1_787_940_000,
+                  utilization: 0.1,
+                },
+              },
             },
             session_id: "private-provider-session",
             type: "rate_limit_event",
@@ -893,9 +902,17 @@ test("claude Agent SDK publishes sanitized passive usage-limit evidence", async 
         key: "claude-code:five-hour",
         label: "5-hour usage limit",
         observedAt: new Date(usageEvent.tsMs).toISOString(),
-        resetsAt: "2026-08-20T02:00:00.000Z",
+        resetsAt: "2026-08-25T16:10:00.000Z",
         status: "available",
-        usedPercent: 91,
+        usedPercent: 28,
+      },
+      {
+        key: "claude-code:seven-day",
+        label: "Weekly usage limit",
+        observedAt: new Date(usageEvent.tsMs).toISOString(),
+        resetsAt: "2026-08-28T18:00:00.000Z",
+        status: "available",
+        usedPercent: 10,
       },
     ]);
     assert.equal(

@@ -1171,7 +1171,7 @@ function resolveCurrentOpenMeldToolsPrimaryAction(input: {
 	return {
 		disabled: input.updateIsActive,
 		kind: "managed",
-		label: input.updateIsActive ? "Updating" : "Update",
+		label: input.updateIsActive ? "Updating…" : "Update",
 		onClick: input.onUpdateOpenMeldTools,
 	};
 }
@@ -1594,7 +1594,13 @@ function OpenMeldToolsMaintenanceControls(input: {
 			<div className="min-w-0">
 				<p className="font-medium text-sm">Keep OpenMeld Tools up to date</p>
 				{updateStatus ? (
-					<p className="mt-1 text-muted-foreground text-xs">{updateStatus}</p>
+					<p
+						aria-atomic="true"
+						aria-live="polite"
+						className="mt-1 text-muted-foreground text-xs"
+					>
+						{updateStatus}
+					</p>
 				) : null}
 			</div>
 			<Switch
@@ -1629,17 +1635,18 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 		return "Couldn't verify the update. Try again or update manually.";
 	}
 	if (input.confirmationPending && !input.targetObserved) {
-		return "Verifying update";
+		return "Verifying…";
 	}
 	if (input.requesting) {
-		return "Checking for updates";
+		return "Checking…";
 	}
 	if (
-		input.operation?.phase === "updated" &&
 		input.targetObserved &&
-		input.nextUpdateAvailable
+		(input.operation?.phase === "updated" ||
+			input.operation?.phase === "restored" ||
+			input.operation?.phase === "needs_help")
 	) {
-		return null;
+		return input.nextUpdateAvailable ? null : "Up to date";
 	}
 	return input.operation
 		? formatOpenMeldToolsUpdatePhase({
@@ -1657,11 +1664,11 @@ function formatOpenMeldToolsUpdatePhase(input: {
 }): string {
 	switch (input.phase) {
 		case "waiting_for_work":
-			return "Finishing current work";
+			return "Finishing…";
 		case "updating":
-			return "Updating";
+			return "Updating…";
 		case "updated":
-			return input.targetObserved ? "Up to date" : "Verifying update";
+			return input.targetObserved ? "Up to date" : "Verifying…";
 		case "restored":
 			return "Update failed. Try again.";
 		case "needs_help":
@@ -1917,7 +1924,9 @@ function OpenMeldToolsActionControl(input: {
 				variant="outline"
 			>
 				<ArrowsClockwiseIcon aria-hidden="true" data-icon="inline-start" />
-				{input.action.label}
+				<span className={input.action.disabled ? "shimmer-text" : undefined}>
+					{input.action.label}
+				</span>
 			</Button>
 		);
 	}
