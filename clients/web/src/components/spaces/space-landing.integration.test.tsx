@@ -5070,6 +5070,10 @@ describe("SpaceLanding", () => {
 				"2026-08-08T00:00:00.000Z"
 			);
 			expect(cachedStatus.name).toBe("Launch Team");
+			expect(cachedStatus.members).toMatchObject({
+				humanCount: 2,
+				totalCount: 3,
+			});
 			expect(cachedAccountSections.spaceItems[0]).toMatchObject({
 				directMessageConvertedAt: "2026-08-08T00:00:00.000Z",
 				spaceName: "Launch Team",

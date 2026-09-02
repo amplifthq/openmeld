@@ -2832,6 +2832,14 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				profileIds,
 				spaceId: controller.spaceId,
 			});
+			const joiningHumanProfile = findActiveProfileById(input.accountProfiles, {
+				profileId: controller.profileId,
+				profileKind: "human",
+			});
+			const confirmedJoiningHuman = Boolean(
+				joiningHumanProfile &&
+					result.addedMemberIds.includes(joiningHumanProfile.openMeldProfileId)
+			);
 			const statusQueryKey = spaceQueryKeys.status(
 				controller.spaceId,
 				controller.profileId
@@ -2840,7 +2848,9 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				statusQueryKey,
 				(status) =>
 					status
-						? applyDirectMessageConversionToSpaceStatus(status, result)
+						? applyDirectMessageConversionToSpaceStatus(status, result, {
+								confirmedAddedHumanCount: confirmedJoiningHuman ? 1 : 0,
+							})
 						: status
 			);
 			input.queryClient.setQueryData<SpaceBootstrapSnapshot>(
@@ -2851,7 +2861,10 @@ function useConvertDirectMessageToSpaceHandler(input: {
 								...bootstrap,
 								status: applyDirectMessageConversionToSpaceStatus(
 									bootstrap.status,
-									result
+									result,
+									{
+										confirmedAddedHumanCount: confirmedJoiningHuman ? 1 : 0,
+									}
 								),
 							}
 						: bootstrap
@@ -2861,14 +2874,7 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				(sections) =>
 					applyDirectMessageConversionToAccountSpaceSections(sections, result)
 			);
-			const joiningHumanProfile = findActiveProfileById(input.accountProfiles, {
-				profileId: controller.profileId,
-				profileKind: "human",
-			});
-			if (
-				joiningHumanProfile &&
-				result.addedMemberIds.includes(joiningHumanProfile.openMeldProfileId)
-			) {
+			if (joiningHumanProfile && confirmedJoiningHuman) {
 				applyConfirmedHumanSpaceMemberToCache({
 					addedAt: result.convertedAt,
 					profile: joiningHumanProfile,
@@ -2923,12 +2929,25 @@ function useConvertDirectMessageToSpaceHandler(input: {
 
 function applyDirectMessageConversionToSpaceStatus(
 	status: GetSpaceStatusResponse,
-	result: ConvertDirectMessageToSpaceResponse
+	result: ConvertDirectMessageToSpaceResponse,
+	input: { confirmedAddedHumanCount: number }
 ): GetSpaceStatusResponse {
+	const confirmedAddedHumanCount = status.directMessageConvertedAt
+		? 0
+		: input.confirmedAddedHumanCount;
 	return {
 		...status,
 		accessMode: result.accessMode,
 		directMessageConvertedAt: result.convertedAt,
+		generatedAt: result.convertedAt,
+		members:
+			confirmedAddedHumanCount > 0
+				? {
+						...status.members,
+						humanCount: status.members.humanCount + confirmedAddedHumanCount,
+						totalCount: status.members.totalCount + confirmedAddedHumanCount,
+					}
+				: status.members,
 		name: result.name,
 	};
 }
