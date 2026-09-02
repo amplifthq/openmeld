@@ -4844,7 +4844,7 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Add your first agent")).toBeNull();
 		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation" })
+			screen.queryByRole("button", { name: "Join conversation first" })
 		).toBeNull();
 	});
 
@@ -4907,7 +4907,27 @@ describe("SpaceLanding", () => {
 		expect(composer.getAttribute("aria-placeholder")).toBe(
 			"You can view this Direct Message because you own Runner. Join to participate."
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Join conversation" }));
+		expect(
+			screen.getByText("Join the conversation to send the first message.")
+		).toBeTruthy();
+		const joinButtons = screen.getAllByRole("button", {
+			name: "Join conversation first",
+		});
+		expect(joinButtons).toHaveLength(2);
+		const composerSection = document.querySelector(
+			'[data-slot="space-composer-section"]'
+		);
+		expect(composerSection).not.toBeNull();
+		expect(
+			within(composerSection as HTMLElement).queryByRole("button", {
+				name: "Send message",
+			})
+		).toBeNull();
+		fireEvent.click(
+			within(composerSection as HTMLElement).getByRole("button", {
+				name: "Join conversation first",
+			})
+		);
 		expect(
 			screen.getByRole("heading", {
 				name: "Turn this Direct Message into a Space?",
@@ -4967,7 +4987,7 @@ describe("SpaceLanding", () => {
 
 		expect(screen.getByText("Mira can view")).toBeTruthy();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation" })
+			screen.queryByRole("button", { name: "Join conversation first" })
 		).toBeNull();
 	});
 
@@ -5114,7 +5134,11 @@ describe("SpaceLanding", () => {
 			],
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: "Join conversation" }));
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: "Join conversation first",
+			})[0] as Element
+		);
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {
 			target: { value: "Launch Team" },
 		});
@@ -5274,7 +5298,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: "Join conversation" })
+			screen.queryByRole("button", { name: "Join conversation first" })
 		).toBeNull();
 	});
 

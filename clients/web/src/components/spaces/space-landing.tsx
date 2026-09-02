@@ -1531,6 +1531,11 @@ function SpaceLandingReady({
 			isDirectMessage,
 			snapshot: controller.membersSnapshot,
 		});
+	const agentOwnerDirectMessageJoin = useAgentOwnerDirectMessageJoin({
+		currentSpaceName: controller.status.name,
+		onJoin: handleConvertDirectMessageToSpace,
+		observer: agentOwnerDirectMessageObserver,
+	});
 	const agentOwnerVisibilityLabel = resolveAgentOwnerVisibilityLabel({
 		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
 		isDirectMessage,
@@ -1551,12 +1556,9 @@ function SpaceLandingReady({
 	const managementControl = (
 		<>
 			{currentSpaceControls.managementControl}
-			{agentOwnerDirectMessageObserver ? (
-				<AgentOwnerDirectMessageJoinControl
-					currentSpaceName={controller.status.name}
-					humanProfile={agentOwnerDirectMessageObserver.humanProfile}
-					onJoin={handleConvertDirectMessageToSpace}
-					snapshot={agentOwnerDirectMessageObserver.snapshot}
+			{agentOwnerDirectMessageJoin ? (
+				<AgentOwnerDirectMessageJoinHeaderControl
+					control={agentOwnerDirectMessageJoin}
 				/>
 			) : (
 				humanJoinControl
@@ -1722,6 +1724,9 @@ function SpaceLandingReady({
 					<SpaceLandingConversation
 						agentDirectConversationKind={agentDirectConversationKind}
 						agentOwnerDirectMessageObserver={agentOwnerDirectMessageObserver}
+						composerPrimaryAction={resolveAgentOwnerDirectMessageComposerPrimaryAction(
+							agentOwnerDirectMessageJoin
+						)}
 						composerProfileControl={composerProfileControl}
 						controller={controller}
 						currentProfileIsActiveSpaceMember={
@@ -1770,6 +1775,9 @@ function SpaceLandingReady({
 					)}
 				</div>
 			</AppMainContent>
+			<AgentOwnerDirectMessageJoinDialog
+				control={agentOwnerDirectMessageJoin}
+			/>
 			{pendingAgentActions.profileEditDialog}
 		</>
 	);
@@ -1799,6 +1807,7 @@ function SpaceFileNavigationGuards(input: {
 function SpaceLandingConversation({
 	agentDirectConversationKind,
 	agentOwnerDirectMessageObserver,
+	composerPrimaryAction,
 	composerProfileControl,
 	controller,
 	currentProfileIsActiveSpaceMember,
@@ -1818,6 +1827,7 @@ function SpaceLandingConversation({
 	agentOwnerDirectMessageObserver: ReturnType<
 		typeof resolveAgentOwnerDirectMessageObserver
 	>;
+	composerPrimaryAction?: ReactNode;
 	composerProfileControl: ReactNode;
 	controller: ReadySpaceLandingController;
 	currentProfileIsActiveSpaceMember: boolean;
@@ -1878,13 +1888,16 @@ function SpaceLandingConversation({
 			composerFiles={controller.composerFiles}
 			composerHasAuthoredMentions={controller.composerHasAuthoredMentions}
 			composerMentionPickerItems={controller.composerMentionPickerItems}
+			composerPrimaryAction={composerPrimaryAction}
 			composerReplyToSignalId={controller.composerReplyToSignalId}
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
 			editableAgentProfileIds={editableAgentProfileIds}
-			emptyStateDescription={
-				isDirectMessage ? undefined : EMPTY_SPACE_DESCRIPTION
-			}
+			emptyStateDescription={resolveSpaceConversationEmptyStateDescription({
+				isAgentOwnerDirectMessageObserver:
+					agentOwnerDirectMessageObserver !== null,
+				isDirectMessage,
+			})}
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
@@ -2157,21 +2170,45 @@ function resolveAgentOwnerVisibilityLabel(input: {
 	return `${ownerName || "Agent owner"} can view`;
 }
 
-function AgentOwnerDirectMessageJoinControl(input: {
+function resolveSpaceConversationEmptyStateDescription(input: {
+	isAgentOwnerDirectMessageObserver: boolean;
+	isDirectMessage: boolean;
+}): string | undefined {
+	if (input.isAgentOwnerDirectMessageObserver) {
+		return "Join the conversation to send the first message.";
+	}
+	return input.isDirectMessage ? undefined : EMPTY_SPACE_DESCRIPTION;
+}
+
+type AgentOwnerDirectMessageJoinState = {
+	defaultName: string;
+	errorMessage: string | null;
+	isOpen: boolean;
+	isPending: boolean;
+	onConfirm: (name: string) => Promise<void>;
+	onOpen: () => void;
+	onOpenChange: (open: boolean) => void;
+	selectedName: string;
+};
+
+function useAgentOwnerDirectMessageJoin(input: {
 	currentSpaceName: string | null | undefined;
-	humanProfile: AuthProfileView;
 	onJoin: (
 		input: SpaceConvertDirectMessageInput
 	) => Promise<SpaceAddProfilesResult>;
-	snapshot: SpaceMembersSnapshot;
-}) {
+	observer: ReturnType<typeof resolveAgentOwnerDirectMessageObserver>;
+}): AgentOwnerDirectMessageJoinState | null {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isOpen, setIsOpen] = useState(false);
 	const [isPending, setIsPending] = useState(false);
-	const selectedName = input.humanProfile.profileName.trim() || "Agent owner";
+	if (!input.observer) {
+		return null;
+	}
+	const selectedName =
+		input.observer.humanProfile.profileName.trim() || "Agent owner";
 	const currentMemberNames = [
-		...input.snapshot.humans,
-		...input.snapshot.agents,
+		...input.observer.snapshot.humans,
+		...input.observer.snapshot.agents,
 	].flatMap((member) =>
 		member.status === "active" ? [member.profileName] : []
 	);
@@ -2180,51 +2217,97 @@ function AgentOwnerDirectMessageJoinControl(input: {
 		currentSpaceName: input.currentSpaceName,
 		selectedNames: [selectedName],
 	});
+	const humanProfileId = input.observer.humanProfile.openMeldProfileId;
 
+	return {
+		defaultName,
+		errorMessage,
+		isOpen,
+		isPending,
+		onConfirm: async (name) => {
+			setIsPending(true);
+			setErrorMessage(null);
+			try {
+				await input.onJoin({
+					name,
+					profileIds: [humanProfileId],
+				});
+				setIsOpen(false);
+			} catch {
+				setErrorMessage("Unable to join this conversation. Try again.");
+			} finally {
+				setIsPending(false);
+			}
+		},
+		onOpen: () => {
+			setErrorMessage(null);
+			setIsOpen(true);
+		},
+		onOpenChange: setIsOpen,
+		selectedName,
+	};
+}
+
+function AgentOwnerDirectMessageJoinButton(input: {
+	control: AgentOwnerDirectMessageJoinState | null;
+}) {
+	if (!input.control) {
+		return null;
+	}
+	return (
+		<Button
+			disabled={input.control.isPending}
+			onClick={input.control.onOpen}
+			size="sm"
+			type="button"
+		>
+			Join conversation first
+		</Button>
+	);
+}
+
+function resolveAgentOwnerDirectMessageComposerPrimaryAction(
+	control: AgentOwnerDirectMessageJoinState | null
+): ReactNode | undefined {
+	if (!control) {
+		return undefined;
+	}
+	return <AgentOwnerDirectMessageJoinButton control={control} />;
+}
+
+function AgentOwnerDirectMessageJoinHeaderControl(input: {
+	control: AgentOwnerDirectMessageJoinState;
+}) {
 	return (
 		<div className="flex min-w-0 flex-col items-end gap-1">
-			<Button
-				disabled={isPending}
-				onClick={() => {
-					setErrorMessage(null);
-					setIsOpen(true);
-				}}
-				size="sm"
-				type="button"
-			>
-				Join conversation
-			</Button>
-			{errorMessage ? (
+			<AgentOwnerDirectMessageJoinButton control={input.control} />
+			{input.control.errorMessage ? (
 				<p
 					className="max-w-64 text-right text-destructive text-xs"
 					role="alert"
 				>
-					{errorMessage}
+					{input.control.errorMessage}
 				</p>
 			) : null}
-			<DirectMessageConversionDialog
-				defaultName={defaultName}
-				isPending={isPending}
-				onConfirm={async (name) => {
-					setIsPending(true);
-					setErrorMessage(null);
-					try {
-						await input.onJoin({
-							name,
-							profileIds: [input.humanProfile.openMeldProfileId],
-						});
-						setIsOpen(false);
-					} catch {
-						setErrorMessage("Unable to join this conversation. Try again.");
-					} finally {
-						setIsPending(false);
-					}
-				}}
-				onOpenChange={setIsOpen}
-				open={isOpen}
-				selectedNames={[selectedName]}
-			/>
 		</div>
+	);
+}
+
+function AgentOwnerDirectMessageJoinDialog(input: {
+	control: AgentOwnerDirectMessageJoinState | null;
+}) {
+	if (!input.control) {
+		return null;
+	}
+	return (
+		<DirectMessageConversionDialog
+			defaultName={input.control.defaultName}
+			isPending={input.control.isPending}
+			onConfirm={input.control.onConfirm}
+			onOpenChange={input.control.onOpenChange}
+			open={input.control.isOpen}
+			selectedNames={[input.control.selectedName]}
+		/>
 	);
 }
 
