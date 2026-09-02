@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-02T07:24:22.826Z",
+  "updatedAt": "2026-09-02T10:15:48.601Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.145",
+      "packageVersion": "0.3.146",
       "updatePolicy": "available",
-      "reason": "Existing CLI and cloud contracts remain compatible; this update adds exact partial add-me recovery without changing Profile, Binding, or membership APIs."
+      "reason": "Existing CLI commands remain compatible; older Core retries without the optional provider-scoped Usage fields."
     },
     "service": {
-      "bundleHash": "a0f3ada7ae1b5101c7f9321996339ddce274a39c19c0d760256521ce5e43fbba",
-      "bundleVersion": "0.3.145",
+      "bundleHash": "b4794d8275f55ac2ee3e823ec42259f7629c2d2c7ca1ce98cf16499b28daca14",
+      "bundleVersion": "0.3.146",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Old Services can continue Wake work; this update fixes occupied Codex task admission without changing wire contracts."
+      "reason": "Existing Services keep current Wake behavior; provider-scoped Usage activates only after a compatible report and Core are present."
     },
     "skills": {
       "bundleHash": "401cc873760f7ff783e2f3ef80c685c8248c760a4e0fd23c33bc9364daae17fb",
