@@ -1169,6 +1169,78 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 	});
 
+	it("shows that the current Agent is waiting when its Codex task is occupied", async () => {
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [
+				createAccountSpaceItem({
+					pinnedAt: "2026-04-29T01:00:00.000Z",
+					spaceId: "space-alpha",
+					spaceName: "Alpha",
+				}),
+			],
+			spaceItems: [],
+		});
+		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
+			generatedAtMs: Date.now(),
+			items: [
+				{
+					activeTargets: [
+						{
+							activeWakeCount: 1,
+							profileId: "agt_clico",
+							profileName: "Clico Codex",
+						},
+					],
+					activeWakeCount: 1,
+					spaceId: "space-alpha",
+				},
+			],
+		});
+		const queryClient = createSidebarQueryClient();
+		setSpaceWakeProgressPresentationItems({
+			items: [
+				createWakeProgressItem({
+					clientMessageId: "client-message-alpha",
+					dispatchId: "dispatch-alpha",
+					phase: "running",
+					sourceSignalId: "signal-alpha",
+					targetLabel: "Clico Codex",
+					targetProfileId: "agt_clico",
+					updatedAtMs: Date.now(),
+					waitReasonCode: "runtime.agent_controller_conversation.occupied",
+				}),
+			],
+			openMeldProfileId: "human-1",
+			queryClient,
+			spaceId: "space-alpha",
+		});
+
+		renderSidebar(
+			<AppSpacesSidebar
+				currentProfileId="human-1"
+				currentSpaceId="space-alpha"
+			/>,
+			queryClient
+		);
+
+		expect(
+			await screen.findByRole("button", {
+				name: "Alpha, agent waiting",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "Clico Codex is waiting for its Codex task. Open Alpha",
+			})
+		).toBeTruthy();
+		expect(
+			document.querySelector('[data-space-active-wake-waiting="true"]')
+		).toBeTruthy();
+		expect(
+			document.querySelector('[data-space-active-wake-orb="true"]')
+		).toBeNull();
+	});
+
 	it("keeps the current Space orb aligned with a recovered Core active Wake summary", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [

@@ -1,5 +1,6 @@
 "use client";
 
+import { WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE } from "@openmeld/schemas";
 import type {
 	AccountSpaceActiveWakeSummaryItem,
 	WakeProgressItem,
@@ -21,6 +22,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CompassIcon,
 	HashIcon,
+	HourglassMediumIcon,
 	PlusIcon,
 	PushPinIcon,
 } from "@phosphor-icons/react";
@@ -99,6 +101,10 @@ const EMPTY_ACCOUNT_SPACE_SECTIONS: AccountSpaceSections = {
 const DELETED_SPACE_NOTICE_STORAGE_KEY = "openmeld:deleted-space-notices-shown";
 const SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME =
 	"pointer-events-none absolute top-1 right-1 z-10 inline-flex size-7 items-center justify-center transition-transform duration-150 ease-out group-focus-within/space-row:translate-x-3 group-focus-within/space-row:-translate-y-3 group-hover/space-row:translate-x-3 group-hover/space-row:-translate-y-3 motion-reduce:transition-none";
+
+type SpaceSidebarActiveWakeSummary = AccountSpaceActiveWakeSummaryItem & {
+	waitReasonCode?: WakeProgressItem["waitReasonCode"];
+};
 
 function subscribeToBrowserEnvironment() {
 	return () => undefined;
@@ -193,7 +199,10 @@ export function AppSpacesSidebar(input: {
 	);
 	const currentSpaceWakeProgressVisibleProjection =
 		useSpaceWakeProgressVisibleProjection();
-	const activeWakeSummaryBySpaceId = new Map(
+	const activeWakeSummaryBySpaceId = new Map<
+		string,
+		SpaceSidebarActiveWakeSummary
+	>(
 		Array.from(ambientActiveWakeSummaryBySpaceId).filter(
 			([spaceId]) => spaceId !== input.currentSpaceId
 		)
@@ -389,7 +398,7 @@ function NewSpaceButton(input: { onClick: () => void }) {
 function SidebarSpacesList(input: {
 	activeWakeSummaryBySpaceId: ReadonlyMap<
 		string,
-		AccountSpaceActiveWakeSummaryItem
+		SpaceSidebarActiveWakeSummary
 	>;
 	currentSpaceId: string;
 	isError: boolean;
@@ -483,7 +492,7 @@ function SidebarSpacesList(input: {
 }
 
 function SpaceSidebarMenuItem(input: {
-	activeWakeSummary?: AccountSpaceActiveWakeSummaryItem;
+	activeWakeSummary?: SpaceSidebarActiveWakeSummary;
 	index: number;
 	isActive: boolean;
 	isPinPending: boolean;
@@ -499,8 +508,8 @@ function SpaceSidebarMenuItem(input: {
 }) {
 	const isPinned = input.item.pinnedAt !== null;
 	const hasActiveWake = input.activeWakeSummary !== undefined;
-	const workingStatusLabel = input.activeWakeSummary
-		? resolveSpaceWorkingStatusLabel(input.activeWakeSummary)
+	const activeWakePresentation = input.activeWakeSummary
+		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
 		: null;
 	const pinLabel = isPinned
 		? `Unpin ${input.item.spaceName}`
@@ -515,6 +524,8 @@ function SpaceSidebarMenuItem(input: {
 	const openLabel = buildSpaceSidebarOpenLabel({
 		hasActiveWake,
 		hasUnread,
+		isWaitingForCodexTask:
+			activeWakePresentation?.isWaitingForCodexTask ?? false,
 		isNewSpace,
 		spaceName: input.item.spaceName,
 	});
@@ -665,28 +676,12 @@ function SpaceSidebarMenuItem(input: {
 					</TooltipContent>
 				</Tooltip>
 
-				{trailingStatus === "working" && workingStatusLabel ? (
-					<Tooltip>
-						<TooltipTrigger
-							delay={0}
-							render={
-								<button
-									aria-label={`${workingStatusLabel}. Open ${input.item.spaceName}`}
-									className={cn(
-										SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME,
-										"pointer-events-auto rounded-full outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring group-focus-within/space-row:scale-[0.625] group-hover/space-row:scale-[0.625]"
-									)}
-									data-space-active-wake-orb="true"
-									onClick={() => input.onOpenSpace(input.routePath)}
-									type="button"
-								>
-									<SpaceAgentOrb />
-								</button>
-							}
-						/>
-						<TooltipContent side="right">{workingStatusLabel}</TooltipContent>
-					</Tooltip>
-				) : null}
+				<SpaceSidebarActiveWakeStatus
+					enabled={trailingStatus === "working"}
+					onOpen={() => input.onOpenSpace(input.routePath)}
+					presentation={activeWakePresentation}
+					spaceName={input.item.spaceName}
+				/>
 			</div>
 		</FluidNavMenuItem>
 	);
@@ -695,17 +690,72 @@ function SpaceSidebarMenuItem(input: {
 function buildSpaceSidebarOpenLabel(input: {
 	hasActiveWake: boolean;
 	hasUnread: boolean;
+	isWaitingForCodexTask: boolean;
 	isNewSpace: boolean;
 	spaceName: string;
 }): string {
 	const statuses = [
 		input.isNewSpace ? "New Space" : null,
 		input.hasUnread ? "unread messages" : null,
-		input.hasActiveWake ? "agent working" : null,
+		resolveSpaceSidebarActiveWakeLabel(input),
 	].filter(Boolean);
 	return statuses.length > 0
 		? `${input.spaceName}, ${statuses.join(", ")}`
 		: input.spaceName;
+}
+
+function resolveSpaceSidebarActiveWakeLabel(input: {
+	hasActiveWake: boolean;
+	isWaitingForCodexTask: boolean;
+}): string | null {
+	if (!input.hasActiveWake) {
+		return null;
+	}
+	return input.isWaitingForCodexTask ? "agent waiting" : "agent working";
+}
+
+function SpaceSidebarActiveWakeStatus(input: {
+	enabled: boolean;
+	onOpen: () => void;
+	presentation: SpaceActiveWakePresentation | null;
+	spaceName: string;
+}) {
+	if (!(input.enabled && input.presentation)) {
+		return null;
+	}
+	const { isWaitingForCodexTask, label } = input.presentation;
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				delay={0}
+				render={
+					<button
+						aria-label={`${label}. Open ${input.spaceName}`}
+						className={cn(
+							SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME,
+							"pointer-events-auto rounded-full outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring group-focus-within/space-row:scale-[0.625] group-hover/space-row:scale-[0.625]",
+							isWaitingForCodexTask ? "text-muted-foreground" : null
+						)}
+						data-space-active-wake-orb={
+							isWaitingForCodexTask ? undefined : "true"
+						}
+						data-space-active-wake-waiting={
+							isWaitingForCodexTask ? "true" : undefined
+						}
+						onClick={input.onOpen}
+						type="button"
+					>
+						{isWaitingForCodexTask ? (
+							<HourglassMediumIcon className="size-4" />
+						) : (
+							<SpaceAgentOrb />
+						)}
+					</button>
+				}
+			/>
+			<TooltipContent side="right">{label}</TooltipContent>
+		</Tooltip>
+	);
 }
 
 function resolveSpaceSidebarOpenButtonClassName(input: {
@@ -723,7 +773,7 @@ function buildCurrentSpaceActiveWakeSummary(input: {
 	fallbackSummary?: AccountSpaceActiveWakeSummaryItem;
 	items: readonly WakeProgressItem[];
 	spaceId: string;
-}): AccountSpaceActiveWakeSummaryItem {
+}): SpaceSidebarActiveWakeSummary {
 	const fallbackNamesByProfileId = new Map(
 		(input.fallbackSummary?.activeTargets ?? []).map((target) => [
 			target.profileId,
@@ -734,10 +784,8 @@ function buildCurrentSpaceActiveWakeSummary(input: {
 		string,
 		{ activeWakeCount: number; profileName: string | null }
 	>();
-	for (const item of input.items) {
-		if (item.terminal) {
-			continue;
-		}
+	const activeItems = input.items.filter((item) => !item.terminal);
+	for (const item of activeItems) {
 		const current = targetsByProfileId.get(item.targetProfileId);
 		targetsByProfileId.set(item.targetProfileId, {
 			activeWakeCount: (current?.activeWakeCount ?? 0) + 1,
@@ -759,32 +807,84 @@ function buildCurrentSpaceActiveWakeSummary(input: {
 			0
 		),
 		spaceId: input.spaceId,
+		waitReasonCode:
+			activeItems.length > 0 &&
+			activeItems.every(
+				(item) =>
+					item.waitReasonCode ===
+					WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+			)
+				? WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+				: null,
 	};
 }
 
-function resolveSpaceWorkingStatusLabel(
-	summary: AccountSpaceActiveWakeSummaryItem
-): string {
+type SpaceActiveWakePresentation = {
+	isWaitingForCodexTask: boolean;
+	label: string;
+};
+
+function resolveSpaceActiveWakePresentation(
+	summary: SpaceSidebarActiveWakeSummary
+): SpaceActiveWakePresentation {
+	const isWaitingForCodexTask =
+		summary.waitReasonCode ===
+		WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE;
 	const activeTargets = summary.activeTargets ?? [];
 	if (activeTargets.length > 0) {
-		const namedTargets = activeTargets.filter(
-			(target): target is typeof target & { profileName: string } =>
-				target.profileName !== null
-		);
-		const unknownTargetCount = activeTargets.length - namedTargets.length;
-		const targetLabels = namedTargets.map((target) => target.profileName);
-		if (unknownTargetCount === 1) {
-			targetLabels.push("another agent");
-		} else if (unknownTargetCount > 1) {
-			targetLabels.push(`${String(unknownTargetCount)} other agents`);
-		}
-		return capitalizeStatusFragment(
-			`${formatEnglishList(targetLabels)} ${activeTargets.length === 1 ? "is" : "are"} working`
-		);
+		return {
+			isWaitingForCodexTask,
+			label: resolveAttributedSpaceWakeStatusLabel({
+				activeTargets,
+				isWaitingForCodexTask,
+			}),
+		};
 	}
-	return summary.activeWakeCount === 1
+	return {
+		isWaitingForCodexTask,
+		label: resolveGenericSpaceWakeStatusLabel({
+			activeWakeCount: summary.activeWakeCount,
+			isWaitingForCodexTask,
+		}),
+	};
+}
+
+function resolveGenericSpaceWakeStatusLabel(input: {
+	activeWakeCount: number;
+	isWaitingForCodexTask: boolean;
+}): string {
+	if (input.isWaitingForCodexTask) {
+		return input.activeWakeCount === 1
+			? "An agent is waiting for its Codex task"
+			: `${String(input.activeWakeCount)} Wakes are waiting for Codex tasks`;
+	}
+	return input.activeWakeCount === 1
 		? "An agent is working"
-		: `${String(summary.activeWakeCount)} Wakes are active`;
+		: `${String(input.activeWakeCount)} Wakes are active`;
+}
+
+function resolveAttributedSpaceWakeStatusLabel(input: {
+	activeTargets: NonNullable<SpaceSidebarActiveWakeSummary["activeTargets"]>;
+	isWaitingForCodexTask: boolean;
+}): string {
+	const namedTargets = input.activeTargets.filter(
+		(target): target is typeof target & { profileName: string } =>
+			target.profileName !== null
+	);
+	const unknownTargetCount = input.activeTargets.length - namedTargets.length;
+	const targetLabels = namedTargets.map((target) => target.profileName);
+	if (unknownTargetCount === 1) {
+		targetLabels.push("another agent");
+	} else if (unknownTargetCount > 1) {
+		targetLabels.push(`${String(unknownTargetCount)} other agents`);
+	}
+	const plural = input.activeTargets.length > 1;
+	const status = input.isWaitingForCodexTask
+		? `${plural ? "are" : "is"} waiting for ${plural ? "their" : "its"} Codex task`
+		: `${plural ? "are" : "is"} working`;
+	return capitalizeStatusFragment(
+		`${formatEnglishList(targetLabels)} ${status}`
+	);
 }
 
 function formatEnglishList(values: readonly string[]): string {
