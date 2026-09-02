@@ -220,13 +220,17 @@ authorization.
 
 The rail places the current workspace switcher at the top and has no separate
 OpenMeld brand row or account entry. **Home** is the first destination. The
-remaining seven product destinations are organized into three fixed,
+remaining four visible product destinations are organized into two fixed,
 user-collapsible groups:
 
 - **Home** — the current Organization's adaptive overview and product entry.
 - **Work** — **Spaces**, **Direct Messages**.
 - **Team** — **People**, **Agents**.
-- **Resources** — **Projects**, **Documents**, **Agent Activity**.
+
+**Projects**, **Documents**, and **Agent Activity** keep their canonical routes,
+pages, and contextual entry points but are temporarily absent from the primary
+rail while their future placement is redesigned. This interim navigation
+change does not retire, redirect, combine, or relocate those products.
 
 In the full rail, each labeled group uses its heading as an accessible
 disclosure trigger and restores the browser's collapsed groups from the same
@@ -236,7 +240,7 @@ destination visible because those tiers do not render group headings or a
 disclosure trigger; returning to the full tier restores the remembered group
 state.
 
-The destinations resolve in that group order:
+The visible destinations resolve in that group order:
 
 1. **Home** — the current Organization's concise overview. It leads with the
    designated Center Agent, then composes existing Agent Activity, Inbox, Tasks,
@@ -257,6 +261,13 @@ The destinations resolve in that group order:
    state uses Direct Messages geometry and never flashes the Spaces sidebar.
    Canonical classification reads the Space status projection; the Account
    Space Index is list data and cannot override a fresher status result.
+   In a one-Human/one-ordinary-Agent DM, the header tells both participants that
+   the named Agent owner can view. When that owner opens the DM through their
+   own Human Profile, Web keeps the Composer and collaboration mutations
+   read-only and offers **Join conversation**. Confirmation reuses the existing
+   **Turn this Direct Message into a Space** flow and adds only that owner's
+   Human Profile. Human-to-Human and Center Agent DMs never show this owner
+   observer or join affordance.
 4. **People** — the first-level home for the Human teammates in the current
    workspace. Its secondary sidebar lists Human Profiles and owns the
    **Invite Members** button. Selecting a person opens the full Human Profile
@@ -272,19 +283,28 @@ The destinations resolve in that group order:
    authoritative readiness, and execution relationship in plain language such
    as **Uses Codex on Felix's MacBook Pro**. The managed Center Agent remains in
    the separate Center Agent product home.
-6. **Projects** — the first-level home for choosing, creating, and connecting
-   the code Projects used by local Agents. Project records are scoped to the
-   selected Organization; local folder connections remain owner-self,
-   device-local execution facts.
-7. **Documents** — the Organization-scoped Markdown home for the
-   Organization Brief, Profile Reports, and shared knowledge, organized into
-   nested folders. It has no secondary sidebar; the current folder's child
-   folders and files live inside the page itself.
-8. **Agent Activity** — the first-level home for local coding-agent session
-   visibility. Its canonical route is `/o/{orgSlug}/agent-activity`; the full
-   label prevents confusion with human activity and the Center Agent Audit Log.
-   Its secondary sidebar groups **Overview**, **Sessions**, and **Changes** under
-   **Monitor**.
+   The ordinary Space member picker explains the owner side effect before
+   submit: an ordinary Agent whose owner is not already present is labeled
+   **_Owner_ will join too**. Once the owner is present, the row may use the
+   stable **Owned by _Owner_** identity label. Center Agent candidates keep
+   their managed Organization label and never promise an owner addition. Core
+   remains the authority, so a stale picker cannot bypass or duplicate the
+   atomic owner membership rule.
+   The temporarily hidden product homes retain their current contracts:
+
+- **Projects** is the canonical home for choosing, creating, and connecting the
+  code Projects used by local Agents. Project records are scoped to the selected
+  Organization; local folder connections remain owner-self, device-local
+  execution facts.
+- **Documents** is the Organization-scoped Markdown home for the Organization
+  Brief, Profile Reports, and shared knowledge, organized into nested folders.
+  It has no secondary sidebar; the current folder's child folders and files live
+  inside the page itself.
+- **Agent Activity** is the canonical home for local coding-agent session
+  visibility. Its route remains `/o/{orgSlug}/agent-activity`; the full label
+  prevents confusion with human activity and the Center Agent Audit Log. Its
+  secondary sidebar groups **Overview**, **Sessions**, and **Changes** under
+  **Monitor**.
 
 **Settings** remains a utility rather than a product peer. Its persistent main
 sidebar entry is the final footer item after **Toggle Sidebar**, without a
@@ -848,28 +868,36 @@ owner-only controls remain private.
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
 automatically. In the collapsed row, a compact summary follows the existing
-version and update metadata; its tooltip previews every reported window, and
-selecting the existing row reveals a responsive grid of compact Usage Limit
-cards in its details. Each card reuses the collapsed summary's circular gauge
-and keeps the reset and last-observed times visible without a full-width
-progress bar. Owned and teammate Computers use the same shared summary and
-accessible gauge component.
+version and update metadata. Single-provider controllers retain one compact
+summary. A multi-provider controller shows at most three labelled provider
+summary rings plus an overflow count; each ring uses that provider's most
+constrained quantified window and never averages windows or providers. Its
+tooltip previews every reported provider and window. Selecting the existing row
+reveals one flat group per provider, with separate rings for every real quota
+window and no nested provider or window cards. Providers without quantified
+evidence share compact status rows instead of empty placeholder cards. Each
+window keeps reset and last-observed times visible without a full-width progress
+bar. Owned and teammate Computers use the same shared summary and accessible
+gauge component.
 A provider with no quantified evidence does not add a collapsed-row badge or
 placeholder gauge. Web explicitly opts in to both owner and Organization
 projections and refreshes them while People or a Computer detail is active.
-A gauge names the limit, exposes its 0–100 used value to assistive technology,
-shows the used percentage in text, shows reset and last-observed time, and names
-the state so color is never the only signal. The UI derives **Low** when a fresh
+A gauge names the limit, derives and exposes its 0–100 remaining value to
+assistive technology, shows the remaining percentage in text, shows reset and
+last-observed time, and names the state so color is never the only signal. The
+UI derives **Low** when a fresh
 available limit is at least 80% used; it does not store a second status or
 remaining percentage. Unknown values have no gauge and never appear as 0%,
 100%, or unlimited.
 
-The UI keeps multiple provider windows separate and handles offline Computers,
+The UI keeps providers and their windows separate and handles offline Computers,
 expired evidence, temporary provider failure, permanent lack of support, and a
 supported provider that has never returned evidence. Last-known percentages on
 an offline or expired Computer are **Stale**. A temporary first-read failure is
 **Unavailable**; no native provider source is **Unsupported**. Copy states that
-capacity information does not control whether the Local Agent can run.
+OpenMeld checks supported current limits before starting new work. Exhausted or
+unavailable evidence from an unselected nested provider does not affect the
+current Agent Profile's Wakeability.
 
 Owned and teammate Computers reuse the same Computer summary, **OpenMeld
 Tools**, and **Local agents** presentation components. Web applies visibility
@@ -897,18 +925,24 @@ authoritative; a connected Computer must never be presented as proof that an
 Agent can reply.
 
 On the exact current owned Computer, each enabled reported local agent may show
-**Change installation** when the live Service advertises installation
-management. The action sits beside the **Launch check** value in that local
-agent's detail rows instead of creating a separate Installation section.
-**Launch check** is the second detail row after **Controller** and names the
-selected installation source and version when more than one verified choice
-exists. The collapsed row names that same selected source beside the version so
-people never need to infer an installation from a version number. The dialog
-lists only locally verified choices, clearly marks the current choice, stages a
-new choice without changing it, and requires an explicit **Use ...**
-confirmation before it updates the Service-owned local registry. Long paths
-truncate inside a width-bounded dialog rather than overflowing the viewport. It
-loads on demand, never blocks setup, and never appears for another member's
+an **Installation** control when the live Service advertises both installation
+management and idle-selection safety. It is a compact, borderless section above
+**Usage limits**, separate from the diagnostic list; **Launch check** remains a
+plain diagnostic row. The control names the selected source and version, and the
+collapsed row names the same source beside the version so people never need to
+infer an installation from a version number. A selector lists only locally
+verified choices and stages a new choice without changing it. A quiet inline
+confirmation then names the exact target and requires an explicit **Switch
+installation** action. It never opens a nested dialog or renders each choice as
+another card.
+
+The Service-owned selection status disables the selector while matching work is
+queued or running and explains: the agent has work in progress, so the person
+must wait until it finishes. A concurrent installation operation gets a separate
+short-lived message. One verified installation is read-only. Loading, empty,
+failure, switching, and slow-reconciliation states remain inline without moving
+the surrounding dialog. Long names and details truncate within the selector,
+the control never blocks setup, and it never appears for another member's
 Computer. When a confirmed change outlives the Web request budget, Web
 reconciles the Service-owned selected installation before it reports a failure;
 a transport timeout alone is neither shown as the result nor treated as a
@@ -3354,8 +3388,9 @@ Web shows elapsed running time, it uses the optional authoritative
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
-When Core projects the bounded controller-conversation occupancy wait reason,
-Web shows `Waiting for Codex task` and explains that the Wake will start when
+Web explicitly requests the bounded controller-conversation occupancy wait
+reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
+for Codex task` and explains that the Wake will start when
 that task becomes available. It must not present that state as `Agent is
 working` or the generic `Sending to agent`. The current Space's secondary
 sidebar status uses the same progress projection and a non-Working waiting

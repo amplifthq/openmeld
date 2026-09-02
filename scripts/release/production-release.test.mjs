@@ -27,6 +27,12 @@ const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
 const INBOX_SCOPE_ERROR_RE = /requires the Web, Gateway, and Core scopes/u;
 const LOCAL_SERVICE_CORE_SCOPE_ERROR_RE =
   /requires the Core scope before publishing CLI\/Service/u;
+const CORE_GATEWAY_HTTP_SCOPE_ERROR_RE =
+  /Wake Progress opt-in contract requires the Gateway and Core scopes before publishing its Core producer/u;
+const CORE_GATEWAY_HTTP_CONNECT_COMBINATION_ERROR_RE =
+  /Connect Computer and Wake Progress opt-in receiver-first contracts cannot ship in one release/u;
+const CORE_GATEWAY_HTTP_REMOTE_AGENT_COMBINATION_ERROR_RE =
+  /Remote Agent receiver-first and worker-response contracts cannot ship with a Wake Progress opt-in contract/u;
 const CONNECT_COMPUTER_CLI_SCOPE_ERROR_RE =
   /requires both the CLI and Web scopes/u;
 const CONNECT_COMPUTER_INBOX_COMBINATION_ERROR_RE =
@@ -290,6 +296,206 @@ test("derives deploy scopes from affected deployable packages", () => {
       changedPaths: ["packages/api-client/src/index.ts"],
     }),
     ["web", "gateway", "core"]
+  );
+});
+
+test("includes Gateway and Core for the Wake Progress opt-in contract", () => {
+  assert.deepEqual(
+    resolveAutomaticReleaseScopes({
+      affectedPackages: [],
+      changedPaths: [
+        "clients/openmeld-cli/src/space/wake-control-command.ts",
+        "packages/schemas/src/schemas/http/space-wake-progress.ts",
+        "services/core/src/space/transport/do/space.ts",
+      ],
+    }),
+    ["cli", "gateway", "core"]
+  );
+});
+
+test("deploys the Wake Progress opt-in receiver chain before its CLI caller", () => {
+  const changedPaths = [
+    "clients/openmeld-cli/src/space/wake-control-command.ts",
+    "packages/schemas/src/schemas/http/space-wake-progress.ts",
+    "services/core/src/space/transport/do/space.ts",
+  ];
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    scope: "gateway,core,cli",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(plan.deployOrderProfile, "wake-progress-opt-in-receivers-first");
+  assert.deepEqual(plan.deployScopeOrder, ["gateway", "core", "cli"]);
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Gateway Worker",
+      "Verify Gateway Worker health",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Publish CLI and deploy its Core release projection",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+});
+
+test("rejects a Wake Progress opt-in release without every receiver", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        changedPaths: [
+          "clients/openmeld-cli/src/space/wake-control-command.ts",
+          "packages/schemas/src/schemas/http/space-wake-progress.ts",
+          "services/core/src/space/transport/do/space.ts",
+        ],
+        scope: "cli",
+        sourceSha: REMOTE_SOURCE_SHA,
+      }),
+    CORE_GATEWAY_HTTP_SCOPE_ERROR_RE
+  );
+});
+
+test("composes Remote Agent request and Wake Progress opt-in receiver order", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: [
+      "clients/openmeld-cli/src/space/wake-control-command.ts",
+      "packages/schemas/src/schemas/http/space-wake-progress.ts",
+      "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+      "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+      "services/core/src/space/transport/do/space.ts",
+      "services/remote-agent/.flue/agents/center-agent.ts",
+    ],
+    scope: "remote-agent,gateway,core,cli",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(
+    plan.deployOrderProfile,
+    "remote-agent-and-wake-progress-opt-in-receivers-first"
+  );
+  assert.deepEqual(plan.deployScopeOrder, [
+    "remote-agent",
+    "gateway",
+    "core",
+    "cli",
+  ]);
+});
+
+test("composes Core worker response and Wake Progress opt-in receiver order", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: [
+      "clients/openmeld-cli/src/space/wake-control-command.ts",
+      "packages/schemas/src/schemas/http/space-wake-progress.ts",
+      "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+      "services/core/src/space/transport/do/space.ts",
+      "services/remote-agent/.flue/agents/center-agent.ts",
+    ],
+    scope: "gateway,core,remote-agent,cli",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(
+    plan.deployOrderProfile,
+    "core-worker-response-and-wake-progress-opt-in-receivers-first"
+  );
+  assert.deepEqual(plan.deployScopeOrder, [
+    "gateway",
+    "core",
+    "remote-agent",
+    "cli",
+  ]);
+});
+
+test("rejects conflicting Remote Agent request directions in a Wake Progress opt-in release", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        changedPaths: [
+          "clients/openmeld-cli/src/space/wake-control-command.ts",
+          "packages/schemas/src/schemas/http/space-wake-progress.ts",
+          "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+          "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+          "services/core/src/space/transport/do/space.ts",
+          "services/remote-agent/.flue/agents/center-agent.ts",
+        ],
+        scope: "remote-agent,gateway,core,cli",
+        sourceSha: REMOTE_SOURCE_SHA,
+      }),
+    CORE_GATEWAY_HTTP_REMOTE_AGENT_COMBINATION_ERROR_RE
+  );
+});
+
+test("rejects conflicting Connect Computer and Wake Progress opt-in release order", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        changedPaths: [
+          "clients/openmeld-cli/src/openmeld.ts",
+          "clients/openmeld-cli/src/space/wake-control-command.ts",
+          "clients/web/src/lib/cli-entry-command.ts",
+          "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+          "packages/schemas/src/schemas/http/space-wake-progress.ts",
+          "services/core/src/space/transport/do/space.ts",
+        ],
+        scope: "web,gateway,core,cli",
+        sourceSha: REMOTE_SOURCE_SHA,
+      }),
+    CORE_GATEWAY_HTTP_CONNECT_COMBINATION_ERROR_RE
+  );
+});
+
+test("rejects a generic Remote Agent receiver combined with its worker response producer", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        changedPaths: [
+          "clients/openmeld-cli/src/space/wake-control-command.ts",
+          "packages/schemas/src/schemas/http/space-wake-progress.ts",
+          "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+          "services/core/src/space/transport/do/space.ts",
+          "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+          "services/remote-agent/.flue/agents/center-agent.ts",
+        ],
+        scope: "remote-agent,gateway,core,cli",
+        sourceSha: REMOTE_SOURCE_SHA,
+      }),
+    CORE_GATEWAY_HTTP_REMOTE_AGENT_COMBINATION_ERROR_RE
+  );
+});
+
+test("rejects a Center Agent CLI receiver combined with its worker response producer", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        changedPaths: [
+          "clients/openmeld-cli/src/space/wake-control-command.ts",
+          "packages/schemas/src/schemas/http/center-agent-context-manifest.ts",
+          "packages/schemas/src/schemas/http/space-wake-progress.ts",
+          "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+          "services/core/src/space/transport/do/space.ts",
+          "services/remote-agent/.flue/agents/center-agent.ts",
+        ],
+        scope: "remote-agent,gateway,core,cli",
+        sourceSha: REMOTE_SOURCE_SHA,
+      }),
+    CORE_GATEWAY_HTTP_REMOTE_AGENT_COMBINATION_ERROR_RE
   );
 });
 

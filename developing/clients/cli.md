@@ -600,6 +600,13 @@ directly. Nested command help should make the global `--view <mode>` option
 discoverable so the documented Agent View commands do not look like hidden or
 invalid flags.
 
+CLI metadata reads such as `openmeld --version`, `openmeld --help`, nested
+`--help`, and `openmeld help ...` must remain side-effect free. They must not
+initialize or recover `OPENMELD_HOME`, authenticate, or contact OpenMeld
+services merely to describe the installed command surface. Explicit
+`--view agent` selects Agent-oriented help without consulting a saved Profile
+preference; metadata reads otherwise use ordinary Human help.
+
 Entry-point boundary: `openmeld start` is account/identity first-run (sign-in and
 first profiles); `openmeld setup` is this computer's execution capability (service,
 local agents, readiness) and receives the Web handoff via `--start-session`.
@@ -711,6 +718,14 @@ its Project-folder, runtime-reporting, Binding, and membership steps. A Profile
 bound to another controller Session is left unchanged and the ordinary
 new-Profile path is used. An unavailable or ambiguous Binding read never counts
 as an unbound Profile.
+
+`profiles current-session` is the explicit recovery lookup for a caller that
+remembers creating an identity for the exact current Codex thread or Claude
+Code session but no longer has its Profile ID. It performs one owner-scoped
+Binding reverse lookup and reports whether the result belongs to the active
+Organization. The default `add-me` path must not call it. A not-found,
+unavailable, or different-Organization result never authorizes a broad Profile
+scan or implicit reuse.
 
 Profile creation is an observable commit point inside `add-me`, not proof that
 the remaining setup completed. Immediately after a new Profile is committed,
@@ -1255,8 +1270,15 @@ targets, service contract evidence, compatibility evidence, counts, and raw
 diagnostic messages.
 
 `computer list --view agent` is the authenticated user's complete Computer and
-Local Runtime inventory. `computer current --view agent` composes that same
-inventory with the existing current-computer reply diagnostics, OpenMeld Tools
+Local Runtime inventory. `computer current --brief --view agent` is the compact
+Agent preflight. It returns current-computer identity, current reply blocker and
+next action, the unified CLI/Service/Skill update state, and each local Agent's
+reported capability status and usage-limit evidence. It does not fetch File
+Access diagnostics or unrelated Computer detail. Missing usage-limit evidence
+means unavailable evidence, not zero capacity.
+
+`computer current --view agent` composes the complete current inventory with
+the existing current-computer reply diagnostics, OpenMeld Tools
 versions and update state, and a File Access summary. The summary reports mode,
 revision, updated time, and selected-folder count, never local folder paths.
 These commands are read-only owner tools for Local Agents; they do not make CLI
@@ -1306,7 +1328,11 @@ from an arbitrary host. An explicit `--profile` and `--gateway-url` take
 precedence over values derived from the copied URL without changing persistent
 Profile selection.
 `space history --kind text --brief` is the narrow check for readable recent
-conversation history without presence-event noise. `space status` is the current
+conversation history without presence-event noise. Brief mode caps every
+message body at 1,200 Unicode code points, reports the original character count
+and truncation fact, and gives an exact anchored non-brief command when the
+caller genuinely needs one complete message. Raw JSON and ordinary non-brief
+history remain complete. `space status` is the current
 Space/member status check. Its Human View labels the independent access facts
 as `Organization visibility` and `Link access`; Agent View and explicit JSON
 return `organizationVisibility` and `accessMode`. During mixed-version rollout,
@@ -1329,6 +1355,14 @@ canonical forms are `@Name(wake)` and `@Name(reference)`; a person's form is
 not membership, readiness, presence, or execution authority. Agent View emits
 the full validated directory through the presenter protocol; explicit `--json`
 emits the strict versioned `space.members` envelope.
+
+`space members <space-id> --target <profile-id-or-mention> --brief` resolves
+exactly one current member using the directory's canonical lookup tokens and
+returns only identity, addressing relations, and the matching Core-owned Agent
+Wake Availability projection. Ambiguous targets fail closed and require an
+exact Profile ID. The convenience `canWakeNow` field means only that the
+preserved readiness status is currently `available_for_wake`; it is not a
+second readiness authority and does not predict completion.
 
 `space send` and Terminal interactive input treat `@target(wake)`,
 `@target(reference)`, and `@target(mention)` as CLI authoring controls. The
@@ -1364,7 +1398,10 @@ validated progress items. While a deleted Agent's accepted Wake is still
 stopping, its progress item uses the Space's frozen membership name instead of
 degrading to the removed Profile id. A valid read exits zero even when `pollState` is
 `idle` or `not_observed`; transport, permission, and projection failures exit
-one with a structured error. This command does not replace `space result`,
+one with a structured error. The current CLI requests the optional occupancy
+wait reason with `includeWaitReason=true`; older CLI versions omit that query
+and must continue receiving the previous strict response shape. This command
+does not replace `space result`,
 which reads archived results, or `service trace`, which diagnoses the execution
 chain.
 

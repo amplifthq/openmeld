@@ -17,6 +17,7 @@ import {
   rpcEnsureAgentProfilePrimaryBinding,
   rpcGetAgentProfileControllerChangeEligibility,
   rpcGetAgentProfilePrimaryBinding,
+  rpcGetCurrentAgentProfileSession,
   rpcSetCurrentAgentProfileWorkspace,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerCollaborationMode,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
@@ -37,6 +38,7 @@ const OTHER_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const DEFAULT_CONTEXT: OpenMeldRequestContext = {
   activeOrganizationId: "org-personal-owner-1",
   actorContext: {
+    callerPrincipalId: "owner-1",
     openMeldProfileId: "11111111-1111-4111-8111-111111111111",
     ownerUserId: "owner-1",
     profileKind: "human",
@@ -311,6 +313,93 @@ describe("agent profile binding Core RPC", () => {
           sql: "SELECT count(*) AS count FROM openMeldDaemon_agent_profile_bindings",
         })
       ).toEqual({ count: 1 });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("finds the exact owner-scoped Agent Profile for a controller Session", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const registeredRuntimeId =
+        await seedRuntimeAgentControllerReport(harness);
+      const env = coreEnv(harness.db);
+      await rpcEnsureAgentProfilePrimaryBinding(env, {
+        agentProfileId: AGENT_PROFILE_ID,
+        agentControllerRef: "builtin:codex",
+        agentControllerConversationId: "codex-thread-current",
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        openMeldServiceRuntimeId: registeredRuntimeId,
+      });
+
+      await expect(
+        rpcGetCurrentAgentProfileSession(env, {
+          agentControllerConversationId: "codex-thread-current",
+          agentControllerRef: "builtin:codex",
+          context: DEFAULT_CONTEXT,
+        })
+      ).resolves.toEqual({
+        currentOrganizationId: "org-personal-owner-1",
+        profile: {
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Agent One",
+          profileOrganizationId: "org-personal-owner-1",
+        },
+        sameOrganization: true,
+        status: "found",
+      });
+
+      const now = Date.now();
+      harness.run({
+        params: ["org-work-owner-1", "Mira Work", "mira-work", now, "{}"],
+        sql: `INSERT INTO organizations
+          (id, name, slug, created_at, metadata)
+          VALUES (?, ?, ?, ?, ?)`,
+      });
+      harness.run({
+        params: [
+          "member-work-owner-1",
+          "org-work-owner-1",
+          "owner-1",
+          "member",
+          now,
+        ],
+        sql: `INSERT INTO members
+          (id, organization_id, user_id, role, created_at)
+          VALUES (?, ?, ?, ?, ?)`,
+      });
+      await expect(
+        rpcGetCurrentAgentProfileSession(env, {
+          agentControllerConversationId: "codex-thread-current",
+          agentControllerRef: "builtin:codex",
+          context: {
+            ...DEFAULT_CONTEXT,
+            activeOrganizationId: "org-work-owner-1",
+          },
+        })
+      ).resolves.toMatchObject({
+        currentOrganizationId: "org-work-owner-1",
+        profile: {
+          profileId: AGENT_PROFILE_ID,
+          profileOrganizationId: "org-personal-owner-1",
+        },
+        sameOrganization: false,
+        status: "found",
+      });
+
+      await expect(
+        rpcGetCurrentAgentProfileSession(env, {
+          agentControllerConversationId: "not-this-thread",
+          agentControllerRef: "builtin:codex",
+          context: DEFAULT_CONTEXT,
+        })
+      ).resolves.toEqual({
+        currentOrganizationId: "org-personal-owner-1",
+        status: "not_found",
+      });
     } finally {
       harness.close();
     }

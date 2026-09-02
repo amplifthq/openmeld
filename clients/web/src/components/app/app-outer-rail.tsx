@@ -26,12 +26,9 @@ import {
 } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	BookOpenTextIcon,
 	BuildingsIcon,
 	CaretDownIcon,
 	ChatCircleTextIcon,
-	FilesIcon,
-	FolderOpenIcon,
 	GearSixIcon,
 	HashIcon,
 	HouseIcon,
@@ -83,14 +80,11 @@ import { selectLastSelectedOrganization } from "#/lib/organizations/account-orga
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAccountSettingsPath,
-	buildOrganizationAgentActivityPath,
 	buildOrganizationAgentsPath,
 	buildOrganizationDirectMessagesPath,
-	buildOrganizationDocumentsPath,
 	buildOrganizationNewOrganizationPath,
 	buildOrganizationOrganizationsPath,
 	buildOrganizationPeoplePath,
-	buildOrganizationProjectsPath,
 	buildOrganizationRootPath,
 	buildOrganizationSpacesPath,
 	resolveOrganizationSwitchPath,
@@ -194,7 +188,7 @@ function buildAppRailGroups(input: {
 				{
 					compactLabel: "DMs",
 					id: "directMessages",
-					label: "Direct Messages",
+					label: "Messages",
 					to: buildOrganizationDirectMessagesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-4" />,
 				},
@@ -215,30 +209,6 @@ function buildAppRailGroups(input: {
 					label: "Agents",
 					to: buildOrganizationAgentsPath(input.orgSlug),
 					icon: <RobotIcon aria-hidden="true" className="size-4" />,
-				},
-			],
-		},
-		{
-			id: "resources",
-			label: "Resources",
-			destinations: [
-				{
-					id: "projects",
-					label: "Projects",
-					to: buildOrganizationProjectsPath(input.orgSlug),
-					icon: <FolderOpenIcon aria-hidden="true" className="size-4" />,
-				},
-				{
-					id: "documents",
-					label: "Documents",
-					to: buildOrganizationDocumentsPath(input.orgSlug),
-					icon: <FilesIcon aria-hidden="true" className="size-4" />,
-				},
-				{
-					id: "agentActivity",
-					label: "Agent Activity",
-					to: buildOrganizationAgentActivityPath(input.orgSlug),
-					icon: <BookOpenTextIcon aria-hidden="true" className="size-4" />,
 				},
 			],
 		},

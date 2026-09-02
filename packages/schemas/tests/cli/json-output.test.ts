@@ -379,6 +379,31 @@ describe("cli --json output envelope contract", () => {
         },
         {
           schemaVersion: VERSION,
+          type: "space.members.brief",
+          spaceId: SPACE_MEMBER_DIRECTORY.spaceId,
+          generatedAt: SPACE_MEMBER_DIRECTORY.generatedAt,
+          members: [
+            {
+              profileId: SPACE_MEMBER_DIRECTORY.members[0]?.profileId,
+              displayName: SPACE_MEMBER_DIRECTORY.members[0]?.displayName,
+              profileKind: "agent",
+              primaryMentionLabel:
+                SPACE_MEMBER_DIRECTORY.members[0]?.primaryMentionLabel,
+              allowedRelations:
+                SPACE_MEMBER_DIRECTORY.members[0]?.allowedRelations,
+              canWakeNow: true,
+              wakeAvailability: {
+                action: "none",
+                phase: "available",
+                reasonCode: "agent_execution.ready",
+                status: "available_for_wake",
+                summary: "Can reply from this computer in Spaces.",
+              },
+            },
+          ],
+        },
+        {
+          schemaVersion: VERSION,
           type: "space.list.organization",
           ...ORGANIZATION_SPACE_LIST,
         },
@@ -815,6 +840,7 @@ describe("cli --json output envelope contract", () => {
       "routines.delete",
       "routines.runs",
       "space.members",
+      "space.members.brief",
       "space.list.organization",
       "organization.directory",
       "organization.computers",

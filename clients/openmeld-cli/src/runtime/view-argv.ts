@@ -175,7 +175,20 @@ export function parseLeadingCommandTokensFromArgv(
 }
 
 export function isPassiveCliQueryArgv(argv: string[]): boolean {
+  if (isCliMetadataQueryArgv(argv)) {
+    return true;
+  }
+
+  return PASSIVE_CLI_QUERY_COMMANDS.has(
+    parseLeadingCommandTokensFromArgv(argv, 2).join(" ")
+  );
+}
+
+export function isCliMetadataQueryArgv(argv: string[]): boolean {
   const args = argv.slice(2);
+  if (parseLeadingCommandTokensFromArgv(argv, 1)[0] === "help") {
+    return true;
+  }
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -202,14 +215,11 @@ export function isPassiveCliQueryArgv(argv: string[]): boolean {
       continue;
     }
 
-    if (arg === "help" || PASSIVE_CLI_QUERY_FLAGS.has(arg)) {
+    if (PASSIVE_CLI_QUERY_FLAGS.has(arg)) {
       return true;
     }
   }
-
-  return PASSIVE_CLI_QUERY_COMMANDS.has(
-    parseLeadingCommandTokensFromArgv(argv, 2).join(" ")
-  );
+  return false;
 }
 
 export function hasJsonOutputArgv(argv: string[]): boolean {

@@ -822,6 +822,9 @@ async function resolveOpenCodeInterfaceSnapshot(input: {
       message: readinessProbe.message ?? input.baseSnapshot.message,
       models: readinessProbe.models,
       status: readinessProbe.status,
+      ...(readinessProbe.usageLimits
+        ? { usageLimits: readinessProbe.usageLimits }
+        : {}),
       version,
       versionAdvisory: await resolveControllerVersionAdvisory({
         checkedAt: input.baseSnapshot.checkedAt,

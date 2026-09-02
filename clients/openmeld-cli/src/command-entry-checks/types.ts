@@ -170,6 +170,7 @@ export type CommandEntryName =
   | "whoami"
   | "profile.menu"
   | "profile.create"
+  | "profile.current-session"
   | "profile.list"
   | "profile.set"
   | "profile.show"

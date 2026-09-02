@@ -84,6 +84,7 @@ import {
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import {
+	applyConfirmedHumanSpaceMemberToCache,
 	applySpaceMemberRemovalToCache,
 	applySpaceMembersResponseToCache,
 } from "#/lib/spaces/member-cache";
@@ -115,6 +116,8 @@ import {
 } from "#/query/spaces/account-spaces";
 import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
+import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
 import type { SpaceAgentProfileEditHandler } from "./space-agent-interaction-card";
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
@@ -585,20 +588,22 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		activeWakeDisplayTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
 	} = useActiveWakeTargetProfileIds(controller);
-	const currentOwnerUserId = useMemo(
-		() =>
-			resolveCurrentSpaceProfileOwnerUserId({
-				currentProfileId: input.profileId,
-				snapshot: membersSnapshot,
-			}),
-		[input.profileId, membersSnapshot]
-	);
 	const currentAccountProfile = useMemo(
 		() =>
 			accountProfiles.find(
 				(profile) => profile.openMeldProfileId === input.profileId
 			) ?? null,
 		[accountProfiles, input.profileId]
+	);
+	const currentOwnerUserId = useMemo(
+		() =>
+			resolveCurrentSpaceProfileOwnerUserId({
+				currentProfileId: input.profileId,
+				snapshot: membersSnapshot,
+			}) ??
+			currentAccountProfile?.ownerUserId ??
+			null,
+		[currentAccountProfile?.ownerUserId, input.profileId, membersSnapshot]
 	);
 	const canCurrentProfileRemoveSpaceMembers = useMemo(
 		() =>
@@ -1263,6 +1268,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		});
 	const handleConvertDirectMessageToSpace =
 		useConvertDirectMessageToSpaceHandler({
+			accountProfiles,
 			controller,
 			navigate,
 			orgSlug: input.orgSlug,
@@ -1517,6 +1523,25 @@ function SpaceLandingReady({
 	const currentProfileIsActiveSpaceMember =
 		controller.currentProfileMembershipState === "member";
 	const currentProfileName = currentHumanViewer.profileName;
+	const agentOwnerDirectMessageObserver =
+		resolveAgentOwnerDirectMessageObserver({
+			currentOwnerUserId,
+			humanProfile: currentHumanViewer.humanProfile,
+			isActiveSpaceMember: currentProfileIsActiveSpaceMember,
+			isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+			isDirectMessage,
+			snapshot: controller.membersSnapshot,
+		});
+	const agentOwnerDirectMessageJoin = useAgentOwnerDirectMessageJoin({
+		currentSpaceName: controller.status.name,
+		onJoin: handleConvertDirectMessageToSpace,
+		observer: agentOwnerDirectMessageObserver,
+	});
+	const agentOwnerVisibilityLabel = resolveAgentOwnerVisibilityLabel({
+		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+		isDirectMessage,
+		snapshot: controller.membersSnapshot,
+	});
 	const humanJoinControl = (
 		<SpaceHumanJoinControl
 			humanProfile={currentHumanViewer.humanProfile}
@@ -1532,7 +1557,13 @@ function SpaceLandingReady({
 	const managementControl = (
 		<>
 			{currentSpaceControls.managementControl}
-			{humanJoinControl}
+			{agentOwnerDirectMessageJoin ? (
+				<AgentOwnerDirectMessageJoinHeaderControl
+					control={agentOwnerDirectMessageJoin}
+				/>
+			) : (
+				humanJoinControl
+			)}
 		</>
 	);
 	const currentProfileLeaveAction = resolveCurrentProfileLeaveAction({
@@ -1628,6 +1659,7 @@ function SpaceLandingReady({
 						canManageSpaceName={currentSpaceControls.canManageSpaceName}
 						currentProfileName={currentProfileName}
 						deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
+						directMessageOwnerVisibilityLabel={agentOwnerVisibilityLabel}
 						hideShareControl={currentSpaceControls.hideShareControl}
 						isAccessModePending={controller.isAccessModePending}
 						isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
@@ -1699,6 +1731,10 @@ function SpaceLandingReady({
 				>
 					<SpaceLandingConversation
 						agentDirectConversationKind={agentDirectConversationKind}
+						agentOwnerDirectMessageObserver={agentOwnerDirectMessageObserver}
+						composerPrimaryAction={resolveAgentOwnerDirectMessageComposerPrimaryAction(
+							agentOwnerDirectMessageJoin
+						)}
 						composerProfileControl={composerProfileControl}
 						controller={controller}
 						currentProfileIsActiveSpaceMember={
@@ -1747,6 +1783,9 @@ function SpaceLandingReady({
 					)}
 				</div>
 			</AppMainContent>
+			<AgentOwnerDirectMessageJoinDialog
+				control={agentOwnerDirectMessageJoin}
+			/>
 			{pendingAgentActions.profileEditDialog}
 		</SpaceAgentProfileEditProvider>
 	);
@@ -1775,6 +1814,8 @@ function SpaceFileNavigationGuards(input: {
 
 function SpaceLandingConversation({
 	agentDirectConversationKind,
+	agentOwnerDirectMessageObserver,
+	composerPrimaryAction,
 	composerProfileControl,
 	controller,
 	currentProfileIsActiveSpaceMember,
@@ -1791,6 +1832,10 @@ function SpaceLandingConversation({
 	agentDirectConversationKind: ReturnType<
 		typeof resolveAgentDirectConversationKind
 	>;
+	agentOwnerDirectMessageObserver: ReturnType<
+		typeof resolveAgentOwnerDirectMessageObserver
+	>;
+	composerPrimaryAction?: ReactNode;
 	composerProfileControl: ReactNode;
 	controller: ReadySpaceLandingController;
 	currentProfileIsActiveSpaceMember: boolean;
@@ -1827,6 +1872,13 @@ function SpaceLandingConversation({
 		spaceInboxReadPosition,
 		wakeFailureTargetContextsByProfileId,
 	} = state;
+	let readOnlyComposerPlaceholder =
+		"Write a message while OpenMeld checks access…";
+	if (agentOwnerDirectMessageObserver) {
+		readOnlyComposerPlaceholder = `You can view this Direct Message because you own ${agentOwnerDirectMessageObserver.agentProfileName}. Join to participate.`;
+	} else if (controller.isCurrentAccessConfirmed) {
+		readOnlyComposerPlaceholder = `Join as ${currentProfileName ?? "your Human Profile"} to participate in this Space.`;
+	}
 	return (
 		<SpaceConversationPanel
 			actionableAgentInteractionPlacement="pending-surface"
@@ -1844,13 +1896,16 @@ function SpaceLandingConversation({
 			composerFiles={controller.composerFiles}
 			composerHasAuthoredMentions={controller.composerHasAuthoredMentions}
 			composerMentionPickerItems={controller.composerMentionPickerItems}
+			composerPrimaryAction={composerPrimaryAction}
 			composerReplyToSignalId={controller.composerReplyToSignalId}
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
 			editableAgentProfileIds={editableAgentProfileIds}
-			emptyStateDescription={
-				isDirectMessage ? undefined : EMPTY_SPACE_DESCRIPTION
-			}
+			emptyStateDescription={resolveSpaceConversationEmptyStateDescription({
+				isAgentOwnerDirectMessageObserver:
+					agentOwnerDirectMessageObserver !== null,
+				isDirectMessage,
+			})}
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
@@ -1916,11 +1971,7 @@ function SpaceLandingConversation({
 					currentProfileIsActiveSpaceMember
 				)
 			}
-			readOnlyComposerPlaceholder={
-				controller.isCurrentAccessConfirmed
-					? `Join as ${currentProfileName ?? "your Human Profile"} to participate in this Space.`
-					: "Write a message while OpenMeld checks access…"
-			}
+			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
 			renderSetupGuidance={(presentation) =>
 				controller.isCurrentAccessConfirmed ? (
 					<SpaceConversationRecoveryBanner
@@ -2063,6 +2114,208 @@ function SpaceHumanJoinAction(input: {
 				</p>
 			) : null}
 		</div>
+	);
+}
+
+function resolveAgentOwnerDirectMessageObserver(input: {
+	currentOwnerUserId: string | null;
+	humanProfile: AuthProfileView | null;
+	isActiveSpaceMember: boolean;
+	isCenterAgentDirectMessage: boolean;
+	isDirectMessage: boolean;
+	snapshot: SpaceMembersSnapshot | null;
+}): {
+	agentProfileName: string;
+	humanProfile: AuthProfileView;
+	snapshot: SpaceMembersSnapshot;
+} | null {
+	if (
+		!input.isDirectMessage ||
+		input.isCenterAgentDirectMessage ||
+		input.isActiveSpaceMember ||
+		!input.currentOwnerUserId ||
+		!input.humanProfile ||
+		!input.snapshot
+	) {
+		return null;
+	}
+	const ownedAgent = input.snapshot.agents.find(
+		(agent) =>
+			agent.status === "active" &&
+			isSameOwnerUserId({
+				currentOwnerUserId: input.currentOwnerUserId,
+				ownerUserId: agent.ownerUserId,
+			})
+	);
+	return ownedAgent
+		? {
+				agentProfileName: ownedAgent.profileName,
+				humanProfile: input.humanProfile,
+				snapshot: input.snapshot,
+			}
+		: null;
+}
+
+function resolveAgentOwnerVisibilityLabel(input: {
+	isCenterAgentDirectMessage: boolean;
+	isDirectMessage: boolean;
+	snapshot: SpaceMembersSnapshot | null;
+}): string | null {
+	if (
+		!input.isDirectMessage ||
+		input.isCenterAgentDirectMessage ||
+		!input.snapshot
+	) {
+		return null;
+	}
+	const activeAgent = input.snapshot.agents.find(
+		(agent) => agent.status === "active"
+	);
+	if (!activeAgent) {
+		return null;
+	}
+	const ownerName = activeAgent.ownerName?.trim();
+	return `${ownerName || "Agent owner"} can view`;
+}
+
+function resolveSpaceConversationEmptyStateDescription(input: {
+	isAgentOwnerDirectMessageObserver: boolean;
+	isDirectMessage: boolean;
+}): string | undefined {
+	if (input.isAgentOwnerDirectMessageObserver) {
+		return "Join the conversation to send the first message.";
+	}
+	return input.isDirectMessage ? undefined : EMPTY_SPACE_DESCRIPTION;
+}
+
+type AgentOwnerDirectMessageJoinState = {
+	defaultName: string;
+	errorMessage: string | null;
+	isOpen: boolean;
+	isPending: boolean;
+	onConfirm: (name: string) => Promise<void>;
+	onOpen: () => void;
+	onOpenChange: (open: boolean) => void;
+	selectedName: string;
+};
+
+function useAgentOwnerDirectMessageJoin(input: {
+	currentSpaceName: string | null | undefined;
+	onJoin: (
+		input: SpaceConvertDirectMessageInput
+	) => Promise<SpaceAddProfilesResult>;
+	observer: ReturnType<typeof resolveAgentOwnerDirectMessageObserver>;
+}): AgentOwnerDirectMessageJoinState | null {
+	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [isOpen, setIsOpen] = useState(false);
+	const [isPending, setIsPending] = useState(false);
+	if (!input.observer) {
+		return null;
+	}
+	const selectedName =
+		input.observer.humanProfile.profileName.trim() || "Agent owner";
+	const currentMemberNames = [
+		...input.observer.snapshot.humans,
+		...input.observer.snapshot.agents,
+	].flatMap((member) =>
+		member.status === "active" ? [member.profileName] : []
+	);
+	const defaultName = buildDirectMessageConversionDefaultName({
+		currentMemberNames,
+		currentSpaceName: input.currentSpaceName,
+		selectedNames: [selectedName],
+	});
+	const humanProfileId = input.observer.humanProfile.openMeldProfileId;
+
+	return {
+		defaultName,
+		errorMessage,
+		isOpen,
+		isPending,
+		onConfirm: async (name) => {
+			setIsPending(true);
+			setErrorMessage(null);
+			try {
+				await input.onJoin({
+					name,
+					profileIds: [humanProfileId],
+				});
+				setIsOpen(false);
+			} catch {
+				setErrorMessage("Unable to join this conversation. Try again.");
+			} finally {
+				setIsPending(false);
+			}
+		},
+		onOpen: () => {
+			setErrorMessage(null);
+			setIsOpen(true);
+		},
+		onOpenChange: setIsOpen,
+		selectedName,
+	};
+}
+
+function AgentOwnerDirectMessageJoinButton(input: {
+	control: AgentOwnerDirectMessageJoinState | null;
+}) {
+	if (!input.control) {
+		return null;
+	}
+	return (
+		<Button
+			disabled={input.control.isPending}
+			onClick={input.control.onOpen}
+			size="sm"
+			type="button"
+		>
+			Join conversation first
+		</Button>
+	);
+}
+
+function resolveAgentOwnerDirectMessageComposerPrimaryAction(
+	control: AgentOwnerDirectMessageJoinState | null
+): ReactNode | undefined {
+	if (!control) {
+		return undefined;
+	}
+	return <AgentOwnerDirectMessageJoinButton control={control} />;
+}
+
+function AgentOwnerDirectMessageJoinHeaderControl(input: {
+	control: AgentOwnerDirectMessageJoinState;
+}) {
+	return (
+		<div className="flex min-w-0 flex-col items-end gap-1">
+			<AgentOwnerDirectMessageJoinButton control={input.control} />
+			{input.control.errorMessage ? (
+				<p
+					className="max-w-64 text-right text-destructive text-xs"
+					role="alert"
+				>
+					{input.control.errorMessage}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
+function AgentOwnerDirectMessageJoinDialog(input: {
+	control: AgentOwnerDirectMessageJoinState | null;
+}) {
+	if (!input.control) {
+		return null;
+	}
+	return (
+		<DirectMessageConversionDialog
+			defaultName={input.control.defaultName}
+			isPending={input.control.isPending}
+			onConfirm={input.control.onConfirm}
+			onOpenChange={input.control.onOpenChange}
+			open={input.control.isOpen}
+			selectedNames={[input.control.selectedName]}
+		/>
 	);
 }
 
@@ -2645,6 +2898,7 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 }
 
 function useConvertDirectMessageToSpaceHandler(input: {
+	accountProfiles: readonly AuthProfileView[];
 	controller: ReturnType<typeof useSpaceLandingController>;
 	navigate: ReturnType<typeof useNavigate>;
 	orgSlug: string;
@@ -2669,6 +2923,14 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				profileIds,
 				spaceId: controller.spaceId,
 			});
+			const joiningHumanProfile = findActiveProfileById(input.accountProfiles, {
+				profileId: controller.profileId,
+				profileKind: "human",
+			});
+			const confirmedJoiningHuman = Boolean(
+				joiningHumanProfile &&
+					result.addedMemberIds.includes(joiningHumanProfile.openMeldProfileId)
+			);
 			const statusQueryKey = spaceQueryKeys.status(
 				controller.spaceId,
 				controller.profileId
@@ -2677,7 +2939,9 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				statusQueryKey,
 				(status) =>
 					status
-						? applyDirectMessageConversionToSpaceStatus(status, result)
+						? applyDirectMessageConversionToSpaceStatus(status, result, {
+								confirmedAddedHumanCount: confirmedJoiningHuman ? 1 : 0,
+							})
 						: status
 			);
 			input.queryClient.setQueryData<SpaceBootstrapSnapshot>(
@@ -2688,7 +2952,10 @@ function useConvertDirectMessageToSpaceHandler(input: {
 								...bootstrap,
 								status: applyDirectMessageConversionToSpaceStatus(
 									bootstrap.status,
-									result
+									result,
+									{
+										confirmedAddedHumanCount: confirmedJoiningHuman ? 1 : 0,
+									}
 								),
 							}
 						: bootstrap
@@ -2698,6 +2965,15 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				(sections) =>
 					applyDirectMessageConversionToAccountSpaceSections(sections, result)
 			);
+			if (joiningHumanProfile && confirmedJoiningHuman) {
+				applyConfirmedHumanSpaceMemberToCache({
+					addedAt: result.convertedAt,
+					profile: joiningHumanProfile,
+					queryClient: input.queryClient,
+					spaceId: controller.spaceId,
+					viewerProfileId: controller.profileId,
+				});
+			}
 
 			const navigation = input.navigate({
 				replace: true,
@@ -2732,18 +3008,37 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				alreadyMemberCount: result.alreadyMemberIds.length,
 			};
 		},
-		[input.controller, input.navigate, input.orgSlug, input.queryClient]
+		[
+			input.accountProfiles,
+			input.controller,
+			input.navigate,
+			input.orgSlug,
+			input.queryClient,
+		]
 	);
 }
 
 function applyDirectMessageConversionToSpaceStatus(
 	status: GetSpaceStatusResponse,
-	result: ConvertDirectMessageToSpaceResponse
+	result: ConvertDirectMessageToSpaceResponse,
+	input: { confirmedAddedHumanCount: number }
 ): GetSpaceStatusResponse {
+	const confirmedAddedHumanCount = status.directMessageConvertedAt
+		? 0
+		: input.confirmedAddedHumanCount;
 	return {
 		...status,
 		accessMode: result.accessMode,
 		directMessageConvertedAt: result.convertedAt,
+		generatedAt: result.convertedAt,
+		members:
+			confirmedAddedHumanCount > 0
+				? {
+						...status.members,
+						humanCount: status.members.humanCount + confirmedAddedHumanCount,
+						totalCount: status.members.totalCount + confirmedAddedHumanCount,
+					}
+				: status.members,
 		name: result.name,
 	};
 }

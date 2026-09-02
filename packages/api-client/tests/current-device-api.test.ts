@@ -777,6 +777,7 @@ describe("api-client current device api", () => {
                 selected: false,
               },
             ],
+            selectionStatus: "available",
             selectedInstallationId: "install-local",
           }),
           {
@@ -810,6 +811,7 @@ describe("api-client current device api", () => {
               localRuntimes: [],
             },
             reportSyncStatus: "submitted",
+            selectionStatus: "available",
             selectedInstallationId: "install-homebrew",
             status: "updated",
           }),

@@ -517,6 +517,55 @@ export async function readResolvedOrganizationDirectorySpaceMember(input: {
   };
 }
 
+export async function readResolvedOrganizationOwnerHumanSpaceMember(input: {
+  db: D1Database;
+  organizationId: string;
+  ownerUserId: string;
+}): Promise<ResolvedSpaceMemberProfile | null> {
+  const row = await input.db
+    .prepare(
+      `
+        SELECT
+          profiles.profile_id,
+          profiles.profile_name,
+          profiles.status AS profile_status,
+          profiles.owner_user_id,
+          users.name AS owner_name,
+          members.user_id AS member_user_id
+        FROM openmeld_profiles AS profiles
+        LEFT JOIN users
+          ON users.id = profiles.owner_user_id
+        LEFT JOIN members
+          ON members.user_id = profiles.owner_user_id
+          AND members.organization_id = ?
+        WHERE profiles.owner_user_id = ?
+          AND profiles.profile_kind = 'human'
+          AND profiles.is_default = 1
+        LIMIT 1
+      `
+    )
+    .bind(input.organizationId, input.ownerUserId)
+    .first<{
+      member_user_id: string | null;
+      owner_name: string | null;
+      owner_user_id: string;
+      profile_id: string;
+      profile_name: string;
+      profile_status: string;
+    }>();
+  if (!(row && row.profile_status === "active" && row.member_user_id)) {
+    return null;
+  }
+  return {
+    agentControllerRef: null,
+    ownerName: normalizeNullableText(row.owner_name),
+    ownerUserId: row.owner_user_id,
+    profileId: row.profile_id,
+    profileKind: "human",
+    profileName: row.profile_name,
+  };
+}
+
 async function readOrganizationScopedAttributionProfile(input: {
   db: D1Database;
   organizationId: string;

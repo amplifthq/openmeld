@@ -5,6 +5,42 @@ import { createAgentProfileBindingApi, createOpenMeldApiClient } from "../src";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("api-client agent profile binding api", () => {
+  it("looks up one exact Agent session without listing profiles", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          currentOrganizationId: "org-1",
+          profile: {
+            profileId: AGENT_PROFILE_ID,
+            profileName: "Codex",
+            profileOrganizationId: "org-1",
+          },
+          sameOrganization: true,
+          status: "found",
+        })
+      )
+    );
+    const api = createAgentProfileBindingApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.getCurrentSession({
+        agentControllerConversationId: "thread-1",
+        agentControllerRef: "builtin:codex",
+      })
+    ).resolves.toMatchObject({ status: "found", sameOrganization: true });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "agent_profile_binding.current_session.read",
+        url: "https://gateway.openmeld.invalid/v1/agent-profiles/current-session?agentControllerConversationId=thread-1&agentControllerRef=builtin%3Acodex",
+      })
+    );
+  });
+
   it("reads primary Binding projection through the canonical Agent Profile route", async () => {
     const transport = vi.fn((_: { init?: RequestInit }) =>
       Promise.resolve(

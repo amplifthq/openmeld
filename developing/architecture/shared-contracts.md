@@ -121,6 +121,14 @@ page succeeds. A complete terminal page replaces that source's current set.
 Unsupported, error, and disconnected outcomes are explicit terminal facts,
 not empty arrays with implied success.
 
+The current-session Profile lookup is a separate narrow HTTP/RPC contract over
+the same Binding identity. Its strict query contains one exact controller ref
+and provider-native Session ID. Core derives the owner from authenticated
+context, performs one owner-scoped reverse Binding read, and returns
+`not_found`, `unavailable`, or the exact Agent Profile identity plus whether it
+belongs to the active Organization. It never accepts caller-supplied owner
+identity, grants mutation authority, or replaces the Session inventory.
+
 ## Contract Rule
 
 Any payload that crosses a service, package, process, HTTP boundary, RPC
@@ -3861,12 +3869,15 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 progress read model, including the optional `startedAtMs` timing projection and
 the optional `wakeStopEligibility` projection. It may also expose the bounded
 optional `waitReasonCode=runtime.agent_controller_conversation.occupied` from
-RuntimeCoordinator lifecycle evidence. That neutral projection never exposes
+RuntimeCoordinator lifecycle evidence. Clients request that projection with
+`includeWaitReason=true`; Core must omit the field entirely when the caller
+does not opt in. That neutral projection never exposes
 the controller conversation id, does not grant execution authority, and must be
-cleared when the latest occupancy transition is `available`. The timing and
-Stop projections are
+cleared when the latest occupancy transition is `available`. The timing, wait
+reason, and Stop projections are
 mixed-version opt-in: clients request authoritative elapsed-time timing with
-`includeTiming=true` and Stop eligibility with
+`includeTiming=true`, the occupancy wait reason with
+`includeWaitReason=true`, and Stop eligibility with
 `includeWakeStopEligibility=true` on Wake progress and active Wake progress
 reads. Core must omit each field when the corresponding request does not opt
 in, so new Core does not break older strict clients. `startedAtMs` is the
@@ -4041,6 +4052,10 @@ contract shared by Service reporting, owner reads, Organization Computers, Web,
 Center Agent, and Local Agent JSON. Each item has one stable key and label,
 `usedPercent` with 0–100 used semantics, nullable `resetsAt`, `observedAt`, and
 one of `available`, `exhausted`, `stale`, `unavailable`, or `unsupported`.
+An item may include a strict `provider` descriptor containing only a stable id
+and display name. This optional nesting keeps existing single-provider
+controllers wire-compatible while allowing one controller such as OpenCode to
+project several providers without flattening their independent capacity.
 `Low` is derived by presentation code and is not stored. Missing provider facts
 remain null; they must not become zero, 100, or unlimited capacity.
 
@@ -4175,14 +4190,25 @@ implementation details.
 
 The shared daemon, Runtime Transport, Local Runtimes HTTP, and API-client
 contracts also own current-Computer installation management. The optional
-`localAgentControl.manageInstallations` capability gates an owner-only
-list/select request for one registered built-in agent. The Service returns
-bounded installation ids, friendly names/details, and one selected id; only the
-immediate owner response may contain path-derived details. Selection updates
-the local registry's launch contract and then refreshes the canonical runtime
-report. Older Services omit the capability, so new Web stays dormant; publish a
-new Service only after Core, Gateway, API client, and Web accept the additive
-frames and responses.
+`localAgentControl.manageInstallations` capability preserves the original
+owner-only list/select contract for one registered built-in agent. The additive
+`localAgentControl.manageInstallationsSafely` capability states that the Service
+also owns idle admission and serializes the registry write against matching
+local work. Cloud callers require both capabilities before exposing or sending
+a selection. The Service returns bounded installation ids, friendly
+names/details, one selected id, and an additive selection status of `available`,
+`blocked_by_work`, or `operation_in_progress`; only the immediate owner response
+may contain path-derived details. Selection updates the local registry's launch
+contract and then refreshes the canonical runtime report.
+
+The new capability and daemon result field are optional on the mixed-version
+wire, while the owner-only HTTP response requires the normalized selection
+status. New cloud code stays dormant against an older Service because the safe
+capability is absent. Publish Core, Gateway, API client, and Web consumers before
+the new Service producer; rolling cloud consumers back after that publication is
+not supported until the producer is retired. Existing setup, Wake, status,
+Space Actions, and diagnostics remain compatible in both directions because
+none of their established frames or projections change.
 
 `packages/schemas/src/schemas/daemon/computer-file-access.ts` owns the strict
 Computer file access mode, absolute-path, policy, current-device HTTP/RPC,
@@ -4477,6 +4503,14 @@ redefining member fields in the CLI. The API client parses the directory before
 the CLI renders Human View, emits Agent View frames, or writes the `--json`
 envelope.
 
+`space.members.brief` is a separate strict CLI-owned projection for one or more
+resolved directory members. It reuses the shared member kind, addressing
+relations, and a schema-picked subset of Core-owned Agent Wake Availability:
+status, phase, action, reason code, and summary. Its `canWakeNow` convenience
+boolean is true only for `available_for_wake`; it does not create a second
+readiness owner. The command must fetch the existing Space directory and member
+snapshot contracts rather than introduce another Space or Wake API.
+
 `space.list.organization` success output is also strict. Its versioned CLI
 envelope reuses the Organization Space member-count directory fields and item
 schema, while `scope`, `total`, and `returned` remain CLI-owned presentation
@@ -4559,6 +4593,32 @@ and already-deployed strict consumers remain compatible during rollout.
 `packages/schemas/src/schemas/http/space-members.ts` owns the shared HTTP
 contracts for Space member snapshots, public Wake availability fields, owner
 diagnostics, and Space member directory entries.
+
+Core's Organization-directory member-addition boundary expands every selected
+ordinary Agent Profile to include its authoritative owner member's active
+default Human Profile before it calls the Space membership writer. The
+expansion uses current Agent Profile identity and Organization membership,
+excludes managed Agents, and fails the complete request when the owner Human
+cannot be resolved. The Space Durable Object receives one resolved member batch
+and remains the only membership writer; Gateway and Web must not issue a second
+owner-add request or infer the owner from display text.
+
+An unconverted one-Human/one-Agent Direct Message does not persist that owner as
+a third member. Space read authorization derives the ordinary Agent's owner
+observer from the active Agent member's frozen `ownerUserId`, while write
+authorization rejects that observer with `space.access.read_only`. The existing
+Direct Message conversion method is the only promotion path: it accepts the
+observer only when the one selected member is the observer's own Human Profile,
+then atomically converts the DM and writes membership. Existing ordinary Spaces
+use a one-time Space-SQL reconciliation marker; reconciliation reads canonical
+identity and calls the same Space member service without touching Signal,
+cursor, Inbox, or unread history.
+
+These changes add no external request or response field. Rollout is Core first,
+then Web. New Core with old Web fails observer writes safely but may show the
+existing generic error; new Web must not be deployed against old Core because
+the browser-only read-only presentation is not an authorization boundary.
+Rollback removes Web before Core.
 
 Current Space Message Addressing has exactly three shared-schema relations:
 Wake (`activationTargets`) and Reference (`referenceTargets`) target Agent

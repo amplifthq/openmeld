@@ -419,6 +419,7 @@ const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
 const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
 const ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN = /^Add people or agents/;
 const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
+const CAN_VIEW_TEXT_PATTERN = /can view$/;
 type TestAgentExecutionReadiness = ReturnType<
 	typeof createSpaceMemberAgentExecutionReadiness
 >;
@@ -2871,6 +2872,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -2980,6 +2982,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getActiveWakeProgressMock).toHaveBeenCalledWith({
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3173,6 +3176,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3291,6 +3295,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3380,6 +3385,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3488,6 +3494,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3664,6 +3671,11 @@ describe("SpaceLanding", () => {
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
 				}
+				const spaceInboxUnreadTargetsResult =
+					resolveSpaceInboxUnreadTargetsQueryResult(options.queryKey);
+				if (spaceInboxUnreadTargetsResult) {
+					return spaceInboxUnreadTargetsResult;
+				}
 				const [scope, kind, spaceId] = options.queryKey;
 				if (kind === "account-spaces") {
 					return createQueryResult({
@@ -3802,6 +3814,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3910,6 +3923,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -4821,17 +4835,178 @@ describe("SpaceLanding", () => {
 					profileName: "Mira",
 				}),
 			],
+			isCenterAgentDirectMessage: true,
 		});
 
 		expect(screen.queryByRole("region", { name: "Get set up" })).toBeNull();
 		expect(screen.queryByText("Connect this computer")).toBeNull();
 		expect(screen.queryByText("Bring your agents")).toBeNull();
 		expect(screen.queryByText("Add your first agent")).toBeNull();
+		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Join conversation first" })
+		).toBeNull();
 	});
 
-	it("moves a converted Direct Message to Spaces without waiting for cache reconciliation", async () => {
-		const pendingRefresh = new Promise<void>(() => undefined);
-		const invalidateQueriesMock = vi.fn().mockReturnValue(pendingRefresh);
+	it("lets an Agent owner view a Direct Message read-only and join explicitly", async () => {
+		const convertToSpaceMock = vi.fn().mockResolvedValue({
+			accessMode: "members_only",
+			addedMemberIds: [DEFAULT_SPACE_PROFILE_ID],
+			alreadyMemberIds: [],
+			convertedAt: "2026-09-02T00:00:00.000Z",
+			name: "Alice, Runner, and Mira",
+			spaceId: "space-123",
+		});
+		createDirectMessageApiMock.mockReturnValue({
+			convertToSpace: convertToSpaceMock,
+		});
+		const members = createMembersSnapshot({
+			defaultAgentOwnerName: "Mira",
+			defaultAgentOwnerUserId: "user-mira",
+			defaultAgentProfileName: "Runner",
+			defaultHumanOwnerName: "Alice",
+			defaultHumanOwnerUserId: "user-alice",
+		});
+		members.humans[0] = {
+			...members.humans[0],
+			profileId: "33333333-3333-4333-8333-333333333333",
+			profileName: "Alice",
+		};
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: {
+					...createSpaceStatus(),
+					accessMode: "members_only",
+					name: "Alice and Runner",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				},
+			}),
+			members: createQueryResult({ isSuccess: true, data: members }),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding({
+			accountProfiles: [
+				createLandingAccountProfile({
+					openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+					ownerUserId: "user-mira",
+					profileKind: "human",
+					profileName: "Mira",
+				}),
+			],
+		});
+
+		expect(screen.getByText("Mira can view")).toBeTruthy();
+		const composer = screen.getByRole("textbox", {
+			name: "Message Runner",
+		});
+		expect(composer.getAttribute("aria-placeholder")).toBe(
+			"You can view this Direct Message because you own Runner. Join to participate."
+		);
+		expect(
+			screen.getByText("Join the conversation to send the first message.")
+		).toBeTruthy();
+		const joinButtons = screen.getAllByRole("button", {
+			name: "Join conversation first",
+		});
+		expect(joinButtons).toHaveLength(2);
+		const composerSection = document.querySelector(
+			'[data-slot="space-composer-section"]'
+		);
+		expect(composerSection).not.toBeNull();
+		expect(
+			within(composerSection as HTMLElement).queryByRole("button", {
+				name: "Send message",
+			})
+		).toBeNull();
+		fireEvent.click(
+			within(composerSection as HTMLElement).getByRole("button", {
+				name: "Join conversation first",
+			})
+		);
+		expect(
+			screen.getByRole("heading", {
+				name: "Turn this Direct Message into a Space?",
+			})
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Turn into a Space" }));
+
+		await waitFor(() => {
+			expect(convertToSpaceMock).toHaveBeenCalledWith({
+				name: "Alice, Runner, and Mira",
+				profileIds: [DEFAULT_SPACE_PROFILE_ID],
+				spaceId: "space-123",
+			});
+		});
+	});
+
+	it("tells the active Direct Message participant that the Agent owner can view", () => {
+		const members = createMembersSnapshot({
+			defaultAgentOwnerName: "Mira",
+			defaultAgentOwnerUserId: "user-mira",
+			defaultAgentProfileName: "Runner",
+			defaultHumanOwnerName: "Alice",
+			defaultHumanOwnerUserId: "user-alice",
+		});
+		members.humans[0] = {
+			...members.humans[0],
+			profileId: "33333333-3333-4333-8333-333333333333",
+			profileName: "Alice",
+		};
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: {
+					...createSpaceStatus(),
+					accessMode: "members_only",
+					name: "Alice and Runner",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				},
+			}),
+			members: createQueryResult({ isSuccess: true, data: members }),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding({
+			accountProfiles: [
+				createLandingAccountProfile({
+					openMeldProfileId: "33333333-3333-4333-8333-333333333333",
+					ownerUserId: "user-alice",
+					profileKind: "human",
+					profileName: "Alice",
+				}),
+			],
+		});
+
+		expect(screen.getByText("Mira can view")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Join conversation first" })
+		).toBeNull();
+	});
+
+	it("keeps the joining Agent owner in membership cache while opening the converted Space", async () => {
+		const pendingInvalidation = new Promise<void>(() => undefined);
+		const invalidateQueriesMock = vi.fn().mockReturnValue(pendingInvalidation);
+		const members = createMembersSnapshot({
+			defaultAgentOwnerName: "Mira",
+			defaultAgentOwnerUserId: "user-mira",
+			defaultAgentProfileName: "Runner",
+			defaultHumanOwnerName: "Alice",
+			defaultHumanOwnerUserId: "user-alice",
+		}) as SpaceMembersSnapshot;
+		members.humans[0] = {
+			...members.humans[0],
+			profileId: "33333333-3333-4333-8333-333333333333",
+			profileName: "Alice",
+		};
+		let cachedMembers = members;
 		let cachedStatus: GetSpaceStatusResponse = {
 			...createSpaceStatus(),
 			accessMode: "members_only",
@@ -4860,8 +5035,19 @@ describe("SpaceLanding", () => {
 				},
 			],
 		};
+		let joiningProfileCachedAtNavigation = false;
+		let memberCountAtNavigation = 0;
 		const setQueryDataMock = vi.fn(
 			(queryKey: readonly unknown[], updater: unknown) => {
+				if (
+					queryKey[0] === "spaces" &&
+					queryKey[1] === "members" &&
+					typeof updater === "function"
+				) {
+					cachedMembers = (
+						updater as (members: SpaceMembersSnapshot) => SpaceMembersSnapshot
+					)(cachedMembers);
+				}
 				if (
 					queryKey[0] === "spaces" &&
 					queryKey[1] === "status" &&
@@ -4885,17 +5071,29 @@ describe("SpaceLanding", () => {
 		useQueryClientMock.mockReturnValue({
 			cancelQueries: vi.fn().mockResolvedValue(undefined),
 			fetchQuery: vi.fn().mockResolvedValue(undefined),
-			getQueryData: vi.fn(() => undefined),
+			getQueryData: vi.fn((queryKey: readonly unknown[]) =>
+				queryKey[0] === "spaces" && queryKey[1] === "members"
+					? cachedMembers
+					: undefined
+			),
 			invalidateQueries: invalidateQueriesMock,
 			resetQueries: vi.fn().mockResolvedValue(undefined),
 			setQueriesData: setQueriesDataMock,
 			setQueryData: setQueryDataMock,
 		});
 		useNavigateMock.mockImplementation(() => {
+			joiningProfileCachedAtNavigation = cachedMembers.humans.some(
+				(member) => member.profileId === DEFAULT_SPACE_PROFILE_ID
+			);
+			memberCountAtNavigation = cachedMembers.summary.totalCount;
 			expect(cachedStatus.directMessageConvertedAt).toBe(
 				"2026-08-08T00:00:00.000Z"
 			);
 			expect(cachedStatus.name).toBe("Launch Team");
+			expect(cachedStatus.members).toMatchObject({
+				humanCount: 2,
+				totalCount: 3,
+			});
 			expect(cachedAccountSections.spaceItems[0]).toMatchObject({
 				directMessageConvertedAt: "2026-08-08T00:00:00.000Z",
 				spaceName: "Launch Team",
@@ -4904,7 +5102,7 @@ describe("SpaceLanding", () => {
 		});
 		const convertToSpaceMock = vi.fn().mockResolvedValue({
 			accessMode: "members_only",
-			addedMemberIds: [SECOND_AGENT_PROFILE_ID],
+			addedMemberIds: [DEFAULT_SPACE_PROFILE_ID],
 			alreadyMemberIds: [],
 			convertedAt: "2026-08-08T00:00:00.000Z",
 			name: "Launch Team",
@@ -4918,10 +5116,7 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: cachedStatus,
 			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot(),
-			}),
+			members: createQueryResult({ isSuccess: true, data: members }),
 			history: createQueryResult({
 				isSuccess: true,
 				data: { envelopes: [], nextCursor: null },
@@ -4936,22 +5131,14 @@ describe("SpaceLanding", () => {
 					profileKind: "human",
 					profileName: "Mira",
 				}),
-				createLandingAccountProfile({
-					openMeldProfileId: SECOND_AGENT_PROFILE_ID,
-					ownerUserId: "user-mira",
-					profileKind: "agent",
-					profileName: "Scout",
-				}),
 			],
-			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		fireEvent.click(
-			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
+			screen.getAllByRole("button", {
+				name: "Join conversation first",
+			})[0] as Element
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
-		fireEvent.click(screen.getByRole("checkbox", { name: SCOUT_OPTION_NAME }));
-		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {
 			target: { value: "Launch Team" },
 		});
@@ -4960,17 +5147,21 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(convertToSpaceMock).toHaveBeenCalledWith({
 				name: "Launch Team",
-				profileIds: [SECOND_AGENT_PROFILE_ID],
+				profileIds: [DEFAULT_SPACE_PROFILE_ID],
 				spaceId: "space-123",
 			});
 		});
 		await flushPromiseQueue();
 
-		expect(useNavigateMock).toHaveBeenCalledWith({
-			replace: true,
-			search: { profileId: DEFAULT_SPACE_PROFILE_ID },
-			to: "/o/acme/spaces/space-123",
+		await waitFor(() => {
+			expect(useNavigateMock).toHaveBeenCalledWith({
+				replace: true,
+				search: { profileId: DEFAULT_SPACE_PROFILE_ID },
+				to: "/o/acme/spaces/space-123",
+			});
 		});
+		expect(joiningProfileCachedAtNavigation).toBe(true);
+		expect(memberCountAtNavigation).toBe(3);
 	});
 
 	it("shows only Connect this computer in a Direct Message with the user's own local Agent", () => {
@@ -5104,6 +5295,10 @@ describe("SpaceLanding", () => {
 			screen.queryByRole("button", {
 				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
 			})
+		).toBeNull();
+		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Join conversation first" })
 		).toBeNull();
 	});
 
@@ -7416,6 +7611,7 @@ describe("SpaceLanding", () => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -9068,6 +9264,11 @@ describe("SpaceLanding", () => {
 				);
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
+				}
+				const spaceInboxUnreadTargetsResult =
+					resolveSpaceInboxUnreadTargetsQueryResult(options.queryKey);
+				if (spaceInboxUnreadTargetsResult) {
+					return spaceInboxUnreadTargetsResult;
 				}
 				if (
 					queryKey ===
@@ -13965,6 +14166,22 @@ describe("SpaceLanding", () => {
 	});
 
 	it("opens an Inbox source at the exact loaded Space message", () => {
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return createDomRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					const conversation = this.closest<HTMLElement>("[role='log']");
+					const scrollTop = conversation?.scrollTop ?? 0;
+					return createDomRect({
+						bottom: 760 - scrollTop,
+						top: 700 - scrollTop,
+					});
+				}
+				return createDomRect({ bottom: 0, top: 0 });
+			});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -13995,10 +14212,11 @@ describe("SpaceLanding", () => {
 		);
 		expect(target?.getAttribute("data-highlighted")).toBe("true");
 		expect(target?.className).toContain("motion-reduce:transition-none");
-		expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
-			block: "center",
-		});
+		expect(
+			screen.getByRole("log", { name: "Conversation history" }).scrollTop
+		).toBe(480);
 		expect(document.activeElement).toBe(target);
+		rectSpy.mockRestore();
 	});
 
 	it("opens a terminal Wake failure Inbox target at the source message that presents its outcome", () => {
@@ -16670,6 +16888,11 @@ function mockSpaceQueries(input: {
 			if (organizationSpacesResult) {
 				return organizationSpacesResult;
 			}
+			const spaceInboxUnreadTargetsResult =
+				resolveSpaceInboxUnreadTargetsQueryResult(options.queryKey);
+			if (spaceInboxUnreadTargetsResult) {
+				return spaceInboxUnreadTargetsResult;
+			}
 			if (
 				isExpectedSpace &&
 				options.queryKey[0] === "spaces" &&
@@ -16796,6 +17019,17 @@ function mockSpaceQueries(input: {
 				options.queryKey[4] === profileId
 			) {
 				return threadSignals;
+			}
+			if (
+				options.queryKey[0] === "inbox" &&
+				options.queryKey[2] === "space-unread-targets" &&
+				typeof options.queryKey[3] === "string" &&
+				spaceIds.has(options.queryKey[3])
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: { targets: [], totalUnreadCount: 0 },
+				});
 			}
 			if (
 				Array.isArray(options.queryKey) &&
@@ -17304,6 +17538,40 @@ function resolveOrganizationSpacesQueryResult(queryKey: readonly unknown[]) {
 				},
 			})
 		: null;
+}
+
+// SpaceLanding always reads the current Space's Inbox position so it can place
+// the unread divider. Keep this shared default at the strict query-dispatch
+// boundary so each fixture still rejects genuinely unknown queries.
+function resolveSpaceInboxUnreadTargetsQueryResult(
+	queryKey: readonly unknown[]
+) {
+	return queryKey[0] === "inbox" && queryKey[2] === "space-unread-targets"
+		? createQueryResult({
+				isSuccess: true,
+				data: {
+					hasMoreTargets: false,
+					organizationId: String(queryKey[1] ?? ""),
+					spaceId: String(queryKey[3] ?? ""),
+					targets: [],
+					totalUnreadCount: 0,
+				},
+			})
+		: null;
+}
+
+function createDomRect(input: { bottom: number; top: number }): DOMRect {
+	return {
+		bottom: input.bottom,
+		height: input.bottom - input.top,
+		left: 0,
+		right: 0,
+		top: input.top,
+		width: 0,
+		x: 0,
+		y: input.top,
+		toJSON: () => ({}),
+	};
 }
 
 function buildCompletedAgentProfileCreationRequest(

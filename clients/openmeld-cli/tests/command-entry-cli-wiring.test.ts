@@ -415,11 +415,13 @@ describe("command entry CLI wiring", () => {
     expect(runMocks.runSpaceMembers).toHaveBeenCalledOnce();
     expect(runMocks.runSpaceMembers).toHaveBeenCalledWith({
       baseUrl: "https://gateway.openmeld.ai",
+      brief: false,
       entryChecksHandled: true,
       json: true,
       password: "space-secret",
       profile: "agt-reader",
       space: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      target: undefined,
       view: "agent",
     });
     expect(runCommandWithEntryChecksMock).toHaveBeenLastCalledWith(

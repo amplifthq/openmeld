@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-02T07:24:22.826Z",
+  "updatedAt": "2026-09-02T16:30:05.107Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.145",
+      "packageVersion": "0.3.148",
       "updatePolicy": "available",
-      "reason": "Existing CLI and cloud contracts remain compatible; this update adds exact partial add-me recovery without changing Profile, Binding, or membership APIs."
+      "reason": "Existing CLI commands remain compatible; older CLIs only omit optional Wake progress detail and safe installation switching."
     },
     "service": {
-      "bundleHash": "a0f3ada7ae1b5101c7f9321996339ddce274a39c19c0d760256521ce5e43fbba",
-      "bundleVersion": "0.3.145",
+      "bundleHash": "f33ad69a45120fa4afefcd075cc9996e01c506bc3af6b31125ab3149b6543998",
+      "bundleVersion": "0.3.148",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Old Services can continue Wake work; this update fixes occupied Codex task admission without changing wire contracts."
+      "reason": "Core deploys first; older Services omit the capability so switching stays unavailable while Wake execution remains compatible."
     },
     "skills": {
-      "bundleHash": "401cc873760f7ff783e2f3ef80c685c8248c760a4e0fd23c33bc9364daae17fb",
+      "bundleHash": "f5766d823e7570d94514985ae3c4cae8539ed4bc9cbe2f43ca41755c608d5821",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Existing skills remain valid; the updated guidance uses the already supported CLI contract."
+      "reason": "Existing installed skills remain operational; the changed copy only restores the supported setup command formatting."
     }
   }
 }

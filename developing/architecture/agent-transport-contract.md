@@ -824,7 +824,13 @@ declares native Usage support, a missing, stale, expired, unavailable, or
 otherwise unconfirmed current observation projects `Checking` and rejects new
 Wake admission. Core and the Local Service must consume that same matrix.
 Explicitly unsupported Usage and Local Agents whose Usage reporting is passive
-or not evaluated do not use Usage as an admission condition. An ACI report
+or not evaluated do not use Usage as an admission condition. A provider-scoped
+controller is filtered by the provider prefix of the Binding's selected model
+before this verdict is computed. A supported selected provider therefore fails
+closed on missing or unconfirmed evidence, while an exhausted unselected
+provider cannot block that Agent Profile. A Binding whose provider cannot be
+resolved remains compatible and does not gain a guessed Usage admission
+condition. An ACI report
 declares the matrix it implements through
 `usageLimitsSupportMatrixVersion`. If that optional field is absent, Core
 treats the report as a legacy contract and does not make Usage an admission

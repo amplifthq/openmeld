@@ -373,6 +373,88 @@ export function SettingsLocalAgentUsageSummary({
   limits?: AgentControllerUsageLimits;
   nowMs?: number;
 }) {
+  const providerGroups = groupProviderUsageLimits(limits);
+  if (providerGroups) {
+    const providerSummaries = providerGroups
+      .map((group) => ({
+        group,
+        summary: resolveUsageLimitSummary(group.limits),
+      }))
+      .filter(
+        (
+          item
+        ): item is typeof item & {
+          summary: NonNullable<typeof item.summary>;
+        } => item.summary !== null
+      );
+    if (providerSummaries.length === 0) {
+      return null;
+    }
+    const visibleSummaries = providerSummaries.slice(0, 3);
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              className="inline-flex h-5 shrink-0 items-center gap-2 font-medium text-xs tabular-nums"
+              data-testid="local-agent-usage-summary"
+            >
+              {visibleSummaries.map(({ group, summary }) => (
+                <span
+                  aria-label={`${group.displayName} usage, ${summary.accessibleDetails}`}
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={summary.remainingPercent}
+                  aria-valuetext={`${formatRemainingPercent(summary.remainingPercent)} left`}
+                  className="inline-flex items-center gap-1"
+                  key={group.id}
+                  role="progressbar"
+                >
+                  <UsageLimitRing
+                    className="size-4"
+                    remainingPercent={summary.remainingPercent}
+                    tone={summary.presentation.tone}
+                  />
+                  <span>{group.displayName}</span>
+                  <span>
+                    {formatRemainingPercent(summary.remainingPercent)}
+                  </span>
+                </span>
+              ))}
+              {providerSummaries.length > visibleSummaries.length ? (
+                <span>
+                  +{providerSummaries.length - visibleSummaries.length}
+                </span>
+              ) : null}
+            </span>
+          }
+        />
+        <TooltipContent
+          className="min-w-64 max-w-sm flex-col items-stretch gap-2.5 whitespace-normal text-left"
+          side="top"
+        >
+          <span className="font-medium">Usage limits</span>
+          <span className="grid gap-3">
+            {providerGroups.map((group) => (
+              <span className="grid gap-2" key={group.id}>
+                <span className="font-medium">{group.displayName}</span>
+                {group.limits.map((limit) => (
+                  <UsageLimitPreview
+                    key={limit.key}
+                    limit={limit}
+                    nowMs={nowMs}
+                  />
+                ))}
+              </span>
+            ))}
+          </span>
+          <span className="border-background/20 border-t pt-2 text-background/75">
+            Select this agent to view details.
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
   const summary = resolveUsageLimitSummary(limits);
   if (!summary) {
     return null;
@@ -471,9 +553,8 @@ export function SettingsLocalAgentUsageLimits({
   limits?: AgentControllerUsageLimits;
   nowMs?: number;
   /**
-   * When true, limit cards stretch to fill one row instead of a fixed
-   * three-column grid: one card takes the full width, two split it, three or
-   * more cap at three equal columns.
+   * When true, one or two usage windows fill the available row. Three or more
+   * use a responsive grid that wraps before the labels become cramped.
    */
   fillColumns?: boolean;
 }) {
@@ -481,32 +562,127 @@ export function SettingsLocalAgentUsageLimits({
     return null;
   }
   const orderedLimits = orderUsageLimitsForDisplay({ agentName, limits });
+  const providerGroups = groupProviderUsageLimits(orderedLimits);
+  let usageContent: ReactNode;
+  if (providerGroups) {
+    const reportedProviderGroups = providerGroups.filter((group) =>
+      group.limits.some((limit) => limit.usedPercent !== null)
+    );
+    const unreportedProviderGroups = providerGroups.filter((group) =>
+      group.limits.every((limit) => limit.usedPercent === null)
+    );
+    usageContent = (
+      <div className="space-y-7" data-testid="local-agent-usage-provider-grid">
+        {reportedProviderGroups.map((group) => (
+          <section
+            aria-label={`${group.displayName} usage limits`}
+            className="space-y-3"
+            key={group.id}
+          >
+            <h5 className="font-medium text-sm">{group.displayName}</h5>
+            <SettingsLocalAgentUsageLimitCollection
+              agentName={`${agentName} ${group.displayName}`}
+              fillColumns={fillColumns}
+              limits={group.limits}
+              nowMs={nowMs}
+            />
+          </section>
+        ))}
+        <SettingsLocalAgentUnreportedProviders
+          groups={unreportedProviderGroups}
+        />
+      </div>
+    );
+  } else if (orderedLimits && orderedLimits.length > 0) {
+    usageContent = (
+      <SettingsLocalAgentUsageLimitCollection
+        agentName={agentName}
+        fillColumns={fillColumns}
+        limits={orderedLimits}
+        nowMs={nowMs}
+      />
+    );
+  } else {
+    usageContent = (
+      <p className="text-muted-foreground text-xs leading-5">
+        Usage not reported yet.
+      </p>
+    );
+  }
 
   return (
     <section aria-label={`${agentName} usage limits`} className="space-y-2.5">
       <div>
         <h4 className="font-medium text-sm">Usage limits</h4>
         <p className="mt-0.5 text-muted-foreground text-xs leading-5">
-          Capacity reported by the provider. This does not control whether the
-          agent can run.
+          Capacity reported by each provider. OpenMeld checks supported limits
+          before starting new work.
         </p>
       </div>
-      {orderedLimits && orderedLimits.length > 0 ? (
+      {usageContent}
+    </section>
+  );
+}
+
+type ProviderUsageLimitGroup = {
+  displayName: string;
+  id: string;
+  limits: AgentControllerUsageLimits;
+};
+
+function groupProviderUsageLimits(
+  limits?: AgentControllerUsageLimits
+): ProviderUsageLimitGroup[] | null {
+  if (!(limits?.length && limits.every((limit) => limit.provider))) {
+    return null;
+  }
+  const groups = new Map<string, ProviderUsageLimitGroup>();
+  for (const limit of limits) {
+    const provider = limit.provider;
+    if (!provider) {
+      continue;
+    }
+    const group = groups.get(provider.id);
+    if (group) {
+      group.limits.push(limit);
+      continue;
+    }
+    groups.set(provider.id, {
+      displayName: provider.displayName,
+      id: provider.id,
+      limits: [limit],
+    });
+  }
+  return [...groups.values()];
+}
+
+function SettingsLocalAgentUsageLimitCollection({
+  agentName,
+  fillColumns,
+  limits,
+  nowMs,
+}: {
+  agentName: string;
+  fillColumns: boolean;
+  limits: AgentControllerUsageLimits;
+  nowMs: number;
+}) {
+  const quantifiedLimits = limits.filter((limit) => limit.usedPercent !== null);
+  const unreportedLimits = limits.filter((limit) => limit.usedPercent === null);
+  return (
+    <div className="space-y-4">
+      {quantifiedLimits.length > 0 ? (
         <div
-          className="grid gap-2.5 md:grid-cols-3"
+          className={cn(
+            "grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3",
+            fillColumns &&
+              quantifiedLimits.length === 1 &&
+              "grid-cols-1 sm:grid-cols-1",
+            fillColumns && quantifiedLimits.length === 2 && "sm:grid-cols-2"
+          )}
           data-testid="local-agent-usage-limit-grid"
-          style={
-            fillColumns
-              ? {
-                  gridTemplateColumns: `repeat(${Math.min(
-                    orderedLimits.length,
-                    3
-                  )}, minmax(0, 1fr))`,
-                }
-              : undefined
-          }
         >
-          {orderedLimits.map((limit) => (
+          {quantifiedLimits.map((limit) => (
             <SettingsLocalAgentUsageLimitGauge
               agentName={agentName}
               key={limit.key}
@@ -515,18 +691,78 @@ export function SettingsLocalAgentUsageLimits({
             />
           ))}
         </div>
-      ) : (
-        <div className="rounded-md border border-border/70 bg-muted/15 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-medium text-sm">Usage limits</span>
-            <Badge variant="secondary">Unavailable</Badge>
-          </div>
-          <p className="mt-1 text-muted-foreground text-xs leading-5">
-            Not reported by provider yet.
+      ) : null}
+      <SettingsLocalAgentUnreportedLimits limits={unreportedLimits} />
+    </div>
+  );
+}
+
+function SettingsLocalAgentUnreportedLimits({
+  limits,
+}: {
+  limits: AgentControllerUsageLimits;
+}) {
+  if (limits.length === 0) {
+    return null;
+  }
+  return (
+    <div className="space-y-1 text-xs leading-5">
+      {limits.map((limit) => {
+        const presentation = resolveUsageLimitPresentation(limit);
+        return (
+          <p
+            className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5"
+            key={limit.key}
+          >
+            <span className="font-medium">{limit.label}</span>
+            <span
+              className={resolveStatusToneSoftTextClassName(presentation.tone)}
+            >
+              {resolveMissingUsageStatusLabel(presentation.label)}
+            </span>
           </p>
-        </div>
-      )}
-    </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function SettingsLocalAgentUnreportedProviders({
+  groups,
+}: {
+  groups: readonly ProviderUsageLimitGroup[];
+}) {
+  const rows = new Map<string, string[]>();
+  for (const group of groups) {
+    const firstLimit = group.limits[0];
+    if (!firstLimit) {
+      continue;
+    }
+    const label = resolveMissingUsageStatusLabel(
+      resolveUsageLimitPresentation(firstLimit).label
+    );
+    const providerNames = rows.get(label);
+    if (providerNames) {
+      providerNames.push(group.displayName);
+    } else {
+      rows.set(label, [group.displayName]);
+    }
+  }
+  if (rows.size === 0) {
+    return null;
+  }
+  return (
+    <div
+      className="space-y-1 text-muted-foreground text-xs leading-5"
+      data-testid="local-agent-usage-unreported"
+    >
+      {[...rows].map(([label, providerNames]) => (
+        <p className="flex flex-wrap items-baseline gap-x-2" key={label}>
+          <span className="font-medium">{label}</span>
+          <span>{providerNames.join(", ")}</span>
+        </p>
+      ))}
+    </div>
   );
 }
 
@@ -559,56 +795,53 @@ function SettingsLocalAgentUsageLimitGauge({
     .filter(Boolean)
     .join(", ");
 
+  if (remainingPercent === null) {
+    return null;
+  }
+
   return (
-    <div className="grid min-h-52 min-w-0 grid-rows-[auto_1fr_auto] rounded-md border border-border/70 bg-background/45 px-3 py-3">
-      <p className="min-h-10 text-center font-medium text-sm leading-5">
-        {limit.label}
-      </p>
-      <div className="flex min-h-28 flex-col items-center justify-center gap-2 py-2">
-        {remainingPercent === null ? (
-          <p className="max-w-40 text-center text-muted-foreground text-xs leading-5">
-            {resolveMissingUsageCopy(limit.status)}
-          </p>
-        ) : (
-          <div
-            aria-label={accessibleLabel}
-            aria-valuemax={100}
-            aria-valuemin={0}
-            aria-valuenow={remainingPercent}
-            aria-valuetext={`${formatRemainingPercent(remainingPercent)} left`}
-            className="relative grid size-20 place-items-center"
-            role="progressbar"
+    <div className="grid min-w-0 justify-items-center gap-2 text-center">
+      <p className="font-medium text-sm leading-5">{limit.label}</p>
+      <div
+        aria-label={accessibleLabel}
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={remainingPercent}
+        aria-valuetext={`${formatRemainingPercent(remainingPercent)} left`}
+        className="relative grid size-18 place-items-center"
+        role="progressbar"
+      >
+        <UsageLimitRing
+          className="absolute inset-0 size-full"
+          remainingPercent={remainingPercent}
+          strokeWidth={2}
+          tone={presentation.tone}
+        />
+        <span className="flex flex-col items-center font-medium tabular-nums leading-none">
+          <span className="text-sm" data-usage-limit-value>
+            {formatRemainingPercent(remainingPercent)}
+          </span>
+          <span
+            className="mt-1 text-[9px] text-muted-foreground"
+            data-usage-limit-unit
           >
-            <UsageLimitRing
-              className="absolute inset-0 size-full"
-              remainingPercent={remainingPercent}
-              strokeWidth={2}
-              tone={presentation.tone}
-            />
-            <span className="flex flex-col items-center font-medium tabular-nums leading-none">
-              <span className="text-sm" data-usage-limit-value>
-                {formatRemainingPercent(remainingPercent)}
-              </span>
-              <span
-                className="mt-1 text-[9px] text-muted-foreground"
-                data-usage-limit-unit
-              >
-                left
-              </span>
-            </span>
-          </div>
+            left
+          </span>
+        </span>
+      </div>
+      <span
+        className={cn(
+          "font-medium text-xs",
+          resolveStatusToneSoftTextClassName(presentation.tone)
         )}
-        <Badge
-          className={resolveUsageLimitBadgeClassName(presentation.tone)}
-          variant="secondary"
-        >
-          {presentation.label}
-        </Badge>
-      </div>
-      <div className="grid gap-0.5 border-border/60 border-t pt-2.5 text-center text-muted-foreground text-xs leading-5">
+      >
+        {presentation.label}
+      </span>
+      <p className="flex flex-wrap justify-center gap-x-1 text-muted-foreground text-xs leading-5">
         <UsageLimitTime dateTime={limit.resetsAt} label={resetLabel} />
+        <span aria-hidden="true">·</span>
         <UsageLimitTime dateTime={limit.observedAt} label={observedLabel} />
-      </div>
+      </p>
     </div>
   );
 }
@@ -794,6 +1027,18 @@ function resolveMissingUsageCopy(
   return "Usage percentage not reported.";
 }
 
+function resolveMissingUsageStatusLabel(
+  label: UsageLimitPresentation["label"]
+): string {
+  if (label === "Unsupported") {
+    return "Usage not supported";
+  }
+  if (label === "Unavailable") {
+    return "Usage temporarily unavailable";
+  }
+  return "Usage not reported";
+}
+
 function formatRemainingPercent(value: number): string {
   return `${US_USAGE_PERCENT_FORMATTER.format(value)}%`;
 }
@@ -874,21 +1119,6 @@ function formatExactUsageLimitTime(value: string): string {
   return Number.isNaN(date.getTime())
     ? value
     : US_USAGE_TIME_FORMATTER.format(date);
-}
-
-function resolveUsageLimitBadgeClassName(
-  tone: UsageLimitPresentation["tone"]
-): string {
-  if (tone === "danger") {
-    return "border-destructive/25 bg-destructive/10 text-destructive";
-  }
-  if (tone === "warning") {
-    return resolveStatusToneAdvisoryBadgeClassName();
-  }
-  if (tone === "ready") {
-    return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  }
-  return "text-muted-foreground";
 }
 
 export type SettingsLocalAgentAdvisoryBadgeProps = {

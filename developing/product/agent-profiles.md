@@ -127,6 +127,14 @@ bound to another controller Session is not repurposed; the default new-Profile
 path remains authoritative. Ambiguous ownership, an unavailable Binding read, or
 an ambiguous session identity fails closed instead of selecting a nearby match.
 
+Clients may expose an explicit owner-scoped lookup from an exact controller ref
+and exact controller Session ID to the one bound Agent Profile. This is a
+recovery aid for a caller that remembers creating a same-session identity but
+lost its Profile ID; it is not a discovery step in the default self-add flow.
+The lookup performs one Binding reverse read and reports whether the result
+belongs to the active Organization. It must not enumerate Profiles, inspect
+unrelated Bindings, or silently choose a Profile from another Organization.
+
 ## Agent Profile Creation Requests
 
 An Agent Profile Creation Request is the one Organization-scoped coordination
@@ -282,6 +290,17 @@ model.
 
 It can make the Agent Profile visible, addressable, and available as a
 conversation participant. It does not prove the Agent Profile can reply now.
+
+An ordinary human-owned Agent Profile joins an ordinary Space together with its
+authoritative owner Human Profile. This is one atomic Core-resolved membership
+operation, not a client convention. The owner remains a member after the Agent
+is removed and cannot leave while that Agent remains. An unconverted
+one-Human/one-Agent Direct Message is the exception: the Agent owner's Human
+Profile is a derived read-only observer until that owner explicitly joins and
+irreversibly converts the DM into an ordinary Space. Managed Agents, including
+the Center Agent, do not use this owner-participation rule. The full membership,
+negative-surface, and reconciliation contract belongs to
+`developing/product/space-collaboration.md`.
 
 Agent Profile Binding is the execution connection from an Agent Profile to a
 local OpenMeld Service Runtime and Agent Controller:

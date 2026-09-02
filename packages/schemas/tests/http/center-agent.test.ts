@@ -184,6 +184,7 @@ describe("Center Agent HTTP schemas", () => {
           },
         ],
         organizationId: "org_1",
+        selectionStatus: "available",
         selectedInstallationId: "install-nvm",
       }).installations[0]?.selected
     ).toBe(true);

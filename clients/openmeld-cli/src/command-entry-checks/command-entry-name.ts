@@ -212,6 +212,8 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   profile: "profile.menu",
   "profiles create": "profile.create",
   "profile create": "profile.create",
+  "profiles current-session": "profile.current-session",
+  "profile current-session": "profile.current-session",
   "profiles list": "profile.list",
   "profiles ls": "profile.list",
   "profile list": "profile.list",

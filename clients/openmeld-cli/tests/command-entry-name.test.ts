@@ -138,6 +138,9 @@ describe("command entry name", () => {
       "profile.show"
     );
     expect(
+      resolveCommandEntryNameFromTokens(["profiles", "current-session"])
+    ).toBe("profile.current-session");
+    expect(
       resolveCommandEntryNameFromTokens(["profile", "requests", "list"])
     ).toBe("profile.requests.list");
     expect(
