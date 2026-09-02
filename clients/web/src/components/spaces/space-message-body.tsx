@@ -57,7 +57,8 @@ export const SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS = 4000;
 export const SPACE_RESPONSE_TRUNCATED_MARKER =
 	"[Response truncated by OpenMeld]";
 export const SPACE_RESPONSE_TRUNCATED_SUFFIX = `\n\n${SPACE_RESPONSE_TRUNCATED_MARKER}`;
-export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
+
+type SpaceMessageBodyProps = {
 	className?: string;
 	computerSetupContext?: CenterAgentComputerSetupContext;
 	computerSetupSourceSignalId?: string;
@@ -91,7 +92,9 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		SpaceCollaborationProfilePresentation
 	>;
 	spaceReferencesById?: SpaceMessageReferencesById;
-}) {
+};
+
+function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
 	const shouldReduceMotion = useReducedMotionConfig();
 	const isStreaming = input.item.agentStreamState?.status === "streaming";
@@ -104,10 +107,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		() => splitServerTruncationMarker(displayedText),
 		[displayedText]
 	);
-	const className = cn(
-		"break-words text-sm leading-6 [overflow-wrap:anywhere]",
-		input.className
-	);
 	const shouldCollapse =
 		textProjection.visibleText.length >
 		SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS;
@@ -118,6 +117,17 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 					SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS
 				)
 			: textProjection.visibleText;
+	return {
+		isExpanded,
+		isStreaming,
+		renderedText,
+		setIsExpanded,
+		shouldCollapse,
+		textProjection,
+	};
+}
+
+function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
 	const agentMentionProfilesById = useMemo(
@@ -175,6 +185,23 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 			spaceReferencesById,
 		]
 	);
+	return {
+		additionalRemarkPlugins,
+		agentMentionProfilesById,
+		renderInternalLink,
+		spaceReferencesById,
+	};
+}
+
+export const SpaceMessageBody = memo(function SpaceMessageBody(
+	input: SpaceMessageBodyProps
+) {
+	const text = useSpaceMessageTextPresentation(input);
+	const references = useSpaceMessageReferencePresentation(input);
+	const className = cn(
+		"break-words text-sm leading-6 [overflow-wrap:anywhere]",
+		input.className
+	);
 	const shouldRenderMarkdown =
 		input.item.actorProfileKind === "agent" ||
 		input.item.isAgentFinalReply === true;
@@ -203,15 +230,15 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 	);
 	const centerAgentTaskReferences = input.item.centerAgentTaskReferences ?? [];
 	const body = renderSpaceMessageTextContent({
-		additionalRemarkPlugins,
-		agentMentionProfilesById,
+		additionalRemarkPlugins: references.additionalRemarkPlugins,
+		agentMentionProfilesById: references.agentMentionProfilesById,
 		className,
-		isStreaming,
+		isStreaming: text.isStreaming,
 		onOpenAgentProfile: input.onOpenAgentProfile,
 		renderAgentProfileTrigger: input.renderAgentProfileTrigger,
-		referencesById: spaceReferencesById,
-		renderInternalLink,
-		renderedText,
+		referencesById: references.spaceReferencesById,
+		renderInternalLink: references.renderInternalLink,
+		renderedText: text.renderedText,
 		shouldRenderMarkdown,
 	});
 	const hasVisibleContent =
@@ -220,56 +247,125 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		centerAgentTaskReferences.length > 0 ||
 		attachments.length > 0 ||
 		files.length > 0 ||
-		textProjection.serverTruncated;
+		text.textProjection.serverTruncated;
 	if (!hasVisibleContent) {
 		return null;
 	}
 
+	return (
+		<SpaceMessageBodyContent
+			api={spaceApi}
+			attachments={attachments}
+			body={body}
+			centerAgentTaskReferences={centerAgentTaskReferences}
+			containerClassName={input.containerClassName}
+			files={files}
+			isExpanded={text.isExpanded}
+			navigationActionContent={navigationActionContent}
+			onOpenSpaceFile={input.onOpenSpaceFile}
+			onToggleExpanded={() => text.setIsExpanded((current) => !current)}
+			organizationSlug={input.orgSlug}
+			serverTruncated={text.textProjection.serverTruncated}
+			shouldCollapse={text.shouldCollapse}
+			spaceId={input.item.spaceId ?? ""}
+		/>
+	);
+});
+
+function SpaceMessageBodyContent(input: {
+	api: Pick<SpaceApi, "downloadFileContent">;
+	attachments: SpaceTimelineItem["attachments"];
+	body: ReactNode;
+	centerAgentTaskReferences: NonNullable<
+		SpaceTimelineItem["centerAgentTaskReferences"]
+	>;
+	containerClassName?: string;
+	files: NonNullable<SpaceTimelineItem["files"]>;
+	isExpanded: boolean;
+	navigationActionContent: ReactNode;
+	onOpenSpaceFile?: (fileId: string, revision: number) => void;
+	onToggleExpanded: () => void;
+	organizationSlug?: string;
+	serverTruncated: boolean;
+	shouldCollapse: boolean;
+	spaceId: string;
+}) {
 	return (
 		<div
 			className={cn("flex min-w-0 flex-col gap-2", input.containerClassName)}
 			data-slot="space-message-body"
 			style={{ overflowWrap: "anywhere" }}
 		>
-			{body}
-			{navigationActionContent}
-			{centerAgentTaskReferences.length > 0 ? (
-				<SpaceMessageCenterAgentTaskReferences
-					references={centerAgentTaskReferences}
-				/>
-			) : null}
+			{input.body}
+			{input.navigationActionContent}
+			<SpaceMessageCenterAgentTaskReferenceList
+				references={input.centerAgentTaskReferences}
+			/>
 			<SpaceMessageAttachmentGrid
-				attachments={attachments}
-				organizationSlug={input.orgSlug}
-				spaceId={input.item.spaceId ?? ""}
+				attachments={input.attachments}
+				organizationSlug={input.organizationSlug}
+				spaceId={input.spaceId}
 			/>
 			<SpaceMessageFileList
-				api={spaceApi}
-				files={files}
+				api={input.api}
+				files={input.files}
 				onOpenSpaceFile={input.onOpenSpaceFile}
-				spaceId={input.item.spaceId ?? ""}
+				spaceId={input.spaceId}
 			/>
-			{shouldCollapse ? (
-				<button
-					aria-expanded={isExpanded}
-					className="w-fit text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-					onClick={() => setIsExpanded((current) => !current)}
-					type="button"
-				>
-					{isExpanded ? "Show less" : "Show more"}
-				</button>
-			) : null}
-			{textProjection.serverTruncated ? (
-				<p
-					className="border-border/60 border-l-2 pl-3 text-muted-foreground text-xs leading-5"
-					role="note"
-				>
-					OpenMeld shortened this reply because it reached the message limit.
-				</p>
-			) : null}
+			<SpaceMessageCollapseButton
+				isExpanded={input.isExpanded}
+				onToggle={input.onToggleExpanded}
+				visible={input.shouldCollapse}
+			/>
+			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
 		</div>
 	);
-});
+}
+
+function SpaceMessageCenterAgentTaskReferenceList(input: {
+	references: NonNullable<SpaceTimelineItem["centerAgentTaskReferences"]>;
+}) {
+	if (input.references.length === 0) {
+		return null;
+	}
+	return (
+		<SpaceMessageCenterAgentTaskReferences references={input.references} />
+	);
+}
+
+function SpaceMessageCollapseButton(input: {
+	isExpanded: boolean;
+	onToggle: () => void;
+	visible: boolean;
+}) {
+	if (!input.visible) {
+		return null;
+	}
+	return (
+		<button
+			aria-expanded={input.isExpanded}
+			className="w-fit text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			onClick={input.onToggle}
+			type="button"
+		>
+			{input.isExpanded ? "Show less" : "Show more"}
+		</button>
+	);
+}
+
+function SpaceMessageServerTruncatedNote(input: { visible: boolean }) {
+	if (!input.visible) {
+		return null;
+	}
+	return (
+		<p
+			className="border-border/60 border-l-2 pl-3 text-muted-foreground text-xs leading-5"
+			role="note"
+		>
+			OpenMeld shortened this reply because it reached the message limit.
+		</p>
+	);
+}
 
 function renderSpaceMessageTextContent(input: {
 	additionalRemarkPlugins: ComponentProps<
