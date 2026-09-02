@@ -201,7 +201,11 @@ import {
   recordRuntimeCoordinatorFailureTaskOutcome,
   recordRuntimeCoordinatorFinalizationTaskOutcome,
 } from "../../../agent-task-coordination/application/runtime-coordinator-task-outcome";
-import { readCenterAgentDesignationRecord } from "../../../center-agent/center-agent-repository";
+import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
+import {
+  readCenterAgentDesignationRecord,
+  readResolvedOrganizationOwnerHumanSpaceMember,
+} from "../../../center-agent/center-agent-repository";
 import { projectSpaceDiagnosticReportPointers } from "../../../diagnostics/application/space-diagnostic-report-pointer";
 import { writeSpaceDiagnosticReport } from "../../../diagnostics/infrastructure/d1/space-diagnostic-report-repo";
 import {
@@ -561,7 +565,9 @@ import {
 } from "../../infrastructure/sql/space-retention-repo";
 import {
   ensureSpaceSqlSchema,
+  hasReconciledSpaceAgentOwnerMembershipPolicy,
   isoToTimestampMs,
+  markSpaceAgentOwnerMembershipPolicyReconciled,
 } from "../../infrastructure/sql/space-schema-repo";
 import {
   type AgentReplyObservationTransactionResult,
@@ -6886,29 +6892,44 @@ export class Space extends DurableObject<CoreBindings> {
     const actorOwnerUserId = normalizeOptionalText(
       context.actorContext.ownerUserId
     );
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
     const actorMember = readSpaceMemberRecord(
       this.ctx.storage.sql,
       context.actorContext.openMeldProfileId
     );
-    if (
-      !(
-        actorOwnerUserId &&
+    const isActiveHumanMember = Boolean(
+      actorOwnerUserId &&
         actorMember?.status === "active" &&
         actorMember.profileKindSnapshot === "human" &&
         actorMember.ownerUserIdSnapshot === actorOwnerUserId
-      )
-    ) {
+    );
+    const isAgentOwnerJoiningAsSelf = Boolean(
+      actorOwnerUserId &&
+        actorMember?.status !== "active" &&
+        activeMembers.some(
+          (member) =>
+            member.profileKindSnapshot === "agent" &&
+            member.ownerUserIdSnapshot === actorOwnerUserId
+        ) &&
+        input.members.length === 1 &&
+        input.members[0]?.profileId ===
+          context.actorContext.openMeldProfileId &&
+        input.members[0]?.profileKind === "human" &&
+        input.members[0]?.ownerUserId === actorOwnerUserId
+    );
+    if (!(isActiveHumanMember || isAgentOwnerJoiningAsSelf)) {
       throw createCoreRpcHttpError({
         code: "space.membership_required",
-        reason: "You must be a current member of this Direct Message.",
+        reason:
+          "You must be a current member, or join as the Agent owner's Human Profile.",
         status: 403,
       });
     }
 
     const activeMemberIds = new Set(
-      listSpaceMemberRecords(this.ctx.storage.sql, { status: "active" }).map(
-        (member) => member.profileId
-      )
+      activeMembers.map((member) => member.profileId)
     );
     if (
       !input.members.some((member) => !activeMemberIds.has(member.profileId))
@@ -7936,7 +7957,53 @@ export class Space extends DurableObject<CoreBindings> {
       }
       throw error;
     }
-    return await this.authorizeSpaceAccess(spaceAccess);
+    const accessResult = await this.authorizeSpaceAccess(spaceAccess);
+    if (!accessResult.ok) {
+      return accessResult;
+    }
+    const requestContext = getSpaceAccessRequestContext(spaceAccess);
+    const ownerUserId = normalizeOptionalText(
+      requestContext?.actorContext.ownerUserId
+    );
+    const profileId = normalizeOptionalText(
+      requestContext?.actorContext.openMeldProfileId
+    );
+    const meta = this.readSpaceMetaRecord();
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    const isCurrentDirectMessage = Boolean(
+      meta?.purpose === "openmeld_dm_space" &&
+        meta.directMessage &&
+        !meta.directMessage.convertedAt &&
+        activeMembers.length === 2
+    );
+    const isActiveProfile = Boolean(
+      profileId &&
+        activeMembers.some((member) => member.profileId === profileId)
+    );
+    const isAgentOwnerObserver = Boolean(
+      isCurrentDirectMessage &&
+        requestContext?.actorContext.profileKind === "human" &&
+        ownerUserId &&
+        !isActiveProfile &&
+        activeMembers.some(
+          (member) =>
+            member.profileKindSnapshot === "agent" &&
+            member.ownerUserIdSnapshot === ownerUserId
+        )
+    );
+    if (!isAgentOwnerObserver) {
+      return accessResult;
+    }
+    return {
+      ok: false,
+      response: this.forbiddenResponse(
+        requestContext?.actorContext.requestId ?? "space-agent-owner-observer",
+        "space.access.read_only",
+        "Agent owners can view this Direct Message, but must join before participating."
+      ),
+    };
   }
 
   private async dispatchCursorRequest(
@@ -11195,6 +11262,8 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
 
+    await this.ensureAgentOwnerMembershipPolicy(metaRecord);
+
     const parsed = getSpaceStatusInputSchema.safeParse({
       spaceId: this.spaceId,
     });
@@ -11369,6 +11438,8 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
 
+    await this.ensureAgentOwnerMembershipPolicy(metaRecord);
+
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: this.ctx.storage.sql,
       env: this.bindings,
@@ -11381,6 +11452,140 @@ export class Space extends DurableObject<CoreBindings> {
       ...(lineageLoader ? { lineageLoader } : {}),
     });
     return Response.json(snapshot);
+  }
+
+  private async ensureAgentOwnerMembershipPolicy(
+    metaRecord: SpaceMetaRecord
+  ): Promise<void> {
+    const sql = this.ctx.storage.sql;
+    if (hasReconciledSpaceAgentOwnerMembershipPolicy(sql)) {
+      return;
+    }
+    if (metaRecord.directMessage && !metaRecord.directMessage.convertedAt) {
+      markSpaceAgentOwnerMembershipPolicyReconciled(sql);
+      return;
+    }
+
+    const activeMembers = listSpaceMemberRecords(sql, { status: "active" });
+    const representedOwnerUserIds = new Set(
+      activeMembers
+        .filter((member) => member.profileKindSnapshot === "human")
+        .map((member) => normalizeOptionalText(member.ownerUserIdSnapshot))
+        .filter((ownerUserId): ownerUserId is string => Boolean(ownerUserId))
+    );
+    const agentCandidates = activeMembers.filter(
+      (member) =>
+        member.profileKindSnapshot === "agent" &&
+        Boolean(
+          member.ownerUserIdSnapshot &&
+            !representedOwnerUserIds.has(member.ownerUserIdSnapshot)
+        )
+    );
+    if (agentCandidates.length === 0) {
+      markSpaceAgentOwnerMembershipPolicyReconciled(sql);
+      return;
+    }
+
+    const db = identityDb(this.bindings);
+    if (!db) {
+      console.error("[core.space.agent_owner_reconciliation_unavailable]", {
+        reason: "identity_db_unavailable",
+        spaceId: this.spaceId,
+      });
+      return;
+    }
+
+    const resolvedOwners: Array<{
+      agent: SpaceMemberRecord;
+      owner: NonNullable<
+        Awaited<
+          ReturnType<typeof readResolvedOrganizationOwnerHumanSpaceMember>
+        >
+      >;
+    }> = [];
+    let designatedCenterAgentProfileId: string | null;
+    try {
+      designatedCenterAgentProfileId =
+        (
+          await readCenterAgentDesignationRecord({
+            db,
+            organizationId: metaRecord.organizationId,
+          })
+        )?.agentProfileId ?? null;
+    } catch (error) {
+      console.error("[core.space.agent_owner_reconciliation_failed]", {
+        error: formatUnknownErrorMessage(error),
+        reason: "center_agent_designation_unavailable",
+        spaceId: this.spaceId,
+      });
+      return;
+    }
+    for (const agent of agentCandidates) {
+      try {
+        const profileContext = await readAgentProfileOrganizationContext({
+          agentProfileId: agent.profileId,
+          db,
+        });
+        if (
+          !profileContext ||
+          profileContext.profileKind !== "agent" ||
+          profileContext.managedRole !== null ||
+          agent.profileId === designatedCenterAgentProfileId ||
+          profileContext.organizationId !== metaRecord.organizationId
+        ) {
+          continue;
+        }
+        const owner = await readResolvedOrganizationOwnerHumanSpaceMember({
+          db,
+          organizationId: metaRecord.organizationId,
+          ownerUserId: profileContext.ownerUserId,
+        });
+        if (!owner) {
+          console.error("[core.space.agent_owner_reconciliation_unavailable]", {
+            agentProfileId: agent.profileId,
+            ownerUserId: profileContext.ownerUserId,
+            reason: "owner_human_unavailable",
+            spaceId: this.spaceId,
+          });
+          return;
+        }
+        resolvedOwners.push({ agent, owner });
+      } catch (error) {
+        console.error("[core.space.agent_owner_reconciliation_failed]", {
+          agentProfileId: agent.profileId,
+          error: formatUnknownErrorMessage(error),
+          spaceId: this.spaceId,
+        });
+        return;
+      }
+    }
+
+    const addedMemberIds = this.ctx.storage.transactionSync(() => {
+      const added: string[] = [];
+      for (const { agent, owner } of resolvedOwners) {
+        const response = addSpaceMembersUseCase({
+          actorDisplayName: agent.profileNameSnapshot,
+          actorOwnerUserId: agent.ownerUserIdSnapshot ?? undefined,
+          actorProfileId: agent.profileId,
+          env: this.bindings,
+          liveSessions: this.sessions.values(),
+          members: [owner],
+          spaceId: this.spaceId,
+          sql,
+        });
+        added.push(...response.addedMemberIds);
+      }
+      markSpaceAgentOwnerMembershipPolicyReconciled(sql);
+      return added;
+    });
+    if (addedMemberIds.length === 0) {
+      return;
+    }
+    await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+    await this.broadcastSpaceMembersChanged({
+      profileIds: addedMemberIds,
+      reason: "space.agent_owners.reconciled",
+    });
   }
 
   private async handleGetIdentityDirectory(): Promise<Response> {
@@ -11756,6 +11961,14 @@ export class Space extends DurableObject<CoreBindings> {
       return centerAgentDirectMessageBlock;
     }
 
+    const ownerRemovalBlock = await this.rejectOrdinaryAgentOwnerRemoval({
+      context,
+      memberProfileIds: parsed.data.memberProfileIds,
+    });
+    if (ownerRemovalBlock) {
+      return ownerRemovalBlock;
+    }
+
     try {
       const response = removeSpaceMembersUseCase({
         sql: this.ctx.storage.sql,
@@ -11807,6 +12020,14 @@ export class Space extends DurableObject<CoreBindings> {
       return centerAgentDirectMessageBlock;
     }
 
+    const ownerRemovalBlock = await this.rejectOrdinaryAgentOwnerRemoval({
+      context,
+      memberProfileIds: [context.actorContext.openMeldProfileId],
+    });
+    if (ownerRemovalBlock) {
+      return ownerRemovalBlock;
+    }
+
     try {
       const response = leaveSpaceUseCase({
         sql: this.ctx.storage.sql,
@@ -11835,6 +12056,105 @@ export class Space extends DurableObject<CoreBindings> {
       }
       throw error;
     }
+  }
+
+  private async rejectOrdinaryAgentOwnerRemoval(input: {
+    context: CoreRpcContextInput;
+    memberProfileIds: readonly string[];
+  }): Promise<Response | null> {
+    const removedProfileIds = new Set(input.memberProfileIds);
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    const removedOwnerUserIds = new Set(
+      activeMembers
+        .filter(
+          (member) =>
+            member.profileKindSnapshot === "human" &&
+            removedProfileIds.has(member.profileId) &&
+            Boolean(member.ownerUserIdSnapshot)
+        )
+        .map((member) => member.ownerUserIdSnapshot as string)
+    );
+    if (removedOwnerUserIds.size === 0) {
+      return null;
+    }
+
+    const ownedAgentsLeftBehind = activeMembers.filter(
+      (member) =>
+        member.profileKindSnapshot === "agent" &&
+        !removedProfileIds.has(member.profileId) &&
+        Boolean(
+          member.ownerUserIdSnapshot &&
+            removedOwnerUserIds.has(member.ownerUserIdSnapshot)
+        )
+    );
+    if (ownedAgentsLeftBehind.length === 0) {
+      return null;
+    }
+
+    const db = identityDb(this.bindings);
+    if (!db) {
+      return this.agentOwnerRemovalIdentityUnavailableResponse(
+        input.context.actorContext.requestId
+      );
+    }
+    for (const agent of ownedAgentsLeftBehind) {
+      let profileContext: Awaited<
+        ReturnType<typeof readAgentProfileOrganizationContext>
+      >;
+      try {
+        profileContext = await readAgentProfileOrganizationContext({
+          agentProfileId: agent.profileId,
+          db,
+        });
+      } catch (error) {
+        console.error("[core.space.agent_owner_removal_identity_failed]", {
+          error: formatUnknownErrorMessage(error),
+          profileId: agent.profileId,
+          spaceId: this.spaceId,
+        });
+        return this.agentOwnerRemovalIdentityUnavailableResponse(
+          input.context.actorContext.requestId
+        );
+      }
+      if (!profileContext) {
+        return this.agentOwnerRemovalIdentityUnavailableResponse(
+          input.context.actorContext.requestId
+        );
+      }
+      if (
+        profileContext.profileKind === "agent" &&
+        profileContext.managedRole === null
+      ) {
+        return Response.json(
+          {
+            ok: false,
+            code: "space.agent_owner_membership_required",
+            message:
+              "Remove the owner's Agent from this Space before removing the owner.",
+            requestId: input.context.actorContext.requestId,
+          },
+          { status: 409 }
+        );
+      }
+    }
+    return null;
+  }
+
+  private agentOwnerRemovalIdentityUnavailableResponse(
+    requestId: string
+  ): Response {
+    return Response.json(
+      {
+        ok: false,
+        code: "space.agent_owner_identity_unavailable",
+        message:
+          "OpenMeld could not verify whether this Agent owner can leave. Try again.",
+        requestId,
+      },
+      { status: 503 }
+    );
   }
 
   private async handlePatchMeta(
@@ -12761,7 +13081,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private forbiddenResponse(
     requestId: string,
-    code: "space.forbidden",
+    code: "space.access.read_only" | "space.forbidden",
     message: string
   ): Response {
     return Response.json(

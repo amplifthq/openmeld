@@ -1602,6 +1602,12 @@ function buildOrganizationDirectoryAddCandidates(input: {
 		...(input.snapshot?.humans.map((member) => member.profileId) ?? []),
 		...(input.snapshot?.agents.map((member) => member.profileId) ?? []),
 	]);
+	const joinedHumanOwnerUserIds = new Set(
+		input.snapshot?.humans
+			.map((member) => member.ownerUserId?.trim())
+			.filter((ownerUserId): ownerUserId is string => Boolean(ownerUserId)) ??
+			[]
+	);
 	let alreadyJoinedCount = 0;
 	const memberCandidates = (input.directory?.members ?? []).flatMap(
 		(member): readonly SpaceAddMembersCandidateSummary[] => {
@@ -1640,6 +1646,7 @@ function buildOrganizationDirectoryAddCandidates(input: {
 			const description = resolveOrganizationAgentDescription({
 				isCenterAgent: agent.isCenterAgent === true,
 				organizationName: input.organizationName,
+				ownerAlreadyJoined: joinedHumanOwnerUserIds.has(agent.ownerUserId),
 				ownerName: agent.ownerName,
 			});
 			return [
@@ -1688,13 +1695,16 @@ function toAddMembersCandidateSummary(
 function resolveOrganizationAgentDescription(input: {
 	isCenterAgent: boolean;
 	organizationName: string;
+	ownerAlreadyJoined: boolean;
 	ownerName?: string;
 }): string {
 	if (input.isCenterAgent) {
 		return `Center Agent for ${input.organizationName}`;
 	}
 	if (input.ownerName) {
-		return `Owned by ${input.ownerName}`;
+		return input.ownerAlreadyJoined
+			? `Owned by ${input.ownerName}`
+			: `${input.ownerName} will join too`;
 	}
 	return "Organization Agent";
 }
@@ -1814,6 +1824,11 @@ function SpaceMembersList(input: {
 			snapshot: input.snapshot,
 		});
 	const creatorProfileIds = buildSpaceCreatorProfileIds(input.snapshot);
+	const requiredAgentOwnerHumanProfileIds =
+		buildRequiredAgentOwnerHumanProfileIds({
+			centerAgentProfileId: input.centerAgentProfileId,
+			snapshot: input.snapshot,
+		});
 
 	if (input.isLoading && !input.snapshot) {
 		return (
@@ -1911,6 +1926,7 @@ function SpaceMembersList(input: {
 										creatorProfileIds,
 										currentProfileId: input.currentProfileId,
 										profileId: entry.profileId,
+										requiredAgentOwnerHumanProfileIds,
 									})
 										? input.onRemoveMember
 										: undefined;
@@ -1972,10 +1988,40 @@ function canShowRemoveMemberAction(input: {
 	creatorProfileIds: ReadonlySet<string>;
 	currentProfileId: string;
 	profileId: string;
+	requiredAgentOwnerHumanProfileIds: ReadonlySet<string>;
 }): boolean {
 	return (
 		input.profileId !== input.currentProfileId &&
-		!input.creatorProfileIds.has(input.profileId)
+		!input.creatorProfileIds.has(input.profileId) &&
+		!input.requiredAgentOwnerHumanProfileIds.has(input.profileId)
+	);
+}
+
+function buildRequiredAgentOwnerHumanProfileIds(input: {
+	centerAgentProfileId: string | null;
+	snapshot: SpaceMembersSnapshot | null;
+}): ReadonlySet<string> {
+	const requiredOwnerUserIds = new Set(
+		(input.snapshot?.agents ?? [])
+			.filter(
+				(agent) =>
+					agent.status === "active" &&
+					agent.profileId !== input.centerAgentProfileId
+			)
+			.map((agent) => agent.ownerUserId?.trim())
+			.filter((ownerUserId): ownerUserId is string => Boolean(ownerUserId))
+	);
+	return new Set(
+		(input.snapshot?.humans ?? [])
+			.filter(
+				(human) =>
+					human.status === "active" &&
+					Boolean(
+						human.ownerUserId &&
+							requiredOwnerUserIds.has(human.ownerUserId.trim())
+					)
+			)
+			.map((human) => human.profileId)
 	);
 }
 

@@ -207,6 +207,7 @@ type SpaceConversationPanelProps = {
 	>;
 	centerAgentProfileId: string | null;
 	className?: string;
+	composerPrimaryAction?: ReactNode;
 	composerErrorMessage: string | null;
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
@@ -1853,24 +1854,28 @@ function SpaceComposerSection(input: {
 							</div>
 							<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
 								{panel.profileControl}
-								<PromptInputAction
-									className="hidden sm:inline-flex"
-									tooltip={panel.isSendingMessage ? "Sending…" : "Send message"}
-								>
-									<Button
-										aria-label={input.sendButtonLabel}
-										disabled={
-											panel.isSendingMessage ||
-											!input.canSendMessage ||
-											input.composerSendBlocked
+								{panel.composerPrimaryAction ?? (
+									<PromptInputAction
+										className="hidden sm:inline-flex"
+										tooltip={
+											panel.isSendingMessage ? "Sending…" : "Send message"
 										}
-										onClick={input.submitComposer}
-										size="icon-sm"
-										type="button"
 									>
-										<ArrowUpIcon aria-hidden="true" weight="bold" />
-									</Button>
-								</PromptInputAction>
+										<Button
+											aria-label={input.sendButtonLabel}
+											disabled={
+												panel.isSendingMessage ||
+												!input.canSendMessage ||
+												input.composerSendBlocked
+											}
+											onClick={input.submitComposer}
+											size="icon-sm"
+											type="button"
+										>
+											<ArrowUpIcon aria-hidden="true" weight="bold" />
+										</Button>
+									</PromptInputAction>
+								)}
 							</div>
 						</PromptInputActions>
 					</PromptInput>

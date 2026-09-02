@@ -318,6 +318,76 @@ describe("SpaceMembersSidePanel", () => {
 		).toBeNull();
 	});
 
+	it("hides owner removal until their ordinary Agent leaves the Space", () => {
+		const onRemoveMember = vi.fn(async () => ({
+			alreadyAbsentCount: 0,
+			removedCount: 1,
+		}));
+		const commonProps = {
+			activeWakeWaitingTargetProfileIds: new Set<string>(),
+			agentRecoveryPlansByProfileId: new Map(),
+			autoRefreshExhaustedProfileIds: new Set<string>(),
+			currentOwnerUserId: "user_felix",
+			currentProfileId: "11111111-1111-4111-8111-111111111111",
+			isAgentRecoveryPending: () => false,
+			isLoading: false,
+			membersError: null,
+			onAgentRecoveryAction: async () => undefined,
+			onOpenChange: vi.fn(),
+			onRefresh: async () => undefined,
+			onRemoveMember,
+			open: true,
+			orgSlug: "acme",
+		};
+		const owner = createSpaceMemberHumanSnapshot({
+			memberSource: "added_by_member",
+			ownerUserId: "user_mira",
+			profileId: "22222222-2222-4222-8222-222222222222",
+			profileName: "Mira",
+		});
+		const creator = createSpaceMemberHumanSnapshot({
+			memberSource: "space_creator",
+			ownerUserId: "user_felix",
+			profileId: "11111111-1111-4111-8111-111111111111",
+			profileName: "Felix",
+		});
+		const { rerender } = renderWithQueryClient(
+			<SpaceMembersSidePanel
+				{...commonProps}
+				snapshot={createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							memberSource: "added_by_member",
+							ownerUserId: "user_mira",
+							profileId: "agt_33333333-3333-4333-8333-333333333333",
+							profileName: "Mira Runner",
+						}),
+					],
+					humans: [creator, owner],
+				})}
+			/>
+		);
+
+		expect(
+			screen.queryByRole("button", { name: "Member options for Mira" })
+		).toBeNull();
+
+		rerender(
+			<TestQueryClientProvider>
+				<SpaceMembersSidePanel
+					{...commonProps}
+					snapshot={createSpaceMembersSnapshot({
+						humans: [creator, owner],
+					})}
+				/>
+			</TestQueryClientProvider>
+		);
+
+		expect(
+			screen.getByRole("button", { name: "Member options for Mira" })
+		).toBeTruthy();
+	});
+
 	it("opens the shared Agent Profile editor for an owned Agent member", async () => {
 		const agentProfileId = "agt_22222222-2222-4222-8222-222222222222";
 		const queryClient = createTestQueryClient();
@@ -1053,6 +1123,7 @@ describe("SpaceMembersSidePanel", () => {
 		expect(screen.getByRole("checkbox", { name: "Mira" })).toBeTruthy();
 		expect(screen.queryByRole("checkbox", { name: "Center Agent" })).toBeNull();
 		fireEvent.change(searchInput, { target: { value: "" } });
+		expect(screen.getByText("Mira will join too")).toBeTruthy();
 
 		const membersGroup = screen.getByRole("group", { name: "Members" });
 		const agentsGroup = screen.getByRole("group", { name: "Agents" });
@@ -1874,6 +1945,28 @@ function buildOrganizationDirectory(input: {
 }): OrganizationDirectoryResponse {
 	return {
 		agentProfiles: [
+			{
+				createdAt: "2026-07-14T00:00:00.000Z",
+				createdByUserId: "user_mira",
+				creatorProfileId: null,
+				isCenterAgent: false,
+				isDefault: false,
+				lastUsedAt: null,
+				managedRole: null,
+				organizationId: "org-acme",
+				ownerName: "Mira",
+				ownerUserId: "user_mira",
+				profileHandle: "research-agent",
+				profileId: "agt_88888888-8888-4888-8888-888888888888",
+				profileKind: "agent",
+				profileName: "Research Agent",
+				readiness: buildRemoteCenterAgentReadiness("available", {
+					agentProfileId: "agt_88888888-8888-4888-8888-888888888888",
+				}),
+				source: "user",
+				status: "active",
+				updatedAt: "2026-07-14T00:00:00.000Z",
+			},
 			{
 				createdAt: "2026-07-14T00:00:00.000Z",
 				createdByUserId: "user_felix",

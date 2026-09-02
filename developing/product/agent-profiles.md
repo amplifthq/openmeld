@@ -285,6 +285,17 @@ model.
 It can make the Agent Profile visible, addressable, and available as a
 conversation participant. It does not prove the Agent Profile can reply now.
 
+An ordinary human-owned Agent Profile joins an ordinary Space together with its
+authoritative owner Human Profile. This is one atomic Core-resolved membership
+operation, not a client convention. The owner remains a member after the Agent
+is removed and cannot leave while that Agent remains. An unconverted
+one-Human/one-Agent Direct Message is the exception: the Agent owner's Human
+Profile is a derived read-only observer until that owner explicitly joins and
+irreversibly converts the DM into an ordinary Space. Managed Agents, including
+the Center Agent, do not use this owner-participation rule. The full membership,
+negative-surface, and reconciliation contract belongs to
+`developing/product/space-collaboration.md`.
+
 Agent Profile Binding is the execution connection from an Agent Profile to a
 local OpenMeld Service Runtime and Agent Controller:
 

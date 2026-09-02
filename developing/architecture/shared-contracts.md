@@ -4583,6 +4583,32 @@ and already-deployed strict consumers remain compatible during rollout.
 contracts for Space member snapshots, public Wake availability fields, owner
 diagnostics, and Space member directory entries.
 
+Core's Organization-directory member-addition boundary expands every selected
+ordinary Agent Profile to include its authoritative owner member's active
+default Human Profile before it calls the Space membership writer. The
+expansion uses current Agent Profile identity and Organization membership,
+excludes managed Agents, and fails the complete request when the owner Human
+cannot be resolved. The Space Durable Object receives one resolved member batch
+and remains the only membership writer; Gateway and Web must not issue a second
+owner-add request or infer the owner from display text.
+
+An unconverted one-Human/one-Agent Direct Message does not persist that owner as
+a third member. Space read authorization derives the ordinary Agent's owner
+observer from the active Agent member's frozen `ownerUserId`, while write
+authorization rejects that observer with `space.access.read_only`. The existing
+Direct Message conversion method is the only promotion path: it accepts the
+observer only when the one selected member is the observer's own Human Profile,
+then atomically converts the DM and writes membership. Existing ordinary Spaces
+use a one-time Space-SQL reconciliation marker; reconciliation reads canonical
+identity and calls the same Space member service without touching Signal,
+cursor, Inbox, or unread history.
+
+These changes add no external request or response field. Rollout is Core first,
+then Web. New Core with old Web fails observer writes safely but may show the
+existing generic error; new Web must not be deployed against old Core because
+the browser-only read-only presentation is not an authorization boundary.
+Rollback removes Web before Core.
+
 Current Space Message Addressing has exactly three shared-schema relations:
 Wake (`activationTargets`) and Reference (`referenceTargets`) target Agent
 Profiles; Human Mention (`mentionTargets`) targets Human Profiles. Wake is the only

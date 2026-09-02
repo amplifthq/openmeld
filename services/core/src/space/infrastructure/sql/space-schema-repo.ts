@@ -1,5 +1,5 @@
-export const SPACE_SQL_SCHEMA_VERSION = 28;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v28";
+export const SPACE_SQL_SCHEMA_VERSION = 29;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v29";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -113,6 +113,13 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
       marked_at_ms INTEGER NOT NULL
     )
   `);
+
+  sql.exec(`
+		CREATE TABLE IF NOT EXISTS space_agent_owner_membership_policy (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			reconciled_at_ms INTEGER NOT NULL
+		)
+	`);
 
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_members (
@@ -431,6 +438,34 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     Date.now()
   );
 };
+
+export function hasReconciledSpaceAgentOwnerMembershipPolicy(
+  sql: SqlStorage
+): boolean {
+  return (
+    sql
+      .exec<{ id: number }>(
+        "SELECT id FROM space_agent_owner_membership_policy WHERE id = 1 LIMIT 1"
+      )
+      .toArray().length > 0
+  );
+}
+
+export function markSpaceAgentOwnerMembershipPolicyReconciled(
+  sql: SqlStorage,
+  reconciledAtMs = Date.now()
+): void {
+  sql.exec(
+    `
+			INSERT OR REPLACE INTO space_agent_owner_membership_policy (
+				id,
+				reconciled_at_ms
+			)
+			VALUES (1, ?)
+		`,
+    reconciledAtMs
+  );
+}
 
 function migrateDirectMessageAccess(sql: SqlStorage): void {
   const rows = sql

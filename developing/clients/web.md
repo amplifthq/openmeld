@@ -261,6 +261,13 @@ The visible destinations resolve in that group order:
    state uses Direct Messages geometry and never flashes the Spaces sidebar.
    Canonical classification reads the Space status projection; the Account
    Space Index is list data and cannot override a fresher status result.
+   In a one-Human/one-ordinary-Agent DM, the header tells both participants that
+   the named Agent owner can view. When that owner opens the DM through their
+   own Human Profile, Web keeps the Composer and collaboration mutations
+   read-only and offers **Join conversation**. Confirmation reuses the existing
+   **Turn this Direct Message into a Space** flow and adds only that owner's
+   Human Profile. Human-to-Human and Center Agent DMs never show this owner
+   observer or join affordance.
 4. **People** — the first-level home for the Human teammates in the current
    workspace. Its secondary sidebar lists Human Profiles and owns the
    **Invite Members** button. Selecting a person opens the full Human Profile
@@ -276,6 +283,13 @@ The visible destinations resolve in that group order:
    authoritative readiness, and execution relationship in plain language such
    as **Uses Codex on Felix's MacBook Pro**. The managed Center Agent remains in
    the separate Center Agent product home.
+   The ordinary Space member picker explains the owner side effect before
+   submit: an ordinary Agent whose owner is not already present is labeled
+   **_Owner_ will join too**. Once the owner is present, the row may use the
+   stable **Owned by _Owner_** identity label. Center Agent candidates keep
+   their managed Organization label and never promise an owner addition. Core
+   remains the authority, so a stale picker cannot bypass or duplicate the
+   atomic owner membership rule.
    The temporarily hidden product homes retain their current contracts:
 
 - **Projects** is the canonical home for choosing, creating, and connecting the

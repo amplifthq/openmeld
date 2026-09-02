@@ -453,6 +453,46 @@ async function insertTestManagedCenterAgentProfile(input: {
     .run();
 }
 
+async function insertTestOrganizationAgentProfile(input: {
+  agentProfileId: string;
+  organizationId: string;
+  ownerUserId: string;
+}): Promise<void> {
+  const nowMs = Date.now();
+  await env.OPENMELD_DB.prepare(
+    `
+      INSERT INTO openmeld_profiles (
+        profile_id,
+        profile_name,
+        profile_handle,
+        profile_kind,
+        is_default,
+        status,
+        organization_id,
+        owner_user_id,
+        created_by_user_id,
+        creator_profile_id,
+        source,
+        managed_role,
+        last_used_at,
+        created_at,
+        updated_at
+      )
+      VALUES (?, 'Research Agent', ?, 'agent', 0, 'active', ?, ?, ?, NULL, 'web_create', NULL, NULL, ?, ?)
+    `
+  )
+    .bind(
+      input.agentProfileId,
+      `research-agent-${randomUUID()}`,
+      input.organizationId,
+      input.ownerUserId,
+      input.ownerUserId,
+      nowMs,
+      nowMs
+    )
+    .run();
+}
+
 async function insertTestPrimaryHumanProfile(input: {
   ownerUserId: string;
   profileId: string;
@@ -1868,6 +1908,367 @@ describe("OpenMeld Core", () => {
     const status = await stub.rpcGetStatus({ context, spaceId });
     expect(status).toMatchObject({ members: { totalCount: 1 } });
     expect(status.directMessageConvertedAt).toBeUndefined();
+  });
+
+  it("keeps an Agent owner read-only until they explicitly join and convert the Direct Message", async () => {
+    const organizationId = "org-agent-owner-observer";
+    const participantProfileId = SECOND_HUMAN_PROFILE_ID;
+    const agentProfileId = "agt_55555555-5555-4555-8555-555555555555";
+    const ownerHumanProfileId = THIRD_HUMAN_PROFILE_ID;
+    const participantContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "owner-dm-participant",
+      profileId: participantProfileId,
+      profileKind: "human",
+      profileName: "Participant",
+      requestId: "req-agent-owner-observer-participant",
+    });
+    const ownerContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "owner-dm-agent",
+      profileId: ownerHumanProfileId,
+      profileKind: "human",
+      profileName: "Agent Owner",
+      requestId: "req-agent-owner-observer-owner",
+    });
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: "owner-dm-agent",
+    });
+    await insertTestOrganizationAgentProfile({
+      agentProfileId,
+      organizationId,
+      ownerUserId: "owner-dm-agent",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const spaceId = namespace.newUniqueId().toString();
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await stub.rpcInitializeDirectMessageMeta({
+      creator: {
+        kind: "human",
+        ownerName: "Participant",
+        ownerUserId: "owner-dm-participant",
+        profileId: participantProfileId,
+        profileName: "Participant",
+      },
+      guide: "",
+      name: "Participant and Research Agent",
+      organizationId,
+      pairKey: `${participantProfileId}:${agentProfileId}`,
+      purpose: "openmeld_dm_space",
+      spaceId,
+      visibility: "private",
+    });
+    await stub.rpcPostMembers({
+      context: participantContext,
+      members: [
+        {
+          agentControllerRef: null,
+          ownerName: "Participant",
+          ownerUserId: "owner-dm-participant",
+          profileId: participantProfileId,
+          profileKind: "human",
+          profileName: "Participant",
+        },
+        {
+          agentControllerRef: "builtin:codex",
+          ownerName: "Agent Owner",
+          ownerUserId: "owner-dm-agent",
+          profileId: agentProfileId,
+          profileKind: "agent",
+          profileName: "Research Agent",
+        },
+      ],
+      spaceId,
+    });
+
+    await expect(
+      stub.rpcGetStatus({ context: ownerContext, spaceId })
+    ).resolves.toMatchObject({
+      members: { totalCount: 2 },
+      spacePurpose: "openmeld_dm_space",
+    });
+
+    const ownerSpaceAccess = createAuthenticatedSpaceAccessContext({
+      requestContext: ownerContext,
+      spaceId,
+    });
+    await expect(
+      stub.rpcListSpaceFiles({ spaceAccess: ownerSpaceAccess, spaceId })
+    ).resolves.toBeDefined();
+    const readOnlyFileWriteError = await stub
+      .rpcCreateSpaceFolder({
+        body: {
+          clientMutationId: "agent-owner-read-only-folder",
+          name: "Should not be created",
+        },
+        spaceAccess: ownerSpaceAccess,
+        spaceId,
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+    expect((readOnlyFileWriteError as Error).message).toContain(
+      "space.access.read_only"
+    );
+
+    const readOnlyWriteError = await stub
+      .rpcPostSignal({
+        authoringPolicy: "user_authored",
+        context: ownerContext,
+        profile: {
+          kind: "human",
+          profileId: ownerHumanProfileId,
+          profileName: "Agent Owner",
+        },
+        spaceId,
+        text: "I should not be able to write yet",
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+    expect(readOnlyWriteError).toBeInstanceOf(Error);
+    expect((readOnlyWriteError as Error).message).toContain(
+      "space.access.read_only"
+    );
+
+    const invalidConversionError = await runInDurableObject(
+      stub,
+      async (instance) => {
+        try {
+          await instance.rpcConvertDirectMessageToSpace({
+            context: ownerContext,
+            members: [
+              {
+                agentControllerRef: null,
+                ownerName: "Someone Else",
+                ownerUserId: "owner-someone-else",
+                profileId: FOURTH_HUMAN_PROFILE_ID,
+                profileKind: "human",
+                profileName: "Someone Else",
+              },
+            ],
+            name: "Invalid owner conversion",
+            spaceId,
+          });
+          return null;
+        } catch (error) {
+          return {
+            code: (error as { code?: unknown }).code,
+            status: (error as { status?: unknown }).status,
+          };
+        }
+      }
+    );
+    expect(invalidConversionError).toEqual({
+      code: "space.membership_required",
+      status: 403,
+    });
+
+    const converted = await stub.rpcConvertDirectMessageToSpace({
+      context: ownerContext,
+      members: [
+        {
+          agentControllerRef: null,
+          ownerName: "Agent Owner",
+          ownerUserId: "owner-dm-agent",
+          profileId: ownerHumanProfileId,
+          profileKind: "human",
+          profileName: "Agent Owner",
+        },
+      ],
+      name: "Participant, Agent Owner, and Research Agent",
+      spaceId,
+    });
+    expect(converted.addedMemberIds).toEqual([ownerHumanProfileId]);
+    await expect(
+      stub.rpcPostSignal({
+        authoringPolicy: "user_authored",
+        context: ownerContext,
+        profile: {
+          kind: "human",
+          profileId: ownerHumanProfileId,
+          profileName: "Agent Owner",
+        },
+        spaceId,
+        text: "I can participate after joining",
+      })
+    ).resolves.toMatchObject({
+      data: { text: "I can participate after joining" },
+    });
+
+    const blockedLeaveError = await stub
+      .rpcLeaveSpace({ context: ownerContext, spaceId })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+    expect((blockedLeaveError as Error).message).toContain(
+      "space.agent_owner_membership_required"
+    );
+    const blockedRemovalError = await stub
+      .rpcRemoveMembers({
+        context: participantContext,
+        memberProfileIds: [ownerHumanProfileId],
+        spaceId,
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+    expect((blockedRemovalError as Error).message).toContain(
+      "space.agent_owner_membership_required"
+    );
+
+    await expect(
+      stub.rpcRemoveMembers({
+        context: participantContext,
+        memberProfileIds: [agentProfileId],
+        spaceId,
+      })
+    ).resolves.toMatchObject({ removedMemberIds: [agentProfileId] });
+    const membersAfterAgentRemoval = await stub.rpcGetMembers({
+      context: ownerContext,
+      spaceId,
+    });
+    expect(membersAfterAgentRemoval.humans).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          profileId: ownerHumanProfileId,
+          status: "active",
+        }),
+      ])
+    );
+    await expect(
+      stub.rpcLeaveSpace({ context: ownerContext, spaceId })
+    ).resolves.toMatchObject({ leftProfileId: ownerHumanProfileId });
+  });
+
+  it("reconciles ordinary Agent owners into existing Spaces without adding managed Agent owners", async () => {
+    const organizationId = "org-agent-owner-reconciliation";
+    const participantOwnerUserId = "owner-reconciliation-participant";
+    const ordinaryAgentOwnerUserId = "owner-reconciliation-agent";
+    const managedAgentOwnerUserId = "owner-reconciliation-managed-agent";
+    const participantProfileId = SECOND_HUMAN_PROFILE_ID;
+    const ordinaryAgentProfileId = "agt_66666666-6666-4666-8666-666666666666";
+    const managedAgentProfileId = "agt_77777777-7777-4777-8777-777777777777";
+    const ownerHumanProfileId = FOURTH_HUMAN_PROFILE_ID;
+    const participantContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: participantOwnerUserId,
+      profileId: participantProfileId,
+      profileKind: "human",
+      profileName: "Participant",
+      requestId: "req-agent-owner-reconciliation-participant",
+    });
+    const ownerContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: ordinaryAgentOwnerUserId,
+      profileId: ownerHumanProfileId,
+      profileKind: "human",
+      profileName: "Fresh Owner",
+      requestId: "req-agent-owner-reconciliation-owner",
+    });
+    for (const userId of [
+      participantOwnerUserId,
+      ordinaryAgentOwnerUserId,
+      managedAgentOwnerUserId,
+    ]) {
+      await ensureTestOrganizationMembership({ organizationId, userId });
+    }
+    await insertTestPrimaryHumanProfile({
+      ownerUserId: ordinaryAgentOwnerUserId,
+      profileId: ownerHumanProfileId,
+    });
+    await insertTestOrganizationAgentProfile({
+      agentProfileId: ordinaryAgentProfileId,
+      organizationId,
+      ownerUserId: ordinaryAgentOwnerUserId,
+    });
+    await ensureTestCenterAgentDesignation({
+      agentProfileId: managedAgentProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId: managedAgentOwnerUserId,
+    });
+
+    const created = await rpcCreateSpace(env as unknown as CoreBindings, {
+      context: participantContext,
+      name: "Existing Agent Space",
+      visibility: "private",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(created.spaceId));
+    await stub.rpcPostMembers({
+      context: participantContext,
+      members: [
+        {
+          agentControllerRef: "builtin:codex",
+          ownerName: "Fresh Owner",
+          ownerUserId: ordinaryAgentOwnerUserId,
+          profileId: ordinaryAgentProfileId,
+          profileKind: "agent",
+          profileName: "Research Agent",
+        },
+        {
+          agentControllerRef: "remote:openmeld-center-agent",
+          ownerName: "Managed Agent Owner",
+          ownerUserId: managedAgentOwnerUserId,
+          profileId: managedAgentProfileId,
+          profileKind: "agent",
+          profileName: "Center Agent",
+        },
+      ],
+      spaceId: created.spaceId,
+    });
+
+    const firstSnapshot = await stub.rpcGetMembers({
+      context: ownerContext,
+      spaceId: created.spaceId,
+    });
+    expect(firstSnapshot.humans).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ownerUserId: ordinaryAgentOwnerUserId,
+          profileId: ownerHumanProfileId,
+          status: "active",
+        }),
+      ])
+    );
+    expect(firstSnapshot.humans).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ownerUserId: managedAgentOwnerUserId }),
+      ])
+    );
+
+    await expect(
+      stub.rpcPostSignal({
+        authoringPolicy: "user_authored",
+        context: ownerContext,
+        profile: {
+          kind: "human",
+          profileId: ownerHumanProfileId,
+          profileName: "Fresh Owner",
+        },
+        spaceId: created.spaceId,
+        text: "I can participate after the existing Space is reconciled",
+      })
+    ).resolves.toMatchObject({
+      data: {
+        text: "I can participate after the existing Space is reconciled",
+      },
+    });
+    const secondSnapshot = await stub.rpcGetMembers({
+      context: ownerContext,
+      spaceId: created.spaceId,
+    });
+    expect(
+      secondSnapshot.humans.filter(
+        (human) => human.profileId === ownerHumanProfileId
+      )
+    ).toHaveLength(1);
   });
 
   it("rejects direct HTTP and Space DO mutations for Center Agent Direct Messages", async () => {
