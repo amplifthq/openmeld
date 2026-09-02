@@ -84,6 +84,7 @@ import {
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import {
+	applyCurrentSpaceMembersToBootstrapCache,
 	applySpaceMemberRemovalToCache,
 	applySpaceMembersResponseToCache,
 } from "#/lib/spaces/member-cache";
@@ -2859,7 +2860,12 @@ function useConvertDirectMessageToSpaceHandler(input: {
 					applyDirectMessageConversionToAccountSpaceSections(sections, result)
 			);
 			try {
-				await controller.onRefreshStatusAndMembers();
+				await controller.onHardRefreshStatusAndMembers();
+				applyCurrentSpaceMembersToBootstrapCache({
+					queryClient: input.queryClient,
+					spaceId: controller.spaceId,
+					viewerProfileId: controller.profileId,
+				});
 			} catch (error) {
 				console.warn(
 					"OpenMeld turned the Direct Message into a Space but could not refresh its members before opening it.",

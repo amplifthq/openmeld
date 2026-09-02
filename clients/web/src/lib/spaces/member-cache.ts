@@ -67,6 +67,24 @@ export function applySpaceMembersResponseToCache(input: {
 	);
 }
 
+export function applyCurrentSpaceMembersToBootstrapCache(input: {
+	queryClient: QueryClient;
+	spaceId: string;
+	viewerProfileId: string;
+}): void {
+	const members = input.queryClient.getQueryData<SpaceMembersSnapshot>(
+		spaceQueryKeys.members(input.spaceId, input.viewerProfileId)
+	);
+	if (!members) {
+		return;
+	}
+
+	input.queryClient.setQueryData<SpaceBootstrapSnapshot>(
+		spaceQueryKeys.bootstrap(input.spaceId, input.viewerProfileId),
+		(current) => (current ? { ...current, members } : current)
+	);
+}
+
 export function applySpaceBootstrapSnapshotToCache(input: {
 	bootstrap: SpaceBootstrapSnapshot;
 	queryClient: QueryClient;

@@ -10,12 +10,61 @@ import { describe, expect, it } from "vitest";
 import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
+	applyCurrentSpaceMembersToBootstrapCache,
 	applySpaceBootstrapSnapshotToCache,
 	applySpaceMemberRemovalToCache,
 	mergeSpaceMembersSnapshot,
 } from "./member-cache";
 
 describe("mergeSpaceMembersSnapshot", () => {
+	it("keeps bootstrap membership aligned with a newer authoritative members read", () => {
+		const queryClient = new QueryClient();
+		const viewerProfileId = "viewer-profile";
+		const spaceId = "space-123";
+		const currentMembers = createSpaceMembersSnapshot({
+			agents: [],
+			generatedAt: "2026-09-02T00:00:02.000Z",
+			humans: [
+				createHumanMember(),
+				createHumanMember({
+					profileId: "22222222-2222-4222-8222-222222222222",
+					profileName: "New Member",
+				}),
+			],
+		});
+
+		try {
+			queryClient.setQueryData(
+				spaceQueryKeys.members(spaceId, viewerProfileId),
+				currentMembers
+			);
+			queryClient.setQueryData(
+				spaceQueryKeys.bootstrap(spaceId, viewerProfileId),
+				createBootstrapSnapshot({
+					members: createSpaceMembersSnapshot({
+						agents: [],
+						generatedAt: "2026-09-02T00:00:01.000Z",
+						humans: [createHumanMember()],
+					}),
+				})
+			);
+
+			applyCurrentSpaceMembersToBootstrapCache({
+				queryClient,
+				spaceId,
+				viewerProfileId,
+			});
+
+			const bootstrap = queryClient.getQueryData<SpaceBootstrapSnapshot>(
+				spaceQueryKeys.bootstrap(spaceId, viewerProfileId)
+			);
+			expect(bootstrap?.members).toStrictEqual(currentMembers);
+			expect(bootstrap?.members.summary.totalCount).toBe(2);
+		} finally {
+			queryClient.clear();
+		}
+	});
+
 	it("adds a new agent member without inventing Wake availability", () => {
 		const current = createSpaceMembersSnapshot({
 			agents: [],

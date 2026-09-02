@@ -4978,11 +4978,11 @@ describe("SpaceLanding", () => {
 		const pendingMembersRefresh = new Promise<void>((resolve) => {
 			resolveMembersRefresh = resolve;
 		});
-		const membersQuery = createQueryResult({
-			isSuccess: true,
-			data: createMembersSnapshot(),
-			refetch: vi.fn().mockReturnValue(pendingMembersRefresh),
-		});
+		const fetchQueryMock = vi.fn((options: { queryKey: readonly unknown[] }) =>
+			options.queryKey[1] === "members"
+				? pendingMembersRefresh
+				: Promise.resolve(undefined)
+		);
 		let cachedStatus: GetSpaceStatusResponse = {
 			...createSpaceStatus(),
 			accessMode: "members_only",
@@ -5035,7 +5035,7 @@ describe("SpaceLanding", () => {
 		});
 		useQueryClientMock.mockReturnValue({
 			cancelQueries: vi.fn().mockResolvedValue(undefined),
-			fetchQuery: vi.fn().mockResolvedValue(undefined),
+			fetchQuery: fetchQueryMock,
 			getQueryData: vi.fn(() => undefined),
 			invalidateQueries: invalidateQueriesMock,
 			resetQueries: vi.fn().mockResolvedValue(undefined),
@@ -5069,7 +5069,10 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: cachedStatus,
 			}),
-			members: membersQuery,
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
 			history: createQueryResult({
 				isSuccess: true,
 				data: { envelopes: [], nextCursor: null },
@@ -5113,7 +5116,12 @@ describe("SpaceLanding", () => {
 			});
 		});
 		await flushPromiseQueue();
-		expect(membersQuery.refetch).toHaveBeenCalledTimes(1);
+		expect(fetchQueryMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				queryKey: ["spaces", "members", "space-123", DEFAULT_SPACE_PROFILE_ID],
+				staleTime: 0,
+			})
+		);
 		expect(useNavigateMock).not.toHaveBeenCalled();
 
 		resolveMembersRefresh?.();
