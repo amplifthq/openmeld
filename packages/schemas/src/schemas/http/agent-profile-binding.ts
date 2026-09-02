@@ -15,6 +15,36 @@ export const agentProfileBindingRouteParamsSchema = z.strictObject({
   agentProfileId: boundedIdentifierSchema,
 });
 
+export const currentAgentProfileSessionLookupQuerySchema = z.strictObject({
+  agentControllerConversationId: agentActivityNativeSessionIdSchema,
+  agentControllerRef: boundedIdentifierSchema,
+});
+
+const currentAgentProfileSessionLookupIdentitySchema = z.strictObject({
+  profileId: boundedIdentifierSchema,
+  profileName: boundedIdentifierSchema,
+  profileOrganizationId: boundedIdentifierSchema,
+});
+
+export const currentAgentProfileSessionLookupResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      currentOrganizationId: boundedIdentifierSchema,
+      status: z.literal("not_found"),
+    }),
+    z.strictObject({
+      currentOrganizationId: boundedIdentifierSchema,
+      profile: currentAgentProfileSessionLookupIdentitySchema,
+      sameOrganization: z.boolean(),
+      status: z.literal("found"),
+    }),
+    z.strictObject({
+      currentOrganizationId: boundedIdentifierSchema,
+      reasonCode: reasonCodeSchema,
+      status: z.literal("unavailable"),
+    }),
+  ]);
+
 export const getAgentProfileControllerChangeEligibilityResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({

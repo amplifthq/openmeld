@@ -33,6 +33,7 @@ export type RunComputerListInput = {
 };
 
 export type RunComputerCurrentInput = {
+  brief?: boolean;
   now?: Date;
   view?: string;
 };
@@ -109,6 +110,24 @@ export async function runComputerCurrent(
   });
   const currentComputer = findLocalRuntime(response, deviceId);
 
+  if (input.brief) {
+    const readiness =
+      await currentDeviceApi.getCurrentLocalRuntimeReplyReadiness();
+    const payload = buildCurrentComputerBrief({
+      currentComputer,
+      readiness,
+    });
+    if (presenter.view === "agent") {
+      presenter.data({ code: "computer.current.brief", payload });
+      return;
+    }
+    presenter.line({
+      code: "computer.current.brief",
+      text: `${currentComputer.deviceDisplayName}: ${readiness.message}${readiness.nextAction === "none" ? "" : ` Next: ${readiness.localComponents.agentSetupCommand}`}`,
+    });
+    return;
+  }
+
   if (presenter.view === "agent") {
     const diagnostics = await readCurrentComputerDiagnostics({
       apiClient,
@@ -131,6 +150,55 @@ export async function runComputerCurrent(
     code: "computer.current.completed",
     text: formatComputerHumanLine(currentComputer),
   });
+}
+
+function buildCurrentComputerBrief(input: {
+  currentComputer: LocalRuntimeComputer;
+  readiness: Awaited<
+    ReturnType<CurrentDeviceApi["getCurrentLocalRuntimeReplyReadiness"]>
+  >;
+}) {
+  const { currentComputer, readiness } = input;
+  return {
+    computer: {
+      deviceId: currentComputer.deviceId,
+      deviceDisplayName: currentComputer.deviceDisplayName,
+      platformFamily: currentComputer.platformFamily,
+      isCurrent: currentComputer.isCurrent,
+    },
+    wake: {
+      canReplyFromThisComputer: readiness.canReplyFromThisComputer,
+      status: readiness.status,
+      primaryBlocker: readiness.primaryBlocker,
+      nextAction: readiness.nextAction,
+      message: readiness.message,
+    },
+    updates: {
+      setupAction: readiness.localComponents.setupAction,
+      setupActionLabel: readiness.localComponents.setupActionLabel,
+      agentSetupCommand: readiness.localComponents.agentSetupCommand,
+      maintenance: readiness.localComponents.maintenance,
+      updateOperation: readiness.localComponents.updateOperation,
+      cli: readiness.localComponents.cli,
+      service: readiness.localComponents.service,
+      skills: readiness.localComponents.skills,
+    },
+    localAgents: currentComputer.executionTargets.map((target) => ({
+      runtimeLane: target.runtimeLane,
+      status: target.status,
+      reasonCodes: target.reasonCodes,
+      agents: target.capabilities.map((capability) => {
+        const usageLimits = capability.agentControllerInterface?.usageLimits;
+        return {
+          agentControllerRef: capability.agentControllerRef,
+          enabled: capability.enabled,
+          status: capability.status,
+          reasonCodes: capability.reasonCodes,
+          ...(usageLimits ? { usageLimits } : {}),
+        };
+      }),
+    })),
+  };
 }
 
 async function readCurrentComputerDiagnostics(input: {

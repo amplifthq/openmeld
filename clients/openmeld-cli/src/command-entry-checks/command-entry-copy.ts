@@ -707,6 +707,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "creating a profile",
     serviceAction: null,
   },
+  "profile.current-session": {
+    signInAction: "finding this Agent session's profile",
+    profileAction: null,
+    cliUpdateAction: "finding this Agent session's profile",
+    serviceAction: null,
+  },
   "profile.list": {
     signInAction: "listing profiles",
     profileAction: null,

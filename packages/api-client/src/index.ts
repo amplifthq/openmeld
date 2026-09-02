@@ -29,6 +29,7 @@ export { createAgentProfileBindingApi } from "./agent-profile-binding/api";
 export {
   buildAgentProfileBindingOrganizationAuthorizationsRoute,
   buildAgentProfilePrimaryBindingOrganizationAuthorizationRoute,
+  buildCurrentAgentProfileSessionRoute,
 } from "./agent-profile-binding/routes";
 export type {
   AuthorizeAgentProfileBindingForOrganizationInput,
@@ -38,6 +39,7 @@ export type {
   GetAgentExecutionReadinessBatchInput,
   GetAgentExecutionReadinessInput,
   GetAgentProfilePrimaryBindingInput,
+  GetCurrentAgentProfileSessionInput,
   ListOrganizationBindingAuthorizationsInput,
   RevokeAgentProfileBindingForOrganizationInput,
   UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput,

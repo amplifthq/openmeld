@@ -141,6 +141,7 @@ import type {
   CreateOrganizationSkillRpcInput,
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderResponse,
+  CurrentAgentProfileSessionLookupResponse,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
   CurrentLocalRuntimeReplyReadinessResponse,
@@ -632,6 +633,7 @@ import {
   type GetCenterAgentDirectMessageSpaceProjectionInput,
   type GetCenterAgentModelInput,
   type GetCenterAgentOperatingStateInput,
+  type GetCurrentAgentProfileSessionInput,
   type GetCurrentDeviceTargetInput,
   type GetCurrentLocalAgentInstallationsInput,
   type GetCurrentLocalRuntimeReplyReadinessInput,
@@ -846,6 +848,7 @@ import {
   rpcGetCenterAgentDirectMessageSpaceProjection,
   rpcGetCenterAgentModel,
   rpcGetCenterAgentOperatingState,
+  rpcGetCurrentAgentProfileSession,
   rpcGetCurrentDeviceTarget,
   rpcGetCurrentLocalAgentInstallations,
   rpcGetCurrentLocalRuntimeReplyReadiness,
@@ -2198,6 +2201,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetAgentProfilePrimaryBindingInput
   ): Promise<GetAgentProfilePrimaryBindingResponse> {
     return rpcGetAgentProfilePrimaryBinding(this.env, input);
+  }
+
+  getCurrentAgentProfileSession(
+    input: GetCurrentAgentProfileSessionInput
+  ): Promise<CurrentAgentProfileSessionLookupResponse> {
+    return rpcGetCurrentAgentProfileSession(this.env, input);
   }
 
   executeAgentProfileWorkRecovery(
@@ -4178,6 +4187,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetAgentProfilePrimaryBindingInput
   ): Promise<GetAgentProfilePrimaryBindingResponse> {
     return super.getAgentProfilePrimaryBinding(input);
+  }
+
+  getCurrentAgentProfileSession(
+    input: GetCurrentAgentProfileSessionInput
+  ): Promise<CurrentAgentProfileSessionLookupResponse> {
+    return super.getCurrentAgentProfileSession(input);
   }
 
   executeAgentProfileWorkRecovery(

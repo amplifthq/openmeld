@@ -1,6 +1,8 @@
 import {
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
+  currentAgentProfileSessionLookupQuerySchema,
+  currentAgentProfileSessionLookupResponseSchema,
   disableAgentProfilePrimaryBindingResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
@@ -34,6 +36,8 @@ import { readJsonRequestBody } from "./rpc-http.parsers";
 
 const AGENT_PROFILE_BINDING_ROUTE =
   "/v1/agent-profiles/:agentProfileId/primary-binding";
+const CURRENT_AGENT_PROFILE_SESSION_ROUTE =
+  "/v1/agent-profiles/current-session";
 const AGENT_PROFILE_CONTROLLER_CHANGE_ELIGIBILITY_ROUTE =
   "/v1/agent-profiles/:agentProfileId/controller-change-eligibility";
 const AGENT_PROFILE_DEFAULT_PROJECT_ROUTE =
@@ -66,6 +70,38 @@ const AGENT_PROFILE_WORK_RECOVERY_ROUTE =
 export function registerAgentProfileBindingRoutes(
   app: Hono<HonoBindings>
 ): void {
+  app.get(CURRENT_AGENT_PROFILE_SESSION_ROUTE, (c) => {
+    const query = currentAgentProfileSessionLookupQuerySchema.safeParse({
+      agentControllerConversationId: c.req.query(
+        "agentControllerConversationId"
+      ),
+      agentControllerRef: c.req.query("agentControllerRef"),
+    });
+    if (!query.success) {
+      return respondBadRequest({
+        c,
+        route: CURRENT_AGENT_PROFILE_SESSION_ROUTE,
+        method: "GET",
+        code: "invalid_payload",
+        message:
+          query.error.issues[0]?.message ??
+          "Current Agent Profile Session lookup is invalid",
+      });
+    }
+
+    return executeRpcRoute({
+      c,
+      route: CURRENT_AGENT_PROFILE_SESSION_ROUTE,
+      method: "GET",
+      responseSchema: currentAgentProfileSessionLookupResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.getCurrentAgentProfileSession({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+
   app.post(AGENT_PROFILE_WORK_RECOVERY_ROUTE, async (c) => {
     const routeParams = parseAgentProfileBindingRouteParams({
       agentProfileId: c.req.param("agentProfileId"),

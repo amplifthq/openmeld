@@ -2,6 +2,8 @@ import type {
   AgentExecutionReadinessRouteParams,
   AgentProfileBindingRouteParams,
   AuthorizeAgentProfileBindingForOrganizationResponse,
+  CurrentAgentProfileSessionLookupQuery,
+  CurrentAgentProfileSessionLookupResponse,
   DisableAgentProfilePrimaryBindingResponse,
   EnsureAgentProfilePrimaryBindingBody,
   EnsureAgentProfilePrimaryBindingResponse,
@@ -26,6 +28,11 @@ import type { OpenMeldApiClientFoundation } from "../client";
 
 export type GetAgentProfilePrimaryBindingInput =
   AgentProfileBindingRouteParams & {
+    requestContext?: OpenMeldRequestContext;
+  };
+
+export type GetCurrentAgentProfileSessionInput =
+  CurrentAgentProfileSessionLookupQuery & {
     requestContext?: OpenMeldRequestContext;
   };
 
@@ -138,6 +145,9 @@ export type CreateAgentProfileBindingApi = (
   getPrimaryBinding: (
     input: GetAgentProfilePrimaryBindingInput
   ) => Promise<GetAgentProfilePrimaryBindingResponse>;
+  getCurrentSession: (
+    input: GetCurrentAgentProfileSessionInput
+  ) => Promise<CurrentAgentProfileSessionLookupResponse>;
   getControllerChangeEligibility: (
     input: GetAgentProfileControllerChangeEligibilityInput
   ) => Promise<GetAgentProfileControllerChangeEligibilityResponse>;

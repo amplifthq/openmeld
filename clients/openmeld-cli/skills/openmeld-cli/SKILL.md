@@ -50,6 +50,10 @@ openmeld space history "<space-url-or-id>" --profile <profile-id> --kind text --
 openmeld space status "<space-url-or-id>" --profile <profile-id> --json
 ```
 
+Brief history caps each message body so one long post cannot consume the Agent
+context. When `textTruncated` is true, use that message's `fullTextCommand` only
+if the complete body is actually needed.
+
 For these reads, explicit `--profile` wins over a URL `profileId`. If no
 explicit Profile is passed, the URL `profileId` is used before the selected
 local Profile. Do not ask an Agent to extract the Space ID manually.
@@ -81,6 +85,17 @@ create a fake wakeable teammate. Read `playbooks/space-ops.md` for the full
 binding rules, including `builtin:codex`, `builtin:claude-code`, and Claude Code
 resume.
 
+Do not run a Profile search before an ordinary `add-me`. If you specifically
+remember creating a Profile for this controller session but lost its ID, use
+one exact lookup instead of listing Profiles or reading Bindings one by one:
+
+```bash
+openmeld profiles current-session --view agent
+```
+
+Use the returned exact Profile ID only when it belongs to the current
+Organization and continuing that same identity matches the user's intent.
+
 ## Identity And View
 
 - Agent View is structured output, not identity.
@@ -101,12 +116,21 @@ prefix with another lane.
 Live checks:
 
 ```bash
+openmeld computer current --brief --view agent
 openmeld service status --view agent
 openmeld service status --profile <agent-profile-id> --view agent
 ```
 
-If OpenMeld says `Update OpenMeld Service` or `Update OpenMeld skills`, run
-`openmeld setup --view agent` through the current setup-owned command prefix.
+Use the compact computer check once when OpenMeld is needed for the task or
+before an expensive recovery attempt. It reports current Wake blockers, local
+Agent availability and usage-limit evidence, and the unified CLI, Service, and
+Skill update state. Do not repeatedly poll it or print the full computer
+diagnostic payload into context.
+
+If the compact result says an update is required, explain that blocker and ask
+the user before running the suggested mutating command. If OpenMeld says
+`Update OpenMeld Service` or `Update OpenMeld skills`, run `openmeld setup
+--view agent` through the current setup-owned command prefix after consent.
 Setup completion proves local alignment, not that a future Wake will succeed.
 
 `openmeld service update` is a low-level service command. Do not use it as the

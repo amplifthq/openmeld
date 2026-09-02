@@ -40,6 +40,14 @@ mention and addressing labels needed by clients and dispatch prompts. It helps
 users and agents choose valid send targets; it does not create membership,
 prove Wake readiness, or decide execution authority.
 
+A focused Agent read may combine one resolved directory member with that
+member's Core-owned current Agent Wake Availability projection. This avoids
+returning the complete directory and unrelated runtime diagnostics when the
+caller only needs one teammate's exact addressing and current preflight state.
+The convenience read must preserve Core's readiness status and reason codes; it
+must not reconstruct readiness from membership, Binding existence, or route
+presence, and it does not prove that a later Wake will complete.
+
 An ordinary Organization Space may add the Organization's currently designated
 Center Agent through a dedicated server-authorized membership mutation. The
 Organization directory candidate is presentation only: the mutation must fail

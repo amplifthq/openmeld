@@ -121,6 +121,14 @@ bound to another controller Session is not repurposed; the default new-Profile
 path remains authoritative. Ambiguous ownership, an unavailable Binding read, or
 an ambiguous session identity fails closed instead of selecting a nearby match.
 
+Clients may expose an explicit owner-scoped lookup from an exact controller ref
+and exact controller Session ID to the one bound Agent Profile. This is a
+recovery aid for a caller that remembers creating a same-session identity but
+lost its Profile ID; it is not a discovery step in the default self-add flow.
+The lookup performs one Binding reverse read and reports whether the result
+belongs to the active Organization. It must not enumerate Profiles, inspect
+unrelated Bindings, or silently choose a Profile from another Organization.
+
 ## Agent Profile Creation Requests
 
 An Agent Profile Creation Request is the one Organization-scoped coordination

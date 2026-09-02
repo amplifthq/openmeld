@@ -56,6 +56,9 @@ export type SpaceHistorySignalKind = NonNullable<
   SpaceSignalsReadQuery["kinds"]
 >[number];
 
+export const SPACE_HISTORY_BRIEF_TEXT_MAX_CHARACTERS = 1200;
+const SPACE_HISTORY_BRIEF_TRUNCATION_MARKER = "…";
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Tail keeps protocol parsing and dual-view emission in one flow.
 export async function runTail(input: {
   profile?: string;
@@ -487,11 +490,14 @@ function buildSpaceHistoryBriefPayload(input: {
       checkedBy: "space.history",
       note: "This command proves readable conversation access for the acting profile. It does not prove Wake execution success.",
     },
+    briefTextMaxCharacters: SPACE_HISTORY_BRIEF_TEXT_MAX_CHARACTERS,
     messages: input.events.map((event) =>
       buildSpaceHistoryBriefMessage({
         event,
         identityDirectory: input.identityDirectory,
+        profileId: input.openMeldProfile.openMeldProfileId,
         signalIndex: input.signalIndex,
+        spaceId: input.spaceId,
         thread: input.threadByRootSignalId.get(event.id) ?? null,
       })
     ),
@@ -530,7 +536,9 @@ function buildThreadNextCommandsField(input: {
 function buildSpaceHistoryBriefMessage(input: {
   event: SignalEnvelope;
   identityDirectory: SpaceIdentityDirectory | null;
+  profileId: string;
   signalIndex: SpaceSignalIndex;
+  spaceId: string;
   thread?: SpaceSignalThreadSummary | null;
 }) {
   const messageReadProjection = isMessageSemanticSignal(input.event)
@@ -540,6 +548,7 @@ function buildSpaceHistoryBriefMessage(input: {
         signalIndex: input.signalIndex,
       })
     : null;
+  const briefText = buildBriefMessageText(messageReadProjection?.text ?? null);
 
   return {
     signalId: input.event.id,
@@ -550,13 +559,68 @@ function buildSpaceHistoryBriefMessage(input: {
       profileName: input.event.profile?.profileName ?? null,
       profileKind: input.event.profile?.kind ?? null,
     },
-    text: messageReadProjection?.text ?? null,
-    replyTo: messageReadProjection?.replyToSignalId ?? null,
-    wakeTargets: messageReadProjection?.wakeTargets ?? [],
-    referenceTargets: messageReadProjection?.referenceTargets ?? [],
-    mentionTargets: messageReadProjection?.mentionTargets ?? [],
-    thread: input.thread ?? null,
+    text: briefText.text,
+    textOriginalCharacters: briefText.originalCharacters,
+    textTruncated: briefText.truncated,
+    ...(briefText.truncated
+      ? {
+          fullTextCommand: formatOpenMeldCliCommand(
+            `openmeld space history ${input.spaceId} --around-signal ${input.event.id} --before 0 --after 0 --kind ${toHistoryKindOption(input.event.type)} --profile ${input.profileId} --view agent`
+          ),
+        }
+      : {}),
+    ...(messageReadProjection?.replyToSignalId
+      ? { replyTo: messageReadProjection.replyToSignalId }
+      : {}),
+    ...(messageReadProjection?.wakeTargets.length
+      ? { wakeTargets: messageReadProjection.wakeTargets }
+      : {}),
+    ...(messageReadProjection?.referenceTargets.length
+      ? { referenceTargets: messageReadProjection.referenceTargets }
+      : {}),
+    ...(messageReadProjection?.mentionTargets.length
+      ? { mentionTargets: messageReadProjection.mentionTargets }
+      : {}),
+    ...(input.thread ? { thread: input.thread } : {}),
   };
+}
+
+function buildBriefMessageText(text: string | null): {
+  originalCharacters: number | null;
+  text: string | null;
+  truncated: boolean;
+} {
+  if (text === null) {
+    return { originalCharacters: null, text: null, truncated: false };
+  }
+  const characters = [...text];
+  if (characters.length <= SPACE_HISTORY_BRIEF_TEXT_MAX_CHARACTERS) {
+    return {
+      originalCharacters: characters.length,
+      text,
+      truncated: false,
+    };
+  }
+  return {
+    originalCharacters: characters.length,
+    text: `${characters
+      .slice(0, SPACE_HISTORY_BRIEF_TEXT_MAX_CHARACTERS - 1)
+      .join("")
+      .trimEnd()}${SPACE_HISTORY_BRIEF_TRUNCATION_MARKER}`,
+    truncated: true,
+  };
+}
+
+function toHistoryKindOption(
+  signalType: SignalEnvelope["type"]
+): "status" | "system_notice" | "text" {
+  if (signalType === "signal.status") {
+    return "status";
+  }
+  if (signalType === "signal.system_notice") {
+    return "system_notice";
+  }
+  return "text";
 }
 
 function isMessageSemanticSignal(

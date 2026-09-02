@@ -18,6 +18,10 @@ type AgentProfileBindingResolutionSourceSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileBindingResolutionSourceSchema"];
 type AgentProfileBindingRouteParamsSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileBindingRouteParamsSchema"];
+type CurrentAgentProfileSessionLookupQuerySchema =
+  typeof import("../../schemas/http/agent-profile-binding")["currentAgentProfileSessionLookupQuerySchema"];
+type CurrentAgentProfileSessionLookupResponseSchema =
+  typeof import("../../schemas/http/agent-profile-binding")["currentAgentProfileSessionLookupResponseSchema"];
 type AgentProfileBindingExecutionTargetSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileBindingAgentControllerReportSchema"];
 type AgentProfileBindingRuntimeIdSchema =
@@ -103,6 +107,10 @@ type UpdateAgentProfilePrimaryBindingOpenCodePermissionBodySchema =
 
 export type AgentProfileBindingAgentControllerPermissionMode =
   z.infer<AgentProfileBindingAgentControllerPermissionModeSchema>;
+export type CurrentAgentProfileSessionLookupQuery =
+  z.infer<CurrentAgentProfileSessionLookupQuerySchema>;
+export type CurrentAgentProfileSessionLookupResponse =
+  z.infer<CurrentAgentProfileSessionLookupResponseSchema>;
 export type AgentProfileBindingAgentControllerCollaborationMode =
   z.infer<AgentProfileBindingAgentControllerCollaborationModeSchema>;
 export type AgentProfileBindingAuthoritySource =

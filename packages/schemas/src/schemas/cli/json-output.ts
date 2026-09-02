@@ -36,7 +36,12 @@ import {
   projectSchema,
   updateProjectResponseSchema,
 } from "../http/projects";
-import { spaceMemberDirectorySchema } from "../http/space-members";
+import {
+  spaceMemberAgentWakeAvailabilitySchema,
+  spaceMemberDirectoryAllowedRelationsSchema,
+  spaceMemberDirectorySchema,
+  spaceMemberKindSchema,
+} from "../http/space-members";
 import { daemonStatusServerRequirementSchema } from "./daemon-status-server-requirement";
 
 /**
@@ -459,6 +464,31 @@ export const cliJsonSpaceMembersEnvelopeSchema = defineStrictSuccessEnvelope(
   spaceMemberDirectorySchema.shape
 );
 
+export const cliJsonSpaceMembersBriefEnvelopeSchema =
+  defineStrictSuccessEnvelope("space.members.brief", {
+    spaceId: z.string().trim().min(1),
+    generatedAt: z.iso.datetime({ offset: true }),
+    members: z.array(
+      z.strictObject({
+        profileId: z.string().trim().min(1),
+        displayName: z.string().trim().min(1),
+        profileKind: spaceMemberKindSchema,
+        primaryMentionLabel: z.string().trim().min(1),
+        allowedRelations: spaceMemberDirectoryAllowedRelationsSchema,
+        wakeAvailability: spaceMemberAgentWakeAvailabilitySchema
+          .pick({
+            action: true,
+            phase: true,
+            reasonCode: true,
+            status: true,
+            summary: true,
+          })
+          .optional(),
+        canWakeNow: z.boolean().optional(),
+      })
+    ),
+  });
+
 export const cliJsonSpaceListOrganizationEnvelopeSchema =
   defineStrictSuccessEnvelope("space.list.organization", {
     scope: z.literal("organization"),
@@ -623,6 +653,7 @@ export const cliJsonOutputEnvelopeSchema = z.discriminatedUnion("type", [
   cliJsonRoutinesDeleteEnvelopeSchema,
   cliJsonRoutinesRunsEnvelopeSchema,
   cliJsonSpaceMembersEnvelopeSchema,
+  cliJsonSpaceMembersBriefEnvelopeSchema,
   cliJsonSpaceListOrganizationEnvelopeSchema,
   cliJsonOrganizationDirectoryEnvelopeSchema,
   cliJsonOrganizationComputersEnvelopeSchema,
@@ -683,6 +714,7 @@ export const CLI_JSON_OUTPUT_TYPES = [
   "routines.delete",
   "routines.runs",
   "space.members",
+  "space.members.brief",
   "space.list.organization",
   "organization.directory",
   "organization.computers",
