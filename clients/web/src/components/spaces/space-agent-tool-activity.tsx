@@ -12,10 +12,8 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { SPACE_AGENT_WORKING_STATUS_TEXT } from "#/lib/spaces/message-state";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { resolveAgentWorkPresentation } from "./agent-work-presentation";
-import {
-	resolveSpaceAgentWorkOrbState,
-	SpaceAgentOrb,
-} from "./space-agent-orb";
+import { SpaceAgentOrb } from "./space-agent-orb";
+import { resolveSpaceAgentWorkOrbState } from "./space-agent-orb-state";
 import {
 	resolveVisibleSpaceAgentWorkSteps,
 	type SpaceAgentWorkStep,

@@ -1,10 +1,10 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { SpaceAgentOrb } from "./space-agent-orb";
 import {
 	DEFAULT_SPACE_AGENT_ORB_STATE,
 	resolveSpaceAgentWorkOrbState,
-	SpaceAgentOrb,
-} from "./space-agent-orb";
+} from "./space-agent-orb-state";
 
 afterEach(cleanup);
 

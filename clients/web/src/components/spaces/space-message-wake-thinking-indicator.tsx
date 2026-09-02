@@ -9,7 +9,8 @@ import {
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
 import { AnimatedMobiusIcon } from "./animated-mobius-icon";
-import { SpaceAgentOrb, type SpaceAgentOrbState } from "./space-agent-orb";
+import { SpaceAgentOrb } from "./space-agent-orb";
+import type { SpaceAgentOrbState } from "./space-agent-orb-state";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
 
 const WAKE_PROGRESS_DELAYED_STATUS_TEXT = "Still waiting for the final status.";
