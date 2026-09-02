@@ -409,6 +409,36 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 									source: "direct_message",
 									title: "Customer follow-up",
 								},
+								{
+									href: "/o/acme/spaces/space-bug-triage",
+									source: "space",
+									title: "Bug triage",
+								},
+								{
+									href: "/o/acme/computers/computer-sales",
+									source: "computer",
+									title: "Sales follow-up",
+								},
+								{
+									href: "/o/acme/spaces/space-release",
+									source: "space",
+									title: "Release review",
+								},
+								{
+									href: "/o/acme/direct-messages/dm-design",
+									source: "direct_message",
+									title: "Design feedback",
+								},
+								{
+									href: "/o/acme/computers/computer-research",
+									source: "computer",
+									title: "Research notes",
+								},
+								{
+									href: "/o/acme/spaces/space-retro",
+									source: "space",
+									title: "Team retrospective",
+								},
 							],
 						},
 					],
@@ -421,7 +451,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 							queuedWorkLocations: ["Customer follow-up"],
 							recoveryAction: null,
 							status: "working",
-							waitingCount: 1,
+							waitingCount: 7,
 						},
 					],
 				]),
@@ -445,7 +475,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 		expect(presence.getAttribute("data-agent-presence-status")).toBe("working");
 		expect(screen.getByText("Launch planning")).toBeTruthy();
-		expect(screen.getByText("1 queued")).toBeTruthy();
+		expect(screen.getByText("7 queued")).toBeTruthy();
 		expect(screen.queryByText("Next: Customer follow-up")).toBeNull();
 		const presenceLink = within(presence).getByRole("link", {
 			name: "Open Space: Launch planning",
@@ -468,18 +498,66 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(directMessageLink.getAttribute("href")).toBe(
 			"/o/acme/direct-messages/dm-customer"
 		);
-		expect(screen.getByRole("list", { name: "Working in" })).toBeTruthy();
-		expect(screen.getByRole("list", { name: "Up next" })).toBeTruthy();
 		const currentActivityHeading = screen.getByRole("heading", {
 			name: "Current activity",
 		});
 		const currentActivity = currentActivityHeading.closest("section");
+		const activityList = within(currentActivity as HTMLElement).getByRole(
+			"list",
+			{ name: "Current activity" }
+		);
+		expect(activityList.className).toContain("grid-cols-1");
+		expect(activityList.className).toContain(
+			"@[36rem]/agent-detail:grid-cols-2"
+		);
+		expect(activityList.className).toContain(
+			"@[54rem]/agent-detail:grid-cols-3"
+		);
+		expect(
+			within(currentActivity as HTMLElement).getAllByRole("listitem")
+		).toHaveLength(8);
+		expect(
+			within(currentActivity as HTMLElement).queryByRole("list", {
+				name: "Working in",
+			})
+		).toBeNull();
+		expect(
+			within(currentActivity as HTMLElement).queryByRole("list", {
+				name: "Up next",
+			})
+		).toBeNull();
+		const workingBadge = within(currentActivity as HTMLElement).getByText(
+			"Working",
+			{ exact: true }
+		);
+		expect(workingBadge.closest('[data-slot="badge"]')).toBeTruthy();
+		expect(workingBadge.closest('[data-slot="badge"]')?.className).toContain(
+			"text-primary"
+		);
+		const upNextBadges = within(currentActivity as HTMLElement).getAllByText(
+			"Up next",
+			{ exact: true }
+		);
+		expect(upNextBadges).toHaveLength(7);
+		expect(
+			upNextBadges.every((badge) => badge.closest('[data-slot="badge"]'))
+		).toBe(true);
+		expect(
+			upNextBadges.every((badge) =>
+				badge
+					.closest('[data-slot="badge"]')
+					?.className.includes("text-muted-foreground")
+			)
+		).toBe(true);
 		expect(
 			within(currentActivity as HTMLElement).queryByText("Working", {
 				exact: true,
+				selector: ":not([data-slot='badge'])",
 			})
 		).toBeNull();
-		const destinationItems = screen.getAllByRole("listitem");
+		const destinationItems = within(
+			currentActivity as HTMLElement
+		).getAllByRole("listitem");
 		fireEvent.pointerEnter(destinationItems[0] as HTMLElement);
 		expect(
 			(currentActivity as HTMLElement).querySelector(
@@ -646,7 +724,13 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 								source: "space",
 								title: "Launch planning",
 							},
-							queued: [],
+							queued: [
+								{
+									href: "/o/acme/computers/computer-release",
+									source: "computer",
+									title: "Post-release checks",
+								},
+							],
 						},
 					],
 				]),
@@ -684,6 +768,15 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				.getByRole("link", { name: "Open Space: Launch planning" })
 				.getAttribute("href")
 		).toBe("/o/acme/spaces/space-launch");
+		const twoItemActivityList = screen.getByRole("list", {
+			name: "Current activity",
+		});
+		expect(twoItemActivityList.className).toContain(
+			"@[36rem]/agent-detail:grid-cols-2"
+		);
+		expect(twoItemActivityList.className).not.toContain(
+			"@[54rem]/agent-detail:grid-cols-3"
+		);
 		fireEvent.click(
 			screen.getByRole("button", { name: "Continue interrupted work" })
 		);
@@ -738,6 +831,18 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				.getByRole("link", { name: "Open Computer: Research" })
 				.getAttribute("href")
 		).toBe("/o/acme/computers/computer-felix");
+		const oneItemActivityList = screen.getByRole("list", {
+			name: "Current activity",
+		});
+		expect(oneItemActivityList.className).toContain("grid-cols-1");
+		expect(oneItemActivityList.className).not.toContain(
+			"@[36rem]/agent-detail:grid-cols-2"
+		);
+		const nextWorkBadge = screen.getByText("Next work", { exact: true });
+		expect(nextWorkBadge.closest('[data-slot="badge"]')?.className).toContain(
+			"text-primary"
+		);
+		expect(screen.queryByText("Current work", { exact: true })).toBeNull();
 	});
 
 	it("renders owner recovery actions in the selected Agent detail", async () => {

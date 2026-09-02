@@ -497,96 +497,114 @@ function ActivityDestinationsPanel(input: {
 	isWorking: boolean;
 	queuedDestinations: readonly AgentProfileActivityDestination[];
 }) {
-	let currentWorkContent: ReactNode = null;
+	const entries: ActivityDestinationEntry[] = [];
 	if (input.currentDestination) {
-		currentWorkContent = (
-			<ActivityDestinationGroup
-				destinations={[input.currentDestination]}
-				label={input.isWorking ? "Working in" : "Current work"}
-				state={input.interruptedRecoveryAction ? "interrupted" : undefined}
-				trailingAction={input.interruptedRecoveryAction}
-			/>
-		);
+		let currentState: ActivityDestinationState = "current";
+		if (input.interruptedRecoveryAction) {
+			currentState = "interrupted";
+		} else if (input.isWorking) {
+			currentState = "working";
+		}
+		entries.push({
+			destination: input.currentDestination,
+			kind: "destination",
+			state: currentState,
+			trailingAction: input.interruptedRecoveryAction,
+		});
 	} else if (input.interruptedRecoveryAction) {
-		currentWorkContent = (
-			<InterruptedWorkFallback
-				recoveryAction={input.interruptedRecoveryAction}
-				title={input.currentWorkLocation}
-			/>
-		);
+		entries.push({
+			kind: "interrupted_fallback",
+			recoveryAction: input.interruptedRecoveryAction,
+			title: input.currentWorkLocation,
+		});
+	}
+	entries.push(
+		...input.queuedDestinations.map(
+			(destination): ActivityDestinationEntry => ({
+				destination,
+				kind: "destination",
+				state: "up_next",
+				trailingAction: null,
+			})
+		)
+	);
+	let gridColumnsClassName =
+		"grid-cols-1 @[36rem]/agent-detail:grid-cols-2 @[54rem]/agent-detail:grid-cols-3";
+	if (entries.length === 1) {
+		gridColumnsClassName = "grid-cols-1";
+	} else if (entries.length === 2) {
+		gridColumnsClassName = "grid-cols-1 @[36rem]/agent-detail:grid-cols-2";
 	}
 	return (
-		<div
-			className={cn(
-				"grid min-w-0 gap-4",
-				input.currentDestination && input.queuedDestinations.length > 0
-					? "@[58rem]/agent-detail:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]"
-					: null
-			)}
+		<FluidCardGroup
+			aria-label="Current activity"
+			className={cn("grid min-w-0 gap-2", gridColumnsClassName)}
+			role="list"
 		>
-			{currentWorkContent}
-			{input.queuedDestinations.length > 0 ? (
-				<ActivityDestinationGroup
-					destinations={input.queuedDestinations}
-					label="Up next"
-				/>
-			) : null}
-		</div>
+			{entries.map((entry) => {
+				if (entry.kind === "interrupted_fallback") {
+					return (
+						<InterruptedWorkFallbackItem
+							key="interrupted-work"
+							recoveryAction={entry.recoveryAction}
+							title={entry.title}
+						/>
+					);
+				}
+				const isInterrupted = entry.state === "interrupted";
+				return (
+					<FluidCardItem
+						className={cn(
+							"border",
+							isInterrupted
+								? "border-amber-700/35 dark:border-amber-500/35"
+								: "border-border/70"
+						)}
+						data-testid={
+							isInterrupted ? "agent-current-interrupted-work" : undefined
+						}
+						itemId={`${entry.destination.source}:${entry.destination.href}:${entry.destination.title}`}
+						key={`${entry.destination.source}:${entry.destination.href}:${entry.destination.title}`}
+						role="listitem"
+					>
+						<ActivityDestinationLink
+							destination={entry.destination}
+							state={entry.state}
+							trailingAction={entry.trailingAction}
+						/>
+					</FluidCardItem>
+				);
+			})}
+		</FluidCardGroup>
 	);
 }
 
-function ActivityDestinationGroup(input: {
-	destinations: readonly AgentProfileActivityDestination[];
-	label: string;
-	state?: "interrupted";
-	trailingAction?: ReactNode;
-}) {
-	return (
-		<div className="min-w-0">
-			<p className="mb-2 font-medium text-muted-foreground text-xs">
-				{input.label}
-			</p>
-			<FluidCardGroup
-				aria-label={input.label}
-				className="grid min-w-0 gap-2"
-				role="list"
-			>
-				{input.destinations.map((destination, index) => {
-					const isInterrupted = input.state === "interrupted" && index === 0;
-					return (
-						<FluidCardItem
-							className={cn(
-								"border",
-								isInterrupted
-									? "border-amber-700/35 dark:border-amber-500/35"
-									: "border-border/70"
-							)}
-							data-testid={
-								isInterrupted ? "agent-current-interrupted-work" : undefined
-							}
-							itemId={`${destination.source}:${destination.href}:${destination.title}`}
-							key={`${destination.source}:${destination.href}:${destination.title}`}
-							role="listitem"
-						>
-							<ActivityDestinationLink
-								destination={destination}
-								isInterrupted={isInterrupted}
-								trailingAction={isInterrupted ? input.trailingAction : null}
-							/>
-						</FluidCardItem>
-					);
-				})}
-			</FluidCardGroup>
-		</div>
-	);
-}
+type ActivityDestinationState =
+	| "current"
+	| "interrupted"
+	| "up_next"
+	| "working";
+
+type ActivityDestinationEntry =
+	| {
+			destination: AgentProfileActivityDestination;
+			kind: "destination";
+			state: ActivityDestinationState;
+			trailingAction: ReactNode;
+	  }
+	| {
+			kind: "interrupted_fallback";
+			recoveryAction: ReactNode;
+			title: string | null;
+	  };
 
 function ActivityDestinationLink(input: {
 	destination: AgentProfileActivityDestination;
-	isInterrupted: boolean;
+	state: ActivityDestinationState;
 	trailingAction: ReactNode;
 }) {
 	const sourceLabel = resolveActivitySourceLabel(input.destination.source);
+	const isInterrupted = input.state === "interrupted";
 	let icon = <DesktopTowerIcon aria-hidden="true" className="size-4" />;
 	if (input.destination.source === "space") {
 		icon = <HashIcon aria-hidden="true" className="size-4" />;
@@ -607,16 +625,14 @@ function ActivityDestinationLink(input: {
 					</span>
 					<span className="mt-0.5 flex min-w-0 items-center gap-2 text-muted-foreground text-xs">
 						<span>{sourceLabel}</span>
-						{input.isInterrupted ? (
-							<Badge
-								className={resolveStatusToneBadgeClassName("warning")}
-								variant="outline"
-							>
-								Interrupted
-							</Badge>
-						) : null}
 					</span>
 				</span>
+				<Badge
+					className={resolveActivityDestinationStateBadgeClassName(input.state)}
+					variant={isInterrupted ? "outline" : "secondary"}
+				>
+					{resolveActivityDestinationStateLabel(input.state)}
+				</Badge>
 				<ArrowRightIcon
 					aria-hidden="true"
 					className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
@@ -629,59 +645,73 @@ function ActivityDestinationLink(input: {
 	);
 }
 
+function resolveActivityDestinationStateLabel(
+	state: ActivityDestinationState
+): string {
+	if (state === "working") {
+		return "Working";
+	}
+	if (state === "up_next") {
+		return "Up next";
+	}
+	if (state === "interrupted") {
+		return "Interrupted";
+	}
+	return "Next work";
+}
+
+function resolveActivityDestinationStateBadgeClassName(
+	state: ActivityDestinationState
+): string {
+	if (state === "interrupted") {
+		return resolveStatusToneBadgeClassName("warning");
+	}
+	if (state === "working" || state === "current") {
+		return "text-primary";
+	}
+	return "text-muted-foreground";
+}
+
 function resolveActivityDestinationAriaLabel(
 	destination: AgentProfileActivityDestination
 ): string {
 	return `Open ${resolveActivitySourceLabel(destination.source)}: ${destination.title}`;
 }
 
-function InterruptedWorkFallback(input: {
+function InterruptedWorkFallbackItem(input: {
 	recoveryAction: ReactNode;
 	title: string | null;
 }) {
 	return (
-		<div className="min-w-0">
-			<p className="mb-2 font-medium text-muted-foreground text-xs">
-				Current work
-			</p>
-			<FluidCardGroup
-				aria-label="Current work"
-				className="grid min-w-0"
-				role="list"
-			>
-				<FluidCardItem
-					className="border border-amber-700/35 dark:border-amber-500/35"
-					data-testid="agent-current-interrupted-work"
-					itemId="interrupted-work"
-					role="listitem"
+		<FluidCardItem
+			className="border border-amber-700/35 dark:border-amber-500/35"
+			data-testid="agent-current-interrupted-work"
+			itemId="interrupted-work"
+			role="listitem"
+		>
+			<div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2.5">
+				<WarningCircleIcon
+					aria-hidden="true"
+					className={cn(
+						"size-4 shrink-0",
+						resolveStatusToneIconClassName("warning")
+					)}
+					weight="fill"
+				/>
+				<span className="min-w-0 flex-1">
+					<span className="block truncate font-medium text-sm">
+						{input.title ?? "Current work"}
+					</span>
+				</span>
+				<Badge
+					className={resolveStatusToneBadgeClassName("warning")}
+					variant="outline"
 				>
-					<div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2.5">
-						<WarningCircleIcon
-							aria-hidden="true"
-							className={cn(
-								"size-4 shrink-0",
-								resolveStatusToneIconClassName("warning")
-							)}
-							weight="fill"
-						/>
-						<span className="min-w-0 flex-1">
-							<span className="block truncate font-medium text-sm">
-								{input.title ?? "Current work"}
-							</span>
-							<span
-								className={cn(
-									"mt-0.5 block text-xs",
-									resolveStatusToneTextClassName("warning")
-								)}
-							>
-								Interrupted
-							</span>
-						</span>
-						<div className="shrink-0">{input.recoveryAction}</div>
-					</div>
-				</FluidCardItem>
-			</FluidCardGroup>
-		</div>
+					Interrupted
+				</Badge>
+				<div className="shrink-0">{input.recoveryAction}</div>
+			</div>
+		</FluidCardItem>
 	);
 }
 
