@@ -1870,6 +1870,163 @@ describe("OpenMeld Core", () => {
     expect(status.directMessageConvertedAt).toBeUndefined();
   });
 
+  it("keeps an Agent owner read-only until they explicitly join and convert the Direct Message", async () => {
+    const organizationId = "org-agent-owner-observer";
+    const participantProfileId = SECOND_HUMAN_PROFILE_ID;
+    const agentProfileId = "agt_55555555-5555-4555-8555-555555555555";
+    const ownerHumanProfileId = THIRD_HUMAN_PROFILE_ID;
+    const participantContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "owner-dm-participant",
+      profileId: participantProfileId,
+      profileKind: "human",
+      profileName: "Participant",
+      requestId: "req-agent-owner-observer-participant",
+    });
+    const ownerContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "owner-dm-agent",
+      profileId: ownerHumanProfileId,
+      profileKind: "human",
+      profileName: "Agent Owner",
+      requestId: "req-agent-owner-observer-owner",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const spaceId = namespace.newUniqueId().toString();
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await stub.rpcInitializeDirectMessageMeta({
+      creator: {
+        kind: "human",
+        ownerName: "Participant",
+        ownerUserId: "owner-dm-participant",
+        profileId: participantProfileId,
+        profileName: "Participant",
+      },
+      guide: "",
+      name: "Participant and Research Agent",
+      organizationId,
+      pairKey: `${participantProfileId}:${agentProfileId}`,
+      purpose: "openmeld_dm_space",
+      spaceId,
+      visibility: "private",
+    });
+    await stub.rpcPostMembers({
+      context: participantContext,
+      members: [
+        {
+          agentControllerRef: null,
+          ownerName: "Participant",
+          ownerUserId: "owner-dm-participant",
+          profileId: participantProfileId,
+          profileKind: "human",
+          profileName: "Participant",
+        },
+        {
+          agentControllerRef: "builtin:codex",
+          ownerName: "Agent Owner",
+          ownerUserId: "owner-dm-agent",
+          profileId: agentProfileId,
+          profileKind: "agent",
+          profileName: "Research Agent",
+        },
+      ],
+      spaceId,
+    });
+
+    await expect(
+      stub.rpcGetStatus({ context: ownerContext, spaceId })
+    ).resolves.toMatchObject({
+      members: { totalCount: 2 },
+      spacePurpose: "openmeld_dm_space",
+    });
+
+    const readOnlyWriteError = await stub
+      .rpcPostSignal({
+        authoringPolicy: "user_authored",
+        context: ownerContext,
+        profile: {
+          kind: "human",
+          profileId: ownerHumanProfileId,
+          profileName: "Agent Owner",
+        },
+        spaceId,
+        text: "I should not be able to write yet",
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+    expect(readOnlyWriteError).toBeInstanceOf(Error);
+    expect((readOnlyWriteError as Error).message).toContain(
+      "space.access.read_only"
+    );
+
+    const invalidConversionError = await runInDurableObject(
+      stub,
+      async (instance) => {
+        try {
+          await instance.rpcConvertDirectMessageToSpace({
+            context: ownerContext,
+            members: [
+              {
+                agentControllerRef: null,
+                ownerName: "Someone Else",
+                ownerUserId: "owner-someone-else",
+                profileId: FOURTH_HUMAN_PROFILE_ID,
+                profileKind: "human",
+                profileName: "Someone Else",
+              },
+            ],
+            name: "Invalid owner conversion",
+            spaceId,
+          });
+          return null;
+        } catch (error) {
+          return {
+            code: (error as { code?: unknown }).code,
+            status: (error as { status?: unknown }).status,
+          };
+        }
+      }
+    );
+    expect(invalidConversionError).toEqual({
+      code: "space.membership_required",
+      status: 403,
+    });
+
+    const converted = await stub.rpcConvertDirectMessageToSpace({
+      context: ownerContext,
+      members: [
+        {
+          agentControllerRef: null,
+          ownerName: "Agent Owner",
+          ownerUserId: "owner-dm-agent",
+          profileId: ownerHumanProfileId,
+          profileKind: "human",
+          profileName: "Agent Owner",
+        },
+      ],
+      name: "Participant, Agent Owner, and Research Agent",
+      spaceId,
+    });
+    expect(converted.addedMemberIds).toEqual([ownerHumanProfileId]);
+    await expect(
+      stub.rpcPostSignal({
+        authoringPolicy: "user_authored",
+        context: ownerContext,
+        profile: {
+          kind: "human",
+          profileId: ownerHumanProfileId,
+          profileName: "Agent Owner",
+        },
+        spaceId,
+        text: "I can participate after joining",
+      })
+    ).resolves.toMatchObject({
+      data: { text: "I can participate after joining" },
+    });
+  });
+
   it("rejects direct HTTP and Space DO mutations for Center Agent Direct Messages", async () => {
     const organizationId = "org-center-agent-dm-http-locked";
     const memberProfile: Partial<TestAuthProfile> = {

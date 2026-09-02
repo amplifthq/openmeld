@@ -6886,29 +6886,44 @@ export class Space extends DurableObject<CoreBindings> {
     const actorOwnerUserId = normalizeOptionalText(
       context.actorContext.ownerUserId
     );
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
     const actorMember = readSpaceMemberRecord(
       this.ctx.storage.sql,
       context.actorContext.openMeldProfileId
     );
-    if (
-      !(
-        actorOwnerUserId &&
+    const isActiveHumanMember = Boolean(
+      actorOwnerUserId &&
         actorMember?.status === "active" &&
         actorMember.profileKindSnapshot === "human" &&
         actorMember.ownerUserIdSnapshot === actorOwnerUserId
-      )
-    ) {
+    );
+    const isAgentOwnerJoiningAsSelf = Boolean(
+      actorOwnerUserId &&
+        actorMember?.status !== "active" &&
+        activeMembers.some(
+          (member) =>
+            member.profileKindSnapshot === "agent" &&
+            member.ownerUserIdSnapshot === actorOwnerUserId
+        ) &&
+        input.members.length === 1 &&
+        input.members[0]?.profileId ===
+          context.actorContext.openMeldProfileId &&
+        input.members[0]?.profileKind === "human" &&
+        input.members[0]?.ownerUserId === actorOwnerUserId
+    );
+    if (!(isActiveHumanMember || isAgentOwnerJoiningAsSelf)) {
       throw createCoreRpcHttpError({
         code: "space.membership_required",
-        reason: "You must be a current member of this Direct Message.",
+        reason:
+          "You must be a current member, or join as the Agent owner's Human Profile.",
         status: 403,
       });
     }
 
     const activeMemberIds = new Set(
-      listSpaceMemberRecords(this.ctx.storage.sql, { status: "active" }).map(
-        (member) => member.profileId
-      )
+      activeMembers.map((member) => member.profileId)
     );
     if (
       !input.members.some((member) => !activeMemberIds.has(member.profileId))
@@ -7936,7 +7951,53 @@ export class Space extends DurableObject<CoreBindings> {
       }
       throw error;
     }
-    return await this.authorizeSpaceAccess(spaceAccess);
+    const accessResult = await this.authorizeSpaceAccess(spaceAccess);
+    if (!accessResult.ok) {
+      return accessResult;
+    }
+    const requestContext = getSpaceAccessRequestContext(spaceAccess);
+    const ownerUserId = normalizeOptionalText(
+      requestContext?.actorContext.ownerUserId
+    );
+    const profileId = normalizeOptionalText(
+      requestContext?.actorContext.openMeldProfileId
+    );
+    const meta = this.readSpaceMetaRecord();
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    const isCurrentDirectMessage = Boolean(
+      meta?.purpose === "openmeld_dm_space" &&
+        meta.directMessage &&
+        !meta.directMessage.convertedAt &&
+        activeMembers.length === 2
+    );
+    const isActiveProfile = Boolean(
+      profileId &&
+        activeMembers.some((member) => member.profileId === profileId)
+    );
+    const isAgentOwnerObserver = Boolean(
+      isCurrentDirectMessage &&
+        requestContext?.actorContext.profileKind === "human" &&
+        ownerUserId &&
+        !isActiveProfile &&
+        activeMembers.some(
+          (member) =>
+            member.profileKindSnapshot === "agent" &&
+            member.ownerUserIdSnapshot === ownerUserId
+        )
+    );
+    if (!isAgentOwnerObserver) {
+      return accessResult;
+    }
+    return {
+      ok: false,
+      response: this.forbiddenResponse(
+        requestContext?.actorContext.requestId ?? "space-agent-owner-observer",
+        "space.access.read_only",
+        "Agent owners can view this Direct Message, but must join before participating."
+      ),
+    };
   }
 
   private async dispatchCursorRequest(
@@ -12761,7 +12822,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private forbiddenResponse(
     requestId: string,
-    code: "space.forbidden",
+    code: "space.access.read_only" | "space.forbidden",
     message: string
   ): Response {
     return Response.json(

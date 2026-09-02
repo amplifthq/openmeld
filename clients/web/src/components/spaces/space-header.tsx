@@ -123,6 +123,7 @@ export function SpaceHeader(input: {
 	canManageSpaceName: boolean;
 	currentProfileName: string | null;
 	deleteSpaceErrorMessage: string | null;
+	directMessageOwnerVisibilityLabel?: string | null;
 	hideShareControl?: boolean;
 	isAccessModePending: boolean;
 	isDeleteSpacePending: boolean;
@@ -170,6 +171,12 @@ export function SpaceHeader(input: {
 		purpose: input.status.spacePurpose,
 	});
 	const subtitleItems: SpaceWindowHeaderSubtitleItem[] = [];
+	if (input.directMessageOwnerVisibilityLabel) {
+		subtitleItems.push({
+			key: "agent-owner-visibility",
+			node: <span>{input.directMessageOwnerVisibilityLabel}</span>,
+		});
+	}
 	const unreadCount = input.unreadCount ?? 0;
 	if (unreadCount > 0) {
 		subtitleItems.push({
