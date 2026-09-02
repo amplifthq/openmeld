@@ -67,7 +67,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			{!input.isResolving && choices.length > 0 ? (
 				<MagnifyingDock
 					aria-labelledby={headingId}
-					className="-mx-3 min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-3 pb-4"
+					className="mt-4 min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-6 pb-4"
 				>
 					{choices.map((choice) => {
 						const selected = choice.value === input.value;
