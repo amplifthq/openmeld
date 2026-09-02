@@ -134,78 +134,114 @@ export function WelcomeSpaceScreen(props: WelcomeSpaceScreenProps) {
 			subtitle={mode === "choices" ? SPACE_EXPLANATION : undefined}
 			title={resolveTitle(mode)}
 		>
-			{mode === "choices" ? (
-				<div className="grid gap-3">
-					{props.computerSetupActions ? (
-						<AddComputerChoiceCard {...props.computerSetupActions} />
-					) : null}
-					<SpaceChoiceCard
-						description={CREATE_SPACE_DESCRIPTION}
-						disabled={props.isPending}
-						icon={<PlusIcon aria-hidden="true" className="size-5 shrink-0" />}
-						onClick={() => setMode("create")}
-						title="Create a Space"
-					/>
-					<SpaceChoiceCard
-						description={joinDescription}
-						disabled={joinDisabled}
-						icon={
-							<ArrowRightIcon aria-hidden="true" className="size-5 shrink-0" />
-						}
-						onClick={handleJoinChoice}
-						title="Join a Space"
-					/>
-				</div>
-			) : null}
+			<WelcomeSpaceModeContent
+				filteredSpaces={filteredSpaces}
+				handleJoinChoice={handleJoinChoice}
+				joinDescription={joinDescription}
+				joinDisabled={joinDisabled}
+				mode={mode}
+				props={props}
+				query={query}
+				setMode={setMode}
+				setQuery={setQuery}
+				showSearch={showSearch}
+			/>
+		</WelcomeLayout>
+	);
+}
 
-			{mode === "create" ? (
-				<CreateSpaceForm
-					contextKind={props.contextKind ?? "organization"}
-					errorMessage={props.errorMessage}
-					isPending={props.isPending}
-					onCreate={props.onCreate}
+function WelcomeSpaceModeContent(input: {
+	filteredSpaces: readonly WelcomeJoinableSpace[];
+	handleJoinChoice: () => void;
+	joinDescription: string;
+	joinDisabled: boolean;
+	mode: SpaceMode;
+	props: WelcomeSpaceScreenProps;
+	query: string;
+	setMode: (mode: SpaceMode) => void;
+	setQuery: (query: string) => void;
+	showSearch: boolean;
+}) {
+	if (input.mode === "create") {
+		return (
+			<CreateSpaceForm
+				contextKind={input.props.contextKind ?? "organization"}
+				errorMessage={input.props.errorMessage}
+				isPending={input.props.isPending}
+				onCreate={input.props.onCreate}
+			/>
+		);
+	}
+	if (input.mode === "join") {
+		return <WelcomeJoinSpaceList {...input} />;
+	}
+	return (
+		<div className="grid gap-3">
+			{input.props.computerSetupActions ? (
+				<AddComputerChoiceCard {...input.props.computerSetupActions} />
+			) : null}
+			<SpaceChoiceCard
+				description={CREATE_SPACE_DESCRIPTION}
+				disabled={input.props.isPending}
+				icon={<PlusIcon aria-hidden="true" className="size-5 shrink-0" />}
+				onClick={() => input.setMode("create")}
+				title="Create a Space"
+			/>
+			<SpaceChoiceCard
+				description={input.joinDescription}
+				disabled={input.joinDisabled}
+				icon={<ArrowRightIcon aria-hidden="true" className="size-5 shrink-0" />}
+				onClick={input.handleJoinChoice}
+				title="Join a Space"
+			/>
+		</div>
+	);
+}
+
+function WelcomeJoinSpaceList(input: {
+	filteredSpaces: readonly WelcomeJoinableSpace[];
+	props: WelcomeSpaceScreenProps;
+	query: string;
+	setQuery: (query: string) => void;
+	showSearch: boolean;
+}) {
+	return (
+		<div className="grid gap-3">
+			{input.showSearch ? (
+				<Input
+					aria-label="Search spaces"
+					autoComplete="off"
+					onChange={(event) => input.setQuery(event.target.value)}
+					placeholder="Search spaces"
+					type="text"
+					value={input.query}
 				/>
 			) : null}
-
-			{mode === "join" ? (
-				<div className="grid gap-3">
-					{showSearch ? (
-						<Input
-							aria-label="Search spaces"
-							autoComplete="off"
-							onChange={(event) => setQuery(event.target.value)}
-							placeholder="Search spaces"
-							type="text"
-							value={query}
-						/>
-					) : null}
-					{filteredSpaces.length > 0 ? (
-						<ScrollArea className="w-full" viewportClassName="max-h-80">
-							<ul className="grid gap-2">
-								{filteredSpaces.map((space) => (
-									<li key={space.spaceId}>
-										<Button
-											className="w-full justify-start"
-											disabled={props.isPending}
-											onClick={() => props.onJoin(space.spaceId)}
-											size="lg"
-											type="button"
-											variant="outline"
-										>
-											{space.name}
-										</Button>
-									</li>
-								))}
-							</ul>
-						</ScrollArea>
-					) : (
-						<p className="px-1 text-muted-foreground text-sm">
-							No spaces match “{query}”.
-						</p>
-					)}
-				</div>
-			) : null}
-		</WelcomeLayout>
+			{input.filteredSpaces.length > 0 ? (
+				<ScrollArea className="w-full" viewportClassName="max-h-80">
+					<ul className="grid gap-2">
+						{input.filteredSpaces.map((space) => (
+							<li key={space.spaceId}>
+								<Button
+									className="w-full justify-start"
+									disabled={input.props.isPending}
+									onClick={() => input.props.onJoin(space.spaceId)}
+									size="lg"
+									type="button"
+									variant="outline"
+								>
+									{space.name}
+								</Button>
+							</li>
+						))}
+					</ul>
+				</ScrollArea>
+			) : (
+				<p className="px-1 text-muted-foreground text-sm">
+					No spaces match “{input.query}”.
+				</p>
+			)}
+		</div>
 	);
 }
 
