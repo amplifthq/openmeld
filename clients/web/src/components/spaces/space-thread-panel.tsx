@@ -224,7 +224,7 @@ function createThreadExecutionRecoveryHandler(input: {
 	};
 }
 
-export function SpaceThreadPanel(input: {
+type SpaceThreadPanelProps = {
 	activeThread: SpaceThread | null;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	agentStreams: readonly SpaceConversationVisibleStreamProjection[];
@@ -298,17 +298,15 @@ export function SpaceThreadPanel(input: {
 		SpaceWakeStopRequestStatus
 	>;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
-}) {
+};
+
+export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 	const panelWidth = useSpacePanelWidth({ panel: "thread" });
-	const initialFocusElementRef = useRef<{
-		element: HTMLElement;
-		signalId: string;
-	} | null>(null);
-	const highlightedElementRef = useRef<HTMLElement | null>(null);
-	const highlightMessageTimerRef = useRef<number | null>(null);
-	const appliedInitialFocusRef = useRef<string | null>(null);
-	const [messageDetailsSelection, setMessageDetailsSelection] =
-		useState<ThreadMessageDetailsSelection | null>(null);
+	const registerMessageElement = useThreadInitialFocus({
+		activeThread: input.activeThread,
+		initialFocusSignalId: input.initialFocusSignalId,
+		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
+	});
 	const activeThreadId = input.activeThread?.threadId ?? null;
 	const activeThreadRootSignalId = input.activeThread?.rootSignalId ?? null;
 	const onRecoverExecution = useMemo(
@@ -322,10 +320,6 @@ export function SpaceThreadPanel(input: {
 				: undefined,
 		[activeThreadId, activeThreadRootSignalId, input.onRecoverExecution]
 	);
-	const messageDetailsItem = resolveThreadMessageDetailsItem({
-		activeThread: input.activeThread,
-		selection: messageDetailsSelection,
-	});
 	const rawThreadTimelineItems = useMemo(
 		() =>
 			buildSpaceTimelineItems({
@@ -417,20 +411,26 @@ export function SpaceThreadPanel(input: {
 		modelCatalog: input.modelCatalog,
 		orgSlug: input.orgSlug,
 	});
-	const openMessageDetails = useCallback(
-		(item: SpaceTimelineItem) => {
-			if (!(activeThreadId && activeThreadRootSignalId)) {
-				return;
-			}
-			setMessageDetailsSelection({
-				item,
-				rootSignalId: activeThreadRootSignalId,
-				threadId: activeThreadId,
-			});
-		},
-		[activeThreadId, activeThreadRootSignalId]
-	);
-	const onOpenMessageDetails = useLatestCallback(openMessageDetails);
+	const {
+		closeMessageDetails,
+		messageDetailsItem,
+		messageDetailsReplyItems,
+		messageDetailsWakeProgressState,
+		messageDetailsWakeStopTarget,
+		onOpenMessageDetails,
+	} = useThreadMessageDetailsController({
+		activeThread: input.activeThread,
+		agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
+		ephemeralActivityItems: input.ephemeralActivityItems,
+		isPersonalContext: input.isPersonalContext === true,
+		rawThreadTimelineItems,
+		wakeFailureTargetContextsByProfileId:
+			input.wakeFailureTargetContextsByProfileId,
+		wakeOutcomeIndex,
+		wakeStopRequestStatusBySelectorKey:
+			input.wakeStopRequestStatusBySelectorKey,
+		wakeStopTargetLabelsByProfileId,
+	});
 	const onWakeStopRequest = useLatestCallback(
 		input.onWakeStopRequest ?? UNAVAILABLE_SPACE_WAKE_STOP_REQUEST
 	);
@@ -454,140 +454,6 @@ export function SpaceThreadPanel(input: {
 		input.activeThread && input.onRetryWakeTarget
 			? retryWakeTargetInThread
 			: undefined;
-	const messageDetailsWakeProgressState = useMemo(
-		() =>
-			messageDetailsItem
-				? resolveSpaceMessageWakeProgressState({
-						agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
-						isPersonalContext: input.isPersonalContext === true,
-						item: messageDetailsItem,
-						items: input.ephemeralActivityItems,
-						timelineItems: rawThreadTimelineItems,
-						wakeOutcomeIndex,
-						wakeFailureTargetContextsByProfileId:
-							input.wakeFailureTargetContextsByProfileId,
-					})
-				: null,
-		[
-			input.agentRecoveryPlansByProfileId,
-			input.ephemeralActivityItems,
-			input.isPersonalContext,
-			input.wakeFailureTargetContextsByProfileId,
-			messageDetailsItem,
-			rawThreadTimelineItems,
-			wakeOutcomeIndex,
-		]
-	);
-	const messageDetailsWakeStopTarget = useMemo(
-		() =>
-			messageDetailsItem
-				? resolveSpaceMessageWakeStopTarget({
-						item: messageDetailsItem,
-						stopRequestStatusBySelectorKey:
-							input.wakeStopRequestStatusBySelectorKey,
-						targetLabelsByProfileId: wakeStopTargetLabelsByProfileId,
-						timelineItems: rawThreadTimelineItems,
-						wakeOutcomeIndex,
-						wakeProgressItems: input.ephemeralActivityItems,
-					})
-				: null,
-		[
-			input.ephemeralActivityItems,
-			input.wakeStopRequestStatusBySelectorKey,
-			messageDetailsItem,
-			rawThreadTimelineItems,
-			wakeOutcomeIndex,
-			wakeStopTargetLabelsByProfileId,
-		]
-	);
-	const messageDetailsReplyItems = messageDetailsItem
-		? resolveReplyItemsForMessage({
-				item: messageDetailsItem,
-				timelineItems: rawThreadTimelineItems,
-			})
-		: [];
-	const registerMessageElement = useCallback(
-		(signalId: string, element: HTMLElement | null) => {
-			if (element) {
-				if (signalId === input.initialFocusSignalId) {
-					initialFocusElementRef.current = { element, signalId };
-				}
-				return;
-			}
-			if (initialFocusElementRef.current?.signalId === signalId) {
-				initialFocusElementRef.current = null;
-			}
-		},
-		[input.initialFocusSignalId]
-	);
-
-	useEffect(() => {
-		const targetSignalId = input.initialFocusSignalId;
-		const targetRootSignalId = input.initialFocusThreadRootSignalId;
-		if (
-			!(targetSignalId && targetRootSignalId && input.activeThread) ||
-			input.activeThread.rootSignalId !== targetRootSignalId
-		) {
-			appliedInitialFocusRef.current = null;
-			highlightedElementRef.current?.removeAttribute("data-highlighted");
-			highlightedElementRef.current = null;
-			return;
-		}
-		const targetKey = `${input.activeThread.threadId}:${targetSignalId}`;
-		if (appliedInitialFocusRef.current === targetKey) {
-			return;
-		}
-		const targetElement =
-			initialFocusElementRef.current?.signalId === targetSignalId
-				? initialFocusElementRef.current.element
-				: null;
-		if (targetElement) {
-			appliedInitialFocusRef.current = targetKey;
-			targetElement.scrollIntoView({ block: "center" });
-			targetElement.focus({ preventScroll: true });
-			highlightedElementRef.current?.removeAttribute("data-highlighted");
-			targetElement.setAttribute("data-highlighted", "true");
-			highlightedElementRef.current = targetElement;
-			if (highlightMessageTimerRef.current !== null) {
-				window.clearTimeout(highlightMessageTimerRef.current);
-			}
-			highlightMessageTimerRef.current = window.setTimeout(() => {
-				highlightMessageTimerRef.current = null;
-				targetElement.removeAttribute("data-highlighted");
-				if (highlightedElementRef.current === targetElement) {
-					highlightedElementRef.current = null;
-				}
-			}, 1800);
-			return;
-		}
-	}, [
-		input.activeThread,
-		input.initialFocusSignalId,
-		input.initialFocusThreadRootSignalId,
-	]);
-
-	useEffect(() => {
-		setMessageDetailsSelection((currentSelection) => {
-			if (
-				currentSelection?.threadId === activeThreadId &&
-				currentSelection.rootSignalId === activeThreadRootSignalId
-			) {
-				return currentSelection;
-			}
-			return null;
-		});
-	}, [activeThreadId, activeThreadRootSignalId]);
-
-	useEffect(
-		() => () => {
-			if (highlightMessageTimerRef.current !== null) {
-				window.clearTimeout(highlightMessageTimerRef.current);
-			}
-			highlightedElementRef.current?.removeAttribute("data-highlighted");
-		},
-		[]
-	);
-
 	return (
 		<SpaceInlineSidePanel
 			ariaLabel="Thread"
@@ -659,7 +525,7 @@ export function SpaceThreadPanel(input: {
 			<ThreadSelectedMessageDetails
 				activeThread={input.activeThread}
 				messageDetailsItem={messageDetailsItem}
-				onClose={() => setMessageDetailsSelection(null)}
+				onClose={closeMessageDetails}
 				onRecoverExecution={onRecoverExecution}
 				onRetryWakeTarget={onThreadRetryWakeTarget}
 				onWakeStopRequest={onWakeStopRequest}
@@ -681,7 +547,7 @@ function ThreadSelectedMessageDetails(input: {
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest: SpaceWakeStopRequestHandler;
-	panelInput: Parameters<typeof SpaceThreadPanel>[0];
+	panelInput: SpaceThreadPanelProps;
 	profilePresentationsById: ReadonlyMap<
 		string,
 		SpaceCollaborationProfilePresentation
@@ -743,9 +609,179 @@ function ThreadSelectedMessageDetails(input: {
 	);
 }
 
-function renderThreadComposer(
-	input: Parameters<typeof SpaceThreadPanel>[0]
-): ReactNode {
+function useThreadMessageDetailsController(input: {
+	activeThread: SpaceThread | null;
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
+	isPersonalContext: boolean;
+	rawThreadTimelineItems: readonly SpaceTimelineItem[];
+	wakeFailureTargetContextsByProfileId: ReadonlyMap<
+		string,
+		WakeFailureTargetContext
+	>;
+	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
+	wakeStopRequestStatusBySelectorKey?: ReadonlyMap<
+		string,
+		SpaceWakeStopRequestStatus
+	>;
+	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
+}) {
+	const [selection, setSelection] =
+		useState<ThreadMessageDetailsSelection | null>(null);
+	const messageDetailsItem = resolveThreadMessageDetailsItem({
+		activeThread: input.activeThread,
+		selection,
+	});
+	const openMessageDetails = useCallback(
+		(item: SpaceTimelineItem) => {
+			if (!input.activeThread) {
+				return;
+			}
+			setSelection({
+				item,
+				rootSignalId: input.activeThread.rootSignalId,
+				threadId: input.activeThread.threadId,
+			});
+		},
+		[input.activeThread]
+	);
+	const onOpenMessageDetails = useLatestCallback(openMessageDetails);
+	const messageDetailsWakeProgressState = useMemo(
+		() =>
+			messageDetailsItem
+				? resolveSpaceMessageWakeProgressState({
+						agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
+						isPersonalContext: input.isPersonalContext,
+						item: messageDetailsItem,
+						items: input.ephemeralActivityItems,
+						timelineItems: input.rawThreadTimelineItems,
+						wakeFailureTargetContextsByProfileId:
+							input.wakeFailureTargetContextsByProfileId,
+						wakeOutcomeIndex: input.wakeOutcomeIndex,
+					})
+				: null,
+		[input, messageDetailsItem]
+	);
+	const messageDetailsWakeStopTarget = useMemo(
+		() =>
+			messageDetailsItem
+				? resolveSpaceMessageWakeStopTarget({
+						item: messageDetailsItem,
+						stopRequestStatusBySelectorKey:
+							input.wakeStopRequestStatusBySelectorKey,
+						targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
+						timelineItems: input.rawThreadTimelineItems,
+						wakeOutcomeIndex: input.wakeOutcomeIndex,
+						wakeProgressItems: input.ephemeralActivityItems,
+					})
+				: null,
+		[input, messageDetailsItem]
+	);
+	const messageDetailsReplyItems = messageDetailsItem
+		? resolveReplyItemsForMessage({
+				item: messageDetailsItem,
+				timelineItems: input.rawThreadTimelineItems,
+			})
+		: [];
+	return {
+		closeMessageDetails: () => setSelection(null),
+		messageDetailsItem,
+		messageDetailsReplyItems,
+		messageDetailsWakeProgressState,
+		messageDetailsWakeStopTarget,
+		onOpenMessageDetails,
+	};
+}
+
+function useThreadInitialFocus(input: {
+	activeThread: SpaceThread | null;
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+}) {
+	const initialFocusElementRef = useRef<{
+		element: HTMLElement;
+		signalId: string;
+	} | null>(null);
+	const highlightedElementRef = useRef<HTMLElement | null>(null);
+	const highlightMessageTimerRef = useRef<number | null>(null);
+	const appliedInitialFocusRef = useRef<string | null>(null);
+	const registerMessageElement = useCallback(
+		(signalId: string, element: HTMLElement | null) => {
+			if (element) {
+				if (signalId === input.initialFocusSignalId) {
+					initialFocusElementRef.current = { element, signalId };
+				}
+				return;
+			}
+			if (initialFocusElementRef.current?.signalId === signalId) {
+				initialFocusElementRef.current = null;
+			}
+		},
+		[input.initialFocusSignalId]
+	);
+
+	useEffect(() => {
+		const targetSignalId = input.initialFocusSignalId;
+		const targetRootSignalId = input.initialFocusThreadRootSignalId;
+		if (
+			!(targetSignalId && targetRootSignalId && input.activeThread) ||
+			input.activeThread.rootSignalId !== targetRootSignalId
+		) {
+			appliedInitialFocusRef.current = null;
+			highlightedElementRef.current?.removeAttribute("data-highlighted");
+			highlightedElementRef.current = null;
+			return;
+		}
+		const targetKey = `${input.activeThread.threadId}:${targetSignalId}`;
+		if (appliedInitialFocusRef.current === targetKey) {
+			return;
+		}
+		const targetElement =
+			initialFocusElementRef.current?.signalId === targetSignalId
+				? initialFocusElementRef.current.element
+				: null;
+		if (!targetElement) {
+			return;
+		}
+		appliedInitialFocusRef.current = targetKey;
+		targetElement.scrollIntoView({ block: "center" });
+		targetElement.focus({ preventScroll: true });
+		highlightedElementRef.current?.removeAttribute("data-highlighted");
+		targetElement.setAttribute("data-highlighted", "true");
+		highlightedElementRef.current = targetElement;
+		if (highlightMessageTimerRef.current !== null) {
+			window.clearTimeout(highlightMessageTimerRef.current);
+		}
+		highlightMessageTimerRef.current = window.setTimeout(() => {
+			highlightMessageTimerRef.current = null;
+			targetElement.removeAttribute("data-highlighted");
+			if (highlightedElementRef.current === targetElement) {
+				highlightedElementRef.current = null;
+			}
+		}, 1800);
+	}, [
+		input.activeThread,
+		input.initialFocusSignalId,
+		input.initialFocusThreadRootSignalId,
+	]);
+
+	useEffect(
+		() => () => {
+			if (highlightMessageTimerRef.current !== null) {
+				window.clearTimeout(highlightMessageTimerRef.current);
+			}
+			highlightedElementRef.current?.removeAttribute("data-highlighted");
+		},
+		[]
+	);
+
+	return registerMessageElement;
+}
+
+function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 	if (input.readOnly) {
 		return null;
 	}
@@ -813,12 +849,14 @@ function buildThreadWakeOutcomeIndex(input: {
 	spaceItems: readonly SpaceTimelineItem[];
 	threadItems: readonly SpaceTimelineItem[];
 }): SpaceWakeOutcomeIndex {
-	const threadItemIds = new Set(input.threadItems.map((item) => item.id));
-	const threadWakeSourceSignalIds = new Set(
-		input.threadItems
-			.filter((item) => item.wakeTargetProfileIds.length > 0)
-			.map((item) => item.id)
-	);
+	const threadItemIds = new Set<string>();
+	const threadWakeSourceSignalIds = new Set<string>();
+	for (const item of input.threadItems) {
+		threadItemIds.add(item.id);
+		if (item.wakeTargetProfileIds.length > 0) {
+			threadWakeSourceSignalIds.add(item.id);
+		}
+	}
 	const exactSpaceOutcomeItems = input.spaceItems.filter(
 		(item) =>
 			!threadItemIds.has(item.id) &&
@@ -1628,6 +1666,59 @@ function shouldShowThreadComposerMentionButton(input: {
 	);
 }
 
+function resolveThreadComposerState(input: {
+	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
+	composerFiles: readonly SpaceComposerFile[];
+	composerHasAuthoredMentions?: boolean;
+	composerText: string;
+}) {
+	let failedFileCount = 0;
+	let readyFileCount = 0;
+	let uploadInProgress = false;
+	for (const file of input.composerFiles) {
+		if (isSpaceComposerFileInProgress(file)) {
+			uploadInProgress = true;
+		}
+		if (isSpaceComposerFileFailed(file)) {
+			failedFileCount += 1;
+		}
+		if (file.status === "ready") {
+			readyFileCount += 1;
+		}
+	}
+	return {
+		composerHasContent:
+			readyFileCount > 0 || input.composerText.trim().length > 0,
+		composerHint: resolveThreadComposerHint({
+			failedFileCount,
+			fileCount: input.composerFiles.length,
+			readyFileCount,
+			uploadInProgress,
+			wakeTextHint: resolveThreadComposerWakeTextHint(input),
+		}),
+		uploadInProgress,
+	};
+}
+
+function resolveThreadComposerHint(input: {
+	failedFileCount: number;
+	fileCount: number;
+	readyFileCount: number;
+	uploadInProgress: boolean;
+	wakeTextHint: string | null;
+}): string | null {
+	if (input.uploadInProgress) {
+		return "Uploading files before sending…";
+	}
+	if (input.failedFileCount > 0) {
+		return `${String(input.failedFileCount)} ${input.failedFileCount === 1 ? "file" : "files"} couldn't be uploaded and won't be sent.`;
+	}
+	if (input.fileCount > 0) {
+		return `${String(input.readyFileCount)} ${input.readyFileCount === 1 ? "file" : "files"} ready to send`;
+	}
+	return input.wakeTextHint;
+}
+
 function ThreadComposer(input: {
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	blockedWakeProfileId: string | null;
@@ -1649,15 +1740,8 @@ function ThreadComposer(input: {
 	onSend: () => Promise<void>;
 	textareaRef: SpaceComposerInputRef;
 }) {
-	const uploadInProgress = input.composerFiles.some(
-		isSpaceComposerFileInProgress
-	);
-	const uploadFailed = input.composerFiles.some(isSpaceComposerFileFailed);
-	const readyFileCount = input.composerFiles.filter(
-		(file) => file.status === "ready"
-	).length;
-	const composerHasContent =
-		readyFileCount > 0 || input.composerText.trim().length > 0;
+	const { composerHasContent, composerHint, uploadInProgress } =
+		resolveThreadComposerState(input);
 	const composerActionsDisabled = input.isSendingMessage;
 	const {
 		addFiles,
@@ -1670,24 +1754,10 @@ function ThreadComposer(input: {
 		disabled: composerActionsDisabled,
 		onAddFiles: input.onAddComposerFiles,
 	});
-	const wakeTextHint = resolveThreadComposerWakeTextHint(input);
 	const showMentionButton = shouldShowThreadComposerMentionButton(input);
-	const composerHintClassName = wakeTextHint
+	const composerHintClassName = resolveThreadComposerWakeTextHint(input)
 		? "text-foreground"
 		: "text-muted-foreground";
-	let composerHint = wakeTextHint;
-	if (uploadInProgress) {
-		composerHint = "Uploading files before sending…";
-	}
-	if (uploadFailed) {
-		const failedCount = input.composerFiles.filter(
-			isSpaceComposerFileFailed
-		).length;
-		composerHint = `${String(failedCount)} ${failedCount === 1 ? "file" : "files"} couldn't be uploaded and won't be sent.`;
-	}
-	if (!(uploadInProgress || uploadFailed) && input.composerFiles.length > 0) {
-		composerHint = `${String(readyFileCount)} ${readyFileCount === 1 ? "file" : "files"} ready to send`;
-	}
 	const submitComposer = () => {
 		if (input.isSendingMessage || uploadInProgress || !composerHasContent) {
 			return;
