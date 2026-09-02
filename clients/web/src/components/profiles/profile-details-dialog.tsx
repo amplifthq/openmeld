@@ -1,5 +1,6 @@
 "use client";
 
+import { Popover } from "@base-ui/react/popover";
 import { formatProfileKind } from "@openmeld/agent-profile";
 import type {
 	AuthProfileView,
@@ -9,7 +10,8 @@ import type {
 	ProfileDetailsSectionId,
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
-import { Button } from "@openmeld/ui/components/button";
+import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -19,11 +21,17 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
+	ArrowRightIcon,
 	CaretDownIcon,
 	ChatCircleTextIcon,
 	CopyIcon,
+	DotsThreeIcon,
+	InfoIcon,
 } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
+import type { ReactElement, ReactNode } from "react";
 import { toast } from "sonner";
+import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { copyTextToClipboard } from "#/lib/clipboard";
@@ -41,6 +49,8 @@ const AGENT_PROFILE_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
 });
 
 export function ProfileDetailsDialog(input: {
+	agentConfigurationContent?: ReactNode;
+	agentEntry?: SpaceMemberDirectoryEntry;
 	agentProfile?: AuthProfileView;
 	currentSession?: {
 		href: string;
@@ -50,46 +60,264 @@ export function ProfileDetailsDialog(input: {
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending?: boolean;
 	isRecoveryActionPending?: boolean;
+	moreDetailsHref?: string;
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	onOpenDirectMessage?: () => void;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
 	const isAgentMoreDetails = input.agentProfile !== undefined;
+	let description =
+		"Profile details from OpenMeld, scoped to what this viewer can access.";
+	let content: ReactNode = (
+		<ProfileDetailsContent
+			className="min-h-0 flex-1 overflow-y-auto pr-1"
+			currentSession={input.currentSession}
+			details={input.details}
+			isDirectMessagePending={input.isDirectMessagePending}
+			isRecoveryActionPending={input.isRecoveryActionPending}
+			onOpenDirectMessage={input.onOpenDirectMessage}
+			onRecoveryAction={input.onRecoveryAction}
+			testId="profile-details-dialog-scroll-area"
+		/>
+	);
+	if (input.agentProfile) {
+		description = "Profile ID and creation details.";
+		content = (
+			<AgentProfileMoreDetailsContent
+				details={input.details}
+				profile={input.agentProfile}
+			/>
+		);
+	} else if (input.agentEntry?.profileKind === "agent") {
+		description = "See what this Agent is doing and how it is set up.";
+		content = (
+			<AgentProfileDetailsContent
+				configurationContent={input.agentConfigurationContent}
+				details={input.details}
+				entry={input.agentEntry}
+				isDirectMessagePending={input.isDirectMessagePending}
+				moreDetailsHref={input.moreDetailsHref}
+				onOpenDirectMessage={input.onOpenDirectMessage}
+			/>
+		);
+	}
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
-			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-xl">
+			<DialogContent className="flex max-h-[min(46rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
 				<DialogHeader className="shrink-0 pr-8">
 					<DialogTitle>
-						{isAgentMoreDetails ? "More details" : "About profile"}
+						{isAgentMoreDetails ? "More details" : "Check this Profile"}
 					</DialogTitle>
-					<DialogDescription>
-						{isAgentMoreDetails
-							? "Profile ID and creation details."
-							: "Profile details from OpenMeld, scoped to what this viewer can access."}
-					</DialogDescription>
+					<DialogDescription>{description}</DialogDescription>
 				</DialogHeader>
 
-				{input.agentProfile ? (
-					<AgentProfileMoreDetailsContent
-						details={input.details}
-						profile={input.agentProfile}
-					/>
-				) : (
-					<ProfileDetailsContent
-						className="min-h-0 flex-1 overflow-y-auto pr-1"
-						currentSession={input.currentSession}
-						details={input.details}
-						isDirectMessagePending={input.isDirectMessagePending}
-						isRecoveryActionPending={input.isRecoveryActionPending}
-						onOpenDirectMessage={input.onOpenDirectMessage}
-						onRecoveryAction={input.onRecoveryAction}
-						testId="profile-details-dialog-scroll-area"
-					/>
-				)}
+				{content}
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+export function AgentProfileDetailsContent(input: {
+	className?: string;
+	configurationContent?: ReactNode;
+	details: ProfileDetailsSnapshot;
+	entry: SpaceMemberDirectoryEntry;
+	isDirectMessagePending?: boolean;
+	moreDetailsHref?: string;
+	onOpenDirectMessage?: () => void;
+}) {
+	const activitySection = input.details.sections.find(
+		(section) => section.id === "activity"
+	);
+	const summaryRows = selectDetailsRows(input.details, [
+		"owner",
+		"agent_controller",
+		"workspace_directory",
+		"agent_controller_permission_mode",
+	]);
+	const modelSummary =
+		selectDetailsRows(input.details, ["model"])[0]?.value ??
+		input.entry.controllerDisplayName ??
+		"Agent";
+	const presenceSummary = resolveAgentPresenceSummary(input.entry);
+
+	return (
+		<div
+			className={cn("min-h-0 flex-1 overflow-y-auto pr-1", input.className)}
+			data-testid="profile-details-dialog-scroll-area"
+		>
+			<div className="flex min-w-0 items-start gap-3">
+				<AgentProfileControllerAvatar
+					agentControllerRef={input.entry.agentControllerRef}
+					profileId={input.entry.profileId}
+					size={64}
+				/>
+				<div className="min-w-0 flex-1 pt-0.5">
+					<p className="break-words font-semibold text-base text-foreground">
+						{input.entry.profileName}
+					</p>
+					<p className="mt-1 break-words text-muted-foreground text-sm">
+						{modelSummary}
+					</p>
+					{presenceSummary ? (
+						<p className="mt-2 text-foreground text-xs">{presenceSummary}</p>
+					) : null}
+					{input.entry.availabilitySummary &&
+					input.entry.availabilitySummary !== presenceSummary ? (
+						<p className="mt-1 text-muted-foreground text-xs">
+							{input.entry.availabilitySummary}
+						</p>
+					) : null}
+				</div>
+				{input.moreDetailsHref ? (
+					<Link
+						aria-label={`More options for ${input.entry.profileName}`}
+						className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
+						to={input.moreDetailsHref}
+					>
+						<DotsThreeIcon aria-hidden="true" />
+					</Link>
+				) : null}
+			</div>
+
+			{input.onOpenDirectMessage ? (
+				<Button
+					className="mt-4 h-auto w-full justify-start rounded-lg border border-border bg-muted/35 px-3 py-3 text-left hover:bg-muted/60"
+					disabled={input.isDirectMessagePending === true}
+					onClick={input.onOpenDirectMessage}
+					type="button"
+					variant="ghost"
+				>
+					<span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background text-foreground ring-1 ring-border">
+						<ChatCircleTextIcon aria-hidden="true" className="size-4" />
+					</span>
+					<span className="min-w-0 flex-1">
+						<span className="block font-medium text-sm">Direct Message</span>
+						<span className="block text-muted-foreground text-xs">
+							Start a private conversation with this Agent.
+						</span>
+					</span>
+					<ArrowRightIcon aria-hidden="true" className="size-4" />
+				</Button>
+			) : null}
+
+			{activitySection ? (
+				<section className="mt-5 grid gap-2">
+					<h3 className="font-medium text-sm">Current activity</h3>
+					<ProfileDetailsSectionView
+						isRecoveryActionPending={false}
+						section={activitySection}
+					/>
+				</section>
+			) : null}
+
+			<section className="mt-5 grid gap-2">
+				<div>
+					<h3 className="font-medium text-sm">How this Agent works</h3>
+					<p className="mt-0.5 text-muted-foreground text-xs">
+						{input.details.viewerScope === "owner_self"
+							? "Open a setting to make a change."
+							: "Settings are read-only because you do not own this Agent."}
+					</p>
+				</div>
+				{input.configurationContent ?? (
+					<div className="grid gap-2 sm:grid-cols-2">
+						{summaryRows.map((row) => (
+							<div
+								className="min-w-0 rounded-lg border border-border bg-muted/20 px-3 py-2.5"
+								key={row.id}
+							>
+								<p className="text-muted-foreground text-xs">{row.label}</p>
+								<p className="mt-1 break-words text-foreground text-sm">
+									{row.value}
+								</p>
+							</div>
+						))}
+					</div>
+				)}
+			</section>
+
+			{input.moreDetailsHref ? (
+				<Link
+					className={cn(
+						buttonVariants({ size: "sm", variant: "outline" }),
+						"mt-5 w-full justify-between"
+					)}
+					to={input.moreDetailsHref}
+				>
+					<span className="inline-flex items-center gap-2">
+						<InfoIcon aria-hidden="true" />
+						More Details
+					</span>
+					<ArrowRightIcon aria-hidden="true" />
+				</Link>
+			) : null}
+		</div>
+	);
+}
+
+export function AgentProfileDetailsPopover(input: {
+	details: ProfileDetailsSnapshot;
+	entry: SpaceMemberDirectoryEntry;
+	moreDetailsHref?: string;
+	trigger: ReactElement;
+}) {
+	return (
+		<Popover.Root modal={false}>
+			<Popover.Trigger render={input.trigger} />
+			<Popover.Portal>
+				<Popover.Positioner
+					align="start"
+					className="z-50"
+					collisionAvoidance={{
+						align: "shift",
+						fallbackAxisSide: "end",
+						side: "flip",
+					}}
+					collisionPadding={12}
+					side="bottom"
+					sideOffset={8}
+				>
+					<Popover.Popup
+						aria-label={`${input.entry.profileName} Profile`}
+						className="w-[min(24rem,calc(100vw-1.5rem))] rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl outline-none"
+						role="dialog"
+					>
+						<AgentProfileDetailsContent
+							className="max-h-[min(34rem,calc(100dvh-3rem))]"
+							details={input.details}
+							entry={input.entry}
+							moreDetailsHref={input.moreDetailsHref}
+						/>
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
+	);
+}
+
+function resolveAgentPresenceSummary(
+	entry: SpaceMemberDirectoryEntry
+): string | null {
+	if (entry.availabilityReasonCode === "agent_execution.ready") {
+		return "Available for Wake";
+	}
+	if (entry.availabilityBadgeLabel) {
+		return entry.availabilityBadgeLabel;
+	}
+	switch (entry.presenceStatus) {
+		case "wakeable":
+			return "Available for Wake";
+		case "checking_connection":
+			return "Checking";
+		case "offline":
+			return "Offline";
+		case "unavailable":
+			return "Unavailable";
+		default:
+			return entry.presenceLabel ?? entry.availabilitySummary;
+	}
 }
 
 function AgentProfileMoreDetailsContent(input: {

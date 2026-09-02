@@ -2430,6 +2430,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 		entry: input.profileDetailsEntry,
 		entriesByProfileId: input.profileEntriesById,
 		modelCatalog: input.modelCatalog,
+		orgSlug: input.orgSlug,
 	});
 	const computerSetupContext = resolveCenterAgentComputerSetupContext({
 		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
@@ -2466,6 +2467,27 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 			) : null}
 		</>
 	);
+	const speakerHeaderTrigger = detailsDialog.canOpenProfileDetails ? (
+		<button
+			aria-label={`Check ${input.run.speaker.displayName} Profile`}
+			className={cn(
+				APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+				"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			)}
+			onClick={
+				detailsDialog.profileDetailsPopoverTrigger
+					? undefined
+					: detailsDialog.openProfileDetails
+			}
+			type="button"
+		>
+			{speakerHeaderContent}
+		</button>
+	) : null;
+	const speakerHeader =
+		speakerHeaderTrigger && detailsDialog.profileDetailsPopoverTrigger
+			? detailsDialog.profileDetailsPopoverTrigger(speakerHeaderTrigger)
+			: speakerHeaderTrigger;
 
 	return (
 		<>
@@ -2595,25 +2617,15 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 								{index === 0 ? (
 									<>
 										<MessageHeader className="px-0">
-											{detailsDialog.canOpenProfileDetails ? (
-												<button
-													aria-label={`About ${input.run.speaker.displayName}`}
-													className={cn(
-														APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
-														"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-													)}
-													onClick={detailsDialog.openProfileDetails}
-													type="button"
-												>
-													{speakerHeaderContent}
-												</button>
-											) : (
+											{speakerHeader ?? (
 												<div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
 													{speakerHeaderContent}
 												</div>
 											)}
 										</MessageHeader>
-										{detailsDialog.profileDetailsDialog}
+										{detailsDialog.profileDetailsPopoverTrigger
+											? null
+											: detailsDialog.profileDetailsDialog}
 									</>
 								) : null}
 								<BubbleGroup className="w-full gap-0">
@@ -2668,6 +2680,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													orgSlug={input.orgSlug}
 													profilePresentationsById={
 														input.profilePresentationsById
+													}
+													renderAgentProfileTrigger={
+														detailsDialog.profileDetailsPopoverTriggerById
 													}
 													spaceReferencesById={input.spaceReferencesById}
 												/>

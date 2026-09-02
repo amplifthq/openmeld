@@ -38,6 +38,7 @@ import {
 	createSpaceMessageAgentMentionRemarkPlugin,
 	EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES,
 	renderSpaceMessageAgentMentionInternalLink,
+	type SpaceAgentProfileTriggerRenderer,
 	type SpaceMessageAgentMentionProfilesById,
 	SpaceMessageAgentMentionText,
 } from "./space-message-agent-mention";
@@ -81,6 +82,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 			>
 		>;
 	onOpenAgentProfile?: (profileId: string) => void;
+	renderAgentProfileTrigger?: SpaceAgentProfileTriggerRenderer;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	openMeldProfileId?: string;
 	orgSlug?: string;
@@ -155,6 +157,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 				href,
 				onOpenAgentProfile: input.onOpenAgentProfile,
 				profilesById: agentMentionProfilesById,
+				renderAgentProfileTrigger: input.renderAgentProfileTrigger,
 			});
 			if (agentMention) {
 				return agentMention;
@@ -165,7 +168,12 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 				referencesById: spaceReferencesById,
 			});
 		},
-		[agentMentionProfilesById, input.onOpenAgentProfile, spaceReferencesById]
+		[
+			agentMentionProfilesById,
+			input.onOpenAgentProfile,
+			input.renderAgentProfileTrigger,
+			spaceReferencesById,
+		]
 	);
 	const shouldRenderMarkdown =
 		input.item.actorProfileKind === "agent" ||
@@ -200,6 +208,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		className,
 		isStreaming,
 		onOpenAgentProfile: input.onOpenAgentProfile,
+		renderAgentProfileTrigger: input.renderAgentProfileTrigger,
 		referencesById: spaceReferencesById,
 		renderInternalLink,
 		renderedText,
@@ -270,6 +279,7 @@ function renderSpaceMessageTextContent(input: {
 	className: string;
 	isStreaming: boolean;
 	onOpenAgentProfile?: (profileId: string) => void;
+	renderAgentProfileTrigger?: SpaceAgentProfileTriggerRenderer;
 	referencesById: SpaceMessageReferencesById;
 	renderInternalLink: ComponentProps<
 		typeof MessageResponse
@@ -297,6 +307,7 @@ function renderSpaceMessageTextContent(input: {
 			<SpaceMessageAgentMentionText
 				onOpenAgentProfile={input.onOpenAgentProfile}
 				profilesById={input.agentMentionProfilesById}
+				renderAgentProfileTrigger={input.renderAgentProfileTrigger}
 				renderText={(text) => (
 					<SpaceMessageReferenceText
 						referencesById={input.referencesById}

@@ -3957,7 +3957,9 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		const profileHeader = screen.getByRole("button", { name: "About Felix" });
+		const profileHeader = screen.getByRole("button", {
+			name: "Check Felix Profile",
+		});
 		expect(profileHeader.className).toContain("touch-manipulation");
 		expect(profileHeader.className).toContain("max-lg:min-h-11");
 		expect(profileHeader.textContent).toContain("Felix");
@@ -3975,7 +3977,7 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(profileHeader);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.getByText("About profile")).toBeTruthy();
+		expect(dialog.getByText("Check this Profile")).toBeTruthy();
 		expect(dialog.getAllByText("Felix").length).toBeGreaterThan(0);
 		expect(dialog.getAllByText("Human Profile").length).toBeGreaterThan(0);
 		expect(dialog.getByText(profileId)).toBeTruthy();
@@ -4001,9 +4003,11 @@ describe("SpaceConversationPanel", () => {
 		);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.getByText("About profile")).toBeTruthy();
+		expect(
+			dialog.getByRole("heading", { name: "How this Agent works" })
+		).toBeTruthy();
 		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
-		expect(dialog.getByText(TARGET_PROFILE_ID)).toBeTruthy();
+		expect(dialog.getByText("Available for Wake")).toBeTruthy();
 	});
 
 	it("keeps historical profile headers passive when the member entry is unavailable", () => {
@@ -4012,7 +4016,9 @@ describe("SpaceConversationPanel", () => {
 			timelineItems: [createTimelineItem()],
 		});
 
-		expect(screen.queryByRole("button", { name: "About Felix" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Check Felix Profile" })
+		).toBeNull();
 		expect(screen.getByText("Felix")).toBeTruthy();
 	});
 

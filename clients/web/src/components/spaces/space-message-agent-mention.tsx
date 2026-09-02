@@ -1,4 +1,10 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactElement, type ReactNode } from "react";
+
+export type SpaceAgentProfileTriggerRenderer = (
+	profileId: string,
+	trigger: ReactElement
+) => ReactNode;
+
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceProfileIcon } from "./space-profile-icon";
 
@@ -88,6 +94,7 @@ export function buildSpaceMessageAgentMentionProfiles(input: {
 export function SpaceMessageAgentMentionText(input: {
 	onOpenAgentProfile?: (profileId: string) => void;
 	profilesById: SpaceMessageAgentMentionProfilesById;
+	renderAgentProfileTrigger?: SpaceAgentProfileTriggerRenderer;
 	renderText?: (text: string) => ReactNode;
 	text: string;
 }) {
@@ -108,6 +115,7 @@ export function SpaceMessageAgentMentionText(input: {
 							key={`${segment.profile.profileId}:${String(segment.offset)}`}
 							onOpenAgentProfile={input.onOpenAgentProfile}
 							profile={segment.profile}
+							renderAgentProfileTrigger={input.renderAgentProfileTrigger}
 						/>
 					);
 				}
@@ -135,6 +143,7 @@ export function renderSpaceMessageAgentMentionInternalLink(input: {
 	href: string;
 	onOpenAgentProfile?: (profileId: string) => void;
 	profilesById: SpaceMessageAgentMentionProfilesById;
+	renderAgentProfileTrigger?: SpaceAgentProfileTriggerRenderer;
 }): ReactNode | null {
 	const parsedMention = parseSpaceMessageAgentMentionPath(input.href);
 	const baseProfile = parsedMention
@@ -151,6 +160,7 @@ export function renderSpaceMessageAgentMentionInternalLink(input: {
 		<SpaceMessageAgentMention
 			onOpenAgentProfile={input.onOpenAgentProfile}
 			profile={profile}
+			renderAgentProfileTrigger={input.renderAgentProfileTrigger}
 		/>
 	);
 }
@@ -158,6 +168,7 @@ export function renderSpaceMessageAgentMentionInternalLink(input: {
 function SpaceMessageAgentMention(input: {
 	onOpenAgentProfile?: (profileId: string) => void;
 	profile: SpaceMessageAgentMentionPresentation;
+	renderAgentProfileTrigger?: SpaceAgentProfileTriggerRenderer;
 }) {
 	const relationLabel =
 		input.profile.relation === "wake" ? "Wake" : "Reference";
@@ -187,7 +198,7 @@ function SpaceMessageAgentMention(input: {
 	const tokenClassName =
 		"inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70";
 
-	if (!input.onOpenAgentProfile) {
+	if (!(input.onOpenAgentProfile || input.renderAgentProfileTrigger)) {
 		return (
 			<span className={tokenClassName} data-slot="space-message-agent-mention">
 				{content}
@@ -195,17 +206,24 @@ function SpaceMessageAgentMention(input: {
 		);
 	}
 
-	return (
+	const trigger = (
 		<button
 			aria-label={`Open ${input.profile.profileName} profile (${relationLabel})`}
 			className={`${tokenClassName} cursor-pointer border-0 transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50`}
 			data-slot="space-message-agent-mention"
-			onClick={() => input.onOpenAgentProfile?.(input.profile.profileId)}
+			onClick={
+				input.renderAgentProfileTrigger
+					? undefined
+					: () => input.onOpenAgentProfile?.(input.profile.profileId)
+			}
 			type="button"
 		>
 			{content}
 		</button>
 	);
+	return input.renderAgentProfileTrigger
+		? input.renderAgentProfileTrigger(input.profile.profileId, trigger)
+		: trigger;
 }
 
 function splitSpaceMessageAgentMentionText(

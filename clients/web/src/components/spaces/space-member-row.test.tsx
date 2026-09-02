@@ -201,22 +201,22 @@ describe("SpaceMemberRow", () => {
 		fireEvent.click(profileSummaryButton);
 
 		const dialog = screen.getByRole("dialog");
-		expect(dialog.className).toContain("max-h-[min(42rem,calc(100dvh-2rem))]");
+		expect(dialog.className).toContain("max-h-[min(46rem,calc(100dvh-2rem))]");
 		expect(dialog.className).toContain("overflow-hidden");
 		expect(
 			screen.getByTestId("profile-details-dialog-scroll-area").className
 		).toContain("overflow-y-auto");
-		expect(screen.getByText("About profile")).toBeTruthy();
-		expect(screen.getByText("Controller conversation ID")).toBeTruthy();
-		expect(screen.getByText("thread-codex-1")).toBeTruthy();
-		expect(screen.getByText("Advanced details")).toBeTruthy();
-		expect(screen.getByText("agt-1")).toBeTruthy();
+		expect(screen.getByText("Check this Profile")).toBeTruthy();
+		expect(screen.queryByText("Controller conversation ID")).toBeNull();
+		expect(screen.queryByText("thread-codex-1")).toBeNull();
+		expect(screen.getByText("How this Agent works")).toBeTruthy();
+		expect(screen.getByRole("link", { name: "More Details" })).toBeTruthy();
 		expect(screen.getByText("Workspace directory")).toBeTruthy();
 		expect(screen.getByText("/Users/felix/project")).toBeTruthy();
 		expect(
 			screen.getAllByText("Codex · gpt-5.3-codex-spark · high").length
 		).toBeGreaterThan(0);
-		expect(screen.getByText("agent_execution.ready")).toBeTruthy();
+		expect(screen.queryByText("agent_execution.ready")).toBeNull();
 	});
 
 	it("matches the sidebar type scale for both Agent and Human names", () => {
@@ -280,7 +280,7 @@ describe("SpaceMemberRow", () => {
 		);
 	});
 
-	it("opens the Agent Profile editor from an owned agent member menu", () => {
+	it("keeps Agent Profile editing inside the shared profile surface", () => {
 		const onEditAgentProfile = vi.fn();
 
 		renderSpaceMemberRow({
@@ -298,12 +298,15 @@ describe("SpaceMemberRow", () => {
 				name: "Member options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("menuitem", { name: "Edit Agent" }));
-
-		expect(onEditAgentProfile).toHaveBeenCalledWith("agt-owned");
+		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: "Check this Profile" })
+		);
+		expect(screen.getByRole("dialog")).toBeTruthy();
+		expect(onEditAgentProfile).not.toHaveBeenCalled();
 	});
 
-	it("keeps About available without offering Agent Profile editing for another owner's agent", () => {
+	it("keeps profile details available without offering a separate edit action", () => {
 		renderSpaceMemberRow({
 			entry: buildAgentEntry({
 				ownerUserId: "user-2",
@@ -326,7 +329,7 @@ describe("SpaceMemberRow", () => {
 		).toContain("rounded-md");
 		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
 		const aboutItem = screen.getByRole("menuitem", {
-			name: "About profile",
+			name: "Check this Profile",
 		});
 		expect(aboutItem.className).toContain("rounded-md");
 		fireEvent.click(aboutItem);
@@ -364,10 +367,8 @@ describe("SpaceMemberRow", () => {
 		fireEvent.click(screen.getByRole("button", { name: "About Codex" }));
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Codex · gpt-5.3-codex-spark · high")).toBeTruthy();
-		expect(dialog.getAllByText("Felix")).toHaveLength(2);
-		expect(dialog.getByText("Last activity in this Space")).toBeTruthy();
-		expect(dialog.getByText("16d ago")).toBeTruthy();
-		expect(dialog.queryByText("Seen 16d ago")).toBeNull();
+		expect(dialog.getByText("Felix")).toBeTruthy();
+		expect(dialog.queryByText("Last activity in this Space")).toBeNull();
 		expect(
 			dialog.getByText("Connect OpenMeld Service before this agent can reply.")
 		).toBeTruthy();
@@ -394,7 +395,7 @@ describe("SpaceMemberRow", () => {
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Mira")).toBeTruthy();
 		expect(dialog.getByText("Available for Wake")).toBeTruthy();
-		expect(dialog.getByText("Advanced details")).toBeTruthy();
+		expect(dialog.getByText("How this Agent works")).toBeTruthy();
 		expect(dialog.queryByText("Connection")).toBeNull();
 		expect(dialog.queryByText("Controller conversation ID")).toBeNull();
 		expect(dialog.queryByText("thread-codex-1")).toBeNull();

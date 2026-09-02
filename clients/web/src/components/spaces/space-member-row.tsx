@@ -32,7 +32,6 @@ import {
 	DotsThreeIcon,
 	InfoIcon,
 	TrashIcon,
-	WrenchIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -211,12 +210,9 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.entry,
 		modelCatalog: input.modelCatalog ?? null,
+		orgSlug: input.orgSlug,
 	});
 	const actions = renderSpaceMemberActions({
-		onEditAgentProfile: resolveOwnedAgentProfileEditAction({
-			canManageAgentProfile,
-			onEditAgentProfile: input.onEditAgentProfile,
-		}),
 		onOpenProfileDetails: detailsDialog.openProfileDetails,
 		onRemoveFromSpace: input.onRemoveFromSpace,
 		profileId: input.entry.profileId,
@@ -306,6 +302,7 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.entry,
 		modelCatalog: input.modelCatalog ?? null,
+		orgSlug: input.orgSlug,
 	});
 	const actions = renderSpaceMemberActions({
 		onRemoveFromSpace: input.onRemoveFromSpace,
@@ -434,7 +431,6 @@ function SpaceMemberBadges(input: {
 }
 
 function renderSpaceMemberActions(input: {
-	onEditAgentProfile?: (profileId: string) => void;
 	onOpenProfileDetails?: () => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	profileId: string;
@@ -443,17 +439,12 @@ function renderSpaceMemberActions(input: {
 }) {
 	if (
 		input.variant !== "full" ||
-		!(
-			input.onOpenProfileDetails ||
-			input.onEditAgentProfile ||
-			input.onRemoveFromSpace
-		)
+		!(input.onOpenProfileDetails || input.onRemoveFromSpace)
 	) {
 		return null;
 	}
 	return (
 		<SpaceMemberActionsMenu
-			onEditAgentProfile={input.onEditAgentProfile}
 			onOpenProfileDetails={input.onOpenProfileDetails}
 			onRemoveFromSpace={input.onRemoveFromSpace}
 			profileId={input.profileId}
@@ -462,18 +453,7 @@ function renderSpaceMemberActions(input: {
 	);
 }
 
-function resolveOwnedAgentProfileEditAction(input: {
-	canManageAgentProfile: boolean;
-	onEditAgentProfile?: (profileId: string) => void;
-}): ((profileId: string) => void) | undefined {
-	if (!input.canManageAgentProfile) {
-		return undefined;
-	}
-	return input.onEditAgentProfile;
-}
-
 function SpaceMemberActionsMenu(input: {
-	onEditAgentProfile?: (profileId: string) => void;
 	onOpenProfileDetails?: () => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	profileId: string;
@@ -508,18 +488,7 @@ function SpaceMemberActionsMenu(input: {
 							onClick={input.onOpenProfileDetails}
 						>
 							<InfoIcon aria-hidden="true" />
-							About profile
-						</DropdownMenuItem>
-					) : null}
-					{input.onEditAgentProfile ? (
-						<DropdownMenuItem
-							className="text-sm"
-							onClick={() => {
-								input.onEditAgentProfile?.(input.profileId);
-							}}
-						>
-							<WrenchIcon aria-hidden="true" />
-							Edit Agent
+							Check this Profile
 						</DropdownMenuItem>
 					) : null}
 					{input.onRemoveFromSpace ? (
