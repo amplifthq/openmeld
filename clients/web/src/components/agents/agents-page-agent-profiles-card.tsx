@@ -73,7 +73,6 @@ import {
 	LockKeyIcon,
 	RobotIcon,
 	TrashIcon,
-	UserCircleIcon,
 	WrenchIcon,
 } from "@phosphor-icons/react";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
@@ -121,6 +120,7 @@ import {
 	type AgentProfileModelCompatibilityContext,
 	AgentProfileModelSelectionFields,
 } from "#/components/profiles/create-profile-form";
+import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import {
 	formatOpenCodePermissionJson,
@@ -162,6 +162,7 @@ import {
 } from "#/query/profiles/primary-binding";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { AGENT_PROFILE_ROUTE_REFRESH_WINDOW_MS } from "#/strategy-constants";
+import type { AgentProfileActivityNavigation } from "./agent-profile-activity-preview";
 import { AgentProfileBulkReconnectNotice } from "./agent-profile-bulk-reconnect-notice";
 import {
 	refreshSavedAgentProfileConnections,
@@ -353,6 +354,10 @@ function pruneInactiveProfileIds(
 
 export type AgentProfilesCardProps = {
 	availabilityFilter: AgentProfileAvailabilityFilter;
+	agentProfileActivityNavigationByProfileId?: ReadonlyMap<
+		string,
+		AgentProfileActivityNavigation
+	>;
 	agentProfileOperationalContextByProfileId?: ReadonlyMap<
 		string,
 		AgentProfileOperationalContextInput
@@ -1686,6 +1691,11 @@ function AgentProfileDirectoryRow(input: {
 
 	return (
 		<AgentProfileExecutionReadinessRow
+			activityNavigation={
+				input.cardInput.agentProfileActivityNavigationByProfileId?.get(
+					profile.openMeldProfileId
+				) ?? null
+			}
 			actorProfileId={input.cardInput.recovery.selectedHumanProfileId}
 			controllerChangeOptions={controller.controllerChangeOptions}
 			duplicateConversationProfileNames={
@@ -1775,6 +1785,12 @@ function AgentProfileDirectoryRow(input: {
 				) ?? null
 			}
 			organizationId={controller.currentOrganization.id}
+			ownerProfile={
+				input.cardInput.recovery.selectedHumanProfile?.ownerUserId ===
+				profile.ownerUserId
+					? input.cardInput.recovery.selectedHumanProfile
+					: null
+			}
 			pendingState={{
 				checkAgain:
 					controller.pendingCheckProfileId === profile.openMeldProfileId,
@@ -2077,6 +2093,7 @@ type AgentProfileActionPendingState = {
 };
 
 type AgentProfileExecutionReadinessRowProps = {
+	activityNavigation: AgentProfileActivityNavigation | null;
 	actorProfileId: string | null;
 	duplicateConversationProfileNames: readonly string[];
 	errorMessage: string | null;
@@ -2109,6 +2126,7 @@ type AgentProfileExecutionReadinessRowProps = {
 	onRemoveProfile: () => Promise<void>;
 	organizationId: string;
 	operationalContext: AgentProfileOperationalContextInput | null;
+	ownerProfile: AuthProfileView | null;
 	profile: AuthProfileView;
 	primaryBinding: GetAgentProfilePrimaryBindingResponse["binding"] | null;
 	pendingState: AgentProfileActionPendingState;
@@ -2364,6 +2382,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 }) {
 	return (
 		<AgentProfileRowMoreMenu
+			activityNavigation={input.row.activityNavigation}
 			actorProfileId={input.row.actorProfileId}
 			capabilities={{
 				canManage: input.row.rowState.canManage,
@@ -2396,6 +2415,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			onRepairAction={input.row.onRepairAction}
 			operationalContext={input.row.operationalContext}
 			organizationId={input.row.organizationId}
+			ownerProfile={input.row.ownerProfile}
 			pendingState={input.row.pendingState}
 			presentation={input.row.presentation}
 			primaryAgentControllerRef={
@@ -2926,7 +2946,7 @@ function AgentProfileOptionsPopover(input: {
 								type="button"
 							>
 								<InfoIcon aria-hidden="true" className="h-4 w-4" />
-								About profile
+								More details
 							</button>
 						)}
 						{input.capabilities.canManage ? (
@@ -2988,6 +3008,7 @@ function AgentProfileOptionsPopover(input: {
 }
 
 function AgentProfileRowMoreMenu(input: {
+	activityNavigation: AgentProfileActivityNavigation | null;
 	actorProfileId: string | null;
 	capabilities: {
 		canManage: boolean;
@@ -3023,6 +3044,7 @@ function AgentProfileRowMoreMenu(input: {
 	onRemoveProfile: () => Promise<void>;
 	organizationId: string;
 	profile: AuthProfileView;
+	ownerProfile: AuthProfileView | null;
 	profileName: string;
 	readinessErrorMessage: string | null;
 	readinessIsMissing: boolean;
@@ -3050,7 +3072,8 @@ function AgentProfileRowMoreMenu(input: {
 			agentProfileId: input.profile.openMeldProfileId,
 			enabled: shouldReadControllerChangeEligibility({
 				isMenuOpen,
-				isProfileEditDialogOpen,
+				isProfileEditDialogOpen:
+					isProfileEditDialogOpen || input.presentation === "detail",
 				isUnbindControllerDialogOpen,
 			}),
 			organizationId: input.organizationId,
@@ -3079,7 +3102,7 @@ function AgentProfileRowMoreMenu(input: {
 		agentControllerRef: input.primaryAgentControllerRef,
 		managedRole: input.profile.managedRole,
 	});
-	const { currentOrganization } = useAppOrganization();
+	const { account, currentOrganization, currentUserId } = useAppOrganization();
 	const currentSessionQuery = useQuery(
 		agentActivitySessionsQueryOptions({
 			enabled:
@@ -3132,13 +3155,20 @@ function AgentProfileRowMoreMenu(input: {
 				currentSession={currentSessionLink}
 				input={input}
 				onOpenChange={{
+					details: setIsDetailsDialogOpen,
 					menu: setIsMenuOpen,
 					profileEdit: setIsProfileEditDialogOpen,
 					projectSettings: setIsProjectSettingsDialogOpen,
 					remove: setIsRemoveDialogOpen,
 					unbindController: setIsUnbindControllerDialogOpen,
 				}}
+				ownerAvatarUrl={
+					input.profile.ownerUserId === currentUserId
+						? account.image
+						: input.ownerProfile?.avatarUrl
+				}
 				presentationState={{
+					detailsOpen: isDetailsDialogOpen,
 					menuOpen: isMenuOpen,
 					profileEditOpen: isProfileEditDialogOpen,
 					profileEditPending: isProfileEditPending,
@@ -3226,6 +3256,7 @@ function AgentProfileRowMoreMenu(input: {
 				/>
 			</div>
 			<ProfileDetailsDialog
+				agentProfile={input.profile}
 				currentSession={currentSessionLink}
 				details={input.details}
 				isDirectMessagePending={input.pendingState.directMessage}
@@ -3242,6 +3273,10 @@ function AgentProfileRowMoreMenu(input: {
 			<AgentProfileProjectSettingsDialog
 				actorProfileId={input.actorProfileId}
 				agentControllerRef={input.primaryAgentControllerRef}
+				currentWorkingFolder={resolveProfileDetailsValue(
+					input.details,
+					"workspace_directory"
+				)}
 				executionTargetChangeEligibilityStatus={
 					controllerChangeEligibilityStatus
 				}
@@ -3302,6 +3337,7 @@ function AgentProfileWorkspacePresentation(input: {
 	};
 	input: Parameters<typeof AgentProfileRowMoreMenu>[0];
 	onOpenChange: {
+		details: (open: boolean) => void;
 		menu: (open: boolean) => void;
 		profileEdit: (open: boolean) => void;
 		projectSettings: (open: boolean) => void;
@@ -3309,6 +3345,7 @@ function AgentProfileWorkspacePresentation(input: {
 		unbindController: (open: boolean) => void;
 	};
 	presentationState: {
+		detailsOpen: boolean;
 		menuOpen: boolean;
 		profileEditOpen: boolean;
 		profileEditPending: boolean;
@@ -3316,6 +3353,7 @@ function AgentProfileWorkspacePresentation(input: {
 		removeOpen: boolean;
 		unbindControllerOpen: boolean;
 	};
+	ownerAvatarUrl: string | null | undefined;
 	runtime: {
 		computerName: string;
 		controllerName: string;
@@ -3351,10 +3389,10 @@ function AgentProfileWorkspacePresentation(input: {
 	const controllerModelSummary = input.input.capabilities.canManage
 		? ownerControllerModelSummary
 		: (controllerDisplayName ?? "No Controller connected");
-	const overflowActions = input.input.capabilities.canManage ? (
+	const overflowActions = (
 		<AgentProfileOptionsPopover
 			capabilities={{
-				canManage: true,
+				canManage: input.input.capabilities.canManage,
 				hasEnabledPrimaryBinding:
 					input.input.capabilities.hasEnabledPrimaryBinding,
 				showProjectSettings: input.workspaceOptions.showProjectSettings,
@@ -3366,26 +3404,26 @@ function AgentProfileWorkspacePresentation(input: {
 			}}
 			isOpen={input.presentationState.menuOpen}
 			onOpenChange={input.onOpenChange.menu}
+			onOpenDetails={() => input.onOpenChange.details(true)}
 			onOpenProjectSettings={() => input.onOpenChange.projectSettings(true)}
 			onOpenRemove={() => input.onOpenChange.remove(true)}
 			onOpenUnbind={() => input.onOpenChange.unbindController(true)}
 			profileName={input.input.profileName}
-			showDetailsAction={false}
 		/>
-	) : null;
-	const openProfileEditor = () => {
-		input.onOpenChange.menu(false);
-		input.onOpenChange.profileEdit(true);
-	};
+	);
 	return (
 		<>
 			<AgentProfileWorkspaceDetail
+				activityNavigation={input.input.activityNavigation}
 				agentControllerRef={input.input.primaryAgentControllerRef}
 				canEdit={input.input.capabilities.canManage}
 				configurationContent={
-					input.input.capabilities.canManage &&
-					!input.presentationState.profileEditOpen ? (
+					input.input.capabilities.canManage ? (
 						<AgentProfileConfigurationOverview
+							controllerChangeEligibilityStatus={
+								input.controllerChangeEligibilityStatus
+							}
+							controllerChangeOptions={input.input.controllerChangeOptions}
 							controllerDisplayName={controllerDisplayName}
 							controllerModelSummary={ownerControllerModelSummary}
 							details={input.input.details}
@@ -3394,26 +3432,8 @@ function AgentProfileWorkspacePresentation(input: {
 								input.input.pendingState.disablePrimaryBinding
 							}
 							editState={input.input.editState}
-							onEdit={openProfileEditor}
-							runtime={input.runtime}
-						/>
-					) : null
-				}
-				controllerModelSummary={controllerModelSummary}
-				currentSession={input.currentSession}
-				details={input.input.details}
-				editContent={
-					input.presentationState.profileEditOpen ? (
-						<AgentProfileInlineEditor
-							controllerChangeEligibilityStatus={
-								input.controllerChangeEligibilityStatus
-							}
-							controllerChangeOptions={input.input.controllerChangeOptions}
-							editState={input.input.editState}
-							isPending={input.presentationState.profileEditPending}
 							modelCatalog={input.input.modelCatalog}
 							modelCompatibilityContext={input.input.modelCompatibilityContext}
-							onCancel={() => input.onOpenChange.profileEdit(false)}
 							onControllerChange={input.input.onControllerChange}
 							onControllerCollaborationModeUpdate={
 								input.input.onControllerCollaborationModeUpdate
@@ -3425,28 +3445,28 @@ function AgentProfileWorkspacePresentation(input: {
 							onOpenCodePermissionUpdate={
 								input.input.onOpenCodePermissionUpdate
 							}
+							onOpenProjectSettings={() =>
+								input.onOpenChange.projectSettings(true)
+							}
 							onRenameProfile={input.input.onRenameProfile}
-							profileName={input.input.profileName}
+							ownerAvatarUrl={input.ownerAvatarUrl}
+							ownerProfile={input.input.ownerProfile}
 							runtime={input.runtime}
 						/>
 					) : null
 				}
-				editDisabled={
-					input.presentationState.profileEditPending ||
-					input.input.pendingState.disablePrimaryBinding
-				}
-				editing={input.presentationState.profileEditOpen}
+				controllerModelSummary={controllerModelSummary}
+				currentSession={input.currentSession}
+				details={input.input.details}
 				isDirectMessagePending={input.input.pendingState.directMessage}
 				isRecoveryActionPending={input.input.pendingState.recoveryAction}
-				onEdit={() => {
-					openProfileEditor();
-				}}
 				onOpenDirectMessage={() => {
 					input.input.onOpenDirectMessage().catch((error) => {
 						console.error("Direct Message action failed.", error);
 					});
 				}}
 				onRecoveryAction={input.input.onRecoveryAction}
+				onRenameProfile={input.input.onRenameProfile}
 				operationalContext={input.input.operationalContext}
 				overflowActions={overflowActions}
 				profile={input.input.profile}
@@ -3467,9 +3487,22 @@ function AgentProfileWorkspacePresentation(input: {
 					) : null
 				}
 			/>
+			<ProfileDetailsDialog
+				agentProfile={input.input.profile}
+				currentSession={input.currentSession}
+				details={input.input.details}
+				isRecoveryActionPending={input.input.pendingState.recoveryAction}
+				onOpenChange={input.onOpenChange.details}
+				onRecoveryAction={input.input.onRecoveryAction}
+				open={input.presentationState.detailsOpen}
+			/>
 			<AgentProfileProjectSettingsDialog
 				actorProfileId={input.input.actorProfileId}
 				agentControllerRef={input.input.primaryAgentControllerRef}
+				currentWorkingFolder={resolveProfileDetailsValue(
+					input.input.details,
+					"workspace_directory"
+				)}
 				executionTargetChangeEligibilityStatus={
 					input.controllerChangeEligibilityStatus
 				}
@@ -3501,18 +3534,152 @@ function AgentProfileWorkspacePresentation(input: {
 }
 
 function AgentProfileConfigurationOverview(input: {
+	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
+	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	controllerDisplayName: string | null;
 	controllerModelSummary: string;
 	details: ProfileDetailsSnapshot;
 	disabled: boolean;
 	editState: AgentProfileEditState | null;
-	onEdit: () => void;
+	modelCatalog: ModelCatalog | null;
+	modelCompatibilityContext: AgentProfileModelCompatibilityContext | null;
+	onControllerChange: (
+		update: AgentProfileControllerChangeUpdate
+	) => Promise<void>;
+	onControllerCollaborationModeUpdate: (
+		agentControllerCollaborationMode: AgentControllerCollaborationMode
+	) => Promise<void>;
+	onControllerPermissionModeUpdate: (
+		agentControllerPermissionMode: AgentControllerPermissionMode
+	) => Promise<void>;
+	onModelSelectionUpdate: (
+		modelSelection: AgentProfileModelSelectionUpdate
+	) => Promise<void>;
+	onOpenCodePermissionUpdate: (
+		openCodePermission: AgentProfileBindingOpenCodePermission | null
+	) => Promise<void>;
+	onOpenProjectSettings: () => void;
+	onRenameProfile: (profileName: string) => Promise<void>;
+	ownerAvatarUrl: string | null | undefined;
+	ownerProfile: AuthProfileView | null;
 	runtime: {
 		computerName: string;
 		controllerName: string;
 		managePath: string;
 	} | null;
 }) {
+	type EditorId = "controller" | "model" | "collaboration" | "permissions";
+	const confirmationId = useId();
+	const permissionControlRef = useRef<HTMLButtonElement>(null);
+	const [activeEditor, setActiveEditor] = useState<EditorId | null>(null);
+	const [savedEditor, setSavedEditor] = useState<EditorId | null>(null);
+	const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+	const draftInput = useMemo(
+		() =>
+			resolveAgentProfileEditDraftInput({
+				editState: input.editState,
+				open: true,
+				profileName:
+					resolveProfileDetailsValue(input.details, "name") ?? "Agent",
+			}),
+		[input.details, input.editState]
+	);
+	const [draft, setDraft] = useState<AgentProfileEditDraft>(() =>
+		createAgentProfileEditDraft(draftInput)
+	);
+	const activeEditState = resolveActiveAgentProfileEditState({
+		currentEditState: input.editState,
+		modelCatalog: input.modelCatalog,
+		selectedAgentControllerRef: draft.selectedAgentControllerRef,
+	});
+	const controllerPermissionMode =
+		activeEditState?.controllerPermissionMode ?? null;
+	const controllerCollaborationMode =
+		activeEditState?.controllerCollaborationMode ?? null;
+	const modelSelection = activeEditState?.modelSelection ?? null;
+	const openCodePermission = activeEditState?.openCodePermission ?? null;
+	const dialogState = resolveAgentProfileEditDialogState({
+		activeDraft: draft,
+		controllerCollaborationMode,
+		controllerChangeEligibilityStatus: input.controllerChangeEligibilityStatus,
+		controllerPermissionMode,
+		currentAgentControllerRef: input.editState?.agentControllerRef ?? null,
+		isPending: input.disabled,
+		modelCatalog: input.modelCatalog,
+		modelSelection,
+		openCodePermission,
+		profileName: draftInput.profileName,
+	});
+	const setEditorOpen = (editor: EditorId, open: boolean) => {
+		setSaveErrorMessage(null);
+		if (open) {
+			setDraft(createAgentProfileEditDraft(draftInput));
+			setActiveEditor(editor);
+			return;
+		}
+		setActiveEditor((current) => (current === editor ? null : current));
+	};
+	const saveEditor = async (editor: EditorId) => {
+		setSaveErrorMessage(null);
+		try {
+			await submitAgentProfileEditDialogChanges({
+				controllerChangeEligibilityStatus:
+					input.controllerChangeEligibilityStatus,
+				dialogState,
+				onControllerChange: input.onControllerChange,
+				onControllerCollaborationModeUpdate:
+					input.onControllerCollaborationModeUpdate,
+				onControllerPermissionModeUpdate:
+					input.onControllerPermissionModeUpdate,
+				onModelSelectionUpdate: input.onModelSelectionUpdate,
+				onOpenChange: (open) => setEditorOpen(editor, open),
+				onOpenCodePermissionUpdate: input.onOpenCodePermissionUpdate,
+				onRenameProfile: input.onRenameProfile,
+			});
+			setSavedEditor(editor);
+			window.setTimeout(() => {
+				setSavedEditor((current) => (current === editor ? null : current));
+			}, 1600);
+		} catch (error) {
+			console.error("Failed to update Agent Profile setting.", error);
+			setSaveErrorMessage(
+				error instanceof Error
+					? error.message
+					: "OpenMeld couldn’t save this Agent setting."
+			);
+		}
+	};
+	const editorFooter = (editor: EditorId) => (
+		<>
+			{saveErrorMessage && activeEditor === editor ? (
+				<p className="mb-3 text-destructive text-xs leading-5" role="alert">
+					{saveErrorMessage}
+				</p>
+			) : null}
+			<div className="mt-4 flex justify-end gap-2 border-border/70 border-t pt-3">
+				<Button
+					disabled={input.disabled}
+					onClick={() => setEditorOpen(editor, false)}
+					size="sm"
+					type="button"
+					variant="ghost"
+				>
+					Cancel
+				</Button>
+				<Button
+					disabled={dialogState.saveButtonDisabled}
+					onClick={() => {
+						saveEditor(editor).catch(() => undefined);
+					}}
+					size="sm"
+					type="button"
+					variant={dialogState.permissionModeState.buttonVariant}
+				>
+					{input.disabled ? "Saving…" : "Save changes"}
+				</Button>
+			</div>
+		</>
+	);
 	const collaboration = input.editState?.controllerCollaborationMode;
 	const collaborationSummary = collaboration
 		? (collaboration.options.find(
@@ -3526,6 +3693,10 @@ function AgentProfileConfigurationOverview(input: {
 			}).label
 		: "Controller default";
 	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "You";
+	const ownerProfileId =
+		input.ownerProfile?.openMeldProfileId ??
+		input.ownerProfile?.ownerUserId ??
+		owner;
 	const workingFolder =
 		resolveProfileDetailsValue(input.details, "workspace_directory") ??
 		"OpenMeld managed";
@@ -3548,51 +3719,175 @@ function AgentProfileConfigurationOverview(input: {
 			</div>
 			<AgentConfigurationGrid className="lg:grid-cols-3">
 				<AgentConfigurationCard
-					disabled={input.disabled}
-					icon={<UserCircleIcon aria-hidden="true" />}
+					icon={
+						<DitherProfileAvatar
+							avatarImageUrl={input.ownerAvatarUrl}
+							profileId={ownerProfileId}
+							profileKind="human"
+							profileName={owner}
+							size={28}
+						/>
+					}
+					itemId="owner"
 					label="Owner"
-					onClick={input.onEdit}
+					readOnly
 					summary={owner}
 				/>
 				<AgentConfigurationCard
 					description="The local tool and computer that run this Agent."
 					disabled={input.disabled}
 					icon={<DesktopTowerIcon aria-hidden="true" />}
+					itemId="runs-on"
 					label="Runs on"
-					onClick={input.onEdit}
+					onOpenChange={(open) => setEditorOpen("controller", open)}
+					open={activeEditor === "controller"}
+					readOnly={!input.editState}
+					status={resolveAgentConfigurationCardStatus({
+						active: activeEditor === "controller",
+						disabled: input.disabled,
+						saved: savedEditor === "controller",
+					})}
 					summary={controllerSummary}
-				/>
+				>
+					{input.editState && activeEditState ? (
+						<>
+							<AgentProfileControllerChangeEditSection
+								activeDraft={draft}
+								currentAgentControllerRef={input.editState.agentControllerRef}
+								currentControllerCollaborationMode={
+									input.editState.controllerCollaborationMode
+								}
+								currentControllerPermissionMode={
+									input.editState.controllerPermissionMode
+								}
+								currentModelSelection={input.editState.modelSelection}
+								disabled={
+									input.disabled ||
+									input.controllerChangeEligibilityStatus !== "allowed"
+								}
+								draftKey={draftInput.draftKey}
+								modelCatalog={input.modelCatalog}
+								onDraftChange={setDraft}
+								options={input.controllerChangeOptions}
+							/>
+							<ControllerChangeAvailabilityNote
+								status={input.controllerChangeEligibilityStatus}
+							/>
+							{editorFooter("controller")}
+						</>
+					) : null}
+				</AgentConfigurationCard>
 				<AgentConfigurationCard
 					disabled={input.disabled}
 					icon={<FolderOpenIcon aria-hidden="true" />}
+					itemId="working-folder"
 					label="Working folder"
-					onClick={input.onEdit}
+					onClick={input.onOpenProjectSettings}
 					summary={workingFolder}
 				/>
 				<AgentConfigurationCard
 					disabled={input.disabled}
 					icon={<BrainIcon aria-hidden="true" />}
+					itemId="model"
 					label="Model"
-					onClick={input.onEdit}
+					onOpenChange={(open) => setEditorOpen("model", open)}
+					open={activeEditor === "model"}
+					readOnly={!modelSelection}
+					status={resolveAgentConfigurationCardStatus({
+						active: activeEditor === "model",
+						disabled: input.disabled,
+						saved: savedEditor === "model",
+					})}
 					summary={input.controllerModelSummary}
-				/>
+				>
+					<AgentProfileModelSelectionEditSection
+						activeDraft={draft}
+						disabled={input.disabled}
+						draftKey={draftInput.draftKey}
+						modelCatalog={input.modelCatalog}
+						modelCompatibilityContext={input.modelCompatibilityContext}
+						modelSelection={modelSelection}
+						onDraftChange={setDraft}
+					/>
+					{editorFooter("model")}
+				</AgentConfigurationCard>
 				<AgentConfigurationCard
 					disabled={input.disabled}
 					icon={<HandIcon aria-hidden="true" />}
+					itemId="collaboration"
 					label="Collaboration"
-					onClick={input.onEdit}
+					onOpenChange={(open) => setEditorOpen("collaboration", open)}
+					open={activeEditor === "collaboration"}
+					readOnly={!controllerCollaborationMode?.editable}
+					status={resolveAgentConfigurationCardStatus({
+						active: activeEditor === "collaboration",
+						disabled: input.disabled,
+						saved: savedEditor === "collaboration",
+					})}
 					summary={collaborationSummary}
-				/>
+				>
+					<AgentProfileCollaborationModeEditSection
+						activeDraft={draft}
+						controllerCollaborationMode={controllerCollaborationMode}
+						disabled={input.disabled}
+						draftKey={draftInput.draftKey}
+						onDraftChange={setDraft}
+					/>
+					{editorFooter("collaboration")}
+				</AgentConfigurationCard>
 				<AgentConfigurationCard
 					disabled={input.disabled}
 					icon={<LockKeyIcon aria-hidden="true" />}
+					itemId="permissions"
 					label="Permissions"
-					onClick={input.onEdit}
+					onOpenChange={(open) => setEditorOpen("permissions", open)}
+					open={activeEditor === "permissions"}
+					readOnly={!(controllerPermissionMode || openCodePermission)}
+					status={resolveAgentConfigurationCardStatus({
+						active: activeEditor === "permissions",
+						disabled: input.disabled,
+						saved: savedEditor === "permissions",
+					})}
 					summary={permissionSummary}
-				/>
+				>
+					<div className="grid gap-4">
+						<AgentProfilePermissionModeEditSection
+							activeDraft={draft}
+							confirmationId={confirmationId}
+							controllerPermissionMode={controllerPermissionMode}
+							disabled={input.disabled}
+							draftKey={draftInput.draftKey}
+							focusRef={permissionControlRef}
+							isAgentWorking={
+								input.controllerChangeEligibilityStatus === "blocked"
+							}
+							onDraftChange={setDraft}
+							selectedPolicy={dialogState.selectedPolicy}
+						/>
+						<AgentProfileOpenCodePermissionEditSection
+							activeDraft={draft}
+							disabled={input.disabled}
+							draftKey={draftInput.draftKey}
+							onDraftChange={setDraft}
+							openCodePermission={openCodePermission}
+						/>
+					</div>
+					{editorFooter("permissions")}
+				</AgentConfigurationCard>
 			</AgentConfigurationGrid>
 		</section>
 	);
+}
+
+function resolveAgentConfigurationCardStatus(input: {
+	active: boolean;
+	disabled: boolean;
+	saved: boolean;
+}): "idle" | "saving" | "saved" {
+	if (input.active && input.disabled) {
+		return "saving";
+	}
+	return input.saved ? "saved" : "idle";
 }
 
 function resolveProfileDetailsValue(

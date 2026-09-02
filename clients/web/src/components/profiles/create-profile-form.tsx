@@ -335,6 +335,7 @@ export function AgentProfileConfigurationCards(input: {
 				<AgentConfigurationCard
 					description="Who owns and maintains this Agent."
 					icon={<UserCircleIcon aria-hidden="true" />}
+					itemId="owner"
 					label="Owner"
 					summary={summaries.owner}
 				>
@@ -345,6 +346,7 @@ export function AgentProfileConfigurationCards(input: {
 				<AgentConfigurationCard
 					description="Start fresh or continue existing work."
 					icon={<WaveformIcon aria-hidden="true" />}
+					itemId="session"
 					label="Session"
 					summary={summaries.session}
 				>
@@ -354,6 +356,7 @@ export function AgentProfileConfigurationCards(input: {
 			<AgentConfigurationCard
 				description="Where this Agent starts work."
 				icon={<FolderOpenIcon aria-hidden="true" />}
+				itemId="working-folder"
 				label="Working folder"
 				summary={summaries.workingFolder}
 			>
@@ -369,6 +372,7 @@ export function AgentProfileConfigurationCards(input: {
 			<AgentConfigurationCard
 				description="Choose the model and how deeply it reasons."
 				icon={<BrainIcon aria-hidden="true" />}
+				itemId="model"
 				label="Model"
 				summary={summaries.model}
 			>
@@ -387,6 +391,7 @@ export function AgentProfileConfigurationCards(input: {
 				<AgentConfigurationCard
 					description="How Codex works with you during a task."
 					icon={<HandIcon aria-hidden="true" />}
+					itemId="collaboration"
 					label="Collaboration"
 					summary={summaries.collaboration}
 				>
@@ -401,6 +406,7 @@ export function AgentProfileConfigurationCards(input: {
 			<AgentConfigurationCard
 				description="What this Agent can do without asking."
 				icon={<LockKeyIcon aria-hidden="true" />}
+				itemId="permissions"
 				label="Permissions"
 				summary={summaries.permission}
 			>

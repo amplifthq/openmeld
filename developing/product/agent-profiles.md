@@ -986,13 +986,16 @@ exception grants no local diagnostics or computer-management authority.
 
 The Agents home and compact About dialog are two presentations of the same
 Profile Details and edit contract, not separate Agent-management systems. The
-Agents home renders the selected Agent as persistent read-only detail and may
-enter owner-authorized editing in place with explicit save and cancel actions.
-It must reuse the existing mutations, execution-target locks, permissions, and
-failure diagnostics. A failed save preserves both the draft and the error
-instead of falling back to stale read-only state. Space Members continues to
-use the compact About dialog for quick preview. Presentation choice does not
-create another Profile, Binding, readiness, request, or edit source of truth.
+Agents home renders the selected Agent as persistent detail. Owner-authorized
+fields edit from their own anchored card or value; the page must not switch into
+a separate all-fields edit mode. Read-only facts such as Owner have no edit
+affordance. Each editable field keeps explicit save and cancel actions and reuses
+the existing mutations, execution-target locks, permissions, and failure
+diagnostics. A failed save preserves that field's draft and error instead of
+replacing the whole detail surface or falling back to stale state. Space Members
+continues to use the compact About dialog for quick preview. Presentation choice
+does not create another Profile, Binding, readiness, request, or edit source of
+truth.
 
 ## Owner Boundaries
 

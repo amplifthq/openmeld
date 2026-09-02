@@ -4,6 +4,7 @@ import type { ProfileDetailsRecoveryAction } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 
 export function ProfileDetailsRecoveryActionButton(input: {
+	compact?: boolean;
 	isPending: boolean;
 	onRecoveryAction: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	recoveryAction: ProfileDetailsRecoveryAction;
@@ -12,42 +13,50 @@ export function ProfileDetailsRecoveryActionButton(input: {
 		<Button
 			disabled={input.isPending}
 			onClick={() => input.onRecoveryAction(input.recoveryAction)}
-			size="sm"
+			size={input.compact ? "xs" : "sm"}
 			type="button"
 			variant="outline"
 		>
 			{input.isPending
-				? formatProfileDetailsRecoveryActionPendingLabel(input.recoveryAction)
-				: formatProfileDetailsRecoveryActionLabel(input.recoveryAction)}
+				? formatProfileDetailsRecoveryActionPendingLabel(
+						input.recoveryAction,
+						input.compact
+					)
+				: formatProfileDetailsRecoveryActionLabel(
+						input.recoveryAction,
+						input.compact
+					)}
 		</Button>
 	);
 }
 
 function formatProfileDetailsRecoveryActionPendingLabel(
-	recoveryAction: ProfileDetailsRecoveryAction
+	recoveryAction: ProfileDetailsRecoveryAction,
+	compact = false
 ): string {
 	switch (recoveryAction.kind) {
 		case "continue_interrupted_work":
-			return "Continuing interrupted work…";
+			return compact ? "Continuing…" : "Continuing interrupted work…";
 		case "approve_queued_work":
-			return "Starting queued work…";
+			return compact ? "Starting…" : "Starting queued work…";
 		case "skip_interrupted_work":
-			return "Skipping interrupted work…";
+			return compact ? "Skipping…" : "Skipping interrupted work…";
 		default:
 			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
 	}
 }
 
 function formatProfileDetailsRecoveryActionLabel(
-	recoveryAction: ProfileDetailsRecoveryAction
+	recoveryAction: ProfileDetailsRecoveryAction,
+	compact = false
 ): string {
 	switch (recoveryAction.kind) {
 		case "continue_interrupted_work":
-			return "Continue interrupted work";
+			return compact ? "Continue" : "Continue interrupted work";
 		case "approve_queued_work":
-			return "Start queued work";
+			return compact ? "Start" : "Start queued work";
 		case "skip_interrupted_work":
-			return "Skip interrupted work";
+			return compact ? "Skip" : "Skip interrupted work";
 		default:
 			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
 	}

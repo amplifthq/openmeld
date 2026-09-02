@@ -21,7 +21,11 @@ import {
 import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+	type AgentProfileActivityNavigation,
+	resolveAgentProfileActivityPreview,
+} from "#/components/agents/agent-profile-activity-preview";
 import { AgentProfileCreationRequestsPanel } from "#/components/agents/agent-profile-creation-requests-panel";
 import { AgentProfilesWorkspace } from "#/components/agents/agent-profiles-workspace";
 import {
@@ -81,6 +85,7 @@ const EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS: ReadonlySet<string> =
 	new Set();
 
 export function PeopleAndAgentsPage(input: {
+	activityPreview?: boolean;
 	activeAgentView?: AgentWorkspaceView;
 	activeSectionId: ProfileHomeId;
 	focusRequestId?: string | null;
@@ -98,6 +103,18 @@ export function PeopleAndAgentsPage(input: {
 	const [agentProfileFilter, setAgentProfileFilter] =
 		useState<AgentProfileListFilter>("all");
 	const [agentProfileSearchQuery, setAgentProfileSearchQuery] = useState("");
+	const [activityPreview, setActivityPreview] = useState(false);
+	useEffect(() => {
+		const isLocalHost =
+			window.location.hostname === "localhost" ||
+			window.location.hostname === "127.0.0.1" ||
+			window.location.hostname === "::1";
+		const isPreviewRequested =
+			input.activityPreview === true ||
+			new URLSearchParams(window.location.search).get("activityPreview") ===
+				"1";
+		setActivityPreview(isLocalHost && isPreviewRequested);
+	}, [input.activityPreview]);
 	const isOrganizationContext = currentOrganization.isPersonal !== true;
 	const activeAgentView = resolveActiveAgentView({
 		activeAgentView: input.activeAgentView,
@@ -172,7 +189,10 @@ export function PeopleAndAgentsPage(input: {
 				? profileHomeRoutes.agents
 				: profileHomeRoutes.people;
 		navigate({
-			search: { profileId: profile.openMeldProfileId },
+			search: {
+				activityPreview: activityPreview ? 1 : undefined,
+				profileId: profile.openMeldProfileId,
+			},
 			to: targetRoute,
 		}).catch((error: unknown) => {
 			console.error("Failed to open the created profile.", error);
@@ -181,7 +201,10 @@ export function PeopleAndAgentsPage(input: {
 	const handleAgentRequestCreated = (request: AgentProfileCreationRequest) => {
 		if (request.createdAgentProfileId) {
 			navigate({
-				search: { profileId: request.createdAgentProfileId },
+				search: {
+					activityPreview: activityPreview ? 1 : undefined,
+					profileId: request.createdAgentProfileId,
+				},
 				to: profileHomeRoutes.agents,
 			}).catch((error: unknown) => {
 				console.error("Failed to open the created Agent.", error);
@@ -224,6 +247,7 @@ export function PeopleAndAgentsPage(input: {
 		<>
 			<AgentsWorkspaceHome
 				activeView={activeAgentView}
+				activityPreview={activityPreview}
 				agentProfileSearchQuery={agentProfileSearchQuery}
 				availabilityFilter={resolveAgentProfileAvailabilityFilter(
 					agentProfileFilter
@@ -257,7 +281,10 @@ export function PeopleAndAgentsPage(input: {
 				onCreateAgent={() => input.onAgentViewChange?.("create")}
 				onSelectProfile={(profileId) => {
 					navigate({
-						search: { profileId },
+						search: {
+							activityPreview: activityPreview ? 1 : undefined,
+							profileId,
+						},
 						to: profileHomeRoutes.agents,
 					}).catch((error: unknown) => {
 						console.error("Failed to open the selected Agent.", error);
@@ -304,6 +331,7 @@ function resolveActiveAgentView(input: {
 
 function AgentsWorkspaceHome(input: {
 	activeView: AgentWorkspaceView;
+	activityPreview: boolean;
 	availabilityFilter: AgentProfileAvailabilityFilter;
 	agentProfileSearchQuery: string;
 	currentUserId: string;
@@ -377,8 +405,46 @@ function AgentsWorkspaceHome(input: {
 	]);
 	const agentProfiles = organizationAgentProjection.profiles;
 	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
+	const activityPresentation = useMemo(() => {
+		if (!input.activityPreview) {
+			return {
+				navigationByProfileId: new Map<
+					string,
+					AgentProfileActivityNavigation
+				>(),
+				operationalContextByProfileId:
+					organizationAgentProjection.operationalContextByProfileId,
+			};
+		}
+		const previewContexts = new Map(
+			organizationAgentProjection.operationalContextByProfileId
+		);
+		const previewNavigation = new Map<string, AgentProfileActivityNavigation>();
+		for (const profile of agentProfiles) {
+			const preview = resolveAgentProfileActivityPreview(
+				profile.profileName,
+				input.orgSlug
+			);
+			if (preview) {
+				previewContexts.set(
+					profile.openMeldProfileId,
+					preview.operationalContext
+				);
+				previewNavigation.set(profile.openMeldProfileId, preview.navigation);
+			}
+		}
+		return {
+			navigationByProfileId: previewNavigation,
+			operationalContextByProfileId: previewContexts,
+		};
+	}, [
+		agentProfiles,
+		input.activityPreview,
+		input.orgSlug,
+		organizationAgentProjection,
+	]);
 	const operationalContextByProfileId =
-		organizationAgentProjection.operationalContextByProfileId;
+		activityPresentation.operationalContextByProfileId;
 	const errorByProfileId = useMemo(
 		() =>
 			input.runtimeOverviewQuery.isError && !input.runtimeOverviewQuery.data
@@ -551,6 +617,9 @@ function AgentsWorkspaceHome(input: {
 					agentExecutionReadinessByProfileId={readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={errorByProfileId}
 					agentExecutionReadinessPendingProfileIds={pendingProfileIds}
+					agentProfileActivityNavigationByProfileId={
+						activityPresentation.navigationByProfileId
+					}
 					agentProfileOperationalContextByProfileId={
 						operationalContextByProfileId
 					}

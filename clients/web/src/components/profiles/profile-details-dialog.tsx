@@ -2,6 +2,7 @@
 
 import { formatProfileKind } from "@openmeld/agent-profile";
 import type {
+	AuthProfileView,
 	ProfileDetailsField,
 	ProfileDetailsRecoveryAction,
 	ProfileDetailsSection,
@@ -30,7 +31,17 @@ import { copyTextToClipboard } from "#/lib/clipboard";
 const AGENT_WORKSPACE_TECHNICAL_SECTION_IDS: ReadonlySet<ProfileDetailsSectionId> =
 	new Set(["connection", "agent_controller_permission_mode", "advanced"]);
 
+const AGENT_PROFILE_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+	month: "short",
+	timeZoneName: "short",
+	year: "numeric",
+});
+
 export function ProfileDetailsDialog(input: {
+	agentProfile?: AuthProfileView;
 	currentSession?: {
 		href: string;
 		nativeSessionId: string;
@@ -44,30 +55,115 @@ export function ProfileDetailsDialog(input: {
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
+	const isAgentMoreDetails = input.agentProfile !== undefined;
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
 			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-xl">
 				<DialogHeader className="shrink-0 pr-8">
-					<DialogTitle>About profile</DialogTitle>
+					<DialogTitle>
+						{isAgentMoreDetails ? "More details" : "About profile"}
+					</DialogTitle>
 					<DialogDescription>
-						Profile details from OpenMeld, scoped to what this viewer can
-						access.
+						{isAgentMoreDetails
+							? "Profile ID and creation details."
+							: "Profile details from OpenMeld, scoped to what this viewer can access."}
 					</DialogDescription>
 				</DialogHeader>
 
-				<ProfileDetailsContent
-					className="min-h-0 flex-1 overflow-y-auto pr-1"
-					currentSession={input.currentSession}
-					details={input.details}
-					isDirectMessagePending={input.isDirectMessagePending}
-					isRecoveryActionPending={input.isRecoveryActionPending}
-					onOpenDirectMessage={input.onOpenDirectMessage}
-					onRecoveryAction={input.onRecoveryAction}
-					testId="profile-details-dialog-scroll-area"
-				/>
+				{input.agentProfile ? (
+					<AgentProfileMoreDetailsContent
+						details={input.details}
+						profile={input.agentProfile}
+					/>
+				) : (
+					<ProfileDetailsContent
+						className="min-h-0 flex-1 overflow-y-auto pr-1"
+						currentSession={input.currentSession}
+						details={input.details}
+						isDirectMessagePending={input.isDirectMessagePending}
+						isRecoveryActionPending={input.isRecoveryActionPending}
+						onOpenDirectMessage={input.onOpenDirectMessage}
+						onRecoveryAction={input.onRecoveryAction}
+						testId="profile-details-dialog-scroll-area"
+					/>
+				)}
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function AgentProfileMoreDetailsContent(input: {
+	details: ProfileDetailsSnapshot;
+	profile: AuthProfileView;
+}) {
+	const details = buildAgentProfileMoreDetailsSnapshot(input);
+	return (
+		<ProfileDetailsContent
+			className="min-h-0 flex-1 overflow-y-auto pr-1"
+			details={details}
+			showSummary={false}
+			testId="profile-details-dialog-scroll-area"
+		/>
+	);
+}
+
+function buildAgentProfileMoreDetailsSnapshot(input: {
+	details: ProfileDetailsSnapshot;
+	profile: AuthProfileView;
+}): ProfileDetailsSnapshot {
+	const profileRows = selectDetailsRows(input.details, [
+		"profile_id",
+		"created_from",
+		"created_at",
+		"updated_at",
+	]).map((row) => {
+		if (row.id === "created_at") {
+			return {
+				...row,
+				value: formatAgentProfileTimestamp(input.profile.createdAt),
+			};
+		}
+		if (row.id === "updated_at") {
+			return {
+				...row,
+				value: formatAgentProfileTimestamp(input.profile.updatedAt),
+			};
+		}
+		return row;
+	});
+	const sections: ProfileDetailsSection[] = [];
+	if (profileRows.length > 0) {
+		sections.push({
+			id: "profile",
+			recoveryAction: null,
+			rows: profileRows,
+			title: "Profile details",
+		});
+	}
+	return { ...input.details, sections };
+}
+
+function selectDetailsRows(
+	details: ProfileDetailsSnapshot,
+	rowIds: readonly string[]
+): ProfileDetailsField[] {
+	const rowsById = new Map<string, ProfileDetailsField>();
+	for (const section of details.sections) {
+		for (const row of section.rows) {
+			rowsById.set(row.id, row);
+		}
+	}
+	return rowIds.flatMap((rowId) => {
+		const row = rowsById.get(rowId);
+		return row ? [row] : [];
+	});
+}
+
+function formatAgentProfileTimestamp(value: string): string {
+	const date = new Date(value);
+	return Number.isNaN(date.getTime())
+		? value
+		: AGENT_PROFILE_TIMESTAMP_FORMATTER.format(date);
 }
 
 export function ProfileDetailsContent(input: {

@@ -242,12 +242,16 @@ describe("AgentProfilesWorkspace", () => {
 		expect(screen.getByTestId("profiles-controller")).toBeTruthy();
 	});
 
-	it("shows Controller/model summary and the authoritative Wake availability", () => {
+	it("keeps ready and idle as the quiet default", () => {
 		renderWorkspace();
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
 		expect(item.textContent).toContain("Codex · gpt-5.6-sol");
-		expect(item.textContent).toContain("Available");
+		expect(item.textContent).not.toContain("Available");
+		expect(item.textContent).not.toContain("Idle");
+		expect(
+			within(item).queryByTestId("agent-profile-operational-status")
+		).toBeNull();
 		expect(
 			within(item).getByTestId("agent-profile-controller-avatar-agent-current")
 		).toBeTruthy();
@@ -259,9 +263,28 @@ describe("AgentProfilesWorkspace", () => {
 		expect(avatar.className).toContain("rounded-lg");
 		expect(avatar.className).toContain("overflow-hidden");
 		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
-		expect(within(item).getByText("Available").getAttribute("title")).toBe(
-			"Available for Wake"
-		);
+	});
+
+	it("uses the shared text shimmer on the Agent name while checking activity", () => {
+		renderWorkspace({
+			operationalContextByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						currentWorkLocation: null,
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "checking",
+						waitingCount: 0,
+					},
+				],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		const name = within(item).getByText("Felix Agent");
+		expect(name.className).toContain("bg-clip-text");
+		expect(name.style.backgroundImage).toContain("var(--bg)");
 	});
 
 	it("shows owner and team-safe workload on their rows", () => {
@@ -295,9 +318,12 @@ describe("AgentProfilesWorkspace", () => {
 			"agent-profile-operational-status"
 		);
 		expect(ownerStatus.getAttribute("data-agent-work-status")).toBe("working");
-		expect(ownerStatus.textContent).toContain("∞");
-		expect(within(ownerStatus).getByText("Working").className).toContain(
-			"shimmer-text"
+		expect(
+			within(ownerStatus).getByTestId("agent-profile-working-orb")
+		).toBeTruthy();
+		expect(ownerStatus.textContent).toContain("+1");
+		expect(ownerStatus.textContent).toContain(
+			"Agent is working in Launch planning"
 		);
 
 		const observerItem = screen.getByRole("button", {
@@ -309,7 +335,8 @@ describe("AgentProfilesWorkspace", () => {
 		expect(observerStatus.getAttribute("data-agent-work-status")).toBe(
 			"waiting"
 		);
-		expect(observerStatus.textContent).toContain("Waiting");
+		expect(observerStatus.textContent).toContain("+2");
+		expect(observerStatus.textContent).toContain("Waiting to continue");
 		expect(observerItem.textContent).not.toContain("Needs attention");
 	});
 
@@ -333,11 +360,13 @@ describe("AgentProfilesWorkspace", () => {
 		const ownerStatus = within(ownerItem).getByTestId(
 			"agent-profile-operational-status"
 		);
-		expect(ownerStatus.textContent).toContain("Needs attention");
+		expect(ownerStatus.textContent).toContain("Needs your attention");
 		const indicator = ownerStatus.querySelector(
 			'[data-agent-needs-attention-indicator="true"]'
 		);
-		expect(indicator?.className).toContain("bg-amber-500");
+		expect(indicator).toBeTruthy();
+		expect(ownerStatus.className).toContain("text-amber-700");
+		expect(ownerStatus.className).toContain("dark:text-amber-400");
 	});
 
 	it("shows a readiness refresh error before cached sidebar availability", () => {
@@ -645,6 +674,7 @@ function createReadiness(): GetAgentExecutionReadinessResponse {
 		agentWakeAvailability: {
 			action: "none",
 			badgeLabel: "Available",
+			category: "available",
 			phase: "ready",
 			reasonCode: "agent.available_for_wake",
 			status: "available_for_wake",

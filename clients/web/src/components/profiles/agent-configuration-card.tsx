@@ -1,6 +1,7 @@
 "use client";
 
 import { Popover } from "@base-ui/react/popover";
+import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CheckCircleIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
@@ -10,9 +11,11 @@ export function AgentConfigurationGrid(input: {
 	className?: string;
 }) {
 	return (
-		<div className={cn("grid min-w-0 gap-3 sm:grid-cols-2", input.className)}>
+		<FluidCardGroup
+			className={cn("grid min-w-0 gap-3 sm:grid-cols-2", input.className)}
+		>
 			{input.children}
-		</div>
+		</FluidCardGroup>
 	);
 }
 
@@ -54,8 +57,11 @@ export function AgentConfigurationCard(input: {
 	description?: string;
 	disabled?: boolean;
 	icon: ReactNode;
+	itemId: string;
 	label: string;
 	onClick?: () => void;
+	onOpenChange?: (open: boolean) => void;
+	open?: boolean;
 	readOnly?: boolean;
 	status?: "idle" | "saving" | "saved";
 	summary: string;
@@ -63,9 +69,8 @@ export function AgentConfigurationCard(input: {
 	const card = (
 		<div
 			className={cn(
-				"group flex min-h-28 w-full min-w-0 items-start gap-3 rounded-2xl border border-border/65 bg-card/45 p-4 text-left shadow-[0_1px_0_rgb(255_255_255/0.025)_inset] transition-[background-color,border-color,transform] duration-150",
-				!(input.readOnly || input.disabled) &&
-					"hover:-translate-y-px hover:border-border hover:bg-muted/25 active:translate-y-0",
+				"group flex min-h-28 w-full min-w-0 items-start gap-3 rounded-2xl border border-border/65 bg-transparent p-4 text-left shadow-[0_1px_0_rgb(255_255_255/0.025)_inset] transition-colors duration-150",
+				!(input.readOnly || input.disabled) && "hover:border-border",
 				input.disabled && "cursor-not-allowed opacity-55",
 				input.className
 			)}
@@ -98,40 +103,57 @@ export function AgentConfigurationCard(input: {
 		</div>
 	);
 
-	if (input.readOnly) {
-		return card;
+	if (input.readOnly || !(input.children || input.onClick)) {
+		return (
+			<FluidCardItem
+				className="w-full rounded-2xl bg-card/45"
+				indicatorClassName="rounded-2xl bg-muted/35"
+				itemId={input.itemId}
+			>
+				{card}
+			</FluidCardItem>
+		);
 	}
 	if (!input.children && input.onClick) {
 		return (
-			<button
-				aria-label={`Edit ${input.label}`}
-				className="min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-				disabled={input.disabled}
-				onClick={input.onClick}
-				type="button"
+			<FluidCardItem
+				className="w-full rounded-2xl bg-card/45"
+				indicatorClassName="rounded-2xl bg-muted/35"
+				itemId={input.itemId}
 			>
-				{card}
-			</button>
+				<button
+					aria-label={`Edit ${input.label}`}
+					className="h-full w-full min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+					disabled={input.disabled}
+					onClick={input.onClick}
+					type="button"
+				>
+					{card}
+				</button>
+			</FluidCardItem>
 		);
-	}
-	if (!input.children) {
-		return card;
 	}
 
 	return (
-		<Popover.Root>
-			<Popover.Trigger
-				disabled={input.disabled}
-				render={
-					<button
-						aria-label={`Edit ${input.label}`}
-						className="min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-						type="button"
-					/>
-				}
+		<Popover.Root onOpenChange={input.onOpenChange} open={input.open}>
+			<FluidCardItem
+				className="w-full rounded-2xl bg-card/45"
+				indicatorClassName="rounded-2xl bg-muted/35"
+				itemId={input.itemId}
 			>
-				{card}
-			</Popover.Trigger>
+				<Popover.Trigger
+					disabled={input.disabled}
+					render={
+						<button
+							aria-label={`Edit ${input.label}`}
+							className="h-full w-full min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+							type="button"
+						/>
+					}
+				>
+					{card}
+				</Popover.Trigger>
+			</FluidCardItem>
 			<Popover.Portal>
 				<Popover.Positioner
 					align="start"
@@ -146,7 +168,7 @@ export function AgentConfigurationCard(input: {
 					sideOffset={8}
 				>
 					<Popover.Popup
-						className="w-[min(25rem,calc(100vw-1.5rem))] origin-[var(--transform-origin)] rounded-2xl border border-border/75 bg-popover p-4 text-popover-foreground shadow-xl outline-none transition-[opacity,transform] duration-180 data-[ending-style]:scale-[0.98] data-[starting-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-opacity"
+						className="w-[min(25rem,calc(100vw-1.5rem))] origin-[var(--transform-origin)] rounded-2xl border border-border/75 bg-popover p-4 text-popover-foreground shadow-xl outline-none transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.19,1,0.22,1)] data-[starting-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 data-[ending-style]:duration-100 motion-reduce:transform-none motion-reduce:transition-opacity"
 						finalFocus={false}
 					>
 						<div className="mb-4 flex items-start gap-3">

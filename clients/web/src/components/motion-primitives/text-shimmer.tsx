@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@openmeld/ui/lib/utils";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import React, { type JSX, useMemo } from "react";
 
 export type TextShimmerProps = {
@@ -19,6 +19,7 @@ function TextShimmerComponent({
 	duration = 2,
 	spread = 2,
 }: TextShimmerProps) {
+	const shouldReduceMotion = useReducedMotion();
 	const MotionComponent = motion.create(
 		Component as keyof JSX.IntrinsicElements
 	);
@@ -26,6 +27,15 @@ function TextShimmerComponent({
 	const dynamicSpread = useMemo(() => {
 		return children.length * spread;
 	}, [children, spread]);
+	if (shouldReduceMotion) {
+		return (
+			<Component
+				className={cn("inline-block text-muted-foreground", className)}
+			>
+				{children}
+			</Component>
+		);
+	}
 
 	return (
 		<MotionComponent

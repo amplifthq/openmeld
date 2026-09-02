@@ -12,6 +12,7 @@ import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-ro
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 const agentsRouteSearchSchema = z.object({
+	activityPreview: z.literal(1).optional(),
 	profileId: z.string().trim().min(1).optional(),
 	requestId: z.string().trim().min(1).optional(),
 	view: z.enum(["agents", "create", "requests"]).optional(),
@@ -50,6 +51,7 @@ function AgentsRoute() {
 		<PeopleAndAgentsPage
 			activeAgentView={search.view ?? "agents"}
 			activeSectionId="agents"
+			activityPreview={search.activityPreview === 1}
 			focusProfileId={search.profileId ?? null}
 			focusRequestId={search.requestId ?? null}
 			initialSidebarStates={sidebarStates}
@@ -57,6 +59,7 @@ function AgentsRoute() {
 				const selectedProfileId = profileId ?? search.profileId;
 				navigate({
 					search: resolveAgentsRouteSearch({
+						activityPreview: search.activityPreview,
 						profileId: selectedProfileId,
 						view,
 					}),
@@ -70,11 +73,19 @@ function AgentsRoute() {
 }
 
 function resolveAgentsRouteSearch(input: {
+	activityPreview: 1 | undefined;
 	profileId: string | undefined;
 	view: "agents" | "create" | "requests";
 }) {
 	if (input.view === "agents") {
-		return { profileId: input.profileId };
+		return {
+			activityPreview: input.activityPreview,
+			profileId: input.profileId,
+		};
 	}
-	return { profileId: input.profileId, view: input.view };
+	return {
+		activityPreview: input.activityPreview,
+		profileId: input.profileId,
+		view: input.view,
+	};
 }

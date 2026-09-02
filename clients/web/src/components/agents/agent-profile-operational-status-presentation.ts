@@ -26,10 +26,10 @@ export function resolveAgentProfileOperationalStatus(
 		return { label: "Idle", status: "idle" };
 	}
 	if (operationalContext.status === "working") {
-		return { label: "Working", status: "working" };
+		return { label: "Agent is working", status: "working" };
 	}
 	if (operationalContext.recoveryAction) {
-		return { label: "Needs attention", status: "needs_attention" };
+		return { label: "Needs your attention", status: "needs_attention" };
 	}
-	return { label: "Waiting", status: "waiting" };
+	return { label: "Waiting to continue", status: "waiting" };
 }

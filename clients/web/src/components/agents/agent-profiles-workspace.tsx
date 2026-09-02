@@ -28,7 +28,8 @@ import {
 } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
-import { AgentProfileOperationalStatusText } from "#/components/agents/agent-profile-operational-status";
+import { AgentProfileOperationalStatusIndicator } from "#/components/agents/agent-profile-operational-status";
+import { resolveAgentProfileOperationalStatus } from "#/components/agents/agent-profile-operational-status-presentation";
 import {
 	type AgentProfileSidebarGroup,
 	resolveAgentProfileSidebarGroups,
@@ -40,6 +41,7 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
+import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 
@@ -463,9 +465,19 @@ function AgentProfileSidebarItem(input: {
 		readiness: input.readiness,
 	});
 	const isOwner = input.profile.ownerUserId === input.currentUserId;
+	const operationalStatus = resolveAgentProfileOperationalStatus(
+		input.operationalContext
+	).status;
 	const hasReducedProminence =
 		presentation.availabilityCategory === "offline" ||
 		presentation.availabilityCategory === "unavailable";
+	const profileNameClassName = cn(
+		"min-w-0 truncate font-medium text-sm",
+		hasReducedProminence ? "text-muted-foreground" : null
+	);
+	const showAvailability =
+		presentation.availabilityCategory !== "available" &&
+		presentation.availabilityLabel.length > 0;
 	return (
 		<FluidNavMenuItem
 			index={input.index}
@@ -498,15 +510,20 @@ function AgentProfileSidebarItem(input: {
 				/>
 				<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
 					<span className="flex min-w-0 items-center justify-between gap-2">
-						<span
-							className={cn(
-								"min-w-0 truncate font-medium text-sm",
-								hasReducedProminence ? "text-muted-foreground" : null
-							)}
-						>
-							{input.profile.profileName}
-						</span>
-						<AgentProfileOperationalStatusText
+						{operationalStatus === "checking" ? (
+							<TextShimmer
+								as="span"
+								className={profileNameClassName}
+								duration={1.8}
+							>
+								{input.profile.profileName}
+							</TextShimmer>
+						) : (
+							<span className={profileNameClassName}>
+								{input.profile.profileName}
+							</span>
+						)}
+						<AgentProfileOperationalStatusIndicator
 							className="shrink-0"
 							operationalContext={input.operationalContext}
 						/>
@@ -516,24 +533,26 @@ function AgentProfileSidebarItem(input: {
 							{presentation.controllerModelSummary}
 						</span>
 					) : null}
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<span
-									className={cn(
-										"min-w-0 truncate font-medium text-xs",
-										presentation.availabilityClassName
-									)}
-									title={presentation.availabilityTooltip}
-								/>
-							}
-						>
-							{presentation.availabilityLabel}
-						</TooltipTrigger>
-						<TooltipContent side="top">
-							{presentation.availabilityTooltip}
-						</TooltipContent>
-					</Tooltip>
+					{showAvailability ? (
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<span
+										className={cn(
+											"min-w-0 truncate font-medium text-xs",
+											presentation.availabilityClassName
+										)}
+										title={presentation.availabilityTooltip}
+									/>
+								}
+							>
+								{presentation.availabilityLabel}
+							</TooltipTrigger>
+							<TooltipContent side="top">
+								{presentation.availabilityTooltip}
+							</TooltipContent>
+						</Tooltip>
+					) : null}
 				</span>
 			</button>
 		</FluidNavMenuItem>

@@ -27,7 +27,10 @@ import {
 	resolveAgentProfileTemplateModelName,
 } from "#/lib/profiles/agent-profile-template-name";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
-import { AgentConfigurationCard } from "./agent-configuration-card";
+import {
+	AgentConfigurationCard,
+	AgentConfigurationGrid,
+} from "./agent-configuration-card";
 import {
 	AgentProfileConfigurationCards,
 	CreateProfileErrorNotice,
@@ -329,37 +332,40 @@ function AdvancedSetup(input: {
 	if (!input.form.boundAgentId) {
 		return (
 			<section className="grid min-w-0 gap-3 pt-1">
-				<AgentConfigurationCard
-					description="Connect a controller later from this Agent's details."
-					icon={<DesktopTowerIcon aria-hidden="true" />}
-					label="Runs on"
-					summary={
-						input.allowWithoutLocalAgent
-							? "Connect later"
-							: "Choose a local agent first"
-					}
-				>
-					<div className="grid gap-3">
-						<p className="text-muted-foreground text-xs leading-5">
-							Create this Agent now and connect a local agent when you are
-							ready.
-						</p>
-						<Button
-							className="justify-self-start"
-							onClick={() =>
-								input.onAllowWithoutLocalAgentChange(
-									!input.allowWithoutLocalAgent
-								)
-							}
-							type="button"
-							variant={input.allowWithoutLocalAgent ? "secondary" : "outline"}
-						>
-							{input.allowWithoutLocalAgent
-								? "Connect later selected"
-								: "Create and connect later"}
-						</Button>
-					</div>
-				</AgentConfigurationCard>
+				<AgentConfigurationGrid className="sm:grid-cols-1">
+					<AgentConfigurationCard
+						description="Connect a controller later from this Agent's details."
+						icon={<DesktopTowerIcon aria-hidden="true" />}
+						itemId="runs-on"
+						label="Runs on"
+						summary={
+							input.allowWithoutLocalAgent
+								? "Connect later"
+								: "Choose a local agent first"
+						}
+					>
+						<div className="grid gap-3">
+							<p className="text-muted-foreground text-xs leading-5">
+								Create this Agent now and connect a local agent when you are
+								ready.
+							</p>
+							<Button
+								className="justify-self-start"
+								onClick={() =>
+									input.onAllowWithoutLocalAgentChange(
+										!input.allowWithoutLocalAgent
+									)
+								}
+								type="button"
+								variant={input.allowWithoutLocalAgent ? "secondary" : "outline"}
+							>
+								{input.allowWithoutLocalAgent
+									? "Connect later selected"
+									: "Create and connect later"}
+							</Button>
+						</div>
+					</AgentConfigurationCard>
+				</AgentConfigurationGrid>
 			</section>
 		);
 	}
