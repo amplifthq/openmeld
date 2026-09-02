@@ -39,6 +39,11 @@ type PromptInputProps = {
 	className?: string;
 };
 
+const PROMPT_EDITOR_SELECTOR =
+	'textarea:not(:disabled), [contenteditable="true"]:not([aria-disabled="true"])';
+const PROMPT_INTERACTIVE_SELECTOR =
+	'a, button, input, select, textarea, [contenteditable], [role="button"], [role="link"], [role="menuitem"], [role="option"]';
+
 function PromptInput({
 	className,
 	disabled = false,
@@ -53,6 +58,31 @@ function PromptInput({
 	const handleChange = (newValue: string) => {
 		setInternalValue(newValue);
 		onValueChange?.(newValue);
+	};
+	const handleSurfacePointerDown = (
+		event: React.PointerEvent<HTMLDivElement>
+	) => {
+		if (disabled || event.button !== 0) {
+			return;
+		}
+
+		const target = event.target;
+		if (
+			target instanceof Element &&
+			target.closest(PROMPT_INTERACTIVE_SELECTOR)
+		) {
+			return;
+		}
+
+		const editor = event.currentTarget.querySelector<HTMLElement>(
+			PROMPT_EDITOR_SELECTOR
+		);
+		if (!editor) {
+			return;
+		}
+
+		event.preventDefault();
+		editor.focus();
 	};
 
 	return (
@@ -71,6 +101,7 @@ function PromptInput({
 						"rounded-md border border-input bg-background p-2 shadow-xs",
 						className
 					)}
+					onPointerDown={handleSurfacePointerDown}
 				>
 					{children}
 				</div>

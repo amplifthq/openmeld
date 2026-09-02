@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-02T06:54:43.209Z",
+  "updatedAt": "2026-09-02T07:24:22.826Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.144",
+      "packageVersion": "0.3.145",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible; the add-me flow improves defaults without changing cloud contracts."
+      "reason": "Existing CLI and cloud contracts remain compatible; this update adds exact partial add-me recovery without changing Profile, Binding, or membership APIs."
     },
     "service": {
-      "bundleHash": "d0db87d5270f645008ec40e1216cab3a66b9d36acd89534c08437540f06aaf53",
-      "bundleVersion": "0.3.144",
+      "bundleHash": "a0f3ada7ae1b5101c7f9321996339ddce274a39c19c0d760256521ce5e43fbba",
+      "bundleVersion": "0.3.145",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
