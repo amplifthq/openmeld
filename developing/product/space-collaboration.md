@@ -713,8 +713,9 @@ Each failed target presents one primary next step chosen from the specific
 cause and available recovery evidence. For example, a Cursor plan limit offers
 **Manage Cursor plan**, an unavailable local Agent may offer its relevant setup
 action, and an exact retained reply offers recovery. Unrelated actions must not
-appear beside that primary step. Diagnostics remains available as the separate
-explanation path.
+appear beside that primary step. Message details is the separate diagnostic
+path and keeps its technical evidence available without a duplicate diagnostics
+button.
 
 For one exact failed target, Space renders one recovery control, not separate
 timeline and Message details controls with different operation ids. Opening
@@ -790,7 +791,7 @@ model. The drawer always begins with the actual message preview, author, and
 sent time, then represents each Wake target with one Activity row. Live work
 updates that row in place. A recorded reply or terminal outcome replaces the
 transient work in the same row and keeps its final status, content, explanation,
-recovery action, and diagnostic action together. The drawer must not create a
+recovery action, and diagnostic context together. The drawer must not create a
 separate Replies section, detached failure summary, or redundant `replied`
 event for the same target. Web must not create a second "work message" details
 UI or derive an alternate final status from component-local state. Live

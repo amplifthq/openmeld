@@ -2885,7 +2885,9 @@ the concise failure summary, More actions, and the timestamp at every width;
 Copy, Reply, Thread, and Addressing move into More actions. Footer icon controls
 use a compact 28-pixel container with 6-pixel visual padding. A failure colors
 the Message details icon red but does not show a persistent hover or selected
-background; that background appears only through real interaction state.
+background; that background appears only through real interaction state. The
+concise failure summary opens the same Message details drawer and gains an
+underline on hover or keyboard focus.
 
 Message rhythm follows the existing speaker grouping instead of the current
 member's alignment. Message content sits 2 pixels above its reserved footer. A
@@ -3008,9 +3010,11 @@ Read-only viewers must still see the outcome.
 
 A persisted terminal system failure is visible in that outcome row without
 hover and remains visible when the timeline is loaded again after refresh. Its
-Message details recovery is state-aware and always includes `Open diagnostics`;
-it must not reuse an Agent Profile configuration action such as
-`Review agent settings`. A late result does not rewrite that failure's reason.
+Message details recovery is state-aware and must not reuse an Agent Profile
+configuration action such as `Review agent settings`. Message details itself is
+the diagnostic path: it renders the failure explanation in red and keeps
+Technical details available without a duplicate `Open diagnostics` action. A
+late result does not rewrite that failure's reason.
 Web correlates the original `terminal_failure` with a separate nonterminal
 `execution_recovery_available` notice by exact dispatch, target, and result
 reference, then inspects Core's current Execution Recovery projection. It
@@ -3030,11 +3034,12 @@ normalizes it to **Recover reply** for users. It preserves the terminal failure
 rather than presenting retained evidence as an already-published reply. The
 recovery notice never creates a second terminal outcome row.
 
-Message details presents one cause-specific primary action per failed target,
-plus **Open diagnostics**. It must not pair unrelated actions: a Cursor plan
-limit opens Cursor plan management, a setup problem shows the exact relevant
-setup action, and a reply-publication failure shows exact reply recovery when
-available. These controls use the same button height and visual density.
+Message details presents one cause-specific primary action per failed target.
+It must not pair unrelated actions: a Cursor plan limit opens Cursor plan
+management, a setup problem shows the exact relevant setup action, and a
+reply-publication failure shows exact reply recovery when available. The red
+failure explanation and expandable Technical details provide diagnostic context
+without a second diagnostics button.
 
 The recovery action is owned by the exact
 `dispatchId + targetProfileId + resultRef` key. Timeline, thread, and Message
@@ -3185,7 +3190,7 @@ time. Each Wake target receives one Activity row. Transient work updates that
 row in place while the target is active; the recorded reply, failure, stop, or
 other terminal outcome then replaces the transient content in the same row.
 The final status, reply preview, failure explanation, recovery action, and
-diagnostic action stay together on that target row. Web must not render a
+diagnostic context stay together on that target row. Web must not render a
 separate Replies section, a detached `Why this failed` summary, or an extra
 `replied` event for the same final reply. Transient live progress can enrich
 that presentation model but cannot become a second status source or final

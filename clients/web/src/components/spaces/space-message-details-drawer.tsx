@@ -101,7 +101,6 @@ type TechnicalDetailField = {
 type NoticeRecoveryPresentation = {
 	action: SpaceMessageWakeIssueEntry["action"];
 	body: string | null;
-	showDiagnostics: boolean;
 };
 
 type MessageDetailsQueryState =
@@ -374,15 +373,6 @@ function MessageDetailsBody(input: {
 		data,
 		item: primaryOutcomeNotice ?? input.item,
 	});
-	const openDiagnostics = () => {
-		const details = document.getElementById(technicalDetailsId);
-		if (!(details instanceof HTMLDetailsElement)) {
-			return;
-		}
-		details.open = true;
-		details.querySelector("summary")?.focus();
-	};
-
 	return (
 		<div className="flex flex-col gap-5">
 			<ActivitySection
@@ -395,9 +385,6 @@ function MessageDetailsBody(input: {
 				notices={presentation.wakeFailureNoticeItems}
 				onAgentRecoveryAction={input.onAgentRecoveryAction}
 				onJumpToMessage={input.onJumpToMessage}
-				onOpenDiagnostics={
-					technicalDetailFields.length > 0 ? openDiagnostics : undefined
-				}
 				onRecoverExecution={input.onRecoverExecution}
 				onRetryWakeTarget={input.onRetryWakeTarget}
 				onWakeStopRequest={input.onWakeStopRequest}
@@ -445,7 +432,6 @@ type ActivitySectionProps = {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onJumpToMessage: (signalId: string) => void;
-	onOpenDiagnostics?: () => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
@@ -570,6 +556,7 @@ function ActivityItemRow(input: {
 				{(noticeRecovery?.body ?? item.description) ? (
 					<ExpandableActivityDescription
 						description={noticeRecovery?.body ?? item.description ?? ""}
+						isFailure={item.status === "failed"}
 						item={item}
 						preserveFullDescription={noticeRecovery !== null}
 						referencesById={activity.spaceReferencesById}
@@ -587,14 +574,12 @@ function ActivityItemRow(input: {
 					action={noticeRecovery?.action ?? issueEntry?.action ?? null}
 					isAgentRecoveryPending={activity.isAgentRecoveryPending}
 					onAgentRecoveryAction={activity.onAgentRecoveryAction}
-					onOpenDiagnostics={activity.onOpenDiagnostics}
 					onRecoverExecution={activity.onRecoverExecution}
 					onRetryWakeTarget={activity.onRetryWakeTarget}
 					orgSlug={activity.orgSlug}
 					prepareSetupHref={activity.prepareSetupHref}
 					recoveryRequest={recoveryRequest}
 					retryRequest={retryRequest}
-					showDiagnostics={noticeRecovery?.showDiagnostics}
 					targetProfileId={item.targetProfileId ?? undefined}
 				/>
 				{canStopThisTarget && activity.onWakeStopRequest ? (
@@ -613,6 +598,7 @@ function ActivityItemRow(input: {
 
 function ExpandableActivityDescription(input: {
 	description: string;
+	isFailure: boolean;
 	item: MessageDetailsActivityItem;
 	preserveFullDescription: boolean;
 	referencesById: SpaceMessageReferencesById;
@@ -625,7 +611,8 @@ function ExpandableActivityDescription(input: {
 		<div className="mt-1.5">
 			<p
 				className={cn(
-					"whitespace-pre-wrap break-words text-foreground/85 text-sm leading-6",
+					"whitespace-pre-wrap break-words text-sm leading-6",
+					input.isFailure ? "text-destructive" : "text-foreground/85",
 					isCollapsed ? preview.className : null
 				)}
 			>
@@ -925,7 +912,7 @@ function resolveNoticeRecoveryPresentation(input: {
 		? recovery.body
 		: null;
 	if (recovery.kind === "system_retry") {
-		return { action: null, body, showDiagnostics: true };
+		return { action: null, body };
 	}
 	if (recovery.kind !== "local_service" && recovery.recoveryTarget !== null) {
 		return {
@@ -939,7 +926,6 @@ function resolveNoticeRecoveryPresentation(input: {
 				kind: "wake_failure",
 			},
 			body,
-			showDiagnostics: true,
 		};
 	}
 
@@ -954,13 +940,12 @@ function resolveNoticeRecoveryPresentation(input: {
 		targetLabel,
 	});
 	if (!display || display.actionTarget === null) {
-		return { action: null, body, showDiagnostics: true };
+		return { action: null, body };
 	}
 
 	return {
 		action: { display, kind: "wake_failure" },
 		body,
-		showDiagnostics: true,
 	};
 }
 
@@ -970,22 +955,19 @@ function WakeFailureActions(input: {
 	onAgentRecoveryAction?: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
-	onOpenDiagnostics?: () => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	orgSlug?: string;
 	prepareSetupHref?: string;
 	recoveryRequest: SpaceExecutionRecoveryRequest | null;
 	retryRequest: SpaceWakeRetryRequest | null;
-	showDiagnostics?: boolean;
 	targetProfileId?: string;
 }) {
 	if (
 		!(
 			(input.recoveryRequest && input.onRecoverExecution) ||
 			(input.retryRequest && input.onRetryWakeTarget) ||
-			input.action ||
-			(input.showDiagnostics && input.onOpenDiagnostics)
+			input.action
 		)
 	) {
 		return null;
@@ -1025,21 +1007,12 @@ function WakeFailureActions(input: {
 			/>
 		);
 	}
+	if (primaryAction === null) {
+		return null;
+	}
 
 	return (
-		<div className="flex flex-wrap items-center gap-2">
-			{primaryAction}
-			{input.showDiagnostics && input.onOpenDiagnostics ? (
-				<Button
-					onClick={input.onOpenDiagnostics}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					Open diagnostics
-				</Button>
-			) : null}
-		</div>
+		<div className="flex flex-wrap items-center gap-2">{primaryAction}</div>
 	);
 }
 

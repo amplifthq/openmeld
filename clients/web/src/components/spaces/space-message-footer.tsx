@@ -127,14 +127,10 @@ export function SpaceMessageFooter(input: {
 				data-slot="message-footer-primary-actions"
 			>
 				{persistent ? detailsButton : null}
-				{input.failureSummary ? (
-					<span
-						className="mx-1 min-w-0 max-w-72 truncate text-destructive"
-						data-slot="message-footer-failure"
-					>
-						{input.failureSummary}
-					</span>
-				) : null}
+				<MessageFooterFailureSummary
+					details={input.details}
+					failureSummary={input.failureSummary}
+				/>
 				{persistent ? null : (
 					<MessageFooterIconAction
 						icon={<CopyIcon aria-hidden="true" />}
@@ -179,6 +175,36 @@ export function SpaceMessageFooter(input: {
 				<time className="ml-1 shrink-0 tabular-nums">{input.timestamp}</time>
 			</div>
 		</div>
+	);
+}
+
+function MessageFooterFailureSummary(input: {
+	details?: SpaceMessageFooterDetailsAction;
+	failureSummary?: string | null;
+}) {
+	if (!input.failureSummary) {
+		return null;
+	}
+	if (!input.details) {
+		return (
+			<span
+				className="mx-1 min-w-0 max-w-72 truncate text-destructive"
+				data-slot="message-footer-failure"
+			>
+				{input.failureSummary}
+			</span>
+		);
+	}
+	return (
+		<button
+			aria-label={`Open message details: ${input.failureSummary}`}
+			className="mx-1 min-w-0 max-w-72 cursor-pointer truncate rounded-sm border-0 bg-transparent p-0 text-left text-destructive hover:underline focus-visible:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+			data-slot="message-footer-failure"
+			onClick={input.details.onSelect}
+			type="button"
+		>
+			{input.failureSummary}
+		</button>
 	);
 }
 
