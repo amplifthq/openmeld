@@ -3348,8 +3348,9 @@ Web shows elapsed running time, it uses the optional authoritative
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
-When Core projects the bounded controller-conversation occupancy wait reason,
-Web shows `Waiting for Codex task` and explains that the Wake will start when
+Web explicitly requests the bounded controller-conversation occupancy wait
+reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
+for Codex task` and explains that the Wake will start when
 that task becomes available. It must not present that state as `Agent is
 working` or the generic `Sending to agent`. The current Space's secondary
 sidebar status uses the same progress projection and a non-Working waiting

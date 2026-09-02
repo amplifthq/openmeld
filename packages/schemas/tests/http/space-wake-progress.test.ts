@@ -135,28 +135,38 @@ describe("space Wake progress HTTP schemas", () => {
     expect(parsed.success).toBe(false);
   });
 
-  it("accepts explicit timing and Wake Stop eligibility opt-in query values", () => {
+  it("accepts explicit optional Wake progress projection query values", () => {
     expect(
       getSpaceWakeProgressInputSchema.safeParse({
         spaceId: "space-123",
         clientMessageId: "client-message-1",
         includeTiming: "true",
+        includeWaitReason: "true",
         includeWakeStopEligibility: "true",
       })
     ).toMatchObject({
       success: true,
-      data: { includeTiming: true, includeWakeStopEligibility: true },
+      data: {
+        includeTiming: true,
+        includeWaitReason: true,
+        includeWakeStopEligibility: true,
+      },
     });
 
     expect(
       getActiveSpaceWakeProgressInputSchema.safeParse({
         spaceId: "space-123",
         includeTiming: "1",
+        includeWaitReason: "1",
         includeWakeStopEligibility: "1",
       })
     ).toMatchObject({
       success: true,
-      data: { includeTiming: true, includeWakeStopEligibility: true },
+      data: {
+        includeTiming: true,
+        includeWaitReason: true,
+        includeWakeStopEligibility: true,
+      },
     });
   });
 

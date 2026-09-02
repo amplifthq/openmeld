@@ -2081,7 +2081,7 @@ describe("api-client space api", () => {
     );
   });
 
-  it("passes timing and Wake Stop eligibility opt-ins through Wake progress routes", async () => {
+  it("passes optional Wake progress projections through Wake progress routes", async () => {
     const transport = vi.fn((request: { url: string }) => {
       const url = String(request.url);
       const isActiveWakeProgress = url.includes("/active-wake-progress");
@@ -2135,12 +2135,14 @@ describe("api-client space api", () => {
     await api.getWakeProgress({
       clientMessageId: "client-message-1",
       includeTiming: true,
+      includeWaitReason: true,
       includeWakeStopEligibility: true,
       requestContext: REQUEST_CONTEXT,
       spaceId: "space-123",
     });
     await api.getActiveWakeProgress({
       includeTiming: true,
+      includeWaitReason: true,
       includeWakeStopEligibility: true,
       requestContext: REQUEST_CONTEXT,
       spaceId: "space-123",
@@ -2149,13 +2151,13 @@ describe("api-client space api", () => {
     expect(transport).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/wake-progress?clientMessageId=client-message-1&includeTiming=true&includeWakeStopEligibility=true",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/wake-progress?clientMessageId=client-message-1&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true",
       })
     );
     expect(transport).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includeTiming=true&includeWakeStopEligibility=true",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true",
       })
     );
   });

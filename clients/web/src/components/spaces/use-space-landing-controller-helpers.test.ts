@@ -443,6 +443,7 @@ describe("pollWakeProgress", () => {
 		expect(getWakeProgress).toHaveBeenCalledWith({
 			clientMessageId: "client-message-1",
 			includeTiming: true,
+			includeWaitReason: true,
 			includeWakeStopEligibility: true,
 			spaceId: "space-123",
 			timeoutMs: 15_000,

@@ -129,8 +129,9 @@ diagnostic payload into context.
 
 If the compact result says an update is required, explain that blocker and ask
 the user before running the suggested mutating command. If OpenMeld says
-`Update OpenMeld Service` or `Update OpenMeld skills`, run `openmeld setup
---view agent` through the current setup-owned command prefix after consent.
+`Update OpenMeld Service` or `Update OpenMeld skills`, run
+`openmeld setup --view agent` through the current setup-owned command prefix
+after consent.
 Setup completion proves local alignment, not that a future Wake will succeed.
 
 `openmeld service update` is a low-level service command. Do not use it as the

@@ -1398,7 +1398,10 @@ validated progress items. While a deleted Agent's accepted Wake is still
 stopping, its progress item uses the Space's frozen membership name instead of
 degrading to the removed Profile id. A valid read exits zero even when `pollState` is
 `idle` or `not_observed`; transport, permission, and projection failures exit
-one with a structured error. This command does not replace `space result`,
+one with a structured error. The current CLI requests the optional occupancy
+wait reason with `includeWaitReason=true`; older CLI versions omit that query
+and must continue receiving the previous strict response shape. This command
+does not replace `space result`,
 which reads archived results, or `service trace`, which diagnoses the execution
 chain.
 

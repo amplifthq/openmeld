@@ -6647,6 +6647,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
     }
+    if (input.includeWaitReason === true) {
+      url.searchParams.set("includeWaitReason", "true");
+    }
     if (typeof input.targetProfileId === "string") {
       url.searchParams.set("targetProfileId", input.targetProfileId);
     }
@@ -6676,6 +6679,9 @@ export class Space extends DurableObject<CoreBindings> {
     const url = new URL("https://openmeld.local/active-wake-progress");
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
+    }
+    if (input.includeWaitReason === true) {
+      url.searchParams.set("includeWaitReason", "true");
     }
     if (typeof input.targetProfileId === "string") {
       url.searchParams.set("targetProfileId", input.targetProfileId);
@@ -9189,6 +9195,7 @@ export class Space extends DurableObject<CoreBindings> {
         const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
           spaceId: this.spaceId,
           includeTiming: url.searchParams.get("includeTiming"),
+          includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
           ),
@@ -9217,6 +9224,7 @@ export class Space extends DurableObject<CoreBindings> {
               actorOwnerUserId,
               db,
               includeTiming: parsed.data.includeTiming === true,
+              includeWaitReason: parsed.data.includeWaitReason === true,
               includeWakeStopEligibility:
                 parsed.data.includeWakeStopEligibility === true,
               ...(parsed.data.targetProfileId
@@ -9788,6 +9796,7 @@ export class Space extends DurableObject<CoreBindings> {
           spaceId: this.spaceId,
           clientMessageId: url.searchParams.get("clientMessageId"),
           includeTiming: url.searchParams.get("includeTiming"),
+          includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
           ),
@@ -9808,6 +9817,7 @@ export class Space extends DurableObject<CoreBindings> {
             ),
             clientMessageId: parsed.data.clientMessageId,
             includeTiming: parsed.data.includeTiming === true,
+            includeWaitReason: parsed.data.includeWaitReason === true,
             includeWakeStopEligibility:
               parsed.data.includeWakeStopEligibility === true,
             ...(parsed.data.targetProfileId
@@ -15133,6 +15143,7 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     clientMessageId?: string | null;
     includeTiming?: boolean;
+    includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     sourceSignalId?: string | null;
     targetProfileId?: string;
@@ -15225,6 +15236,7 @@ export class Space extends DurableObject<CoreBindings> {
             actorOwnerUserId: input.actorOwnerUserId,
             clientMessageId,
             includeTiming: input.includeTiming === true,
+            includeWaitReason: input.includeWaitReason === true,
             includeWakeStopEligibility:
               input.includeWakeStopEligibility === true,
             lookupMatch,
@@ -15306,6 +15318,7 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     db: D1Database;
     includeTiming?: boolean;
+    includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     targetProfileId?: string;
   }): Promise<GetActiveSpaceWakeProgressResponse> {
@@ -15394,7 +15407,9 @@ export class Space extends DurableObject<CoreBindings> {
               targetProfileId: execution.targetProfileId,
               terminal: false,
               updatedAtMs: execution.updatedAtMs,
-              waitReasonCode: execution.waitReasonCode,
+              ...(input.includeWaitReason === true
+                ? { waitReasonCode: execution.waitReasonCode }
+                : {}),
             }),
           ];
         })
@@ -15535,6 +15550,7 @@ export class Space extends DurableObject<CoreBindings> {
           ...selector,
           actorOwnerUserId: input.actorOwnerUserId,
           includeTiming: input.includeTiming === true,
+          includeWaitReason: input.includeWaitReason === true,
           includeWakeStopEligibility: input.includeWakeStopEligibility === true,
         });
       }
@@ -15566,6 +15582,7 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     clientMessageId: string | null;
     includeTiming?: boolean;
+    includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     lookupMatch: SpaceDispatchLookupMatch;
     nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
@@ -15617,6 +15634,7 @@ export class Space extends DurableObject<CoreBindings> {
     return buildWakeProgressItemFromDispatchEvidence({
       clientMessageId: input.clientMessageId,
       includeTiming: input.includeTiming === true,
+      includeWaitReason: input.includeWaitReason === true,
       lookupMatch: input.lookupMatch,
       nativeDeliveryEvidence: input.nativeDeliveryEvidence,
       outboxRecord: input.outboxRecord,
@@ -17217,6 +17235,7 @@ function buildWakeProgressItemFromTerminalFailureNotice(input: {
 function buildWakeProgressItemFromDispatchEvidence(input: {
   clientMessageId: string | null;
   includeTiming: boolean;
+  includeWaitReason: boolean;
   lookupMatch: SpaceDispatchLookupMatch;
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
   outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
@@ -17288,8 +17307,14 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
         trace: input.trace,
       })
     ),
-    waitReasonCode:
-      resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(input.trace),
+    ...(input.includeWaitReason
+      ? {
+          waitReasonCode:
+            resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(
+              input.trace
+            ),
+        }
+      : {}),
     message:
       authorityProgress?.message ??
       buildWakeProgressMessage({
