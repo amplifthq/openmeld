@@ -111,100 +111,10 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 		currentOwnerUserId: input.currentOwnerUserId,
 		ownerUserId: input.entry.ownerUserId,
 	});
-	const manageableAgentRecoveryPlan = canManageAgentProfile
-		? input.agentRecoveryPlan
-		: null;
-	const manageableMemberTransientState = canManageAgentProfile
-		? input.memberTransientState
-		: null;
-	const rawDisplayedMemberTransientState = resolveDisplayedMemberTransientState(
-		{
-			entry: input.entry,
-			manageableMemberTransientState,
-		}
-	);
-	// Display-only Wake override: indicator + inline row visuals replay the last
-	// Available snapshot (visualEntry), but every decision/diagnostic path keeps
-	// reading the raw entry (input.entry) -- notably useSpaceProfileDetailsDialog,
-	// the recovery plan, Check-again gating, controller/model detail, and sorting.
-	const visualEntry = input.wakeDisplayEntry ?? input.entry;
-	const visualDisplayedMemberTransientState = input.wakeDisplayEntry
-		? null
-		: rawDisplayedMemberTransientState;
-	const displayedAgentRecoveryPlan =
-		input.entry.presenceStatus === "wakeable" ||
-		rawDisplayedMemberTransientState === "checking" ||
-		(input.entry.availabilityReasonCode !== null &&
-			isAgentProfileWorkspaceBlockerReasonCode(
-				input.entry.availabilityReasonCode
-			))
-			? null
-			: manageableAgentRecoveryPlan;
-	const availabilityIndicatorLabel = resolvePresenceStatusLabel({
-		agentRecoveryPlan: displayedAgentRecoveryPlan,
-		entry: visualEntry,
-		memberTransientState: visualDisplayedMemberTransientState,
+	const presentation = resolveAgentSpaceMemberRowPresentation({
+		canManageAgentProfile,
+		input,
 	});
-	const availabilityIndicatorTooltip = resolvePresenceStatusTooltip({
-		agentRecoveryPlan: displayedAgentRecoveryPlan,
-		entry: visualEntry,
-		memberTransientState: visualDisplayedMemberTransientState,
-	});
-	const availabilityIndicatorIsRefreshing = resolvePresenceStatusIsRefreshing({
-		entry: visualEntry,
-		memberTransientState: visualDisplayedMemberTransientState,
-	});
-	const availabilityIndicatorHref =
-		canManageAgentProfile && visualDisplayedMemberTransientState === null
-			? resolvePresenceIndicatorHref({
-					entry: visualEntry,
-					orgSlug: input.orgSlug,
-				})
-			: undefined;
-	const availabilityIndicator = availabilityIndicatorLabel ? (
-		<SpaceAgentAvailabilityIndicator
-			action={visualEntry.availabilityAction}
-			category={visualEntry.availabilityCategory}
-			href={availabilityIndicatorHref}
-			isRefreshing={availabilityIndicatorIsRefreshing}
-			label={availabilityIndicatorLabel}
-			phase={visualEntry.availabilityPhase}
-			reasonCode={visualEntry.availabilityReasonCode}
-			tone={resolvePresenceIndicatorTone({
-				agentRecoveryPlan: displayedAgentRecoveryPlan,
-				entry: visualEntry,
-				memberTransientState: visualDisplayedMemberTransientState,
-			})}
-			tooltip={availabilityIndicatorTooltip}
-		/>
-	) : null;
-	const canCheckAgentWakeAvailability =
-		canManageAgentProfile &&
-		input.entry.availabilityReasonCode === "wake_route.registration_expired" &&
-		rawDisplayedMemberTransientState === null;
-
-	const primaryDetail =
-		input.variant === "compact"
-			? resolveCompactDetail(visualEntry, false)
-			: resolvePrimaryDetail(
-					visualEntry,
-					false,
-					displayedAgentRecoveryPlan,
-					visualDisplayedMemberTransientState,
-					canManageAgentProfile
-				);
-	const recoveryActionControl =
-		input.variant === "full" &&
-		shouldShowAgentRecoveryActionControl(displayedAgentRecoveryPlan) &&
-		rawDisplayedMemberTransientState === null ? (
-			<SpaceAgentRecoveryActionControl
-				isPending={input.isAgentRecoveryPending}
-				onAction={input.onAgentRecoveryAction}
-				orgSlug={input.orgSlug}
-				plan={displayedAgentRecoveryPlan}
-				prepareSetupHref={input.prepareSetupHref}
-			/>
-		) : null;
 	const detailsDialog = useSpaceProfileDetailsDialog({
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.entry,
@@ -225,23 +135,26 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 				actions={actions}
 				badges={
 					<SpaceMemberBadges
-						canCheckAgentWakeAvailability={canCheckAgentWakeAvailability}
-						entry={visualEntry}
+						canCheckAgentWakeAvailability={
+							presentation.canCheckAgentWakeAvailability
+						}
+						entry={presentation.visualEntry}
 						isAgentWakeAvailabilityCheckPending={
 							input.isAgentWakeAvailabilityCheckPending
 						}
 						isSelf={false}
 						onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
-						statusIsRefreshing={availabilityIndicatorIsRefreshing}
+						statusIsRefreshing={presentation.availabilityIndicatorIsRefreshing}
 						statusLabel={null}
-						statusTooltip={availabilityIndicatorTooltip}
+						statusTooltip={presentation.availabilityIndicatorTooltip}
 						variant={input.variant}
 					/>
 				}
 				className={cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)}
 				dimName={shouldDimProfileName({
 					entry: input.entry,
-					memberTransientState: visualDisplayedMemberTransientState,
+					memberTransientState:
+						presentation.visualDisplayedMemberTransientState,
 				})}
 				icon={
 					<SpaceProfileIcon
@@ -255,16 +168,159 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 					/>
 				}
 				onProfileSummaryClick={detailsDialog.openProfileDetails}
-				primaryDetail={primaryDetail}
+				primaryDetail={presentation.primaryDetail}
 				profileName={input.entry.profileName}
-				profileNameAdornment={availabilityIndicator}
+				profileNameAdornment={
+					<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
+				}
 				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
 				profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
 			>
-				{recoveryActionControl}
+				<AgentSpaceMemberRecoveryAction
+					input={input}
+					presentation={presentation}
+				/>
 			</AgentProfileListItem>
 			{detailsDialog.profileDetailsDialog}
 		</>
+	);
+}
+
+type AgentSpaceMemberRowPresentation = ReturnType<
+	typeof resolveAgentSpaceMemberRowPresentation
+>;
+
+function resolveAgentSpaceMemberRowPresentation(input: {
+	canManageAgentProfile: boolean;
+	input: AgentSpaceMemberRowProps;
+}) {
+	const manageableAgentRecoveryPlan = input.canManageAgentProfile
+		? input.input.agentRecoveryPlan
+		: null;
+	const manageableMemberTransientState = input.canManageAgentProfile
+		? input.input.memberTransientState
+		: null;
+	const rawDisplayedMemberTransientState = resolveDisplayedMemberTransientState(
+		{
+			entry: input.input.entry,
+			manageableMemberTransientState,
+		}
+	);
+	// Display-only Wake override: indicator + inline row visuals replay the last
+	// Available snapshot (visualEntry), but every decision/diagnostic path keeps
+	// reading the raw entry (input.entry) -- notably useSpaceProfileDetailsDialog,
+	// the recovery plan, Check-again gating, controller/model detail, and sorting.
+	const visualEntry = input.input.wakeDisplayEntry ?? input.input.entry;
+	const visualDisplayedMemberTransientState = input.input.wakeDisplayEntry
+		? null
+		: rawDisplayedMemberTransientState;
+	const displayedAgentRecoveryPlan =
+		input.input.entry.presenceStatus === "wakeable" ||
+		rawDisplayedMemberTransientState === "checking" ||
+		(input.input.entry.availabilityReasonCode !== null &&
+			isAgentProfileWorkspaceBlockerReasonCode(
+				input.input.entry.availabilityReasonCode
+			))
+			? null
+			: manageableAgentRecoveryPlan;
+	const availabilityIndicatorLabel = resolvePresenceStatusLabel({
+		agentRecoveryPlan: displayedAgentRecoveryPlan,
+		entry: visualEntry,
+		memberTransientState: visualDisplayedMemberTransientState,
+	});
+	const availabilityIndicatorTooltip = resolvePresenceStatusTooltip({
+		agentRecoveryPlan: displayedAgentRecoveryPlan,
+		entry: visualEntry,
+		memberTransientState: visualDisplayedMemberTransientState,
+	});
+	const availabilityIndicatorIsRefreshing = resolvePresenceStatusIsRefreshing({
+		entry: visualEntry,
+		memberTransientState: visualDisplayedMemberTransientState,
+	});
+	const availabilityIndicatorHref =
+		input.canManageAgentProfile && visualDisplayedMemberTransientState === null
+			? resolvePresenceIndicatorHref({
+					entry: visualEntry,
+					orgSlug: input.input.orgSlug,
+				})
+			: undefined;
+	const canCheckAgentWakeAvailability =
+		input.canManageAgentProfile &&
+		input.input.entry.availabilityReasonCode ===
+			"wake_route.registration_expired" &&
+		rawDisplayedMemberTransientState === null;
+
+	const primaryDetail =
+		input.input.variant === "compact"
+			? resolveCompactDetail(visualEntry, false)
+			: resolvePrimaryDetail(
+					visualEntry,
+					false,
+					displayedAgentRecoveryPlan,
+					visualDisplayedMemberTransientState,
+					input.canManageAgentProfile
+				);
+	return {
+		availabilityIndicatorHref,
+		availabilityIndicatorIsRefreshing,
+		availabilityIndicatorLabel,
+		availabilityIndicatorTone: resolvePresenceIndicatorTone({
+			agentRecoveryPlan: displayedAgentRecoveryPlan,
+			entry: visualEntry,
+			memberTransientState: visualDisplayedMemberTransientState,
+		}),
+		availabilityIndicatorTooltip,
+		canCheckAgentWakeAvailability,
+		displayedAgentRecoveryPlan,
+		primaryDetail,
+		rawDisplayedMemberTransientState,
+		visualDisplayedMemberTransientState,
+		visualEntry,
+	};
+}
+
+function AgentSpaceMemberAvailabilityIndicator(input: {
+	presentation: AgentSpaceMemberRowPresentation;
+}) {
+	if (!input.presentation.availabilityIndicatorLabel) {
+		return null;
+	}
+	return (
+		<SpaceAgentAvailabilityIndicator
+			action={input.presentation.visualEntry.availabilityAction}
+			category={input.presentation.visualEntry.availabilityCategory}
+			href={input.presentation.availabilityIndicatorHref}
+			isRefreshing={input.presentation.availabilityIndicatorIsRefreshing}
+			label={input.presentation.availabilityIndicatorLabel}
+			phase={input.presentation.visualEntry.availabilityPhase}
+			reasonCode={input.presentation.visualEntry.availabilityReasonCode}
+			tone={input.presentation.availabilityIndicatorTone}
+			tooltip={input.presentation.availabilityIndicatorTooltip}
+		/>
+	);
+}
+
+function AgentSpaceMemberRecoveryAction(input: {
+	input: AgentSpaceMemberRowProps;
+	presentation: AgentSpaceMemberRowPresentation;
+}) {
+	if (
+		input.input.variant !== "full" ||
+		!shouldShowAgentRecoveryActionControl(
+			input.presentation.displayedAgentRecoveryPlan
+		) ||
+		input.presentation.rawDisplayedMemberTransientState !== null
+	) {
+		return null;
+	}
+	return (
+		<SpaceAgentRecoveryActionControl
+			isPending={input.input.isAgentRecoveryPending}
+			onAction={input.input.onAgentRecoveryAction}
+			orgSlug={input.input.orgSlug}
+			plan={input.presentation.displayedAgentRecoveryPlan}
+			prepareSetupHref={input.input.prepareSetupHref}
+		/>
 	);
 }
 
