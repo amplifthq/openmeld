@@ -19,6 +19,17 @@ find.
 
 Evidence: pr:552, pr:556, pr:558, commit:c47ecb9c0ee838cbdbdb8e735fc8c124e06d011f, workflow:33604684089
 
+### See OpenCode provider capacity before starting work
+
+Improved · v0.3.146 · computers · local-agents · wake
+
+OpenCode now shows provider-by-provider capacity on Computers. OpenCode Go
+reports its 5-hour, weekly, and monthly limits, and OpenMeld checks the selected
+provider's supported limits before starting new work without letting another
+provider's capacity block the Agent Profile.
+
+Evidence: pr:561, pr:564, commit:25012c9838c9fc0330592b1d6e34f98936bff6b9, workflow:33619512990, workflow:33620166576, workflow:33621045896
+
 ## September 1, 2026
 
 ### Keep one OpenMeld Tools update in control
