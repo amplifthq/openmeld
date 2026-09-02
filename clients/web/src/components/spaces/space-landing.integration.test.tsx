@@ -3670,6 +3670,11 @@ describe("SpaceLanding", () => {
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
 				}
+				const spaceInboxUnreadTargetsResult =
+					resolveSpaceInboxUnreadTargetsQueryResult(options.queryKey);
+				if (spaceInboxUnreadTargetsResult) {
+					return spaceInboxUnreadTargetsResult;
+				}
 				const [scope, kind, spaceId] = options.queryKey;
 				if (kind === "account-spaces") {
 					return createQueryResult({
@@ -9078,6 +9083,11 @@ describe("SpaceLanding", () => {
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
 				}
+				const spaceInboxUnreadTargetsResult =
+					resolveSpaceInboxUnreadTargetsQueryResult(options.queryKey);
+				if (spaceInboxUnreadTargetsResult) {
+					return spaceInboxUnreadTargetsResult;
+				}
 				if (
 					queryKey ===
 					JSON.stringify([
@@ -13974,6 +13984,22 @@ describe("SpaceLanding", () => {
 	});
 
 	it("opens an Inbox source at the exact loaded Space message", () => {
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return createDomRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					const conversation = this.closest<HTMLElement>("[role='log']");
+					const scrollTop = conversation?.scrollTop ?? 0;
+					return createDomRect({
+						bottom: 760 - scrollTop,
+						top: 700 - scrollTop,
+					});
+				}
+				return createDomRect({ bottom: 0, top: 0 });
+			});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -14004,10 +14030,11 @@ describe("SpaceLanding", () => {
 		);
 		expect(target?.getAttribute("data-highlighted")).toBe("true");
 		expect(target?.className).toContain("motion-reduce:transition-none");
-		expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
-			block: "center",
-		});
+		expect(
+			screen.getByRole("log", { name: "Conversation history" }).scrollTop
+		).toBe(480);
 		expect(document.activeElement).toBe(target);
+		rectSpy.mockRestore();
 	});
 
 	it("opens a terminal Wake failure Inbox target at the source message that presents its outcome", () => {
@@ -16679,6 +16706,11 @@ function mockSpaceQueries(input: {
 			if (organizationSpacesResult) {
 				return organizationSpacesResult;
 			}
+			const spaceInboxUnreadTargetsResult =
+				resolveSpaceInboxUnreadTargetsQueryResult(options.queryKey);
+			if (spaceInboxUnreadTargetsResult) {
+				return spaceInboxUnreadTargetsResult;
+			}
 			if (
 				isExpectedSpace &&
 				options.queryKey[0] === "spaces" &&
@@ -17313,6 +17345,40 @@ function resolveOrganizationSpacesQueryResult(queryKey: readonly unknown[]) {
 				},
 			})
 		: null;
+}
+
+// SpaceLanding always reads the current Space's Inbox position so it can place
+// the unread divider. Keep this shared default at the strict query-dispatch
+// boundary so each fixture still rejects genuinely unknown queries.
+function resolveSpaceInboxUnreadTargetsQueryResult(
+	queryKey: readonly unknown[]
+) {
+	return queryKey[0] === "inbox" && queryKey[2] === "space-unread-targets"
+		? createQueryResult({
+				isSuccess: true,
+				data: {
+					hasMoreTargets: false,
+					organizationId: String(queryKey[1] ?? ""),
+					spaceId: String(queryKey[3] ?? ""),
+					targets: [],
+					totalUnreadCount: 0,
+				},
+			})
+		: null;
+}
+
+function createDomRect(input: { bottom: number; top: number }): DOMRect {
+	return {
+		bottom: input.bottom,
+		height: input.bottom - input.top,
+		left: 0,
+		right: 0,
+		top: input.top,
+		width: 0,
+		x: 0,
+		y: input.top,
+		toJSON: () => ({}),
+	};
 }
 
 function buildCompletedAgentProfileCreationRequest(
