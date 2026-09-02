@@ -1,13 +1,13 @@
 "use client";
 
+import {
+	getAgentControllerPermissionModeDisplayMetadata,
+	listAgentControllerPermissionModeOptions,
+} from "@openmeld/agent-runtime";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import {
-	SharedLayoutGroup,
-	SharedLayoutItem,
-} from "@openmeld/ui/fluid/shared-layout-group";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowLeftIcon,
@@ -38,6 +38,9 @@ import {
 } from "./create-profile-form";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { LocalAgentSelector } from "./local-agent-selector";
+
+const PATH_SEPARATOR_PATTERN = /[\\/]/u;
+const TRAILING_PATH_SEPARATOR_PATTERN = /[\\/]+$/u;
 
 export type AgentProfileGeneratorProps = {
 	form: CreateProfileFormProps;
@@ -295,39 +298,33 @@ function AdvancedSetup(input: {
 	const summary = resolveAdvancedSummary(input.form);
 	return (
 		<div className="grid min-w-0 gap-2">
-			<SharedLayoutGroup>
-				<SharedLayoutItem
-					indicatorClassName="rounded-xl bg-muted/60"
-					itemId="advanced-agent-profile-setup"
-				>
-					<button
-						aria-controls={input.panelId}
-						aria-expanded={input.open}
-						className="flex min-h-12 w-full min-w-0 items-center gap-3 rounded-xl border border-border/70 px-3.5 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-						onClick={() => input.onOpenChange(!input.open)}
-						type="button"
-					>
-						<SlidersHorizontalIcon
-							aria-hidden="true"
-							className="size-4 shrink-0 text-muted-foreground"
-						/>
-						<span className="min-w-0 flex-1">
-							<span className="block font-medium text-sm">Advanced</span>
-							<span className="block truncate text-muted-foreground text-xs">
-								{summary}
-							</span>
-						</span>
-						<CaretDownIcon
-							aria-hidden="true"
-							className={cn(
-								"size-4 shrink-0 text-muted-foreground transition-transform duration-150",
-								input.open && "rotate-180",
-								input.reduceMotion && "transition-none"
-							)}
-						/>
-					</button>
-				</SharedLayoutItem>
-			</SharedLayoutGroup>
+			<button
+				aria-controls={input.panelId}
+				aria-expanded={input.open}
+				className="flex min-h-12 w-full min-w-0 items-center gap-3 rounded-xl border border-border/70 px-3.5 py-2.5 text-left transition-colors duration-100 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+				onClick={() => input.onOpenChange(!input.open)}
+				title={summary}
+				type="button"
+			>
+				<SlidersHorizontalIcon
+					aria-hidden="true"
+					className="size-4 shrink-0 text-muted-foreground"
+				/>
+				<span className="min-w-0 flex-1">
+					<span className="block font-medium text-sm">Advanced</span>
+					<span className="block truncate text-muted-foreground text-xs">
+						{summary}
+					</span>
+				</span>
+				<CaretDownIcon
+					aria-hidden="true"
+					className={cn(
+						"size-4 shrink-0 text-muted-foreground transition-transform duration-150",
+						input.open && "rotate-180",
+						input.reduceMotion && "transition-none"
+					)}
+				/>
+			</button>
 
 			<AnimatePresence initial={false}>
 				{input.open ? (
@@ -479,13 +476,64 @@ function resolveAdvancedSummary(form: CreateProfileFormProps): string {
 		modelCatalog: form.modelCatalog,
 		modelId: form.boundModelId,
 	});
-	const reasoningName = formatAgentProfileReasoningLevel(
-		form.boundReasoningLevel
-	);
-	const parts = [modelName, reasoningName].filter((part): part is string =>
-		Boolean(part)
-	);
+	const parts = [
+		modelName,
+		resolveAdvancedReasoningSummary(form),
+		resolveWorkingFolderSummary(form.projectFolderPath),
+		resolvePermissionModeSummary(form),
+	].filter((part): part is string => Boolean(part));
 	return parts.length > 0
 		? parts.join(" · ")
 		: "Owner, Session, Project, model, and permissions";
+}
+
+function resolveAdvancedReasoningSummary(
+	form: CreateProfileFormProps
+): string | null {
+	const controller = form.modelCatalog?.agentControllers[form.boundAgentId];
+	if (!controller) {
+		return formatAgentProfileReasoningLevel(form.boundReasoningLevel);
+	}
+	const effectiveModelId = form.boundModelId || controller.defaultModelId;
+	const selectedModel = controller.models.find(
+		(model) => model.id === effectiveModelId
+	);
+	if (!selectedModel || selectedModel.supportedReasoningLevels.length === 0) {
+		return null;
+	}
+	return (
+		formatAgentProfileReasoningLevel(form.boundReasoningLevel) ??
+		"Default reasoning"
+	);
+}
+
+function resolveWorkingFolderSummary(projectFolderPath: string): string | null {
+	const normalizedPath = projectFolderPath
+		.trim()
+		.replace(TRAILING_PATH_SEPARATOR_PATTERN, "");
+	if (!normalizedPath) {
+		return null;
+	}
+	const folderName =
+		normalizedPath.split(PATH_SEPARATOR_PATTERN).at(-1) ?? normalizedPath;
+	return `Folder: ${folderName}`;
+}
+
+function resolvePermissionModeSummary(
+	form: CreateProfileFormProps
+): string | null {
+	if (!form.boundAgentId) {
+		return null;
+	}
+	const agentControllerRef = `builtin:${form.boundAgentId}`;
+	if (
+		listAgentControllerPermissionModeOptions({ agentControllerRef }).length ===
+		0
+	) {
+		return null;
+	}
+	return getAgentControllerPermissionModeDisplayMetadata(
+		form.boundAgentControllerPermissionMode,
+		{ agentControllerRef }
+	).label;
 }

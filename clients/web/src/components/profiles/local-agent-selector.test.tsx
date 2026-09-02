@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocalAgentSelector } from "./local-agent-selector";
 
-const CODEX_RADIO_NAME = /codex on this computer/i;
-const CLAUDE_CODE_RADIO_NAME = /claude code on this computer/i;
+const CODEX_RADIO_NAME = /^codex$/i;
+const CLAUDE_CODE_RADIO_NAME = /^claude code$/i;
 
 const CHOICES = [
 	{
@@ -36,7 +36,9 @@ describe("LocalAgentSelector", () => {
 		);
 
 		expect(
-			screen.getByRole("group", { name: "Choose a local agent" })
+			screen.getByRole("group", {
+				name: "Choose an agent on your computer",
+			})
 		).toBeTruthy();
 		expect(
 			(
@@ -45,6 +47,11 @@ describe("LocalAgentSelector", () => {
 				}) as HTMLInputElement
 			).checked
 		).toBe(true);
+		expect(
+			document.querySelector('[data-slot="magnifying-dock-item-caption"]')
+				?.textContent
+		).toBe("Codex");
+		expect(screen.queryByText("Codex on this computer.")).toBeNull();
 		fireEvent.click(
 			screen.getByRole("radio", { name: CLAUDE_CODE_RADIO_NAME })
 		);

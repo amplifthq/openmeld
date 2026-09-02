@@ -7,10 +7,6 @@ import {
 	MagnifyingDockItem,
 } from "@openmeld/ui/components/magnifying-dock";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import {
-	SharedLayoutGroup,
-	SharedLayoutItem,
-} from "@openmeld/ui/fluid/shared-layout-group";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CheckIcon, RobotIcon } from "@phosphor-icons/react";
 import { useId } from "react";
@@ -36,10 +32,8 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 		(choice): choice is AgentProfileBindingChoice & { agentId: string } =>
 			Boolean(choice.agentId && choice.value)
 	);
-	const selectedIndex = choices.findIndex(
-		(choice) => choice.value === input.value
-	);
-	const selectedChoice = choices[selectedIndex] ?? null;
+	const selectedChoice = choices.find((choice) => choice.value === input.value);
+	const selectedDescription = resolveSelectedChoiceDescription(selectedChoice);
 	const selectionDisabled = input.disabled || input.locked === true;
 
 	return (
@@ -48,24 +42,21 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			className="grid min-w-0 gap-4"
 			disabled={input.disabled}
 		>
-			<legend
-				className="w-full text-center font-medium text-base sm:text-left"
-				id={headingId}
-			>
-				{input.locked ? "Local agent for this Session" : "Choose a local agent"}
+			<legend className="w-full text-left font-medium text-base" id={headingId}>
+				{input.locked
+					? "Agent connected to this Session"
+					: "Choose an agent on your computer"}
 			</legend>
-			<div className="grid gap-1 text-center sm:text-left">
+			{input.locked ? (
 				<p className="text-pretty text-muted-foreground text-sm leading-5">
-					{input.locked
-						? "This Agent will keep using the local agent connected to this Session."
-						: "Choose what will run this Agent on the selected computer."}
+					This Agent will keep using the agent connected to this Session.
 				</p>
-			</div>
+			) : null}
 
 			{input.isResolving ? (
 				<output
 					aria-label="Checking available local agents"
-					className="flex min-h-24 items-center justify-center gap-3"
+					className="flex min-h-24 items-center justify-start gap-3"
 				>
 					<Skeleton className="size-14 rounded-2xl" />
 					<Skeleton className="size-14 rounded-2xl" />
@@ -74,61 +65,55 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			) : null}
 
 			{!input.isResolving && choices.length > 0 ? (
-				<SharedLayoutGroup className="min-w-0">
-					<MagnifyingDock
-						aria-labelledby={headingId}
-						className="min-h-24 justify-center gap-1 overflow-x-auto overflow-y-hidden px-3 pt-4 pb-5 sm:justify-start"
-					>
-						{choices.map((choice) => {
-							const selected = choice.value === input.value;
-							return (
-								<MagnifyingDockItem
-									caption={choice.label}
-									captionClassName={
-										selected ? "font-medium text-foreground" : undefined
-									}
-									key={choice.value}
+				<MagnifyingDock
+					aria-labelledby={headingId}
+					className="min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden pt-3 pb-4"
+				>
+					{choices.map((choice) => {
+						const selected = choice.value === input.value;
+						return (
+							<MagnifyingDockItem
+								caption={choice.label}
+								captionClassName={cn(
+									"max-w-20",
+									selected && "font-medium text-foreground"
+								)}
+								key={choice.value}
+							>
+								<label
+									className={cn(
+										"relative grid size-14 place-items-center rounded-2xl border bg-background/85 shadow-sm transition-[border-color,background-color] duration-100 has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-ring",
+										selected
+											? "border-foreground/40 bg-muted/60"
+											: "border-border/70",
+										selectionDisabled && "cursor-default"
+									)}
 								>
-									<SharedLayoutItem
-										indicatorClassName="rounded-2xl bg-muted/70"
-										itemId={choice.value}
-									>
-										<label
-											className={cn(
-												"relative grid size-14 place-items-center rounded-2xl border bg-background/85 shadow-sm transition-[border-color,box-shadow,background-color] duration-100 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-background",
-												selected
-													? "border-foreground/35 bg-muted shadow-md"
-													: "border-border/70",
-												selectionDisabled && "cursor-default"
-											)}
-										>
-											<input
-												aria-label={`${choice.label}. ${choice.description}`}
-												checked={selected}
-												className="sr-only"
-												disabled={selectionDisabled}
-												name={radioName}
-												onChange={() => input.onChange(choice.value)}
-												type="radio"
-												value={choice.value}
+									<input
+										aria-label={resolveChoiceAccessibleName(choice)}
+										checked={selected}
+										className="sr-only"
+										disabled={selectionDisabled}
+										name={radioName}
+										onChange={() => input.onChange(choice.value)}
+										type="radio"
+										value={choice.value}
+									/>
+									<LocalAgentChoiceIcon agentId={choice.agentId} />
+									{selected ? (
+										<span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full border-2 border-background bg-foreground text-background">
+											<CheckIcon
+												aria-hidden="true"
+												className="size-3"
+												weight="bold"
 											/>
-											<LocalAgentChoiceIcon agentId={choice.agentId} />
-											{selected ? (
-												<span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full border-2 border-background bg-foreground text-background">
-													<CheckIcon
-														aria-hidden="true"
-														className="size-3"
-														weight="bold"
-													/>
-												</span>
-											) : null}
-										</label>
-									</SharedLayoutItem>
-								</MagnifyingDockItem>
-							);
-						})}
-					</MagnifyingDock>
-				</SharedLayoutGroup>
+										</span>
+									) : null}
+								</label>
+							</MagnifyingDockItem>
+						);
+					})}
+				</MagnifyingDock>
 			) : null}
 
 			{!input.isResolving && choices.length === 0 ? (
@@ -138,16 +123,37 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 				/>
 			) : null}
 
-			{selectedChoice ? (
-				<output aria-live="polite" className="grid gap-0.5 text-center">
-					<p className="font-medium text-sm">{selectedChoice.label}</p>
+			{selectedDescription ? (
+				<output aria-live="polite" className="text-left">
 					<p className="text-pretty text-muted-foreground text-xs leading-5">
-						{selectedChoice.description}
+						{selectedDescription}
 					</p>
 				</output>
 			) : null}
 		</fieldset>
 	);
+}
+
+function resolveChoiceAccessibleName(
+	choice: AgentProfileBindingChoice
+): string {
+	const description = resolveSelectedChoiceDescription(choice);
+	return description ? `${choice.label}. ${description}` : choice.label;
+}
+
+function resolveSelectedChoiceDescription(
+	choice: AgentProfileBindingChoice | undefined
+): string | null {
+	if (!choice) {
+		return null;
+	}
+	const description = choice.description.trim();
+	const redundantDescription = `${choice.label} on this computer.`;
+	return description.localeCompare(redundantDescription, undefined, {
+		sensitivity: "accent",
+	}) === 0
+		? null
+		: description;
 }
 
 function LocalAgentSelectorEmptyState(input: {
@@ -200,14 +206,14 @@ function LocalAgentSelectorEmptyState(input: {
 function LocalAgentChoiceIcon(input: { agentId: string }) {
 	if (!hasLocalAgentLogo(input.agentId)) {
 		return (
-			<RobotIcon aria-hidden="true" className="size-7 text-muted-foreground" />
+			<RobotIcon aria-hidden="true" className="size-8 text-muted-foreground" />
 		);
 	}
 
 	return (
 		<LocalAgentLogo
 			agentId={input.agentId}
-			className="size-9 overflow-hidden rounded-[22%]"
+			className="size-11 overflow-hidden rounded-[22%]"
 			size="md"
 		/>
 	);

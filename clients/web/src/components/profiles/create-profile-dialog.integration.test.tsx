@@ -40,7 +40,7 @@ const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld
 const DEFAULT_GPT_55_MODEL_PATTERN = /Use controller default \(GPT-5.5\)/;
 const AUTHORIZE_PATTERN = /authorize/i;
 const ADVANCED_PATTERN = /advanced/i;
-const CURRENT_CODEX_RADIO_PATTERN = /Codex\. Codex on this computer\./i;
+const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";

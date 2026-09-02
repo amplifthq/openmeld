@@ -1,4 +1,5 @@
 import { DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE } from "@openmeld/agent-runtime";
+import type { ModelCatalog } from "@openmeld/schemas/types";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { type FormEvent, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +7,25 @@ import { AgentProfileGenerator } from "./agent-profile-generator";
 import type { CreateProfileFormProps } from "./create-profile-form";
 
 const ADVANCED_BUTTON_NAME = /advanced/i;
-const CODEX_RADIO_NAME = /codex on this computer/i;
+const CODEX_RADIO_NAME = /^codex$/i;
+const TEST_MODEL_CATALOG = {
+	agentControllers: {
+		codex: {
+			defaultModelId: "gpt-5.6-sol",
+			models: [
+				{
+					displayName: "GPT-5.6 Sol",
+					id: "gpt-5.6-sol",
+					minCliVersion: null,
+					supportedReasoningLevels: ["low", "medium", "high", "xhigh"],
+					unavailable: false,
+				},
+			],
+		},
+	},
+	schemaVersion: 1,
+	updatedAt: "2026-09-02T00:00:00.000Z",
+} satisfies ModelCatalog;
 
 afterEach(cleanup);
 
@@ -33,6 +52,22 @@ describe("AgentProfileGenerator", () => {
 		expect(screen.getByText("Owner choice")).toBeTruthy();
 		expect(screen.getByText("Session choice")).toBeTruthy();
 		expect(screen.getByText("Project choice")).toBeTruthy();
+	});
+
+	it("summarizes the effective setup before Advanced opens", () => {
+		render(
+			<GeneratorHarness
+				initialAgentId="codex"
+				modelCatalog={TEST_MODEL_CATALOG}
+				projectFolderPath="/Users/felix/work/openmeld"
+			/>
+		);
+
+		expect(
+			screen.getByText(
+				"GPT-5.6 Sol · Default reasoning · Folder: openmeld · Ask for approval"
+			)
+		).toBeTruthy();
 	});
 
 	it("allows an explicit unbound Agent without inventing an available local agent", async () => {
@@ -64,7 +99,9 @@ describe("AgentProfileGenerator", () => {
 function GeneratorHarness(input: {
 	availableLocalAgentIds?: readonly string[];
 	initialAgentId?: string;
+	modelCatalog?: ModelCatalog | null;
 	onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+	projectFolderPath?: string;
 }) {
 	const [boundAgentId, setBoundAgentId] = useState(input.initialAgentId ?? "");
 	const [profileName, setProfileName] = useState(
@@ -88,7 +125,7 @@ function GeneratorHarness(input: {
 		isResolvingLocalAgents: false,
 		isSubmitting: false,
 		localFolderPickerDeviceId: null,
-		modelCatalog: null,
+		modelCatalog: input.modelCatalog ?? null,
 		onChangeBoundAgentControllerCollaborationMode: vi.fn(),
 		onChangeBoundAgentControllerPermissionMode: vi.fn(),
 		onChangeBoundAgentControllerPermissionModeConfirmed: vi.fn(),
@@ -106,7 +143,7 @@ function GeneratorHarness(input: {
 			}),
 		profileKind: "agent",
 		profileName,
-		projectFolderPath: "",
+		projectFolderPath: input.projectFolderPath ?? "",
 		projectSelectionSlot: <div>Project choice</div>,
 		recoveryActionHref: "/connect",
 	};
