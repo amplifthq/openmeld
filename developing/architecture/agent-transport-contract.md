@@ -411,7 +411,9 @@ Important execution rules:
   normal availability loop. Wake Stop must cancel this wait immediately and
   fence every later provider-admission retry for the stopped task. Missing
   provider release evidence uses bounded backoff and must not become a tight
-  retry loop.
+  retry loop. User-facing Wake progress may project this exact occupancy as a
+  neutral wait reason, but must not call it running or expose the controller
+  conversation id.
 - While a Wake remains occupied or resumes running after an occupancy
   transition, the first keepalive in its current lifecycle phase, the first
   keepalive on a new connection generation, and a low-frequency recovery

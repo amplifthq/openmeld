@@ -2,6 +2,7 @@ import {
   projectObservabilityWakeCorrelation,
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectSpaceDispatchTraceRootCause,
+  WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
 } from "@openmeld/schemas";
 import type {
   GetSpaceDispatchLookupResponse,
@@ -11,6 +12,7 @@ import type {
   SpaceDispatchTraceFinalVisibleOutcome,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceSnapshot,
+  WakeProgressWaitReasonCode,
   WakeTargetExecutionContext,
   WakeTraceWaterfallFactSource,
   WakeTraceWaterfallItem,
@@ -1790,22 +1792,10 @@ function resolveDispatchOrAttemptRunningReasonCode(
 function resolveRuntimeCoordinatorLocalQueueReasonCode(
   trace: SpaceDispatchTraceSnapshot | null
 ): string | null {
-  const occupancyEvent = trace?.runtimeCoordinatorEvents
-    .filter(
-      (event) =>
-        event.eventType === "lifecycle_accepted_local" ||
-        event.eventType === "lifecycle_running"
-    )
-    .map((event) =>
-      readPayloadObject(
-        parseRuntimeCoordinatorEventPayload(event),
-        "agentControllerConversationOccupancy"
-      )
-    )
-    .filter((occupancy) => occupancy !== null)
-    .at(-1);
-  if (readPayloadString(occupancyEvent ?? null, "state") === "occupied") {
-    return "runtime.agent_controller_conversation.occupied";
+  const conversationOccupancyReasonCode =
+    resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(trace);
+  if (conversationOccupancyReasonCode) {
+    return conversationOccupancyReasonCode;
   }
   if (trace?.runtimeCoordinatorExecution?.status !== "accepted_local") {
     return null;
@@ -1835,6 +1825,29 @@ function resolveRuntimeCoordinatorLocalQueueReasonCode(
     default:
       return "runtime.local_queue.waiting_unknown";
   }
+}
+
+export function resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(
+  trace: SpaceDispatchTraceSnapshot | null
+): WakeProgressWaitReasonCode | null {
+  const occupancyEvent = trace?.runtimeCoordinatorEvents
+    .filter(
+      (event) =>
+        event.eventType === "lifecycle_accepted_local" ||
+        event.eventType === "lifecycle_running"
+    )
+    .map((event) =>
+      readPayloadObject(
+        parseRuntimeCoordinatorEventPayload(event),
+        "agentControllerConversationOccupancy"
+      )
+    )
+    .filter((occupancy) => occupancy !== null)
+    .at(-1);
+  if (readPayloadString(occupancyEvent ?? null, "state") === "occupied") {
+    return WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE;
+  }
+  return null;
 }
 
 function resolveRuntimeProgressStaleReasonCode(
