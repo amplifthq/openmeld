@@ -226,6 +226,7 @@ import {
   runOrganizationSkillsShow,
 } from "./organization-skills/command";
 import { formatAgentControllerPermissionModeHelp } from "./profile/controller-permission-mode-input";
+import { runProfileCurrentSession } from "./profile/current-session-command";
 import { hasExplicitProfileUpdateField } from "./profile/profile-update-cli-options";
 import {
   runProfileCreationRequestCancel,
@@ -289,6 +290,7 @@ import { resolveRetiredCliCommandMessage } from "./runtime/retired-command-argv"
 import { OPENMELD_VERSION } from "./runtime/version";
 import {
   hasJsonOutputArgv,
+  isCliMetadataQueryArgv,
   isPassiveCliQueryArgv,
   isStandaloneViewQueryArgv,
   parseLeadingCommandTokensFromArgv,
@@ -1559,13 +1561,18 @@ computerCmd
 computerCmd
   .command("current")
   .description("Show this computer and its current OpenMeld diagnostics.")
-  .action(async () => {
+  .option(
+    "--brief",
+    "Print compact Wake, update, and local-agent readiness",
+    false
+  )
+  .action(async (opts) => {
     const view = getGlobalViewOption();
     await runCommandWithEntryChecks({
       routeTokens: ["computer", "current"],
       view,
       run: async () => {
-        await runComputerCurrent({ view });
+        await runComputerCurrent({ view, brief: opts.brief === true });
       },
     });
   });
@@ -3762,6 +3769,15 @@ withSpaceProfileOption(
     .description("List the people and agents in a Space.")
     .argument("<space>", "Space URL or 64-character Space ID")
     .option("--json", "Print the versioned machine-readable envelope", false)
+    .option(
+      "--brief",
+      "Print compact member identities and Core-owned Wake availability",
+      false
+    )
+    .option(
+      "--target <member>",
+      "Return one exact Space member by ID, name, or mention label"
+    )
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
@@ -3783,6 +3799,8 @@ withSpaceProfileOption(
         space: target.space,
         password: cliOptions.password,
         json: cliOptions.json === true,
+        brief: opts.brief === true,
+        target: opts.target,
         view,
         entryChecksHandled: true,
       });
@@ -4729,6 +4747,28 @@ function assertSupportedProfileCreationRequestSessionInput(input: {
 }
 
 profileCmd
+  .command("current-session")
+  .description(
+    "Find the Agent Profile bound to this exact local Agent session without scanning profiles."
+  )
+  .option("--provider <provider>", "Provider: codex or claude-code")
+  .option("--native-session <id>", "Exact provider thread or session ID")
+  .action(async (opts) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "current-session"],
+      view,
+      run: async () => {
+        await runProfileCurrentSession({
+          nativeSessionId: opts.nativeSession,
+          provider: opts.provider,
+          view,
+        });
+      },
+    });
+  });
+
+profileCmd
   .command("list")
   .alias("ls")
   .description("List OpenMeld profiles.")
@@ -5172,7 +5212,7 @@ async function maybeRunAgentViewRecoveryAfterSuccess(input: {
 async function handlePreParseStandaloneCommand(
   argv: string[]
 ): Promise<boolean> {
-  if (await handleExplicitHelpCommand(argv)) {
+  if (handleExplicitHelpCommand(argv)) {
     return true;
   }
 
@@ -5231,6 +5271,10 @@ function isDispatchSpaceActionToolServerArgv(argv: readonly string[]): boolean {
 
 async function runLocalCli(argv: string[]): Promise<void> {
   try {
+    if (isCliMetadataQueryArgv(argv)) {
+      await handlePreParseStandaloneCommand(argv);
+      return;
+    }
     await ensureSystemLayout();
     const [startupCommand, startupSubcommand] =
       parseLeadingCommandTokensFromArgv(argv, 2);
@@ -5429,14 +5473,15 @@ async function shouldPrintTagline(
   return TAGLINE_COMMANDS.has(token);
 }
 
-async function handleExplicitHelpCommand(argv: string[]): Promise<boolean> {
+function handleExplicitHelpCommand(argv: string[]): boolean {
   const args = stripViewArgs(argv.slice(2));
   if (args.length === 0 || args[0] !== "help") {
     return false;
   }
 
   const targetTokens = parseHelpTargetTokens(args.slice(1));
-  const effectiveView = await resolveEffectiveViewForOutput();
+  const explicitView = parseViewFromArgv(argv, { allowMissingValue: true });
+  const effectiveView = explicitView === "agent" ? "agent" : "human";
   if (targetTokens.length === 0) {
     if (effectiveView === "agent") {
       emitTopLevelCliAgentOverview("root");

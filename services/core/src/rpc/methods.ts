@@ -149,6 +149,8 @@ import {
   createCenterAgentContextManifestBodySchema,
   createConnectorAppRequestBodySchema,
   createSpaceDiagnosticReportBodySchema,
+  currentAgentProfileSessionLookupQuerySchema,
+  currentAgentProfileSessionLookupResponseSchema,
   currentDeviceTargetDeviceIdSchema,
   currentDeviceTargetResponseSchema,
   currentLocalAgentInstallationsResponseSchema,
@@ -479,6 +481,7 @@ import type {
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderBody,
   CreateSpaceFolderResponse,
+  CurrentAgentProfileSessionLookupResponse,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
   CurrentLocalRuntimeReplyReadinessResponse,
@@ -747,6 +750,7 @@ import {
   listPrimaryAgentProfileBindingRecords,
   MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE,
   readPrimaryAgentProfileBindingRecord,
+  readPrimaryAgentProfileBindingRecordByControllerConversation,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
   type AgentProfileCreationDefaultsRecord,
@@ -2542,6 +2546,12 @@ export type SubmitRuntimeProviderConversationProofsInput = {
 
 export type GetAgentProfilePrimaryBindingInput = {
   agentProfileId: string;
+  context?: CoreRpcContextInput;
+};
+
+export type GetCurrentAgentProfileSessionInput = {
+  agentControllerConversationId: string;
+  agentControllerRef: string;
   context?: CoreRpcContextInput;
 };
 
@@ -4755,6 +4765,73 @@ export async function rpcGetAgentProfilePrimaryBinding(
   return buildGetAgentProfilePrimaryBindingResponse(
     mapAgentProfileBindingLookupResultToProjection(lookupResult)
   );
+}
+
+export async function rpcGetCurrentAgentProfileSession(
+  env: CoreBindings,
+  input: GetCurrentAgentProfileSessionInput
+): Promise<CurrentAgentProfileSessionLookupResponse> {
+  const query = currentAgentProfileSessionLookupQuerySchema.safeParse({
+    agentControllerConversationId: input.agentControllerConversationId,
+    agentControllerRef: input.agentControllerRef,
+  });
+  if (!query.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        query.error.issues[0]?.message ??
+        "Current Agent Profile Session lookup is invalid.",
+      status: 400,
+    });
+  }
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const db = requireCenterAgentDb(env);
+  const binding =
+    await readPrimaryAgentProfileBindingRecordByControllerConversation({
+      agentControllerConversationId: query.data.agentControllerConversationId,
+      agentControllerRef: query.data.agentControllerRef,
+      db,
+      owner: {
+        id: activeOrganization.userId,
+        kind: "owner_account",
+      },
+    });
+  if (!binding) {
+    return currentAgentProfileSessionLookupResponseSchema.parse({
+      currentOrganizationId: activeOrganization.organizationId,
+      status: "not_found",
+    });
+  }
+  const profile = await readAgentProfileOrganizationContext({
+    agentProfileId: binding.agentProfileId,
+    db,
+  });
+  if (
+    profile?.profileKind !== "agent" ||
+    profile.ownerUserId !== activeOrganization.userId ||
+    !profile.organizationId
+  ) {
+    return currentAgentProfileSessionLookupResponseSchema.parse({
+      currentOrganizationId: activeOrganization.organizationId,
+      reasonCode: "agent_profile_binding.profile_identity_unavailable",
+      status: "unavailable",
+    });
+  }
+  return currentAgentProfileSessionLookupResponseSchema.parse({
+    currentOrganizationId: activeOrganization.organizationId,
+    profile: {
+      profileId: binding.agentProfileId,
+      profileName: profile.profileName,
+      profileOrganizationId: profile.organizationId,
+    },
+    sameOrganization:
+      profile.organizationId === activeOrganization.organizationId,
+    status: "found",
+  });
 }
 
 export async function rpcExecuteAgentProfileWorkRecovery(

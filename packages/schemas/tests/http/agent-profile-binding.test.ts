@@ -5,6 +5,8 @@ import {
   agentProfileBindingRouteParamsSchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
+  currentAgentProfileSessionLookupQuerySchema,
+  currentAgentProfileSessionLookupResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
   getAgentProfileControllerChangeEligibilityResponseSchema,
@@ -22,6 +24,41 @@ import {
 const REASONING_REQUIRES_MODEL_PATTERN = /reasoningLevel requires modelId/u;
 
 describe("agent profile binding http schemas", () => {
+  it("keeps current Session lookup compact and Organization-aware", () => {
+    expect(
+      currentAgentProfileSessionLookupQuerySchema.parse({
+        agentControllerConversationId: "01a03880-57d5-7663-a55b-b239a99dbf05",
+        agentControllerRef: "builtin:codex",
+      })
+    ).toEqual({
+      agentControllerConversationId: "01a03880-57d5-7663-a55b-b239a99dbf05",
+      agentControllerRef: "builtin:codex",
+    });
+    expect(
+      currentAgentProfileSessionLookupResponseSchema.parse({
+        currentOrganizationId: "org-current",
+        profile: {
+          profileId: "agt_11111111-1111-4111-8111-111111111111",
+          profileName: "Codex - OpenMeld",
+          profileOrganizationId: "org-other",
+        },
+        sameOrganization: false,
+        status: "found",
+      })
+    ).toMatchObject({ sameOrganization: false, status: "found" });
+    expect(
+      currentAgentProfileSessionLookupResponseSchema.safeParse({
+        currentOrganizationId: "org-current",
+        profile: {
+          profileId: "agt_11111111-1111-4111-8111-111111111111",
+          profileName: "Codex - OpenMeld",
+        },
+        sameOrganization: true,
+        status: "found",
+      }).success
+    ).toBe(false);
+  });
+
   it("keeps Controller change eligibility explicit and fail-closed", () => {
     expect(
       getAgentProfileControllerChangeEligibilityResponseSchema.parse({

@@ -360,6 +360,162 @@ describe("openmeld computer rename", () => {
     expect(JSON.stringify(output)).not.toContain("/Users/felix");
   });
 
+  it("returns compact readiness without requesting file-access diagnostics", async () => {
+    const agentPresenter = {
+      data: vi.fn(),
+      event: vi.fn(),
+      line: vi.fn(),
+      view: "agent" as const,
+    };
+    createPresenterMock.mockReturnValueOnce(agentPresenter);
+    resolveRuntimeContextMock.mockResolvedValueOnce({
+      interactive: false,
+      resolvedView: "agent",
+      viewMode: "agent",
+    });
+
+    await runComputerCurrent({ brief: true, view: "agent" });
+
+    expect(readFileAccessPolicyMock).not.toHaveBeenCalled();
+    expect(agentPresenter.data).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "computer.current.brief",
+        payload: expect.objectContaining({
+          wake: expect.objectContaining({ canReplyFromThisComputer: true }),
+          updates: expect.objectContaining({ setupAction: "none" }),
+        }),
+      })
+    );
+    expect(
+      JSON.stringify(agentPresenter.data.mock.calls[0]?.[0])
+    ).not.toContain("diagnostics");
+  });
+
+  it("preserves provider usage evidence and optional non-blocking updates in compact output", async () => {
+    const localRuntimes = buildLocalRuntimesResponse();
+    localRuntimes.localRuntimes[0]?.executionTargets.push({
+      capabilities: [
+        {
+          agentControllerRef: "builtin:codex",
+          enabled: true,
+          reasonCodes: [],
+          status: "ready",
+          agentControllerInterface: {
+            usageLimits: [
+              {
+                key: "openai:five-hour",
+                label: "5-hour limit",
+                observedAt: "2026-09-02T00:00:00.000Z",
+                provider: { displayName: "OpenAI", id: "openai" },
+                resetsAt: "2026-09-02T03:00:00.000Z",
+                status: "available",
+                usedPercent: 64,
+              },
+              {
+                key: "openai:weekly",
+                label: "Weekly limit",
+                observedAt: "2026-09-02T00:00:00.000Z",
+                provider: { displayName: "OpenAI", id: "openai" },
+                resetsAt: "2026-09-08T00:00:00.000Z",
+                status: "exhausted",
+                usedPercent: 100,
+              },
+            ],
+          },
+        },
+        {
+          agentControllerRef: "builtin:claude-code",
+          enabled: true,
+          reasonCodes: [],
+          status: "ready",
+        },
+      ],
+      reasonCodes: [],
+      runtimeLane: "dev-local",
+      status: "ready",
+    });
+    listLocalRuntimesMock.mockResolvedValueOnce(localRuntimes);
+    const readiness = buildCurrentReplyReadiness();
+    getCurrentLocalRuntimeReplyReadinessMock.mockResolvedValueOnce({
+      ...readiness,
+      localComponents: {
+        ...readiness.localComponents,
+        cli: {
+          ...readiness.localComponents.cli,
+          latestPackageVersion: "1.1.0",
+          reasonCodes: ["cli.update_available"],
+          status: "behind_latest",
+          updatePolicy: "available",
+        },
+        setupAction: "update_cli",
+        setupActionLabel: "Update the OpenMeld CLI",
+      },
+    });
+    const agentPresenter = {
+      data: vi.fn(),
+      event: vi.fn(),
+      line: vi.fn(),
+      view: "agent" as const,
+    };
+    createPresenterMock.mockReturnValueOnce(agentPresenter);
+    resolveRuntimeContextMock.mockResolvedValueOnce({
+      interactive: false,
+      resolvedView: "agent",
+      viewMode: "agent",
+    });
+
+    await runComputerCurrent({ brief: true, view: "agent" });
+
+    const output = agentPresenter.data.mock.calls[0]?.[0];
+    expect(output).toMatchObject({
+      payload: {
+        localAgents: [
+          {
+            agents: [
+              {
+                agentControllerRef: "builtin:codex",
+                usageLimits: [
+                  {
+                    provider: { id: "openai" },
+                    status: "available",
+                    usedPercent: 64,
+                  },
+                  {
+                    provider: { id: "openai" },
+                    status: "exhausted",
+                    usedPercent: 100,
+                  },
+                ],
+              },
+              { agentControllerRef: "builtin:claude-code" },
+            ],
+          },
+        ],
+        updates: {
+          cli: {
+            status: "behind_latest",
+            updatePolicy: "available",
+            wakeBlocked: false,
+          },
+          setupAction: "update_cli",
+        },
+        wake: { canReplyFromThisComputer: true },
+      },
+    });
+    expect(output.payload.localAgents[0]?.agents[1]).not.toHaveProperty(
+      "usageLimits"
+    );
+  });
+
+  it("does not recommend setup when compact Human View reports no next action", async () => {
+    await runComputerCurrent({ brief: true, view: "human" });
+
+    expect(presenter.line).toHaveBeenCalledWith({
+      code: "computer.current.brief",
+      text: "Office MacBook: This computer can reply in Spaces.",
+    });
+  });
+
   it("fails current when the CLI cannot identify this computer", async () => {
     readCurrentLocalDeviceIdMock.mockResolvedValueOnce(null);
 
@@ -415,7 +571,28 @@ type LocalRuntimesResponseFixture = {
     deviceType: "desktop" | "laptop" | "server" | "unknown";
     firstSeenAtMs: number;
     isCurrent: boolean;
-    executionTargets: [];
+    executionTargets: Array<{
+      capabilities: Array<{
+        agentControllerInterface?: {
+          usageLimits: Array<{
+            key: string;
+            label: string;
+            observedAt: string;
+            provider: { displayName: string; id: string };
+            resetsAt: string;
+            status: string;
+            usedPercent: number;
+          }>;
+        };
+        agentControllerRef: string;
+        enabled: boolean;
+        reasonCodes: string[];
+        status: string;
+      }>;
+      reasonCodes: string[];
+      runtimeLane: "dev-local";
+      status: string;
+    }>;
     lastObservedAtMs: number;
     osVersion: string | null;
     platformFamily: "Linux" | "macOS" | "Unknown" | "Windows";

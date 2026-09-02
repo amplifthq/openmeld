@@ -121,6 +121,14 @@ page succeeds. A complete terminal page replaces that source's current set.
 Unsupported, error, and disconnected outcomes are explicit terminal facts,
 not empty arrays with implied success.
 
+The current-session Profile lookup is a separate narrow HTTP/RPC contract over
+the same Binding identity. Its strict query contains one exact controller ref
+and provider-native Session ID. Core derives the owner from authenticated
+context, performs one owner-scoped reverse Binding read, and returns
+`not_found`, `unavailable`, or the exact Agent Profile identity plus whether it
+belongs to the active Organization. It never accepts caller-supplied owner
+identity, grants mutation authority, or replaces the Session inventory.
+
 ## Contract Rule
 
 Any payload that crosses a service, package, process, HTTP boundary, RPC
@@ -4480,6 +4488,14 @@ envelope flattens the shared `spaceMemberDirectorySchema` response without
 redefining member fields in the CLI. The API client parses the directory before
 the CLI renders Human View, emits Agent View frames, or writes the `--json`
 envelope.
+
+`space.members.brief` is a separate strict CLI-owned projection for one or more
+resolved directory members. It reuses the shared member kind, addressing
+relations, and a schema-picked subset of Core-owned Agent Wake Availability:
+status, phase, action, reason code, and summary. Its `canWakeNow` convenience
+boolean is true only for `available_for_wake`; it does not create a second
+readiness owner. The command must fetch the existing Space directory and member
+snapshot contracts rather than introduce another Space or Wake API.
 
 `space.list.organization` success output is also strict. Its versioned CLI
 envelope reuses the Organization Space member-count directory fields and item
