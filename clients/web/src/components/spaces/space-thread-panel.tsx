@@ -233,7 +233,6 @@ export function SpaceThreadPanel(input: {
 	>;
 	centerAgentProfileId?: string | null;
 	className?: string;
-	composerAddressingSummary?: string | null;
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions?: readonly ComposerDraftAuthoredMention[];
 	composerMentionPickerItems?: readonly SpaceMentionPickerItem[];
@@ -706,7 +705,6 @@ function renderThreadComposer(
 		<ThreadComposer
 			agentDirectConversationKind={input.agentDirectConversationKind}
 			blockedWakeProfileId={input.composerBlockedWakeProfileId}
-			composerAddressingSummary={input.composerAddressingSummary ?? null}
 			composerAddressingTargets={input.composerAddressingTargets ?? []}
 			composerAuthoredMentions={input.composerAuthoredMentions ?? []}
 			composerErrorMessage={input.composerErrorMessage}
@@ -1551,7 +1549,6 @@ function shouldShowThreadComposerMentionButton(input: {
 function ThreadComposer(input: {
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	blockedWakeProfileId: string | null;
-	composerAddressingSummary: string | null;
 	composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions: readonly ComposerDraftAuthoredMention[];
 	composerErrorMessage: string | null;
@@ -1596,7 +1593,7 @@ function ThreadComposer(input: {
 	const composerHintClassName = wakeTextHint
 		? "text-foreground"
 		: "text-muted-foreground";
-	let composerHint = input.composerAddressingSummary ?? wakeTextHint;
+	let composerHint = wakeTextHint;
 	if (uploadInProgress) {
 		composerHint = "Uploading files before sending…";
 	}

@@ -414,12 +414,22 @@ function SpaceComposerProfileToken(
 		profileKind === "agent" && isRepeatedProfileElement(editor, element);
 	let relationControl: ReactNode = null;
 	if (profileKind === "agent" && choices.length > 0 && !isRepeatedAgent) {
+		const selectedRelationLabel =
+			choices.find((choice) => choice.relation === element.relation)?.label ??
+			(element.relation === "wake" ? "Wake" : "Reference");
 		relationControl = (
-			<label className="relative inline-flex h-6 items-center border-border border-l pl-1 text-muted-foreground">
+			<label className="relative inline-grid h-6 shrink-0 grid-cols-[auto] items-center border-border border-l pl-1 text-muted-foreground">
 				<span className="sr-only">Relation</span>
+				<span
+					aria-hidden="true"
+					className="invisible col-start-1 row-start-1 whitespace-pre pr-4 pl-1 font-medium text-xs"
+					data-testid="space-composer-profile-token-relation-width"
+				>
+					{selectedRelationLabel}
+				</span>
 				<select
 					aria-label={`Change relation for ${profileName}`}
-					className="h-6 cursor-pointer appearance-none bg-transparent pr-4 pl-1 font-medium text-xs outline-none"
+					className="col-start-1 row-start-1 h-6 w-full min-w-0 cursor-pointer appearance-none bg-transparent pr-4 pl-1 font-medium text-xs outline-none"
 					onChange={(event) => {
 						const path = editor.api.findPath(element);
 						if (!path) {
@@ -464,20 +474,34 @@ function SpaceComposerProfileToken(
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"
 			>
-				<SpaceProfileIcon
-					agentControllerRef={
-						pickerItem?.memberEntry.agentControllerRef ?? null
-					}
-					avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
-					className="size-4"
-					profileId={element.profileId}
-					profileKind={profileKind}
-					profileName={profileName}
-				/>
-				<span aria-hidden="true" className="font-semibold">
+				<span
+					aria-hidden="true"
+					className="shrink-0 font-semibold"
+					data-slot="space-composer-profile-token-at"
+				>
 					@
 				</span>
-				<span className="max-w-40 truncate font-medium">{profileName}</span>
+				<span
+					className="inline-flex shrink-0"
+					data-slot="space-composer-profile-token-icon"
+				>
+					<SpaceProfileIcon
+						agentControllerRef={
+							pickerItem?.memberEntry.agentControllerRef ?? null
+						}
+						avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
+						className="size-4"
+						profileId={element.profileId}
+						profileKind={profileKind}
+						profileName={profileName}
+					/>
+				</span>
+				<span
+					className="min-w-0 truncate font-medium"
+					data-slot="space-composer-profile-token-name"
+				>
+					{profileName}
+				</span>
 				{relationControl}
 			</span>
 			{props.children}

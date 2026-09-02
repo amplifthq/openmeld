@@ -58,11 +58,25 @@ describe("SpaceComposerEditor", () => {
 		expect(editor.getAttribute("contenteditable")).toBe("true");
 		const token = within(editor).getByTestId("space-composer-profile-token");
 		expect(within(token).getByText("Runner")).toBeTruthy();
+		const relation = within(editor).getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		expect(relation).toBeTruthy();
 		expect(
-			within(editor).getByRole("combobox", {
-				name: "Change relation for Runner",
-			})
-		).toBeTruthy();
+			within(token).getByTestId("space-composer-profile-token-relation-width")
+				.textContent
+		).toBe("Wake");
+		const visibleParts = Array.from(token.children).map((element) =>
+			element.getAttribute("data-slot")
+		);
+		expect(visibleParts.slice(0, 3)).toEqual([
+			"space-composer-profile-token-at",
+			"space-composer-profile-token-icon",
+			"space-composer-profile-token-name",
+		]);
+		expect(within(token).getByText("Runner").className).not.toContain(
+			"max-w-40"
+		);
 	});
 
 	it("keeps Human Mention inline without inventing a Wake or Reference selector", () => {

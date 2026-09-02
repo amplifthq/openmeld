@@ -210,7 +210,6 @@ type SpaceConversationPanelProps = {
 	composerErrorMessage: string | null;
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
-	composerAddressingSummary?: string | null;
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions?: readonly ComposerDraftAuthoredMention[];
 	composerMentionPickerItems?: readonly SpaceMentionPickerItem[];
@@ -1747,8 +1746,7 @@ function SpaceComposerSection(input: {
 		fileLimitReached: panel.composerFileLimitReached,
 		fileUploadInProgress,
 	});
-	const composerHint =
-		fileHint ?? panel.composerAddressingSummary ?? input.wakeTextHint;
+	const composerHint = fileHint ?? input.wakeTextHint;
 	const composerHintClassName = input.wakeTextHint
 		? "text-foreground"
 		: "text-muted-foreground";

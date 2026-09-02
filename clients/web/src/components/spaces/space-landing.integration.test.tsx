@@ -8497,8 +8497,12 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "@Runner wake please reply");
 
-		expect(screen.getByTestId("space-composer-profile-token")).toBeTruthy();
-		expect(screen.getByText("Waking 1 agent")).toBeTruthy();
+		const token = screen.getByTestId("space-composer-profile-token");
+		const relation = within(token).getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		expect(relation).toHaveProperty("value", "wake");
+		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
 	it("sends a Wake mention for a not-ready agent instead of blocking before send", async () => {
@@ -8816,7 +8820,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows a quiet summary for multiple structured targets", async () => {
+	it("keeps multiple structured targets self-explanatory without a duplicate summary", async () => {
 		const reviewerProfileId = "agt_33333333-3333-4333-8333-333333333333";
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
@@ -8865,7 +8869,10 @@ describe("SpaceLanding", () => {
 
 		await insertComposerMember(REVIEWER_OPTION_NAME, "Rev");
 
-		expect(await screen.findByText("Waking 2 agents")).toBeTruthy();
+		expect(screen.getAllByTestId("space-composer-profile-token")).toHaveLength(
+			2
+		);
+		expect(screen.queryByText("Waking 2 agents")).toBeNull();
 
 		await appendComposerText(
 			textarea,
