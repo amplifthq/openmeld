@@ -1,3 +1,4 @@
+import { WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE } from "@openmeld/schemas";
 import type { WakeProgressItem } from "@openmeld/schemas/types";
 
 export type WakeFlowStepStatus = "complete" | "active" | "pending" | "failed";
@@ -12,6 +13,17 @@ export type WakeFlowStep = {
 export function resolveWakeProgressThinkingStep(
 	item: WakeProgressItem
 ): WakeFlowStep | null {
+	if (
+		item.waitReasonCode ===
+		WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+	) {
+		return {
+			description:
+				"This Wake will start when this Codex task becomes available.",
+			label: "Waiting for Codex task",
+			status: "active",
+		};
+	}
 	switch (item.phase) {
 		case "sending":
 			return createStartingWakeStep();

@@ -2288,8 +2288,10 @@ export {
   getActiveSpaceWakeProgressResponseSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeProgressResponseSchema,
+  WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
   wakeProgressItemSchema,
   wakeProgressPhaseSchema,
+  wakeProgressWaitReasonCodeSchema,
   wakeStopEligibilityReadModelSchema,
   wakeStopEligibilityReasonCodeSchema,
 } from "./http/space-wake-progress";

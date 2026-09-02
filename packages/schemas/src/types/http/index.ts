@@ -1198,6 +1198,7 @@ export type {
   GetSpaceWakeProgressResponse,
   WakeProgressItem,
   WakeProgressPhase,
+  WakeProgressWaitReasonCode,
   WakeStopEligibilityReadModel,
 } from "./space-wake-progress";
 export type {

@@ -3329,6 +3329,11 @@ Web shows elapsed running time, it uses the optional authoritative
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
+When Core projects the bounded controller-conversation occupancy wait reason,
+Web shows `Waiting for Codex task` and explains that the Wake will start when
+that task becomes available. It must not present that state as `Agent is
+working` or the generic `Sending to agent`, and it must return to ordinary Wake
+progress as soon as Core projects the conversation as available.
 
 When active Wake progress includes a pending Agent Interaction for the current
 Binding owner, Web projects it into one collapsed Pending Action Surface above

@@ -27,6 +27,13 @@ export const wakeProgressPhaseSchema = z.enum([
   "replied",
 ]);
 
+export const WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE =
+  "runtime.agent_controller_conversation.occupied" as const;
+
+export const wakeProgressWaitReasonCodeSchema = z.enum([
+  WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
+]);
+
 export const wakeStopEligibilityReasonCodeSchema = z.enum([
   "agent_controller_interface.cancel_required",
   "agent_controller_interface.missing",
@@ -78,6 +85,7 @@ export const wakeProgressItemSchema = z.strictObject({
   startedAtMs: z.int().min(0).optional(),
   updatedAtMs: z.int().min(0),
   terminal: z.boolean(),
+  waitReasonCode: wakeProgressWaitReasonCodeSchema.nullable().optional(),
   wakeStopEligibility: wakeStopEligibilityReadModelSchema.nullable().optional(),
   pendingInteraction: agentInteractionPendingSummarySchema
     .nullable()

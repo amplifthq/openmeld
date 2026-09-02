@@ -4,6 +4,7 @@ import {
   runtimeCoordinatorExecutionCreationDiagnosticSchema,
   runtimeCoordinatorExecutionEventSchema,
   runtimeCoordinatorExecutionRecordSchema,
+  WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
 } from "@openmeld/schemas";
 import type {
   RuntimeCoordinatorExecutionCreationDiagnostic,
@@ -11,6 +12,7 @@ import type {
   RuntimeCoordinatorExecutionEventType,
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
+  WakeProgressWaitReasonCode,
 } from "@openmeld/schemas/types";
 import { stringifyRuntimeCoordinatorEventPayload } from "../../application/runtime-coordinator-execution-token";
 
@@ -46,6 +48,7 @@ export type RuntimeCoordinatorExecutionWakeProgressSelector = {
   status: RuntimeCoordinatorExecutionStatus;
   targetProfileId: string;
   updatedAtMs: number;
+  waitReasonCode: WakeProgressWaitReasonCode | null;
   openMeldServiceRuntimeId: RuntimeCoordinatorExecutionRecord["openMeldServiceRuntimeId"];
 };
 
@@ -53,6 +56,7 @@ type RuntimeCoordinatorExecutionWakeProgressSelectorRow = {
   created_at_ms?: unknown;
   dispatch_id?: unknown;
   latest_dispatch_attempt_status?: unknown;
+  latest_occupancy_payload_json?: unknown;
   runtime_coordinator_execution_id?: unknown;
   source_client_message_id?: unknown;
   source_event_id?: unknown;
@@ -606,7 +610,24 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
           executions.created_at_ms,
           executions.updated_at_ms,
           ledger.source_event_id,
-          latest_attempt.status AS latest_dispatch_attempt_status
+          latest_attempt.status AS latest_dispatch_attempt_status,
+          (
+            SELECT occupancy_event.payload_json
+            FROM openMeldDaemon_runtime_coordinator_execution_events AS occupancy_event
+            WHERE occupancy_event.runtime_coordinator_execution_id =
+              executions.runtime_coordinator_execution_id
+              AND occupancy_event.event_type IN (
+                'lifecycle_accepted_local',
+                'lifecycle_running'
+              )
+              AND json_extract(
+                occupancy_event.payload_json,
+                '$.agentControllerConversationOccupancy.state'
+              ) IS NOT NULL
+            ORDER BY occupancy_event.observed_at_ms DESC,
+              occupancy_event.event_id DESC
+            LIMIT 1
+          ) AS latest_occupancy_payload_json
         FROM openMeldDaemon_runtime_coordinator_executions AS executions
         LEFT JOIN openMeldDaemon_dispatch_ledger AS ledger
           ON ledger.space_id = executions.space_id
@@ -956,9 +977,40 @@ const mapRuntimeCoordinatorExecutionWakeProgressSelectorRow = (
       status,
       targetProfileId,
       updatedAtMs,
+      waitReasonCode: resolveWakeProgressWaitReasonCodeFromOccupancyPayload(
+        row.latest_occupancy_payload_json
+      ),
       openMeldServiceRuntimeId,
     },
   ];
+};
+
+const resolveWakeProgressWaitReasonCodeFromOccupancyPayload = (
+  value: unknown
+): WakeProgressWaitReasonCode | null => {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(value) as unknown;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return null;
+    }
+    const occupancy = (payload as Record<string, unknown>)
+      .agentControllerConversationOccupancy;
+    if (
+      !occupancy ||
+      typeof occupancy !== "object" ||
+      Array.isArray(occupancy)
+    ) {
+      return null;
+    }
+    return (occupancy as Record<string, unknown>).state === "occupied"
+      ? WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+      : null;
+  } catch {
+    return null;
+  }
 };
 
 const runtimeCoordinatorExecutionStatusFromUnknown = (

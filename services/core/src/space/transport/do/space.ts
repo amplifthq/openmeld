@@ -471,6 +471,7 @@ import type {
 } from "../../application/types";
 import {
   projectWakeTraceWaterfall,
+  resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode,
   type WakeTraceWaterfallSourceSignalFact,
 } from "../../application/wake-trace-waterfall";
 import {
@@ -15393,6 +15394,7 @@ export class Space extends DurableObject<CoreBindings> {
               targetProfileId: execution.targetProfileId,
               terminal: false,
               updatedAtMs: execution.updatedAtMs,
+              waitReasonCode: execution.waitReasonCode,
             }),
           ];
         })
@@ -17286,6 +17288,8 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
         trace: input.trace,
       })
     ),
+    waitReasonCode:
+      resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(input.trace),
     message:
       authorityProgress?.message ??
       buildWakeProgressMessage({

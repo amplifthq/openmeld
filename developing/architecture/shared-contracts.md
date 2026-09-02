@@ -3859,7 +3859,12 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 
 `packages/schemas/src/schemas/http/space-wake-progress.ts` owns the Wake
 progress read model, including the optional `startedAtMs` timing projection and
-the optional `wakeStopEligibility` projection. Both projections are
+the optional `wakeStopEligibility` projection. It may also expose the bounded
+optional `waitReasonCode=runtime.agent_controller_conversation.occupied` from
+RuntimeCoordinator lifecycle evidence. That neutral projection never exposes
+the controller conversation id, does not grant execution authority, and must be
+cleared when the latest occupancy transition is `available`. The timing and
+Stop projections are
 mixed-version opt-in: clients request authoritative elapsed-time timing with
 `includeTiming=true` and Stop eligibility with
 `includeWakeStopEligibility=true` on Wake progress and active Wake progress
@@ -3877,6 +3882,11 @@ strict RPC input. Existing CLI versions do not send `includeTiming=true`, so
 new Core preserves their previous strict response shape. This additive HTTP/RPC
 projection changes no OpenMeld Service, daemon, Prepare, Runtime Transport,
 RuntimeCoordinator authority, or local-component contract version.
+
+The occupancy wait-reason rollout is Web receiver first, then Core producer.
+The field is optional so new Web remains compatible with old Core; an old
+strict Web response parser must not receive the additive field before the new
+Web is live.
 
 Wake Stop eligibility is a read model, not execution authority. It may make a
 Wake appear stoppable only when Core can project one of three control modes:
