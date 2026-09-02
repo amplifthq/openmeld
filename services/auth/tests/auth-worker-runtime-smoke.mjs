@@ -42,7 +42,9 @@ async function waitForHealthyWorker() {
 
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(HEALTH_URL);
+      const response = await fetch(HEALTH_URL, {
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+      });
       if (response.status === 200) {
         const body = await response.json();
         if (body?.ok === true && body?.service === "openmeld-auth") {
