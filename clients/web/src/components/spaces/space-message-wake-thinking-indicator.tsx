@@ -1,7 +1,7 @@
 import { ThinkingIndicator } from "@openmeld/ui/components/thinking-indicator";
 import { fontWeights } from "@openmeld/ui/lib/font-weight";
 import { cn } from "@openmeld/ui/lib/utils";
-import { type ReactNode, useRef } from "react";
+import { type ReactNode, useState } from "react";
 import {
 	isSpaceWakeProgressWaitingForFinalStatus,
 	SPACE_AGENT_WORKING_STATUS_TEXT,
@@ -23,6 +23,20 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 	onOpenMessageDetails?: () => void;
 	showAgentWorkingState?: boolean;
 }) {
+	const elapsedEntry = resolveSingleElapsedEntry(
+		input.entries.filter((entry) => entry.kind === "progress")
+	);
+	return (
+		<SpaceMessageWakeThinkingIndicatorContent
+			{...input}
+			key={elapsedEntry ? resolveElapsedEntryIdentity(elapsedEntry) : "none"}
+		/>
+	);
+}
+
+function SpaceMessageWakeThinkingIndicatorContent(
+	input: Parameters<typeof SpaceMessageWakeThinkingIndicator>[0]
+) {
 	const isEndAligned = input.align === "end";
 	const previewEntries = input.entries.filter(
 		(entry) => entry.kind === "preview"
@@ -35,7 +49,13 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 		(entry) => entry.kind === "status"
 	);
 	const rawElapsedEntry = resolveSingleElapsedEntry(progressEntries);
-	const elapsedEntry = useStableElapsedEntry(rawElapsedEntry);
+	const [elapsedStartedAtMs] = useState(
+		() => rawElapsedEntry?.elapsedStartedAtMs ?? null
+	);
+	const elapsedEntry = resolveStableElapsedEntry({
+		elapsedStartedAtMs,
+		entry: rawElapsedEntry,
+	});
 	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
 	const isWaitingForFinalStatus = isSpaceWakeProgressWaitingForFinalStatus({
 		lastEvidenceAtMs: rawElapsedEntry?.elapsedStartedAtMs ?? null,
@@ -282,37 +302,24 @@ function resolveSingleElapsedEntry(
 	return entry;
 }
 
-function useStableElapsedEntry(
-	entry: SpaceMessageWakeThinkingEntry | null
-): SpaceMessageWakeThinkingEntry | null {
-	const anchorRef = useRef<{
-		elapsedStartedAtMs: number;
-		identity: string;
-	} | null>(null);
-
-	if (!entry || entry.elapsedStartedAtMs === null) {
-		anchorRef.current = null;
+function resolveStableElapsedEntry(input: {
+	elapsedStartedAtMs: number | null;
+	entry: SpaceMessageWakeThinkingEntry | null;
+}): SpaceMessageWakeThinkingEntry | null {
+	if (!(input.entry && input.elapsedStartedAtMs !== null)) {
 		return null;
 	}
-
-	const identity = resolveElapsedEntryIdentity(entry);
-	const previousAnchor = anchorRef.current;
-	const elapsedStartedAtMs =
-		previousAnchor?.identity === identity
-			? Math.min(previousAnchor.elapsedStartedAtMs, entry.elapsedStartedAtMs)
-			: entry.elapsedStartedAtMs;
-
-	anchorRef.current = {
-		elapsedStartedAtMs,
-		identity,
-	};
-
+	const entry = input.entry;
+	const elapsedStartedAtMs = input.elapsedStartedAtMs;
 	if (elapsedStartedAtMs === entry.elapsedStartedAtMs) {
 		return entry;
 	}
 	return {
 		...entry,
-		elapsedStartedAtMs,
+		elapsedStartedAtMs: Math.min(
+			elapsedStartedAtMs,
+			entry.elapsedStartedAtMs ?? elapsedStartedAtMs
+		),
 	};
 }
 
