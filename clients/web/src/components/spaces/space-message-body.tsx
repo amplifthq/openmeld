@@ -38,6 +38,7 @@ import {
 	createSpaceMessageAgentMentionRemarkPlugin,
 	EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES,
 	renderSpaceMessageAgentMentionInternalLink,
+	type SpaceMessageAgentMentionProfilesById,
 	SpaceMessageAgentMentionText,
 } from "./space-message-agent-mention";
 import { SpaceMessageCenterAgentTaskReferences } from "./space-message-center-agent-task-references";
@@ -74,6 +75,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 				| "actorProfileKind"
 				| "attachments"
 				| "files"
+				| "referenceTargetProfileIds"
 				| "spaceId"
 				| "wakeTargetProfileIds"
 			>
@@ -122,9 +124,14 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 				profilePresentationsById:
 					input.profilePresentationsById ??
 					EMPTY_SPACE_MESSAGE_AGENT_MENTION_PROFILES,
+				referenceTargetProfileIds: input.item.referenceTargetProfileIds ?? [],
 				wakeTargetProfileIds: input.item.wakeTargetProfileIds ?? [],
 			}),
-		[input.item.wakeTargetProfileIds, input.profilePresentationsById]
+		[
+			input.item.referenceTargetProfileIds,
+			input.item.wakeTargetProfileIds,
+			input.profilePresentationsById,
+		]
 	);
 	const additionalRemarkPlugins = useMemo(() => {
 		const plugins: NonNullable<
@@ -259,10 +266,7 @@ function renderSpaceMessageTextContent(input: {
 	additionalRemarkPlugins: ComponentProps<
 		typeof MessageResponse
 	>["additionalRemarkPlugins"];
-	agentMentionProfilesById: ReadonlyMap<
-		string,
-		SpaceCollaborationProfilePresentation
-	>;
+	agentMentionProfilesById: SpaceMessageAgentMentionProfilesById;
 	className: string;
 	isStreaming: boolean;
 	onOpenAgentProfile?: (profileId: string) => void;

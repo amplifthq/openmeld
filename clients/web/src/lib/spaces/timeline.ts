@@ -92,6 +92,7 @@ export type SpaceTimelineItem = {
 	transientActivityPurpose: string | null;
 	text: string;
 	wakeClientMessageId: string | null;
+	referenceTargetProfileIds?: readonly string[];
 	wakeSourceSignalId: string | null;
 	wakeTargetProfileIds: readonly string[];
 	agentStreamState?: {
@@ -372,7 +373,7 @@ function buildSpaceTimelineItem(input: {
 		systemNoticeTargetProfileId: readSystemNoticeTargetProfileId(input.signal),
 		transientActivityPurpose: readTransientActivityPurpose(input.signal),
 		text: projection.text,
-		...readSourceWakeDetails(input.signal),
+		...readSourceMessageAddressingDetails(input.signal),
 	};
 }
 
@@ -589,27 +590,36 @@ function readNewMessagesDuringComposition(
 	return signal.data.meta?.staleness?.newMessagesDuringComposition ?? null;
 }
 
-function readSourceWakeDetails(signal: SpaceTimelineVisibleEnvelope): {
+function readSourceMessageAddressingDetails(
+	signal: SpaceTimelineVisibleEnvelope
+): {
+	referenceTargetProfileIds: readonly string[];
 	wakeClientMessageId: string | null;
 	wakeSourceSignalId: string | null;
 	wakeTargetProfileIds: readonly string[];
 } {
 	if (signal.type !== "signal.text") {
 		return {
+			referenceTargetProfileIds: [],
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
 			wakeTargetProfileIds: [],
 		};
 	}
 
-	const targetProfileIds = normalizeUniqueNonEmptyStrings(
+	const wakeTargetProfileIds = normalizeUniqueNonEmptyStrings(
 		signal.data.messageEnvelope?.activationTargets ?? []
 	);
+	const wakeTargetProfileIdSet = new Set(wakeTargetProfileIds);
+	const referenceTargetProfileIds = normalizeUniqueNonEmptyStrings(
+		signal.data.messageEnvelope?.referenceTargets ?? []
+	).filter((profileId) => !wakeTargetProfileIdSet.has(profileId));
 	const clientMessageId = normalizeOptionalText(
 		signal.data.meta?.clientMessageId
 	);
-	if (targetProfileIds.length === 0) {
+	if (wakeTargetProfileIds.length === 0) {
 		return {
+			referenceTargetProfileIds,
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
 			wakeTargetProfileIds: [],
@@ -617,9 +627,10 @@ function readSourceWakeDetails(signal: SpaceTimelineVisibleEnvelope): {
 	}
 
 	return {
+		referenceTargetProfileIds,
 		wakeClientMessageId: clientMessageId,
 		wakeSourceSignalId: signal.id,
-		wakeTargetProfileIds: targetProfileIds,
+		wakeTargetProfileIds,
 	};
 }
 

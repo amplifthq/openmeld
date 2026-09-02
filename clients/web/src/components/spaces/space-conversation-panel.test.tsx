@@ -3996,7 +3996,7 @@ describe("SpaceConversationPanel", () => {
 
 		fireEvent.click(
 			screen.getByRole("button", {
-				name: "Open Codex 5.6 Sol profile",
+				name: "Open Codex 5.6 Sol profile (Wake)",
 			})
 		);
 
