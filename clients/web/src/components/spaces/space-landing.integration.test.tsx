@@ -4971,9 +4971,18 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("moves a converted Direct Message to Spaces without waiting for cache reconciliation", async () => {
-		const pendingRefresh = new Promise<void>(() => undefined);
-		const invalidateQueriesMock = vi.fn().mockReturnValue(pendingRefresh);
+	it("refreshes members before moving a converted Direct Message to Spaces", async () => {
+		const pendingInvalidation = new Promise<void>(() => undefined);
+		const invalidateQueriesMock = vi.fn().mockReturnValue(pendingInvalidation);
+		let resolveMembersRefresh: (() => void) | undefined;
+		const pendingMembersRefresh = new Promise<void>((resolve) => {
+			resolveMembersRefresh = resolve;
+		});
+		const membersQuery = createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+			refetch: vi.fn().mockReturnValue(pendingMembersRefresh),
+		});
 		let cachedStatus: GetSpaceStatusResponse = {
 			...createSpaceStatus(),
 			accessMode: "members_only",
@@ -5060,10 +5069,7 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: cachedStatus,
 			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot(),
-			}),
+			members: membersQuery,
 			history: createQueryResult({
 				isSuccess: true,
 				data: { envelopes: [], nextCursor: null },
@@ -5107,11 +5113,17 @@ describe("SpaceLanding", () => {
 			});
 		});
 		await flushPromiseQueue();
+		expect(membersQuery.refetch).toHaveBeenCalledTimes(1);
+		expect(useNavigateMock).not.toHaveBeenCalled();
 
-		expect(useNavigateMock).toHaveBeenCalledWith({
-			replace: true,
-			search: { profileId: DEFAULT_SPACE_PROFILE_ID },
-			to: "/o/acme/spaces/space-123",
+		resolveMembersRefresh?.();
+
+		await waitFor(() => {
+			expect(useNavigateMock).toHaveBeenCalledWith({
+				replace: true,
+				search: { profileId: DEFAULT_SPACE_PROFILE_ID },
+				to: "/o/acme/spaces/space-123",
+			});
 		});
 	});
 

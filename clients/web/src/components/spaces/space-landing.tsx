@@ -2858,6 +2858,14 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				(sections) =>
 					applyDirectMessageConversionToAccountSpaceSections(sections, result)
 			);
+			try {
+				await controller.onRefreshStatusAndMembers();
+			} catch (error) {
+				console.warn(
+					"OpenMeld turned the Direct Message into a Space but could not refresh its members before opening it.",
+					{ error, spaceId: controller.spaceId }
+				);
+			}
 
 			const navigation = input.navigate({
 				replace: true,
