@@ -1,7 +1,7 @@
 import { ThinkingIndicator } from "@openmeld/ui/components/thinking-indicator";
 import { fontWeights } from "@openmeld/ui/lib/font-weight";
 import { cn } from "@openmeld/ui/lib/utils";
-import { type ReactNode, useRef } from "react";
+import { type ReactNode, useState } from "react";
 import {
 	isSpaceWakeProgressWaitingForFinalStatus,
 	SPACE_AGENT_WORKING_STATUS_TEXT,
@@ -9,7 +9,8 @@ import {
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
 import { AnimatedMobiusIcon } from "./animated-mobius-icon";
-import { SpaceAgentOrb, type SpaceAgentOrbState } from "./space-agent-orb";
+import { SpaceAgentOrb } from "./space-agent-orb";
+import type { SpaceAgentOrbState } from "./space-agent-orb-state";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
 
 const WAKE_PROGRESS_DELAYED_STATUS_TEXT = "Still waiting for the final status.";
@@ -34,55 +35,25 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 		(entry) => entry.kind === "status"
 	);
 	const rawElapsedEntry = resolveSingleElapsedEntry(progressEntries);
-	const elapsedEntry = useStableElapsedEntry(rawElapsedEntry);
-	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
-	const isWaitingForFinalStatus = isSpaceWakeProgressWaitingForFinalStatus({
-		lastEvidenceAtMs: rawElapsedEntry?.elapsedStartedAtMs ?? null,
-		nowMs,
-	});
-	const words = progressEntries.map((entry) =>
-		formatThinkingEntryText({
-			entry,
-			isWaitingForFinalStatus,
-			nowMs,
-			showAgentWorkingState: input.showAgentWorkingState === true,
-			showElapsedTime: entry === elapsedEntry,
-		})
-	);
 
 	if (input.entries.length === 0 && !input.control) {
 		return null;
 	}
 
-	const indicator = buildWakeThinkingIndicator({
-		className: input.className,
-		elapsedEntry,
-		isWaitingForFinalStatus,
-		latestPreviewEntry,
-		nowMs,
-		onOpenMessageDetails: input.onOpenMessageDetails !== undefined,
-		progressEntries,
-		showAgentWorkingState: input.showAgentWorkingState === true,
-		words,
-	});
-
-	const indicatorContent =
-		input.onOpenMessageDetails && indicator ? (
-			<button
-				aria-label="Open message details"
-				className={cn(
-					"w-fit min-w-0 max-w-full cursor-pointer appearance-none overflow-hidden border-0 bg-transparent p-0 text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-4",
-					isEndAligned ? "text-right" : "text-left"
-				)}
-				data-testid="space-wake-thinking-indicator"
-				onClick={input.onOpenMessageDetails}
-				type="button"
-			>
-				{indicator}
-			</button>
-		) : (
-			indicator
-		);
+	const indicatorContent = (
+		<WakeThinkingIndicatorContent
+			className={input.className}
+			isEndAligned={isEndAligned}
+			key={
+				rawElapsedEntry ? resolveElapsedEntryIdentity(rawElapsedEntry) : "none"
+			}
+			latestPreviewEntry={latestPreviewEntry}
+			onOpenMessageDetails={input.onOpenMessageDetails}
+			progressEntries={progressEntries}
+			rawElapsedEntry={rawElapsedEntry}
+			showAgentWorkingState={input.showAgentWorkingState === true}
+		/>
+	);
 	const statusContent = statusEntries.map((entry) => (
 		<output
 			className="text-[13px] text-muted-foreground"
@@ -111,6 +82,67 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 				{statusContent}
 			</div>
 		</SpaceMessageProgressRow>
+	);
+}
+
+function WakeThinkingIndicatorContent(input: {
+	className?: string;
+	isEndAligned: boolean;
+	latestPreviewEntry: SpaceMessageWakeThinkingEntry | null;
+	onOpenMessageDetails?: () => void;
+	progressEntries: readonly SpaceMessageWakeThinkingEntry[];
+	rawElapsedEntry: SpaceMessageWakeThinkingEntry | null;
+	showAgentWorkingState: boolean;
+}) {
+	const [elapsedStartedAtMs] = useState(
+		() => input.rawElapsedEntry?.elapsedStartedAtMs ?? null
+	);
+	const elapsedEntry = resolveStableElapsedEntry({
+		elapsedStartedAtMs,
+		entry: input.rawElapsedEntry,
+	});
+	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
+	const isWaitingForFinalStatus = isSpaceWakeProgressWaitingForFinalStatus({
+		lastEvidenceAtMs: input.rawElapsedEntry?.elapsedStartedAtMs ?? null,
+		nowMs,
+	});
+	const words = input.progressEntries.map((entry) =>
+		formatThinkingEntryText({
+			entry,
+			isWaitingForFinalStatus,
+			nowMs,
+			showAgentWorkingState: input.showAgentWorkingState,
+			showElapsedTime: entry === elapsedEntry,
+		})
+	);
+
+	const indicator = buildWakeThinkingIndicator({
+		className: input.className,
+		elapsedEntry,
+		isWaitingForFinalStatus,
+		latestPreviewEntry: input.latestPreviewEntry,
+		nowMs,
+		onOpenMessageDetails: input.onOpenMessageDetails !== undefined,
+		progressEntries: input.progressEntries,
+		showAgentWorkingState: input.showAgentWorkingState,
+		words,
+	});
+
+	return input.onOpenMessageDetails && indicator ? (
+		<button
+			aria-label="Open message details"
+			className={cn(
+				"w-fit min-w-0 max-w-full cursor-pointer appearance-none overflow-hidden border-0 bg-transparent p-0 text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-4",
+				input.isEndAligned ? "text-right" : "text-left"
+			)}
+			data-testid="space-wake-thinking-indicator"
+			onClick={input.onOpenMessageDetails}
+			type="button"
+		>
+			{indicator}
+		</button>
+	) : (
+		indicator
 	);
 }
 
@@ -281,37 +313,24 @@ function resolveSingleElapsedEntry(
 	return entry;
 }
 
-function useStableElapsedEntry(
-	entry: SpaceMessageWakeThinkingEntry | null
-): SpaceMessageWakeThinkingEntry | null {
-	const anchorRef = useRef<{
-		elapsedStartedAtMs: number;
-		identity: string;
-	} | null>(null);
-
-	if (!entry || entry.elapsedStartedAtMs === null) {
-		anchorRef.current = null;
+function resolveStableElapsedEntry(input: {
+	elapsedStartedAtMs: number | null;
+	entry: SpaceMessageWakeThinkingEntry | null;
+}): SpaceMessageWakeThinkingEntry | null {
+	if (!(input.entry && input.elapsedStartedAtMs !== null)) {
 		return null;
 	}
-
-	const identity = resolveElapsedEntryIdentity(entry);
-	const previousAnchor = anchorRef.current;
-	const elapsedStartedAtMs =
-		previousAnchor?.identity === identity
-			? Math.min(previousAnchor.elapsedStartedAtMs, entry.elapsedStartedAtMs)
-			: entry.elapsedStartedAtMs;
-
-	anchorRef.current = {
-		elapsedStartedAtMs,
-		identity,
-	};
-
+	const entry = input.entry;
+	const elapsedStartedAtMs = input.elapsedStartedAtMs;
 	if (elapsedStartedAtMs === entry.elapsedStartedAtMs) {
 		return entry;
 	}
 	return {
 		...entry,
-		elapsedStartedAtMs,
+		elapsedStartedAtMs: Math.min(
+			elapsedStartedAtMs,
+			entry.elapsedStartedAtMs ?? elapsedStartedAtMs
+		),
 	};
 }
 

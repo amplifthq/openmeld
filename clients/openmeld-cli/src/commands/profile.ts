@@ -252,6 +252,7 @@ export async function runProfileList(input?: {
 
 export async function runProfileShow(input: {
   profile?: string;
+  details?: boolean;
   json?: boolean;
   view?: string;
   entryChecksHandled?: boolean;
@@ -331,6 +332,18 @@ export async function runProfileShow(input: {
   }
 
   const primaryBinding = await resolveProfileShowPrimaryBinding(profile);
+  if (input.details !== true) {
+    presenter.line({
+      code: "profile.show",
+      text: `profile: ${profile.openMeldProfileId}`,
+      data: buildCompactAgentProfileData({
+        agentRuntimeState,
+        primaryBinding,
+        profile,
+      }),
+    });
+    return;
+  }
   presenter.line({
     code: "profile.show",
     text: `profile: ${profile.openMeldProfileId}`,
@@ -1103,6 +1116,7 @@ export async function runProfileUpdate(input: {
   reasoningEffort?: string;
   workspaceMode?: string;
   workspacePath?: string;
+  details?: boolean;
   view?: string;
   entryChecksHandled?: boolean;
   allowBackToCaller?: boolean;
@@ -1173,6 +1187,23 @@ export async function runProfileUpdate(input: {
     return;
   }
 
+  const primaryBinding = await resolveProfileShowPrimaryBinding(updated);
+  if (input.details !== true) {
+    presenter.line({
+      code: "profile.updated",
+      text: `updated profile: ${updated.openMeldProfileId}`,
+      data: {
+        ...buildCompactAgentProfileData({
+          agentRuntimeState,
+          primaryBinding,
+          profile: updated,
+        }),
+        updatedFields: payload.updatedFields,
+      },
+    });
+    return;
+  }
+
   presenter.line({
     code: "profile.updated",
     text: `updated profile: ${updated.openMeldProfileId}`,
@@ -1184,14 +1215,52 @@ export async function runProfileUpdate(input: {
       profileKind: updated.profileKind,
       ownerUserId: updated.ownerUserId,
       updatedFields: payload.updatedFields,
-      binding: buildAgentProfileBindingData(
-        await resolveProfileShowPrimaryBinding(updated)
-      ),
+      binding: buildAgentProfileBindingData(primaryBinding),
       ...buildAgentProfileStateData(updated),
       ...buildAgentProfileRuntimeData(agentRuntimeState),
       nextSteps: buildAgentUpdateNextSteps(updated),
     },
   });
+}
+
+function buildCompactAgentProfileData(input: {
+  agentRuntimeState: Awaited<
+    ReturnType<typeof resolveAgentProfileRuntimeState>
+  >;
+  primaryBinding: AgentProfilePrimaryAgentControllerReport | null;
+  profile: OpenMeldProfile;
+}): Record<string, unknown> {
+  const binding = buildAgentProfileBindingData(input.primaryBinding);
+  const runtime = buildAgentProfileRuntimeData(input.agentRuntimeState);
+  return {
+    profile: input.profile.openMeldProfileId,
+    openMeldProfileId: input.profile.openMeldProfileId,
+    profileName: input.profile.profileName,
+    profileKind: input.profile.profileKind,
+    status: input.profile.status,
+    binding: binding
+      ? {
+          agentControllerRef: binding.agentControllerRef,
+          agentControllerConversationId: binding.agentControllerConversationId,
+          agentControllerPermissionMode: binding.agentControllerPermissionMode,
+          bindingState: binding.bindingState,
+          routable: binding.routable,
+          modelSelection: binding.modelSelection,
+        }
+      : null,
+    replyReadiness: runtime.replyReadiness ?? null,
+    workspace: runtime.workspace
+      ? {
+          status: runtime.workspace.status,
+          configuredWorkspace: runtime.workspace.configuredWorkspace,
+          effectiveRuntimeWorkingDirectory:
+            runtime.workspace.effectiveRuntimeWorkingDirectory,
+        }
+      : null,
+    nextAction: formatOpenMeldCliCommand(
+      `openmeld profiles show ${input.profile.openMeldProfileId} --details --view agent`
+    ),
+  };
 }
 
 async function resolveProfileUpdateSelection(input: {

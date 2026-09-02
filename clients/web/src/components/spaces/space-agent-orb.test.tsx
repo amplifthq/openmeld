@@ -1,10 +1,10 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { SpaceAgentOrb } from "./space-agent-orb";
 import {
 	DEFAULT_SPACE_AGENT_ORB_STATE,
 	resolveSpaceAgentWorkOrbState,
-	SpaceAgentOrb,
-} from "./space-agent-orb";
+} from "./space-agent-orb-state";
 
 afterEach(cleanup);
 
@@ -23,6 +23,20 @@ describe("SpaceAgentOrb", () => {
 		expect(orb?.style.height).toBe("20px");
 		expect(orb?.getAttribute("aria-hidden")).toBe("true");
 		expect(orb?.dataset.spaceAgentOrbState).toBe("solving");
+	});
+
+	it("renders a prominent 32 pixel orb without the compact scale", () => {
+		const { container } = render(<SpaceAgentOrb prominent />);
+		const orb = container.querySelector<HTMLCanvasElement>("canvas");
+		const orbSlot = container.querySelector<HTMLElement>(
+			'[data-slot="space-agent-orb"]'
+		);
+
+		expect(orbSlot?.className).toContain("size-8");
+		expect(orb?.className).toContain("scale-50");
+		expect(orb?.className).not.toContain("scale-80");
+		expect(orb?.style.width).toBe("64px");
+		expect(orb?.style.height).toBe("64px");
 	});
 
 	it.each([

@@ -22,6 +22,7 @@ const agentProfilesCardSpy = vi.hoisted(() => vi.fn());
 const agentProfileCreationRequestsPanelSpy = vi.hoisted(() => vi.fn());
 const agentProfilesWorkspaceSpy = vi.hoisted(() => vi.fn());
 const appOuterRailSpy = vi.hoisted(() => vi.fn());
+const createAgentProfilePageSpy = vi.hoisted(() => vi.fn());
 const createProfileDialogSpy = vi.hoisted(() => vi.fn());
 const directoryMembersOverviewSpy = vi.hoisted(() => vi.fn());
 const invalidateQueriesMock = vi.hoisted(() => vi.fn());
@@ -219,12 +220,13 @@ vi.mock("#/components/agents/agent-profile-creation-requests-panel", () => ({
 
 vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 	AgentProfilesWorkspace: (props: {
-		activeView: "agents" | "requests";
+		activeView: "agents" | "create" | "requests";
+		createPanel?: ReactNode;
 		filterControl?: ReactNode;
 		isSearchActive?: boolean;
 		onCreateAgent: () => void;
 		onSelectProfile: (profileId: string) => void;
-		onViewChange: (view: "agents" | "requests") => void;
+		onViewChange: (view: "agents" | "create" | "requests") => void;
 		pendingRequestCount: number;
 		profiles: readonly AuthProfileView[];
 		renderProfilesController: () => ReactNode;
@@ -244,6 +246,8 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 			: props.renderProfilesController();
 		if (props.activeView === "requests") {
 			content = props.requestPanel;
+		} else if (props.activeView === "create") {
+			content = props.createPanel;
 		}
 		return (
 			<section>
@@ -270,6 +274,24 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 }));
 
 vi.mock("#/components/profiles/create-profile-dialog", () => ({
+	CreateAgentProfilePage: (props: {
+		onProfileCreated?: (profile: AuthProfileView) => void;
+		organizationId: string;
+	}) => {
+		createAgentProfilePageSpy(props);
+		return (
+			<button
+				onClick={() =>
+					props.onProfileCreated?.(
+						buildAgentProfile("agent-new", "Felix Codex")
+					)
+				}
+				type="button"
+			>
+				Create agent profile
+			</button>
+		);
+	},
 	CreateProfileDialog: (props: {
 		onProfileCreated?: (profile: AuthProfileView) => void;
 		organizationId: string;
@@ -650,6 +672,7 @@ describe("PeopleAndAgentsPage", () => {
 		agentProfileCreationRequestsPanelSpy.mockReset();
 		agentProfilesWorkspaceSpy.mockReset();
 		appOuterRailSpy.mockReset();
+		createAgentProfilePageSpy.mockReset();
 		createProfileDialogSpy.mockReset();
 		directoryMembersOverviewSpy.mockReset();
 		invalidateQueriesMock.mockReset().mockResolvedValue(undefined);
@@ -1135,6 +1158,7 @@ describe("PeopleAndAgentsPage", () => {
 	});
 
 	it("keeps Create Agent in the sidebar when the list is empty", () => {
+		const onAgentViewChange = vi.fn();
 		Object.assign(currentOrganizationMock, {
 			id: "user-123",
 			isPersonal: true,
@@ -1158,12 +1182,16 @@ describe("PeopleAndAgentsPage", () => {
 		});
 
 		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={null}
+				onAgentViewChange={onAgentViewChange}
+			/>
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 
-		expect(createProfileDialogSpy).toHaveBeenCalled();
+		expect(onAgentViewChange).toHaveBeenCalledWith("create");
 		expect(screen.queryByRole("button", { name: "Agent requests" })).toBeNull();
 	});
 
@@ -1229,14 +1257,19 @@ describe("PeopleAndAgentsPage", () => {
 
 	it("creates organization Agents directly in the active workspace", () => {
 		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
+			<PeopleAndAgentsPage
+				activeAgentView="create"
+				activeSectionId="agents"
+				focusProfileId={null}
+			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
-
-		expect(createProfileDialogSpy).toHaveBeenCalledWith(
+		expect(createAgentProfilePageSpy).toHaveBeenCalledWith(
 			expect.objectContaining({ organizationId: "org-123" })
 		);
+		expect(
+			screen.getByRole("button", { name: "Create agent profile" })
+		).toBeTruthy();
 	});
 
 	it("creates Human Profiles directly in the active workspace", () => {
@@ -1463,22 +1496,25 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
-	it("opens the created profile on the matching first-level home", () => {
+	it("opens the created Agent on the Agents home", () => {
 		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
+			<PeopleAndAgentsPage
+				activeAgentView="create"
+				activeSectionId="agents"
+				focusProfileId={null}
+			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		fireEvent.click(
-			screen.getByRole("button", { name: "Create human profile" })
+			screen.getByRole("button", { name: "Create agent profile" })
 		);
 
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["start", "profiles", "user-123"],
 		});
 		expect(navigateMock).toHaveBeenCalledWith({
-			search: { profileId: "human-new" },
-			to: "/o/acme/people",
+			search: { profileId: "agent-new" },
+			to: "/o/acme/agents",
 		});
 	});
 });

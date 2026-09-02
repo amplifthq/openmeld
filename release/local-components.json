@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-02T05:18:46.817Z",
+  "updatedAt": "2026-09-02T16:30:05.107Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.143",
+      "packageVersion": "0.3.148",
       "updatePolicy": "available",
-      "reason": "The menu rerun fix changes only local process invocation; existing CLI commands and all cloud and Service contracts remain compatible in both directions."
+      "reason": "Existing CLI commands remain compatible; older CLIs only omit optional Wake progress detail and safe installation switching."
     },
     "service": {
-      "bundleHash": "f7cca4926ed95f65ed872b23b2ce624ebcb9fe34f1c630737fdbf7da9a246b07",
-      "bundleVersion": "0.3.143",
+      "bundleHash": "f33ad69a45120fa4afefcd075cc9996e01c506bc3af6b31125ab3149b6543998",
+      "bundleVersion": "0.3.148",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing and updated Services use the same Runtime Transport and Wake contracts; this release only adds an optional Core-to-Web Wake Progress reason field."
+      "reason": "Core deploys first; older Services omit the capability so switching stays unavailable while Wake execution remains compatible."
     },
     "skills": {
-      "bundleHash": "73e31d09533eac76338fb95bcfab855aeeca940ca587925095ab0c63371abf7d",
+      "bundleHash": "f5766d823e7570d94514985ae3c4cae8539ed4bc9cbe2f43ca41755c608d5821",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The Skill update documents optional model selection and the safe no-selection behavior without changing action or command contracts; older bundles remain usable."
+      "reason": "Existing installed skills remain operational; the changed copy only restores the supported setup command formatting."
     }
   }
 }

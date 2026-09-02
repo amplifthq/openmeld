@@ -23,10 +23,12 @@ the current local agent session path first:
 openmeld space add-me <space-url-or-id> --project-folder "$(pwd)" --view agent
 ```
 
-When OpenMeld can identify the current supported controller conversation, `add-me`
-creates or reuses the wakeable Agent Profile for that conversation and adds it
-to the Space. If the current session ID is missing, fail closed instead of
-creating a fake wakeable teammate.
+When OpenMeld can identify the current supported controller conversation,
+`add-me` creates a new wakeable Agent Profile for that conversation and adds it
+to the Space. Reuse only an exact Profile ID remembered from this session by
+adding `--agent-profile <agent-profile-id>`; do not search existing Profiles.
+If the current session ID is missing, fail closed instead of creating a fake
+wakeable teammate.
 
 Cursor is a supported OpenMeld Agent Controller, but this current-session
 shortcut does not adopt an existing Cursor IDE conversation. Bind Cursor
@@ -294,7 +296,7 @@ openmeld space add-agents <space-id> --all --profile <human-profile-id> --view a
 Create a new Agent Profile first when the Space needs a new agent identity:
 
 ```bash
-openmeld profiles create "Codex Agent" --kind agent --agent-controller builtin:codex --agent-controller-conversation-id <agent-controller-conversation-id> --profile <human-profile-id> --view agent
+openmeld profiles create "Codex Agent" --kind agent --agent-controller builtin:codex --session resume --native-session <agent-controller-conversation-id> --view agent
 openmeld space add-agents <space-id> --agent-profile <agent-profile-id> --profile <human-profile-id> --view agent
 ```
 
@@ -306,7 +308,7 @@ printf '%s\n' "$CODEX_THREAD_ID"
 pwd
 ```
 
-Use that value as `--agent-controller-conversation-id` only with
+Use that value as `--native-session <id>` only with `--session resume` and
 `--agent-controller builtin:codex`. If it is empty, do not invent a thread ID.
 Codex can resume an explicit thread ID, but the Project folder still tells OpenMeld
 where future local work should run.
@@ -319,7 +321,7 @@ printf '%s\n' "$CLAUDE_CODE_SESSION_ID"
 pwd
 ```
 
-Use that value as `--agent-controller-conversation-id` only with
+Use that value as `--native-session <id>` only with `--session resume` and
 `--agent-controller builtin:claude-code`. The session ID and original Project
 folder belong together. Claude Code resume is scoped to the directory where the
 session was created, so future Wake must run from that Project folder.
@@ -328,7 +330,7 @@ For Cursor, verify the exact `cursor-agent` CLI and its separate CLI login:
 
 ```bash
 cursor-agent login
-openmeld profiles create "Implementation Agent" --kind agent --agent-controller builtin:cursor --model 'default[]' --agent-controller-permission-mode default --profile <human-profile-id> --view agent
+openmeld profiles create "Implementation Agent" --kind agent --agent-controller builtin:cursor --model 'default[]' --agent-controller-permission-mode default --view agent
 ```
 
 Cursor runs through the official `cursor-agent acp` interface. Cursor CLI
@@ -341,7 +343,7 @@ reasoning setting, so do not pass `--reasoning-effort` for Cursor.
 ### `openmeld space add-me`
 
 Add yourself to a Space with one command. If you are running inside a supported
-agent controller, OpenMeld creates or reuses the Agent Profile for the current
+agent controller, OpenMeld creates a new Agent Profile for the current
 controller conversation, sets the Project folder, and adds that Agent Profile
 to the Space through the normal membership path. If no supported agent
 controller is detected, OpenMeld adds the current Human Profile instead.
@@ -352,6 +354,7 @@ the current project folder."
 ```bash
 openmeld space add-me <space-url-or-id> --project-folder "$(pwd)" --view agent
 openmeld space add-me <space-url-or-id> --project-folder /absolute/path --view agent
+openmeld space add-me <space-url-or-id> --project-folder "$(pwd)" --agent-profile <exact-profile-id> --view agent
 ```
 
 Use `--project-folder` as the preferred option name. `--workspace-path`,
@@ -361,9 +364,15 @@ Human Profile used as the signed-in user's acting identity; it is not the Agent
 Profile being added. Space membership does not prove Wake readiness; use status
 or trace diagnostics when you need Wake proof.
 
+Omitting `--agent-profile` always means create a new Agent Profile. Do not list
+or inspect the account's other profiles before running the default command.
+Pass `--agent-profile <exact-profile-id>` only when you remember that exact
+profile from an earlier successful step in this controller session; OpenMeld
+checks only that profile and never searches for a substitute.
+
 To make an explicit model selection on the Agent Profile Binding, add
 `--model <model>` and optionally `--reasoning-effort <level>`. Without these
-flags, an existing Codex thread keeps its current model and reasoning settings.
+flags, OpenMeld does not force a model selection.
 Do not pass `--reasoning-effort` without `--model`.
 
 When run inside Claude Code, `add-me` detects `CLAUDE_CODE_SESSION_ID` and uses
@@ -374,9 +383,9 @@ belong to another Project folder.
 When run inside Codex, `add-me` detects `CODEX_THREAD_ID` when present and uses
 `--project-folder` as the future local workspace for that Codex thread.
 
-If preparation times out while reading Agent Profile Bindings, no Space
-membership was written before that step completed. Run `openmeld service status`, then
-retry the same command: `openmeld space add-me <space-url-or-id> --project-folder <path> --view agent`.
+If preparation with `--agent-profile <id>` times out while reading that exact
+Binding, no Space membership was written before that step completed. Run
+`openmeld service status`, then retry the same command.
 
 ### `openmeld space add-human-profiles`
 
@@ -430,6 +439,7 @@ openmeld space send <space-id> --profile <profile-id> --plain "literal @Agent(wa
 <DISPATCH_ACTION_CLI> space action help
 openmeld space board <space-url-or-id> --profile <profile-id> --json
 openmeld space members <space-url-or-id> --profile <profile-id> --json
+openmeld space members <space-url-or-id> --target <profile-id-or-mention> --brief --profile <profile-id> --view agent
 openmeld space history <space-url-or-id> --profile <profile-id> --kind text --brief --limit 20 --view agent
 openmeld space status <space-url-or-id> --profile <profile-id> --json
 openmeld space list --profile <profile-id>
@@ -461,6 +471,11 @@ openmeld space publication set <space-id> collaboration --profile <owner-profile
 openmeld space publication set <space-id> transparent --profile <owner-profile-id> --password <space-password> --view agent
 openmeld space delete <space-id> --profile <profile-id>
 ```
+
+`space history --brief` limits each message body to 1,200 Unicode characters.
+Truncated messages include the original character count and one exact
+`fullTextCommand`. Full `--json` and ordinary non-brief history remain
+unchanged.
 
 `--file <path>` shares a file with the message and can be repeated for up to 10
 files. `--text-file <path>` reads the message body from a UTF-8 text file.
@@ -579,12 +594,25 @@ enables it. The normal creation path is for Agent Profiles.
 
 ```bash
 openmeld profiles create <profile-name> --kind agent --view agent
+openmeld profiles current-session --view agent
+openmeld profiles current-session --provider codex --native-session <thread-id> --view agent
 openmeld profiles list --view agent
 openmeld profiles set <profile-id> --view agent
 openmeld profiles show <profile-id> --view agent
+openmeld profiles show <profile-id> --details --view agent
 openmeld profiles update <profile-id> --name <profile-name>
 openmeld profiles delete <profile-id> --force
 ```
+
+Agent View `show` and `update` output is compact by default. Use `--details`
+only when you need full runtime and diagnostic evidence; use `--json` on
+`show` when a machine-readable full payload is required.
+
+`profiles current-session` makes one owner-scoped reverse lookup for the exact
+Codex thread or Claude Code session. It never lists Profiles or scans unrelated
+Bindings. Do not run it before ordinary `space add-me`; use it only when an
+Agent specifically needs to recover the exact Profile ID for a remembered
+same-session identity.
 
 Create your own Agent Profile or request one for a teammate through the same
 entry, then manage requests separately:
@@ -635,6 +663,7 @@ Name or inspect this computer in OpenMeld.
 
 ```bash
 openmeld computer current
+openmeld computer current --brief --view agent
 openmeld computer list
 openmeld computer rename "Office MacBook"
 openmeld computer rename --clear
@@ -682,6 +711,12 @@ Check and install the latest OpenMeld CLI version.
 openmeld upgrade
 openmeld upgrade --check
 ```
+
+For an Agent already doing OpenMeld work, prefer `computer current --brief
+--view agent`. It includes the unified current update state plus Wake blockers,
+local Agent capability, and available usage-limit evidence in one compact read.
+Use `upgrade --check` only when the task is specifically about the CLI package.
+Never install an update without the user's consent.
 
 ### `openmeld install-self`
 

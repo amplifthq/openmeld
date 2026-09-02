@@ -3989,7 +3989,7 @@ describe("organization Core RPC", () => {
         },
       },
       membership: {
-        addedMemberIds: [SECOND_AGENT_PROFILE_ID],
+        addedMemberIds: [SECOND_AGENT_PROFILE_ID, HUMAN_PROFILE_ID],
       },
       organizationId: "org-a",
       resource: { id: JOINED_PRIVATE_SPACE_ID, type: "space" },
@@ -4002,6 +4002,12 @@ describe("organization Core RPC", () => {
             profileId: SECOND_AGENT_PROFILE_ID,
             profileKind: "agent",
             profileName: "Planner",
+          }),
+          expect.objectContaining({
+            ownerUserId: "user-a",
+            profileId: HUMAN_PROFILE_ID,
+            profileKind: "human",
+            profileName: "Ava",
           }),
         ],
         spaceId: JOINED_PRIVATE_SPACE_ID,
@@ -4113,7 +4119,10 @@ describe("organization Core RPC", () => {
       ],
       spaceId: created.spaceId,
     });
-    expect(agents.membership.addedMemberIds).toEqual([SECOND_AGENT_PROFILE_ID]);
+    expect(agents.membership.addedMemberIds).toEqual([
+      SECOND_AGENT_PROFILE_ID,
+      HUMAN_PROFILE_ID,
+    ]);
     if (wake.publicationStatus === "pending") {
       throw new Error("direct Center Agent Wake must be accepted");
     }
@@ -4141,6 +4150,11 @@ describe("organization Core RPC", () => {
           expect.objectContaining({
             profileId: SECOND_AGENT_PROFILE_ID,
             profileKind: "agent",
+          }),
+          expect.objectContaining({
+            ownerUserId: "user-a",
+            profileId: HUMAN_PROFILE_ID,
+            profileKind: "human",
           }),
         ],
         spaceId: created.spaceId,
@@ -9302,6 +9316,197 @@ describe("organization Core RPC", () => {
     expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
   });
 
+  it("adds an ordinary Agent Profile and its owner Human Profile together", async () => {
+    const spaceId =
+      "acacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacac";
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "ben-planner",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Ben Planner",
+          status: "active",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "member"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Planning",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+
+    await expect(
+      rpcAddSpaceMembers(env, {
+        context,
+        members: [
+          {
+            agentControllerRef: null,
+            ownerName: "Ben",
+            ownerUserId: "user-b",
+            profileId: AGENT_PROFILE_ID,
+            profileKind: "agent",
+            profileName: "Ben Planner",
+          },
+        ],
+        spaceId,
+      })
+    ).resolves.toMatchObject({
+      addedMemberIds: [AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+    });
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledWith({
+      context,
+      members: [
+        expect.objectContaining({
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+        }),
+        expect.objectContaining({
+          ownerUserId: "user-b",
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Ben",
+        }),
+      ],
+      spaceId,
+    });
+  });
+
+  it("does not expand managed Agent Profile membership to an owner Human", async () => {
+    const spaceId =
+      "adadadadadadadadadadadadadadadadadadadadadadadadadadadadadadadad";
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          managedRole: "center_agent",
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "center-agent",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Center Agent",
+          status: "active",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "member"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Managed agents",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+
+    await rpcAddSpaceMembers(env, {
+      context,
+      members: [
+        {
+          agentControllerRef: null,
+          ownerName: "Ben",
+          ownerUserId: "user-b",
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          profileName: "Center Agent",
+        },
+      ],
+      spaceId,
+    });
+
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledWith({
+      context,
+      members: [expect.objectContaining({ profileId: AGENT_PROFILE_ID })],
+      spaceId,
+    });
+  });
+
+  it("does not expand a designated Center Agent with legacy unmanaged identity", async () => {
+    const spaceId =
+      "aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae";
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          managedRole: null,
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "legacy-center-agent",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Center Agent",
+          status: "active",
+        },
+      ],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "member"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Legacy Center Agent",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+
+    await rpcAddSpaceMembers(env, {
+      context,
+      members: [
+        {
+          agentControllerRef: null,
+          ownerName: "Ben",
+          ownerUserId: "user-b",
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          profileName: "Center Agent",
+        },
+      ],
+      spaceId,
+    });
+
+    expect(spaceStub.rpcPostMembers).toHaveBeenCalledWith({
+      context,
+      members: [expect.objectContaining({ profileId: AGENT_PROFILE_ID })],
+      spaceId,
+    });
+  });
+
   it("rejects Center Agent DM member, lifecycle, and access mutations while ordinary DMs still forward them", async () => {
     const centerAgentDirectMessageSpaceId =
       "5555555555555555555555555555555555555555555555555555555555555555";
@@ -9624,7 +9829,7 @@ describe("organization Core RPC", () => {
       })
     ).resolves.toMatchObject({
       accessMode: "members_only",
-      addedMemberIds: [AGENT_PROFILE_ID],
+      addedMemberIds: [AGENT_PROFILE_ID, HUMAN_PROFILE_ID],
       name: "Ava, Felix, and Codex",
       spaceId,
     });
@@ -9636,6 +9841,12 @@ describe("organization Core RPC", () => {
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
           profileName: "Codex",
+        }),
+        expect.objectContaining({
+          ownerUserId: "user-a",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Ava",
         }),
       ],
       name: "Ava, Felix, and Codex",
@@ -12270,6 +12481,30 @@ function resolveFirstRow(input: {
   }>;
   spaces?: ReturnType<typeof spaceRow>[];
 }) {
+  if (
+    input.normalizedSql.includes("from openmeld_profiles as profiles") &&
+    input.normalizedSql.includes("profiles.owner_user_id = ?") &&
+    input.normalizedSql.includes("profiles.is_default = 1")
+  ) {
+    const organizationId = String(input.args[0] ?? "");
+    const ownerUserId = String(input.args[1] ?? "");
+    const humanProfile = organizationRpcHumanProfile(ownerUserId);
+    const member = input.members.find(
+      (item) =>
+        item.organizationId === organizationId && item.userId === ownerUserId
+    );
+    return humanProfile && member
+      ? {
+          member_user_id: member.userId,
+          owner_name: member.userName,
+          owner_user_id: member.userId,
+          profile_id: humanProfile.profileId,
+          profile_name: humanProfile.profileName,
+          profile_status: humanProfile.status,
+        }
+      : null;
+  }
+
   if (
     input.normalizedSql.includes(
       "from openmeldremoteagent_native_delivery_ledger"

@@ -7,6 +7,7 @@ import {
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
   signalSystemNoticeDataSchema,
+  wakeProgressItemSchema,
 } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceSnapshot,
@@ -509,7 +510,8 @@ const buildWakeProgressItemFromLookupTrace = async (
   terminalFailureNotices: readonly unknown[] = [],
   lookupMatchOverrides: Partial<SpaceDispatchLookupMatch> = {},
   wakeStopEligibility: WakeStopEligibilityReadModel | null = null,
-  includeWakeStopEligibility = wakeStopEligibility !== null
+  includeWakeStopEligibility = wakeStopEligibility !== null,
+  includeWaitReason = false
 ): Promise<WakeProgressItem> => {
   const lookupMatch = {
     dispatchId: "dispatch-head-progress-1",
@@ -524,6 +526,7 @@ const buildWakeProgressItemFromLookupTrace = async (
     buildWakeProgressItemFromLookupEvidence: (input: {
       clientMessageId: string;
       includeTiming?: boolean;
+      includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
       lookupMatch: SpaceDispatchLookupMatch;
       outboxRecord: null;
@@ -558,6 +561,7 @@ const buildWakeProgressItemFromLookupTrace = async (
   return await space.buildWakeProgressItemFromLookupEvidence({
     clientMessageId: "client-message-1",
     includeTiming: true,
+    includeWaitReason,
     includeWakeStopEligibility,
     lookupMatch,
     outboxRecord: null,
@@ -975,6 +979,7 @@ type WakeProgressExecutionRow = {
   finalPublicationState?: "claimed" | "outcome_unknown" | "published" | null;
   firstSeenAtMs?: number;
   latestAttemptStatus?: string;
+  latestOccupancyPayloadJson?: string;
   nativeDeliveryStatus?: string;
   sourceClientMessageId?: string | null;
   sourceEventId: string;
@@ -1037,6 +1042,8 @@ function createWakeEvidenceDb(
                 dispatch_id: execution.dispatchId,
                 latest_dispatch_attempt_status:
                   execution.latestAttemptStatus ?? null,
+                latest_occupancy_payload_json:
+                  execution.latestOccupancyPayloadJson ?? null,
                 runtime_coordinator_execution_id: `rce-${execution.dispatchId}`,
                 openmeld_service_runtime_id: `runtime-${execution.dispatchId}`,
                 source_client_message_id:
@@ -1321,12 +1328,14 @@ async function readActiveWakeProgressForTest(input: {
   actorOwnerUserId?: string;
   executionRows?: readonly WakeProgressExecutionRow[];
   includeTiming?: boolean;
+  includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
   lookupRows?: readonly WakeProgressExecutionRow[];
   memberRows?: readonly ActiveWakeProgressMemberRow[];
   outboxRows: readonly ReturnType<typeof createWakeProgressOutboxRecord>[];
   readSpaceWakeProgress?: (input: {
     clientMessageId?: string | null;
+    includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     sourceSignalId?: string | null;
     targetProfileId?: string;
@@ -1362,6 +1371,7 @@ async function readActiveWakeProgressForTest(input: {
       actorOwnerUserId?: string | null;
       db: D1Database;
       includeTiming?: boolean;
+      includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
       targetProfileId?: string;
     }) => Promise<GetActiveSpaceWakeProgressResponse>;
@@ -1408,6 +1418,7 @@ async function readActiveWakeProgressForTest(input: {
     actorOwnerUserId: input.actorOwnerUserId,
     db: wakeEvidenceDb,
     includeTiming: input.includeTiming,
+    includeWaitReason: input.includeWaitReason,
     includeWakeStopEligibility: input.includeWakeStopEligibility,
     ...(input.targetProfileId
       ? { targetProfileId: input.targetProfileId }
@@ -4629,6 +4640,46 @@ describe("space signal service", () => {
     });
   });
 
+  it("only projects the conversation occupancy wait reason when the caller opts in", async () => {
+    const runningTrace = createRunningRuntimeCoordinatorTrace();
+    const trace = {
+      ...runningTrace,
+      runtimeCoordinatorEvents: runningTrace.runtimeCoordinatorEvents.map(
+        (event) => ({
+          ...event,
+          payloadJson: JSON.stringify({
+            agentControllerConversationOccupancy: { state: "occupied" },
+          }),
+        })
+      ),
+    } as unknown as SpaceDispatchTraceSnapshot;
+
+    const legacyItem = await buildWakeProgressItemFromLookupTrace(trace);
+    const optedInItem = await buildWakeProgressItemFromLookupTrace(
+      trace,
+      [],
+      {},
+      null,
+      false,
+      true
+    );
+
+    expect(legacyItem).not.toHaveProperty("waitReasonCode");
+    expect(
+      wakeProgressItemSchema
+        .omit({ waitReasonCode: true })
+        .safeParse(legacyItem).success
+    ).toBe(true);
+    expect(optedInItem.waitReasonCode).toBe(
+      "runtime.agent_controller_conversation.occupied"
+    );
+    expect(
+      wakeProgressItemSchema
+        .omit({ waitReasonCode: true })
+        .safeParse(optedInItem).success
+    ).toBe(false);
+  });
+
   it("projects cancel-backed Wake Stop eligibility into active Wake progress", async () => {
     const item = await buildWakeProgressItemFromLookupTrace(
       createRunningRuntimeCoordinatorTrace(),
@@ -5266,6 +5317,35 @@ describe("space signal service", () => {
     expect(response.items[0]).not.toHaveProperty("startedAtMs");
   });
 
+  it("only includes active Wake wait reasons when the caller opts in", async () => {
+    const executionRows = [
+      {
+        dispatchId: "dispatch-summary-occupied-1",
+        executionStatus: "running",
+        latestOccupancyPayloadJson: JSON.stringify({
+          agentControllerConversationOccupancy: { state: "occupied" },
+        }),
+        sourceClientMessageId: "client-message-summary-occupied-1",
+        sourceEventId: "signal-summary-occupied-1",
+        targetProfileId: "agent-summary-occupied-1",
+      },
+    ];
+    const legacyResponse = await readActiveWakeProgressForTest({
+      executionRows,
+      outboxRows: [],
+    });
+    const optedInResponse = await readActiveWakeProgressForTest({
+      executionRows,
+      includeWaitReason: true,
+      outboxRows: [],
+    });
+
+    expect(legacyResponse.items[0]).not.toHaveProperty("waitReasonCode");
+    expect(optedInResponse.items[0]?.waitReasonCode).toBe(
+      "runtime.agent_controller_conversation.occupied"
+    );
+  });
+
   it("projects a pending local agent interaction only through the authenticated Wake progress view", async () => {
     const readPendingInteraction = vi.fn(async () => ({
       canRespond: true,
@@ -5513,6 +5593,7 @@ describe("space signal service", () => {
       actorOwnerUserId: undefined,
       clientMessageId: "client-message-hosted-stop-1",
       includeTiming: false,
+      includeWaitReason: false,
       includeWakeStopEligibility: true,
       sourceSignalId: "signal-hosted-stop-1",
       targetProfileId: "agent-hosted-stop-1",

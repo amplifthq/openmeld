@@ -100,8 +100,11 @@ identity.
 
 ## Navigation And Product Home
 
-Projects is the first destination in the fixed **Resources** group. The complete
-primary-rail grouping and order belong to `developing/clients/web.md`.
+Projects keeps its canonical product home but is temporarily absent from the
+primary rail. Existing direct and contextual links remain available. This
+interim change does not relocate Projects or decide its future placement; the
+complete primary-rail grouping and order belong to
+`developing/clients/web.md`.
 
 Project content follows the selected Organization. Personal workspaces and
 multi-member Organizations both have Projects, and switching workspaces keeps

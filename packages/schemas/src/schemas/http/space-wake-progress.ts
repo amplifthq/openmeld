@@ -96,6 +96,7 @@ export const getSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
   clientMessageId: clientMessageIdSchema,
   includeTiming: optionalBooleanQuerySchema,
+  includeWaitReason: optionalBooleanQuerySchema,
   includeWakeStopEligibility: optionalBooleanQuerySchema,
   targetProfileId: optionalSelectorSchema,
 });
@@ -112,6 +113,7 @@ export const getSpaceWakeProgressResponseSchema = z.strictObject({
 export const getActiveSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
   includeTiming: optionalBooleanQuerySchema,
+  includeWaitReason: optionalBooleanQuerySchema,
   includeWakeStopEligibility: optionalBooleanQuerySchema,
   targetProfileId: optionalSelectorSchema,
 });

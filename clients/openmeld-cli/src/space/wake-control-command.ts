@@ -81,6 +81,7 @@ export async function runSpaceWakeProgress(input: {
     presenter,
     execute: async (password) => {
       const common = {
+        includeWaitReason: true,
         includeWakeStopEligibility: true,
         requestContext,
         spaceId: input.space,
@@ -180,6 +181,7 @@ export async function runSpaceWakeStop(input: {
     presenter,
     execute: async (password) => {
       const common = {
+        includeWaitReason: true,
         includeWakeStopEligibility: true,
         requestContext,
         spaceId: input.space,

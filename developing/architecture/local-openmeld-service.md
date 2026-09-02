@@ -266,7 +266,10 @@ ACI must not own:
 Provider Usage Limits are capacity evidence, not execution authority. Each
 controller projects one optional list of stable limit keys, plain-English
 labels, 0–100 used percentages, reset times when reported, observation times,
-and honest states. An adapter must leave an unknown percentage or reset time
+and honest states. A controller that hosts multiple model providers may also
+attach the provider's stable id and display name to each limit. Those fields
+group evidence; they do not carry authentication or account identity. An
+adapter must leave an unknown percentage or reset time
 unknown. It must never infer capacity from a failed run, start a Wake or Agent
 Session to collect it, or retain credentials, account identity, subscription,
 payment, balance, or monetary fields from a provider response.
@@ -322,6 +325,16 @@ Core also requires the exact current support-matrix version before a fresh
 Usage report may trigger automatic continuation of interrupted work. Legacy or
 mismatched reports remain compatible inventory evidence but cannot authorize
 new work under a capability contract they did not implement.
+
+OpenCode is provider-scoped. Its ordinary provider inventory names connected
+providers but does not expose a universal quota contract. OpenMeld reads the
+official OpenCode Go usage endpoint for that provider's 5-hour, weekly, and
+monthly windows. The OpenCode Go API key is read transiently from OpenCode's
+official local auth input or store, used only for that request, and never
+logged, retained, or projected. Other connected OpenCode providers are
+`unsupported` until a provider-owned, non-task capacity source is verified.
+Failure to read OpenCode Go usage produces provider-scoped `unavailable`
+evidence without failing the rest of the Computer inventory.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards
@@ -419,8 +432,9 @@ exact App Server `-32600` response `thread <id> already has an active writer`
 for that resume is structured Agent Controller conversation occupancy, not a
 Wake failure. OpenMeld keeps the task at the Profile FIFO head, observes the
 official lock release, and retries that same metadata-only resume immediately.
-A low-frequency recovery retry handles a missed filesystem event or abrupt
-writer exit. If the exact lock is unexpectedly not visible after Codex reports
+A low-frequency recovery check handles a missed filesystem event or abrupt
+writer exit without starting another App Server process while the official lock
+still exists. If the exact lock is unexpectedly not visible after Codex reports
 writer occupancy, the retry uses a short bounded backoff instead of spinning.
 Wake Stop aborts the task's lock watcher and retry boundary immediately, and
 that task must not issue another `thread/resume`. Normal execution adds no extra
@@ -445,12 +459,13 @@ the additive field so an older Core can still observe fresh local ownership.
 Current Core may recover a lost transition after a WebSocket reconnect or
 Service restart without polling Codex or delaying normal Wake admission.
 
-If an existing controller conversation
-is missing or does not acknowledge resume within the short resume admission
-window, the adapter starts one fresh thread and delivers the complete current
+If Codex explicitly reports that an existing controller conversation is
+missing, the adapter starts one fresh thread and delivers the complete current
 instruction plan exactly once. The resulting context delta replaces the
 inaccessible provider conversation transparently; a person must never be asked
-to create a new Task or Space to repair it.
+to create a new Task or Space to repair it. A resume timeout is ambiguous: it
+must fail closed while preserving the exact controller conversation id, and
+must never silently replace that user-selected Session with a fresh thread.
 
 A Codex reply-repair turn uses one ephemeral fork of the canonical controller
 conversation and keeps the canonical conversation id as continuity truth. The
@@ -951,6 +966,17 @@ Organization projection. Setup remains non-blocking: it preserves a valid saved
 choice, otherwise selects the first verified PATH-ordered candidate. Listing or
 selection failure stays visible and must not be reported as a successful local
 agent refresh.
+
+Installation selection is an idle-only local maintenance operation. The local
+execution-slot owner reports whether matching adapter work is queued or active,
+and the Service rejects a selection while either exists. Once admitted, the
+operation reserves that adapter until the registry write finishes; a Wake that
+arrives during this short window remains queued and starts against the completed
+launch contract. Listing remains available and returns the current selection
+status. Web and other cloud callers may expose selection only when the Service
+advertises `localAgentControl.manageInstallationsSafely`; the older
+`manageInstallations` capability alone is not authorization for the safe
+workflow.
 
 An explicit Off decision is sticky. Setup, service restart, catalog refresh,
 binary update, controller reinstall, and later controller detection must not

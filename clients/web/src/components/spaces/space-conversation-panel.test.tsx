@@ -39,6 +39,13 @@ import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 type SpaceConversationPanelInput = ComponentProps<
 	typeof SpaceConversationPanel
 >;
+type SpaceConversationPanelViewState = SpaceConversationPanelInput["viewState"];
+type SpaceConversationPanelOverrides = Partial<
+	Omit<SpaceConversationPanelInput, "viewState"> &
+		SpaceConversationPanelViewState
+> & {
+	viewState?: Partial<SpaceConversationPanelViewState>;
+};
 
 const FAILED_TEXT_PATTERN = /failed/i;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
@@ -3957,7 +3964,9 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		const profileHeader = screen.getByRole("button", { name: "About Felix" });
+		const profileHeader = screen.getByRole("button", {
+			name: "Check Felix Profile",
+		});
 		expect(profileHeader.className).toContain("touch-manipulation");
 		expect(profileHeader.className).toContain("max-lg:min-h-11");
 		expect(profileHeader.textContent).toContain("Felix");
@@ -3975,7 +3984,7 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(profileHeader);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.getByText("About profile")).toBeTruthy();
+		expect(dialog.getByText("Check this Profile")).toBeTruthy();
 		expect(dialog.getAllByText("Felix").length).toBeGreaterThan(0);
 		expect(dialog.getAllByText("Human Profile").length).toBeGreaterThan(0);
 		expect(dialog.getByText(profileId)).toBeTruthy();
@@ -4001,9 +4010,11 @@ describe("SpaceConversationPanel", () => {
 		);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.getByText("About profile")).toBeTruthy();
+		expect(
+			dialog.getByRole("heading", { name: "How this Agent works" })
+		).toBeTruthy();
 		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
-		expect(dialog.getByText(TARGET_PROFILE_ID)).toBeTruthy();
+		expect(dialog.getByText("Available for Wake")).toBeTruthy();
 	});
 
 	it("keeps historical profile headers passive when the member entry is unavailable", () => {
@@ -4012,7 +4023,9 @@ describe("SpaceConversationPanel", () => {
 			timelineItems: [createTimelineItem()],
 		});
 
-		expect(screen.queryByRole("button", { name: "About Felix" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Check Felix Profile" })
+		).toBeNull();
 		expect(screen.getByText("Felix")).toBeTruthy();
 	});
 
@@ -4358,7 +4371,7 @@ const UNSUPPORTED_WAKE_STOP_ELIGIBILITY = {
 } satisfies NonNullable<WakeProgressItem["wakeStopEligibility"]>;
 
 function renderSpaceConversationPanel(
-	overrides: Partial<SpaceConversationPanelInput> = {}
+	overrides: SpaceConversationPanelOverrides = {}
 ) {
 	return render(
 		<SpaceConversationPanel {...createSpaceConversationPanelProps(overrides)} />
@@ -4366,13 +4379,13 @@ function renderSpaceConversationPanel(
 }
 
 function renderSpaceConversationPanelWithViewTabs(
-	overrides: Partial<SpaceConversationPanelInput> = {}
+	overrides: SpaceConversationPanelOverrides = {}
 ) {
 	return render(<SpaceConversationPanelHarness overrides={overrides} />);
 }
 
 function SpaceConversationPanelHarness(input: {
-	overrides: Partial<SpaceConversationPanelInput>;
+	overrides: SpaceConversationPanelOverrides;
 }) {
 	const [activeSpaceView, setActiveSpaceView] = useState<SpaceView>(
 		input.overrides.activeSpaceView ?? "messages"
@@ -4453,14 +4466,30 @@ function createStructuredWakeTimelineItem(input: {
 }
 
 function createSpaceConversationPanelProps(
-	overrides: Partial<SpaceConversationPanelInput> = {}
+	overrides: SpaceConversationPanelOverrides = {}
 ): SpaceConversationPanelInput {
+	const {
+		composerFileLimitReached = false,
+		composerHasAuthoredMentions,
+		hasEarlierHistory = true,
+		historyIsPending = false,
+		isCenterAgentDirectMessage = false,
+		isCreatingThread = false,
+		isDirectMessage = false,
+		isLoadingEarlierHistory = false,
+		isPersonalContext,
+		isSendingMessage = false,
+		readOnly = true,
+		threadsIsLoading,
+		unreadStateReady = false,
+		viewState,
+		...propOverrides
+	} = overrides;
 	return {
 		activeSpaceView: "messages",
 		agentRecoveryPlansByProfileId: new Map(),
 		allowedActions: [],
 		centerAgentProfileId: "agent-profile-center",
-		composerFileLimitReached: false,
 		composerFiles: [],
 		composerBlockedWakeProfileId: null,
 		composerErrorMessage: null,
@@ -4470,19 +4499,12 @@ function createSpaceConversationPanelProps(
 		emptyStateDescription: null,
 		ephemeralActivityItems: [],
 		presentedWakeProgressItems: overrides.ephemeralActivityItems ?? [],
-		hasEarlierHistory: true,
 		historyActionErrorMessage: null,
 		historyErrorMessage: null,
-		historyIsPending: false,
 		firstUnreadSignalId: null,
 		isAgentRecoveryPending: () => false,
-		isCenterAgentDirectMessage: false,
-		isDirectMessage: false,
-		isCreatingThread: false,
 		isDiagnosticReportPending: () => false,
 		isDiagnosticReportSent: () => false,
-		isLoadingEarlierHistory: false,
-		isSendingMessage: false,
 		membersSnapshot: null,
 		modelCatalog: null,
 		onAgentRecoveryAction: async () => undefined,
@@ -4501,7 +4523,6 @@ function createSpaceConversationPanelProps(
 		onSendStarterPrompt: async () => undefined,
 		onSpaceViewChange: () => undefined,
 		orgSlug: "acme",
-		readOnly: true,
 		selfProfileId: "human-profile-1",
 		spaceViewIdPrefix: "space-view-test",
 		textareaRef: { current: null },
@@ -4510,9 +4531,24 @@ function createSpaceConversationPanelProps(
 		timelineItems: [],
 		unreadTargets: [],
 		unreadCount: 0,
-		unreadStateReady: false,
 		wakeFailureTargetContextsByProfileId: new Map(),
-		...overrides,
+		...propOverrides,
+		viewState: {
+			composerFileLimitReached,
+			composerHasAuthoredMentions,
+			hasEarlierHistory,
+			historyIsPending,
+			isCenterAgentDirectMessage,
+			isCreatingThread,
+			isDirectMessage,
+			isLoadingEarlierHistory,
+			isPersonalContext,
+			isSendingMessage,
+			readOnly,
+			threadsIsLoading,
+			unreadStateReady,
+			...viewState,
+		},
 	};
 }
 

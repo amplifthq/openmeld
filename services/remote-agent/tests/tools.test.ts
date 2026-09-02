@@ -2460,6 +2460,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         },
       ],
       organizationId: "org_123",
+      selectionStatus: "available" as const,
       selectedInstallationId: "install-nvm",
     }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({

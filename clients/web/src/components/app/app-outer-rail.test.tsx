@@ -160,12 +160,9 @@ const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
 	"Home",
 	"Spaces",
-	"Direct Messages",
+	"Messages",
 	"People",
 	"Agents",
-	"Projects",
-	"Documents",
-	"Agent Activity",
 ] as const;
 
 describe("AppOuterRail", () => {
@@ -321,10 +318,9 @@ describe("AppOuterRail", () => {
 		const groups = screen
 			.getByTestId("app-outer-rail")
 			.querySelectorAll('[data-slot="sidebar-group"]');
-		expect(groups).toHaveLength(4);
+		expect(groups).toHaveLength(3);
 		expect(groups[1]?.className).toContain("mt-5");
 		expect(groups[2]?.className).toContain("mt-5");
-		expect(groups[3]?.className).toContain("mt-5");
 	});
 
 	it("warms the Center Agent conversation from primary navigation intent", () => {
@@ -338,10 +334,10 @@ describe("AppOuterRail", () => {
 	it("center-truncates destination labels when the full rail is narrow", () => {
 		renderRail({ tier: "full", width: "9rem" });
 
-		const agentActivityLink = screen.getByRole("link", {
-			name: "Agent Activity",
+		const directMessagesLink = screen.getByRole("link", {
+			name: "Messages",
 		});
-		const centerTruncatedLabel = agentActivityLink.querySelector<HTMLElement>(
+		const centerTruncatedLabel = directMessagesLink.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
 		);
 
@@ -350,13 +346,13 @@ describe("AppOuterRail", () => {
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-start"]'
 			)?.textContent
-		).toBe("Agent A");
+		).toBe("Mess");
 		expect(
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-end"]'
 			)?.textContent
-		).toBe("ctivity");
-		expect(agentActivityLink.querySelector("span.truncate")).toBeNull();
+		).toBe("ages");
+		expect(directMessagesLink.querySelector("span.truncate")).toBeNull();
 	});
 
 	it("renders the collapsed organization selector without selector or avatar borders", () => {
@@ -390,12 +386,9 @@ describe("AppOuterRail", () => {
 		for (const label of [
 			"Home",
 			"Spaces",
-			"Direct Messages",
+			"Messages",
 			"People",
 			"Agents",
-			"Agent Activity",
-			"Documents",
-			"Projects",
 			"Settings",
 		]) {
 			const link = screen.getByRole("link", { name: label });
@@ -427,14 +420,7 @@ describe("AppOuterRail", () => {
 		it("shows icon and label stacked for nav items, with no tooltip wrapper", () => {
 			renderCompactRail();
 
-			for (const label of [
-				"Spaces",
-				"People",
-				"Agents",
-				"Agent Activity",
-				"Documents",
-				"Projects",
-			]) {
+			for (const label of ["Spaces", "People", "Agents"]) {
 				const link = screen.getByRole("link", { name: label });
 				expect(link.textContent).toContain(label);
 				expect(link.getAttribute("data-slot")).not.toBe("tooltip-trigger");
@@ -445,14 +431,14 @@ describe("AppOuterRail", () => {
 			}
 		});
 
-		it("shows DMs visually while preserving the Direct Messages link name", () => {
+		it("shows DMs visually while preserving the Messages link name", () => {
 			renderCompactRail();
 
 			const directMessagesLink = screen.getByRole("link", {
-				name: "Direct Messages",
+				name: "Messages",
 			});
 			expect(directMessagesLink.textContent).toContain("DMs");
-			expect(directMessagesLink.textContent).not.toContain("Direct Messages");
+			expect(directMessagesLink.textContent).not.toContain("Messages");
 			expect(
 				directMessagesLink.querySelector('[data-slot="center-truncated-text"]')
 			).toBeNull();
@@ -605,14 +591,14 @@ describe("AppOuterRail", () => {
 		renderRail();
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Direct Messages",
+			name: "Messages",
 		});
 		expect(directMessagesLink.getAttribute("href")).toBe(
 			"/o/acme/direct-messages"
 		);
 	});
 
-	it("collapses destinations under stable group labels", () => {
+	it("collapses destinations under stable group labels without exposing Resources", () => {
 		renderRail();
 
 		const railContent = screen
@@ -629,13 +615,9 @@ describe("AppOuterRail", () => {
 		const teamHeading = within(railContent).getByRole("heading", {
 			name: "Team",
 		});
-		const resourcesHeading = within(railContent).getByRole("heading", {
-			name: "Resources",
-		});
 		expect(workHeading).toBeTruthy();
 		expect(teamHeading).toBeTruthy();
-		expect(resourcesHeading).toBeTruthy();
-		for (const heading of [workHeading, teamHeading, resourcesHeading]) {
+		for (const heading of [workHeading, teamHeading]) {
 			expect(heading.className).toContain("ps-[5px]");
 			expect(heading.className).toContain("pe-2");
 			expect(heading.className).not.toContain("px-2");
@@ -651,19 +633,14 @@ describe("AppOuterRail", () => {
 				?.classList.contains("gap-2")
 		).toBe(true);
 		expect(
-			resourcesHeading
-				.closest('[data-slot="sidebar-group"]')
-				?.classList.contains("gap-2")
-		).toBe(true);
-		expect(
 			within(railContent).getByRole("navigation", { name: "Work" })
 		).toBeTruthy();
 		expect(
 			within(railContent).getByRole("navigation", { name: "Team" })
 		).toBeTruthy();
 		expect(
-			within(railContent).getByRole("navigation", { name: "Resources" })
-		).toBeTruthy();
+			within(railContent).queryByRole("navigation", { name: "Resources" })
+		).toBeNull();
 		const workTrigger = within(railContent).getByRole("button", {
 			name: "Work",
 		});
@@ -672,8 +649,8 @@ describe("AppOuterRail", () => {
 			within(railContent).getByRole("button", { name: "Team" })
 		).toBeTruthy();
 		expect(
-			within(railContent).getByRole("button", { name: "Resources" })
-		).toBeTruthy();
+			within(railContent).queryByRole("button", { name: "Resources" })
+		).toBeNull();
 
 		fireEvent.click(workTrigger);
 
@@ -688,7 +665,7 @@ describe("AppOuterRail", () => {
 			within(railContent).queryByRole("link", { name: "Spaces" })
 		).toBeNull();
 		expect(
-			within(railContent).queryByRole("link", { name: "Direct Messages" })
+			within(railContent).queryByRole("link", { name: "Messages" })
 		).toBeNull();
 		expect(
 			within(railContent).getByRole("link", { name: "People" })
@@ -710,7 +687,7 @@ describe("AppOuterRail", () => {
 		expect(screen.getByRole("link", { name: "Home" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Center Agent" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Direct Messages" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Messages" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
 	});
 

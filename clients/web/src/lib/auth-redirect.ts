@@ -5,7 +5,7 @@ import {
 
 const DEFAULT_CALLBACK_PATH = "/callback";
 type RedirectSearchInput =
-	| Record<string, string | string[] | null | undefined>
+	| Record<string, unknown>
 	| URLSearchParams
 	| string
 	| null
@@ -47,10 +47,10 @@ function readRedirectParamFromSearch(
 
 	const value = search.redirect;
 	if (Array.isArray(value)) {
-		return value[0] ?? null;
+		return typeof value[0] === "string" ? value[0] : null;
 	}
 
-	return value ?? null;
+	return typeof value === "string" ? value : null;
 }
 
 function normalizeOptionalSearchValue(

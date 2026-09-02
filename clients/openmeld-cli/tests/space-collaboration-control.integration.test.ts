@@ -170,9 +170,11 @@ describe("Space collaboration control commands", () => {
       });
       const [request, init] = fetchSpy.mock.calls[0] ?? [];
       expect(String(init?.method ?? "GET").toUpperCase()).toBe("GET");
-      expect(new URL(String(request)).pathname).toBe(
+      const requestUrl = new URL(String(request));
+      expect(requestUrl.pathname).toBe(
         `/v1/spaces/${COLLABORATION_CONTROL_SPACE_ID}/active-wake-progress`
       );
+      expect(requestUrl.searchParams.get("includeWaitReason")).toBe("true");
     });
   });
 
@@ -243,6 +245,7 @@ describe("Space collaboration control commands", () => {
       expect(url.searchParams.get("clientMessageId")).toBe(
         "client-message-terminal"
       );
+      expect(url.searchParams.get("includeWaitReason")).toBe("true");
       expect(url.searchParams.get("targetProfileId")).toBe(
         COLLABORATION_CONTROL_AGENT_PROFILE_ID
       );
@@ -452,6 +455,7 @@ describe("Space collaboration control commands", () => {
       expect(progressUrl.searchParams.get("includeWakeStopEligibility")).toBe(
         "true"
       );
+      expect(progressUrl.searchParams.get("includeWaitReason")).toBe("true");
       const stopInit = fetchSpy.mock.calls[1]?.[1];
       expect(JSON.parse(String(stopInit?.body))).toEqual({
         reason: "Stop requested by the CLI operator.",

@@ -19,6 +19,7 @@ import {
   runtimeTransportBaseCapabilitiesSchema,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import releaseManifestJson from "../../../release/local-components.json";
 import type { CoreBindings } from "../src/lib/bindings";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
 import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
@@ -33,6 +34,8 @@ const BASE_URL = "http://localhost";
 const DAEMON_TEST_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const REQUEST_ID = "req-runtime-transport-reconcile";
 const SERVER_ROUTE_RECONCILIATION_REASON = "server_route_reconciliation";
+const CURRENT_RELEASE_SERVICE_VERSION =
+  releaseManifestJson.components.service.bundleVersion;
 
 const touchedOwnerUserIds = new Set<string>();
 
@@ -1006,7 +1009,10 @@ describe("runtime transport lease reconciliation", () => {
             requestId,
             result: {
               operation: "request_update",
-              result: { currentVersion: "0.3.138", status: "current" },
+              result: {
+                currentVersion: CURRENT_RELEASE_SERVICE_VERSION,
+                status: "current",
+              },
             },
           },
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1075,7 +1081,7 @@ describe("runtime transport lease reconciliation", () => {
       });
       await waitForAutomaticUpdateTarget({
         computerKey,
-        expectedTarget: "0.3.138",
+        expectedTarget: CURRENT_RELEASE_SERVICE_VERSION,
         shard,
       });
 
@@ -1120,7 +1126,10 @@ describe("runtime transport lease reconciliation", () => {
             requestId: retryRequestId,
             result: {
               operation: "request_update",
-              result: { currentVersion: "0.3.138", status: "current" },
+              result: {
+                currentVersion: CURRENT_RELEASE_SERVICE_VERSION,
+                status: "current",
+              },
             },
           },
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1799,6 +1808,15 @@ describe("runtime transport lease reconciliation", () => {
         profileIds: ["agt-owner-match"],
       });
       expect(registered.rejectedProfiles).toEqual([]);
+      await expect(
+        sendHeartbeat({
+          socket,
+          ownerUserId,
+          daemonSessionId: "daemon-session-owner-match",
+          deviceId: "device-owner-match",
+          leases: registered.acceptedLeases,
+        })
+      ).resolves.toEqual({ ok: true, staleLeases: [] });
 
       const route = await lookupRoute({
         ownerUserId,
@@ -1946,6 +1964,15 @@ describe("runtime transport lease reconciliation", () => {
       const connectionGeneration = registered.connectionGeneration;
       expect(leaseEpoch).toBe(1);
       expect(connectionGeneration).toBe(1);
+      await expect(
+        sendHeartbeat({
+          socket,
+          ownerUserId,
+          daemonSessionId,
+          deviceId: "device-3",
+          leases: registered.acceptedLeases,
+        })
+      ).resolves.toEqual({ ok: true, staleLeases: [] });
 
       const dispatchId = "dispatch-stale-lease-log-1";
       const attemptId = "attempt-stale-lease-log-1";

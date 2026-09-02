@@ -14,6 +14,7 @@ type CoreRpcMock = {
   getAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
   getAgentProfileControllerChangeEligibility: ReturnType<typeof vi.fn>;
   getAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
+  getCurrentAgentProfileSession: ReturnType<typeof vi.fn>;
   getOrganizationBindingAuthorizationPreference: ReturnType<typeof vi.fn>;
   listCurrentUserAgentProfileOrganizationWakeAccess: ReturnType<typeof vi.fn>;
   listOrganizationBindingAuthorizationProfiles: ReturnType<typeof vi.fn>;
@@ -120,6 +121,16 @@ function makeEnv(input?: {
     getAgentProfilePrimaryBinding: vi.fn(async () => ({
       binding: enabledBindingProjection(),
       grantsClaimSuccess: false,
+      status: "found",
+    })),
+    getCurrentAgentProfileSession: vi.fn(async () => ({
+      currentOrganizationId: "org-1",
+      profile: {
+        profileId: AGENT_PROFILE_ID,
+        profileName: "Codex",
+        profileOrganizationId: "org-1",
+      },
+      sameOrganization: true,
       status: "found",
     })),
     getAgentProfileControllerChangeEligibility: vi.fn(async () => ({
@@ -490,6 +501,29 @@ describe("agent profile binding routes", () => {
     expect(coreRpc.getAgentProfilePrimaryBinding).toHaveBeenCalledWith(
       expect.objectContaining({
         agentProfileId: AGENT_PROFILE_ID,
+      })
+    );
+  });
+
+  it("looks up the exact current Agent session without a profile-list route", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/agent-profiles/current-session?agentControllerConversationId=thread-1&agentControllerRef=builtin%3Acodex"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "found",
+      sameOrganization: true,
+    });
+    expect(coreRpc.getCurrentAgentProfileSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentControllerConversationId: "thread-1",
+        agentControllerRef: "builtin:codex",
       })
     );
   });

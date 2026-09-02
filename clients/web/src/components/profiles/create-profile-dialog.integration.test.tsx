@@ -21,7 +21,10 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { CreateProfileDialog } from "./create-profile-dialog";
+import {
+	LegacyCreateProfileDialog as CreateProfileDialog,
+	CreateProfileDialog as CurrentCreateProfileDialog,
+} from "./create-profile-dialog";
 
 const FELIX_ID = "11111111-1111-4111-8111-111111111111";
 const NEW_HUMAN_ID = "55555555-5555-4555-8555-555555555555";
@@ -34,11 +37,26 @@ const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
 const OPENCODE_AGENT_PATTERN = /opencode/i;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
 const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
-const DEFAULT_GPT_55_MODEL_PATTERN = /Use controller default \(GPT-5.5\)/;
+const DEFAULT_GPT_55_MODEL_PATTERN = /GPT-5.5 \(default\)/;
 const AUTHORIZE_PATTERN = /authorize/i;
+const USE_CONTROLLER_DEFAULT_PATTERN = /use controller default/i;
+const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
+const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Customize this Agent/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
+const FIRST_USE_SELECTION_BY_AGENT_CONTROLLER_REF: Readonly<
+	Record<string, { modelId: string | null; reasoningLevel: string | null }>
+> = {
+	"builtin:claude-code": {
+		modelId: "claude-opus-4-8",
+		reasoningLevel: null,
+	},
+	"builtin:codex": {
+		modelId: "gpt-5.5",
+		reasoningLevel: "high",
+	},
+};
 type WebCreateAgentProfileCreationRequestInput = Parameters<
 	typeof import("#/lib/profiles/agent-profile-creation-requests").createAgentProfileCreationRequest
 >[0];
@@ -524,6 +542,31 @@ function renderCreateProfileDialog(
 	return { onOpenChange, queryClient };
 }
 
+function renderCurrentCreateProfileDialog(
+	overrides: Partial<ComponentProps<typeof CurrentCreateProfileDialog>> = {}
+) {
+	const onOpenChange = vi.fn();
+	const queryClient = createTestQueryClient();
+	render(
+		<TestQueryClientProvider queryClient={queryClient}>
+			<TooltipProvider>
+				<StartFlowStateProvider>
+					<CurrentCreateProfileDialog
+						agentOnly={true}
+						currentUserId="user-123"
+						onOpenChange={onOpenChange}
+						open={true}
+						organizationId="organization-123"
+						recovery={buildFakeRecovery()}
+						{...overrides}
+					/>
+				</StartFlowStateProvider>
+			</TooltipProvider>
+		</TestQueryClientProvider>
+	);
+	return { onOpenChange, queryClient };
+}
+
 async function fillProfileForm(input: { kind: RegExp; name: string }) {
 	await waitFor(() => {
 		expect(listStartProfilesMock).toHaveBeenCalled();
@@ -654,17 +697,21 @@ describe("CreateProfileDialog", () => {
 			);
 		getAgentProfileCreationDefaultsMock
 			.mockReset()
-			.mockImplementation(async ({ agentControllerRef, organizationId }) => ({
-				agentControllerPermissionMode: null,
-				agentControllerRef,
-				defaultProjectId: null,
-				modelId: null,
-				openCodePermission: null,
-				organizationId,
-				reasoningLevel: null,
-				updatedAt: null,
-				userId: "user-123",
-			}));
+			.mockImplementation(({ agentControllerRef, organizationId }) => {
+				const firstUseSelection = FIRST_USE_SELECTION_BY_AGENT_CONTROLLER_REF[
+					agentControllerRef
+				] ?? { modelId: null, reasoningLevel: null };
+				return {
+					agentControllerPermissionMode: null,
+					agentControllerRef,
+					defaultProjectId: null,
+					...firstUseSelection,
+					openCodePermission: null,
+					organizationId,
+					updatedAt: null,
+					userId: "user-123",
+				};
+			});
 		setAgentProfileCreationDefaultsMock
 			.mockReset()
 			.mockImplementation(async (defaults) => ({
@@ -675,6 +722,84 @@ describe("CreateProfileDialog", () => {
 		toastErrorMock.mockReset();
 		toastSuccessMock.mockReset();
 		toastWarningMock.mockReset();
+	});
+
+	it("uses the new Agent-first flow and preserves a manually edited name", async () => {
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+
+		expect(screen.queryByLabelText("Agent name")).toBeNull();
+		fireEvent.click(
+			await screen.findByRole("radio", {
+				name: CURRENT_CODEX_RADIO_PATTERN,
+			})
+		);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
+			})
+		);
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "Edit Model" }).textContent
+			).toContain("GPT-5.5 (default) · High");
+		});
+		if (!screen.queryByRole("combobox", { name: "Model" })) {
+			fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		}
+		expect(
+			screen.getByRole("combobox", { name: "Model" }).textContent
+		).toContain("GPT-5.5 (default)");
+		expect(
+			screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
+		).toContain("High");
+		const modelSelect = screen.getByRole("combobox", { name: "Model" });
+		fireEvent.click(modelSelect);
+		const defaultModelOptions = await screen.findAllByRole("option", {
+			name: "GPT-5.5 (default)",
+		});
+		expect(defaultModelOptions).toHaveLength(1);
+		expect(
+			screen.queryByRole("option", { name: USE_CONTROLLER_DEFAULT_PATTERN })
+		).toBeNull();
+		fireEvent.click(modelSelect);
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		const nameInput = (await screen.findByLabelText(
+			"Agent name"
+		)) as HTMLInputElement;
+		await waitFor(() => {
+			expect(nameInput.value).toBe("Felix Codex GPT-5.5 High");
+		});
+		fireEvent.change(nameInput, { target: { value: "My persistent Agent" } });
+		fireEvent.click(screen.getByRole("button", { name: "Back" }));
+		await waitFor(() => {
+			expect(screen.queryByLabelText("Agent name")).toBeNull();
+		});
+		if (!screen.queryByRole("combobox", { name: "Model" })) {
+			fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		}
+		const returnedModelSelect = await screen.findByRole("combobox", {
+			name: "Model",
+		});
+		fireEvent.click(returnedModelSelect);
+		fireEvent.click(
+			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		await waitFor(() => {
+			expect(
+				(screen.getByLabelText("Agent name") as HTMLInputElement).value
+			).toBe("My persistent Agent");
+		});
 	});
 
 	it("prefills a working Session Resume and gives only the lightweight Fork suggestion", async () => {
@@ -2326,7 +2451,7 @@ describe("CreateProfileDialog", () => {
 			).toContain("Ask permissions");
 			expect(
 				screen.getByRole("combobox", { name: "Model" }).textContent
-			).toContain("Use controller default");
+			).toContain("Claude Opus 4.8 (default)");
 			expect(
 				screen.getByRole("combobox", { name: "Working folder" }).textContent
 			).toContain("Let OpenMeld choose");

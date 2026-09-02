@@ -117,4 +117,13 @@ describe("auth redirect helpers", () => {
 			"/check-email?redirect=%2Fo%2Facme%2Fnew-space&email=mira%40example.com"
 		);
 	});
+
+	it("ignores typed route search values that are not redirect strings", () => {
+		expect(
+			withRedirectQueryFromSearch("/login", {
+				activityPreview: 1,
+				redirect: 1,
+			})
+		).toBe("/login");
+	});
 });

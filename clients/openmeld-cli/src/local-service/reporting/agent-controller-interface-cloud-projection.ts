@@ -42,7 +42,10 @@ export function projectAgentControllerInterfaceForCloud(
     status: snapshot.status,
     ...(snapshot.usageLimits
       ? {
-          usageLimits: snapshot.usageLimits.map((limit) => ({ ...limit })),
+          usageLimits: snapshot.usageLimits.map((limit) => ({
+            ...limit,
+            ...(limit.provider ? { provider: { ...limit.provider } } : {}),
+          })),
         }
       : {}),
     usageLimitsSupportMatrixVersion:

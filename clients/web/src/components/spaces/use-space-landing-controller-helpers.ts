@@ -539,6 +539,7 @@ export async function pollWakeProgress(input: {
 				api.getWakeProgress({
 					clientMessageId,
 					includeTiming: true,
+					includeWaitReason: true,
 					includeWakeStopEligibility: true,
 					spaceId: input.spaceId,
 					timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,

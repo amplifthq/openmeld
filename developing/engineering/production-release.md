@@ -220,6 +220,25 @@ on opposite sides of another deployment fail closed and require separate
 releases. This includes Connect Computer combined with Inbox source-target,
 Local Service runtime, or Center Agent CLI receiver-first contracts.
 
+The planner selects `wake-progress-opt-in-receivers-first` only when one diff
+changes the shared Wake Progress schema, its Core producer, and the CLI caller
+that explicitly opts into the additive wait-reason field. It automatically
+includes Gateway and Core, and an explicit scope that would publish Core or CLI
+without both scopes fails closed. Within the selected scopes, Gateway deploys
+before Core, and Core deploys before CLI. Web may deploy first because the new
+query flag is optional and an older Gateway safely ignores it.
+
+This detector is intentionally specific to the proven opt-in contract. A path
+match cannot infer whether an arbitrary future Space HTTP change adds a strict
+request caller or a response producer, and those directions require opposite
+receiver-first orders. Future contract families need their own explicit
+producer, receiver, and compatibility evidence instead of inheriting this
+profile. This constraint composes with compatible Remote Agent request or
+worker-response receiver-first orders. If the same diff requires one component
+on both sides of another, including any Remote Agent receiver-first family
+combined with a worker-response producer, the planner fails closed and requires
+separate releases.
+
 When any receiver-first profile includes both Core and CLI, the first Core
 deploy reads the stable production CLI version, loads that version's
 `release/local-components.json` from its immutable `v<version>` Git tag, and

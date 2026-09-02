@@ -40,6 +40,14 @@ mention and addressing labels needed by clients and dispatch prompts. It helps
 users and agents choose valid send targets; it does not create membership,
 prove Wake readiness, or decide execution authority.
 
+A focused Agent read may combine one resolved directory member with that
+member's Core-owned current Agent Wake Availability projection. This avoids
+returning the complete directory and unrelated runtime diagnostics when the
+caller only needs one teammate's exact addressing and current preflight state.
+The convenience read must preserve Core's readiness status and reason codes; it
+must not reconstruct readiness from membership, Binding existence, or route
+presence, and it does not prove that a later Wake will complete.
+
 An ordinary Organization Space may add the Organization's currently designated
 Center Agent through a dedicated server-authorized membership mutation. The
 Organization directory candidate is presentation only: the mutation must fail
@@ -48,6 +56,56 @@ selected. Once added, the Center Agent follows ordinary Agent Profile member
 semantics for listing, addressing, Wake, removal, and degraded Direct Message
 behavior. This does not create another Space kind or apply the locked Center
 Agent Direct Message mutation rules to an ordinary Space.
+
+## Agent Owner Participation
+
+An ordinary human-owned Agent Profile participates in an ordinary Space with
+its owner. When a caller adds such an Agent, Core resolves the Agent's current
+authoritative `ownerUserId` and that Organization member's active default Human
+Profile, then submits the Agent and Human through one atomic Space membership
+mutation. A cached owner name or caller-supplied Human Profile is never enough.
+If the owner is already an active member, the Human addition is an idempotent
+no-op. If Core cannot resolve the current owner and Human Profile, the whole add
+fails instead of admitting an ownerless ordinary Agent.
+
+Managed Agents, including the designated Center Agent, do not inherit this
+rule. Their Organization-managed identity and existing specialized membership
+contracts remain authoritative.
+
+In an ordinary Space, the resolved owner is an ordinary active Human member
+with the same collaboration rights as other members. The owner cannot leave or
+be removed while one of their ordinary Agent Profiles remains active in that
+Space; remove the Agent first. Removing the Agent never silently removes its
+owner. This order keeps both actions explicit and prevents a membership cleanup
+from unexpectedly removing a person.
+
+Existing ordinary Spaces reconcile this invariant once inside the owning Space
+when a current member/status snapshot is first read after the policy ships. The
+Space checks each unmatched Agent against canonical Organization identity,
+adds only missing ordinary-Agent owners, then records a local completion
+marker. An unavailable owner identity leaves the marker unset so a later read
+can retry. This bounded compatibility step updates the Space member projection
+and live membership invalidation only; it does not rebuild unread state, replay
+history, or emit historical new-member notifications.
+
+A current one-Human/one-Agent Direct Message is the deliberate exception. The
+ordinary Agent owner's Human Profile is a derived read-only observer, not a
+third persisted member. Both DM participants see that the named owner can view
+the conversation. The observer may read the shared conversation and advance
+their own read position, but generic collaboration writes remain unavailable:
+the observer cannot publish messages, create or reply to threads, write Space
+Files, add or remove members, or change Space metadata, lifecycle, publication,
+visibility, access, or password settings.
+
+The observer may explicitly choose **Join conversation**. Core accepts only the
+owner's exact active default Human Profile and uses the existing irreversible
+Direct Message conversion transaction to add that Profile, set
+`directMessage.convertedAt`, and turn the conversation into an ordinary Space.
+After conversion, the owner is a normal member and may participate. This
+observer and join behavior must not appear or succeed for Human-to-Human DMs,
+Center Agent DMs, managed Agents, a different Agent owner, anonymous viewers,
+or ordinary Spaces where the owner is already represented by an active Human
+member.
 
 A Space does not own local execution readiness or in-flight execution truth.
 Those are transport concerns. The Space owns what the user said, who it was
@@ -288,15 +346,20 @@ used by navigation, headers, and dispatch planning. Do not reimplement local
 "looks like a DM" checks from name, visibility, member types, or route shape.
 
 Every DM is created with `members_only` access. Only its creator, an active
-member, or another active Profile owned by the same account may open it; the
-route, its name, and cached history do not grant access. While current DM state
-holds, the server rejects generic third-member addition, member removal, leave,
-delete, lifecycle, name, visibility, access-mode, and password mutations.
-Clients hide those rejected controls. This keeps a one-to-one conversation
-one-to-one and private until a member deliberately changes the product object.
+member, another active Profile owned by the same account, or the derived Human
+owner observer of an ordinary Agent participant may open it; the route, its
+name, and cached history do not grant access. While current DM state holds, the
+server rejects generic third-member addition, member removal, leave, delete,
+lifecycle, name, visibility, access-mode, and password mutations. It also
+rejects collaboration writes from a derived Agent owner observer until that
+person explicitly joins through conversion. Clients hide those rejected
+controls. This keeps a one-to-one conversation one-to-one and private until a
+member or the Agent owner deliberately changes the product object.
 
 A human member may select one or more new Organization Directory Profiles and
-explicitly confirm **Turn this Direct Message into a Space**. The confirmation
+explicitly confirm **Turn this Direct Message into a Space**. A derived ordinary
+Agent owner observer may invoke the same transaction only to add their own
+active default Human Profile. The confirmation
 names the selected people or agents, explains that they will see the existing
 messages and files, allows a valid Space name, and states that the change cannot
 be undone. One Space-owned transaction records `directMessage.convertedAt`,

@@ -118,4 +118,13 @@ describe("command entry copy", () => {
       serviceAction: null,
     });
   });
+
+  it("describes exact session recovery without implying a profile scan", () => {
+    expect(getCommandEntryCopy("profile.current-session")).toEqual({
+      signInAction: "finding this Agent session's profile",
+      profileAction: null,
+      cliUpdateAction: "finding this Agent session's profile",
+      serviceAction: null,
+    });
+  });
 });

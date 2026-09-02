@@ -1,3 +1,4 @@
+import { AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION } from "@openmeld/agent-runtime";
 import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
 import { submitRuntimeProviderConversationProofsResponseSchema } from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
@@ -159,7 +160,8 @@ describe("Runtime Agent Controller reporting submission", () => {
     schemaVersion: 1,
     skills: [],
     status: "ready",
-    usageLimitsSupportMatrixVersion: 1,
+    usageLimitsSupportMatrixVersion:
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
     version: "0.1.0",
     versionAdvisory: {
       checkedAt: "2026-06-28T00:00:00.000Z",
@@ -431,6 +433,57 @@ describe("Runtime Agent Controller reporting submission", () => {
     ).not.toHaveProperty("usageLimitsSupportMatrixVersion");
   });
 
+  it("retries without provider-scoped usage when an older Core rejects the provider descriptor", async () => {
+    submitAgentControllerReportsMock.mockRejectedValueOnce(
+      Object.assign(new Error('Unrecognized key: "provider"'), {
+        code: "invalid_payload",
+        status: 400,
+      })
+    );
+    const { submitRuntimeAgentControllerReport } = await import(
+      "../src/local-service/reporting/runtime-agent-controller-reporting-submission"
+    );
+
+    await submitRuntimeAgentControllerReport({
+      agentControllerRef: "builtin:opencode",
+      agentControllerInterface: {
+        ...CODEX_AGENT_CONTROLLER_INTERFACE,
+        agentControllerRef: "builtin:opencode",
+        controllerId: "opencode",
+        usageLimits: [
+          {
+            key: "opencode-go:rolling",
+            label: "5-hour usage",
+            observedAt: "2026-06-28T00:00:00.000Z",
+            provider: {
+              displayName: "OpenCode Go",
+              id: "opencode-go",
+            },
+            resetsAt: "2026-06-28T05:00:00.000Z",
+            status: "available",
+            usedPercent: 42,
+          },
+        ],
+      },
+      localParticipationState: "ready",
+      reasonCodes: [],
+    });
+
+    expect(submitAgentControllerReportsMock).toHaveBeenCalledTimes(2);
+    expect(
+      submitAgentControllerReportsMock.mock.calls[0]?.[0]?.reports?.[0]
+        ?.agentControllerInterface?.usageLimits?.[0]?.provider
+    ).toEqual({ displayName: "OpenCode Go", id: "opencode-go" });
+    expect(
+      submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
+        ?.agentControllerInterface
+    ).not.toHaveProperty("usageLimits");
+    expect(
+      submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
+        ?.agentControllerInterface
+    ).not.toHaveProperty("usageLimitsSupportMatrixVersion");
+  });
+
   it("retries without the Usage support declaration when an older Core rejects that nested field", async () => {
     submitAgentControllerReportsMock.mockRejectedValueOnce(
       Object.assign(
@@ -456,7 +509,10 @@ describe("Runtime Agent Controller reporting submission", () => {
     expect(
       submitAgentControllerReportsMock.mock.calls[0]?.[0]?.reports?.[0]
         ?.agentControllerInterface
-    ).toHaveProperty("usageLimitsSupportMatrixVersion", 1);
+    ).toHaveProperty(
+      "usageLimitsSupportMatrixVersion",
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION
+    );
     expect(
       submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
         ?.agentControllerInterface

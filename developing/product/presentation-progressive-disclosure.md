@@ -73,11 +73,12 @@ to the current workspace, and the page names its owner where useful.
 
 ## Disclosure Layers
 
-| Layer                            | Concepts                                                                                                                                                                                                   | When visible                                                                                                          |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Global structure                 | Work: Center Agent, Spaces, Direct Messages; Team: People, Agents; Resources: Projects, Documents, Agent Activity; the Settings utility; the current-Computer toolbar launcher; and the workspace switcher | From first sign-in, in the same order for every workspace and role                                                    |
-| Contextual collaboration content | Organization members, invitations, roles, shared access, and Organization directory-listing controls                                                                                                       | Only when the selected workspace and current role make the content meaningful; the destination itself remains present |
-| Never surfaced as domain truth   | "personal org" as a separate tenant type and per-Binding authorization mechanics in ordinary product flows                                                                                                 | —                                                                                                                     |
+| Layer                            | Concepts                                                                                                                                                   | When visible                                                                                                                  |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Global structure                 | Work: Center Agent, Spaces, Direct Messages; Team: People, Agents; the Settings utility; the current-Computer toolbar launcher; and the workspace switcher | From first sign-in, in the same order for every workspace and role                                                            |
+| Temporarily hidden product homes | Projects, Documents, Agent Activity                                                                                                                        | Available through their existing direct and contextual routes, but absent from the primary rail until placement is redesigned |
+| Contextual collaboration content | Organization members, invitations, roles, shared access, and Organization directory-listing controls                                                       | Only when the selected workspace and current role make the content meaningful; the destination itself remains present         |
+| Never surfaced as domain truth   | "personal org" as a separate tenant type and per-Binding authorization mechanics in ordinary product flows                                                 | —                                                                                                                             |
 
 Rationale for the split: we hide the **organization of people**, never the
 **organization of agents**. A solo user has no colleagues but does have a
@@ -88,11 +89,14 @@ is first-level in every context (the one-person-company story).
 
 The sidebar structure from the original 2026-07-05 design is superseded. The
 approved fixed product rail uses **Work** for **Center Agent / Spaces / Direct
-Messages**, **Team** for **People / Agents**, and **Resources** for **Projects /
-Documents / Agent Activity** in both personal and multi-member workspaces, with
-**Settings** separated as a utility. A person's Computers live in their Human
-Profile detail, and the current Computer is reachable from the far-left bottom
-toolbar control. The complete placement rules live in
+Messages** and **Team** for **People / Agents** in both personal and
+multi-member workspaces, with **Settings** separated as a utility. The former
+**Resources** group and its **Projects / Documents / Agent Activity**
+destinations are temporarily hidden from the primary rail; their canonical
+routes and contextual links remain, and this decision does not assign their
+future placement. A person's Computers live in their Human Profile detail, and
+the current Computer is reachable from the far-left bottom toolbar control. The
+complete placement rules live in
 `developing/clients/web.md`; do not restore the former Directory, Profiles,
 Organization, or Computers rail, the Artifacts placeholder, or
 context-dependent navigation slots.
@@ -100,7 +104,7 @@ context-dependent navigation slots.
 The workspace switcher remains the single context selector. The personal
 workspace is pinned first, Organizations follow, and Create/Manage organization
 actions live in that selector. Switching workspace changes content and owner
-scope, not the seven grouped product destinations or their order.
+scope, not the visible grouped product destinations or their order.
 
 ## Current Center Agent Presentation
 

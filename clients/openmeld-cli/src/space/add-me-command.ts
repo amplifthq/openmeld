@@ -1,11 +1,14 @@
 import { basename, isAbsolute, resolve } from "node:path";
 import process from "node:process";
-import type { AgentControllerPermissionMode } from "@openmeld/schemas/types";
+import type {
+  AgentControllerPermissionMode,
+  GetAgentProfilePrimaryBindingResponse,
+} from "@openmeld/schemas/types";
 import { buildCommandAuthenticationPromptMessage } from "../auth/command-auth";
 import type { OpenMeldProfile } from "../config/openmeld-profiles-api";
 import {
   createOpenMeldAgentProfile,
-  listOpenMeldProfiles,
+  resolveOpenMeldProfile,
 } from "../config/openmeld-profiles-api";
 import { submitRuntimeAgentControllerReport } from "../local-service/reporting/runtime-agent-controller-reporting-submission";
 import { resolveAgentControllerPermissionModeInput } from "../profile/controller-permission-mode-input";
@@ -75,6 +78,17 @@ type AgentProfileResolution = {
   projectFolderAction: "created" | "reused";
 };
 
+type RequestedAgentProfileResolution =
+  | {
+      kind: "bound_to_current_session";
+      profile: OpenMeldProfile;
+      report: AgentProfilePrimaryAgentControllerReport;
+    }
+  | {
+      kind: "unbound";
+      profile: OpenMeldProfile;
+    };
+
 type SpaceAddMeProgressPhase = "prepare_agent_profile";
 
 export async function runSpaceAddMe(input: {
@@ -82,6 +96,7 @@ export async function runSpaceAddMe(input: {
   baseUrl?: string;
   confirmDangerousAgentControllerPermissionMode?: boolean;
   agentControllerPermissionModeInput?: string;
+  agentProfile?: string;
   details?: boolean;
   entryChecksHandled?: boolean;
   env?: NodeJS.ProcessEnv;
@@ -141,6 +156,11 @@ export async function runSpaceAddMe(input: {
   const addMembers = input.addMembers ?? runDefaultSpaceAddMeMembership;
 
   if (detectedSubject.kind === "human") {
+    if (normalizeOptionalString(input.agentProfile)) {
+      throw new Error(
+        "--agent-profile can only be used when OpenMeld detects a supported local agent controller."
+      );
+    }
     if (modelSelection.hasAnyModelSelectionInput) {
       throw new Error(
         "--model is only used when OpenMeld detects a local agent controller. Human Profile membership does not use a model selection."
@@ -225,6 +245,7 @@ export async function runSpaceAddMe(input: {
     text: `Preparing ${detectedSubject.label} Agent Profile before the Space membership write...`,
     operation: async () =>
       await ensureCurrentAgentProfile({
+        agentProfileId: input.agentProfile,
         actorProfile,
         baseUrl: resolvedBaseUrl,
         controllerPermissionMode:
@@ -233,6 +254,23 @@ export async function runSpaceAddMe(input: {
         modelSelection,
         projectFolder,
         spaceId: target.spaceId,
+        onAgentProfileCreated: (profile) => {
+          emitSpaceAddMeProfileCreated({
+            actorProfileId: actorProfile.openMeldProfileId,
+            agentControllerPermissionMode:
+              controllerPermissionMode.agentControllerPermissionMode ?? null,
+            confirmDangerousAgentControllerPermissionMode:
+              input.confirmDangerousAgentControllerPermissionMode === true,
+            details: input.details === true,
+            json: input.json === true,
+            modelSelection,
+            passwordRequiredOnRetry: Boolean(input.password),
+            presenter,
+            profile,
+            projectFolder: projectFolder.path,
+            space: target.spaceId,
+          });
+        },
       }),
   });
 
@@ -341,31 +379,24 @@ export function normalizeSpaceAddMeProjectFolderInput(
 }
 
 async function ensureCurrentAgentProfile(input: {
+  agentProfileId?: string;
   actorProfile: OpenMeldProfile;
   baseUrl: string;
   controllerPermissionMode: AgentControllerPermissionMode | null;
   detectedSubject: Extract<SpaceAddMeDetectedSubject, { kind: "agent" }>;
   modelSelection: NormalizedModelSelectionInput;
+  onAgentProfileCreated: (profile: OpenMeldProfile) => void;
   projectFolder: NormalizedProjectFolder;
   spaceId: string;
 }): Promise<AgentProfileResolution> {
-  const existing = await findAgentProfileByControllerConversation({
+  const match = await resolveRequestedAgentProfile({
+    agentProfileId: input.agentProfileId,
     baseUrl: input.baseUrl,
     detectedSubject: input.detectedSubject,
-  }).catch((error: unknown) => {
-    throw formatSpaceAddMeBindingReadFailure({
-      error,
-      projectFolder: input.projectFolder,
-      spaceId: input.spaceId,
-    });
+    projectFolder: input.projectFolder,
+    spaceId: input.spaceId,
   });
-  if (existing.length > 1) {
-    throw new Error(
-      `Multiple Agent Profiles are already bound to ${input.detectedSubject.agentControllerRef} conversation ${input.detectedSubject.agentControllerConversationId}. OpenMeld will not choose one automatically.`
-    );
-  }
-  const [match] = existing;
-  if (match) {
+  if (match?.kind === "bound_to_current_session") {
     const projectFolderAction = await ensureAgentProfileProjectFolder({
       profile: match.profile,
       projectFolder: input.projectFolder.path,
@@ -384,6 +415,32 @@ async function ensureCurrentAgentProfile(input: {
     };
   }
 
+  if (match?.kind === "unbound") {
+    try {
+      const projectFolderAction = await ensureAgentProfileProjectFolder({
+        profile: match.profile,
+        projectFolder: input.projectFolder.path,
+      });
+      const binding = await bindAgentProfileToCurrentSession({
+        controllerPermissionMode: input.controllerPermissionMode,
+        detectedSubject: input.detectedSubject,
+        modelSelection: input.modelSelection,
+        profile: match.profile,
+      });
+      return {
+        bindingOutcome: binding.outcome ?? "reconnected",
+        bindingStatus: binding.status,
+        profile: match.profile,
+        profileAction: "reused",
+        projectFolderAction,
+      };
+    } catch (error) {
+      if (!(error instanceof AgentProfileProjectFolderMismatchError)) {
+        throw error;
+      }
+    }
+  }
+
   const profile = await createOpenMeldAgentProfile({
     profileName: buildAgentProfileName({
       detectedSubject: input.detectedSubject,
@@ -391,13 +448,35 @@ async function ensureCurrentAgentProfile(input: {
     }),
     creatorProfileId: input.actorProfile.openMeldProfileId,
   });
+  input.onAgentProfileCreated(profile);
   await setCustomProfileWorkspace({
     openMeldProfileId: profile.openMeldProfileId,
     customWorkspacePath: input.projectFolder.path,
   });
+  const binding = await bindAgentProfileToCurrentSession({
+    controllerPermissionMode: input.controllerPermissionMode,
+    detectedSubject: input.detectedSubject,
+    modelSelection: input.modelSelection,
+    profile,
+  });
+  return {
+    bindingOutcome: binding.outcome ?? "created",
+    bindingStatus: binding.status,
+    profile,
+    profileAction: "created",
+    projectFolderAction: "created",
+  };
+}
+
+async function bindAgentProfileToCurrentSession(input: {
+  controllerPermissionMode: AgentControllerPermissionMode | null;
+  detectedSubject: Extract<SpaceAddMeDetectedSubject, { kind: "agent" }>;
+  modelSelection: NormalizedModelSelectionInput;
+  profile: OpenMeldProfile;
+}) {
   const runtimeReportSubmission = await submitRuntimeAgentControllerReport({
     agentControllerRef: input.detectedSubject.agentControllerRef,
-    diagnosticProfileId: profile.openMeldProfileId,
+    diagnosticProfileId: input.profile.openMeldProfileId,
     localParticipationState: "ready",
     reasonCodes: ["space.add_me.current_agent"],
   });
@@ -416,21 +495,21 @@ async function ensureCurrentAgentProfile(input: {
         }
       : {}),
     confirmLocalExecutionEvidence: false,
-    profile,
+    profile: input.profile,
     runtimeReportSubmission,
   });
   if (binding.status !== "accepted") {
+    const existingProfileId = normalizeOptionalString(
+      binding.existingBinding?.agentProfileId
+    );
+    const reuseGuidance = existingProfileId
+      ? ` This conversation is already bound to ${existingProfileId}. If that is the exact Agent Profile you created for this conversation, retry with --agent-profile ${existingProfileId}.`
+      : "";
     throw new Error(
-      `Agent Profile Binding was not accepted for ${profile.openMeldProfileId}: ${binding.status}${binding.reason ? ` (${binding.reason})` : ""}.`
+      `Agent Profile Binding was not accepted for ${input.profile.openMeldProfileId}: ${binding.status}${binding.reason ? ` (${binding.reason})` : ""}.${reuseGuidance}`
     );
   }
-  return {
-    bindingOutcome: binding.outcome ?? "created",
-    bindingStatus: binding.status,
-    profile,
-    profileAction: "created",
-    projectFolderAction: "created",
-  };
+  return binding;
 }
 
 async function updateExistingAgentProfileBinding(input: {
@@ -466,60 +545,127 @@ async function updateExistingAgentProfileBinding(input: {
   };
 }
 
-async function findAgentProfileByControllerConversation(input: {
+async function resolveRequestedAgentProfile(input: {
+  agentProfileId?: string;
   baseUrl: string;
   detectedSubject: Extract<SpaceAddMeDetectedSubject, { kind: "agent" }>;
-}): Promise<
-  Array<{
-    profile: OpenMeldProfile;
-    report: AgentProfilePrimaryAgentControllerReport;
-  }>
-> {
-  const profiles = (await listOpenMeldProfiles()).filter(
-    (profile) => profile.profileKind === "agent" && profile.status === "active"
-  );
+  projectFolder: NormalizedProjectFolder;
+  spaceId: string;
+}): Promise<RequestedAgentProfileResolution | null> {
+  const agentProfileId = normalizeOptionalString(input.agentProfileId);
+  if (!agentProfileId) {
+    return null;
+  }
+  const profile = await resolveOpenMeldProfile({
+    openMeldProfileId: agentProfileId,
+  }).catch((error: unknown) => {
+    throw formatRequestedAgentProfileReadFailure({ agentProfileId, error });
+  });
+  if (profile.profileKind !== "agent" || profile.status !== "active") {
+    throw new Error(
+      `--agent-profile ${agentProfileId} must identify an active Agent Profile.`
+    );
+  }
   const bindingReads = createPrimaryBindingReadSession({
     baseUrl: input.baseUrl,
   });
-  const reports = await Promise.all(
-    profiles.map(async (profile) => {
-      const report = await resolveAgentProfilePrimaryAgentControllerReport({
-        baseUrl: input.baseUrl,
-        bindingReads,
-        profile,
+  const bindingRead = await bindingReads
+    .readPrimaryBinding(profile)
+    .catch((error: unknown) => {
+      throw formatSpaceAddMeBindingReadFailure({
+        agentProfileId,
+        error,
+        projectFolder: input.projectFolder,
+        spaceId: input.spaceId,
       });
-      if (!report) {
-        return null;
-      }
-      return { profile, report };
-    })
-  );
-  const matches: Array<{
-    profile: OpenMeldProfile;
-    report: AgentProfilePrimaryAgentControllerReport;
-  }> = [];
-  for (const candidate of reports) {
-    if (!candidate) {
-      continue;
-    }
-    const { profile, report } = candidate;
-    const executionTarget = report?.primaryBinding.executionTarget;
-    if (
-      executionTarget?.agentControllerConversationId !==
-      input.detectedSubject.agentControllerConversationId
-    ) {
-      continue;
-    }
-    if (
-      report.agentControllerRef !== input.detectedSubject.agentControllerRef
-    ) {
-      throw new Error(
-        `Agent Controller conversation ${input.detectedSubject.agentControllerConversationId} is already bound to ${profile.openMeldProfileId} through ${report.agentControllerRef}. OpenMeld will not reuse that conversation for ${input.detectedSubject.agentControllerRef}.`
-      );
-    }
-    matches.push({ profile, report });
+    });
+  if (
+    bindingRead.status === "missing" &&
+    bindingRead.binding.bindingState === "missing"
+  ) {
+    return { kind: "unbound", profile };
   }
-  return matches;
+  const bindingReadAction = resolveRequestedAgentProfileBindingReadAction({
+    agentProfileId,
+    bindingRead,
+  });
+  if (bindingReadAction === "create_new") {
+    return null;
+  }
+  const report = await resolveAgentProfilePrimaryAgentControllerReport({
+    baseUrl: input.baseUrl,
+    bindingReads,
+    profile,
+  }).catch((error: unknown) => {
+    throw formatSpaceAddMeBindingReadFailure({
+      agentProfileId,
+      error,
+      projectFolder: input.projectFolder,
+      spaceId: input.spaceId,
+    });
+  });
+  if (!report) {
+    throw new Error(
+      `OpenMeld found Binding data for Agent Profile ${agentProfileId}, but it could not identify one current Agent Controller. No new Agent Profile or Space membership was created.`
+    );
+  }
+  const executionTarget = report.primaryBinding.executionTarget;
+  if (
+    executionTarget?.agentControllerConversationId ===
+      input.detectedSubject.agentControllerConversationId &&
+    report.agentControllerRef !== input.detectedSubject.agentControllerRef
+  ) {
+    throw new Error(
+      `Agent Controller conversation ${input.detectedSubject.agentControllerConversationId} is bound to ${agentProfileId} through ${report.agentControllerRef}. OpenMeld will not reuse it for ${input.detectedSubject.agentControllerRef}.`
+    );
+  }
+  if (
+    executionTarget?.agentControllerConversationId !==
+      input.detectedSubject.agentControllerConversationId ||
+    report.agentControllerRef !== input.detectedSubject.agentControllerRef
+  ) {
+    return null;
+  }
+  return { kind: "bound_to_current_session", profile, report };
+}
+
+function resolveRequestedAgentProfileBindingReadAction(input: {
+  agentProfileId: string;
+  bindingRead: GetAgentProfilePrimaryBindingResponse;
+}): "create_new" | "inspect_active" {
+  if (
+    input.bindingRead.status === "found" &&
+    input.bindingRead.binding.bindingState === "enabled_primary"
+  ) {
+    return "inspect_active";
+  }
+  if (
+    input.bindingRead.status === "found" &&
+    input.bindingRead.binding.bindingState === "disabled_historical"
+  ) {
+    return "create_new";
+  }
+  const reasonCodes = input.bindingRead.binding.reasonCodes.join(", ");
+  throw new Error(
+    `OpenMeld could not confirm whether Agent Profile ${input.agentProfileId} already has a Binding${reasonCodes ? ` (${reasonCodes})` : ""}. No new Agent Profile or Space membership was created.`
+  );
+}
+
+function formatRequestedAgentProfileReadFailure(input: {
+  agentProfileId: string;
+  error: unknown;
+}): Error {
+  const error = normalizeError(input.error);
+  if (
+    error.message.includes(
+      "Agent Profile can only be managed in the workspace where it was created."
+    )
+  ) {
+    return new Error(
+      `Agent Profile ${input.agentProfileId} belongs to a different OpenMeld Organization. Organization is the account boundary here, not the local Project folder. Omit --agent-profile to create a new profile in the current Organization, or switch Organizations before retrying.`
+    );
+  }
+  return error;
 }
 
 function shouldEmitSpaceAddMeProgress(input: {
@@ -566,6 +712,7 @@ async function runSpaceAddMeProgressHeartbeat<T>(input: {
 }
 
 function formatSpaceAddMeBindingReadFailure(input: {
+  agentProfileId?: string;
   error: unknown;
   projectFolder: NormalizedProjectFolder;
   spaceId: string;
@@ -576,7 +723,7 @@ function formatSpaceAddMeBindingReadFailure(input: {
   }
   const statusCommand = formatOpenMeldCliCommand("openmeld service status");
   const retryCommand = formatOpenMeldCliCommand(
-    `openmeld space add-me ${quoteShellArg(input.spaceId)} --project-folder ${quoteShellArg(input.projectFolder.path)}`
+    `openmeld space add-me ${quoteShellArg(input.spaceId)} --project-folder ${quoteShellArg(input.projectFolder.path)}${input.agentProfileId ? ` --agent-profile ${quoteShellArg(input.agentProfileId)}` : ""}`
   );
   return new Error(
     `OpenMeld couldn't add you because it couldn't read Agent Profile Bindings, and no Space membership was changed. Run ${statusCommand}, then retry ${retryCommand}. Details: ${error.message}`
@@ -628,11 +775,105 @@ async function ensureAgentProfileProjectFolder(input: {
     })
   );
   if (existingPath !== input.projectFolder) {
-    throw new Error(
+    throw new AgentProfileProjectFolderMismatchError(
       `Agent Profile ${input.profile.openMeldProfileId} is already bound to Project folder ${existingPath} for this controller conversation. Refusing to reuse it for ${input.projectFolder}.`
     );
   }
   return "reused";
+}
+
+class AgentProfileProjectFolderMismatchError extends Error {}
+
+function emitSpaceAddMeProfileCreated(input: {
+  actorProfileId: string;
+  agentControllerPermissionMode: AgentControllerPermissionMode | null;
+  confirmDangerousAgentControllerPermissionMode: boolean;
+  details: boolean;
+  json: boolean;
+  modelSelection: NormalizedModelSelectionInput;
+  passwordRequiredOnRetry: boolean;
+  presenter: Presenter;
+  profile: OpenMeldProfile;
+  projectFolder: string;
+  space: string;
+}): void {
+  const resumeCommand = buildSpaceAddMeResumeCommand({
+    actorProfileId: input.actorProfileId,
+    agentControllerPermissionMode: input.agentControllerPermissionMode,
+    agentProfileId: input.profile.openMeldProfileId,
+    confirmDangerousAgentControllerPermissionMode:
+      input.confirmDangerousAgentControllerPermissionMode,
+    modelSelection: input.modelSelection,
+    projectFolder: input.projectFolder,
+    space: input.space,
+  });
+  const payload = {
+    agentProfileId: input.profile.openMeldProfileId,
+    passwordRequiredOnRetry: input.passwordRequiredOnRetry,
+    profileCreation: "completed",
+    profileSetup: "in_progress",
+    resumeCommand,
+    spaceMembership: "not_confirmed",
+    wakeReadiness: "not_checked",
+  };
+  if (input.json || input.details) {
+    input.presenter.data({
+      code: "space.add_me.profile_created",
+      payload,
+    });
+    return;
+  }
+  const passwordNote = input.passwordRequiredOnRetry
+    ? " Add --password again if the Space still requires it; OpenMeld does not print password values."
+    : "";
+  input.presenter.line({
+    code: "space.add_me.profile_created",
+    text:
+      input.presenter.view === "agent"
+        ? `Agent Profile ${input.profile.openMeldProfileId} was created; setup is still in progress. Space membership and Wake readiness are not confirmed.`
+        : `Agent Profile ${input.profile.openMeldProfileId} was created; setup is still in progress. Space membership and Wake readiness are not confirmed. If this command stops, resume with: ${resumeCommand}.${passwordNote}`,
+    data: payload,
+  });
+}
+
+function buildSpaceAddMeResumeCommand(input: {
+  actorProfileId: string;
+  agentControllerPermissionMode: AgentControllerPermissionMode | null;
+  agentProfileId: string;
+  confirmDangerousAgentControllerPermissionMode: boolean;
+  modelSelection: NormalizedModelSelectionInput;
+  projectFolder: string;
+  space: string;
+}): string {
+  const parts = [
+    "openmeld space add-me",
+    quoteShellArg(input.space),
+    "--profile",
+    quoteShellArg(input.actorProfileId),
+    "--project-folder",
+    quoteShellArg(input.projectFolder),
+    "--agent-profile",
+    quoteShellArg(input.agentProfileId),
+  ];
+  if (input.agentControllerPermissionMode) {
+    parts.push(
+      "--agent-controller-permission-mode",
+      quoteShellArg(input.agentControllerPermissionMode)
+    );
+  }
+  if (input.confirmDangerousAgentControllerPermissionMode) {
+    parts.push("--confirm-dangerous-agent-controller-permission-mode");
+  }
+  if (input.modelSelection.modelId) {
+    parts.push("--model", quoteShellArg(input.modelSelection.modelId));
+  }
+  if (input.modelSelection.reasoningLevel) {
+    parts.push(
+      "--reasoning-effort",
+      quoteShellArg(input.modelSelection.reasoningLevel)
+    );
+  }
+  return formatOpenMeldCliCommand(parts.join(" "));
 }
 
 async function validateProjectFolder(projectFolder: string): Promise<void> {

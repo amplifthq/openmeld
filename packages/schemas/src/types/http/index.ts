@@ -112,6 +112,8 @@ export type {
   BulkAuthorizeAgentProfileBindingsForOrganizationBody,
   BulkAuthorizeAgentProfileBindingsForOrganizationResponse,
   BulkOrganizationBindingAuthorization,
+  CurrentAgentProfileSessionLookupQuery,
+  CurrentAgentProfileSessionLookupResponse,
   DisableAgentProfilePrimaryBindingResponse,
   EnsureAgentProfilePrimaryBindingBody,
   EnsureAgentProfilePrimaryBindingResponse,

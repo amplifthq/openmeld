@@ -11,12 +11,14 @@ import type {
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import { ADD_CARD_PICKER_CLASS_NAME } from "@openmeld/ui/lib/card-picker-contract";
 import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -26,7 +28,8 @@ import {
 } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
-import { AgentProfileOperationalStatusText } from "#/components/agents/agent-profile-operational-status";
+import { AgentProfileOperationalStatusIndicator } from "#/components/agents/agent-profile-operational-status";
+import { resolveAgentProfileOperationalStatus } from "#/components/agents/agent-profile-operational-status-presentation";
 import {
 	type AgentProfileSidebarGroup,
 	resolveAgentProfileSidebarGroups,
@@ -38,6 +41,7 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
+import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 
@@ -49,7 +53,8 @@ const EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID: ReadonlyMap<
 > = new Map();
 
 export type AgentProfilesWorkspaceProps = {
-	activeView: "agents" | "requests";
+	activeView: "agents" | "create" | "requests";
+	createPanel?: ReactNode;
 	currentUserId: string;
 	filterControl?: ReactNode;
 	hasAnyProfiles?: boolean;
@@ -57,7 +62,7 @@ export type AgentProfilesWorkspaceProps = {
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onCreateAgent: () => void;
 	onSelectProfile: (profileId: string) => void;
-	onViewChange: (view: "agents" | "requests") => void;
+	onViewChange: (view: "agents" | "create" | "requests") => void;
 	pendingRequestCount: number;
 	profiles: readonly AuthProfileView[];
 	profilesErrorMessage?: string;
@@ -205,7 +210,10 @@ function AgentProfilesWorkspaceSidebar(input: {
 			leadingContent={
 				<div className="space-y-1">
 					<Button
-						className="w-full min-w-0 justify-start overflow-hidden"
+						className={cn(
+							"w-full min-w-0 justify-start overflow-hidden",
+							input.input.activeView === "create" && "bg-sidebar-accent"
+						)}
 						onClick={input.input.onCreateAgent}
 						size="sm"
 						type="button"
@@ -263,6 +271,9 @@ function AgentProfilesWorkspaceContent(input: {
 	selectionMissing: boolean;
 	selectedProfile: AuthProfileView | null;
 }) {
+	if (input.input.activeView === "create") {
+		return input.input.createPanel ?? null;
+	}
 	if (input.input.activeView === "requests") {
 		return <AgentRequestsWorkspace input={input.input} />;
 	}
@@ -349,26 +360,37 @@ function AgentProfilesWorkspaceEmptyState(input: {
 }) {
 	const isFiltered = input.input.hasAnyProfiles === true;
 	const isSearchActive = input.input.isSearchActive === true;
-	let title = "No Agents yet";
-	let description = "Create an Agent to give your team an AI teammate.";
+	if (!(isSearchActive || isFiltered)) {
+		return (
+			<div className="grid min-h-full flex-1 place-items-center px-6 py-12 sm:px-10">
+				<button
+					className={cn(ADD_CARD_PICKER_CLASS_NAME, "h-auto w-full max-w-3xl")}
+					data-testid="create-agent-empty-state"
+					onClick={input.input.onCreateAgent}
+					type="button"
+				>
+					<SettingsAddComputerCardContent
+						description="Give your team an AI teammate that can work and reply in Spaces."
+						descriptionClassName="max-w-sm"
+						title="Create Agent"
+					/>
+				</button>
+			</div>
+		);
+	}
+
+	let title = "No Agents match this filter";
+	let description =
+		"Choose another Wake availability filter to see more Agents.";
 	if (isSearchActive) {
 		title = "No Agents found";
 		description = "Try another name, owner, Controller, or model.";
-	} else if (isFiltered) {
-		title = "No Agents match this filter";
-		description = "Choose another Wake availability filter to see more Agents.";
 	}
 	return (
 		<div className="grid min-h-full place-items-center px-6 py-12 text-center">
 			<div className="max-w-sm space-y-2">
 				<h1 className="font-medium text-base">{title}</h1>
 				<p className="text-muted-foreground text-sm">{description}</p>
-				{isFiltered ? null : (
-					<Button onClick={input.input.onCreateAgent} size="sm" type="button">
-						<PlusIcon aria-hidden="true" data-icon="inline-start" />
-						Create Agent
-					</Button>
-				)}
 			</div>
 		</div>
 	);
@@ -443,9 +465,19 @@ function AgentProfileSidebarItem(input: {
 		readiness: input.readiness,
 	});
 	const isOwner = input.profile.ownerUserId === input.currentUserId;
+	const operationalStatus = resolveAgentProfileOperationalStatus(
+		input.operationalContext
+	).status;
 	const hasReducedProminence =
 		presentation.availabilityCategory === "offline" ||
 		presentation.availabilityCategory === "unavailable";
+	const profileNameClassName = cn(
+		"min-w-0 truncate font-medium text-sm",
+		hasReducedProminence ? "text-muted-foreground" : null
+	);
+	const showAvailability =
+		presentation.availabilityCategory !== "available" &&
+		presentation.availabilityLabel.length > 0;
 	return (
 		<FluidNavMenuItem
 			index={input.index}
@@ -478,15 +510,20 @@ function AgentProfileSidebarItem(input: {
 				/>
 				<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
 					<span className="flex min-w-0 items-center justify-between gap-2">
-						<span
-							className={cn(
-								"min-w-0 truncate font-medium text-sm",
-								hasReducedProminence ? "text-muted-foreground" : null
-							)}
-						>
-							{input.profile.profileName}
-						</span>
-						<AgentProfileOperationalStatusText
+						{operationalStatus === "checking" ? (
+							<TextShimmer
+								as="span"
+								className={profileNameClassName}
+								duration={1.8}
+							>
+								{input.profile.profileName}
+							</TextShimmer>
+						) : (
+							<span className={profileNameClassName}>
+								{input.profile.profileName}
+							</span>
+						)}
+						<AgentProfileOperationalStatusIndicator
 							className="shrink-0"
 							operationalContext={input.operationalContext}
 						/>
@@ -496,24 +533,26 @@ function AgentProfileSidebarItem(input: {
 							{presentation.controllerModelSummary}
 						</span>
 					) : null}
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<span
-									className={cn(
-										"min-w-0 truncate font-medium text-xs",
-										presentation.availabilityClassName
-									)}
-									title={presentation.availabilityTooltip}
-								/>
-							}
-						>
-							{presentation.availabilityLabel}
-						</TooltipTrigger>
-						<TooltipContent side="top">
-							{presentation.availabilityTooltip}
-						</TooltipContent>
-					</Tooltip>
+					{showAvailability ? (
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<span
+										className={cn(
+											"min-w-0 truncate font-medium text-xs",
+											presentation.availabilityClassName
+										)}
+										title={presentation.availabilityTooltip}
+									/>
+								}
+							>
+								{presentation.availabilityLabel}
+							</TooltipTrigger>
+							<TooltipContent side="top">
+								{presentation.availabilityTooltip}
+							</TooltipContent>
+						</Tooltip>
+					) : null}
 				</span>
 			</button>
 		</FluidNavMenuItem>

@@ -706,6 +706,11 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     AUTO_FIX_LOCAL_RUNTIME,
     REQUIRED_SIGN_IN
   ),
+  "profile.current-session": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
   "profile.list": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

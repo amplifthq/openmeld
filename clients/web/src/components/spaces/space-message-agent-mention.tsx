@@ -1,6 +1,12 @@
-import { Fragment, type ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
+
+export type SpaceAgentProfileTriggerRenderer = (
+	profileId: string,
+	trigger: ReactElement
+) => ReactNode;
+
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
-import { SpaceProfileIcon } from "./space-profile-icon";
+import { SpaceMessageAgentMention } from "./space-message-agent-mention-view";
 
 const SPACE_MESSAGE_AGENT_MENTION_PATH_PREFIX =
 	"/__openmeld/message-agent-mentions/";
@@ -35,7 +41,7 @@ type MarkdownNode = {
 
 type SpaceMessageAgentRelation = "reference" | "wake";
 
-type SpaceMessageAgentMentionPresentation =
+export type SpaceMessageAgentMentionPresentation =
 	SpaceCollaborationProfilePresentation & {
 		relation: SpaceMessageAgentRelation;
 	};
@@ -85,37 +91,6 @@ export function buildSpaceMessageAgentMentionProfiles(input: {
 	return profilesById;
 }
 
-export function SpaceMessageAgentMentionText(input: {
-	onOpenAgentProfile?: (profileId: string) => void;
-	profilesById: SpaceMessageAgentMentionProfilesById;
-	renderText?: (text: string) => ReactNode;
-	text: string;
-}) {
-	return (
-		<>
-			{splitSpaceMessageAgentMentionText(input.text, input.profilesById).map(
-				(segment, index) => {
-					if (segment.kind === "text") {
-						return (
-							<Fragment key={`text:${String(index)}`}>
-								{input.renderText?.(segment.value) ?? segment.value}
-							</Fragment>
-						);
-					}
-
-					return (
-						<SpaceMessageAgentMention
-							key={`${segment.profile.profileId}:${String(segment.offset)}`}
-							onOpenAgentProfile={input.onOpenAgentProfile}
-							profile={segment.profile}
-						/>
-					);
-				}
-			)}
-		</>
-	);
-}
-
 export function createSpaceMessageAgentMentionRemarkPlugin(
 	profilesById: SpaceMessageAgentMentionProfilesById
 ) {
@@ -135,6 +110,7 @@ export function renderSpaceMessageAgentMentionInternalLink(input: {
 	href: string;
 	onOpenAgentProfile?: (profileId: string) => void;
 	profilesById: SpaceMessageAgentMentionProfilesById;
+	renderAgentProfileTrigger?: SpaceAgentProfileTriggerRenderer;
 }): ReactNode | null {
 	const parsedMention = parseSpaceMessageAgentMentionPath(input.href);
 	const baseProfile = parsedMention
@@ -151,64 +127,15 @@ export function renderSpaceMessageAgentMentionInternalLink(input: {
 		<SpaceMessageAgentMention
 			onOpenAgentProfile={input.onOpenAgentProfile}
 			profile={profile}
+			renderAgentProfileTrigger={input.renderAgentProfileTrigger}
 		/>
 	);
 }
 
-function SpaceMessageAgentMention(input: {
-	onOpenAgentProfile?: (profileId: string) => void;
-	profile: SpaceMessageAgentMentionPresentation;
-}) {
-	const relationLabel =
-		input.profile.relation === "wake" ? "Wake" : "Reference";
-	const content = (
-		<>
-			<span aria-hidden="true" className="shrink-0 font-semibold">
-				@
-			</span>
-			<SpaceProfileIcon
-				agentControllerRef={input.profile.agentControllerRef}
-				avatarImageUrl={input.profile.avatarImageUrl}
-				className="inline-flex"
-				isCenterAgent={input.profile.isCenterAgent}
-				profileId={input.profile.profileId}
-				profileKind={input.profile.profileKind}
-				profileName={input.profile.profileName}
-				size="inline"
-			/>
-			<strong className="min-w-0 truncate font-semibold">
-				{input.profile.profileName}
-			</strong>
-			<span className="shrink-0 border-border border-l pl-1.5 font-medium text-muted-foreground text-xs">
-				{relationLabel}
-			</span>
-		</>
-	);
-	const tokenClassName =
-		"inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70";
+export const SPACE_MESSAGE_AGENT_MENTION_TOKEN_CLASS_NAME =
+	"inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70";
 
-	if (!input.onOpenAgentProfile) {
-		return (
-			<span className={tokenClassName} data-slot="space-message-agent-mention">
-				{content}
-			</span>
-		);
-	}
-
-	return (
-		<button
-			aria-label={`Open ${input.profile.profileName} profile (${relationLabel})`}
-			className={`${tokenClassName} cursor-pointer border-0 transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50`}
-			data-slot="space-message-agent-mention"
-			onClick={() => input.onOpenAgentProfile?.(input.profile.profileId)}
-			type="button"
-		>
-			{content}
-		</button>
-	);
-}
-
-function splitSpaceMessageAgentMentionText(
+export function splitSpaceMessageAgentMentionText(
 	text: string,
 	profilesById: SpaceMessageAgentMentionProfilesById,
 	occurrenceCountByProfileId = new Map<string, number>()

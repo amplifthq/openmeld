@@ -258,6 +258,7 @@ export type SpaceApi = {
   getActiveWakeProgress: (
     input: SpaceRequestInput & {
       includeTiming?: boolean;
+      includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
       targetProfileId?: string;
     }
@@ -285,6 +286,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       clientMessageId: string;
       includeTiming?: boolean;
+      includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
       targetProfileId?: string;
     }

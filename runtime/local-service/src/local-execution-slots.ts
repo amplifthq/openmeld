@@ -38,9 +38,25 @@ export type LocalExecutionSlotSnapshot = {
 };
 
 export type LocalExecutionSlotWaitReason =
+  | "agent_controller_maintenance"
   | "global_concurrency"
   | "local_execution_lane_concurrency"
   | "none";
+
+export type LocalExecutionSlotAdapterOperationStatus =
+  | "available"
+  | "blocked_by_work"
+  | "operation_in_progress";
+
+export type LocalExecutionSlotAdapterOperationResult<T> =
+  | {
+      accepted: true;
+      value: T;
+    }
+  | {
+      accepted: false;
+      status: Exclude<LocalExecutionSlotAdapterOperationStatus, "available">;
+    };
 
 export type LocalExecutionSlotDiagnostics = LocalExecutionSlotSnapshot & {
   queuePosition: number | null;
@@ -110,7 +126,9 @@ export function createLocalExecutionSlots(input: {
     stopQueuedLifecycle: (() => void) | null;
     task: LocalExecutionSlotTask;
   }> = [];
+  const activeCountByAdapterId = new Map<string, number>();
   const activeCountByLaneKey = new Map<string, number>();
+  const adapterOperationIds = new Set<string>();
   const ownedAttemptKeys = new Set<string>();
   const ownedTaskIds = new Map<
     string,
@@ -130,6 +148,21 @@ export function createLocalExecutionSlots(input: {
     return activeCountByLaneKey.get(localExecutionLaneKey) ?? 0;
   };
 
+  const resolveAdapterOperationStatus = (
+    adapterId: string
+  ): LocalExecutionSlotAdapterOperationStatus => {
+    if (adapterOperationIds.has(adapterId)) {
+      return "operation_in_progress";
+    }
+    if (
+      (activeCountByAdapterId.get(adapterId) ?? 0) > 0 ||
+      pendingTasks.some((candidate) => candidate.task.adapterId === adapterId)
+    ) {
+      return "blocked_by_work";
+    }
+    return "available";
+  };
+
   const buildSnapshot = (
     localExecutionLaneKey: string
   ): LocalExecutionSlotSnapshot => {
@@ -142,8 +175,12 @@ export function createLocalExecutionSlots(input: {
   };
 
   const resolveWaitReason = (inputWait: {
+    adapterId: string | null;
     localExecutionLaneKey: string;
   }): LocalExecutionSlotWaitReason => {
+    if (inputWait.adapterId && adapterOperationIds.has(inputWait.adapterId)) {
+      return "agent_controller_maintenance";
+    }
     if (activeGlobal >= input.limits.globalConcurrency) {
       return "global_concurrency";
     }
@@ -157,6 +194,7 @@ export function createLocalExecutionSlots(input: {
   };
 
   const buildLocalQueueDiagnostics = (inputDiagnostics: {
+    adapterId: string | null;
     localExecutionLaneKey: string;
     queuePosition: number | null;
     status?: "queued" | "starting_runtime";
@@ -165,6 +203,7 @@ export function createLocalExecutionSlots(input: {
     const waitReason =
       inputDiagnostics.waitReason ??
       resolveWaitReason({
+        adapterId: inputDiagnostics.adapterId,
         localExecutionLaneKey: inputDiagnostics.localExecutionLaneKey,
       });
     const status =
@@ -194,6 +233,7 @@ export function createLocalExecutionSlots(input: {
       dispatchId: task.dispatchId,
       localExecutionLaneKey: task.localExecutionLaneKey,
       localQueue: buildLocalQueueDiagnostics({
+        adapterId: task.adapterId,
         localExecutionLaneKey: task.localExecutionLaneKey,
         queuePosition: inputEvent.queuePosition,
         status: inputEvent.status,
@@ -255,7 +295,11 @@ export function createLocalExecutionSlots(input: {
   };
 
   const notifyDrainWaitersIfIdle = (): void => {
-    if (pendingTasks.length > 0 || activeGlobal > 0) {
+    if (
+      pendingTasks.length > 0 ||
+      activeGlobal > 0 ||
+      adapterOperationIds.size > 0
+    ) {
       return;
     }
     while (drainWaiters.length > 0) {
@@ -272,8 +316,12 @@ export function createLocalExecutionSlots(input: {
       // otherwise it falls back to the Agent Profile identity.
       const nextTaskIndex = pendingTasks.findIndex((candidate) => {
         return (
+          !(
+            candidate.task.adapterId &&
+            adapterOperationIds.has(candidate.task.adapterId)
+          ) &&
           resolveActiveForLane(candidate.task.localExecutionLaneKey) <
-          LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT
+            LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT
         );
       });
       if (nextTaskIndex < 0) {
@@ -287,6 +335,12 @@ export function createLocalExecutionSlots(input: {
       const selectedTask = selectedPendingTask.task;
 
       activeGlobal += 1;
+      if (selectedTask.adapterId) {
+        activeCountByAdapterId.set(
+          selectedTask.adapterId,
+          (activeCountByAdapterId.get(selectedTask.adapterId) ?? 0) + 1
+        );
+      }
       activeCountByLaneKey.set(
         selectedTask.localExecutionLaneKey,
         resolveActiveForLane(selectedTask.localExecutionLaneKey) + 1
@@ -332,6 +386,20 @@ export function createLocalExecutionSlots(input: {
         .finally(() => {
           releaseTaskOwnership(selectedTask);
           activeGlobal = Math.max(0, activeGlobal - 1);
+          if (selectedTask.adapterId) {
+            const remainingActiveForAdapter = Math.max(
+              0,
+              (activeCountByAdapterId.get(selectedTask.adapterId) ?? 0) - 1
+            );
+            if (remainingActiveForAdapter === 0) {
+              activeCountByAdapterId.delete(selectedTask.adapterId);
+            } else {
+              activeCountByAdapterId.set(
+                selectedTask.adapterId,
+                remainingActiveForAdapter
+              );
+            }
+          }
           const remainingActiveForLane = Math.max(
             0,
             resolveActiveForLane(selectedTask.localExecutionLaneKey) - 1
@@ -351,6 +419,34 @@ export function createLocalExecutionSlots(input: {
   };
 
   return {
+    getAdapterOperationStatus(
+      adapterId: string
+    ): LocalExecutionSlotAdapterOperationStatus {
+      return resolveAdapterOperationStatus(adapterId);
+    },
+    async runAdapterOperationIfIdle<T>(
+      adapterId: string,
+      operation: () => Promise<T>
+    ): Promise<LocalExecutionSlotAdapterOperationResult<T>> {
+      const status = resolveAdapterOperationStatus(adapterId);
+      if (status !== "available") {
+        return {
+          accepted: false,
+          status,
+        };
+      }
+      adapterOperationIds.add(adapterId);
+      try {
+        return {
+          accepted: true,
+          value: await operation(),
+        };
+      } finally {
+        adapterOperationIds.delete(adapterId);
+        notifyDrainWaitersIfIdle();
+        pump();
+      }
+    },
     request(task: LocalExecutionSlotTask): LocalExecutionSlotRequestResult {
       const attemptKey = buildAttemptKey(task.dispatchId, task.attemptId);
       if (ownedAttemptKeys.has(attemptKey)) {
@@ -465,7 +561,11 @@ export function createLocalExecutionSlots(input: {
       };
     },
     drain(): Promise<void> {
-      if (pendingTasks.length === 0 && activeGlobal === 0) {
+      if (
+        pendingTasks.length === 0 &&
+        activeGlobal === 0 &&
+        adapterOperationIds.size === 0
+      ) {
         return Promise.resolve();
       }
       return new Promise<void>((resolve) => {

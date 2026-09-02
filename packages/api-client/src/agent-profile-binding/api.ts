@@ -2,6 +2,8 @@ import {
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
   authorizeAgentProfileBindingForOrganizationResponseSchema,
+  currentAgentProfileSessionLookupQuerySchema,
+  currentAgentProfileSessionLookupResponseSchema,
   disableAgentProfilePrimaryBindingResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
@@ -36,6 +38,7 @@ import {
   buildAgentProfilePrimaryBindingRoute,
   buildAgentProfileRouteCatalogSyncRoute,
   buildAgentProfilesRouteCatalogSyncRoute,
+  buildCurrentAgentProfileSessionRoute,
   buildCurrentUserAgentProfileOrganizationWakeAccessRoute,
 } from "./routes";
 import type {
@@ -45,6 +48,7 @@ import type {
   EnsureAgentProfilePrimaryBindingInput,
   GetAgentExecutionReadinessBatchInput,
   GetAgentExecutionReadinessInput,
+  GetCurrentAgentProfileSessionInput,
   NotifyAgentProfileRouteCatalogChangedInput,
   NotifyAgentProfilesRouteCatalogChangedInput,
   RevokeAgentProfileBindingForOrganizationInput,
@@ -58,6 +62,24 @@ const getAgentExecutionReadinessInputSchema =
   agentExecutionReadinessRouteParamsSchema.extend({
     requestContext: openMeldRequestContextSchema.optional(),
   });
+
+const getCurrentAgentProfileSessionInputSchema =
+  currentAgentProfileSessionLookupQuerySchema.extend({
+    requestContext: openMeldRequestContextSchema.optional(),
+  });
+
+function requireValidCurrentAgentProfileSessionInput(
+  input: GetCurrentAgentProfileSessionInput
+): GetCurrentAgentProfileSessionInput {
+  const parsed = getCurrentAgentProfileSessionInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ??
+        "Invalid current Agent Profile Session lookup."
+    );
+  }
+  return parsed.data;
+}
 
 const getAgentExecutionReadinessBatchInputSchema =
   getAgentExecutionReadinessBatchBodySchema.extend({
@@ -352,6 +374,17 @@ export const createAgentProfileBindingApi: CreateAgentProfileBindingApi = (
         schema: getAgentProfilePrimaryBindingResponseSchema,
         url: buildAgentProfilePrimaryBindingRoute(input.agentProfileId),
       }),
+    getCurrentSession: async (input) => {
+      const request = requireValidCurrentAgentProfileSessionInput(input);
+      return await client.requestJson({
+        invalidMessage: "Invalid current Agent Profile Session response.",
+        method: "GET",
+        operation: "agent_profile_binding.current_session.read",
+        requestContext: request.requestContext,
+        schema: currentAgentProfileSessionLookupResponseSchema,
+        url: buildCurrentAgentProfileSessionRoute(request),
+      });
+    },
     ensurePrimaryBinding: async (input) => {
       const body = requireValidBindingCommandBody(input);
 

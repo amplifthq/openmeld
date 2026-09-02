@@ -6,6 +6,7 @@ import {
 	resolveAgentWakeAvailabilityDisplayCategory,
 } from "@openmeld/agent-runtime";
 import type {
+	AgentProfileCreationRequest,
 	AuthProfileView,
 	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationProfileDirectoryResponse,
@@ -20,7 +21,11 @@ import {
 import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+	type AgentProfileActivityNavigation,
+	resolveAgentProfileActivityPreview,
+} from "#/components/agents/agent-profile-activity-preview";
 import { AgentProfileCreationRequestsPanel } from "#/components/agents/agent-profile-creation-requests-panel";
 import { AgentProfilesWorkspace } from "#/components/agents/agent-profiles-workspace";
 import {
@@ -32,7 +37,10 @@ import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profile
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
-import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
+import {
+	CreateAgentProfilePage,
+	CreateProfileDialog,
+} from "#/components/profiles/create-profile-dialog";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -47,6 +55,7 @@ import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent
 import { startQueryKeys } from "#/query/query-keys";
 
 export type ProfileHomeId = "agents" | "people";
+type AgentWorkspaceView = "agents" | "create" | "requests";
 
 type AgentProfileListFilter =
 	| AgentProfileAvailabilityFilter
@@ -76,12 +85,13 @@ const EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS: ReadonlySet<string> =
 	new Set();
 
 export function PeopleAndAgentsPage(input: {
-	activeAgentView?: "agents" | "requests";
+	activityPreview?: boolean;
+	activeAgentView?: AgentWorkspaceView;
 	activeSectionId: ProfileHomeId;
 	focusRequestId?: string | null;
 	focusProfileId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
-	onAgentViewChange?: (view: "agents" | "requests", profileId?: string) => void;
+	onAgentViewChange?: (view: AgentWorkspaceView, profileId?: string) => void;
 }) {
 	const account = useAppShellAccount();
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -93,6 +103,18 @@ export function PeopleAndAgentsPage(input: {
 	const [agentProfileFilter, setAgentProfileFilter] =
 		useState<AgentProfileListFilter>("all");
 	const [agentProfileSearchQuery, setAgentProfileSearchQuery] = useState("");
+	const [activityPreview, setActivityPreview] = useState(false);
+	useEffect(() => {
+		const isLocalHost =
+			window.location.hostname === "localhost" ||
+			window.location.hostname === "127.0.0.1" ||
+			window.location.hostname === "::1";
+		const isPreviewRequested =
+			input.activityPreview === true ||
+			new URLSearchParams(window.location.search).get("activityPreview") ===
+				"1";
+		setActivityPreview(isLocalHost && isPreviewRequested);
+	}, [input.activityPreview]);
 	const isOrganizationContext = currentOrganization.isPersonal !== true;
 	const activeAgentView = resolveActiveAgentView({
 		activeAgentView: input.activeAgentView,
@@ -167,28 +189,35 @@ export function PeopleAndAgentsPage(input: {
 				? profileHomeRoutes.agents
 				: profileHomeRoutes.people;
 		navigate({
-			search: { profileId: profile.openMeldProfileId },
+			search: {
+				activityPreview: activityPreview ? 1 : undefined,
+				profileId: profile.openMeldProfileId,
+			},
 			to: targetRoute,
 		}).catch((error: unknown) => {
 			console.error("Failed to open the created profile.", error);
 		});
 	};
+	const handleAgentRequestCreated = (request: AgentProfileCreationRequest) => {
+		if (request.createdAgentProfileId) {
+			navigate({
+				search: {
+					activityPreview: activityPreview ? 1 : undefined,
+					profileId: request.createdAgentProfileId,
+				},
+				to: profileHomeRoutes.agents,
+			}).catch((error: unknown) => {
+				console.error("Failed to open the created Agent.", error);
+			});
+			return;
+		}
+		input.onAgentViewChange?.("requests");
+	};
 	const createProfileDialog = isCreateProfileOpen ? (
 		<CreateProfileDialog
 			allowTeammateRequests={isOrganizationContext}
 			currentUserId={currentUserId}
-			onAgentRequestCreated={(request) => {
-				if (request.createdAgentProfileId) {
-					navigate({
-						search: { profileId: request.createdAgentProfileId },
-						to: profileHomeRoutes.agents,
-					}).catch((error: unknown) => {
-						console.error("Failed to open the created Agent.", error);
-					});
-					return;
-				}
-				input.onAgentViewChange?.("requests");
-			}}
+			onAgentRequestCreated={handleAgentRequestCreated}
 			onOpenChange={setIsCreateProfileOpen}
 			onProfileCreated={handleProfileCreated}
 			open={true}
@@ -218,10 +247,24 @@ export function PeopleAndAgentsPage(input: {
 		<>
 			<AgentsWorkspaceHome
 				activeView={activeAgentView}
+				activityPreview={activityPreview}
 				agentProfileSearchQuery={agentProfileSearchQuery}
 				availabilityFilter={resolveAgentProfileAvailabilityFilter(
 					agentProfileFilter
 				)}
+				createPanel={
+					activeAgentView === "create" ? (
+						<CreateAgentProfilePage
+							allowTeammateRequests={isOrganizationContext}
+							currentUserId={currentUserId}
+							onAgentRequestCreated={handleAgentRequestCreated}
+							onCancel={() => input.onAgentViewChange?.("agents")}
+							onProfileCreated={handleProfileCreated}
+							organizationId={currentOrganization.id}
+							recovery={recovery}
+						/>
+					) : null
+				}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
 				filterControl={
@@ -235,10 +278,13 @@ export function PeopleAndAgentsPage(input: {
 				focusRequestId={input.focusRequestId ?? null}
 				initialSidebarStates={input.initialSidebarStates}
 				isOrganizationContext={isOrganizationContext}
-				onCreateAgent={() => setIsCreateProfileOpen(true)}
+				onCreateAgent={() => input.onAgentViewChange?.("create")}
 				onSelectProfile={(profileId) => {
 					navigate({
-						search: { profileId },
+						search: {
+							activityPreview: activityPreview ? 1 : undefined,
+							profileId,
+						},
 						to: profileHomeRoutes.agents,
 					}).catch((error: unknown) => {
 						console.error("Failed to open the selected Agent.", error);
@@ -266,10 +312,16 @@ export function PeopleAndAgentsPage(input: {
 }
 
 function resolveActiveAgentView(input: {
-	activeAgentView: "agents" | "requests" | undefined;
+	activeAgentView: AgentWorkspaceView | undefined;
 	activeSectionId: ProfileHomeId;
 	isOrganizationContext: boolean;
-}): "agents" | "requests" {
+}): AgentWorkspaceView {
+	if (
+		input.activeSectionId === "agents" &&
+		input.activeAgentView === "create"
+	) {
+		return "create";
+	}
 	return input.activeSectionId === "agents" &&
 		input.activeAgentView === "requests" &&
 		input.isOrganizationContext
@@ -278,10 +330,12 @@ function resolveActiveAgentView(input: {
 }
 
 function AgentsWorkspaceHome(input: {
-	activeView: "agents" | "requests";
+	activeView: AgentWorkspaceView;
+	activityPreview: boolean;
 	availabilityFilter: AgentProfileAvailabilityFilter;
 	agentProfileSearchQuery: string;
 	currentUserId: string;
+	createPanel: ReactNode;
 	runtimeOverviewQuery: OrganizationAgentRuntimeOverviewQueryState;
 	profileDirectoryQuery: OrganizationProfileDirectoryQueryState;
 	fallbackOwnerLabel: string;
@@ -291,7 +345,7 @@ function AgentsWorkspaceHome(input: {
 	isOrganizationContext: boolean;
 	onCreateAgent: () => void;
 	onSelectProfile: (profileId: string) => void;
-	onViewChange: (view: "agents" | "requests", profileId?: string) => void;
+	onViewChange: (view: AgentWorkspaceView, profileId?: string) => void;
 	organizationId: string;
 	orgSlug: string;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
@@ -351,8 +405,46 @@ function AgentsWorkspaceHome(input: {
 	]);
 	const agentProfiles = organizationAgentProjection.profiles;
 	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
+	const activityPresentation = useMemo(() => {
+		if (!input.activityPreview) {
+			return {
+				navigationByProfileId: new Map<
+					string,
+					AgentProfileActivityNavigation
+				>(),
+				operationalContextByProfileId:
+					organizationAgentProjection.operationalContextByProfileId,
+			};
+		}
+		const previewContexts = new Map(
+			organizationAgentProjection.operationalContextByProfileId
+		);
+		const previewNavigation = new Map<string, AgentProfileActivityNavigation>();
+		for (const profile of agentProfiles) {
+			const preview = resolveAgentProfileActivityPreview(
+				profile.profileName,
+				input.orgSlug
+			);
+			if (preview) {
+				previewContexts.set(
+					profile.openMeldProfileId,
+					preview.operationalContext
+				);
+				previewNavigation.set(profile.openMeldProfileId, preview.navigation);
+			}
+		}
+		return {
+			navigationByProfileId: previewNavigation,
+			operationalContextByProfileId: previewContexts,
+		};
+	}, [
+		agentProfiles,
+		input.activityPreview,
+		input.orgSlug,
+		organizationAgentProjection,
+	]);
 	const operationalContextByProfileId =
-		organizationAgentProjection.operationalContextByProfileId;
+		activityPresentation.operationalContextByProfileId;
 	const errorByProfileId = useMemo(
 		() =>
 			input.runtimeOverviewQuery.isError && !input.runtimeOverviewQuery.data
@@ -501,77 +593,136 @@ function AgentsWorkspaceHome(input: {
 	}
 
 	return (
-		<AgentProfilesWorkspace
-			activeView={input.activeView}
-			currentUserId={input.currentUserId}
-			filterControl={input.filterControl}
-			hasAnyProfiles={agentProfiles.length > 0}
-			initialSidebarStates={input.initialSidebarStates}
-			isSearchActive={normalizedSearchQuery.length > 0}
-			onCreateAgent={input.onCreateAgent}
-			onSelectProfile={input.onSelectProfile}
-			onViewChange={input.onViewChange}
+		<AgentsWorkspaceHomeView
+			accountComputerSetupPath={accountComputerSetupPath}
+			accountServiceUpdatePath={accountServiceUpdatePath}
+			activityPresentation={activityPresentation}
+			agentProfiles={agentProfiles}
+			errorByProfileId={errorByProfileId}
+			input={input}
+			normalizedSearchQuery={normalizedSearchQuery}
 			operationalContextByProfileId={operationalContextByProfileId}
+			pendingProfileIds={pendingProfileIds}
 			pendingRequestCount={pendingRequestCount}
-			profiles={sidebarAgentProfiles}
 			profilesErrorMessage={profilesErrorMessage}
 			profilesStatus={profilesStatus}
+			queryClient={queryClient}
 			readinessByProfileId={readinessByProfileId}
-			readinessErrorByProfileId={errorByProfileId}
-			readinessPendingProfileIds={pendingProfileIds}
+			requestPanel={requestPanel}
+			sidebarAgentProfiles={sidebarAgentProfiles}
+			sidebarSelectedProfileId={sidebarSelectedProfileId}
+		/>
+	);
+}
+
+function AgentsWorkspaceHomeView(input: {
+	accountComputerSetupPath: string;
+	accountServiceUpdatePath: string;
+	activityPresentation: {
+		navigationByProfileId: ReadonlyMap<string, AgentProfileActivityNavigation>;
+		operationalContextByProfileId: ReadonlyMap<
+			string,
+			AgentProfileOperationalContextInput
+		>;
+	};
+	agentProfiles: readonly AuthProfileView[];
+	errorByProfileId: ReadonlyMap<string, string>;
+	input: Parameters<typeof AgentsWorkspaceHome>[0];
+	normalizedSearchQuery: string;
+	operationalContextByProfileId: ReadonlyMap<
+		string,
+		AgentProfileOperationalContextInput
+	>;
+	pendingProfileIds: ReadonlySet<string>;
+	pendingRequestCount: number;
+	profilesErrorMessage: string | undefined;
+	profilesStatus: "error" | "loading" | "ready";
+	queryClient: ReturnType<typeof useQueryClient>;
+	readinessByProfileId: ReadonlyMap<
+		string,
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
+	>;
+	requestPanel: ReactNode;
+	sidebarAgentProfiles: readonly AuthProfileView[];
+	sidebarSelectedProfileId: string | null;
+}) {
+	const workspace = input.input;
+	return (
+		<AgentProfilesWorkspace
+			activeView={workspace.activeView}
+			createPanel={workspace.createPanel}
+			currentUserId={workspace.currentUserId}
+			filterControl={workspace.filterControl}
+			hasAnyProfiles={input.agentProfiles.length > 0}
+			initialSidebarStates={workspace.initialSidebarStates}
+			isSearchActive={input.normalizedSearchQuery.length > 0}
+			onCreateAgent={workspace.onCreateAgent}
+			onSelectProfile={workspace.onSelectProfile}
+			onViewChange={workspace.onViewChange}
+			operationalContextByProfileId={input.operationalContextByProfileId}
+			pendingRequestCount={input.pendingRequestCount}
+			profiles={input.sidebarAgentProfiles}
+			profilesErrorMessage={input.profilesErrorMessage}
+			profilesStatus={input.profilesStatus}
+			readinessByProfileId={input.readinessByProfileId}
+			readinessErrorByProfileId={input.errorByProfileId}
+			readinessPendingProfileIds={input.pendingProfileIds}
 			renderProfileDetail={(profile) => (
 				<AgentProfilesCard
-					agentExecutionReadinessByProfileId={readinessByProfileId}
-					agentExecutionReadinessErrorByProfileId={errorByProfileId}
-					agentExecutionReadinessPendingProfileIds={pendingProfileIds}
-					agentProfileOperationalContextByProfileId={
-						operationalContextByProfileId
+					agentExecutionReadinessByProfileId={input.readinessByProfileId}
+					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
+					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
+					agentProfileActivityNavigationByProfileId={
+						input.activityPresentation.navigationByProfileId
 					}
-					agentProfiles={agentProfiles}
+					agentProfileOperationalContextByProfileId={
+						input.operationalContextByProfileId
+					}
+					agentProfiles={input.agentProfiles}
 					agentProfilesQueryState={{ isError: false, isPending: false }}
 					availabilityFilter="all"
 					canManageProfile={(candidate) =>
-						candidate.ownerUserId === input.currentUserId
+						candidate.ownerUserId === workspace.currentUserId
 					}
-					fallbackOwnerLabel={input.fallbackOwnerLabel}
+					fallbackOwnerLabel={workspace.fallbackOwnerLabel}
 					focusProfileId={profile.openMeldProfileId}
 					isCurrentComputer={true}
 					key={profile.openMeldProfileId}
 					presentation="detail"
-					queryClient={queryClient}
-					recovery={input.recovery}
-					serviceUpdatePath={accountServiceUpdatePath}
-					setupPath={accountComputerSetupPath}
+					queryClient={input.queryClient}
+					recovery={workspace.recovery}
+					serviceUpdatePath={input.accountServiceUpdatePath}
+					setupPath={input.accountComputerSetupPath}
 				/>
 			)}
 			renderProfilesController={() => (
 				<AgentProfilesCard
-					agentExecutionReadinessByProfileId={readinessByProfileId}
-					agentExecutionReadinessErrorByProfileId={errorByProfileId}
-					agentExecutionReadinessPendingProfileIds={pendingProfileIds}
+					agentExecutionReadinessByProfileId={input.readinessByProfileId}
+					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
+					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
 					agentProfileOperationalContextByProfileId={
-						operationalContextByProfileId
+						input.operationalContextByProfileId
 					}
-					agentProfiles={agentProfiles}
+					agentProfiles={input.agentProfiles}
 					agentProfilesQueryState={{ isError: false, isPending: false }}
 					availabilityFilter="all"
 					canManageProfile={(candidate) =>
-						candidate.ownerUserId === input.currentUserId
+						candidate.ownerUserId === workspace.currentUserId
 					}
-					fallbackOwnerLabel={input.fallbackOwnerLabel}
+					fallbackOwnerLabel={workspace.fallbackOwnerLabel}
 					focusProfileId={null}
 					isCurrentComputer={true}
 					presentation="controller"
-					queryClient={queryClient}
-					recovery={input.recovery}
-					serviceUpdatePath={accountServiceUpdatePath}
-					setupPath={accountComputerSetupPath}
+					queryClient={input.queryClient}
+					recovery={workspace.recovery}
+					serviceUpdatePath={input.accountServiceUpdatePath}
+					setupPath={input.accountComputerSetupPath}
 				/>
 			)}
-			requestPanel={requestPanel}
-			searchControl={input.searchControl}
-			selectedProfileId={sidebarSelectedProfileId}
-			showAgentRequests={input.isOrganizationContext}
+			requestPanel={input.requestPanel}
+			searchControl={workspace.searchControl}
+			selectedProfileId={input.sidebarSelectedProfileId}
+			showAgentRequests={workspace.isOrganizationContext}
 		/>
 	);
 }
