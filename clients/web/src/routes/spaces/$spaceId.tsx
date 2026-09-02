@@ -388,7 +388,6 @@ export function PublicSpacePage(input: {
 						className="min-w-0"
 						composerBlockedWakeProfileId={null}
 						composerErrorMessage={null}
-						composerFileLimitReached={false}
 						composerFiles={[]}
 						composerReplyToSignalId={null}
 						composerText=""
@@ -405,18 +404,11 @@ export function PublicSpacePage(input: {
 							/>
 						}
 						firstUnreadSignalId={null}
-						hasEarlierHistory={false}
 						historyActionErrorMessage={null}
 						historyErrorMessage={null}
-						historyIsPending={statusQuery.isPending || signalsQuery.isPending}
 						isAgentRecoveryPending={() => false}
-						isCenterAgentDirectMessage={false}
-						isCreatingThread={false}
 						isDiagnosticReportPending={() => false}
 						isDiagnosticReportSent={() => false}
-						isDirectMessage={false}
-						isLoadingEarlierHistory={false}
-						isSendingMessage={false}
 						membersSnapshot={null}
 						modelCatalog={null}
 						onAddComposerFiles={noopPromise}
@@ -435,7 +427,6 @@ export function PublicSpacePage(input: {
 						onSendStarterPrompt={noopPromise}
 						onSpaceViewChange={setSpaceView}
 						presentedWakeProgressItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
-						readOnly={true}
 						selfProfileId={PUBLIC_VIEWER_PROFILE_ID}
 						spaceReferencesById={spaceReferencesById}
 						spaceViewIdPrefix={spaceViewIdPrefix}
@@ -444,7 +435,21 @@ export function PublicSpacePage(input: {
 						threads={threads}
 						timelineItems={timelineItems}
 						unreadCount={0}
-						unreadStateReady={true}
+						viewState={{
+							composerFileLimitReached: false,
+							composerHasAuthoredMentions: false,
+							hasEarlierHistory: false,
+							historyIsPending: statusQuery.isPending || signalsQuery.isPending,
+							isCenterAgentDirectMessage: false,
+							isCreatingThread: false,
+							isDirectMessage: false,
+							isLoadingEarlierHistory: false,
+							isPersonalContext: false,
+							isSendingMessage: false,
+							readOnly: true,
+							threadsIsLoading: false,
+							unreadStateReady: true,
+						}}
 						wakeFailureTargetContextsByProfileId={
 							EMPTY_WAKE_FAILURE_TARGET_CONTEXTS
 						}

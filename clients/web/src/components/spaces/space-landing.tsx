@@ -1941,9 +1941,7 @@ function SpaceLandingConversation({
 			composerAuthoredMentions={controller.composerAuthoredMentions}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
-			composerFileLimitReached={controller.composerFileLimitReached}
 			composerFiles={controller.composerFiles}
-			composerHasAuthoredMentions={controller.composerHasAuthoredMentions}
 			composerMentionPickerItems={controller.composerMentionPickerItems}
 			composerPrimaryAction={composerPrimaryAction}
 			composerReplyToSignalId={controller.composerReplyToSignalId}
@@ -1968,22 +1966,14 @@ function SpaceLandingConversation({
 				/>
 			}
 			firstUnreadSignalId={controller.firstUnreadSignalId}
-			hasEarlierHistory={controller.hasEarlierHistory}
 			historyActionErrorMessage={controller.historyActionErrorMessage}
 			historyErrorMessage={historyErrorMessage}
-			historyIsPending={controller.historyIsPending}
 			initialFocusInteractionId={input.initialFocusInteractionId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			isAgentRecoveryPending={controller.isAgentRecoveryPending}
-			isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
-			isCreatingThread={controller.isCreatingThread}
 			isDiagnosticReportPending={controller.isDiagnosticReportPending}
 			isDiagnosticReportSent={controller.isDiagnosticReportSent}
-			isDirectMessage={isDirectMessage}
-			isLoadingEarlierHistory={controller.isLoadingEarlierHistory}
-			isPersonalContext={input.isPersonalContext === true}
-			isSendingMessage={controller.isSendingMessage}
 			membersSnapshot={controller.presentationMembersSnapshot}
 			modelCatalog={modelCatalog}
 			onAddComposerFiles={controller.onAddComposerFiles}
@@ -2014,12 +2004,6 @@ function SpaceLandingConversation({
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
-			readOnly={
-				!(
-					controller.isCurrentAccessConfirmed &&
-					currentProfileIsActiveSpaceMember
-				)
-			}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
 			renderSetupGuidance={(presentation) =>
 				controller.isCurrentAccessConfirmed ? (
@@ -2048,11 +2032,27 @@ function SpaceLandingConversation({
 			threadPreviews={controller.threadPreviews}
 			threads={controller.threads}
 			threadsErrorMessage={controller.threadsErrorMessage}
-			threadsIsLoading={controller.threadsIsLoading}
 			timelineItems={controller.timelineItems}
 			unreadCount={controller.unreadCount}
-			unreadStateReady={controller.unreadStateReady}
 			unreadTargets={spaceInboxReadPosition.targets}
+			viewState={{
+				composerFileLimitReached: controller.composerFileLimitReached,
+				composerHasAuthoredMentions: controller.composerHasAuthoredMentions,
+				hasEarlierHistory: controller.hasEarlierHistory,
+				historyIsPending: controller.historyIsPending,
+				isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+				isCreatingThread: controller.isCreatingThread,
+				isDirectMessage,
+				isLoadingEarlierHistory: controller.isLoadingEarlierHistory,
+				isPersonalContext: input.isPersonalContext === true,
+				isSendingMessage: controller.isSendingMessage,
+				readOnly: !(
+					controller.isCurrentAccessConfirmed &&
+					currentProfileIsActiveSpaceMember
+				),
+				threadsIsLoading: controller.threadsIsLoading,
+				unreadStateReady: controller.unreadStateReady,
+			}}
 			wakeFailureTargetContextsByProfileId={
 				wakeFailureTargetContextsByProfileId
 			}

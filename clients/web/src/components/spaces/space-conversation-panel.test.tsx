@@ -39,6 +39,13 @@ import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 type SpaceConversationPanelInput = ComponentProps<
 	typeof SpaceConversationPanel
 >;
+type SpaceConversationPanelViewState = SpaceConversationPanelInput["viewState"];
+type SpaceConversationPanelOverrides = Partial<
+	Omit<SpaceConversationPanelInput, "viewState"> &
+		SpaceConversationPanelViewState
+> & {
+	viewState?: Partial<SpaceConversationPanelViewState>;
+};
 
 const FAILED_TEXT_PATTERN = /failed/i;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
@@ -4364,7 +4371,7 @@ const UNSUPPORTED_WAKE_STOP_ELIGIBILITY = {
 } satisfies NonNullable<WakeProgressItem["wakeStopEligibility"]>;
 
 function renderSpaceConversationPanel(
-	overrides: Partial<SpaceConversationPanelInput> = {}
+	overrides: SpaceConversationPanelOverrides = {}
 ) {
 	return render(
 		<SpaceConversationPanel {...createSpaceConversationPanelProps(overrides)} />
@@ -4372,13 +4379,13 @@ function renderSpaceConversationPanel(
 }
 
 function renderSpaceConversationPanelWithViewTabs(
-	overrides: Partial<SpaceConversationPanelInput> = {}
+	overrides: SpaceConversationPanelOverrides = {}
 ) {
 	return render(<SpaceConversationPanelHarness overrides={overrides} />);
 }
 
 function SpaceConversationPanelHarness(input: {
-	overrides: Partial<SpaceConversationPanelInput>;
+	overrides: SpaceConversationPanelOverrides;
 }) {
 	const [activeSpaceView, setActiveSpaceView] = useState<SpaceView>(
 		input.overrides.activeSpaceView ?? "messages"
@@ -4459,14 +4466,30 @@ function createStructuredWakeTimelineItem(input: {
 }
 
 function createSpaceConversationPanelProps(
-	overrides: Partial<SpaceConversationPanelInput> = {}
+	overrides: SpaceConversationPanelOverrides = {}
 ): SpaceConversationPanelInput {
+	const {
+		composerFileLimitReached = false,
+		composerHasAuthoredMentions,
+		hasEarlierHistory = true,
+		historyIsPending = false,
+		isCenterAgentDirectMessage = false,
+		isCreatingThread = false,
+		isDirectMessage = false,
+		isLoadingEarlierHistory = false,
+		isPersonalContext,
+		isSendingMessage = false,
+		readOnly = true,
+		threadsIsLoading,
+		unreadStateReady = false,
+		viewState,
+		...propOverrides
+	} = overrides;
 	return {
 		activeSpaceView: "messages",
 		agentRecoveryPlansByProfileId: new Map(),
 		allowedActions: [],
 		centerAgentProfileId: "agent-profile-center",
-		composerFileLimitReached: false,
 		composerFiles: [],
 		composerBlockedWakeProfileId: null,
 		composerErrorMessage: null,
@@ -4476,19 +4499,12 @@ function createSpaceConversationPanelProps(
 		emptyStateDescription: null,
 		ephemeralActivityItems: [],
 		presentedWakeProgressItems: overrides.ephemeralActivityItems ?? [],
-		hasEarlierHistory: true,
 		historyActionErrorMessage: null,
 		historyErrorMessage: null,
-		historyIsPending: false,
 		firstUnreadSignalId: null,
 		isAgentRecoveryPending: () => false,
-		isCenterAgentDirectMessage: false,
-		isDirectMessage: false,
-		isCreatingThread: false,
 		isDiagnosticReportPending: () => false,
 		isDiagnosticReportSent: () => false,
-		isLoadingEarlierHistory: false,
-		isSendingMessage: false,
 		membersSnapshot: null,
 		modelCatalog: null,
 		onAgentRecoveryAction: async () => undefined,
@@ -4507,7 +4523,6 @@ function createSpaceConversationPanelProps(
 		onSendStarterPrompt: async () => undefined,
 		onSpaceViewChange: () => undefined,
 		orgSlug: "acme",
-		readOnly: true,
 		selfProfileId: "human-profile-1",
 		spaceViewIdPrefix: "space-view-test",
 		textareaRef: { current: null },
@@ -4516,9 +4531,24 @@ function createSpaceConversationPanelProps(
 		timelineItems: [],
 		unreadTargets: [],
 		unreadCount: 0,
-		unreadStateReady: false,
 		wakeFailureTargetContextsByProfileId: new Map(),
-		...overrides,
+		...propOverrides,
+		viewState: {
+			composerFileLimitReached,
+			composerHasAuthoredMentions,
+			hasEarlierHistory,
+			historyIsPending,
+			isCenterAgentDirectMessage,
+			isCreatingThread,
+			isDirectMessage,
+			isLoadingEarlierHistory,
+			isPersonalContext,
+			isSendingMessage,
+			readOnly,
+			threadsIsLoading,
+			unreadStateReady,
+			...viewState,
+		},
 	};
 }
 
