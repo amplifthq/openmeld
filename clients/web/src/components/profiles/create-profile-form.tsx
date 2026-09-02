@@ -51,6 +51,7 @@ import {
 	buildBuiltinAgentControllerRef,
 	formatModelOptionLabel,
 	formatReasoningLevelLabel,
+	type ResolvedModelCompatibility,
 	resolveAgentProfileConfigurationSummaries,
 	resolveCreateProfileSubmitBlockReason,
 	resolveModelCompatibility,
@@ -683,7 +684,7 @@ export function AgentControllerPermissionModeFields(input: {
 	);
 }
 
-export function AgentProfileModelSelectionFields(input: {
+type AgentProfileModelSelectionFieldsProps = {
 	agentId: string;
 	disabled: boolean;
 	modelCatalog: ModelCatalog | null;
@@ -692,46 +693,15 @@ export function AgentProfileModelSelectionFields(input: {
 	onChangeModelId: (modelId: string) => void;
 	onChangeReasoningLevel: (reasoningLevel: string) => void;
 	reasoningLevel: string;
-}) {
-	const modelSelectId = useId();
-	const reasoningSelectId = useId();
-	const controller =
-		input.modelCatalog?.agentControllers[input.agentId] ?? null;
-	const modelCompatibilityContext =
-		input.modelCompatibilityContext?.agentControllerId === input.agentId
-			? input.modelCompatibilityContext
-			: null;
-	const availableModels =
-		controller?.models.filter((model) => !model.unavailable) ?? [];
-	const currentUnavailableModel =
-		controller?.models.find(
-			(model) => model.id === input.modelId && model.unavailable
-		) ?? null;
-	const effectiveModelId = input.modelId || controller?.defaultModelId || "";
-	const selectedModel =
-		availableModels.find((model) => model.id === effectiveModelId) ??
-		currentUnavailableModel;
-	const reasoningLevels = selectedModel?.supportedReasoningLevels ?? [];
-	const supportsIndependentReasoning = availableModels.some(
-		(model) => model.supportedReasoningLevels.length > 0
-	);
-	const modelDisplayValue = resolveModelSelectDisplayValue({
-		modelId: effectiveModelId,
-		selectedModel,
-		defaultModelId: controller?.defaultModelId ?? "",
-	});
-	const reasoningDisplayValue = resolveReasoningSelectDisplayValue({
-		reasoningLevel: input.reasoningLevel,
-		selectedModel,
-	});
-	const selectedCompatibility = resolveSelectedModelCompatibility({
-		agentId: input.agentId,
-		modelCatalog: input.modelCatalog,
-		modelCompatibilityContext,
-		modelId: input.modelId,
-	});
+};
 
-	if (!controller || availableModels.length === 0) {
+export function AgentProfileModelSelectionFields(
+	input: AgentProfileModelSelectionFieldsProps
+) {
+	const modelSelectId = useId();
+	const state = resolveAgentProfileModelSelectionState(input);
+
+	if (!state) {
 		return null;
 	}
 
@@ -742,85 +712,200 @@ export function AgentProfileModelSelectionFields(input: {
 				<Select
 					disabled={input.disabled}
 					onValueChange={input.onChangeModelId}
-					value={effectiveModelId}
+					value={state.effectiveModelId}
 				>
 					<SelectTrigger
 						aria-label="Model"
 						className="h-10 w-full px-3 text-sm"
-						displayValue={modelDisplayValue}
+						displayValue={state.modelDisplayValue}
 						id={modelSelectId}
 						placeholder="Select a model"
 					/>
 					<SelectContent className="max-h-64">
-						{currentUnavailableModel ? (
-							<SelectItem disabled index={0} value={currentUnavailableModel.id}>
-								{formatUnavailableModelOptionLabel(currentUnavailableModel)}
+						{state.currentUnavailableModel ? (
+							<SelectItem
+								disabled
+								index={0}
+								value={state.currentUnavailableModel.id}
+							>
+								{formatUnavailableModelOptionLabel(
+									state.currentUnavailableModel
+								)}
 							</SelectItem>
 						) : null}
 						{renderCompatibleModelOptions({
-							controller,
-							context: modelCompatibilityContext,
-							models: availableModels,
-							startIndex: currentUnavailableModel ? 1 : 0,
+							controller: state.controller,
+							context: state.modelCompatibilityContext,
+							models: state.availableModels,
+							startIndex: state.currentUnavailableModel ? 1 : 0,
 						})}
 					</SelectContent>
 				</Select>
 				<ModelCompatibilityNotice
-					compatibility={selectedCompatibility}
-					context={modelCompatibilityContext}
+					compatibility={state.selectedCompatibility}
+					context={state.modelCompatibilityContext}
 				/>
-				{supportsIndependentReasoning ? null : (
-					<p className="text-muted-foreground text-xs">
-						{input.agentId === "cursor"
-							? "Cursor includes reasoning in the exact model choice."
-							: "This controller does not offer a separate reasoning setting."}
-					</p>
-				)}
+				<IndependentReasoningUnavailableNote
+					agentId={input.agentId}
+					supported={state.supportsIndependentReasoning}
+				/>
 			</div>
-			{supportsIndependentReasoning ? (
-				<div className="grid min-w-0 gap-2">
-					<Label htmlFor={reasoningSelectId}>Reasoning effort</Label>
-					<Select
-						disabled={
-							input.disabled || !selectedModel || reasoningLevels.length === 0
-						}
-						onValueChange={(reasoningLevel) =>
-							applyReasoningLevelSelection({
-								effectiveModelId,
-								modelId: input.modelId,
-								onChangeModelId: input.onChangeModelId,
-								onChangeReasoningLevel: input.onChangeReasoningLevel,
-								reasoningLevel,
-							})
-						}
-						value={input.reasoningLevel}
-					>
-						<SelectTrigger
-							aria-label="Reasoning effort"
-							className="h-10 w-full px-3 text-sm"
-							displayValue={reasoningDisplayValue}
-							id={reasoningSelectId}
-							placeholder="Use model default"
-						/>
-						<SelectContent className="max-h-64">
-							<SelectItem index={0} value="">
-								{formatDefaultReasoningSelectionLabel()}
-							</SelectItem>
-							{reasoningLevels.map((level, index) => (
-								<SelectItem index={index + 1} key={level} value={level}>
-									{formatReasoningLevelLabel(level)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-					{selectedModel && reasoningLevels.length === 0 ? (
-						<p className="text-muted-foreground text-xs">
-							Reasoning effort is not available for this model.
-						</p>
-					) : null}
-				</div>
-			) : null}
+			<AgentProfileReasoningSelection input={input} state={state} />
 		</div>
+	);
+}
+
+type AgentProfileModelSelectionState = {
+	availableModels: readonly ModelCatalogModel[];
+	controller: NonNullable<ModelCatalog["agentControllers"][string]>;
+	currentUnavailableModel: ModelCatalogModel | null;
+	effectiveModelId: string;
+	modelCompatibilityContext: AgentProfileModelCompatibilityContext | null;
+	modelDisplayValue: string;
+	reasoningDisplayValue: string | undefined;
+	reasoningLevels: readonly string[];
+	selectedCompatibility: ResolvedModelCompatibility | null;
+	selectedModel: ModelCatalogModel | null;
+	supportsIndependentReasoning: boolean;
+};
+
+function resolveAgentProfileModelSelectionState(
+	input: AgentProfileModelSelectionFieldsProps
+): AgentProfileModelSelectionState | null {
+	const controller =
+		input.modelCatalog?.agentControllers[input.agentId] ?? null;
+	if (!controller) {
+		return null;
+	}
+	const modelCompatibilityContext =
+		input.modelCompatibilityContext?.agentControllerId === input.agentId
+			? input.modelCompatibilityContext
+			: null;
+	const availableModels = controller.models.filter(
+		(model) => !model.unavailable
+	);
+	if (availableModels.length === 0) {
+		return null;
+	}
+	const currentUnavailableModel =
+		controller.models.find(
+			(model) => model.id === input.modelId && model.unavailable
+		) ?? null;
+	const effectiveModelId = input.modelId || controller.defaultModelId;
+	const selectedModel =
+		availableModels.find((model) => model.id === effectiveModelId) ??
+		currentUnavailableModel;
+	const reasoningLevels = selectedModel?.supportedReasoningLevels ?? [];
+	return {
+		availableModels,
+		controller,
+		currentUnavailableModel,
+		effectiveModelId,
+		modelCompatibilityContext,
+		modelDisplayValue: resolveModelSelectDisplayValue({
+			defaultModelId: controller.defaultModelId,
+			modelId: effectiveModelId,
+			selectedModel,
+		}),
+		reasoningDisplayValue: resolveReasoningSelectDisplayValue({
+			reasoningLevel: input.reasoningLevel,
+			selectedModel,
+		}),
+		reasoningLevels,
+		selectedCompatibility: resolveSelectedModelCompatibility({
+			agentId: input.agentId,
+			modelCatalog: input.modelCatalog,
+			modelCompatibilityContext,
+			modelId: input.modelId,
+		}),
+		selectedModel,
+		supportsIndependentReasoning: availableModels.some(
+			(model) => model.supportedReasoningLevels.length > 0
+		),
+	};
+}
+
+function IndependentReasoningUnavailableNote(input: {
+	agentId: string;
+	supported: boolean;
+}) {
+	if (input.supported) {
+		return null;
+	}
+	return (
+		<p className="text-muted-foreground text-xs">
+			{input.agentId === "cursor"
+				? "Cursor includes reasoning in the exact model choice."
+				: "This controller does not offer a separate reasoning setting."}
+		</p>
+	);
+}
+
+function AgentProfileReasoningSelection(input: {
+	input: AgentProfileModelSelectionFieldsProps;
+	state: AgentProfileModelSelectionState;
+}) {
+	const reasoningSelectId = useId();
+	if (!input.state.supportsIndependentReasoning) {
+		return null;
+	}
+	return (
+		<div className="grid min-w-0 gap-2">
+			<Label htmlFor={reasoningSelectId}>Reasoning effort</Label>
+			<Select
+				disabled={
+					input.input.disabled ||
+					!input.state.selectedModel ||
+					input.state.reasoningLevels.length === 0
+				}
+				onValueChange={(reasoningLevel) =>
+					applyReasoningLevelSelection({
+						effectiveModelId: input.state.effectiveModelId,
+						modelId: input.input.modelId,
+						onChangeModelId: input.input.onChangeModelId,
+						onChangeReasoningLevel: input.input.onChangeReasoningLevel,
+						reasoningLevel,
+					})
+				}
+				value={input.input.reasoningLevel}
+			>
+				<SelectTrigger
+					aria-label="Reasoning effort"
+					className="h-10 w-full px-3 text-sm"
+					displayValue={input.state.reasoningDisplayValue}
+					id={reasoningSelectId}
+					placeholder="Use model default"
+				/>
+				<SelectContent className="max-h-64">
+					<SelectItem index={0} value="">
+						{formatDefaultReasoningSelectionLabel()}
+					</SelectItem>
+					{input.state.reasoningLevels.map((level, index) => (
+						<SelectItem index={index + 1} key={level} value={level}>
+							{formatReasoningLevelLabel(level)}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			<ReasoningUnavailableForModelNote
+				hasSelectedModel={Boolean(input.state.selectedModel)}
+				reasoningLevelCount={input.state.reasoningLevels.length}
+			/>
+		</div>
+	);
+}
+
+function ReasoningUnavailableForModelNote(input: {
+	hasSelectedModel: boolean;
+	reasoningLevelCount: number;
+}) {
+	if (!(input.hasSelectedModel && input.reasoningLevelCount === 0)) {
+		return null;
+	}
+	return (
+		<p className="text-muted-foreground text-xs">
+			Reasoning effort is not available for this model.
+		</p>
 	);
 }
 
