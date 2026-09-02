@@ -753,13 +753,16 @@ describe("CreateProfileDialog", () => {
 		expect(
 			screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
 		).toContain("High");
-		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
-		expect(
-			await screen.findAllByRole("option", { name: "GPT-5.5 (default)" })
-		).toHaveLength(1);
+		const modelSelect = screen.getByRole("combobox", { name: "Model" });
+		fireEvent.click(modelSelect);
+		const defaultModelOptions = await screen.findAllByRole("option", {
+			name: "GPT-5.5 (default)",
+		});
+		expect(defaultModelOptions).toHaveLength(1);
 		expect(
 			screen.queryByRole("option", { name: USE_CONTROLLER_DEFAULT_PATTERN })
 		).toBeNull();
+		fireEvent.click(modelSelect);
 		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		const nameInput = (await screen.findByLabelText(
@@ -770,10 +773,13 @@ describe("CreateProfileDialog", () => {
 		});
 		fireEvent.change(nameInput, { target: { value: "My persistent Agent" } });
 		fireEvent.click(screen.getByRole("button", { name: "Back" }));
-		fireEvent.click(
-			await screen.findByRole("button", { name: ADVANCED_PATTERN })
-		);
-		fireEvent.click(await screen.findByRole("combobox", { name: "Model" }));
+		await waitFor(() => {
+			expect(screen.queryByLabelText("Agent name")).toBeNull();
+		});
+		const returnedModelSelect = await screen.findByRole("combobox", {
+			name: "Model",
+		});
+		fireEvent.click(returnedModelSelect);
 		fireEvent.click(
 			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
 		);

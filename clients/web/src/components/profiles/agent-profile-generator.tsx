@@ -21,6 +21,7 @@ import {
 	LazyMotion,
 	m,
 	useReducedMotion,
+	type Variants,
 } from "framer-motion";
 import { useId, useState } from "react";
 import { SpinnerButton } from "#/components/spinner-button";
@@ -41,6 +42,30 @@ import { LocalAgentSelector } from "./local-agent-selector";
 
 const PATH_SEPARATOR_PATTERN = /[\\/]/u;
 const TRAILING_PATH_SEPARATOR_PATTERN = /[\\/]+$/u;
+const GENERATOR_STEP_TRAVEL_PX = 64;
+
+type GeneratorStep = "configure" | "review";
+type GeneratorStepDirection = -1 | 1;
+type GeneratorStepMotionContext = {
+	direction: GeneratorStepDirection;
+	reduceMotion: boolean;
+};
+
+const GENERATOR_STEP_VARIANTS: Variants = {
+	active: { opacity: 1, transform: "translateX(0px)" },
+	exit: (context: GeneratorStepMotionContext) => ({
+		opacity: 0,
+		transform: context.reduceMotion
+			? "translateX(0px)"
+			: `translateX(${-context.direction * GENERATOR_STEP_TRAVEL_PX}px)`,
+	}),
+	initial: (context: GeneratorStepMotionContext) => ({
+		opacity: 0,
+		transform: context.reduceMotion
+			? "translateX(0px)"
+			: `translateX(${context.direction * GENERATOR_STEP_TRAVEL_PX}px)`,
+	}),
+};
 
 export type AgentProfileGeneratorProps = {
 	form: CreateProfileFormProps;
@@ -59,7 +84,8 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const reduceMotion = useReducedMotion() === true;
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const [allowWithoutLocalAgent, setAllowWithoutLocalAgent] = useState(false);
-	const [step, setStep] = useState<"configure" | "review">("configure");
+	const [step, setStep] = useState<GeneratorStep>("configure");
+	const [stepDirection, setStepDirection] = useState<GeneratorStepDirection>(1);
 	const advancedPanelId = useId();
 	const submitBlockReasonId = useId();
 	const form = input.form;
@@ -72,6 +98,14 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 		Boolean(form.boundAgentId) ||
 		allowWithoutLocalAgent ||
 		form.lockLocalAgentSelection === true;
+	const stepMotionContext: GeneratorStepMotionContext = {
+		direction: stepDirection,
+		reduceMotion,
+	};
+	const handleStepChange = (nextStep: GeneratorStep) => {
+		setStepDirection(nextStep === "review" ? 1 : -1);
+		setStep(nextStep);
+	};
 
 	return (
 		<LazyMotion features={domAnimation}>
@@ -83,30 +117,53 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 				data-testid="create-profile-panel"
 				onSubmit={form.onSubmit}
 			>
-				<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pr-1">
-					<GeneratorStepContent
-						advancedOpen={advancedOpen}
-						advancedPanelId={advancedPanelId}
-						allowWithoutLocalAgent={allowWithoutLocalAgent}
-						bindingChoices={bindingChoices}
-						form={form}
-						onAdvancedOpenChange={setAdvancedOpen}
-						onAllowWithoutLocalAgentChange={setAllowWithoutLocalAgent}
-						reduceMotion={reduceMotion}
-						selectedBinding={selectedBinding ?? null}
-						selectedBindingValue={selectedBindingValue}
-						step={step}
-						surface={input.surface}
-					/>
+				<div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+					<AnimatePresence
+						custom={stepMotionContext}
+						initial={false}
+						mode="popLayout"
+					>
+						<m.div
+							animate="active"
+							className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
+							custom={stepMotionContext}
+							exit="exit"
+							initial="initial"
+							key={step}
+							transition={
+								reduceMotion
+									? { duration: 0.14, ease: "easeOut" }
+									: { duration: 0.28, ease: [0.32, 0.72, 0, 1] }
+							}
+							variants={GENERATOR_STEP_VARIANTS}
+						>
+							<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pr-1">
+								<GeneratorStepContent
+									advancedOpen={advancedOpen}
+									advancedPanelId={advancedPanelId}
+									allowWithoutLocalAgent={allowWithoutLocalAgent}
+									bindingChoices={bindingChoices}
+									form={form}
+									onAdvancedOpenChange={setAdvancedOpen}
+									onAllowWithoutLocalAgentChange={setAllowWithoutLocalAgent}
+									reduceMotion={reduceMotion}
+									selectedBinding={selectedBinding ?? null}
+									selectedBindingValue={selectedBindingValue}
+									step={step}
+									surface={input.surface}
+								/>
+							</div>
+							<GeneratorActions
+								canContinue={canContinue}
+								form={form}
+								onCancel={input.onCancel}
+								onStepChange={handleStepChange}
+								step={step}
+								submitBlockReasonId={submitBlockReasonId}
+							/>
+						</m.div>
+					</AnimatePresence>
 				</div>
-				<GeneratorActions
-					canContinue={canContinue}
-					form={form}
-					onCancel={input.onCancel}
-					onStepChange={setStep}
-					step={step}
-					submitBlockReasonId={submitBlockReasonId}
-				/>
 			</form>
 		</LazyMotion>
 	);
@@ -124,67 +181,47 @@ function GeneratorStepContent(input: {
 	selectedBinding: AgentProfileBindingChoice | null;
 	selectedBindingValue: string;
 	surface: "dialog" | "page";
-	step: "configure" | "review";
+	step: GeneratorStep;
 }) {
-	return (
-		<AnimatePresence initial={false} mode="wait">
-			{input.step === "configure" ? (
-				<m.div
-					animate={{ opacity: 1, x: 0 }}
-					className="grid min-w-0 gap-5 pb-5"
-					exit={input.reduceMotion ? { opacity: 0 } : { opacity: 0, x: -12 }}
-					initial={input.reduceMotion ? { opacity: 0 } : { opacity: 0, x: 12 }}
-					key="configure"
-					transition={{ duration: input.reduceMotion ? 0 : 0.16 }}
-				>
-					<LocalAgentSelector
-						choices={input.bindingChoices}
-						disabled={input.form.isSubmitting}
-						emptyState={input.form.localAgentEmptyState}
-						isResolving={input.form.isResolvingLocalAgents}
-						locked={input.form.lockLocalAgentSelection}
-						onChange={(value) => {
-							input.onAllowWithoutLocalAgentChange(false);
-							(
-								input.form.onChangeAgentBindingValue ??
-								input.form.onChangeBoundAgentId
-							)(value);
-						}}
-						surface={input.surface}
-						value={input.selectedBindingValue}
-					/>
-					<AdvancedSetup
-						allowWithoutLocalAgent={input.allowWithoutLocalAgent}
-						form={input.form}
-						onAllowWithoutLocalAgentChange={
-							input.onAllowWithoutLocalAgentChange
-						}
-						onOpenChange={input.onAdvancedOpenChange}
-						open={input.advancedOpen}
-						panelId={input.advancedPanelId}
-						reduceMotion={input.reduceMotion}
-					/>
-				</m.div>
-			) : (
-				<m.div
-					animate={{ opacity: 1, x: 0 }}
-					className="grid min-w-0 gap-5 pb-5"
-					exit={input.reduceMotion ? { opacity: 0 } : { opacity: 0, x: 12 }}
-					initial={input.reduceMotion ? { opacity: 0 } : { opacity: 0, x: -12 }}
-					key="review"
-					transition={{ duration: input.reduceMotion ? 0 : 0.16 }}
-				>
-					<GeneratorReview
-						form={input.form}
-						selectedBinding={input.selectedBinding}
-					/>
-					<CreateProfileErrorNotice
-						errorState={input.form.errorState}
-						recoveryActionHref={input.form.recoveryActionHref}
-					/>
-				</m.div>
-			)}
-		</AnimatePresence>
+	return input.step === "configure" ? (
+		<div className="grid min-w-0 gap-5 pb-5">
+			<LocalAgentSelector
+				choices={input.bindingChoices}
+				disabled={input.form.isSubmitting}
+				emptyState={input.form.localAgentEmptyState}
+				isResolving={input.form.isResolvingLocalAgents}
+				locked={input.form.lockLocalAgentSelection}
+				onChange={(value) => {
+					input.onAllowWithoutLocalAgentChange(false);
+					(
+						input.form.onChangeAgentBindingValue ??
+						input.form.onChangeBoundAgentId
+					)(value);
+				}}
+				surface={input.surface}
+				value={input.selectedBindingValue}
+			/>
+			<AdvancedSetup
+				allowWithoutLocalAgent={input.allowWithoutLocalAgent}
+				form={input.form}
+				onAllowWithoutLocalAgentChange={input.onAllowWithoutLocalAgentChange}
+				onOpenChange={input.onAdvancedOpenChange}
+				open={input.advancedOpen}
+				panelId={input.advancedPanelId}
+				reduceMotion={input.reduceMotion}
+			/>
+		</div>
+	) : (
+		<div className="grid min-w-0 gap-5 pb-5">
+			<GeneratorReview
+				form={input.form}
+				selectedBinding={input.selectedBinding}
+			/>
+			<CreateProfileErrorNotice
+				errorState={input.form.errorState}
+				recoveryActionHref={input.form.recoveryActionHref}
+			/>
+		</div>
 	);
 }
 
@@ -192,8 +229,8 @@ function GeneratorActions(input: {
 	canContinue: boolean;
 	form: CreateProfileFormProps;
 	onCancel?: () => void;
-	onStepChange: (step: "configure" | "review") => void;
-	step: "configure" | "review";
+	onStepChange: (step: GeneratorStep) => void;
+	step: GeneratorStep;
 	submitBlockReasonId: string;
 }) {
 	return (
@@ -214,7 +251,7 @@ function GeneratorConfigureActions(input: {
 	canContinue: boolean;
 	form: CreateProfileFormProps;
 	onCancel?: () => void;
-	onStepChange: (step: "configure" | "review") => void;
+	onStepChange: (step: GeneratorStep) => void;
 }) {
 	return (
 		<div className="flex flex-col-reverse items-stretch justify-between gap-2 sm:flex-row sm:items-center">
@@ -245,7 +282,7 @@ function GeneratorConfigureActions(input: {
 
 function GeneratorReviewActions(input: {
 	form: CreateProfileFormProps;
-	onStepChange: (step: "configure" | "review") => void;
+	onStepChange: (step: GeneratorStep) => void;
 	submitBlockReasonId: string;
 }) {
 	const submitBlockReason = resolveCreateProfileSubmitBlockReason(input.form);
