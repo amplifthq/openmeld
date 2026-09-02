@@ -2,7 +2,7 @@
 
 import { cn } from "@openmeld/ui/lib/utils";
 import { domAnimation, LazyMotion, m, useReducedMotion } from "motion/react";
-import React, { type JSX, useMemo } from "react";
+import React, { type JSX } from "react";
 
 export type TextShimmerProps = {
 	children: string;
@@ -22,9 +22,7 @@ function TextShimmerComponent({
 	const shouldReduceMotion = useReducedMotion();
 	const MotionComponent = m.create(Component as keyof JSX.IntrinsicElements);
 
-	const dynamicSpread = useMemo(() => {
-		return children.length * spread;
-	}, [children, spread]);
+	const dynamicSpread = children.length * spread;
 	if (shouldReduceMotion) {
 		return (
 			<Component
