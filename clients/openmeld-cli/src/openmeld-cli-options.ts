@@ -112,6 +112,7 @@ export type SpaceAddMembersCliOptions = {
 
 export type SpaceAddMeCliOptions = {
   profile?: string;
+  agentProfile?: string;
   projectFolder?: string[];
   workspacePath?: string[];
   workingDirectory?: string[];

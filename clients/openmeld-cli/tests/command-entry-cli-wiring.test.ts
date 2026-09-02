@@ -448,7 +448,7 @@ describe("command entry CLI wiring", () => {
     );
   });
 
-  it("forwards add-me model selection flags to the Binding workflow", async () => {
+  it("forwards add-me model selection and exact Agent Profile reuse flags", async () => {
     const spaceId =
       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -460,6 +460,8 @@ describe("command entry CLI wiring", () => {
       "gpt-5.5",
       "--reasoning-effort",
       "xhigh",
+      "--agent-profile",
+      "agt_known",
     ]);
 
     expect(runMocks.runSpaceAddMe).toHaveBeenCalledOnce();
@@ -467,6 +469,7 @@ describe("command entry CLI wiring", () => {
       expect.objectContaining({
         model: "gpt-5.5",
         reasoningEffort: "xhigh",
+        agentProfile: "agt_known",
         space: spaceId,
       })
     );
@@ -741,6 +744,25 @@ describe("command entry CLI wiring", () => {
       targetOwner: "user-2",
       view: "agent",
     });
+  });
+
+  it("rejects a legacy conversation flag before an owner-request create can drop it", async () => {
+    await expect(
+      runCli([
+        "profiles",
+        "create",
+        "Current Codex",
+        "--kind",
+        "agent",
+        "--agent-controller",
+        "builtin:codex",
+        "--agent-controller-conversation-id",
+        "thread-1",
+        "--organization",
+        "amplift",
+      ])
+    ).rejects.toThrow("Use --session resume --native-session <id> instead.");
+    expect(runMocks.runProfileCreationRequestCreate).not.toHaveBeenCalled();
   });
 
   it("uses the same creation request contract for the current user's advanced choices", async () => {

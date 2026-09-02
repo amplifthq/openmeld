@@ -233,6 +233,9 @@ function resolveExistingBindingFromCommandResponse(
   return {
     agentControllerRef,
     openMeldServiceRuntimeId,
+    ...(response.binding?.agentProfileId
+      ? { agentProfileId: response.binding.agentProfileId }
+      : {}),
     ...(executionTarget?.agentControllerConversationId
       ? {
           agentControllerConversationId:

@@ -1323,7 +1323,7 @@ describe("profiles", () => {
     });
   });
 
-  it("shows unified workspace facts in agent profile show payload", async () => {
+  it("keeps the default agent profile show payload compact", async () => {
     await withTempHome(async () => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
       await setAuthSession({
@@ -1396,9 +1396,40 @@ describe("profiles", () => {
               reasoningLevel: "low",
             },
           },
+          workspace: {
+            status: "openmeld_managed",
+            configuredWorkspace: expect.any(String),
+            effectiveRuntimeWorkingDirectory: expect.any(String),
+          },
+          nextAction:
+            "openmeld profiles show agt_show_agent --details --view agent",
+        },
+      });
+      expect(lines[0]?.data).not.toMatchObject({
+        wakeRouteEvidence: expect.anything(),
+        openClawLocalDiagnostics: expect.anything(),
+        localAgent: expect.anything(),
+      });
+
+      const { stdout: detailedStdout } = await withCapturedStdio(async () => {
+        await runProfileShow({
+          details: true,
+          profile: "agt_show_agent",
+          view: "agent",
+        });
+      });
+      const detailed = detailedStdout
+        .trim()
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as { code?: string; data?: unknown });
+      expect(detailed).toHaveLength(1);
+      expect(detailed[0]).toMatchObject({
+        code: "profile.show",
+        data: {
           wakeRouteEvidence: {
-            status: "unavailable",
             reasonCode: "lookup_failed",
+            status: "unavailable",
           },
           workspace: {
             workspace: "OpenMeld-managed",
@@ -1628,8 +1659,9 @@ describe("profiles", () => {
           },
           updatedFields: ["workspace"],
           workspace: {
-            workspace: "OpenMeld-managed",
-            workspaceSource: "OpenMeld-managed",
+            status: "openmeld_managed",
+            configuredWorkspace: expect.any(String),
+            effectiveRuntimeWorkingDirectory: expect.any(String),
           },
         },
       });
