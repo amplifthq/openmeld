@@ -4041,6 +4041,10 @@ contract shared by Service reporting, owner reads, Organization Computers, Web,
 Center Agent, and Local Agent JSON. Each item has one stable key and label,
 `usedPercent` with 0–100 used semantics, nullable `resetsAt`, `observedAt`, and
 one of `available`, `exhausted`, `stale`, `unavailable`, or `unsupported`.
+An item may include a strict `provider` descriptor containing only a stable id
+and display name. This optional nesting keeps existing single-provider
+controllers wire-compatible while allowing one controller such as OpenCode to
+project several providers without flattening their independent capacity.
 `Low` is derived by presentation code and is not stored. Missing provider facts
 remain null; they must not become zero, 100, or unlimited capacity.
 

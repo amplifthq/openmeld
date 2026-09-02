@@ -2,6 +2,7 @@ import { AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS } from "@openmeld/schemas";
 import type { AgentControllerUsageLimit } from "@openmeld/schemas/types";
 import {
   AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  resolveAgentControllerProviderUsageLimitSupport,
   resolveAgentControllerUsageLimitSupport,
 } from "./agent-controller-usage-limit-support";
 import type { RuntimeAgentControllerReportStatus } from "./runtime-registry-contract";
@@ -38,13 +39,27 @@ export type AgentProfileUsageRecoveryAvailability = {
 export function resolveAgentProfileUsageWakeability(input: {
   agentControllerRef: string;
   nowMs: number;
+  providerId?: string | null;
   report?: AgentProfileUsageWakeabilityReport | null;
 }): AgentProfileUsageWakeability {
-  if (
-    resolveAgentControllerUsageLimitSupport(input.agentControllerRef) !==
-    "native"
-  ) {
+  const support = resolveAgentControllerUsageLimitSupport(
+    input.agentControllerRef
+  );
+  if (support !== "native" && support !== "provider_scoped") {
     return ALLOWS_NEW_WORK;
+  }
+  if (support === "provider_scoped") {
+    if (!input.providerId) {
+      return ALLOWS_NEW_WORK;
+    }
+    if (
+      resolveAgentControllerProviderUsageLimitSupport({
+        agentControllerRef: input.agentControllerRef,
+        providerId: input.providerId,
+      }) !== "native"
+    ) {
+      return ALLOWS_NEW_WORK;
+    }
   }
   const report = input.report;
   if (!report) {
@@ -57,9 +72,16 @@ export function resolveAgentProfileUsageWakeability(input: {
     return ALLOWS_NEW_WORK;
   }
   const supportedUsageLimits = report.usageLimits?.filter(
-    (usageLimit) => usageLimit.status !== "unsupported"
+    (usageLimit) =>
+      usageLimit.status !== "unsupported" &&
+      (support !== "provider_scoped" ||
+        usageLimit.provider?.id === input.providerId)
   );
-  if (report.usageLimits?.length && !supportedUsageLimits?.length) {
+  if (
+    support === "native" &&
+    report.usageLimits?.length &&
+    !supportedUsageLimits?.length
+  ) {
     return ALLOWS_NEW_WORK;
   }
   if (!supportedUsageLimits?.length) {
@@ -95,17 +117,31 @@ export function resolveAgentProfileUsageWakeability(input: {
 export function resolveAgentProfileUsageRecoveryAvailability(input: {
   agentControllerRef: string;
   nowMs: number;
+  providerId?: string | null;
   report?: AgentProfileUsageWakeabilityReport | null;
 }): AgentProfileUsageRecoveryAvailability {
+  const support = resolveAgentControllerUsageLimitSupport(
+    input.agentControllerRef
+  );
+  if (support !== "native" && support !== "provider_scoped") {
+    return USAGE_RECOVERY_UNAVAILABLE;
+  }
   if (
-    resolveAgentControllerUsageLimitSupport(input.agentControllerRef) !==
-    "native"
+    support === "provider_scoped" &&
+    (!input.providerId ||
+      resolveAgentControllerProviderUsageLimitSupport({
+        agentControllerRef: input.agentControllerRef,
+        providerId: input.providerId,
+      }) !== "native")
   ) {
     return USAGE_RECOVERY_UNAVAILABLE;
   }
   const report = input.report;
   const supportedUsageLimits = report?.usageLimits?.filter(
-    (usageLimit) => usageLimit.status !== "unsupported"
+    (usageLimit) =>
+      usageLimit.status !== "unsupported" &&
+      (support !== "provider_scoped" ||
+        usageLimit.provider?.id === input.providerId)
   );
   if (
     !report ||
