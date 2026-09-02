@@ -32,6 +32,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	canEdit: boolean;
 	agentControllerRef: string | null;
 	controllerModelSummary: string;
+	configurationContent?: ReactNode;
 	currentSession?: {
 		href: string;
 		nativeSessionId: string;
@@ -135,6 +136,8 @@ export function AgentProfileWorkspaceDetail(input: {
 					{input.overflowActions}
 				</div>
 			</div>
+			{input.configurationContent}
+			{input.editing ? input.editContent : null}
 			<AgentProfileOperationalContextPanel
 				fallbackAvailability={fallbackAvailability}
 				isOwner={showOwnerOperationalContext}
@@ -148,10 +151,7 @@ export function AgentProfileWorkspaceDetail(input: {
 			{input.supportingContent ? (
 				<div className="max-w-3xl">{input.supportingContent}</div>
 			) : null}
-
-			{input.editing ? (
-				input.editContent
-			) : (
+			{input.editing ? null : (
 				<ProfileDetailsContent
 					collapseAgentTechnicalDetails={showOwnerOperationalContext}
 					currentSession={input.currentSession}

@@ -1,20 +1,11 @@
 "use client";
 
-import {
-	getAgentControllerPermissionModeDisplayMetadata,
-	listAgentControllerPermissionModeOptions,
-} from "@openmeld/agent-runtime";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ArrowLeftIcon,
-	CaretDownIcon,
-	DesktopTowerIcon,
-	SlidersHorizontalIcon,
-} from "@phosphor-icons/react";
+import { ArrowLeftIcon, DesktopTowerIcon } from "@phosphor-icons/react";
 import {
 	AnimatePresence,
 	domAnimation,
@@ -30,8 +21,9 @@ import {
 	resolveAgentProfileTemplateModelName,
 } from "#/lib/profiles/agent-profile-template-name";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
+import { AgentConfigurationCard } from "./agent-configuration-card";
 import {
-	AgentProfileAdvancedFields,
+	AgentProfileConfigurationCards,
 	CreateProfileErrorNotice,
 	CreateProfileForm,
 	type CreateProfileFormProps,
@@ -40,8 +32,6 @@ import {
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { LocalAgentSelector } from "./local-agent-selector";
 
-const PATH_SEPARATOR_PATTERN = /[\\/]/u;
-const TRAILING_PATH_SEPARATOR_PATTERN = /[\\/]+$/u;
 const GENERATOR_STEP_TRAVEL_PX = 64;
 
 type GeneratorStep = "configure" | "review";
@@ -82,11 +72,9 @@ export function AgentProfileGenerator(input: AgentProfileGeneratorProps) {
 
 function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const reduceMotion = useReducedMotion() === true;
-	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const [allowWithoutLocalAgent, setAllowWithoutLocalAgent] = useState(false);
 	const [step, setStep] = useState<GeneratorStep>("configure");
 	const [stepDirection, setStepDirection] = useState<GeneratorStepDirection>(1);
-	const advancedPanelId = useId();
 	const submitBlockReasonId = useId();
 	const form = input.form;
 	const bindingChoices = resolveGeneratorBindingChoices(form);
@@ -139,14 +127,10 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 						>
 							<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pr-1">
 								<GeneratorStepContent
-									advancedOpen={advancedOpen}
-									advancedPanelId={advancedPanelId}
 									allowWithoutLocalAgent={allowWithoutLocalAgent}
 									bindingChoices={bindingChoices}
 									form={form}
-									onAdvancedOpenChange={setAdvancedOpen}
 									onAllowWithoutLocalAgentChange={setAllowWithoutLocalAgent}
-									reduceMotion={reduceMotion}
 									selectedBinding={selectedBinding ?? null}
 									selectedBindingValue={selectedBindingValue}
 									step={step}
@@ -170,14 +154,10 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 }
 
 function GeneratorStepContent(input: {
-	advancedOpen: boolean;
-	advancedPanelId: string;
 	allowWithoutLocalAgent: boolean;
 	bindingChoices: readonly AgentProfileBindingChoice[];
 	form: CreateProfileFormProps;
-	onAdvancedOpenChange: (open: boolean) => void;
 	onAllowWithoutLocalAgentChange: (allowed: boolean) => void;
-	reduceMotion: boolean;
 	selectedBinding: AgentProfileBindingChoice | null;
 	selectedBindingValue: string;
 	surface: "dialog" | "page";
@@ -205,10 +185,6 @@ function GeneratorStepContent(input: {
 				allowWithoutLocalAgent={input.allowWithoutLocalAgent}
 				form={input.form}
 				onAllowWithoutLocalAgentChange={input.onAllowWithoutLocalAgentChange}
-				onOpenChange={input.onAdvancedOpenChange}
-				open={input.advancedOpen}
-				panelId={input.advancedPanelId}
-				reduceMotion={input.reduceMotion}
 			/>
 		</div>
 	) : (
@@ -327,89 +303,51 @@ function AdvancedSetup(input: {
 	allowWithoutLocalAgent: boolean;
 	form: CreateProfileFormProps;
 	onAllowWithoutLocalAgentChange: (allowed: boolean) => void;
-	onOpenChange: (open: boolean) => void;
-	open: boolean;
-	panelId: string;
-	reduceMotion: boolean;
 }) {
-	const summary = resolveAdvancedSummary(input.form);
 	return (
-		<div className="grid min-w-0 gap-2">
-			<button
-				aria-controls={input.panelId}
-				aria-expanded={input.open}
-				className="flex min-h-12 w-full min-w-0 items-center gap-3 rounded-xl border border-border/70 px-3.5 py-2.5 text-left transition-colors duration-100 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-				onClick={() => input.onOpenChange(!input.open)}
-				title={summary}
-				type="button"
-			>
-				<SlidersHorizontalIcon
-					aria-hidden="true"
-					className="size-4 shrink-0 text-muted-foreground"
-				/>
-				<span className="min-w-0 flex-1">
-					<span className="block font-medium text-sm">Advanced</span>
-					<span className="block truncate text-muted-foreground text-xs">
-						{summary}
-					</span>
-				</span>
-				<CaretDownIcon
-					aria-hidden="true"
-					className={cn(
-						"size-4 shrink-0 text-muted-foreground transition-transform duration-150",
-						input.open && "rotate-180",
-						input.reduceMotion && "transition-none"
-					)}
-				/>
-			</button>
-
-			<AnimatePresence initial={false}>
-				{input.open ? (
-					<m.div
-						animate={{ opacity: 1, y: 0 }}
-						className="overflow-hidden"
-						exit={input.reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
-						id={input.panelId}
-						initial={
-							input.reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }
-						}
-						transition={{ duration: input.reduceMotion ? 0 : 0.16 }}
-					>
-						<div className="grid min-w-0 gap-5 rounded-xl border border-border/70 bg-muted/15 p-4">
-							{input.form.agentOwnershipSlot}
-							{input.form.agentSessionSlot}
-							{input.form.boundAgentId ? (
-								<AgentProfileAdvancedFields input={input.form} />
-							) : (
-								<div className="grid gap-2">
-									<p className="font-medium text-sm">Local agent</p>
-									<p className="text-muted-foreground text-xs leading-5">
-										You can create the Agent now and connect a local agent
-										later.
-									</p>
-									<Button
-										className="justify-self-start"
-										onClick={() =>
-											input.onAllowWithoutLocalAgentChange(
-												!input.allowWithoutLocalAgent
-											)
-										}
-										type="button"
-										variant={
-											input.allowWithoutLocalAgent ? "secondary" : "outline"
-										}
-									>
-										{input.allowWithoutLocalAgent
-											? "Creating without a local agent"
-											: "Create without a local agent"}
-									</Button>
-								</div>
-							)}
-						</div>
-					</m.div>
-				) : null}
-			</AnimatePresence>
-		</div>
+		<section className="grid min-w-0 gap-3 pt-1">
+			<div className="grid gap-1">
+				<h2 className="font-medium text-sm">Fine-tune the setup</h2>
+				<p className="text-muted-foreground text-xs leading-5">
+					The defaults are ready. Open a card only when you want to change it.
+				</p>
+			</div>
+			{input.form.boundAgentId ? (
+				<AgentProfileConfigurationCards input={input.form} />
+			) : (
+				<AgentConfigurationCard
+					description="Connect a controller later from this Agent's details."
+					icon={<DesktopTowerIcon aria-hidden="true" />}
+					label="Runs on"
+					summary={
+						input.allowWithoutLocalAgent
+							? "Connect later"
+							: "Choose a local agent first"
+					}
+				>
+					<div className="grid gap-3">
+						<p className="text-muted-foreground text-xs leading-5">
+							Create this Agent now and connect a local agent when you are
+							ready.
+						</p>
+						<Button
+							className="justify-self-start"
+							onClick={() =>
+								input.onAllowWithoutLocalAgentChange(
+									!input.allowWithoutLocalAgent
+								)
+							}
+							type="button"
+							variant={input.allowWithoutLocalAgent ? "secondary" : "outline"}
+						>
+							{input.allowWithoutLocalAgent
+								? "Connect later selected"
+								: "Create and connect later"}
+						</Button>
+					</div>
+				</AgentConfigurationCard>
+			)}
+		</section>
 	);
 }
 
@@ -505,72 +443,4 @@ function resolveGeneratorBindingChoices(
 			value: agentId,
 		};
 	});
-}
-
-function resolveAdvancedSummary(form: CreateProfileFormProps): string {
-	const modelName = resolveAgentProfileTemplateModelName({
-		agentId: form.boundAgentId,
-		modelCatalog: form.modelCatalog,
-		modelId: form.boundModelId,
-	});
-	const parts = [
-		modelName,
-		resolveAdvancedReasoningSummary(form),
-		resolveWorkingFolderSummary(form.projectFolderPath),
-		resolvePermissionModeSummary(form),
-	].filter((part): part is string => Boolean(part));
-	return parts.length > 0
-		? parts.join(" · ")
-		: "Owner, Session, Project, model, and permissions";
-}
-
-function resolveAdvancedReasoningSummary(
-	form: CreateProfileFormProps
-): string | null {
-	const controller = form.modelCatalog?.agentControllers[form.boundAgentId];
-	if (!controller) {
-		return formatAgentProfileReasoningLevel(form.boundReasoningLevel);
-	}
-	const effectiveModelId = form.boundModelId || controller.defaultModelId;
-	const selectedModel = controller.models.find(
-		(model) => model.id === effectiveModelId
-	);
-	if (!selectedModel || selectedModel.supportedReasoningLevels.length === 0) {
-		return null;
-	}
-	return (
-		formatAgentProfileReasoningLevel(form.boundReasoningLevel) ??
-		"Default reasoning"
-	);
-}
-
-function resolveWorkingFolderSummary(projectFolderPath: string): string | null {
-	const normalizedPath = projectFolderPath
-		.trim()
-		.replace(TRAILING_PATH_SEPARATOR_PATTERN, "");
-	if (!normalizedPath) {
-		return null;
-	}
-	const folderName =
-		normalizedPath.split(PATH_SEPARATOR_PATTERN).at(-1) ?? normalizedPath;
-	return `Folder: ${folderName}`;
-}
-
-function resolvePermissionModeSummary(
-	form: CreateProfileFormProps
-): string | null {
-	if (!form.boundAgentId) {
-		return null;
-	}
-	const agentControllerRef = `builtin:${form.boundAgentId}`;
-	if (
-		listAgentControllerPermissionModeOptions({ agentControllerRef }).length ===
-		0
-	) {
-		return null;
-	}
-	return getAgentControllerPermissionModeDisplayMetadata(
-		form.boundAgentControllerPermissionMode,
-		{ agentControllerRef }
-	).label;
 }

@@ -658,6 +658,19 @@ different Agent Controller's choices. Failed or cancelled creation does not
 replace the remembered values, and dangerous permission confirmations are
 never remembered as approved.
 
+Web may also keep an unfinished creation journey as a browser-local draft so a
+member can leave the flow and return without rebuilding ordinary selections.
+This draft is scoped by Organization and user, is advisory rather than
+authoritative, and may contain only the selected Agent Controller, supported
+model and reasoning choice, supported controller settings, and a cloud Project
+id. It never stores a custom absolute folder path or a dangerous-permission
+confirmation. Web restores the draft only after validating every value against
+the current local-agent catalog, model catalog, permission options, and Project
+list; otherwise it discards the stale draft and uses current defaults. A
+successful creation clears the journey draft. Restoring or abandoning this
+browser draft never writes or replaces the Core-owned remembered creation
+defaults.
+
 The Center Agent can read every saved controller-specific row for the
 represented member before creating a local Agent Profile. These values are
 concrete user preferences, not a rules engine or a forced configuration: the

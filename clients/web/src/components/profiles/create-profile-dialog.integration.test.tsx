@@ -39,7 +39,6 @@ const BORDER_CLASS_PATTERN = /\bborder\b/;
 const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
 const DEFAULT_GPT_55_MODEL_PATTERN = /GPT-5.5 \(default\)/;
 const AUTHORIZE_PATTERN = /authorize/i;
-const ADVANCED_PATTERN = /advanced/i;
 const USE_CONTROLLER_DEFAULT_PATTERN = /use controller default/i;
 const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
@@ -743,10 +742,12 @@ describe("CreateProfileDialog", () => {
 		);
 		await waitFor(() => {
 			expect(
-				screen.getByRole("button", { name: ADVANCED_PATTERN }).textContent
-			).toContain("GPT-5.5 · High");
+				screen.getByRole("button", { name: "Edit Model" }).textContent
+			).toContain("GPT-5.5 (default) · High");
 		});
-		fireEvent.click(screen.getByRole("button", { name: ADVANCED_PATTERN }));
+		if (!screen.queryByRole("combobox", { name: "Model" })) {
+			fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		}
 		expect(
 			screen.getByRole("combobox", { name: "Model" }).textContent
 		).toContain("GPT-5.5 (default)");
@@ -776,6 +777,9 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(screen.queryByLabelText("Agent name")).toBeNull();
 		});
+		if (!screen.queryByRole("combobox", { name: "Model" })) {
+			fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		}
 		const returnedModelSelect = await screen.findByRole("combobox", {
 			name: "Model",
 		});

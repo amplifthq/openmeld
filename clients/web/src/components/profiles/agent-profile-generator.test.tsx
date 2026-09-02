@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentProfileGenerator } from "./agent-profile-generator";
 import type { CreateProfileFormProps } from "./create-profile-form";
 
-const ADVANCED_BUTTON_NAME = /advanced/i;
 const CODEX_RADIO_NAME = /^codex$/i;
 const TEST_MODEL_CATALOG = {
 	agentControllers: {
@@ -43,18 +42,18 @@ describe("AgentProfileGenerator", () => {
 		expect(screen.getByRole("button", { name: "Create Agent" })).toBeTruthy();
 	});
 
-	it("keeps lower-frequency owner, Session, and Project choices under Advanced", () => {
+	it("keeps lower-frequency choices visible as quiet cards and opens only the selected editor", async () => {
 		render(<GeneratorHarness initialAgentId="codex" />);
 
 		expect(screen.queryByText("Owner choice")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: ADVANCED_BUTTON_NAME }));
+		fireEvent.click(screen.getByRole("button", { name: "Edit Owner" }));
 
-		expect(screen.getByText("Owner choice")).toBeTruthy();
-		expect(screen.getByText("Session choice")).toBeTruthy();
-		expect(screen.getByText("Project choice")).toBeTruthy();
+		expect(await screen.findByText("Owner choice")).toBeTruthy();
+		expect(screen.queryByText("Session choice")).toBeNull();
+		expect(screen.queryByText("Project choice")).toBeNull();
 	});
 
-	it("summarizes the effective setup before Advanced opens", () => {
+	it("summarizes the effective setup without opening an editor", () => {
 		render(
 			<GeneratorHarness
 				initialAgentId="codex"
@@ -64,19 +63,19 @@ describe("AgentProfileGenerator", () => {
 		);
 
 		expect(
-			screen.getByText(
-				"GPT-5.6 Sol · Default reasoning · Folder: openmeld · Ask for approval"
-			)
+			screen.getByText("GPT-5.6 Sol (default) · Model default")
 		).toBeTruthy();
+		expect(screen.getByText("openmeld")).toBeTruthy();
+		expect(screen.getByText("Ask for approval")).toBeTruthy();
 	});
 
 	it("allows an explicit unbound Agent without inventing an available local agent", async () => {
 		render(<GeneratorHarness availableLocalAgentIds={[]} initialAgentId="" />);
 
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: ADVANCED_BUTTON_NAME }));
+		fireEvent.click(screen.getByRole("button", { name: "Edit Runs on" }));
 		fireEvent.click(
-			screen.getByRole("button", { name: "Create without a local agent" })
+			await screen.findByRole("button", { name: "Create and connect later" })
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 

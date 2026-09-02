@@ -63,11 +63,17 @@ import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowClockwiseIcon,
+	BrainIcon,
 	ChatCircleTextIcon,
+	DesktopTowerIcon,
 	DotsThreeIcon,
+	FolderOpenIcon,
+	HandIcon,
 	InfoIcon,
+	LockKeyIcon,
 	RobotIcon,
 	TrashIcon,
+	UserCircleIcon,
 	WrenchIcon,
 } from "@phosphor-icons/react";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
@@ -104,6 +110,11 @@ import {
 	DirectoryCardItem,
 	DirectoryOwnerGroup,
 } from "#/components/directory/directory-card-grid";
+import {
+	AgentConfigurationCard,
+	AgentConfigurationEditorCard,
+	AgentConfigurationGrid,
+} from "#/components/profiles/agent-configuration-card";
 import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
 import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
 import {
@@ -3362,11 +3373,32 @@ function AgentProfileWorkspacePresentation(input: {
 			showDetailsAction={false}
 		/>
 	) : null;
+	const openProfileEditor = () => {
+		input.onOpenChange.menu(false);
+		input.onOpenChange.profileEdit(true);
+	};
 	return (
 		<>
 			<AgentProfileWorkspaceDetail
 				agentControllerRef={input.input.primaryAgentControllerRef}
 				canEdit={input.input.capabilities.canManage}
+				configurationContent={
+					input.input.capabilities.canManage &&
+					!input.presentationState.profileEditOpen ? (
+						<AgentProfileConfigurationOverview
+							controllerDisplayName={controllerDisplayName}
+							controllerModelSummary={ownerControllerModelSummary}
+							details={input.input.details}
+							disabled={
+								input.presentationState.profileEditPending ||
+								input.input.pendingState.disablePrimaryBinding
+							}
+							editState={input.input.editState}
+							onEdit={openProfileEditor}
+							runtime={input.runtime}
+						/>
+					) : null
+				}
 				controllerModelSummary={controllerModelSummary}
 				currentSession={input.currentSession}
 				details={input.input.details}
@@ -3407,8 +3439,7 @@ function AgentProfileWorkspacePresentation(input: {
 				isDirectMessagePending={input.input.pendingState.directMessage}
 				isRecoveryActionPending={input.input.pendingState.recoveryAction}
 				onEdit={() => {
-					input.onOpenChange.menu(false);
-					input.onOpenChange.profileEdit(true);
+					openProfileEditor();
 				}}
 				onOpenDirectMessage={() => {
 					input.input.onOpenDirectMessage().catch((error) => {
@@ -3467,6 +3498,114 @@ function AgentProfileWorkspacePresentation(input: {
 			/>
 		</>
 	);
+}
+
+function AgentProfileConfigurationOverview(input: {
+	controllerDisplayName: string | null;
+	controllerModelSummary: string;
+	details: ProfileDetailsSnapshot;
+	disabled: boolean;
+	editState: AgentProfileEditState | null;
+	onEdit: () => void;
+	runtime: {
+		computerName: string;
+		controllerName: string;
+		managePath: string;
+	} | null;
+}) {
+	const collaboration = input.editState?.controllerCollaborationMode;
+	const collaborationSummary = collaboration
+		? (collaboration.options.find(
+				(option) => option.value === collaboration.value
+			)?.label ?? "Controller default")
+		: "Controller default";
+	const permissionMode = input.editState?.controllerPermissionMode;
+	const permissionSummary = permissionMode?.value
+		? getAgentControllerPermissionModeDisplayMetadata(permissionMode.value, {
+				agentControllerRef: permissionMode.agentControllerRef,
+			}).label
+		: "Controller default";
+	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "You";
+	const workingFolder =
+		resolveProfileDetailsValue(input.details, "workspace_directory") ??
+		"OpenMeld managed";
+	const controllerSummary = input.runtime
+		? `${input.runtime.controllerName} · ${input.runtime.computerName}`
+		: (input.controllerDisplayName ?? "Connect later");
+
+	return (
+		<section
+			className="grid min-w-0 gap-3"
+			data-testid="agent-configuration-overview"
+		>
+			<div className="flex items-end justify-between gap-3">
+				<div className="grid gap-1">
+					<h2 className="font-medium text-sm">How this Agent works</h2>
+					<p className="text-muted-foreground text-xs leading-5">
+						Open a card to change its setup.
+					</p>
+				</div>
+			</div>
+			<AgentConfigurationGrid className="lg:grid-cols-3">
+				<AgentConfigurationCard
+					disabled={input.disabled}
+					icon={<UserCircleIcon aria-hidden="true" />}
+					label="Owner"
+					onClick={input.onEdit}
+					summary={owner}
+				/>
+				<AgentConfigurationCard
+					description="The local tool and computer that run this Agent."
+					disabled={input.disabled}
+					icon={<DesktopTowerIcon aria-hidden="true" />}
+					label="Runs on"
+					onClick={input.onEdit}
+					summary={controllerSummary}
+				/>
+				<AgentConfigurationCard
+					disabled={input.disabled}
+					icon={<FolderOpenIcon aria-hidden="true" />}
+					label="Working folder"
+					onClick={input.onEdit}
+					summary={workingFolder}
+				/>
+				<AgentConfigurationCard
+					disabled={input.disabled}
+					icon={<BrainIcon aria-hidden="true" />}
+					label="Model"
+					onClick={input.onEdit}
+					summary={input.controllerModelSummary}
+				/>
+				<AgentConfigurationCard
+					disabled={input.disabled}
+					icon={<HandIcon aria-hidden="true" />}
+					label="Collaboration"
+					onClick={input.onEdit}
+					summary={collaborationSummary}
+				/>
+				<AgentConfigurationCard
+					disabled={input.disabled}
+					icon={<LockKeyIcon aria-hidden="true" />}
+					label="Permissions"
+					onClick={input.onEdit}
+					summary={permissionSummary}
+				/>
+			</AgentConfigurationGrid>
+		</section>
+	);
+}
+
+function resolveProfileDetailsValue(
+	details: ProfileDetailsSnapshot,
+	rowId: string
+): string | null {
+	for (const section of details.sections) {
+		const row = section.rows.find((candidate) => candidate.id === rowId);
+		if (row?.value) {
+			return row.value;
+		}
+	}
+	return null;
 }
 
 function createAgentProfileEditDraft(
@@ -4006,106 +4145,155 @@ function AgentProfileEditDialogFields(input: {
 }) {
 	return (
 		<div className="grid gap-5">
-			<div className="grid gap-2">
-				<Label htmlFor={input.profileNameInputId}>Name</Label>
-				<Input
-					disabled={input.disabled}
-					id={input.profileNameInputId}
-					onChange={(event) => {
-						input.onDraftChange({
-							...input.activeDraft,
-							key: input.draftKey,
-							profileName: event.target.value,
-						});
-					}}
-					value={input.activeDraft.profileName}
-				/>
-				{input.dialogState.profileNameChanged &&
-				!input.dialogState.profileNameIsValid ? (
-					<p className="text-destructive text-xs">Enter an Agent name.</p>
-				) : null}
-			</div>
+			<AgentConfigurationEditorCard
+				description="Keep it recognizable when several Agents use similar setups."
+				icon={<RobotIcon aria-hidden="true" />}
+				label="Name"
+			>
+				<div className="grid gap-2">
+					<Label className="sr-only" htmlFor={input.profileNameInputId}>
+						Name
+					</Label>
+					<Input
+						disabled={input.disabled}
+						id={input.profileNameInputId}
+						onChange={(event) => {
+							input.onDraftChange({
+								...input.activeDraft,
+								key: input.draftKey,
+								profileName: event.target.value,
+							});
+						}}
+						value={input.activeDraft.profileName}
+					/>
+					{input.dialogState.profileNameChanged &&
+					!input.dialogState.profileNameIsValid ? (
+						<p className="text-destructive text-xs">Enter an Agent name.</p>
+					) : null}
+				</div>
+			</AgentConfigurationEditorCard>
 			{input.editState && input.activeEditState ? (
-				<>
-					<AgentProfileControllerChangeEditSection
-						activeDraft={input.activeDraft}
-						currentAgentControllerRef={input.editState.agentControllerRef}
-						currentControllerCollaborationMode={
-							input.editState.controllerCollaborationMode
-						}
-						currentControllerPermissionMode={
-							input.editState.controllerPermissionMode
-						}
-						currentModelSelection={input.editState.modelSelection}
-						disabled={
-							input.disabled ||
-							input.controllerChangeEligibilityStatus !== "allowed"
-						}
-						draftKey={input.draftKey}
-						modelCatalog={input.modelCatalog}
-						onDraftChange={input.onDraftChange}
-						options={input.controllerChangeOptions}
-					/>
-					{input.controllerChangeEligibilityStatus === "blocked" ? (
-						<div className="grid gap-1 text-muted-foreground text-xs leading-5">
-							<p>
-								Controller changes are unavailable while this Agent is working
-								because reconnecting would interrupt the current Wake.
-							</p>
-							<p>
-								Model, reasoning effort, collaboration mode, and OpenCode
-								permission changes apply to the next Wake.
-							</p>
+				<AgentConfigurationGrid>
+					<AgentConfigurationEditorCard
+						description="Changing this can interrupt where the Agent runs."
+						icon={<DesktopTowerIcon aria-hidden="true" />}
+						label="Runs on"
+					>
+						<div className="grid gap-3">
+							<AgentProfileControllerChangeEditSection
+								activeDraft={input.activeDraft}
+								currentAgentControllerRef={input.editState.agentControllerRef}
+								currentControllerCollaborationMode={
+									input.editState.controllerCollaborationMode
+								}
+								currentControllerPermissionMode={
+									input.editState.controllerPermissionMode
+								}
+								currentModelSelection={input.editState.modelSelection}
+								disabled={
+									input.disabled ||
+									input.controllerChangeEligibilityStatus !== "allowed"
+								}
+								draftKey={input.draftKey}
+								modelCatalog={input.modelCatalog}
+								onDraftChange={input.onDraftChange}
+								options={input.controllerChangeOptions}
+							/>
+							<ControllerChangeAvailabilityNote
+								status={input.controllerChangeEligibilityStatus}
+							/>
 						</div>
-					) : null}
-					{input.controllerChangeEligibilityStatus === "unavailable" ? (
-						<p className="text-muted-foreground text-xs leading-5">
-							OpenMeld couldn’t confirm whether this Agent is working, so
-							Controller changes are temporarily unavailable. Try again.
-						</p>
-					) : null}
-					<AgentProfileModelSelectionEditSection
-						activeDraft={input.activeDraft}
-						disabled={input.disabled}
-						draftKey={input.draftKey}
-						modelCatalog={input.modelCatalog}
-						modelCompatibilityContext={input.modelCompatibilityContext}
-						modelSelection={input.modelSelection}
-						onDraftChange={input.onDraftChange}
-					/>
-					<AgentProfileCollaborationModeEditSection
-						activeDraft={input.activeDraft}
-						controllerCollaborationMode={input.controllerCollaborationMode}
-						disabled={input.disabled}
-						draftKey={input.draftKey}
-						onDraftChange={input.onDraftChange}
-					/>
-					<AgentProfilePermissionModeEditSection
-						activeDraft={input.activeDraft}
-						confirmationId={input.confirmationId}
-						controllerPermissionMode={input.controllerPermissionMode}
-						disabled={input.disabled}
-						draftKey={input.draftKey}
-						focusRef={input.permissionControlRef}
-						isAgentWorking={
-							input.controllerChangeEligibilityStatus === "blocked"
-						}
-						onDraftChange={input.onDraftChange}
-						selectedPolicy={input.dialogState.selectedPolicy}
-					/>
-					<AgentProfileOpenCodePermissionEditSection
-						activeDraft={input.activeDraft}
-						disabled={input.disabled}
-						draftKey={input.draftKey}
-						onDraftChange={input.onDraftChange}
-						openCodePermission={input.openCodePermission}
-					/>
-				</>
+					</AgentConfigurationEditorCard>
+					<AgentConfigurationEditorCard
+						description="Choose the model and how deeply it reasons."
+						icon={<BrainIcon aria-hidden="true" />}
+						label="Model"
+					>
+						<AgentProfileModelSelectionEditSection
+							activeDraft={input.activeDraft}
+							disabled={input.disabled}
+							draftKey={input.draftKey}
+							modelCatalog={input.modelCatalog}
+							modelCompatibilityContext={input.modelCompatibilityContext}
+							modelSelection={input.modelSelection}
+							onDraftChange={input.onDraftChange}
+						/>
+					</AgentConfigurationEditorCard>
+					<AgentConfigurationEditorCard
+						description="How Codex works with you during a task."
+						icon={<HandIcon aria-hidden="true" />}
+						label="Collaboration"
+					>
+						<AgentProfileCollaborationModeEditSection
+							activeDraft={input.activeDraft}
+							controllerCollaborationMode={input.controllerCollaborationMode}
+							disabled={input.disabled}
+							draftKey={input.draftKey}
+							onDraftChange={input.onDraftChange}
+						/>
+					</AgentConfigurationEditorCard>
+					<AgentConfigurationEditorCard
+						description="What this Agent can do without asking."
+						icon={<LockKeyIcon aria-hidden="true" />}
+						label="Permissions"
+					>
+						<div className="grid gap-4">
+							<AgentProfilePermissionModeEditSection
+								activeDraft={input.activeDraft}
+								confirmationId={input.confirmationId}
+								controllerPermissionMode={input.controllerPermissionMode}
+								disabled={input.disabled}
+								draftKey={input.draftKey}
+								focusRef={input.permissionControlRef}
+								isAgentWorking={
+									input.controllerChangeEligibilityStatus === "blocked"
+								}
+								onDraftChange={input.onDraftChange}
+								selectedPolicy={input.dialogState.selectedPolicy}
+							/>
+							<AgentProfileOpenCodePermissionEditSection
+								activeDraft={input.activeDraft}
+								disabled={input.disabled}
+								draftKey={input.draftKey}
+								onDraftChange={input.onDraftChange}
+								openCodePermission={input.openCodePermission}
+							/>
+						</div>
+					</AgentConfigurationEditorCard>
+				</AgentConfigurationGrid>
 			) : (
 				<AgentProfileBindingUnavailableEditSection />
 			)}
 		</div>
 	);
+}
+
+function ControllerChangeAvailabilityNote(input: {
+	status: "allowed" | "blocked" | "unavailable";
+}) {
+	if (input.status === "blocked") {
+		return (
+			<div className="grid gap-1 text-muted-foreground text-xs leading-5">
+				<p>
+					Controller changes are unavailable while this Agent is working because
+					reconnecting would interrupt the current Wake.
+				</p>
+				<p>
+					Model, reasoning effort, collaboration mode, and OpenCode permission
+					changes apply to the next Wake.
+				</p>
+			</div>
+		);
+	}
+	if (input.status === "unavailable") {
+		return (
+			<p className="text-muted-foreground text-xs leading-5">
+				OpenMeld couldn’t confirm whether this Agent is working, so controller
+				changes are temporarily unavailable. Try again.
+			</p>
+		);
+	}
+	return null;
 }
 
 function AgentProfileControllerChangeEditSection(input: {
