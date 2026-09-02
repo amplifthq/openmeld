@@ -638,23 +638,20 @@ export function AgentProfileModelSelectionFields(input: {
 			: null;
 	const availableModels =
 		controller?.models.filter((model) => !model.unavailable) ?? [];
-	const defaultModel = availableModels.find(
-		(model) => model.id === controller?.defaultModelId
-	);
 	const currentUnavailableModel =
 		controller?.models.find(
 			(model) => model.id === input.modelId && model.unavailable
 		) ?? null;
+	const effectiveModelId = input.modelId || controller?.defaultModelId || "";
 	const selectedModel =
-		availableModels.find((model) => model.id === input.modelId) ??
+		availableModels.find((model) => model.id === effectiveModelId) ??
 		currentUnavailableModel;
 	const reasoningLevels = selectedModel?.supportedReasoningLevels ?? [];
 	const supportsIndependentReasoning = availableModels.some(
 		(model) => model.supportedReasoningLevels.length > 0
 	);
 	const modelDisplayValue = resolveModelSelectDisplayValue({
-		defaultModel,
-		modelId: input.modelId,
+		modelId: effectiveModelId,
 		selectedModel,
 		defaultModelId: controller?.defaultModelId ?? "",
 	});
@@ -680,31 +677,18 @@ export function AgentProfileModelSelectionFields(input: {
 				<Select
 					disabled={input.disabled}
 					onValueChange={input.onChangeModelId}
-					value={input.modelId}
+					value={effectiveModelId}
 				>
 					<SelectTrigger
 						aria-label="Model"
 						className="h-10 w-full px-3 text-sm"
 						displayValue={modelDisplayValue}
 						id={modelSelectId}
-						placeholder="Use controller default"
+						placeholder="Select a model"
 					/>
 					<SelectContent className="max-h-64">
-						<SelectItem
-							disabled={
-								resolveModelCompatibility({
-									controller,
-									context: modelCompatibilityContext,
-									modelId: controller.defaultModelId,
-								}).knownIncompatible
-							}
-							index={0}
-							value=""
-						>
-							{formatDefaultModelSelectionLabel(defaultModel)}
-						</SelectItem>
 						{currentUnavailableModel ? (
-							<SelectItem disabled index={1} value={currentUnavailableModel.id}>
+							<SelectItem disabled index={0} value={currentUnavailableModel.id}>
 								{formatUnavailableModelOptionLabel(currentUnavailableModel)}
 							</SelectItem>
 						) : null}
@@ -712,7 +696,7 @@ export function AgentProfileModelSelectionFields(input: {
 							controller,
 							context: modelCompatibilityContext,
 							models: availableModels,
-							startIndex: currentUnavailableModel ? 2 : 1,
+							startIndex: currentUnavailableModel ? 1 : 0,
 						})}
 					</SelectContent>
 				</Select>
@@ -735,7 +719,15 @@ export function AgentProfileModelSelectionFields(input: {
 						disabled={
 							input.disabled || !selectedModel || reasoningLevels.length === 0
 						}
-						onValueChange={input.onChangeReasoningLevel}
+						onValueChange={(reasoningLevel) =>
+							applyReasoningLevelSelection({
+								effectiveModelId,
+								modelId: input.modelId,
+								onChangeModelId: input.onChangeModelId,
+								onChangeReasoningLevel: input.onChangeReasoningLevel,
+								reasoningLevel,
+							})
+						}
 						value={input.reasoningLevel}
 					>
 						<SelectTrigger
@@ -743,7 +735,7 @@ export function AgentProfileModelSelectionFields(input: {
 							className="h-10 w-full px-3 text-sm"
 							displayValue={reasoningDisplayValue}
 							id={reasoningSelectId}
-							placeholder="Choose a model to set reasoning"
+							placeholder="Use model default"
 						/>
 						<SelectContent className="max-h-64">
 							<SelectItem index={0} value="">
@@ -767,15 +759,24 @@ export function AgentProfileModelSelectionFields(input: {
 	);
 }
 
+function applyReasoningLevelSelection(input: {
+	effectiveModelId: string;
+	modelId: string;
+	onChangeModelId: (modelId: string) => void;
+	onChangeReasoningLevel: (reasoningLevel: string) => void;
+	reasoningLevel: string;
+}): void {
+	if (input.reasoningLevel && !input.modelId) {
+		input.onChangeModelId(input.effectiveModelId);
+	}
+	input.onChangeReasoningLevel(input.reasoningLevel);
+}
+
 function resolveModelSelectDisplayValue(input: {
-	defaultModel: ModelCatalogModel | null | undefined;
 	defaultModelId: string;
 	modelId: string;
 	selectedModel: ModelCatalogModel | null;
 }): string {
-	if (!input.modelId) {
-		return formatDefaultModelSelectionLabel(input.defaultModel);
-	}
 	if (!input.selectedModel) {
 		return input.modelId;
 	}
@@ -793,14 +794,6 @@ function resolveReasoningSelectDisplayValue(input: {
 		return undefined;
 	}
 	return formatDefaultReasoningSelectionLabel();
-}
-
-function formatDefaultModelSelectionLabel(
-	defaultModel: ModelCatalogModel | null | undefined
-): string {
-	return defaultModel
-		? `Use controller default (${defaultModel.displayName})`
-		: "Use controller default";
 }
 
 function formatModelOptionLabel(

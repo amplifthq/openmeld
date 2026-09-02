@@ -732,7 +732,10 @@ import {
   type AgentProfileBindingLookupResult,
   lookupPrimaryAgentProfileBinding,
 } from "../agent-profile-binding/application/agent-profile-binding-lookup-service";
-import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
+import {
+  rememberAgentProfileCreationDefaults,
+  resolveFirstUseAgentProfileCreationDefaults,
+} from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { readLocalRuntimeExpectedRoutes } from "../agent-profile-binding/application/local-runtime-expected-routes-service";
 import {
   AgentProfileBindingOwnerInventoryLimitError,
@@ -5964,6 +5967,12 @@ export async function rpcGetAgentProfileCreationDefaults(
     organizationId,
     userId: membership.userId,
   });
+  const firstUseDefaults = preference
+    ? null
+    : resolveFirstUseAgentProfileCreationDefaults({
+        agentControllerRef,
+        modelCatalog: readModelCatalog(),
+      });
 
   return buildAgentProfileCreationDefaultsResponse({
     agentControllerCollaborationMode:
@@ -5972,10 +5981,11 @@ export async function rpcGetAgentProfileCreationDefaults(
       preference?.agentControllerPermissionMode ?? null,
     agentControllerRef,
     defaultProjectId: preference?.defaultProjectId ?? null,
-    modelId: preference?.modelId ?? null,
+    modelId: preference?.modelId ?? firstUseDefaults?.modelId ?? null,
     openCodePermission: preference?.openCodePermission ?? null,
     organizationId,
-    reasoningLevel: preference?.reasoningLevel ?? null,
+    reasoningLevel:
+      preference?.reasoningLevel ?? firstUseDefaults?.reasoningLevel ?? null,
     updatedAtMs: preference?.updatedAtMs ?? null,
     userId: membership.userId,
   });

@@ -79,7 +79,10 @@ becomes a first-class, user-selectable property of an Agent Profile.
    shown as **Auto** and is not silently substituted for another selection.
 4. **Default per agent controller**, maintainable at any time, used both as the
    default for new/unset profiles and as the runtime fallback when a configured
-   model cannot be used.
+   model cannot be used. Interactive selectors present that model once as
+   `<model> (default)` rather than adding a second abstract controller-default
+   option. Choosing an independent reasoning effort materializes the concrete
+   model ID because reasoning validity is model-specific.
 5. **Single availability flag.** A catalog model is either usable or
    `unavailable`. No separate deprecated/retired states.
 6. **No "latest" concept** in Phase 1 — not computed, not stored as a boolean,
@@ -115,6 +118,12 @@ becomes a first-class, user-selectable property of an Agent Profile.
     incompatibility disables that choice and offers the exact Computer as the
     place to update or change the Local Agent installation. OpenMeld never
     silently changes the user's selected model.
+13. **First-use reasoning is a creation preference, not a catalog/runtime
+    fallback.** Core proposes `high` for a user's first Codex Agent Profile and
+    the current catalog default model. Once the user creates an Agent, the
+    existing per-user, per-controller creation defaults remember explicit model
+    and reasoning choices, including `Use model default`. The public model
+    catalog does not currently declare a default reasoning field.
 
 ---
 

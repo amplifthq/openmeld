@@ -37,13 +37,26 @@ const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
 const OPENCODE_AGENT_PATTERN = /opencode/i;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
 const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
-const DEFAULT_GPT_55_MODEL_PATTERN = /Use controller default \(GPT-5.5\)/;
+const DEFAULT_GPT_55_MODEL_PATTERN = /GPT-5.5 \(default\)/;
 const AUTHORIZE_PATTERN = /authorize/i;
 const ADVANCED_PATTERN = /advanced/i;
+const USE_CONTROLLER_DEFAULT_PATTERN = /use controller default/i;
 const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
+const FIRST_USE_SELECTION_BY_AGENT_CONTROLLER_REF: Readonly<
+	Record<string, { modelId: string | null; reasoningLevel: string | null }>
+> = {
+	"builtin:claude-code": {
+		modelId: "claude-opus-4-8",
+		reasoningLevel: null,
+	},
+	"builtin:codex": {
+		modelId: "gpt-5.5",
+		reasoningLevel: "high",
+	},
+};
 type WebCreateAgentProfileCreationRequestInput = Parameters<
 	typeof import("#/lib/profiles/agent-profile-creation-requests").createAgentProfileCreationRequest
 >[0];
@@ -684,17 +697,21 @@ describe("CreateProfileDialog", () => {
 			);
 		getAgentProfileCreationDefaultsMock
 			.mockReset()
-			.mockImplementation(async ({ agentControllerRef, organizationId }) => ({
-				agentControllerPermissionMode: null,
-				agentControllerRef,
-				defaultProjectId: null,
-				modelId: null,
-				openCodePermission: null,
-				organizationId,
-				reasoningLevel: null,
-				updatedAt: null,
-				userId: "user-123",
-			}));
+			.mockImplementation(({ agentControllerRef, organizationId }) => {
+				const firstUseSelection = FIRST_USE_SELECTION_BY_AGENT_CONTROLLER_REF[
+					agentControllerRef
+				] ?? { modelId: null, reasoningLevel: null };
+				return {
+					agentControllerPermissionMode: null,
+					agentControllerRef,
+					defaultProjectId: null,
+					...firstUseSelection,
+					openCodePermission: null,
+					organizationId,
+					updatedAt: null,
+					userId: "user-123",
+				};
+			});
 		setAgentProfileCreationDefaultsMock
 			.mockReset()
 			.mockImplementation(async (defaults) => ({
@@ -724,13 +741,32 @@ describe("CreateProfileDialog", () => {
 				name: CURRENT_CODEX_RADIO_PATTERN,
 			})
 		);
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: ADVANCED_PATTERN }).textContent
+			).toContain("GPT-5.5 · High");
+		});
+		fireEvent.click(screen.getByRole("button", { name: ADVANCED_PATTERN }));
+		expect(
+			screen.getByRole("combobox", { name: "Model" }).textContent
+		).toContain("GPT-5.5 (default)");
+		expect(
+			screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
+		).toContain("High");
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		expect(
+			await screen.findAllByRole("option", { name: "GPT-5.5 (default)" })
+		).toHaveLength(1);
+		expect(
+			screen.queryByRole("option", { name: USE_CONTROLLER_DEFAULT_PATTERN })
+		).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
 		const nameInput = (await screen.findByLabelText(
 			"Agent name"
 		)) as HTMLInputElement;
 		await waitFor(() => {
-			expect(nameInput.value).toBe("Felix Codex GPT-5.5");
+			expect(nameInput.value).toBe("Felix Codex GPT-5.5 High");
 		});
 		fireEvent.change(nameInput, { target: { value: "My persistent Agent" } });
 		fireEvent.click(screen.getByRole("button", { name: "Back" }));
@@ -2399,7 +2435,7 @@ describe("CreateProfileDialog", () => {
 			).toContain("Ask permissions");
 			expect(
 				screen.getByRole("combobox", { name: "Model" }).textContent
-			).toContain("Use controller default");
+			).toContain("Claude Opus 4.8 (default)");
 			expect(
 				screen.getByRole("combobox", { name: "Working folder" }).textContent
 			).toContain("Let OpenMeld choose");
