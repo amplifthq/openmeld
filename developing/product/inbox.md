@@ -426,16 +426,25 @@ two optional delivery channels:
   revalidation remains pending and retryable. Unmounting the authenticated
   listener invalidates that context, so a delivery waiting on a browser lock
   cannot publish content from the previous account. Browser delivery never
-  forms a second unread store.
+  forms a second unread store. After Web successfully creates a browser
+  notification, it may play one browser-local OpenMeld sound. Ordinary
+  directly addressed updates use the `ready` cue; urgent or open
+  action-required items use the `chime` cue. Sounds default on for each member
+  in each browser and can be turned off independently of browser permission.
+  Web coalesces notifications observed within 350 milliseconds into one sound,
+  with `chime` winning a mixed burst. The cue uses the fixed full app volume;
+  there is no separate volume slider. Browser autoplay policy, missing audio
+  support, or playback failure stays silent, never changes notification
+  delivery truth, and never makes the Inbox item retry.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe
   content.
 
-Browser permission is device/browser state. The email preference is durable
-account state. Phase 1 does not provide per-source rules, schedules, digests,
-quiet hours, snooze, Slack delivery, CLI delivery, Web Push for a closed
-browser, Desktop delivery, or Mobile delivery.
+Browser permission and the OpenMeld sound preference are device/browser state.
+The email preference is durable account state. Phase 1 does not provide
+per-source rules, schedules, digests, quiet hours, snooze, Slack delivery, CLI
+delivery, Web Push for a closed browser, Desktop delivery, or Mobile delivery.
 
 ## Delivery reliability
 

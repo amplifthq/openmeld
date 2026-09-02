@@ -25,6 +25,8 @@ export function NotificationsSection() {
 		error: browserError,
 		isPending: browserPending,
 		setEnabled: updateBrowserNotifications,
+		setSoundEnabled: updateBrowserNotificationSounds,
+		soundError,
 		settings: browserSettings,
 	} = useInboxBrowserNotificationSettings(currentUserId);
 	const preferencesQuery = useQuery(
@@ -90,6 +92,11 @@ export function NotificationsSection() {
 		isPending: browserPending,
 		isSaved: false,
 	});
+	const soundStatus = resolveSettingsRowStatus({
+		hasError: soundError !== null,
+		isPending: false,
+		isSaved: false,
+	});
 	const emailError = emailMutation.isError
 		? emailMutation.error.message
 		: preferencesQuery.error?.message;
@@ -119,6 +126,19 @@ export function NotificationsSection() {
 					error={browserError ?? undefined}
 					label="Browser notifications"
 					status={browserStatus}
+				/>
+				<SettingsRow
+					control={
+						<Switch
+							aria-label="Play OpenMeld sounds"
+							checked={browserSettings.soundEnabled}
+							onCheckedChange={updateBrowserNotificationSounds}
+						/>
+					}
+					description="Play an OpenMeld sound when a browser notification appears on this device. Browser and system notification sounds are controlled separately."
+					error={soundError ?? undefined}
+					label="Play OpenMeld sounds"
+					status={soundStatus}
 				/>
 				<SettingsRow
 					control={
