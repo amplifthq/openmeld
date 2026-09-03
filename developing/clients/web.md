@@ -1795,9 +1795,14 @@ identity refresh remains tied to membership, Profile, designation, and Binding
 summary changes.
 
 The sidebar groups ordinary Agents by owner name. The signed-in member’s group
-is first, and remaining groups use a stable owner-name and owner-ID order. Each
-row shows the Agent avatar, name, a compact Controller and model summary when
-known, and the existing Core-owned Wake availability projection. Route-online,
+is always first. Remaining owner groups put current work first, then interrupted
+or waiting work, then sort by the most recently used Agent in that group. Within
+each group, working Agents come first, interrupted or waiting Agents follow, and
+the remaining Agents sort by descending `lastUsedAt`. Missing or invalid
+activity sorts last; owner name, Agent name, and stable IDs break ties. Checking
+readiness and Wake availability never count as work activity. Each row shows the
+Agent avatar, name, a compact Controller and model summary when known, and the
+existing Core-owned Wake availability projection. Route-online,
 Binding existence, browser-local recovery state, and completed Prepare evidence
 cannot substitute for that readiness. The selected `profileId` remains in the
 route search contract so refresh, back, forward, and request-to-Agent navigation
