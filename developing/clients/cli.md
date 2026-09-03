@@ -526,8 +526,8 @@ lane from prose or switch to a different CLI entry after setup.
 
 `setup.complete` should also include the normalized Local Components status.
 That status is the CLI/Agent View projection for local CLI, OpenMeld Service, and
-OpenMeld skills alignment. It exposes one setup action label such as `Connect
-Computer`, `Reconnect Computer`, `Update OpenMeld on Computer`, `Update OpenMeld skills`,
+OpenMeld skills alignment. It exposes one setup action label such as `Connect OpenMeld
+Service`, `Reconnect OpenMeld Service`, `Update OpenMeld Service`, `Update OpenMeld skills`,
 or `Everything is up to date`. Optional CLI package drift may appear as `OpenMeld CLI
 update available`. When the Core-owned release policy marks CLI or Service
 drift `required`, setup must preserve that `update_required` projection and must
@@ -1534,9 +1534,8 @@ is local OpenMeld Service evidence only. It must not be labeled as final
 Wakeability, final Wake truth, or final Space delivery truth.
 
 Reply-recovery copy may use shared Agent Profile recovery semantics. The CLI
-consumes the owner-provided action intent, adds terminal presentation context,
-and shows one clear next action. It does not reinterpret terminal-local or
-current-local-runtime evidence into another blocker or action decision.
+adapts terminal-local and current-local-runtime evidence into one clear next
+action. The copy explains known evidence; it does not decide Wakeability truth.
 
 ## Trace And Diagnostics Boundary
 

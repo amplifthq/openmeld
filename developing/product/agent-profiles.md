@@ -852,13 +852,6 @@ Profile identity, Wakeability, current workload, applied execution settings,
 Usage, and recovery actions. It does not own those facts and cannot decide
 execution by itself.
 
-This aggregate is a compatibility Profile Details projection during the Wake
-state convergence. Profile Directory, Wakeability, Activity, Wake Progress,
-Wake Outcome, and Recovery remain independently readable answers. New list and
-authoring consumers must not adopt Operational Context as a universal Agent
-status contract. The migration boundary and removal gates live in
-`developing/architecture/wake-state-convergence-plan.md`.
-
 When interrupted work needs attention, the owner projection exposes one direct
 `Skip interrupted work` action. The action is idempotent, resolves only the exact
 current recovery gate, and promotes the oldest queued Wake. A stale page cannot

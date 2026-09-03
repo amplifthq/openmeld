@@ -850,12 +850,18 @@ The same exact-version rule gates Usage recovery after an accepted Wake. A
 legacy report may remain compatible for ordinary execution, but its Usage fields
 cannot trigger automatic continuation under a newer Core capability matrix.
 
-After a Wake is accepted, its provider failure remains the Outcome of that exact
-Wake. It does not directly change later Wakeability. When structured failure
-evidence suggests a durable organization, provider-account, subscription, or
-Usage blocker, Core asks the owner of that current fact to confirm it and then
-refreshes Wakeability. A delayed failure may remain visible in diagnostics, but
-it cannot reopen a current blocker after the owner has returned a newer fact.
+After a Wake is accepted, a provider failure changes later Wakeability only
+when the result carries fresh structured hard-blocker evidence for the exact
+Agent Profile, Binding, device, runtime lane, OpenMeld Service Runtime, Agent
+Controller, and provider. Organization access disabled, subscription access
+unavailable, and exhausted hard quota/credit capacity may project
+`Unavailable`. A later accepted success for the same exact execution identity
+may clear only evidence no newer than that success. Core durably retains the
+latest accepted-result watermark even when no failure row existed, so a delayed
+older failure cannot reopen cleared evidence. Accepted-result time is the
+persisted ordering key; an exact-time success/failure tie fails closed in favor
+of the hard failure, while delayed failures and successes cannot overwrite
+newer accepted facts.
 
 The current compatibility read paths are:
 

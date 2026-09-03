@@ -2510,9 +2510,8 @@ combining immediate write-response cache patches with live invalidation frames.
 When Web creates or adds an Agent Profile to a Space, the successful
 `addMembers` response may be applied to the current members snapshot immediately
 so the new member appears without waiting for a slow follow-up refresh. Any
-missing Wakeability remains unresolved until the Core read returns. Web shows
-`Checking` only while that owner determination is active and bounded. For a
-newly created Agent Profile that Web just bound to
+missing Wakeability must remain unknown/checking until Core's compatibility
+read model returns it. For a newly created Agent Profile that Web just bound to
 a local controller and added to the Space, the immediate mutation cache patch may
 show `Checking` until the follow-up readiness refresh completes. Web must not
 show `Offline` merely because the mutation response is missing or racing
@@ -3990,15 +3989,13 @@ current compatibility APIs and types may still use readiness or execution-status
 names during the migration described in
 `developing/architecture/wake-state-convergence-plan.md`.
 
-Web keeps the latest settled Core verdict visible while refreshing and presents
-freshness separately, for example **Available · Checked 3 minutes ago** with
-**Refreshing…** while the request is active. `Checking` is reserved for an
-active owner determination when the current owner lacks enough evidence for a
-settled verdict. It is bounded; after
-the refresh window or attempt budget is exhausted, Web stops the transient and
-renders the latest Core-owned verdict or recovery guidance. A newly returned
-Core `Offline` or `Unavailable` verdict replaces an older `Available` verdict
-immediately.
+Web may briefly refresh local owner diagnostics when Core reports checking or
+self-healing evidence, but that refresh behavior must have an explicit
+expiration boundary. After the refresh window or attempt budget is exhausted,
+Web must stop presenting transient checking as the public state and must return
+to the latest Core-owned Wakeability or owner recovery guidance. It must not
+keep a last-known `Available` badge when the current Core projection says the
+route, service, or execution path is no longer available.
 
 The Space Members surface may use Core/Space active Wake progress read models to
 show that a target Agent Profile is actively running or waiting for OpenMeld Service,
@@ -4007,11 +4004,12 @@ is presentation-only evidence for one active Wake. It must not become final
 Wakeability, recovery eligibility, Binding truth, member sorting, mention
 authoring, or Profile Details truth.
 
-Visual smoothing may debounce a brief transport refresh, but every surface
-continues to render the same settled Core verdict. Terminal `offline_for_wake`
+Visual smoothing for brief `checking_connection` flicker may replay the last
+`Available` presentation only for the compact row indicator and its accessible
+label, and only inside a bounded debounce window. Terminal `offline_for_wake`
 or `unavailable_for_wake`, cold-start checking, recovery actions, diagnostics,
-Profile Details, sorting, and command eligibility continue to read the owning
-Core/Space projection; smoothing never creates another status rule.
+Profile Details, sorting, and command eligibility must continue to read the raw
+Core/Space snapshot.
 
 The Space Members surface presents an Agent Profile's availability as a compact
 status indicator immediately after the profile name instead of repeating the
@@ -4027,10 +4025,9 @@ red indicator until the owning readiness contract exposes a distinct failure
 severity that warrants it.
 
 Reply recovery copy may be shared through Agent Profile recovery semantics. Web
-consumes the Core-provided action intent and viewer-permitted capability, adds
-presentation context such as a known Computer name, and presents one clear next
-action. It does not reinterpret reason codes or current-local-runtime evidence
-into another blocker or action decision.
+adapts browser-local and current-local-runtime evidence into that shared copy,
+then presents one clear next action. The copy explains known evidence and the
+next step. It does not decide Wakeability or execution truth.
 
 Known blockers name the affected object and place the action beside the
 explanation. Computer recovery uses **Connect computer**, **Reconnect

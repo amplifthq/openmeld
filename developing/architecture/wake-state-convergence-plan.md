@@ -32,8 +32,8 @@ identity, current availability, background activity, one Wake's lifecycle, or a
 repair action into one ambiguous status.
 
 The target is not a larger universal status object. It is a small set of
-owner-specific projections that may be composed for presentation without
-acquiring authority over one another.
+owner-specific answers that may be composed for presentation without acquiring
+authority over one another.
 
 ## Non-Goals
 
@@ -48,9 +48,9 @@ Batch 0 does not:
 
 ## One Question, One Answer
 
-Each public question has one authoritative projection. A composed screen may
+Each public question has one authoritative answer. A composed screen may
 show several answers together, but one answer must never be recomputed from a
-different projection.
+different answer.
 
 | User question | Authoritative answer | Source ownership | Must not decide |
 | --- | --- | --- | --- |
@@ -59,11 +59,15 @@ different projection.
 | What is this Agent doing? | Agent Activity | Agent Activity owns privacy-safe provider-observed session activity | Wakeability, queue position, or Wake outcome |
 | What is happening to this Wake? | Wake Progress | The per-Wake projection consumes Work Coordinator queue truth and RuntimeCoordinator execution truth | Future Wakeability or general Agent Activity |
 | What happened to this Wake? | Wake Outcome | RuntimeCoordinator owns execution outcome; Space owns visible reply or outcome publication | Current Wakeability for later requests |
-| What can I do now? | Recovery | Recovery maps a current blocker or exact Wake outcome to one permitted next action | The blocker, execution outcome, or local facts it consumes |
+| What can I do now? | Recovery | A shared stateless resolver maps current owner facts or one exact Wake Outcome to one permitted next action | The blocker, execution outcome, or local facts it consumes |
 
-The public answer may be a bounded projection over several owner facts. That
-projection has one contract and one writer. Its consumers render it; they do not
-repeat its business decision.
+These are six semantic questions, not a requirement for six endpoints, caches,
+stored projections, or state machines. A public answer may be a bounded
+projection over several owner facts, and one bounded aggregate request may
+carry several owner answers when it preserves their provenance and does not
+recompute them. Each factual answer still has one owner and writer; Recovery has
+one shared stateless rule. Consumers render the result; they do not repeat its
+business decision.
 
 ## State Laws
 
@@ -100,26 +104,39 @@ verdict.
 
 ### Recovery is an action projection
 
-Recovery consumes an owner verdict and returns at most one primary action that
-the current viewer can perform. It does not inspect private implementation state
-or combine reason codes into a second verdict. Another viewer may receive a
-neutral explanation without receiving an action they cannot complete.
+Recovery is a shared, stateless resolver. It consumes current owner facts or one
+exact Wake Outcome and returns at most one primary action that the current
+viewer can perform. Current-state actions such as **Connect computer**,
+**Reconnect computer**, **Update**, or **Connect local agent** require
+reconfirmed current facts from their owners. An old Wake failure cannot grant
+them. One exact Wake Outcome may authorize only an outcome-scoped action, such
+as publication or reply recovery for that Wake. Recovery does not own state,
+persist a projection, inspect private implementation state, or combine reason
+codes into a second verdict. Another viewer may receive a neutral explanation
+without receiving an action they cannot complete.
 
 ## Read And Refresh Contract
 
 Profile Directory, Wakeability, Activity, Wake Progress, Wake Outcome, and
-Recovery must be independently readable, cacheable, and refreshable. A list may
-request a bounded batch of one projection; it must not acquire every other
-projection as a prerequisite.
+Recovery have distinct semantic boundaries. Each factual answer retains its
+source ownership; Recovery stays derived and stateless. Their delivery shape is
+an implementation choice. Existing bounded aggregates or combined requests may
+carry several owner answers when they preserve provenance, avoid secondary
+adjudication, and allow a failing dependency to be isolated where the user
+experience requires it. This contract does not require six endpoints, caches,
+state machines, or network round trips.
 
-`OrganizationAgentRuntimeOverviewResponse` remains a compatibility aggregate
-during migration. New consumers must not depend on it. Batch 2 retires it from
-normal Agent list and authoring paths by introducing or reusing the narrow
-owner projections required by those surfaces.
+`OrganizationAgentRuntimeOverviewResponse` may remain a compatibility entrypoint
+or bounded aggregate over the same owners. Split it only where measurement shows
+that fan-out, coupling, or failure propagation creates user-visible delay,
+incorrect blocking, or prevents an owner-correct refresh.
 
-Live invalidation is a targeted refresh signal, never state. A client refreshes
-only the affected projection and profile IDs. Bounded polling is a fallback for
-an active operation or missed invalidation, not the normal source of truth.
+Live invalidation remains a refresh signal, never state. Use existing targeted
+invalidation where it is available. Additional WebSocket invalidation, narrower
+refreshes, or retirement of normal polling are conditional follow-ups justified
+by measured staleness, latency, or traffic; they are not completion gates for
+the three implementation batches. Any retained polling is bounded and never
+becomes an authority.
 
 A refresh does not erase the last settled answer. For example:
 
@@ -133,6 +150,10 @@ settled answer and is actively trying to obtain it. It is bounded. Starting a
 client refresh does not itself change an existing Available, Offline, or
 Unavailable verdict; the client keeps that verdict visible and shows freshness
 separately until the owner returns a newer verdict.
+
+This is display continuity only. A stale displayed **Available** verdict never
+authorizes the Composer or a send. A new Wake still requires current Core
+Wakeability and current fail-closed admission.
 
 ## Product Language Contract
 
@@ -179,12 +200,14 @@ The same pull request updates the relevant sections of
 The Local Service owner and Core projection owner may work in parallel after
 their shared input contracts are fixed. The Local Service lane produces current
 local facts and freshness only. The Core lane produces the single Wakeability
-verdict and narrow directory, Wakeability, Activity, progress, and recovery
-reads required by clients.
+verdict from the implemented owner inputs. Touched paths stop making duplicate
+current-versus-history decisions and preserve the owner of each answer.
 
-This batch removes historical Wake failure as direct current Wakeability input,
-retires duplicate resolvers from touched paths, separates normal list reads from
-runtime fan-out, and makes targeted invalidation sufficient for refresh.
+Existing aggregate APIs and compatibility entrypoints may remain when they
+delegate to the same owner answer. Narrower reads, removal of the implemented
+`readinessImpact` lifecycle, list/runtime separation, and targeted invalidation
+are follow-ups only where behavior and measurement justify them; they are not
+automatic Batch 2 completion requirements.
 
 The same pull requests update
 `developing/architecture/local-openmeld-service.md`,
@@ -194,14 +217,17 @@ owner documents.
 
 ### Batch 3 — Client convergence
 
-Web, Composer, CLI, and other touched clients consume the authoritative narrow
-projections. They may adapt layout, detail, and viewer-permitted actions; they
-must not change the verdict. Independent loading keeps available sections
-usable, live invalidation refreshes affected data, and bounded polling remains
-only where an active operation needs confirmation.
+Web, Composer, CLI, and other touched clients consume the authoritative owner
+answers. They may adapt layout, detail, and viewer-permitted actions; they must
+not change the verdict or let displayed stale data authorize a Wake.
+Independent loading, targeted invalidation, and polling changes are required
+only where measured behavior shows they are needed for correctness or a clear
+user-facing improvement.
 
-The same pull requests update the affected client owner documents and remove
-obsolete client-side resolvers, terminology, and normal-state polling.
+The same pull requests update the affected client owner documents. Touched
+paths stop duplicate adjudication. Unrelated compatibility resolvers,
+entrypoints, terminology, and polling may remain until an evidence-backed
+follow-up removes them safely.
 
 ## Batch Gates
 
@@ -212,11 +238,16 @@ is required, and one evidence set.
 A batch is not complete until:
 
 1. the changed user question has one authoritative answer;
-2. competing resolvers and stale terminology in the touched scope are removed;
+2. the touched path does not introduce or retain competing adjudication;
 3. behavior tests fail when another authority is reintroduced;
 4. the matching owner documents change with the implementation;
 5. the change passes its risk-selected validation and exact candidate gate; and
 6. any user-visible behavior is verified through the smallest real product
    entry point after release.
+
+Full Runtime Overview decomposition, universal narrow reads, complete WebSocket
+coverage, normal-polling retirement, and repository-wide resolver or terminology
+cleanup are conditional follow-ups, not hidden gates for these three launch
+batches.
 
 Batch 3 also removes this plan after every durable rule has one permanent owner.
