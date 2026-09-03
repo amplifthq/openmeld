@@ -127,6 +127,7 @@ import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
+import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import { usePublishSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import type {
@@ -1163,33 +1164,6 @@ function useCurrentProfileSpaceMembershipState(input: {
 	return lastConfirmedRef.current?.identity === identity
 		? lastConfirmedRef.current.state
 		: "unknown";
-}
-
-function projectSpaceExecutionRecoveryResolution(
-	recovery: ExecutionRecoveryProjection
-): SpaceExecutionRecoveryResolution {
-	const capability = resolveRecommendedExecutionRecoveryCapability(recovery);
-	return {
-		action: capability?.enabled === true ? recovery.recommendedAction : null,
-		label: capability?.enabled === true ? capability.label : null,
-		status: recovery.status,
-		warning: capability?.warning ?? null,
-	};
-}
-
-function resolveRecommendedExecutionRecoveryCapability(
-	recovery: ExecutionRecoveryProjection
-) {
-	switch (recovery.recommendedAction) {
-		case "recover_result":
-			return recovery.actions.recoverResult;
-		case "resume_controller_conversation":
-			return recovery.actions.resumeControllerConversation;
-		case "retry_as_new_execution":
-			return recovery.actions.retryAsNewExecution;
-		default:
-			return null;
-	}
 }
 
 function assertMatchingSpaceExecutionRecovery(input: {
@@ -2635,6 +2609,9 @@ export function useSpaceLandingController(input: {
 			const action = recoveryInput.action;
 			const operationId = recoveryInput.operationId;
 			if (operationId === null || action === null) {
+				return resolution;
+			}
+			if (recovery.status !== "available") {
 				return resolution;
 			}
 			const capability = resolveRequestedExecutionRecoveryCapability(

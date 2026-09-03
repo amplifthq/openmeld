@@ -1,8 +1,5 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
-import {
-	resolvePublicAgentFailureRecovery,
-	shouldPreferMappedPublicAgentFailureReason,
-} from "@openmeld/schemas";
+import { shouldPreferMappedPublicAgentFailureReason } from "@openmeld/schemas";
 import type {
 	GetSpaceMessageDetailsResponse,
 	SpaceMessageDetailsStringFact,
@@ -35,7 +32,10 @@ import {
 	isSpaceOutcomeNoticeItem,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
-import type { WakeFailureTargetContext } from "#/lib/spaces/wake-failure-display";
+import {
+	resolveHistoricalWakeFailureBody,
+	type WakeFailureTargetContext,
+} from "#/lib/spaces/wake-failure-display";
 import type {
 	SpaceMessageWakeIssueEntry,
 	SpaceMessageWakeThinkingEntry,
@@ -954,19 +954,18 @@ function resolveNoticeRecoveryPresentation(input: {
 		? (input.targetProfileDisplayNamesByProfileId?.get(targetProfileId) ??
 			"This agent")
 		: "This agent";
-	const recovery = resolvePublicAgentFailureRecovery({
-		errorCode: reasonCode,
-		includeUnknown: false,
-		targetLabel,
-	});
-	if (!recovery) {
-		return currentAction ? { action: currentAction, body: null } : null;
-	}
 	const body = shouldPreferMappedPublicAgentFailureReason(
 		reasonCode,
 		input.notice.systemNoticeReason?.trim() || input.notice.text
 	)
-		? recovery.body
+		? resolveHistoricalWakeFailureBody({
+				failureReasonCode: reasonCode,
+				targetContext: targetProfileId
+					? (input.wakeFailureTargetContextsByProfileId?.get(targetProfileId) ??
+						null)
+					: null,
+				targetLabel,
+			})
 		: null;
 	return { action: currentAction, body };
 }

@@ -384,13 +384,20 @@ export function SpaceExecutionRecoveryButton(input: {
 	if (inspectionFailed || resolution === null) {
 		return null;
 	}
-	if (resolution.action === null) {
+	if (resolution.status !== "available") {
 		return resolution.status === "unavailable"
 			? (input.unavailableFallback ?? null)
 			: null;
 	}
+	if (resolution.action === null) {
+		return null;
+	}
 	const recover = async () => {
-		if (pendingRef.current || !resolution?.action) {
+		if (
+			pendingRef.current ||
+			resolution?.status !== "available" ||
+			!resolution.action
+		) {
 			return;
 		}
 		const operationId = buildSpaceExecutionRecoveryOperationId({

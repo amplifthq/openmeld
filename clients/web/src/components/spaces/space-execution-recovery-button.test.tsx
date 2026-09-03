@@ -152,6 +152,35 @@ describe("SpaceExecutionRecoveryButton", () => {
 		).toBeNull();
 	});
 
+	it.each([
+		"in_progress",
+		"outcome_unknown",
+		"recovered",
+		"unavailable",
+	] as const)("fails closed for a schema-valid %s projection that still carries an enabled action", async (status) => {
+		const inspect = vi.fn<SpaceExecutionRecoveryHandler>(async () => ({
+			action: "retry_as_new_execution",
+			label: "Retry as new execution",
+			status,
+			warning:
+				"This starts a new execution and may run the task and its side effects again.",
+		}));
+
+		render(
+			<SpaceExecutionRecoveryButton
+				onRecoverExecution={inspect}
+				request={recoveryRequest}
+				unavailableFallback={<a href="/computers">Reconnect Computer</a>}
+			/>
+		);
+
+		await waitFor(() => expect(inspect).toHaveBeenCalledOnce());
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
+		expect(inspect).toHaveBeenCalledTimes(1);
+	});
+
 	it("names exact-conversation recovery by its user outcome and explains that the task will not rerun", async () => {
 		const warning =
 			"OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again.";

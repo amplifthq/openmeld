@@ -1,4 +1,11 @@
-import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import {
+	type AgentProfileReplyRecoveryPlan,
+	planAgentProfileReplyRecovery,
+} from "@openmeld/agent-profile";
+import {
+	createSpaceMemberAgentExecutionReadiness,
+	createSpaceMemberAgentSnapshot,
+} from "@openmeld/schemas/testing";
 import type {
 	GetSpaceMessageDetailsResponse,
 	PostSpaceWakeStopResponse,
@@ -978,7 +985,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		renderMessageDetailsPanel({
 			agentRecoveryPlansByProfileId: new Map([
-				["agt_cursor", createProviderAccountPlan("agt_cursor", "Cursor")],
+				["agt_cursor", createCursorPlanLimitRecoveryPlan()],
 			]),
 			onRecoverExecution: async () => ({
 				action: null,
@@ -1759,21 +1766,37 @@ function createReviewAgentPlan(input: {
 	};
 }
 
-function createProviderAccountPlan(
-	profileId: string,
-	profileName: string
-): AgentProfileReplyRecoveryPlan {
-	return {
-		body: `Review the provider plan for ${profileName}.`,
-		kind: "review_provider_account",
-		primaryActionId: "manage_cursor_plan",
-		primaryActionLabel: "Manage Cursor plan",
-		profileId,
-		profileName,
-		recoveryReasonCode: "cursor.plan_upgrade_required",
-		secondaryLabel: "The Cursor plan needs attention.",
-		title: "Manage Cursor plan",
-	};
+function createCursorPlanLimitRecoveryPlan(): AgentProfileReplyRecoveryPlan {
+	const reasonCode = "cursor.plan_upgrade_required";
+	return planAgentProfileReplyRecovery({
+		member: createSpaceMemberAgentSnapshot({
+			agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+				displayState: "blocked",
+				facts: {
+					binding: {
+						routable: true,
+						source: "binding_truth",
+					},
+					providerAccount: {
+						blocked: true,
+						expiresAtMs: 1_770_000_000_000,
+						observedAtMs: 1_769_990_000_000,
+						provider: "codex",
+						reasonCodes: [reasonCode],
+						source: "wake_failure",
+					},
+				},
+				primaryAction: "fix_provider_account",
+				reasonCodes: [reasonCode],
+			}),
+			profileId: "agt_cursor",
+			profileName: "Cursor",
+			wakeState: "offline",
+			wakeabilityReasonCodes: [reasonCode],
+			wakeabilityReasonText: "Blocked",
+			wakeabilityStatus: "blocked",
+		}),
+	});
 }
 
 function createReviewComputerPlan(input: {

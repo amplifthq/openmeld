@@ -15,6 +15,7 @@ import {
 
 const TARGET_PROFILE_ID = "agt_22222222-2222-2222-2222-222222222222";
 const SECOND_TARGET_PROFILE_ID = "agt_33333333-3333-3333-3333-333333333333";
+const CURRENT_RECOVERY_ADVICE_PATTERN = /Reconnect|Update|Review/u;
 
 describe("resolveSpaceMessageWakeProgressState", () => {
 	it("shows queued work plainly under the source message", () => {
@@ -364,8 +365,6 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 	});
 
 	it("keeps the failure reason without turning historical service state into an action", () => {
-		const copy =
-			"Runner's computer is disconnected from OpenMeld. Reconnect the computer so it can receive local Wake work.";
 		const state = resolveSpaceMessageWakeProgressState({
 			item: createTimelineItem(),
 			items: [
@@ -391,12 +390,15 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([]);
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: copy,
+				body: "Runner could not complete this Wake because OpenMeld was not connected on Mira's computer at the time.",
 				message: "@runner couldn't reply.",
 				targetLabel: "@runner",
 			}),
 		]);
 		expect(state.issueEntries[0]?.action).toBeNull();
+		expect(state.issueEntries[0]?.body).not.toMatch(
+			CURRENT_RECOVERY_ADVICE_PATTERN
+		);
 	});
 
 	it("keeps another user's local-service Wake failure informative without local repair", () => {
@@ -424,7 +426,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: "Runner could not complete this Wake on Ming's MacBook Pro. Ask Ming Yoo to reconnect the computer and check the local agent, then wake the Agent again.",
+				body: "Runner could not complete this Wake because OpenMeld was not connected on Ming's MacBook Pro at the time.",
 			}),
 		]);
 		expect(state.issueEntries[0]?.action).toBeNull();
@@ -457,7 +459,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: "Runner's computer is disconnected from OpenMeld. Reconnect the computer so it can receive local Wake work.",
+				body: createConnectControllerPlan().body,
 			}),
 		]);
 		expect(state.issueEntries[0]?.action).toMatchObject({
@@ -469,7 +471,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		});
 	});
 
-	it("points users to People when no specific recovery action is available", () => {
+	it("keeps only the historical failure when no current recovery action is available", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			agentRecoveryPlansByProfileId: new Map([
 				[TARGET_PROFILE_ID, { kind: "none" }],
@@ -488,9 +490,30 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
 				action: null,
-				body: "OpenMeld could not route this agent. Open People to see the agent setup status.",
+				body: "@runner couldn't reply.",
 			}),
 		]);
+	});
+
+	it.each([
+		["service.update_required", "Update"],
+		["permission.denied.runtime", "Review"],
+	] as const)("does not turn historical %s evidence into current %s advice", (failureReasonCode, forbiddenAdvice) => {
+		const state = resolveSpaceMessageWakeProgressState({
+			agentRecoveryPlansByProfileId: new Map(),
+			item: createTimelineItem(),
+			items: [
+				createWakeProgressItem({
+					failureReasonCode,
+					message: "@runner couldn't reply.",
+					phase: "failed",
+					updatedAtMs: 5,
+				}),
+			],
+		});
+
+		expect(state.issueEntries[0]?.action).toBeNull();
+		expect(state.issueEntries[0]?.body).not.toContain(forbiddenAdvice);
 	});
 
 	it("keeps source Wake problem markers after transient failed progress expires", () => {
@@ -629,7 +652,10 @@ function createWakeFailureTargetContext(
 	};
 }
 
-function createConnectControllerPlan(): AgentProfileReplyRecoveryPlan {
+function createConnectControllerPlan(): Exclude<
+	AgentProfileReplyRecoveryPlan,
+	{ kind: "none" }
+> {
 	return {
 		agentDisplayName: "Codex",
 		agentId: "codex",
