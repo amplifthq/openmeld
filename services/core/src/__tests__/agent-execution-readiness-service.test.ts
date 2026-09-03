@@ -1,5 +1,6 @@
 import {
   AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  resolveAgentWakeAdmissionBlockReasonCode,
   resolveAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
@@ -1217,6 +1218,93 @@ describe("Core Agent Execution Readiness", () => {
     expect(readiness.agentExecutionReadiness.primaryAction).not.toBe(
       "run_prepare"
     );
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "checking",
+      reasonCode: "working_folder.current_report_missing",
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("working_folder.current_report_missing");
+  });
+
+  it("requires an OpenMeld update when an online legacy Service cannot report current working-folder truth", async () => {
+    const profileId = "agt_legacy_working_folder_contract";
+    mockReadyBindingAndRuntime(profileId);
+    vi.mocked(lookupRuntimeTransportRoute).mockResolvedValueOnce({
+      capabilities: {},
+      connectionGeneration: 1,
+      daemonSessionId: "daemon-session-1",
+      deviceId: "device-1",
+      executionCompatibility: COMPATIBLE_SERVICE,
+      lane: "dev-local",
+      lastHeartbeatMs: GENERATED_AT_MS,
+      leaseEpoch: 1,
+      localWakeRouteReport: {
+        daemonSessionId: "daemon-session-1",
+        deviceId: "device-1",
+        includedProfileIds: [profileId],
+        lane: "dev-local",
+        reportedAtMs: GENERATED_AT_MS,
+        skippedProfiles: [],
+      },
+      online: true,
+      serviceVersion: "998.0.0",
+    });
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId,
+            profileName: "Legacy Working Folder Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "not_ready",
+      primaryAction: "update_service",
+      facts: {
+        localService: { reachable: true },
+        runtime: {
+          ready: false,
+          reasonCodes: expect.arrayContaining([
+            "working_folder.legacy_contract",
+            "service.update_required",
+          ]),
+        },
+      },
+    });
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "unavailable",
+      phase: "service_update_required",
+      reasonCode: "service.update_required",
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("service.update_required");
   });
 
   it("uses a fresh current working-folder failure instead of reconstructing readiness from older evidence", async () => {
@@ -1302,6 +1390,22 @@ describe("Core Agent Execution Readiness", () => {
       impactKind: "local_execution",
       source: "wake_failure",
     });
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "unavailable",
+      reasonCode: "profile.workspace.missing",
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("profile.workspace.missing");
   });
 
   it("keeps stale owner-service disconnects as service-disconnected guidance", async () => {
@@ -1524,6 +1628,56 @@ describe("Core Agent Execution Readiness", () => {
     });
   });
 
+  it("treats an expired current Usage report as Checking and blocks Wake admission", async () => {
+    const profileId = "agt_usage_expired";
+    mockReadyBindingAndRuntime(profileId, "builtin:codex");
+    mockOnlineRoute("device-1");
+    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
+      {
+        ...createRuntimeReportWithUsage(
+          createUsageLimit({ status: "available", usedPercent: 15 })
+        ),
+        expiresAtMs: GENERATED_AT_MS - 1,
+      },
+    ]);
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId,
+            profileName: "Expired Usage Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "not_ready",
+      primaryAction: "check_status",
+      reasonCodes: expect.arrayContaining(["usage_checking"]),
+    });
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "checking",
+      reasonCode: "usage_checking",
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("usage_checking");
+  });
+
   it("keeps explicitly unsupported Usage out of Wakeability", async () => {
     mockReadyBindingAndRuntime("agt_usage_unsupported", "builtin:cursor");
     mockOnlineRoute("device-1");
@@ -1737,7 +1891,7 @@ describe("Core Agent Execution Readiness", () => {
       },
       primaryAction: "none",
     });
-    expect(readiness.agentExecutionReadiness.reasonCodes).toContain(
+    expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
       "controller.client.upgrade_required"
     );
   });
@@ -1813,7 +1967,7 @@ describe("Core Agent Execution Readiness", () => {
       },
       primaryAction: "none",
     });
-    expect(readiness.agentExecutionReadiness.reasonCodes).toContain(
+    expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
       "provider_conversation.proof_failed"
     );
   });

@@ -40,7 +40,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { createAgentProfileBindingProjectionFromRecord } from "../../agent-profile-binding/application/agent-profile-binding-lookup-service";
 import { resolveCurrentWorkingFolderObservations } from "../../agent-profile-binding/application/current-working-folder-observations";
-import { readLocalRuntimeExpectedRoutes } from "../../agent-profile-binding/application/local-runtime-expected-routes-service";
+import {
+  type ReadLocalRuntimeExpectedRoutesResult,
+  readLocalRuntimeExpectedRoutes,
+} from "../../agent-profile-binding/application/local-runtime-expected-routes-service";
 import {
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
@@ -117,6 +120,7 @@ export type AgentExecutionReadinessProfileInput = {
   // the live lookup runs as before.
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
+  preloadedWorkingFolderExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
   preloadedProfileIdentity?: {
     ownerUserId: string;
     profileKind: "agent";
@@ -179,6 +183,7 @@ type ResolveAgentBindingSnapshotInput = {
   activeOrganizationId: string | null;
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
+  preloadedWorkingFolderExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
   preloadedProfileIdentity?: AgentExecutionReadinessProfileInput["preloadedProfileIdentity"];
   preloadedRuntimeDeviceDisplayName?: string | null;
   agent: AgentExecutionReadinessAgentInput;
@@ -263,6 +268,12 @@ export function resolveCoreAgentExecutionReadinessForProfile(
     ...(input.preloadedOwnerService === undefined
       ? {}
       : { preloadedOwnerService: input.preloadedOwnerService }),
+    ...(input.preloadedWorkingFolderExpectedRoutes === undefined
+      ? {}
+      : {
+          preloadedWorkingFolderExpectedRoutes:
+            input.preloadedWorkingFolderExpectedRoutes,
+        }),
     ...(input.preloadedProfileIdentity === undefined
       ? {}
       : { preloadedProfileIdentity: input.preloadedProfileIdentity }),
@@ -284,6 +295,7 @@ export async function resolveCoreAgentExecutionReadiness(input: {
   includeRuntimeDeviceDisplayName?: boolean;
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
+  preloadedWorkingFolderExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
   preloadedProfileIdentity?: AgentExecutionReadinessProfileInput["preloadedProfileIdentity"];
   preloadedRuntimeDeviceDisplayName?: string | null;
   targetRuntime?: AgentExecutionTargetRuntimeContext | null;
@@ -303,6 +315,12 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     ...(input.preloadedOwnerService === undefined
       ? {}
       : { preloadedOwnerService: input.preloadedOwnerService }),
+    ...(input.preloadedWorkingFolderExpectedRoutes === undefined
+      ? {}
+      : {
+          preloadedWorkingFolderExpectedRoutes:
+            input.preloadedWorkingFolderExpectedRoutes,
+        }),
     ...(input.preloadedProfileIdentity === undefined
       ? {}
       : { preloadedProfileIdentity: input.preloadedProfileIdentity }),
@@ -516,6 +534,12 @@ function createEnrichAgentBindingSnapshotInput(input: {
     ...(input.input.preloadedOwnerService === undefined
       ? {}
       : { preloadedOwnerService: input.input.preloadedOwnerService }),
+    ...(input.input.preloadedWorkingFolderExpectedRoutes === undefined
+      ? {}
+      : {
+          preloadedWorkingFolderExpectedRoutes:
+            input.input.preloadedWorkingFolderExpectedRoutes,
+        }),
     ...(input.input.preloadedRuntimeDeviceDisplayName === undefined
       ? {}
       : {
@@ -678,6 +702,7 @@ async function enrichAgentBindingSnapshot(input: {
   includeRuntimeDeviceDisplayName: boolean;
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
+  preloadedWorkingFolderExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
   preloadedRuntimeDeviceDisplayName?: string | null;
   snapshot: ProfileIdentitySnapshot;
   targetRuntime: AgentExecutionTargetRuntimeContext | null;
@@ -794,6 +819,7 @@ async function enrichAgentBindingSnapshot(input: {
         generatedAt: input.generatedAt,
         localWakeRouteReport: runtimeRoute.localWakeRouteReport,
         ownerUserId: input.snapshot.ownerUserId,
+        preloadedExpectedRoutes: input.preloadedWorkingFolderExpectedRoutes,
       })
   );
   const [
@@ -1277,9 +1303,6 @@ async function resolveAgentRuntimeReadiness(input: {
     if (usageWakeability.status === "available") {
       return readiness;
     }
-    if (usageWakeability.status === "checking" && !readiness.ready) {
-      return readiness;
-    }
     let displayState = readiness.displayState;
     if (usageWakeability.status === "unavailable") {
       displayState = "unavailable";
@@ -1315,6 +1338,7 @@ async function resolveCurrentWorkingFolderReadiness(input: {
   generatedAt: string;
   localWakeRouteReport: LocalWakeRouteReport | null;
   ownerUserId: string | null;
+  preloadedExpectedRoutes?: ReadLocalRuntimeExpectedRoutesResult | null;
 }): Promise<CurrentWorkingFolderReadiness | null> {
   if (
     !(isAgentProfileBindingProjection(input.binding) && input.currentSession)
@@ -1327,9 +1351,14 @@ async function resolveCurrentWorkingFolderReadiness(input: {
     );
   }
   if (!("expectedRoutesContractVersion" in input.localWakeRouteReport)) {
-    return unknownCurrentWorkingFolderReadiness(
-      "working_folder.legacy_contract"
-    );
+    return {
+      displayState: "unknown",
+      ready: false,
+      reasonCodes: [
+        "working_folder.legacy_contract",
+        "service.update_required",
+      ],
+    };
   }
   const db = localStateDb(input.env);
   if (!(db && input.ownerUserId)) {
@@ -1339,15 +1368,23 @@ async function resolveCurrentWorkingFolderReadiness(input: {
   }
 
   try {
-    const expectedRoutesResult = await readLocalRuntimeExpectedRoutes({
-      authWorker: input.env.OPENMELD_AUTH_WORKER,
-      contractVersion: "v4",
-      db,
-      deviceId: input.currentSession.deviceId,
-      generatedAt: input.generatedAt,
-      lane: input.currentSession.lane,
-      ownerUserId: input.ownerUserId,
-    });
+    const expectedRoutesResult =
+      input.preloadedExpectedRoutes === undefined
+        ? await readLocalRuntimeExpectedRoutes({
+            authWorker: input.env.OPENMELD_AUTH_WORKER,
+            contractVersion: "v4",
+            db,
+            deviceId: input.currentSession.deviceId,
+            generatedAt: input.generatedAt,
+            lane: input.currentSession.lane,
+            ownerUserId: input.ownerUserId,
+          })
+        : input.preloadedExpectedRoutes;
+    if (!expectedRoutesResult) {
+      return unknownCurrentWorkingFolderReadiness(
+        "working_folder.expected_routes_unavailable"
+      );
+    }
     if (
       expectedRoutesResult.status !== "ok" ||
       expectedRoutesResult.response.runtimeResolution !== "resolved" ||

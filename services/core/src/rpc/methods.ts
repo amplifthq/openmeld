@@ -5970,6 +5970,33 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             targets: onlineTargets,
           })
         : null;
+      const workingFolderExpectedRoutesByTarget = new Map<
+        string,
+        Awaited<ReturnType<typeof readLocalRuntimeExpectedRoutes>> | null
+      >();
+      const stateDb = localStateDb(input.env);
+      if (preloadedRoutes && stateDb) {
+        const uniqueOnlineTargets = new Map(
+          onlineTargets.map((target) => [
+            `${target.deviceId}\u0000${target.runtimeLane}`,
+            target,
+          ])
+        );
+        await Promise.all(
+          [...uniqueOnlineTargets].map(async ([key, target]) => {
+            const result = await readLocalRuntimeExpectedRoutes({
+              authWorker: input.env.OPENMELD_AUTH_WORKER,
+              contractVersion: "v4",
+              db: stateDb,
+              deviceId: target.deviceId,
+              generatedAt: input.generatedAt,
+              lane: target.runtimeLane,
+              ownerUserId,
+            }).catch(() => null);
+            workingFolderExpectedRoutesByTarget.set(key, result);
+          })
+        );
+      }
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
@@ -5987,6 +6014,10 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             ...(preloadedOwnerService === null
               ? {}
               : { preloadedOwnerService }),
+            ...buildPreloadedWorkingFolderExpectedRoutesInput({
+              preloadedRoute,
+              workingFolderExpectedRoutesByTarget,
+            }),
             preloadedProfileIdentity: {
               ownerUserId: agent.ownerUserId,
               profileKind: "agent",
@@ -6019,6 +6050,31 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     }
   );
   return new Map(ownerResults.flat());
+}
+
+function buildPreloadedWorkingFolderExpectedRoutesInput(input: {
+  preloadedRoute:
+    | import("@openmeld/schemas/types").RuntimeTransportLookupRouteResponse
+    | null
+    | undefined;
+  workingFolderExpectedRoutesByTarget: ReadonlyMap<
+    string,
+    Awaited<ReturnType<typeof readLocalRuntimeExpectedRoutes>> | null
+  >;
+}): {
+  preloadedWorkingFolderExpectedRoutes?: Awaited<
+    ReturnType<typeof readLocalRuntimeExpectedRoutes>
+  > | null;
+} {
+  if (!input.preloadedRoute?.online) {
+    return {};
+  }
+  return {
+    preloadedWorkingFolderExpectedRoutes:
+      input.workingFolderExpectedRoutesByTarget.get(
+        `${input.preloadedRoute.deviceId}\u0000${input.preloadedRoute.lane}`
+      ) ?? null,
+  };
 }
 
 async function mapWithConcurrency<Input, Output>(

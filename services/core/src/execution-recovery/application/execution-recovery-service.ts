@@ -9,9 +9,6 @@ import type {
 type InspectExecutionRecoveryInput = {
   destination: ExecutionRecoveryDestination;
   explicitUserStop: boolean;
-  freshExecutionCapability: {
-    exactSourceWakeVerified: boolean;
-  };
   identity: ExecutionRecoveryIdentity;
   outcomeUnknown: boolean;
   retainedResult: {
@@ -46,14 +43,6 @@ type RecoveryExecutionDependencies = {
       | "completed"
       | "new_execution_requested"
       | "outcome_unknown";
-  }>;
-  retryAsNewExecution: (input: {
-    command: ExecuteExecutionRecoveryBody;
-    markEffectStarted: () => Promise<void>;
-    projection: ExecutionRecoveryProjection;
-  }) => Promise<{
-    newExecutionId: string;
-    status: "new_execution_requested" | "outcome_unknown";
   }>;
 };
 
@@ -256,18 +245,9 @@ export async function executeExecutionRecovery(input: {
       status: result.status,
     };
   }
-  const result = await input.dependencies.retryAsNewExecution({
-    command: input.command,
-    markEffectStarted: input.markEffectStarted,
-    projection: input.projection,
-  });
-  return {
-    action: input.command.action,
-    newExecutionId: result.newExecutionId,
-    operationId: input.command.operationId,
-    publicationId: null,
-    status: result.status,
-  };
+  throw new Error(
+    "execution_recovery.action_unavailable:execution_recovery.new_wake_required"
+  );
 }
 
 export function assertExecutionRecoveryCommandCanRun(input: {
@@ -280,10 +260,10 @@ export function assertExecutionRecoveryCommandCanRun(input: {
       "execution_recovery.action_unavailable:execution_recovery.new_wake_required"
     );
   }
-  const capability = resolveRequestedCapability(
-    input.command.action,
-    input.projection
-  );
+  const capability =
+    input.command.action === "recover_result"
+      ? input.projection.actions.recoverResult
+      : input.projection.actions.resumeControllerConversation;
   if (!capability.enabled) {
     throw new Error(
       `execution_recovery.action_unavailable:${capability.reasonCode}`
@@ -296,19 +276,6 @@ export function assertExecutionRecoveryCommandMatchesProjection(input: {
   projection: ExecutionRecoveryProjection;
 }): void {
   assertExactRecoveryCommand(input.command, input.projection);
-}
-
-function resolveRequestedCapability(
-  action: ExecuteExecutionRecoveryBody["action"],
-  projection: ExecutionRecoveryProjection
-): ExecutionRecoveryActionCapability {
-  if (action === "recover_result") {
-    return projection.actions.recoverResult;
-  }
-  if (action === "resume_controller_conversation") {
-    return projection.actions.resumeControllerConversation;
-  }
-  return projection.actions.retryAsNewExecution;
 }
 
 function assertExactRecoveryCommand(

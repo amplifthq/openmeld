@@ -97,20 +97,6 @@ export async function executeHostedExecutionRecovery(input: {
         }
         return submitted;
       },
-      retryAsNewExecution: async ({ command, markEffectStarted }) => {
-        const submitted = await submitHostedExecutionRecovery({
-          action: "retry_as_new_execution",
-          db: input.db,
-          delivery: await readCurrentDelivery(),
-          env: input.env,
-          markEffectStarted,
-          operationId: command.operationId,
-        });
-        if (!("newExecutionId" in submitted)) {
-          throw new Error("execution_recovery.action_mismatch");
-        }
-        return submitted;
-      },
     },
     inspectProjection: async () =>
       await projectHostedExecutionRecovery({

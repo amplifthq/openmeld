@@ -131,7 +131,7 @@ describe("agent execution status projection", () => {
         },
       },
     });
-    expect(projection.reasonCodes).toContain(
+    expect(projection.reasonCodes).not.toContain(
       "provider_account.subscription_access_unavailable"
     );
   });
@@ -168,7 +168,7 @@ describe("agent execution status projection", () => {
       displayState: "ready",
       primaryAction: "none",
     });
-    expect(projection.reasonCodes).toContain(
+    expect(projection.reasonCodes).not.toContain(
       "provider_account.capacity_exhausted"
     );
   });
@@ -223,7 +223,7 @@ describe("agent execution status projection", () => {
         },
       },
     });
-    expect(projection.reasonCodes).toContain(
+    expect(projection.reasonCodes).not.toContain(
       "provider_conversation.proof_failed"
     );
   });
@@ -277,7 +277,7 @@ describe("agent execution status projection", () => {
           },
         },
       });
-      expect(projection.reasonCodes).toContain(reasonCode);
+      expect(projection.reasonCodes).not.toContain(reasonCode);
     }
   });
 

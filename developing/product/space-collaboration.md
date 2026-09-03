@@ -791,10 +791,11 @@ Message details transfers the visible CTA from the outcome row to the drawer;
 closing it returns the CTA to the row. Both surfaces share the exact
 dispatch/target/result identity and the same idempotent operation fence.
 
-Once that Retry action creates its fresh client-message identity, every
-outcome-unknown transport redrive must keep the same identity until Space
-accepts or definitively rejects it. The UI must not call an outcome-unknown
-Retry failed or invite a second logical Wake under a new identity.
+Once the ordinary Composer creates a new Wake with a fresh client-message
+identity, every outcome-unknown transport redrive must keep that same identity
+until Space accepts or definitively rejects it. The UI must not call an
+outcome-unknown delivery failed or invite a second logical Wake under another
+identity.
 
 Live previews may help while work is happening, but they are transient
 projections, not Space messages, execution truth, or final history. The durable

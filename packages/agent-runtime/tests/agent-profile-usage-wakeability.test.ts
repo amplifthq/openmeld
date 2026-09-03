@@ -127,7 +127,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
       },
     ];
 
-    for (const [index, value] of cases.entries()) {
+    for (const value of cases) {
       expect(
         resolveAgentProfileUsageWakeability({
           agentControllerRef: "builtin:codex",
@@ -139,19 +139,11 @@ describe("resolveAgentProfileUsageWakeability", () => {
               AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
           },
         })
-      ).toEqual(
-        index === 0
-          ? {
-              blocksNewWork: false,
-              reasonCode: null,
-              status: "available",
-            }
-          : {
-              blocksNewWork: true,
-              reasonCode: "usage_checking",
-              status: "checking",
-            }
-      );
+      ).toEqual({
+        blocksNewWork: true,
+        reasonCode: "usage_checking",
+        status: "checking",
+      });
     }
   });
 

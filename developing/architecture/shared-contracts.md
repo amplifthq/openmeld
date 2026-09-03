@@ -5394,10 +5394,14 @@ report provides exactly one observation for every current expected Profile.
 Duplicate, missing, extra, stale, or mismatched facts make the observation set
 unknown. `localProjectBindingGeneration` remains an opaque Service-owned local
 connection identity: Core does not compare it with a cloud value, and a later
-accepted report replaces the earlier generation. The matcher establishes this
-fail-closed trust rule but is not yet a production Wakeability consumer. Absent
-v4 capability or fields is legacy/unknown
-evidence, never proof of Offline, damaged setup, or a required update.
+accepted report replaces the earlier generation. Core Wakeability and dispatch
+admission consume this matcher as the single current working-folder gate. Once
+that gate is enabled, an online Service that can only send the legacy report is
+shown as requiring an OpenMeld update; it is not misreported as Offline or as a
+damaged Agent setup. Rollout therefore publishes the new Service package first,
+then enables the Core gate. A new Service falls back to the legacy query only
+after an explicit v4 negotiation failure, so it remains compatible with an old
+Core during that rollout window.
 
 `openMeldDaemonDispatchControllerSnapshotSchema` carries optional `bindingId`
 and `configurationRevision` as frozen execution-consistency identity. The

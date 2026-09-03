@@ -181,6 +181,169 @@ describe("agent wake availability", () => {
 
   it.each([
     {
+      evidence: {
+        providerAccount: {
+          blocked: true,
+          expiresAtMs: 1_770_003_600_000,
+          observedAtMs: 1_770_000_000_000,
+          provider: "codex" as const,
+          reasonCodes: ["provider_account.subscription_access_unavailable"],
+          source: "wake_failure" as const,
+        },
+      },
+      label: "provider account",
+    },
+    {
+      evidence: {
+        readinessImpact: {
+          blocked: true,
+          expiresAtMs: 1_770_003_600_000,
+          impactKind: "local_execution" as const,
+          observedAtMs: 1_770_000_000_000,
+          reasonCodes: ["workspace.missing"],
+          source: "wake_failure" as const,
+        },
+      },
+      label: "readiness impact",
+    },
+  ])("keeps historical $label evidence diagnostic when current facts are ready", ({
+    evidence,
+  }) => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      ...evidence,
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "ready",
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+    });
+
+    expect(
+      resolveAgentWakeAvailability({
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+        readiness,
+      })
+    ).toMatchObject({
+      category: "available",
+      status: "available_for_wake",
+    });
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBeNull();
+  });
+
+  it.each([
+    {
+      expectedCategory: "checking",
+      runtimeReadiness: {
+        displayState: "unknown" as const,
+        ready: false,
+        reasonCodes: ["usage_checking"],
+      },
+      wakeRouteStatus: createReadyWakeRouteStatus(),
+    },
+    {
+      expectedCategory: "offline",
+      runtimeReadiness: {
+        displayState: "ready" as const,
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+      wakeRouteStatus: { status: "offline" as const },
+    },
+  ])("does not let historical failures overwrite a current $expectedCategory verdict", ({
+    expectedCategory,
+    runtimeReadiness,
+    wakeRouteStatus,
+  }) => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      readinessImpact: {
+        blocked: true,
+        expiresAtMs: 1_770_003_600_000,
+        impactKind: "local_execution",
+        observedAtMs: 1_770_000_000_000,
+        reasonCodes: ["controller.launch.needs_repair"],
+        source: "wake_failure",
+      },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        reasonCodes:
+          wakeRouteStatus.status === "offline" ? ["route.offline"] : [],
+        status: wakeRouteStatus.status === "offline" ? "offline" : "online",
+      },
+      runtimeReadiness,
+    });
+
+    expect(
+      resolveAgentWakeAvailability({ wakeRouteStatus, readiness })
+    ).toMatchObject({ category: expectedCategory });
+  });
+
+  it.each([
+    ["working_folder.current_report_missing", "checking"],
+    ["working_folder.expected_routes_unavailable", "checking"],
+    ["profile.workspace.missing", "unavailable"],
+    ["profile.workspace.invalid", "unavailable"],
+    ["project.local_connection.missing", "unavailable"],
+    ["project.local_connection.folder_missing", "unavailable"],
+    ["project.local_connection.invalid", "unavailable"],
+  ] as const)("fails closed for current working-folder reason %s", (reasonCode, category) => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      localService: {
+        reachable: true,
+        refreshable: true,
+        reasonCodes: [],
+        source: "runtime_transport",
+      },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: category === "checking" ? "unknown" : "unavailable",
+        ready: false,
+        reasonCodes: [reasonCode],
+      },
+    });
+
+    expect(
+      resolveAgentWakeAvailability({
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+        readiness,
+      })
+    ).toMatchObject({
+      category,
+      reasonCode,
+      status:
+        category === "checking"
+          ? "checking_connection"
+          : "unavailable_for_wake",
+    });
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      reasonCode
+    );
+    expect(resolveAgentWakeAdmissionTerminalDecision(reasonCode)).toMatchObject(
+      {
+        publicationCategory: "workspace_unavailable",
+        userRecoveryAction:
+          category === "checking" ? "check_status" : "review_agent_settings",
+      }
+    );
+  });
+
+  it.each([
+    {
       agentControllerRef: "builtin:claude-code",
       summary:
         "Run claude in a terminal on this computer, then sign in to Claude Code.",

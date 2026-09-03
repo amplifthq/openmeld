@@ -1,4 +1,5 @@
 import {
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
@@ -15,6 +16,8 @@ import type {
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
+// biome-ignore lint/performance/noNamespaceImport: Vitest spies on the shared batch read used by RPC readiness orchestration.
+import * as localRuntimeExpectedRoutesService from "../src/agent-profile-binding/application/local-runtime-expected-routes-service";
 import { MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE } from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM exports used by the RPC orchestration module.
 import * as centerAgentWakePublicationService from "../src/center-agent/application/center-agent-wake-publication-service";
@@ -569,6 +572,149 @@ describe("organization Core RPC", () => {
     });
     expect(lookupOwnerService).toHaveBeenCalledOnce();
     expect(resolveProfileById).not.toHaveBeenCalled();
+  });
+
+  it("reads expected working-folder routes once for profiles on the same owner runtime", async () => {
+    const profiles = [
+      {
+        organizationId: "org-a",
+        ownerUserId: "user-a",
+        profileHandle: "codex",
+        profileId: AGENT_PROFILE_ID,
+        profileName: "Codex",
+        status: "active" as const,
+      },
+      {
+        organizationId: "org-a",
+        ownerUserId: "user-a",
+        profileHandle: "reviewer",
+        profileId: SECOND_AGENT_PROFILE_ID,
+        profileName: "Reviewer",
+        status: "active" as const,
+      },
+    ];
+    const db = createOrganizationRpcDb({
+      agentProfiles: profiles,
+      members: [memberRow("member-a", "org-a", "user-a")],
+    });
+    for (const profile of profiles) {
+      db.bindingRows.set(
+        bindingKey("owner_account", "user-a", profile.profileId),
+        agentProfileBindingTestRow({
+          agentProfileId: profile.profileId,
+          bindingId: `binding-${profile.profileId}`,
+          openMeldServiceRuntimeId: "runtime-user-a",
+          ownerId: "user-a",
+        })
+      );
+    }
+    const env = buildEnv({ db, localStateDb: db });
+    const localWakeRouteReport = {
+      daemonSessionId: "daemon-session-1",
+      deviceId: "device-1",
+      expectedRoutesContractVersion: "v4" as const,
+      includedProfileIds: profiles.map((profile) => profile.profileId),
+      lane: "dev-local" as const,
+      reportedAtMs: Date.parse("2026-07-08T00:00:00.000Z"),
+      skippedProfiles: [],
+      workingFolderObservations: profiles.map((profile) => ({
+        bindingId: `binding-${profile.profileId}`,
+        configurationRevision: 1,
+        defaultProjectId: null,
+        localProjectBindingGeneration: null,
+        observedAtMs: Date.parse("2026-07-08T00:00:00.000Z"),
+        profileId: profile.profileId,
+        reasonCode: null,
+        source: "profile_workspace" as const,
+        status: "ready" as const,
+      })),
+    };
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportRoutesBatch"
+    ).mockResolvedValue({
+      routes: Object.fromEntries(
+        profiles.map((profile) => [
+          profile.profileId,
+          {
+            capabilities: {},
+            connectionGeneration: 1,
+            daemonSessionId: "daemon-session-1",
+            deviceId: "device-1",
+            executionCompatibility: {
+              expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              reasonCode: "daemon.runtime_contract.compatible" as const,
+              status: "compatible" as const,
+            },
+            lane: "dev-local" as const,
+            lastHeartbeatMs: Date.parse("2026-07-08T00:00:00.000Z"),
+            leaseEpoch: 1,
+            localWakeRouteReport,
+            online: true as const,
+            serviceVersion: "999.0.0",
+          },
+        ])
+      ),
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportOwnerService"
+    ).mockResolvedValue({
+      online: false,
+      reasonCode: "daemon.session.not_found",
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "readRuntimeTransportAgentProfileOperationalContexts"
+    ).mockResolvedValue({ contexts: [] });
+    const readExpectedRoutes = vi
+      .spyOn(
+        localRuntimeExpectedRoutesService,
+        "readLocalRuntimeExpectedRoutes"
+      )
+      .mockResolvedValue({
+        response: {
+          excludedProfiles: [],
+          expectedRoutes: profiles.map((profile) => ({
+            agentProfileId: profile.profileId,
+            bindingId: `binding-${profile.profileId}`,
+            bindingState: "enabled_primary" as const,
+            configurationRevision: 1,
+            defaultProjectId: null,
+            executionTarget: {
+              agentControllerConversationId: null,
+              agentControllerRef: "builtin:codex",
+              openMeldServiceRuntimeId: "runtime-user-a",
+            },
+            profileName: profile.profileName,
+            reasonCodes: [],
+            routable: true,
+          })),
+          generatedAt: "2026-07-08T00:00:00.000Z",
+          openMeldServiceRuntimeId: "runtime-user-a",
+          runtimeResolution: "resolved",
+        },
+        status: "ok",
+      });
+
+    const response = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+
+    expect(response.agentProfiles).toHaveLength(2);
+    expect(readExpectedRoutes).toHaveBeenCalledOnce();
+    expect(readExpectedRoutes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contractVersion: "v4",
+        deviceId: "device-1",
+        lane: "dev-local",
+        ownerUserId: "user-a",
+      })
+    );
   });
 
   it("keeps owner readiness details while sharing only the allowlisted Usage fact with another active member", async () => {

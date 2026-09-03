@@ -73,11 +73,11 @@ export function resolveAgentProfileUsageWakeability(input: {
   }
   // Usage is one current owner fact, not the owner of the entire Wakeability
   // answer. A legacy Service that cannot report it must remain compatible, and
-  // an inconclusive current report may only keep Checking until its own lease
-  // expires. Base runtime readiness separately decides whether the route itself
-  // is current enough to authorize a Wake.
+  // an inconclusive current report keeps admission closed until a new report
+  // replaces it. Base runtime readiness separately decides whether the route
+  // itself is current enough to authorize a Wake.
   if (report.expiresAtMs <= input.nowMs) {
-    return ALLOWS_NEW_WORK;
+    return CHECKING_USAGE;
   }
   const supportedUsageLimits = report.usageLimits?.filter(
     (usageLimit) =>

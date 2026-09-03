@@ -190,7 +190,6 @@ import {
   buildWakeProgressMessage,
   clearWakeProgressItemsForSignal,
   createAuthenticatedSpaceAccessContext,
-  createDispatchContinuationSpaceAccessContext,
   createWakeProgressItem,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
@@ -261,7 +260,6 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-native-result";
 import {
   buildExecutionRecoveryFreshClientMessageId,
-  buildExecutionRecoveryOperationKeys,
   EXECUTION_RECOVERY_OPERATION_CLAIM_STORAGE_PREFIX,
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
@@ -825,51 +823,6 @@ function requireRpcAuthorProfile(context?: CoreRpcContextInput): Profile {
   }
 
   return toProtocolProfile(context);
-}
-
-function buildVerifiedRecoverySourceAuthorContext(input: {
-  continuationContext?: CoreRpcContextInput;
-  dispatchId: string;
-  sourceProfile: Profile;
-}): CoreRpcContextInput {
-  const sourceProfile = input.sourceProfile;
-  return {
-    ...(input.continuationContext?.activeOrganizationId
-      ? {
-          activeOrganizationId: input.continuationContext.activeOrganizationId,
-        }
-      : {}),
-    ...(sourceProfile.kind === "agent" &&
-    sourceProfile.agentControllerConversationId
-      ? {
-          agentControllerConversationId:
-            sourceProfile.agentControllerConversationId,
-        }
-      : {}),
-    actorContext: {
-      requestId: `execution-recovery-replay:${input.dispatchId}`,
-      openMeldProfileId: sourceProfile.profileId,
-      profileKind: sourceProfile.kind,
-      ...(sourceProfile.profileHandle
-        ? { profileHandle: sourceProfile.profileHandle }
-        : {}),
-      ...(sourceProfile.profileName
-        ? { profileName: sourceProfile.profileName }
-        : {}),
-      ...(sourceProfile.avatarUrl
-        ? { avatarUrl: sourceProfile.avatarUrl }
-        : {}),
-      ...(sourceProfile.kind === "agent" && sourceProfile.owner
-        ? { ownerUserId: sourceProfile.owner }
-        : {}),
-      ...(sourceProfile.kind === "agent" && sourceProfile.ownerName
-        ? { ownerName: sourceProfile.ownerName }
-        : {}),
-      ...(sourceProfile.kind === "agent" && sourceProfile.agentControllerRef
-        ? { agentControllerRef: sourceProfile.agentControllerRef }
-        : {}),
-    },
-  };
 }
 
 function resolveRpcInputSpacePassword(input: {
@@ -4535,19 +4488,6 @@ export class Space extends DurableObject<CoreBindings> {
             projection,
             spaceAccess: input.spaceAccess,
           }),
-        retryAsNewExecution: async ({
-          command,
-          markEffectStarted,
-          projection,
-        }) =>
-          await this.retryExecutionAsNewWake({
-            command,
-            context: input.context,
-            markEffectStarted,
-            password: input.password,
-            projection,
-            spaceAccess: input.spaceAccess,
-          }),
       },
       inspectProjection: async () =>
         (
@@ -4828,12 +4768,6 @@ export class Space extends DurableObject<CoreBindings> {
         trace,
       });
     const canonicalIdentity = resolvedResumeCapability.identity ?? identity;
-    const sourceSignal = this.readSignalById(trace.dispatch.sourceEventId);
-    const exactSourceWakeVerified = isExactRecoverySourceWakeVerified({
-      canonicalTargetProfileId: canonicalIdentity.targetProfileId,
-      nativeDelivery,
-      sourceSignal,
-    });
     const recoveredPublicationId = resolveRecoveredPublicationId({
       nativeRecoveredPublicationId,
       nativeRecoveryCompleted,
@@ -4843,9 +4777,6 @@ export class Space extends DurableObject<CoreBindings> {
     return inspectExecutionRecovery({
       destination,
       explicitUserStop: trace.finalVisibleOutcome?.status === "visible_stopped",
-      freshExecutionCapability: {
-        exactSourceWakeVerified,
-      },
       identity: canonicalIdentity,
       outcomeUnknown:
         trace.finalVisibleOutcome?.reasonCode ===
@@ -5333,132 +5264,6 @@ export class Space extends DurableObject<CoreBindings> {
         originPublication.status === "already_published"
           ? "already_completed"
           : "completed",
-    };
-  }
-
-  private async retryExecutionAsNewWake(input: {
-    command: ExecuteExecutionRecoveryInput["body"];
-    context?: CoreRpcContextInput;
-    markEffectStarted: () => Promise<void>;
-    password?: string;
-    projection: ExecutionRecoveryProjection;
-    spaceAccess?: SpaceAccessContext;
-  }): Promise<{
-    newExecutionId: string;
-    status: "new_execution_requested" | "outcome_unknown";
-  }> {
-    if (input.command.destination.surface !== "space") {
-      const db = wakeEvidenceDb(this.bindings);
-      if (!db) {
-        throw new Error("execution_recovery.storage_unavailable");
-      }
-      const delivery = await this.requireExecutionRecoveryNativeDelivery(
-        input.projection
-      );
-      const submission = await submitRemoteAgentExecutionRecoveryTurn({
-        action: "retry_as_new_execution",
-        db,
-        env: this.bindings,
-        nowMs: Date.now(),
-        operationId: input.command.operationId,
-        originalDelivery: delivery,
-        markEffectStarted: input.markEffectStarted,
-      });
-      return {
-        newExecutionId: submission.dispatchId,
-        status: "new_execution_requested",
-      };
-    }
-    const traceResponse = await this.rpcGetDispatchTrace({
-      context: input.context,
-      dispatchId: input.projection.identity.dispatchId,
-      password: input.password,
-      spaceAccess: input.spaceAccess,
-      spaceId: this.spaceId,
-    });
-    const trace = traceResponse.trace;
-    const sourceSignal = trace
-      ? this.readSignalById(trace.dispatch.sourceEventId)
-      : null;
-    const targetProfileId = input.projection.identity.targetProfileId;
-    if (!trace) {
-      throw new Error("execution_recovery.execution_not_found");
-    }
-    if (
-      trace.dispatch.dispatchId !== input.projection.identity.dispatchId ||
-      trace.dispatch.targetProfileId !== targetProfileId
-    ) {
-      throw new Error("execution_recovery.identity_mismatch");
-    }
-    if (
-      sourceSignal?.type !== "signal.text" ||
-      sourceSignal.spaceId !== this.spaceId ||
-      (sourceSignal.data.attachments?.length ?? 0) > 0 ||
-      !readWakeActivationTargetProfileIds(sourceSignal).includes(
-        targetProfileId
-      )
-    ) {
-      throw new Error("execution_recovery.exact_source_wake_unavailable");
-    }
-    const operationKeys = await buildExecutionRecoveryOperationKeys(
-      input.command
-    );
-    const newClientMessageId = buildExecutionRecoveryFreshClientMessageId(
-      operationKeys.claimStorageKey
-    );
-    const placement = readSpaceThreadSignalPlacementBySignalId(
-      this.ctx.storage.sql,
-      sourceSignal.id
-    );
-    const thread = placement
-      ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
-      : null;
-    const continuationContext = input.spaceAccess
-      ? (getSpaceAccessRequestContext(input.spaceAccess) ?? input.context)
-      : input.context;
-    const verifiedReplayAccess = createDispatchContinuationSpaceAccessContext({
-      attemptId: input.projection.identity.attemptId,
-      dispatchId: trace.dispatch.dispatchId,
-      password: input.spaceAccess
-        ? getSpaceAccessPassword(input.spaceAccess)
-        : input.password,
-      requestContext: buildVerifiedRecoverySourceAuthorContext({
-        continuationContext,
-        dispatchId: trace.dispatch.dispatchId,
-        sourceProfile: sourceSignal.profile,
-      }),
-      sourceSignalId: sourceSignal.id,
-      spaceId: this.spaceId,
-      targetProfileId,
-    });
-    await input.markEffectStarted();
-    await this.rpcPostSignalOnceByClientMessageId({
-      authoringPolicy: "user_authored",
-      clientMessageId: newClientMessageId,
-      context: continuationContext,
-      messageEnvelope: {
-        activationTargets: [targetProfileId],
-        referenceTargets: [],
-        text: sourceSignal.data.text,
-      },
-      meta: { clientMessageId: newClientMessageId },
-      password: getSpaceAccessPassword(verifiedReplayAccess),
-      profile: sourceSignal.profile,
-      spaceAccess: verifiedReplayAccess,
-      spaceId: this.spaceId,
-      text: sourceSignal.data.text,
-      ...(thread
-        ? {
-            threadContext: {
-              rootSignalId: thread.rootSignalId,
-              threadId: thread.threadId,
-            },
-          }
-        : {}),
-    });
-    return {
-      newExecutionId: newClientMessageId,
-      status: "new_execution_requested",
     };
   }
 
@@ -20388,27 +20193,6 @@ function resolveNativeRecoveredPublicationId(
     return delivery.publishedSignalId;
   }
   return null;
-}
-
-function isExactRecoverySourceWakeVerified(input: {
-  canonicalTargetProfileId: string;
-  nativeDelivery: ExecutionRecoveryNativeDelivery;
-  sourceSignal: SignalEnvelope | null;
-}): boolean {
-  if (input.nativeDelivery?.conversationKind !== "space") {
-    return Boolean(
-      input.nativeDelivery?.executionRecoverySubmitRequest?.messages.every(
-        (message) => (message.attachments?.length ?? 0) === 0
-      )
-    );
-  }
-  return (
-    input.sourceSignal?.type === "signal.text" &&
-    (input.sourceSignal.data.attachments?.length ?? 0) === 0 &&
-    readWakeActivationTargetProfileIds(input.sourceSignal).includes(
-      input.canonicalTargetProfileId
-    )
-  );
 }
 
 function resolveRecoveredPublicationId(input: {

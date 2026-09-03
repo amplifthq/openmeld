@@ -255,9 +255,6 @@ export function resolveAgentExecutionStatus(
     ...service.reasonCodes,
     ...runtime.reasonCodes,
     ...claim.reasonCodes,
-    ...providerAccount.reasonCodes,
-    ...providerConversation.reasonCodes,
-    ...readinessImpact.reasonCodes,
     ...route.reasonCodes,
   ]);
 
@@ -926,9 +923,6 @@ function getAgentExecutionReadinessReasonCodes(
     ...readiness.facts.profile.reasonCodes,
     ...readiness.facts.binding.reasonCodes,
     ...readiness.facts.claim.reasonCodes,
-    ...readiness.facts.providerAccount.reasonCodes,
-    ...readiness.facts.providerConversation.reasonCodes,
-    ...readiness.facts.readinessImpact.reasonCodes,
     ...readiness.facts.localService.reasonCodes,
     ...readiness.facts.service.reasonCodes,
     ...readiness.facts.route.reasonCodes,

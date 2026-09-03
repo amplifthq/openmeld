@@ -63,7 +63,6 @@ describe("execution recovery service", () => {
     const projection = inspectExecutionRecovery({
       destination: surfaceDestination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -94,7 +93,6 @@ describe("execution recovery service", () => {
     const projection = inspectExecutionRecovery({
       destination: surfaceDestination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity: {
         ...identity,
         attemptId: null,
@@ -128,7 +126,6 @@ describe("execution recovery service", () => {
     const projection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -146,7 +143,6 @@ describe("execution recovery service", () => {
       status: "completed" as const,
     }));
     const resumeControllerConversation = vi.fn();
-    const retryAsNewExecution = vi.fn();
     const markEffectStarted = vi.fn(async () => undefined);
 
     const result = await executeExecutionRecovery({
@@ -154,7 +150,6 @@ describe("execution recovery service", () => {
       dependencies: {
         replayDurableResult,
         resumeControllerConversation,
-        retryAsNewExecution,
       },
       markEffectStarted,
       projection,
@@ -164,14 +159,12 @@ describe("execution recovery service", () => {
     expect(result.publicationId).toBe("recovered-signal-1");
     expect(replayDurableResult).toHaveBeenCalledOnce();
     expect(resumeControllerConversation).not.toHaveBeenCalled();
-    expect(retryAsNewExecution).not.toHaveBeenCalled();
   });
 
   it("offers exact conversation resume only after owner, controller, conversation, and destination verification", () => {
     const projection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity: { ...identity, resultRef: null },
       outcomeUnknown: false,
       retainedResult: {
@@ -195,7 +188,6 @@ describe("execution recovery service", () => {
     const projection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity: { ...identity, resultRef: null },
       outcomeUnknown: false,
       retainedResult: {
@@ -229,7 +221,6 @@ describe("execution recovery service", () => {
     const projection = inspectExecutionRecovery({
       destination: surfaceDestination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity: {
         ...identity,
         agentControllerConversationId: null,
@@ -246,10 +237,6 @@ describe("execution recovery service", () => {
       },
       updatedAtMs: 100,
     });
-    const retryAsNewExecution = vi.fn(async () => ({
-      newExecutionId: "client-message-new",
-      status: "new_execution_requested" as const,
-    }));
     const markEffectStarted = vi.fn(async () => undefined);
 
     const run = () =>
@@ -266,7 +253,6 @@ describe("execution recovery service", () => {
         dependencies: {
           replayDurableResult: vi.fn(),
           resumeControllerConversation: vi.fn(),
-          retryAsNewExecution,
         },
         markEffectStarted,
         projection,
@@ -279,7 +265,6 @@ describe("execution recovery service", () => {
     await expect(run()).rejects.toThrow(
       "execution_recovery.action_unavailable:execution_recovery.new_wake_required"
     );
-    expect(retryAsNewExecution).not.toHaveBeenCalled();
     expect(markEffectStarted).not.toHaveBeenCalled();
   });
 
@@ -287,7 +272,6 @@ describe("execution recovery service", () => {
     const recoveryInput = {
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity: {
         ...identity,
         agentControllerConversationId: null,
@@ -323,7 +307,6 @@ describe("execution recovery service", () => {
     const outcomeUnknown = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: true,
       retainedResult: {
@@ -339,7 +322,6 @@ describe("execution recovery service", () => {
     const userStopped = inspectExecutionRecovery({
       destination,
       explicitUserStop: true,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -363,7 +345,6 @@ describe("execution recovery service", () => {
     const projection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -378,7 +359,6 @@ describe("execution recovery service", () => {
     });
     const replayDurableResult = vi.fn();
     const resumeControllerConversation = vi.fn();
-    const retryAsNewExecution = vi.fn();
     const markEffectStarted = vi.fn(async () => undefined);
 
     await expect(
@@ -393,7 +373,6 @@ describe("execution recovery service", () => {
         dependencies: {
           replayDurableResult,
           resumeControllerConversation,
-          retryAsNewExecution,
         },
         markEffectStarted,
         projection,
@@ -402,6 +381,5 @@ describe("execution recovery service", () => {
 
     expect(replayDurableResult).not.toHaveBeenCalled();
     expect(resumeControllerConversation).not.toHaveBeenCalled();
-    expect(retryAsNewExecution).not.toHaveBeenCalled();
   });
 });

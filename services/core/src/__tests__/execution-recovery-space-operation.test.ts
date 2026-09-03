@@ -324,7 +324,6 @@ function buildProjection(
           threadId: null,
         },
     explicitUserStop: false,
-    freshExecutionCapability: { exactSourceWakeVerified: true },
     identity,
     outcomeUnknown: false,
     retainedResult: {
