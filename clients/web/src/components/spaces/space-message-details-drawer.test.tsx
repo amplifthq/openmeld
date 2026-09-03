@@ -540,7 +540,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(screen.queryByRole("heading", { name: "Replies" })).toBeNull();
 	});
 
-	it("keeps a historical failure notice verbatim and uses the current confirmed recovery", () => {
+	it("keeps a past-tense failure reason and uses the current confirmed recovery action", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -570,13 +570,47 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const reasonSection = getActivityRegion("Runner");
-		expect(within(reasonSection).getByText(persistedNoticeText)).toBeTruthy();
+		expect(
+			within(reasonSection).getByText("Runner could not start this Wake.")
+		).toBeTruthy();
+		expect(within(reasonSection).queryByText(persistedNoticeText)).toBeNull();
 		const recoveryLink = within(reasonSection).getByRole("link", {
 			name: "Choose local agent",
 		});
 		expect(recoveryLink.getAttribute("href")).toBe(
 			"/o/acme/agents?profileId=agt_triage"
 		);
+	});
+
+	it("keeps a recovered Agent's old binding failure in the past without setup advice", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_triage", { kind: "none" }],
+			]),
+			replyItems: [
+				createTimelineItem({
+					id: "sig-terminal-failure",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeReasonCode: "agent_profile_binding.missing",
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeType: "terminal_failure",
+					text: "Runner needs setup before it can reply.",
+				}),
+			],
+			targetProfileDisplayNamesByProfileId: new Map([["agt_triage", "Runner"]]),
+		});
+
+		const reasonSection = getActivityRegion("Runner");
+		expect(
+			within(reasonSection).getByText("Runner could not start this Wake.")
+		).toBeTruthy();
+		expect(reasonSection.textContent).not.toContain("needs setup");
+		expect(reasonSection.textContent).not.toContain("Review setup");
 	});
 
 	it("links a runtime permission denial to Agent Profile permissions", () => {
@@ -821,7 +855,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		const reasonSection = getActivityRegion("Center Agent");
 		const failureReason = within(reasonSection).getByText(
-			"OpenMeld ran into a system problem before Center Agent could reply. Try again. If it keeps happening, open diagnostics."
+			"Center Agent could not complete this Wake because OpenMeld encountered a system problem."
 		);
 		expect(failureReason.closest("p")?.className).toContain("text-destructive");
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
@@ -1388,7 +1422,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		expect(
 			screen.getByText(
-				"Runner could not reply because its computer disconnected."
+				"Runner could not complete this Wake because its computer was not connected to OpenMeld at the time."
 			)
 		).toBeTruthy();
 		expect(
@@ -1423,7 +1457,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const failureSection = getActivityRegion("OpenMeld");
 		const statusBadge = within(failureSection).getByText("Failed");
 		const failureReason = within(failureSection).getByText(
-			"Runner belongs to a different workspace."
+			"This agent could not complete this Wake because OpenMeld encountered a system problem."
 		);
 		expect(statusBadge.className).toContain("text-destructive");
 		expect(failureReason).toBeTruthy();
@@ -1461,7 +1495,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 			"text-destructive"
 		);
 		expect(
-			within(failureSection).getByText("Runner could not reply.")
+			within(failureSection).getByText("Runner could not start this Wake.")
 		).toBeTruthy();
 		expect(screen.queryByText("Wake failed")).toBeNull();
 		expect(

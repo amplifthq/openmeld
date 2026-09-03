@@ -299,19 +299,6 @@ function resolveWakeIssueEntry(input: {
 		plan && plan.kind !== "none"
 			? ({ kind: "agent_recovery", plan } as const)
 			: null;
-	if (currentAction) {
-		return [
-			{
-				action: currentAction,
-				body: currentAction.plan.body,
-				key: resolveWakeProgressKey(item),
-				message: resolveWakeIssueMessage(item),
-				targetLabel: item.targetLabel,
-				targetProfileId: item.targetProfileId,
-			},
-		];
-	}
-
 	const historicalBody = resolveHistoricalWakeFailureBody({
 		failureReasonCode: item.failureReasonCode,
 		targetLabel: item.targetLabel,
@@ -319,7 +306,7 @@ function resolveWakeIssueEntry(input: {
 
 	return [
 		{
-			action: null,
+			action: currentAction,
 			body: historicalBody ?? resolveWakeIssueMessage(item),
 			key: resolveWakeProgressKey(item),
 			message: resolveWakeIssueMessage(item),

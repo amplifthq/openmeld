@@ -1,5 +1,4 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
-import { shouldPreferMappedPublicAgentFailureReason } from "@openmeld/schemas";
 import type {
 	GetSpaceMessageDetailsResponse,
 	SpaceMessageDetailsStringFact,
@@ -954,15 +953,10 @@ function resolveNoticeRecoveryPresentation(input: {
 		? (input.targetProfileDisplayNamesByProfileId?.get(targetProfileId) ??
 			"This agent")
 		: "This agent";
-	const body = shouldPreferMappedPublicAgentFailureReason(
-		reasonCode,
-		input.notice.systemNoticeReason?.trim() || input.notice.text
-	)
-		? resolveHistoricalWakeFailureBody({
-				failureReasonCode: reasonCode,
-				targetLabel,
-			})
-		: null;
+	const body = resolveHistoricalWakeFailureBody({
+		failureReasonCode: reasonCode,
+		targetLabel,
+	});
 	return { action: currentAction, body };
 }
 

@@ -436,7 +436,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.issueEntries[0]?.action).toBeNull();
 	});
 
-	it("uses a current confirmed recovery plan instead of an old failure action", () => {
+	it("keeps the historical failure body while using the current recovery action", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			agentRecoveryPlansByProfileId: new Map([
 				[TARGET_PROFILE_ID, createConnectControllerPlan()],
@@ -463,7 +463,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: createConnectControllerPlan().body,
+				body: "Runner could not complete this Wake because its computer was not connected to OpenMeld at the time.",
 			}),
 		]);
 		expect(state.issueEntries[0]?.action).toMatchObject({
@@ -473,6 +473,32 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				primaryActionLabel: "Connect local agent",
 			},
 		});
+	});
+
+	it.each([
+		["connect", createConnectControllerPlan()],
+		["choose", createChooseControllerPlan()],
+	] as const)("keeps an execution-stalled failure historical when the current action is %s", (_kind, plan) => {
+		const state = resolveSpaceMessageWakeProgressState({
+			agentRecoveryPlansByProfileId: new Map([[TARGET_PROFILE_ID, plan]]),
+			item: createTimelineItem(),
+			items: [
+				createWakeProgressItem({
+					failureReasonCode: "daemon.delivery.execution_stalled",
+					message: "@runner couldn't reply.",
+					phase: "failed",
+					updatedAtMs: 4,
+				}),
+			],
+		});
+
+		expect(state.issueEntries[0]).toEqual(
+			expect.objectContaining({
+				action: expect.objectContaining({ kind: "agent_recovery", plan }),
+				body: "Runner could not complete this Wake.",
+			})
+		);
+		expect(state.issueEntries[0]?.body).not.toBe(plan.body);
 	});
 
 	it("keeps only the historical failure when no current recovery action is available", () => {
@@ -673,5 +699,22 @@ function createConnectControllerPlan(): Exclude<
 		recoveryReasonCode: "agent_profile_binding.missing",
 		secondaryLabel: "Not connected to a local agent yet",
 		title: "Runner is not connected",
+	};
+}
+
+function createChooseControllerPlan(): Exclude<
+	AgentProfileReplyRecoveryPlan,
+	{ kind: "none" }
+> {
+	return {
+		body: "Choose the local agent that should control Runner.",
+		kind: "choose_controller",
+		primaryActionId: "choose_local_agent",
+		primaryActionLabel: "Choose local agent",
+		profileId: TARGET_PROFILE_ID,
+		profileName: "Runner",
+		recoveryReasonCode: "agent_profile_binding.missing",
+		secondaryLabel: "No local agent is connected.",
+		title: "Choose a local agent",
 	};
 }
