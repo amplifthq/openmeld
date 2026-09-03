@@ -3446,6 +3446,9 @@ resolver that independently combines dispatch, RuntimeCoordinator, native
 delivery, or reply state. The shared item may include opt-in Space-owned public
 source context for later presentation, but this contract change alone does not
 add a new visible UI surface.
+Any UI that summarizes the active list requests `includePageInfo=true` and
+treats `hasMore=true` as incomplete coverage (for example, `25+` rather than an
+exact count). It must not imply that the bounded first page is the complete set.
 
 When active Wake progress includes a pending Agent Interaction for the current
 Binding owner, Web projects it into one collapsed Pending Action Surface above

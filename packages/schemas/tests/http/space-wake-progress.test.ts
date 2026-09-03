@@ -158,6 +158,7 @@ describe("space Wake progress HTTP schemas", () => {
     expect(
       getActiveSpaceWakeProgressInputSchema.safeParse({
         spaceId: "space-123",
+        includePageInfo: "1",
         includeTiming: "1",
         includeSourceContext: "1",
         includeWaitReason: "1",
@@ -167,6 +168,7 @@ describe("space Wake progress HTTP schemas", () => {
     ).toMatchObject({
       success: true,
       data: {
+        includePageInfo: true,
         includeTiming: true,
         includeSourceContext: true,
         includeWaitReason: true,
@@ -182,6 +184,10 @@ describe("space Wake progress HTTP schemas", () => {
         spaceId: "space-123",
         sourceProfileId: "human-source-1",
         targetProfileId: null,
+      },
+      pageInfo: {
+        hasMore: true,
+        limit: 25,
       },
       items: [
         {

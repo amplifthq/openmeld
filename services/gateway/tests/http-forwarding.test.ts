@@ -2782,7 +2782,7 @@ describe("gateway http forwarding", () => {
   it("forwards GET /v1/spaces/:spaceId/active-wake-progress to core RPC", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(
-      "http://local/v1/spaces/demo/active-wake-progress?includeTiming=true&includeSourceContext=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-profile-1&targetProfileId=agt_56789012-5678-4678-8678-56789012abcd",
+      "http://local/v1/spaces/demo/active-wake-progress?includePageInfo=true&includeTiming=true&includeSourceContext=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-profile-1&targetProfileId=agt_56789012-5678-4678-8678-56789012abcd",
       {
         method: "GET",
         headers: {
@@ -2807,6 +2807,7 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.getActiveSpaceWakeProgress).toHaveBeenCalledWith({
       spaceId: "demo",
+      includePageInfo: true,
       includeTiming: true,
       includeSourceContext: true,
       includeWaitReason: true,

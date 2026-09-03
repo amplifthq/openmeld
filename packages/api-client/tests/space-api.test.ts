@@ -2113,6 +2113,9 @@ describe("api-client space api", () => {
                   clientMessageId: "client-message-1",
                   targetProfileId: null,
                 },
+            ...(isActiveWakeProgress
+              ? { pageInfo: { hasMore: false, limit: 25 } }
+              : {}),
             items: [
               {
                 clientMessageId: "client-message-1",
@@ -2157,6 +2160,7 @@ describe("api-client space api", () => {
       spaceId: "space-123",
     });
     await api.getActiveWakeProgress({
+      includePageInfo: true,
       includeSourceContext: true,
       includeTiming: true,
       includeWaitReason: true,
@@ -2175,7 +2179,7 @@ describe("api-client space api", () => {
     expect(transport).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-source-1",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includePageInfo=true&includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-source-1",
       })
     );
   });
@@ -2215,6 +2219,35 @@ describe("api-client space api", () => {
       code: "gateway.invalid_response",
       operation: "space.active_wake_progress",
       schemaIssuePath: "query.sourceProfileId",
+    });
+  });
+
+  it("fails closed when an older server omits requested active Wake page information", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          query: { spaceId: "space-123", targetProfileId: null },
+          items: [],
+        })
+      )
+    );
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.getActiveWakeProgress({
+        includePageInfo: true,
+        requestContext: REQUEST_CONTEXT,
+        spaceId: "space-123",
+      })
+    ).rejects.toMatchObject({
+      code: "gateway.invalid_response",
+      operation: "space.active_wake_progress",
+      schemaIssuePath: "pageInfo",
     });
   });
 

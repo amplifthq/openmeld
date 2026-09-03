@@ -265,7 +265,7 @@ the shared schema restricts to HTTPS `slack.com` hosts. Core resolves that link
 through Slack `chat.getPermalink`; clients never construct or accept a
 recipient-authored external URL.
 An Agent Interaction target carries the stable source Space signal when known
-and an exact nullable Space thread root for every new RuntimeCoordinator
+and an exact nullable Space thread ID for every new RuntimeCoordinator
 projection, so resolved interaction history remains navigable and clients can
 identify the exact visible source conversation. A string identifies one thread;
 explicit null identifies the main timeline; an absent field means legacy
@@ -3875,15 +3875,22 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 progress read model, including the optional `startedAtMs` timing projection and
 the optional `wakeStopEligibility` projection. A caller may also opt into
 `sourceContext`, which contains only the Space-owned requester Profile ID, kind,
-display name, sanitized public source-message preview, and nullable thread root.
-Active reads may filter by one `sourceProfileId`; Core resolves that filter to
-Space source Signal identities before each bounded owner query, never after a
-global limit.
+display name, sanitized public source-message preview, and nullable thread ID.
+Active reads may filter by one `sourceProfileId`. New dispatch-ledger and native
+delivery rows retain that immutable source Profile ID only as a bounded query
+selector; it is not identity authority or public source context. Legacy
+dispatch rows may match through bounded active-outbox dispatch IDs. Every
+lifecycle-owner filter runs before ordering and limiting, and Core must never
+scan the requester's unbounded Space message history.
 The response query must echo the accepted `sourceProfileId`. A new client that
 requested this filter fails closed when the echo is absent or different, so an
 older Gateway or Core cannot silently return an unfiltered result.
-This context is a read-time join over existing Space truth. It is not copied
-into an execution owner, cannot authorize or advance work, and never contains
+Callers may opt into bounded result metadata with `includePageInfo=true`.
+When requested, Core returns `pageInfo.limit` and `pageInfo.hasMore`; a new
+client fails closed if an older Gateway or Core omits that metadata. Core omits
+`pageInfo` when it was not requested so older strict clients remain compatible.
+This public context is a read-time join over existing Space truth. It is not
+copied into an execution owner, cannot authorize or advance work, and never contains
 provider prompts, transcripts, or other private runtime context.
 
 The contract may also expose the bounded

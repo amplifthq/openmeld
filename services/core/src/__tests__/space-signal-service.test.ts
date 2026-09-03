@@ -798,6 +798,7 @@ function createWakeProgressOutboxRecord(input: {
   outboxStatus?: "pending" | "handed_off" | "cancelled";
   sourceClientMessageId?: string | null;
   sourceEventId?: string;
+  sourceProfileId?: string;
   targetProfileId?: string;
 }) {
   const record = createDispatchOutboxRecord({
@@ -814,10 +815,10 @@ function createWakeProgressOutboxRecord(input: {
       "sourceClientMessageId" in input
         ? input.sourceClientMessageId
         : "client-message-1",
-    senderProfileId: "human-1",
+    senderProfileId: input.sourceProfileId ?? "human-1",
     sourceSignalSnapshot: {
       text: "@Codex Agent(wake) hello",
-      profileId: "human-1",
+      profileId: input.sourceProfileId ?? "human-1",
       profileKind: "human",
       profileMentionLabel: "Felix",
     },
@@ -903,11 +904,8 @@ function createActiveWakeProgressSql(input: {
   const sqlExec = vi.fn((query: string, ...params: unknown[]) => {
     if (query.includes("FROM openMeldDaemon_outbox")) {
       const statusParams = new Set(params.map(String));
-      const sourceSignalIdsJson = params.find(
-        (param) => typeof param === "string" && param.startsWith("[")
-      );
-      const sourceSignalIds = sourceSignalIdsJson
-        ? new Set(JSON.parse(String(sourceSignalIdsJson)) as string[])
+      const sourceProfileId = query.includes("sourceSignalSnapshot.profileId")
+        ? params.at(-2)
         : null;
       return {
         toArray: () =>
@@ -922,7 +920,8 @@ function createActiveWakeProgressSql(input: {
             .filter(({ persistedStatus }) => statusParams.has(persistedStatus))
             .filter(
               ({ record }) =>
-                !sourceSignalIds || sourceSignalIds.has(record.sourceEventId)
+                !sourceProfileId ||
+                record.sourceSignalSnapshot?.profileId === sourceProfileId
             )
             .map(({ persistedStatus, record }) => ({
               payload_json: record.payloadJson,
@@ -1051,7 +1050,7 @@ function createWakeEvidenceDb(
         const sourceSignalIdsJson = params.find(
           (param) => typeof param === "string" && param.startsWith("[")
         );
-        const sourceSignalIds = sourceSignalIdsJson
+        const sourceDispatchIds = sourceSignalIdsJson
           ? new Set(JSON.parse(String(sourceSignalIdsJson)) as string[])
           : null;
         if (
@@ -1070,8 +1069,8 @@ function createWakeEvidenceDb(
               )
               .filter(
                 (execution) =>
-                  !sourceSignalIds ||
-                  sourceSignalIds.has(execution.sourceEventId)
+                  !query.includes("executions.dispatch_id IN") ||
+                  sourceDispatchIds?.has(execution.dispatchId)
               )
               .map((execution, index) => ({
                 dispatch_id: execution.dispatchId,
@@ -1112,7 +1111,8 @@ function createWakeEvidenceDb(
               )
               .filter(
                 (row) =>
-                  !sourceSignalIds || sourceSignalIds.has(row.sourceEventId)
+                  !query.includes("deliveries.dispatch_id IN") ||
+                  sourceDispatchIds?.has(row.dispatchId)
               )
               .map((row, index) => ({
                 started_at_ms:
@@ -1367,6 +1367,7 @@ async function readActiveWakeProgressForTest(input: {
   actorOwnerUserId?: string;
   executionRows?: readonly WakeProgressExecutionRow[];
   includeTiming?: boolean;
+  includePageInfo?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
@@ -1412,6 +1413,7 @@ async function readActiveWakeProgressForTest(input: {
       actorOwnerUserId?: string | null;
       db: D1Database;
       includeTiming?: boolean;
+      includePageInfo?: boolean;
       includeSourceContext?: boolean;
       includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
@@ -1461,6 +1463,7 @@ async function readActiveWakeProgressForTest(input: {
     actorOwnerUserId: input.actorOwnerUserId,
     db: wakeEvidenceDb,
     includeTiming: input.includeTiming,
+    includePageInfo: input.includePageInfo,
     includeSourceContext: input.includeSourceContext,
     includeWaitReason: input.includeWaitReason,
     includeWakeStopEligibility: input.includeWakeStopEligibility,
@@ -5267,23 +5270,33 @@ describe("space signal service", () => {
       id: "signal-other-source",
       profileId: "agent-other",
     });
+    const requestedOutbox = createWakeProgressOutboxRecord({
+      sourceEventId: requestedSource.id,
+      sourceProfileId: "human-requester",
+      targetProfileId: "agent-target-requested",
+    });
+    const otherOutbox = createWakeProgressOutboxRecord({
+      sourceEventId: otherSource.id,
+      sourceProfileId: "agent-other",
+      targetProfileId: "agent-target-other",
+    });
     const response = await readActiveWakeProgressForTest({
       executionRows: [
         {
-          dispatchId: "dispatch-requested",
+          dispatchId: requestedOutbox.dispatchId,
           executionStatus: "running",
           sourceEventId: requestedSource.id,
           targetProfileId: "agent-target-requested",
         },
         {
-          dispatchId: "dispatch-other",
+          dispatchId: otherOutbox.dispatchId,
           executionStatus: "running",
           sourceEventId: otherSource.id,
           targetProfileId: "agent-target-other",
         },
       ],
       includeSourceContext: true,
-      outboxRows: [],
+      outboxRows: [requestedOutbox, otherOutbox],
       sourceProfileId: "human-requester",
       sourceSignals: [requestedSource, otherSource],
     });
@@ -5295,7 +5308,7 @@ describe("space signal service", () => {
     });
     expect(response.items).toEqual([
       expect.objectContaining({
-        dispatchId: "dispatch-requested",
+        dispatchId: requestedOutbox.dispatchId,
         sourceContext: {
           messagePreview: "@Codex Agent(wake) hello",
           profileId: "human-requester",
@@ -5306,6 +5319,23 @@ describe("space signal service", () => {
         sourceSignalId: "signal-requested-source",
       }),
     ]);
+  });
+
+  it("reports when the bounded active Wake progress page has more items", async () => {
+    const outboxRows = Array.from({ length: 26 }, (_, index) =>
+      createWakeProgressOutboxRecord({
+        sourceEventId: `signal-page-${String(index).padStart(2, "0")}`,
+        targetProfileId: `agent-page-${String(index).padStart(2, "0")}`,
+      })
+    );
+
+    const response = await readActiveWakeProgressForTest({
+      includePageInfo: true,
+      outboxRows,
+    });
+
+    expect(response.items).toHaveLength(25);
+    expect(response.pageInfo).toEqual({ hasMore: true, limit: 25 });
   });
 
   it("projects active RuntimeCoordinator summary without rebuilding dispatch traces", async () => {
