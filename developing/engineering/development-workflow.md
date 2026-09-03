@@ -63,6 +63,12 @@ the correct owner document. Do not migrate raw logs or long historical notes.
 - Each agent development lane uses its own Git worktree. When lanes need live
   localhost stacks concurrently, use the isolated commands in
   [Parallel Worktree Dev Lanes](#parallel-worktree-dev-lanes).
+- A CodeGraph index is generated state tied to one checkout. Use it when the
+  current worktree already has a usable index. When it does not, use `rg` and
+  targeted source reads for bounded work; run `codegraph init` only when deeper
+  structural or call-path analysis makes the per-worktree indexing cost useful.
+  Never symlink or reuse another worktree's index because its paths and source
+  state may differ.
 - Production migrations, publication, and deployment run only from a dedicated
   clean release worktree at the exact approved `main` commit.
 
