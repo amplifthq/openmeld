@@ -660,6 +660,51 @@ describe("local service runner dual-write", () => {
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
   });
 
+  it("records a stable reason when immediate service reconnects are exhausted", async () => {
+    vi.useFakeTimers();
+    const presenter = {
+      view: "agent" as const,
+      event: vi.fn(),
+      line: vi.fn(),
+      data: vi.fn(),
+    };
+    connectWebSocketMock
+      .mockRejectedValueOnce(new Error("daemon stream handshake timed out"))
+      .mockRejectedValueOnce(new Error("daemon stream handshake timed out"))
+      .mockResolvedValueOnce({ close: vi.fn() });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
+      // Keep test output focused on the structured reason assertion.
+    });
+
+    const loop = runDaemonServiceLoop({
+      baseUrl: "http://localhost:8080",
+      heartbeatIntervalMs: 5000,
+      mode: "background",
+      presenter,
+    });
+    await waitForFakeTimerCondition(
+      "first reconnect",
+      () => connectWebSocketMock.mock.calls.length === 1
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    await waitForFakeTimerCondition("reconnect exhaustion diagnostic", () =>
+      warnSpy.mock.calls.some((call) =>
+        String(call[0]).includes('"reasonCode":"service_reconnect_exhausted"')
+      )
+    );
+    await vi.advanceTimersByTimeAsync(2000);
+    await loop;
+
+    expect(connectWebSocketMock).toHaveBeenCalledTimes(3);
+    expect(
+      presenter.data.mock.calls.some(
+        (call) =>
+          call[0]?.payload?.payload?.reasonCode ===
+          "service_reconnect_exhausted"
+      )
+    ).toBe(true);
+  });
+
   it("persists the first socket heartbeat without waiting for the runtime state throttle", async () => {
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
       await input.touchRuntimeState({

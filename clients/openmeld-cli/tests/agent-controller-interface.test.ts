@@ -807,6 +807,7 @@ describe("agent controller interface inventory", () => {
             ),
             lastSucceededAt: null,
             probePolicy: "fresh",
+            reasonCode: "controller_check_timeout",
           })
         );
       } finally {

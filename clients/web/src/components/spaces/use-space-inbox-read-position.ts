@@ -3,9 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { markCurrentSpaceInboxReadThrough } from "#/lib/organizations/inbox";
 import {
+	inboxQueryKeys,
 	invalidateInboxFacts,
 	spaceInboxUnreadTargetsQueryOptions,
 } from "#/query/organizations/inbox";
+import {
+	optimisticallyMarkSpaceInboxReadThrough,
+	type SpaceInboxUnreadDestination,
+} from "#/query/organizations/inbox-read-through-cache";
 
 export type SpaceInboxReadPosition = {
 	isReady: boolean;
@@ -18,6 +23,7 @@ export type SpaceInboxReadPosition = {
 };
 
 export function useSpaceInboxReadPosition(input: {
+	destination: SpaceInboxUnreadDestination;
 	organizationId: string | null;
 	spaceId: string;
 }): SpaceInboxReadPosition {
@@ -34,18 +40,45 @@ export function useSpaceInboxReadPosition(input: {
 			if (!(input.organizationId && throughOccurredAtMs > 0)) {
 				return;
 			}
-			await markCurrentSpaceInboxReadThrough({
+			await queryClient.cancelQueries({
+				queryKey: inboxQueryKeys.organization(input.organizationId),
+			});
+			const optimisticUpdate = optimisticallyMarkSpaceInboxReadThrough({
+				destination: input.destination,
 				organizationId: input.organizationId,
+				queryClient,
 				spaceId: input.spaceId,
 				...(threadRootSignalId ? { threadRootSignalId } : {}),
 				throughOccurredAtMs,
 			});
+			try {
+				await markCurrentSpaceInboxReadThrough({
+					organizationId: input.organizationId,
+					spaceId: input.spaceId,
+					...(threadRootSignalId ? { threadRootSignalId } : {}),
+					throughOccurredAtMs,
+				});
+			} catch (error) {
+				optimisticUpdate.rollback();
+				try {
+					await invalidateInboxFacts({
+						organizationId: input.organizationId,
+						queryClient,
+					});
+				} catch (refreshError) {
+					console.warn(
+						"Failed to refresh Inbox after a read-position write failed.",
+						refreshError
+					);
+				}
+				throw error;
+			}
 			await invalidateInboxFacts({
 				organizationId: input.organizationId,
 				queryClient,
 			});
 		},
-		[input.organizationId, input.spaceId, queryClient]
+		[input.destination, input.organizationId, input.spaceId, queryClient]
 	);
 	return {
 		isReady: unreadTargetsQuery.isSuccess,

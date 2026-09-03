@@ -458,7 +458,7 @@ describe("computer summary status", () => {
 		});
 
 		expect(status).toMatchObject({
-			label: "Couldn't check",
+			label: "Check delayed",
 			reason: "agent_check_failed",
 			tone: "warning",
 		});

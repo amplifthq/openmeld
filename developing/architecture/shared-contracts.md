@@ -4106,7 +4106,7 @@ the Computer verdict. When every non-ready enabled capability is blocked only
 by `controller.interface.check_failed`, Core must keep Wake fail closed with
 `canReplyFromThisComputer: false` and `status: blocked`, while publishing
 `nextAction: check_status` instead of `run_setup`. Clients present that verdict
-as the same warning-level **Couldn't check** outcome used by the affected local
+as the same warning-level **Check delayed** outcome used by the affected local
 agent row; they must not escalate it to repair guidance.
 
 When the Computer reports capabilities but all of them are disabled, Core keeps

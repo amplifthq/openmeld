@@ -60,6 +60,8 @@ import { resolveDaemonCapabilities } from "../adapters/resolve-daemon-capabiliti
 import {
   CATALOG_SYNC_RETRY_INTERVAL_MS,
   CATALOG_SYNC_SIGNAL_POLL_INTERVAL_MS,
+  CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS,
+  CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
   DAEMON_RUNTIME_CONTRACT_EPOCH,
   HEARTBEAT_CONSECUTIVE_FAILURES_BEFORE_CLOSE,
   HEARTBEAT_RESPONSE_TIMEOUT_MS,
@@ -2515,7 +2517,15 @@ export async function runDaemonSocketSession(input: {
     });
     if (!closed) {
       const acknowledgementAbortController = new AbortController();
-      waitForClose.then(() => acknowledgementAbortController.abort());
+      let socketClosedBeforeAcknowledgement = false;
+      waitForClose.then(() => {
+        socketClosedBeforeAcknowledgement = true;
+        acknowledgementAbortController.abort();
+      });
+      const acknowledgementTimeout = setTimeout(() => {
+        acknowledgementAbortController.abort();
+      }, CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS);
+      acknowledgementTimeout.unref?.();
       const acknowledgement = await waitForDispatchResultOutboxAcknowledgement({
         abortSignal: acknowledgementAbortController.signal,
         ledgerPaths: input.ledgerPaths,
@@ -2523,13 +2533,42 @@ export async function runDaemonSocketSession(input: {
           ledgerPaths: input.ledgerPaths,
         }),
       });
+      clearTimeout(acknowledgementTimeout);
       if (acknowledgement === "aborted") {
-        return false;
+        if (socketClosedBeforeAcknowledgement) {
+          return false;
+        }
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.controlled_shutdown_result_ack_timeout",
+          text: "controlled shutdown preserved unacknowledged durable results for replay after the receipt deadline",
+          payload: {
+            daemonSessionId: input.daemonSessionId,
+            reasonCode: "result_ack_timeout",
+            timeoutMs: CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS,
+          },
+        });
       }
     }
     if (!closed) {
       input.socket.close(1000, "shutdown");
-      await waitForClose;
+      const didClose = await waitForPromiseDeadline({
+        operation: waitForClose,
+        timeoutMs: CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
+      });
+      if (!didClose) {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.controlled_shutdown_socket_close_timeout",
+          text: "controlled shutdown terminated a half-open daemon stream after the close deadline",
+          payload: {
+            daemonSessionId: input.daemonSessionId,
+            reasonCode: "socket_close_timeout",
+            timeoutMs: CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
+          },
+        });
+        input.socket.terminate();
+      }
     }
     return true;
   }
@@ -2609,6 +2648,26 @@ async function withDaemonRunTimeout<T>(input: {
             })
           );
         }, input.timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function waitForPromiseDeadline(input: {
+  operation: Promise<unknown>;
+  timeoutMs: number;
+}): Promise<boolean> {
+  let timeout: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      input.operation.then(() => true),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), input.timeoutMs);
+        timeout.unref?.();
       }),
     ]);
   } finally {

@@ -1909,6 +1909,23 @@ the socket. If the socket disappears during that wait, unacknowledged results
 remain in the same durable outbox for the next Service session; lifecycle code
 must not create a second result store.
 
+The active-work drain has no fixed wall-clock deadline while execution remains
+live. Once active work has drained, result-receipt and WebSocket-close waits are
+bounded: an unacknowledged durable result remains available for replay, and a
+half-open socket is terminated after its close deadline. The calling lifecycle
+also bounds the control request so a new CLI cannot wait forever on an older
+Service. That timeout is a compatibility fallback only during an actual version
+upgrade; the existing OpenMeld-owned-process and long-stalled-heartbeat checks
+remain mandatory before any automatic force kill.
+
+Repeated process-discovery failures are aggregated within a bounded local log
+window, retaining the first occurrence, count, duration, affected controller,
+and recovery event. Local diagnostics preserve stable reason codes including
+`process_discovery_timeout`, `controller_check_timeout`,
+`result_ack_timeout`, `socket_close_timeout`, and
+`service_reconnect_exhausted`; immediate reconnect exhaustion remains degraded
+evidence while background reconnect attempts continue.
+
 `agentReplyContextReview: true` is an additive Runtime Transport capability.
 A Service advertises it only when it can keep a `post_message` result as an
 unpublished proposal, receive `review_required`, remove that proposal from the
