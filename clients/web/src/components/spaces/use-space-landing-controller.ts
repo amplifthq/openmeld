@@ -113,7 +113,10 @@ import {
 	spaceHistoryDateWindowQueryOptions,
 	spaceHistoryQueryOptions,
 } from "#/query/spaces/history";
-import { spaceMembersQueryOptions } from "#/query/spaces/members";
+import {
+	readSpaceMembers,
+	spaceMembersQueryOptions,
+} from "#/query/spaces/members";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 import {
 	spaceThreadSignalsQueryOptions,
@@ -127,6 +130,7 @@ import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
+import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import { usePublishSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import type {
@@ -1680,11 +1684,13 @@ export function useSpaceLandingController(input: {
 		onWakeProgressItems: mergeConversationWakeProgressItems,
 		onWakeProgressRemoveClientMessageId:
 			removeConversationWakeProgressItemsForClientMessageId,
+		readCurrentMembers: readCurrentMembersForWakeAdmission,
 		organizationSlug: input.orgSlug,
 		ownerAccountId: input.ownerAccountId,
 		profileId: input.profileId,
 		queryClient,
 		spaceId: input.spaceId,
+		status: statusSnapshot,
 		threadsEnabled: false,
 		threadsLoading:
 			bootstrapQuery.isPending && bootstrapQuery.data === undefined,
@@ -2340,6 +2346,16 @@ export function useSpaceLandingController(input: {
 				pendingMessage: options?.pendingMessage,
 			});
 			pendingSubmission = preparedSubmission;
+			await requireCurrentSpaceComposerWakeAdmission({
+				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+					explicitActivationTargets:
+						preparedSubmission.messageEnvelope?.activationTargets ?? [],
+					membersSnapshot,
+					senderProfileId: input.profileId,
+					status: statusSnapshot,
+				}),
+				readCurrentMembers: readCurrentMembersForWakeAdmission,
+			});
 			const publishedFiles = options?.pendingMessage
 				? {
 						messageFiles: [] as SpaceMessageFileReference[],
@@ -2417,6 +2433,13 @@ export function useSpaceLandingController(input: {
 		} finally {
 			composerSession.send.finish();
 		}
+	}
+
+	function readCurrentMembersForWakeAdmission(): Promise<SpaceMembersSnapshot> {
+		return readSpaceMembers({
+			openMeldProfileId: input.profileId,
+			spaceId: input.spaceId,
+		});
 	}
 
 	async function sendTextMessage(text: string) {
@@ -2993,11 +3016,13 @@ function useSpaceThreadController(input: {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	onWakeProgressItems: (items: readonly WakeProgressItem[]) => void;
 	onWakeProgressRemoveClientMessageId: (clientMessageId: string) => void;
+	readCurrentMembers: () => Promise<SpaceMembersSnapshot | null>;
 	organizationSlug: string;
 	ownerAccountId: string;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	spaceId: string;
+	status: GetSpaceStatusResponse | null;
 	threadsEnabled: boolean;
 	threadsLoading: boolean;
 	statusReady: boolean;
@@ -3274,6 +3299,16 @@ function useSpaceThreadController(input: {
 						)
 					: mentionAuthoring.prepareFileOnlySubmission();
 			pendingSubmission = preparedSubmission;
+			await requireCurrentSpaceComposerWakeAdmission({
+				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+					explicitActivationTargets:
+						preparedSubmission.messageEnvelope?.activationTargets ?? [],
+					membersSnapshot: input.membersSnapshot,
+					senderProfileId: input.profileId,
+					status: input.status,
+				}),
+				readCurrentMembers: input.readCurrentMembers,
+			});
 			const publishedFiles = await composerFilesController.publishReadyFiles();
 			publishedLocalIds = publishedFiles.publishedLocalIds;
 			if (
