@@ -1,0 +1,2 @@
+export const RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE =
+  "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload" as const;

@@ -159,6 +159,10 @@ export const runtimeCoordinatorTokenRunAuthoritySchema = z.strictObject({
 
 const runtimeCoordinatorExecutionTokenAuthorityRecordBaseSchema =
   z.strictObject({
+    acceptedDispatchPayloadFingerprint: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/)
+      .optional(),
     authorityScope: runtimeCoordinatorTokenAuthorityScopeSchema,
     currentRunId: boundedNullableIdentifierSchema,
     executionScope: runtimeCoordinatorTokenExecutionScopeSchema,

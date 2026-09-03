@@ -34,6 +34,7 @@ import {
   postSpaceDispatchOutboxRedriveBodySchema,
   postSpaceDispatchOutboxRedriveResponseSchema,
   projectTargetWakeLifecycleIdentity,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
@@ -1183,7 +1184,7 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
         primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
         reasonCode:
           input.admission.conflictKind === "accepted_dispatch_payload"
-            ? "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload"
+            ? RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE
             : "runtime_coordinator.head_authority_conflict",
         status: "conflict",
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
@@ -11453,6 +11454,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const db = wakeEvidenceDb(this.env);
     const readinessImpactDb = localStateDb(this.env);
     if (!(db && readinessImpactDb && input.record.noExecutionDecision)) {
+      return;
+    }
+    if (
+      input.record.noExecutionDecision.reasonCode !==
+      RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
+    ) {
       return;
     }
     const identity =

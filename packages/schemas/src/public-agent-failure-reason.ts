@@ -3,6 +3,7 @@ import {
   type AgentRecoveryActionId,
   formatAgentRecoveryActionLabel,
 } from "./agent-recovery-action";
+import { RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE } from "./runtime-coordinator-reason-code";
 
 export const PROJECT_LOCAL_CONNECTION_FAILURE_REASON_CODES = [
   "project.local_connection.missing",
@@ -961,10 +962,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
-        `OpenMeld stopped this Wake for ${formatObjectTargetName(targetName)} because the request no longer matched what OpenMeld originally accepted. Send the request again. If it keeps happening, open Diagnostics.`,
+        `OpenMeld stopped this Wake for ${formatObjectTargetName(targetName)} because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics.`,
       kind: "system_retry",
       patterns: [
-        "=runtime_coordinator.head_authority_conflict.accepted_dispatch_payload",
+        `=${RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE}`,
       ],
       recoveryTarget: null,
     },

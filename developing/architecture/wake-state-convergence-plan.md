@@ -198,6 +198,10 @@ display-name enrichment may change without changing that identity. A genuine
 accepted-payload conflict is neither a duplicate nor a connectivity verdict:
 RuntimeCoordinator settles the exact pre-execution Wake visibly when safe, and
 otherwise the dispatch remains retryable without executing changed content.
+Terminal execution authority retains the accepted-payload fingerprint after
+head cleanup; a changed terminal replay conflicts, while a legacy authority
+without that fingerprint fails closed. This per-Wake conflict may publish its
+exact outcome but must not write a current Wakeability blocker.
 Validation covers three consecutive Wakes to one Agent Profile plus controlled
 Service update and replacement-generation redelivery without crossed execution
 or reply identities.

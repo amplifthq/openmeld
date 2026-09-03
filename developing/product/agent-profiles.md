@@ -758,7 +758,9 @@ reason, or later display-name snapshot does not create a different request. A
 real immutable-content mismatch fails that exact pre-execution Wake visibly, or
 stays retryable if RuntimeCoordinator cannot safely settle it; it is never
 treated as a duplicate, a Computer-offline verdict, or permission to execute
-the changed content.
+the changed content. Its failure tells the user to send the request again and
+open Diagnostics if needed; it does not expose a Check status/Recovery action
+or change current Wakeability.
 
 `Queued` means another Wake owns this Profile's work slot. It is not the
 existing RuntimeCoordinator `waiting` state used after a Wake reaches the head

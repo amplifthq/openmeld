@@ -152,6 +152,16 @@ visible no-execution failure for that exact Wake. If linked execution or a
 concurrent authority change makes that unsafe, Core retains the outbox item and
 retries the exact conflict; it does not execute the altered payload, mark the
 dispatch `deduped`, or reinterpret the conflict as Computer connectivity.
+After execution is linked, the durable execution-token authority retains the
+accepted-payload fingerprint so terminal head retirement cannot erase this
+fence. A terminal replay with a different fingerprint returns the same exact
+accepted-payload conflict. A legacy terminal authority without that fingerprint
+fails closed and cannot grant a new execution.
+Per-Wake no-execution publication does not itself change current Wakeability.
+Only a no-execution decision whose reason is the actual
+`runtime_coordinator.delivery_expired` condition may write the corresponding
+current readiness impact; payload conflicts, offline snapshots, and other
+historical Wake outcomes do not inherit that blocker.
 During a rolling Core deployment, a caller that omits the snapshot cannot
 reaccept a head that already owns one; RuntimeCoordinator returns the legacy-
 parseable `retry_later` shape and never grants `create_execution`. A legacy

@@ -11,6 +11,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
 } from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
@@ -8129,7 +8130,7 @@ describe("handleDispatchQueueBatch", () => {
 
   it("publishes an exact failure instead of deduping an accepted Wake payload conflict", async () => {
     const reasonCode =
-      "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload";
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE;
     vi.mocked(
       runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
     ).mockImplementationOnce(async (input) => ({
@@ -8187,7 +8188,7 @@ describe("handleDispatchQueueBatch", () => {
 
   it("does not overwrite an accepted payload conflict with a second preflight failure", async () => {
     const reasonCode =
-      "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload";
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE;
     vi.mocked(
       runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
     ).mockImplementationOnce(async (input) => ({

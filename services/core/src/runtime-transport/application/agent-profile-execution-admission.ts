@@ -1870,7 +1870,11 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
       input.commandState.lastDeliveryProvenance.connectionGeneration !==
         deliveryRequest.connectionGeneration ||
       input.commandState.lastDeliveryProvenance.leaseEpoch !==
-        deliveryRequest.leaseEpoch
+        deliveryRequest.leaseEpoch ||
+      (input.authority.acceptedDispatchPayloadFingerprint !== undefined &&
+        rawHead.acceptedDispatchSnapshot !== undefined &&
+        input.authority.acceptedDispatchPayloadFingerprint !==
+          rawHead.acceptedDispatchSnapshot.payloadFingerprint)
     ) {
       return {
         ok: false,
@@ -1893,6 +1897,14 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
         reasonCode: deliveryFence,
       };
     }
+
+    const acceptedAuthority = rawHead.acceptedDispatchSnapshot
+      ? runtimeCoordinatorExecutionTokenAuthorityRecordSchema.parse({
+          ...input.authority,
+          acceptedDispatchPayloadFingerprint:
+            rawHead.acceptedDispatchSnapshot.payloadFingerprint,
+        })
+      : input.authority;
 
     const linkedHead = {
       ...rawHead,
@@ -1926,7 +1938,7 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
       ...new Set([...runCommandStateIds, executionId]),
     ].sort();
     await Promise.all([
-      transaction.put(tokenAuthorityStorageKey, input.authority),
+      transaction.put(tokenAuthorityStorageKey, acceptedAuthority),
       transaction.put(runCommandStateStorageKey, input.commandState),
       transaction.put(
         RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
@@ -2404,6 +2416,21 @@ function resolveTerminalExecutionHeadReplay(input: {
   ) {
     return {
       conflictKind: "head_lifecycle_authority",
+      effectiveRecord,
+      status: "conflict",
+    };
+  }
+  const acceptedPayloadFingerprint =
+    authority.acceptedDispatchPayloadFingerprint;
+  const proposedPayloadFingerprint =
+    input.proposedRecord.acceptedDispatchSnapshot?.payloadFingerprint;
+  if (
+    acceptedPayloadFingerprint === undefined ||
+    proposedPayloadFingerprint === undefined ||
+    acceptedPayloadFingerprint !== proposedPayloadFingerprint
+  ) {
+    return {
+      conflictKind: "accepted_dispatch_payload",
       effectiveRecord,
       status: "conflict",
     };

@@ -9,6 +9,7 @@ import {
   OPENMELD_DAEMON_DISPATCH_CONTRACT_VERSION,
   parseOpenMeldDaemonDispatchQueueIngress,
   projectTargetWakeLifecycleIdentity,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
 } from "@openmeld/schemas";
 import type {
@@ -1648,15 +1649,12 @@ type RuntimeCoordinatorHeadAcceptanceOutcome =
   | { reasonCode: string; status: "publication_intent_ready" }
   | { status: "skip_duplicate" };
 
-const RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE =
-  "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload";
-
 const isAcceptedPayloadConflictPublicationIntentReady = (
   outcome: RuntimeCoordinatorHeadAcceptanceOutcome
 ): boolean =>
   outcome.status === "publication_intent_ready" &&
   outcome.reasonCode ===
-    RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE;
+    RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE;
 
 const applyRuntimeCoordinatorAcceptedDispatchSnapshot = (input: {
   headAcceptance: RuntimeCoordinatorHeadAcceptanceOutcome;
@@ -1805,7 +1803,8 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
         idempotencyKey: input.dispatchMessage.idempotencyKey,
         ownerUserId: input.targetOwnerUserId,
         publicationCategory: "agent_profile_unavailable",
-        reasonCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+        reasonCode:
+          RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
         targetWakeLifecycleIdentity: input.targetWakeLifecycleIdentity,
         userRecoveryAction: "check_status",
       },
@@ -1816,7 +1815,8 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
       attemptId: input.executionAttemptId,
       attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
       db: input.db,
-      errorCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+      errorCode:
+        RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
       errorMessage: `RuntimeCoordinator rejected the changed accepted Wake payload and could not safely settle the original head: ${response.reasonCode}`,
       idempotencyKey: input.dispatchMessage.idempotencyKey,
       nowMs: input.nowMs,
@@ -1847,7 +1847,8 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
     attemptId: input.executionAttemptId,
     attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
     db: input.db,
-    errorCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+    errorCode:
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
     errorMessage:
       "RuntimeCoordinator preserved the first accepted Wake payload and prepared an exact visible identity-conflict failure",
     idempotencyKey: input.dispatchMessage.idempotencyKey,
@@ -1861,7 +1862,8 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
     decisionPayload: {
       dispatchId: input.dispatchMessage.dispatchId,
       publicationIntentId: response.publicationIntentId,
-      reasonCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+      reasonCode:
+        RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
       status: response.status,
       targetProfileId: input.dispatchMessage.targetProfileId,
       targetWakeLifecycleId: response.targetWakeLifecycleId,
@@ -1874,7 +1876,8 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
     correlationId: input.dispatchMessage.dispatchId,
   });
   return {
-    reasonCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+    reasonCode:
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
     status: "publication_intent_ready",
   };
 };
@@ -1952,7 +1955,7 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     !response.ok &&
     response.status === "conflict" &&
     response.reasonCode ===
-      RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE
   ) {
     return await settleRuntimeCoordinatorAcceptedPayloadConflict({
       db: input.db,

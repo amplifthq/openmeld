@@ -4,6 +4,7 @@ import {
   isAgentExecutionReadinessImpactReasonCode,
   isProjectLocalConnectionFailureReasonCode,
   projectLocalConnectionFailureReasonCodeSchema,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   resolveCenterAgentCallbackFailureMessage,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,
@@ -687,7 +688,7 @@ describe("public agent failure reason mapping", () => {
 
   it("keeps an accepted Wake payload conflict separate from computer connectivity", () => {
     const reasonCode =
-      "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload";
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE;
 
     expect(
       resolvePublicAgentFailureRecovery({
@@ -695,12 +696,12 @@ describe("public agent failure reason mapping", () => {
         targetLabel: "Runner",
       })
     ).toEqual({
-      body: "OpenMeld stopped this Wake for Runner because the request no longer matched what OpenMeld originally accepted. Send the request again. If it keeps happening, open Diagnostics.",
+      body: "OpenMeld stopped this Wake for Runner because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics.",
       kind: "system_retry",
       recoveryTarget: null,
     });
     expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
-      "OpenMeld stopped this Wake for this agent because the request no longer matched what OpenMeld originally accepted. Send the request again. If it keeps happening, open Diagnostics."
+      "OpenMeld stopped this Wake for this agent because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics."
     );
   });
 

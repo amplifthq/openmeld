@@ -5,6 +5,7 @@ import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
   projectTargetWakeLifecycleIdentity,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
@@ -3901,6 +3902,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const {
       appliedFailurePublicationCommands,
       hub,
+      recordingD1,
       socket,
       state,
       storageRecords,
@@ -4048,10 +4050,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ok: false,
       primaryDispatchId: "dispatch-snapshot-b",
       reasonCode:
-        "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload",
+        RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
       status: "conflict",
     });
 
+    recordingD1.calls.length = 0;
     const noExecutionResponse = await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/no-execution",
@@ -4060,7 +4063,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         idempotencyKey: "idempotency-snapshot-b",
         publicationCategory: "agent_profile_unavailable",
         reasonCode:
-          "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload",
+          RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
         targetWakeLifecycleIdentity: secondIdentity,
         userRecoveryAction: "check_status",
       })
@@ -4070,7 +4073,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ok: true,
       primaryDispatchId: "dispatch-snapshot-b",
       reasonCode:
-        "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload",
+        RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
       status: "publication_intent_ready",
     });
     expect(
@@ -4082,7 +4085,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({
       noExecutionDecision: {
         reasonCode:
-          "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload",
+          RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
       },
       primaryDispatchId: "dispatch-snapshot-b",
       runtimeCoordinatorExecutionId: null,
@@ -4092,9 +4095,163 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect.objectContaining({
         dispatchId: "dispatch-snapshot-b",
         reasonCode:
-          "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload",
+          RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
       })
     );
+    expect(getReadinessImpactWriteCalls(recordingD1.calls)).toHaveLength(0);
+  });
+
+  it("compares the accepted payload fingerprint when a terminal Wake head is replayed", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    configureCompatibleRoute({ socket, state });
+    const originalSnapshot = buildAcceptedDispatchSnapshot({
+      fingerprint: "a",
+    });
+    const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: originalSnapshot,
+    });
+
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      acceptRequest
+    );
+    const deliveryResponse = await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(buildDeliverRequest()),
+        method: "POST",
+      })
+    );
+    expect(deliveryResponse.status).toBe(200);
+    const authority =
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords);
+    expect(authority?.acceptedDispatchPayloadFingerprint).toBe(
+      originalSnapshot.payloadFingerprint
+    );
+    await (
+      hub as unknown as {
+        writeRuntimeCoordinatorTokenAuthority: (
+          authority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+        ) => Promise<void>;
+      }
+    ).writeRuntimeCoordinatorTokenAuthority({
+      ...(authority as RuntimeCoordinatorExecutionTokenAuthorityRecord),
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "space.reply_published",
+        replySignalId: "signal-terminal-replay-1",
+        status: "reply_published",
+      },
+    });
+    storageRecords.delete(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        acceptRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    );
+    sentFrames.length = 0;
+
+    const samePayloadResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      acceptRequest
+    );
+    expect(samePayloadResponse.status).toBe(200);
+    await expect(samePayloadResponse.json()).resolves.toMatchObject({
+      action: "skip_duplicate",
+      status: "execution_linked",
+    });
+
+    const changedPayloadResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        acceptedDispatchSnapshot: buildAcceptedDispatchSnapshot({
+          fingerprint: "b",
+        }),
+      })
+    );
+    expect(changedPayloadResponse.status).toBe(409);
+    await expect(changedPayloadResponse.json()).resolves.toMatchObject({
+      ok: false,
+      reasonCode:
+        RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
+      status: "conflict",
+    });
+    expect(sentFrames).toEqual([]);
+  });
+
+  it("fails closed when a legacy terminal Wake authority has no accepted payload fingerprint", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    configureCompatibleRoute({ socket, state });
+    const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: buildAcceptedDispatchSnapshot({
+        fingerprint: "a",
+      }),
+    });
+
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      acceptRequest
+    );
+    await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(buildDeliverRequest()),
+        method: "POST",
+      })
+    );
+    const authority =
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords);
+    if (!authority) {
+      throw new Error("Expected terminal replay authority fixture.");
+    }
+    const {
+      acceptedDispatchPayloadFingerprint: _legacyMissingFingerprint,
+      ...legacyAuthority
+    } = authority;
+    await (
+      hub as unknown as {
+        writeRuntimeCoordinatorTokenAuthority: (
+          authority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+        ) => Promise<void>;
+      }
+    ).writeRuntimeCoordinatorTokenAuthority({
+      ...legacyAuthority,
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "space.reply_published",
+        replySignalId: "signal-legacy-terminal-replay-1",
+        status: "reply_published",
+      },
+    });
+    storageRecords.delete(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        acceptRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    );
+    sentFrames.length = 0;
+
+    const response = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      acceptRequest
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      reasonCode:
+        RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
+      status: "conflict",
+    });
+    expect(sentFrames).toEqual([]);
   });
 
   it("keeps three consecutive Wakes for one Agent in separate execution and reply identities", async () => {
@@ -6861,7 +7018,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("never admits an exact head replay after its execution reached a visible terminal outcome", async () => {
     const { hub, socket, state, storageRecords } = createHarness();
     configureCompatibleRoute({ socket, state });
-    const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest();
+    const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: buildAcceptedDispatchSnapshot({
+        fingerprint: "a",
+      }),
+    });
     const identity = acceptRequest.targetWakeLifecycleIdentity;
     const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
       dispatchId: acceptRequest.dispatchId,
@@ -9468,7 +9629,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("publishes failure and degrades readiness when an accepted Wake head never creates execution", async () => {
+  it("publishes failure without changing current readiness when an accepted Wake head never creates execution", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const {
@@ -9512,63 +9673,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "publication_intent_ready",
       });
       expect(appliedFailurePublicationCommands).toHaveLength(1);
-      expect(getReadinessImpactWriteCalls(recordingD1.calls)).toHaveLength(1);
-      expect(
-        getReadinessImpactWriteCalls(recordingD1.calls)[0]?.params
-      ).toEqual([
-        `readiness_impact:local_execution:${TARGET_AGENT_PROFILE_ID}:binding-1:runtime-1:builtin:codex`,
-        "local_execution",
-        TARGET_AGENT_PROFILE_ID,
-        "binding-1",
-        "runtime-1",
-        "builtin:codex",
-        "runtime_coordinator.delivery_expired",
-        "wake_failure",
-        "dispatch-1",
-        "attempt-1",
-        1_700_000_301_000,
-        1_700_002_101_000,
-        1_700_000_301_000,
-        1_700_000_301_000,
-      ]);
+      expect(getReadinessImpactWriteCalls(recordingD1.calls)).toHaveLength(0);
     } finally {
-      nowSpy.mockRestore();
-    }
-  });
-
-  it("still publishes accepted-head failure when readiness impact write fails", async () => {
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
-    const warnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
-    try {
-      const { appliedFailurePublicationCommands, hub, state } = createHarness({
-        readinessImpactWriteError: new Error("readiness impact D1 failed"),
-      });
-      state.pendingDispatches.clear();
-
-      await acceptDefaultRuntimeCoordinatorHead(hub);
-
-      nowSpy.mockReturnValue(1_700_000_301_000);
-
-      await (
-        hub as unknown as {
-          alarm: () => Promise<void>;
-        }
-      ).alarm();
-
-      expect(appliedFailurePublicationCommands).toHaveLength(1);
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[core.runtime_transport.runtime_coordinator_head_failure_readiness_impact_failed]",
-        expect.objectContaining({
-          agentProfileId: TARGET_AGENT_PROFILE_ID,
-          dispatchId: "dispatch-1",
-          error: "readiness impact D1 failed",
-          reasonCode: "runtime_coordinator.delivery_expired",
-        })
-      );
-    } finally {
-      warnSpy.mockRestore();
       nowSpy.mockRestore();
     }
   });
