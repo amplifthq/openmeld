@@ -625,6 +625,9 @@ describe("organization Core RPC", () => {
         bindingId: `binding-${AGENT_PROFILE_ID}`,
       },
       profileName: "Codex",
+      publicProfileConfiguration: {
+        agentControllerRef: "builtin:codex",
+      },
     });
     expect(memberReadiness?.agentWakeAvailability).toMatchObject({
       action: "none",
@@ -711,6 +714,9 @@ describe("organization Core RPC", () => {
         },
         primaryAction: "none",
         reasonCodes: [],
+      },
+      publicProfileConfiguration: {
+        agentControllerRef: "builtin:codex",
       },
       agentWakeRouteRegistration: {
         daemonSessionId: null,
@@ -849,8 +855,10 @@ describe("organization Core RPC", () => {
       reasonCode: null,
       status: "unavailable_for_wake",
     });
+    expect(projectedReadiness.publicProfileConfiguration).toMatchObject({
+      agentControllerRef: "builtin:codex",
+    });
     expect(serializedProjection).not.toContain("private");
-    expect(serializedProjection).not.toContain("builtin:codex");
     expect(serializedProjection).not.toContain("binding-");
     expect(serializedProjection).not.toContain("user-a");
 

@@ -23464,6 +23464,15 @@ function buildGetAgentExecutionReadinessResponse(input: {
       input.readiness
     ),
     profileName: input.readiness.profileName,
+    publicProfileConfiguration: {
+      agentControllerCollaborationMode:
+        input.readiness.primaryBinding?.agentControllerCollaborationMode ??
+        null,
+      agentControllerPermissionMode:
+        input.readiness.agentControllerPermissionMode ?? null,
+      agentControllerRef: input.readiness.agentControllerRef,
+      modelSelection: input.readiness.modelSelection ?? null,
+    },
     routeDeviceId: input.readiness.routeDeviceId,
     routeLane: input.readiness.routeLane,
     runtimeDeviceDisplayName: input.readiness.runtimeDeviceDisplayName,
@@ -23604,6 +23613,7 @@ export function projectTeamSafeOrganizationDirectoryReadiness(
       target: null,
     },
     profileName: null,
+    publicProfileConfiguration: ownerResponse.publicProfileConfiguration,
     routeDeviceId: null,
     routeLane: null,
     runtimeDeviceDisplayName: null,

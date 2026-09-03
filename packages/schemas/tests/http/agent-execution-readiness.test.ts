@@ -73,6 +73,15 @@ describe("agent execution readiness http schemas", () => {
         target: null,
       },
       profileName: "Codex",
+      publicProfileConfiguration: {
+        agentControllerCollaborationMode: "codex:default",
+        agentControllerPermissionMode: "codex:askForApproval",
+        agentControllerRef: "builtin:codex",
+        modelSelection: {
+          modelId: "gpt-5.5",
+          reasoningLevel: "high",
+        },
+      },
       agentWakeAvailability: buildAgentWakeAvailability("available_for_wake"),
       agentWakeRouteRegistration: buildAgentWakeRouteRegistration(),
       routeDeviceId: "device-1",
@@ -84,6 +93,9 @@ describe("agent execution readiness http schemas", () => {
     expect(parsed.agentExecutionReadiness.reasonCodes).toEqual([
       "agent_execution.ready",
     ]);
+    expect(parsed.publicProfileConfiguration?.agentControllerRef).toBe(
+      "builtin:codex"
+    );
   });
 
   it("accepts a response without the compatibility-added primary binding field", () => {

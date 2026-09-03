@@ -624,17 +624,23 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			}
 		);
 
-		const title = screen.getByText("Checking activity");
+		const title = screen
+			.getAllByText("Checking activity")
+			.find((candidate) => candidate.className.includes("bg-clip-text"));
+		expect(title).toBeTruthy();
+		if (!title) {
+			throw new Error("Expected the Presence label to use the text shimmer.");
+		}
 		expect(title.className).toContain("bg-clip-text");
 		expect(
 			title.closest('[data-testid="agent-profile-presence"]')
 		).toBeTruthy();
 		expect(
-			screen.queryByRole("heading", { name: "Current activity" })
-		).toBeNull();
+			screen.getByRole("heading", { name: "Current activity" })
+		).toBeTruthy();
 	});
 
-	it("shows Available for Wake in the header while keeping idle activity quiet", () => {
+	it("shows Available for Wake with an honest idle activity state", () => {
 		renderAgentProfilesCard(
 			{
 				agentExecutionReadinessByProfileId: new Map([
@@ -663,8 +669,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 
 		expect(
-			screen.queryByRole("heading", { name: "Current activity" })
-		).toBeNull();
+			screen.getByRole("heading", { name: "Current activity" })
+		).toBeTruthy();
+		expect(screen.getByText("No current work")).toBeTruthy();
 		expect(screen.queryByText("Not working right now")).toBeNull();
 		const presence = screen.getByTestId("agent-profile-presence");
 		expect(within(presence).getByText("Available for Wake")).toBeTruthy();
@@ -1065,7 +1072,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 	});
 
-	it("shows only team-safe workload and Usage in a teammate Agent detail", async () => {
+	it("shows team-safe Profile details for a teammate Agent", async () => {
 		const baseBinding = createPrimaryBindingResponse(
 			"codex:approveForMe",
 			"builtin:codex",
@@ -1081,6 +1088,15 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const readiness = {
 			...createReadinessResponseWithPrimaryBinding(primaryBinding),
 			agentControllerRef: null,
+			publicProfileConfiguration: {
+				agentControllerCollaborationMode: "codex:default",
+				agentControllerPermissionMode: "codex:approveForMe",
+				agentControllerRef: "builtin:codex",
+				modelSelection: {
+					modelId: "gpt-5.5",
+					reasoningLevel: "high",
+				},
+			},
 			agentWakeAvailability: {
 				action: "none",
 				badgeLabel: "Unavailable",
@@ -1102,6 +1118,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		renderAgentProfilesCard({}, null, {
 			agentExecutionReadinessByProfileId: new Map([
 				[AGENT_PROFILE_ID, readiness],
+			]),
+			ownerAvatarUrlByUserId: new Map([
+				["user-1", "https://example.com/felix-avatar.png"],
 			]),
 			agentProfileOperationalContextByProfileId: new Map([
 				[
@@ -1126,13 +1145,28 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.queryByRole("button", { name: "Edit Name" })).toBeNull();
 		expect(screen.queryByText("Operational context")).toBeNull();
 		expect(
-			screen.queryByRole("heading", { name: "Current activity" })
-		).toBeNull();
+			screen.getByRole("heading", { name: "Current activity" })
+		).toBeTruthy();
+		expect(screen.getByText("Working · 2 queued")).toBeTruthy();
 		const presence = screen.getByTestId("agent-profile-presence");
 		expect(within(presence).getByText("Working")).toBeTruthy();
 		expect(within(presence).getByText("2 queued")).toBeTruthy();
 		expect(screen.queryByText("Private Space")).toBeNull();
 		expect(screen.queryByText("Private task")).toBeNull();
+		expect(
+			screen.getByRole("heading", { name: "How this Agent works" })
+		).toBeTruthy();
+		expect(screen.getAllByText("Codex · GPT-5.5 · high")).toHaveLength(2);
+		expect(screen.getByText("Approve for me")).toBeTruthy();
+		expect(
+			document.querySelector('img[src="https://example.com/felix-avatar.png"]')
+		).toBeTruthy();
+		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
+		expect(
+			screen.queryByTestId(
+				`agent-profile-controller-fallback-${AGENT_PROFILE_ID}`
+			)
+		).toBeNull();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Agent options for Research Agent" })
 		);
@@ -1142,9 +1176,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(within(dialog).queryByText("Availability")).toBeNull();
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("Computer")).toBeNull();
-		expect(screen.queryByText("Model")).toBeNull();
+		expect(within(dialog).queryByText("Model")).toBeNull();
 		expect(screen.queryByText("Binding state")).toBeNull();
-		expect(screen.queryByText("GPT-5.5 · High")).toBeNull();
+		expect(within(dialog).queryByText("GPT-5.5 · High")).toBeNull();
 		expect(screen.queryByText("No Controller connected")).toBeNull();
 		await waitFor(() => {
 			expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();

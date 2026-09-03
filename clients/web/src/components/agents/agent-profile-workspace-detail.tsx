@@ -129,11 +129,9 @@ export function AgentProfileWorkspaceDetail(input: {
 							onRenameProfile={input.onRenameProfile}
 							profileName={input.profile.profileName}
 						/>
-						{showOwnerOperationalContext ? (
-							<p className="mt-1 break-words text-muted-foreground text-sm">
-								{input.controllerModelSummary}
-							</p>
-						) : null}
+						<p className="mt-1 break-words text-muted-foreground text-sm">
+							{input.controllerModelSummary}
+						</p>
 						<AgentProfilePresence
 							currentDestination={currentActivityDestination}
 							operationalContext={input.operationalContext}
@@ -437,14 +435,57 @@ function AgentProfileCurrentActivity(input: {
 		: input.recoveryAction;
 	const hasActivityDestinations =
 		currentDestination !== null || queuedDestinations.length > 0;
+	const neutralActivitySummary =
+		hasActivityDestinations || interruptedRecoveryAction
+			? null
+			: resolveNeutralActivitySummary(input.operationalContext);
 	if (
 		!(
 			hasActivityDestinations ||
 			interruptedRecoveryAction ||
-			footerRecoveryAction
+			footerRecoveryAction ||
+			neutralActivitySummary
 		)
 	) {
 		return null;
+	}
+	let activityContent: ReactNode = null;
+	if (hasActivityDestinations || interruptedRecoveryAction) {
+		activityContent = (
+			<CardContent className="min-w-0 py-4">
+				<ActivityDestinationsPanel
+					currentDestination={currentDestination}
+					currentWorkLocation={
+						input.operationalContext?.currentWorkLocation ?? null
+					}
+					interruptedRecoveryAction={interruptedRecoveryAction}
+					isWorking={input.operationalContext?.status === "working"}
+					queuedDestinations={queuedDestinations}
+				/>
+			</CardContent>
+		);
+	} else if (neutralActivitySummary) {
+		activityContent = (
+			<CardContent className="min-w-0 py-4">
+				<FluidCardGroup aria-label="Current activity" role="list">
+					<FluidCardItem
+						className="border border-border/70"
+						itemId="activity-summary"
+						role="listitem"
+					>
+						<div className="flex min-w-0 items-center gap-3 px-4 py-3">
+							<DesktopTowerIcon
+								aria-hidden="true"
+								className="size-5 shrink-0 text-muted-foreground"
+							/>
+							<span className="truncate font-medium text-sm">
+								{neutralActivitySummary}
+							</span>
+						</div>
+					</FluidCardItem>
+				</FluidCardGroup>
+			</CardContent>
+		);
 	}
 	return (
 		<section
@@ -460,19 +501,7 @@ function AgentProfileCurrentActivity(input: {
 				className="gap-0 overflow-hidden py-0"
 				data-testid="agent-current-activity"
 			>
-				{hasActivityDestinations || interruptedRecoveryAction ? (
-					<CardContent className="min-w-0 py-4">
-						<ActivityDestinationsPanel
-							currentDestination={currentDestination}
-							currentWorkLocation={
-								input.operationalContext?.currentWorkLocation ?? null
-							}
-							interruptedRecoveryAction={interruptedRecoveryAction}
-							isWorking={input.operationalContext?.status === "working"}
-							queuedDestinations={queuedDestinations}
-						/>
-					</CardContent>
-				) : null}
+				{activityContent}
 				{footerRecoveryAction ? (
 					<CardFooter className="flex-col items-start gap-3 border-border/70">
 						{footerRecoveryAction}
@@ -481,6 +510,27 @@ function AgentProfileCurrentActivity(input: {
 			</Card>
 		</section>
 	);
+}
+
+function resolveNeutralActivitySummary(
+	operationalContext: AgentProfileOperationalContextInput | null
+): string | null {
+	if (!operationalContext) {
+		return null;
+	}
+	if (operationalContext.status === "checking") {
+		return "Checking activity";
+	}
+	if (operationalContext.status === "idle") {
+		return "No current work";
+	}
+	const waitingSuffix =
+		operationalContext.waitingCount > 0
+			? ` · ${operationalContext.waitingCount} queued`
+			: "";
+	return operationalContext.status === "working"
+		? `Working${waitingSuffix}`
+		: `Waiting to continue${waitingSuffix}`;
 }
 
 function resolveCurrentActivityDestination(input: {

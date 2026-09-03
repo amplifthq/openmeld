@@ -345,7 +345,7 @@ describe("Profile Details snapshot", () => {
     });
   });
 
-  it("removes owner-only local connection facts for observer Space Profile Details", () => {
+  it("shares the model while removing owner-only local connection facts for observer Space Profile Details", () => {
     const snapshot = buildProfileDetailsSnapshotFromSpaceMember({
       agentControllerPermissionModeDetail: "Approve for me",
       entry: buildSpaceMemberInput(),
@@ -357,14 +357,18 @@ describe("Profile Details snapshot", () => {
     expect(listSectionTitles(snapshot)).toEqual([
       "Profile",
       "Space membership",
+      "Connection",
       "Agent Controller Permission Mode",
       "Wake availability",
       "Advanced details",
     ]);
     expect(
       snapshot.sections.some((section) => section.id === "connection")
-    ).toBe(false);
+    ).toBe(true);
     expect(findRowValue(snapshot, "advanced", "Profile ID")).toBe("agt-1");
+    expect(findRowValue(snapshot, "connection", "Model")).toBe(
+      "Codex · gpt-5.5 · model default"
+    );
     expect(collectFieldSources(snapshot)).not.toEqual(
       expect.arrayContaining(["agent_controller", "local_runtime"])
     );
