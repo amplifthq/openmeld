@@ -1711,6 +1711,19 @@ function AgentProfileDirectoryRow(input: {
 			orgSlug: controller.currentOrganization.slug,
 			readiness,
 		});
+	const actions = buildAgentProfileDirectoryRowActions({
+		cardInput: input.cardInput,
+		controller,
+		profile,
+	});
+	const configuration = buildAgentProfileDirectoryRowConfiguration({
+		canManage,
+		cardInput: input.cardInput,
+		controller,
+		localAgentEntry,
+		profile,
+		readiness,
+	});
 
 	return (
 		<AgentProfileExecutionReadinessRow
@@ -1735,74 +1748,23 @@ function AgentProfileDirectoryRow(input: {
 			localAgentCatalogEntries={controller.localAgentCatalogEntries}
 			modelCatalog={controller.modelCatalog}
 			modelCompatibilityContext={modelCompatibilityContext}
-			onCheckAgain={async () => {
-				await controller.handleCheckProfileAgain(profile);
-			}}
-			onControllerChange={async (update) => {
-				await controller.handleChangeProfileController(profile, update);
-			}}
-			onControllerCollaborationModeUpdate={async (
-				agentControllerCollaborationMode
-			) => {
-				await controller.handleUpdateProfileControllerCollaborationMode(
-					profile,
-					agentControllerCollaborationMode
-				);
-			}}
-			onControllerPermissionModeUpdate={async (
-				agentControllerPermissionMode
-			) => {
-				await controller.handleUpdateProfileControllerPermissionMode(
-					profile,
-					agentControllerPermissionMode
-				);
-			}}
-			onDisablePrimaryBinding={async () => {
-				await controller.handleDisableProfilePrimaryBinding(profile);
-			}}
-			onModelSelectionUpdate={async (modelSelection) => {
-				await controller.handleUpdateProfileModelSelection(
-					profile,
-					modelSelection
-				);
-			}}
-			onOpenCodePermissionUpdate={async (openCodePermission) => {
-				await controller.handleUpdateProfileOpenCodePermission(
-					profile,
-					openCodePermission
-				);
-			}}
-			onOpenDirectMessage={async () => {
-				await controller.handleOpenDirectMessage(profile);
-			}}
-			onProfileUpdated={(updatedProfile) => {
-				updateAgentProfileListCaches({
-					organizationId: controller.currentOrganization.id,
-					profile: updatedProfile,
-					queryClient: input.cardInput.queryClient,
-					storageScope: input.cardInput.recovery.storageScope,
-				});
-			}}
-			onRecoveryAction={(recoveryAction) => {
-				if (input.cardInput.onRecoveryAction) {
-					input.cardInput.onRecoveryAction(recoveryAction);
-					return;
-				}
-				controller
-					.handleAgentProfileWorkRecovery(profile, recoveryAction)
-					.catch((error: unknown) => {
-						console.error("Agent work recovery action failed.", error);
-					});
-			}}
-			onRemoveProfile={async () => {
-				await controller.handleRemoveProfile(profile);
-			}}
-			onRenameProfile={async (profileName) => {
-				await controller.handleRenameProfile(profile, profileName);
-			}}
-			onRepairAction={async (action) =>
-				await controller.handleConnectProfileToComputer(profile, action)
+			onCheckAgain={actions.onCheckAgain}
+			onControllerChange={actions.onControllerChange}
+			onControllerCollaborationModeUpdate={
+				actions.onControllerCollaborationModeUpdate
 			}
+			onControllerPermissionModeUpdate={
+				actions.onControllerPermissionModeUpdate
+			}
+			onDisablePrimaryBinding={actions.onDisablePrimaryBinding}
+			onModelSelectionUpdate={actions.onModelSelectionUpdate}
+			onOpenCodePermissionUpdate={actions.onOpenCodePermissionUpdate}
+			onOpenDirectMessage={actions.onOpenDirectMessage}
+			onProfileUpdated={actions.onProfileUpdated}
+			onRecoveryAction={actions.onRecoveryAction}
+			onRemoveProfile={actions.onRemoveProfile}
+			onRenameProfile={actions.onRenameProfile}
+			onRepairAction={actions.onRepairAction}
 			operationalContext={
 				controller.agentProfileOperationalContextByProfileId.get(
 					profile.openMeldProfileId
@@ -1855,15 +1817,7 @@ function AgentProfileDirectoryRow(input: {
 			primaryBinding={primaryBinding}
 			profile={profile}
 			readiness={readiness}
-			repairActions={
-				canManage
-					? resolveAgentProfileRepairActions({
-							isCurrentComputer: input.cardInput.isCurrentComputer,
-							localAgentCatalogEntries: controller.localAgentCatalogEntries,
-							readiness,
-						})
-					: []
-			}
+			repairActions={configuration.repairActions}
 			rowRef={(node) => {
 				if (node) {
 					controller.profileRowElementsRef.current.set(
@@ -1889,22 +1843,7 @@ function AgentProfileDirectoryRow(input: {
 						profile.openMeldProfileId
 					),
 			}}
-			setupAction={
-				canManage
-					? resolveAgentProfileSetupAction({
-							autoRefreshExhausted:
-								controller.autoRefreshExhaustedProfileIds.has(
-									profile.openMeldProfileId
-								),
-							currentLocalRuntimeCanReply:
-								controller.currentLocalRuntimeCanReply,
-							localAgentDisplayName: localAgentEntry?.displayName ?? null,
-							readiness,
-							serviceUpdatePath: input.cardInput.serviceUpdatePath,
-							setupPath: input.cardInput.setupPath,
-						})
-					: null
-			}
+			setupAction={configuration.setupAction}
 			storageScope={input.cardInput.recovery.storageScope}
 			wakeAvailabilityDisplayOverride={
 				controller.wakeAvailabilityDisplayOverrideByProfileId.get(
@@ -1913,6 +1852,136 @@ function AgentProfileDirectoryRow(input: {
 			}
 		/>
 	);
+}
+
+type AgentProfileDirectoryRowActionProps = Pick<
+	AgentProfileExecutionReadinessRowProps,
+	| "onCheckAgain"
+	| "onControllerChange"
+	| "onControllerCollaborationModeUpdate"
+	| "onControllerPermissionModeUpdate"
+	| "onDisablePrimaryBinding"
+	| "onModelSelectionUpdate"
+	| "onOpenCodePermissionUpdate"
+	| "onOpenDirectMessage"
+	| "onProfileUpdated"
+	| "onRecoveryAction"
+	| "onRemoveProfile"
+	| "onRenameProfile"
+	| "onRepairAction"
+>;
+
+function buildAgentProfileDirectoryRowActions(input: {
+	cardInput: AgentProfilesCardProps;
+	controller: AgentProfilesCardController;
+	profile: AuthProfileView;
+}): AgentProfileDirectoryRowActionProps {
+	return {
+		onCheckAgain: async () => {
+			await input.controller.handleCheckProfileAgain(input.profile);
+		},
+		onControllerChange: async (update) => {
+			await input.controller.handleChangeProfileController(
+				input.profile,
+				update
+			);
+		},
+		onControllerCollaborationModeUpdate: async (
+			agentControllerCollaborationMode
+		) => {
+			await input.controller.handleUpdateProfileControllerCollaborationMode(
+				input.profile,
+				agentControllerCollaborationMode
+			);
+		},
+		onControllerPermissionModeUpdate: async (agentControllerPermissionMode) => {
+			await input.controller.handleUpdateProfileControllerPermissionMode(
+				input.profile,
+				agentControllerPermissionMode
+			);
+		},
+		onDisablePrimaryBinding: async () => {
+			await input.controller.handleDisableProfilePrimaryBinding(input.profile);
+		},
+		onModelSelectionUpdate: async (modelSelection) => {
+			await input.controller.handleUpdateProfileModelSelection(
+				input.profile,
+				modelSelection
+			);
+		},
+		onOpenCodePermissionUpdate: async (openCodePermission) => {
+			await input.controller.handleUpdateProfileOpenCodePermission(
+				input.profile,
+				openCodePermission
+			);
+		},
+		onOpenDirectMessage: async () => {
+			await input.controller.handleOpenDirectMessage(input.profile);
+		},
+		onProfileUpdated: (updatedProfile) => {
+			updateAgentProfileListCaches({
+				organizationId: input.controller.currentOrganization.id,
+				profile: updatedProfile,
+				queryClient: input.cardInput.queryClient,
+				storageScope: input.cardInput.recovery.storageScope,
+			});
+		},
+		onRecoveryAction: (recoveryAction) => {
+			if (input.cardInput.onRecoveryAction) {
+				input.cardInput.onRecoveryAction(recoveryAction);
+				return;
+			}
+			input.controller
+				.handleAgentProfileWorkRecovery(input.profile, recoveryAction)
+				.catch((error: unknown) => {
+					console.error("Agent work recovery action failed.", error);
+				});
+		},
+		onRemoveProfile: async () => {
+			await input.controller.handleRemoveProfile(input.profile);
+		},
+		onRenameProfile: async (profileName) => {
+			await input.controller.handleRenameProfile(input.profile, profileName);
+		},
+		onRepairAction: async (action) => {
+			await input.controller.handleConnectProfileToComputer(
+				input.profile,
+				action
+			);
+		},
+	};
+}
+
+function buildAgentProfileDirectoryRowConfiguration(input: {
+	canManage: boolean;
+	cardInput: AgentProfilesCardProps;
+	controller: AgentProfilesCardController;
+	localAgentEntry: ReturnType<
+		typeof resolveOptionalAgentProfileLocalAgentEntry
+	>;
+	profile: AuthProfileView;
+	readiness: GetAgentExecutionReadinessResponse | null;
+}) {
+	if (!input.canManage) {
+		return { repairActions: [], setupAction: null };
+	}
+	return {
+		repairActions: resolveAgentProfileRepairActions({
+			isCurrentComputer: input.cardInput.isCurrentComputer,
+			localAgentCatalogEntries: input.controller.localAgentCatalogEntries,
+			readiness: input.readiness,
+		}),
+		setupAction: resolveAgentProfileSetupAction({
+			autoRefreshExhausted: input.controller.autoRefreshExhaustedProfileIds.has(
+				input.profile.openMeldProfileId
+			),
+			currentLocalRuntimeCanReply: input.controller.currentLocalRuntimeCanReply,
+			localAgentDisplayName: input.localAgentEntry?.displayName ?? null,
+			readiness: input.readiness,
+			serviceUpdatePath: input.cardInput.serviceUpdatePath,
+			setupPath: input.cardInput.setupPath,
+		}),
+	};
 }
 
 function resolveOptionalAgentProfileLocalAgentEntry(input: {

@@ -162,174 +162,248 @@ export function AgentProfileDetailsContent(input: {
 	onOpenDirectMessage?: () => void;
 	showConfiguration?: boolean;
 }) {
-	const activitySection = input.details.sections.find(
-		(section) => section.id === "activity"
-	);
-	const summaryRows = selectDetailsRows(input.details, [
-		"owner",
-		"agent_controller",
-		"workspace_directory",
-		"agent_controller_permission_mode",
-	]);
-	const modelSummary =
-		selectDetailsRows(input.details, ["model"])[0]?.value ??
-		input.entry.controllerDisplayName ??
-		"Agent";
-	const presenceSummary = resolveAgentPresenceSummary(input.entry);
 	const canEdit = input.details.viewerScope === "owner_self";
-	const moreDetailsLabel = canEdit ? "Check more or edit" : "Check more";
 
 	return (
 		<div
 			className={cn("min-h-0 flex-1 overflow-y-auto pr-1", input.className)}
 			data-testid="profile-details-dialog-scroll-area"
 		>
-			<div className="flex min-w-0 items-start gap-3">
-				{input.isCenterAgent ? (
-					<SpaceProfileIcon
-						agentControllerRef={input.entry.agentControllerRef}
-						isCenterAgent
-						profileId={input.entry.profileId}
-						profileKind="agent"
-						profileName={input.entry.profileName}
-						size="lg"
-					/>
-				) : (
-					<AgentProfileControllerAvatar
-						agentControllerRef={input.entry.agentControllerRef}
-						profileId={input.entry.profileId}
-						size={64}
-					/>
-				)}
-				<div className="min-w-0 flex-1 pt-0.5">
-					<p className="break-words font-semibold text-base text-foreground">
-						{input.entry.profileName}
+			<AgentProfileDetailsHeader
+				canEdit={canEdit}
+				details={input.details}
+				entry={input.entry}
+				isCenterAgent={input.isCenterAgent === true}
+				moreDetailsHref={input.moreDetailsHref}
+				showAvailabilitySummary={input.showConfiguration !== false}
+			/>
+			<AgentProfileDirectMessageAction
+				isPending={input.isDirectMessagePending === true}
+				onOpen={input.onOpenDirectMessage}
+				profileName={input.entry.profileName}
+			/>
+			<AgentProfileActivitySection details={input.details} />
+			<AgentProfileConfigurationSection
+				configurationContent={input.configurationContent}
+				details={input.details}
+				show={input.showConfiguration !== false}
+			/>
+			<AgentProfileDetailsLink canEdit={canEdit} href={input.moreDetailsHref} />
+		</div>
+	);
+}
+
+function AgentProfileDetailsHeader(input: {
+	canEdit: boolean;
+	details: ProfileDetailsSnapshot;
+	entry: SpaceMemberDirectoryEntry;
+	isCenterAgent: boolean;
+	moreDetailsHref?: string;
+	showAvailabilitySummary: boolean;
+}) {
+	const modelSummary =
+		selectDetailsRows(input.details, ["model"])[0]?.value ??
+		input.entry.controllerDisplayName ??
+		"Agent";
+	const presenceSummary = resolveAgentPresenceSummary(input.entry);
+	const showAvailabilitySummary =
+		input.showAvailabilitySummary &&
+		input.entry.availabilitySummary &&
+		input.entry.availabilitySummary !== presenceSummary &&
+		input.entry.availabilitySummary !==
+			"Can reply from this computer in Spaces.";
+	return (
+		<div className="flex min-w-0 items-start gap-3">
+			{input.isCenterAgent ? (
+				<SpaceProfileIcon
+					agentControllerRef={input.entry.agentControllerRef}
+					isCenterAgent
+					profileId={input.entry.profileId}
+					profileKind="agent"
+					profileName={input.entry.profileName}
+					size="lg"
+				/>
+			) : (
+				<AgentProfileControllerAvatar
+					agentControllerRef={input.entry.agentControllerRef}
+					profileId={input.entry.profileId}
+					size={64}
+				/>
+			)}
+			<div className="min-w-0 flex-1 pt-0.5">
+				<p className="break-words font-semibold text-base text-foreground">
+					{input.entry.profileName}
+				</p>
+				<p className="mt-1 break-words text-muted-foreground text-sm">
+					{modelSummary}
+				</p>
+				{presenceSummary ? (
+					<p
+						className={cn(
+							"mt-2 text-xs",
+							resolveSpaceMemberInlineStatusTextClassName(input.entry)
+						)}
+					>
+						{presenceSummary}
 					</p>
-					<p className="mt-1 break-words text-muted-foreground text-sm">
-						{modelSummary}
+				) : null}
+				{showAvailabilitySummary ? (
+					<p className="mt-1 text-muted-foreground text-xs">
+						{input.entry.availabilitySummary}
 					</p>
-					{presenceSummary ? (
-						<p
-							className={cn(
-								"mt-2 text-xs",
-								resolveSpaceMemberInlineStatusTextClassName(input.entry)
-							)}
-						>
-							{presenceSummary}
-						</p>
-					) : null}
-					{input.showConfiguration !== false &&
-					input.entry.availabilitySummary &&
-					input.entry.availabilitySummary !== presenceSummary &&
-					input.entry.availabilitySummary !==
-						"Can reply from this computer in Spaces." ? (
-						<p className="mt-1 text-muted-foreground text-xs">
-							{input.entry.availabilitySummary}
-						</p>
-					) : null}
-				</div>
-				{input.moreDetailsHref ? (
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									aria-label={`More options for ${input.entry.profileName}`}
-									size="icon-sm"
-									type="button"
-									variant="ghost"
-								>
-									<DotsThreeIcon aria-hidden="true" />
-								</Button>
-							}
-						/>
-						<DropdownMenuContent align="end" className="w-40">
-							<DropdownMenuItem
-								onClick={() =>
-									window.location.assign(input.moreDetailsHref ?? "")
-								}
-							>
-								{canEdit ? (
-									<PencilSimpleIcon aria-hidden="true" />
-								) : (
-									<InfoIcon aria-hidden="true" />
-								)}
-								{canEdit ? "Edit Agent" : "Check more"}
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
 				) : null}
 			</div>
-
-			{input.onOpenDirectMessage ? (
-				<Button
-					className="mt-4 min-h-10 w-full min-w-0 justify-center px-4"
-					disabled={input.isDirectMessagePending === true}
-					onClick={input.onOpenDirectMessage}
-					type="button"
-					variant="default"
-				>
-					<ChatCircleTextIcon aria-hidden="true" className="size-4 shrink-0" />
-					<span className="truncate">Chat with {input.entry.profileName}</span>
-				</Button>
-			) : null}
-
-			{activitySection ? (
-				<section className="mt-5 grid gap-2">
-					<h3 className="font-medium text-sm">Current activity</h3>
-					<ProfileDetailsSectionView
-						isRecoveryActionPending={false}
-						section={activitySection}
-					/>
-				</section>
-			) : null}
-
-			{input.showConfiguration === false ? null : (
-				<section className="mt-5 grid gap-2">
-					<div>
-						<h3 className="font-medium text-sm">How this Agent works</h3>
-						<p className="mt-0.5 text-muted-foreground text-xs">
-							{input.details.viewerScope === "owner_self"
-								? "Open a setting to make a change."
-								: "Settings are read-only because you do not own this Agent."}
-						</p>
-					</div>
-					{input.configurationContent ?? (
-						<div className="grid gap-2 sm:grid-cols-2">
-							{summaryRows.map((row) => (
-								<div
-									className="min-w-0 rounded-lg border border-border bg-muted/20 px-3 py-2.5"
-									key={row.id}
-								>
-									<p className="text-muted-foreground text-xs">{row.label}</p>
-									<p className="mt-1 break-words text-foreground text-sm">
-										{row.value}
-									</p>
-								</div>
-							))}
-						</div>
-					)}
-				</section>
-			)}
-
-			{input.moreDetailsHref ? (
-				<a
-					className={cn(
-						buttonVariants({ size: "default", variant: "outline" }),
-						"mt-5 ml-auto flex min-h-10 w-fit justify-center px-4"
-					)}
-					href={input.moreDetailsHref}
-				>
-					<span className="inline-flex items-center gap-2">
-						{canEdit ? (
-							<PencilSimpleIcon aria-hidden="true" />
-						) : (
-							<InfoIcon aria-hidden="true" />
-						)}
-						{moreDetailsLabel}
-					</span>
-				</a>
-			) : null}
+			<AgentProfileMoreMenu
+				canEdit={input.canEdit}
+				href={input.moreDetailsHref}
+				profileName={input.entry.profileName}
+			/>
 		</div>
+	);
+}
+
+function AgentProfileMoreMenu(input: {
+	canEdit: boolean;
+	href?: string;
+	profileName: string;
+}) {
+	if (!input.href) {
+		return null;
+	}
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={
+					<Button
+						aria-label={`More options for ${input.profileName}`}
+						size="icon-sm"
+						type="button"
+						variant="ghost"
+					>
+						<DotsThreeIcon aria-hidden="true" />
+					</Button>
+				}
+			/>
+			<DropdownMenuContent align="end" className="w-40">
+				<DropdownMenuItem
+					onClick={() => window.location.assign(input.href ?? "")}
+				>
+					{input.canEdit ? (
+						<PencilSimpleIcon aria-hidden="true" />
+					) : (
+						<InfoIcon aria-hidden="true" />
+					)}
+					{input.canEdit ? "Edit Agent" : "Check more"}
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+function AgentProfileDirectMessageAction(input: {
+	isPending: boolean;
+	onOpen?: () => void;
+	profileName: string;
+}) {
+	if (!input.onOpen) {
+		return null;
+	}
+	return (
+		<Button
+			className="mt-4 min-h-10 w-full min-w-0 justify-center px-4"
+			disabled={input.isPending}
+			onClick={input.onOpen}
+			type="button"
+			variant="default"
+		>
+			<ChatCircleTextIcon aria-hidden="true" className="size-4 shrink-0" />
+			<span className="truncate">Chat with {input.profileName}</span>
+		</Button>
+	);
+}
+
+function AgentProfileActivitySection(input: {
+	details: ProfileDetailsSnapshot;
+}) {
+	const section = input.details.sections.find(
+		(candidate) => candidate.id === "activity"
+	);
+	if (!section) {
+		return null;
+	}
+	return (
+		<section className="mt-5 grid gap-2">
+			<h3 className="font-medium text-sm">Current activity</h3>
+			<ProfileDetailsSectionView
+				isRecoveryActionPending={false}
+				section={section}
+			/>
+		</section>
+	);
+}
+
+function AgentProfileConfigurationSection(input: {
+	configurationContent?: ReactNode;
+	details: ProfileDetailsSnapshot;
+	show: boolean;
+}) {
+	if (!input.show) {
+		return null;
+	}
+	const rows = selectDetailsRows(input.details, [
+		"owner",
+		"agent_controller",
+		"workspace_directory",
+		"agent_controller_permission_mode",
+	]);
+	return (
+		<section className="mt-5 grid gap-2">
+			<div>
+				<h3 className="font-medium text-sm">How this Agent works</h3>
+				<p className="mt-0.5 text-muted-foreground text-xs">
+					{input.details.viewerScope === "owner_self"
+						? "Open a setting to make a change."
+						: "Settings are read-only because you do not own this Agent."}
+				</p>
+			</div>
+			{input.configurationContent ?? (
+				<div className="grid gap-2 sm:grid-cols-2">
+					{rows.map((row) => (
+						<div
+							className="min-w-0 rounded-lg border border-border bg-muted/20 px-3 py-2.5"
+							key={row.id}
+						>
+							<p className="text-muted-foreground text-xs">{row.label}</p>
+							<p className="mt-1 break-words text-foreground text-sm">
+								{row.value}
+							</p>
+						</div>
+					))}
+				</div>
+			)}
+		</section>
+	);
+}
+
+function AgentProfileDetailsLink(input: { canEdit: boolean; href?: string }) {
+	if (!input.href) {
+		return null;
+	}
+	return (
+		<a
+			className={cn(
+				buttonVariants({ size: "default", variant: "outline" }),
+				"mt-5 ml-auto flex min-h-10 w-fit justify-center px-4"
+			)}
+			href={input.href}
+		>
+			{input.canEdit ? (
+				<PencilSimpleIcon aria-hidden="true" />
+			) : (
+				<InfoIcon aria-hidden="true" />
+			)}
+			{input.canEdit ? "Check more or edit" : "Check more"}
+		</a>
 	);
 }
 

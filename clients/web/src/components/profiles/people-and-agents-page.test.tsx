@@ -842,9 +842,7 @@ describe("PeopleAndAgentsPage", () => {
 			}),
 		]);
 		expect(workspaceProps.profilesStatus).toBe("ready");
-		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([
-			"agt_11111111-1111-4111-8111-111111111111",
-		]);
+		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([]);
 	});
 
 	it("counts only pending requests from the existing organization request query", () => {

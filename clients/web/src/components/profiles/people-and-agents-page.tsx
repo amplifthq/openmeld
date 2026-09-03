@@ -329,6 +329,62 @@ function resolveActiveAgentView(input: {
 		: "agents";
 }
 
+function buildOrganizationAgentProjection(input: {
+	currentUserId: string;
+	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
+	runtimeOverview: OrganizationAgentRuntimeOverviewResponse | undefined;
+}) {
+	const profiles: AuthProfileView[] = [];
+	const profileById = new Map<
+		string,
+		OrganizationProfileDirectoryResponse["agentProfiles"][number]
+	>();
+	const operationalContextByProfileId = new Map<
+		string,
+		AgentProfileOperationalContextInput
+	>();
+	const agentControllerRefByProfileId = new Map<string, string | null>();
+	const ownerAvatarUrlByUserId = new Map<string, string | null>();
+	const readinessByProfileId = new Map<
+		string,
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
+	>();
+	for (const member of input.profileDirectory?.members ?? []) {
+		ownerAvatarUrlByUserId.set(member.userId, member.user.image);
+	}
+	for (const profile of input.profileDirectory?.agentProfiles ?? []) {
+		if (profile.managedRole === "center_agent") {
+			continue;
+		}
+		profileById.set(profile.profileId, profile);
+		agentControllerRefByProfileId.set(
+			profile.profileId,
+			profile.agentControllerRef
+		);
+		profiles.push(buildAuthProfileViewFromOrganizationAgentProfile(profile));
+	}
+	for (const runtime of input.runtimeOverview?.agentProfiles ?? []) {
+		readinessByProfileId.set(runtime.profileId, runtime.readiness);
+		const profile = profileById.get(runtime.profileId);
+		if (profile && runtime.operationalContext) {
+			operationalContextByProfileId.set(
+				runtime.profileId,
+				projectAgentProfileOperationalContext(
+					runtime.operationalContext,
+					profile.ownerUserId === input.currentUserId
+				)
+			);
+		}
+	}
+	return {
+		agentControllerRefByProfileId,
+		operationalContextByProfileId,
+		ownerAvatarUrlByUserId,
+		profiles,
+		readinessByProfileId,
+	};
+}
+
 function AgentsWorkspaceHome(input: {
 	activeView: AgentWorkspaceView;
 	activityPreview: boolean;
@@ -361,64 +417,19 @@ function AgentsWorkspaceHome(input: {
 		serviceAction: "update_service",
 		session: "fresh",
 	});
-	const organizationAgentProjection = useMemo(() => {
-		const profiles: AuthProfileView[] = [];
-		const profileById = new Map<
-			string,
-			OrganizationProfileDirectoryResponse["agentProfiles"][number]
-		>();
-		const operationalContextByProfileId = new Map<
-			string,
-			AgentProfileOperationalContextInput
-		>();
-		const agentControllerRefByProfileId = new Map<string, string | null>();
-		const ownerAvatarUrlByUserId = new Map<string, string | null>();
-		const readinessByProfileId = new Map<
-			string,
-			OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
-		>();
-		for (const member of input.profileDirectoryQuery.data?.members ?? []) {
-			ownerAvatarUrlByUserId.set(member.userId, member.user.image);
-		}
-		for (const profile of input.profileDirectoryQuery.data?.agentProfiles ??
-			[]) {
-			if (profile.managedRole === "center_agent") {
-				continue;
-			}
-			profileById.set(profile.profileId, profile);
-			agentControllerRefByProfileId.set(
-				profile.profileId,
-				profile.agentControllerRef
-			);
-			profiles.push(buildAuthProfileViewFromOrganizationAgentProfile(profile));
-		}
-		for (const runtime of input.runtimeOverviewQuery.data?.agentProfiles ??
-			[]) {
-			readinessByProfileId.set(runtime.profileId, runtime.readiness);
-			const profile = profileById.get(runtime.profileId);
-			if (profile && runtime.operationalContext) {
-				operationalContextByProfileId.set(
-					runtime.profileId,
-					projectAgentProfileOperationalContext(
-						runtime.operationalContext,
-						profile.ownerUserId === input.currentUserId
-					)
-				);
-			}
-		}
-		return {
-			agentControllerRefByProfileId,
-			operationalContextByProfileId,
-			ownerAvatarUrlByUserId,
-			profiles,
-			readinessByProfileId,
-		};
-	}, [
-		input.currentUserId,
-		input.profileDirectoryQuery.data?.agentProfiles,
-		input.profileDirectoryQuery.data?.members,
-		input.runtimeOverviewQuery.data?.agentProfiles,
-	]);
+	const organizationAgentProjection = useMemo(
+		() =>
+			buildOrganizationAgentProjection({
+				currentUserId: input.currentUserId,
+				profileDirectory: input.profileDirectoryQuery.data,
+				runtimeOverview: input.runtimeOverviewQuery.data,
+			}),
+		[
+			input.currentUserId,
+			input.profileDirectoryQuery.data,
+			input.runtimeOverviewQuery.data,
+		]
+	);
 	const agentProfiles = organizationAgentProjection.profiles;
 	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
 	const activityPresentation = useMemo(() => {
