@@ -868,14 +868,14 @@ describe("planAgentProfileReplyRecovery", () => {
     });
 
     expect(plan).toMatchObject({
-      body: "OpenMeld Service must be updated before this computer can receive local Wake work.",
+      body: "Update OpenMeld on this computer before it can receive local Wake work.",
       kind: "review_computer",
-      primaryActionLabel: "Update OpenMeld Service",
+      primaryActionLabel: "Update OpenMeld on Computer",
       recoveryReasonCode: "service.update_required",
       secondaryLabel:
-        "OpenMeld Service must be updated before this computer can receive local Wake work.",
+        "Update OpenMeld on this computer before it can receive local Wake work.",
       title:
-        "OpenMeld Service must be updated before this computer can receive local Wake work.",
+        "Update OpenMeld on this computer before it can receive local Wake work.",
     });
   });
 
@@ -966,10 +966,10 @@ describe("planAgentProfileReplyRecovery", () => {
 
     expect(plan).toMatchObject({
       kind: "review_computer",
-      primaryActionLabel: "Update OpenMeld Service",
+      primaryActionLabel: "Update OpenMeld on Computer",
       recoveryReasonCode: "service.update_required",
       secondaryLabel:
-        "OpenMeld Service must be updated before this computer can receive local Wake work.",
+        "Update OpenMeld on this computer before it can receive local Wake work.",
     });
   });
 
@@ -1009,10 +1009,10 @@ describe("planAgentProfileReplyRecovery", () => {
 
     expect(plan).toMatchObject({
       kind: "review_computer",
-      primaryActionLabel: "Reconnect OpenMeld Service",
+      primaryActionLabel: "Reconnect Computer",
       recoveryReasonCode: "local_service.not_connected_for_account",
       secondaryLabel:
-        "Codex is connected, but OpenMeld Service is not connected for this OpenMeld account on this computer. Reconnect OpenMeld Service for this account.",
+        "Codex's computer is not connected to the current OpenMeld account. Reconnect the computer.",
     });
   });
 
@@ -1052,10 +1052,10 @@ describe("planAgentProfileReplyRecovery", () => {
 
     expect(plan).toMatchObject({
       kind: "review_computer",
-      primaryActionLabel: "Reconnect OpenMeld Service",
+      primaryActionLabel: "Reconnect Computer",
       recoveryReasonCode: "local_service.not_connected_for_account",
       secondaryLabel:
-        "Codex is connected, but OpenMeld Service is not connected for this OpenMeld account on this computer. Reconnect OpenMeld Service for this account.",
+        "Codex's computer is not connected to the current OpenMeld account. Reconnect the computer.",
     });
   });
 
