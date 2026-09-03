@@ -11481,25 +11481,6 @@ function seedCenterAgentTaskAdmissionAuthority(
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   });
-  input.run({
-    params: [
-      "organization-binding-authorization-1",
-      "org_1",
-      "binding_1",
-      "user_1",
-      100,
-    ],
-    sql: `
-      INSERT INTO organization_binding_authorizations (
-        id,
-        organization_id,
-        binding_id,
-        authorized_by,
-        created_at
-      )
-      VALUES (?, ?, ?, ?, ?)
-    `,
-  });
 }
 
 function seedRemoteAgentTurnEnvelopeFacts(
