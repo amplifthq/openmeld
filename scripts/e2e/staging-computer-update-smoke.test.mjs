@@ -13,6 +13,7 @@ import {
   redactStagingSetupCommand,
 } from "./staging-computer-update-smoke-contract.mjs";
 import {
+  isCoreServiceConnected,
   readProtectedSetupCommand,
   resolveStagingServiceStatus,
   stagingCanaryEnv,
@@ -200,6 +201,15 @@ test("keeps the isolated smoke credential readable by its source API helper", ()
   assert.equal(env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN, "1");
   assert.equal(env.OPENMELD_ENV_PRESET, "canary");
   assert.equal(env.OPENMELD_HOME.endsWith("/.openmeld-canary"), true);
+});
+
+test("waits for Core rather than treating a local process as connected", () => {
+  assert.equal(isCoreServiceConnected(undefined), false);
+  assert.equal(
+    isCoreServiceConnected({ service: { connected: false } }),
+    false
+  );
+  assert.equal(isCoreServiceConnected({ service: { connected: true } }), true);
 });
 
 test("plans the high-value update regression without Production state", () => {

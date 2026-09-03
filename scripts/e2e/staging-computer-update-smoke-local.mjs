@@ -244,6 +244,23 @@ export async function waitForServiceRunning(input) {
   });
 }
 
+export async function waitForCoreServiceConnected(input) {
+  await waitForValue({
+    label: "Staging Core to observe the Canary Service connection",
+    timeoutMs: 2 * 60 * 1000,
+    read: () =>
+      runStagingApiHelper({
+        command: "current-readiness",
+        sensitiveValues: input.sensitiveValues,
+      }),
+    accept: isCoreServiceConnected,
+  });
+}
+
+export function isCoreServiceConnected(readiness) {
+  return readiness?.service?.connected === true;
+}
+
 export function resolveStagingServiceStatus(payload) {
   const envelope = payload?.payload ?? payload;
   const localResult = envelope?.localResult;
