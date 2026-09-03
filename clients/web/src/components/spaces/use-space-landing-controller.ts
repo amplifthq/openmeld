@@ -130,8 +130,8 @@ import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
-import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
+import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import { usePublishSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import type {
