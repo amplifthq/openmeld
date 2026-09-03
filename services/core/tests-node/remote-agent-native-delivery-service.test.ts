@@ -95,7 +95,6 @@ import {
   markRemoteAgentNativeDeliveryFailure,
   persistRemoteAgentWorkerSubmitRequest,
   readRemoteAgentNativeDeliveryByDeliveryId,
-  readRemoteAgentNativeDeliveryByDispatchAndConversation,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
   upsertRemoteAgentNativeDeliveryRecord,
@@ -8028,7 +8027,7 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("runs hosted Slack Tier 2 through the fenced control plane without changing its frozen destination", async () => {
+  it("keeps a terminal hosted Slack failure fenced from outcome recovery", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     const workerSubmit = vi
@@ -8140,8 +8139,14 @@ describe("Remote Agent native delivery callback service", () => {
           spaceId: originalRequest.conversationId,
           surface: "slack",
         },
-        recommendedAction: "resume_controller_conversation",
-        tier: "exact_controller_conversation_resume",
+        actions: {
+          resumeControllerConversation: {
+            enabled: false,
+            reasonCode: "execution_recovery.exact_conversation_unavailable",
+          },
+        },
+        recommendedAction: null,
+        tier: "none",
       });
       const storage = createExecutionRecoveryStorage();
       await expect(
@@ -8168,78 +8173,26 @@ describe("Remote Agent native delivery callback service", () => {
       ).rejects.toThrow("execution_recovery.identity_mismatch");
       expect(workerSubmit).toHaveBeenCalledOnce();
 
-      const resume = await executeHostedExecutionRecovery({
-        db: harness.db,
-        env,
-        request: {
-          activeOrganizationId: "org_1",
-          body: {
-            action: "resume_controller_conversation",
-            destination: inspected.recovery.destination,
-            expectedIdentity: inspected.recovery.identity,
-            operationId: "caller-resume-1",
-          },
-          conversationId: originalRequest.conversationId,
-        },
-        storage,
-      });
-      const repeated = await executeHostedExecutionRecovery({
-        db: harness.db,
-        env,
-        request: {
-          activeOrganizationId: "org_1",
-          body: {
-            action: "resume_controller_conversation",
-            destination: inspected.recovery.destination,
-            expectedIdentity: inspected.recovery.identity,
-            operationId: "caller-resume-2",
-          },
-          conversationId: originalRequest.conversationId,
-        },
-        storage,
-      });
-
-      expect(resume).toMatchObject({
-        action: "resume_controller_conversation",
-        operationId: "caller-resume-1",
-        status: "new_execution_requested",
-      });
-      expect(repeated).toEqual({
-        ...resume,
-        operationId: "caller-resume-2",
-      });
-      expect(workerSubmit).toHaveBeenCalledTimes(2);
-      expect(workerSubmit.mock.calls[1]?.[0]).toMatchObject({
-        dispatchId: expect.stringContaining(
-          "remote-agent-execution-recovery-dispatch"
-        ),
-        idempotencyKey: expect.stringContaining(
-          "remote-agent-execution-recovery-delivery"
-        ),
-        messages: [
-          {
-            content: expect.stringContaining(
-              "Do not redo the task, call tools"
-            ),
-            role: "user",
-          },
-        ],
-        spaceId: originalRequest.conversationId,
-      });
-      const recoveryDispatchId = workerSubmit.mock.calls[1]?.[0]?.dispatchId;
       await expect(
-        readRemoteAgentNativeDeliveryByDispatchAndConversation({
-          conversationId: originalRequest.conversationId,
+        executeHostedExecutionRecovery({
           db: harness.db,
-          dispatchId: String(recoveryDispatchId),
+          env,
+          request: {
+            activeOrganizationId: "org_1",
+            body: {
+              action: "resume_controller_conversation",
+              destination: inspected.recovery.destination,
+              expectedIdentity: inspected.recovery.identity,
+              operationId: "caller-resume-1",
+            },
+            conversationId: originalRequest.conversationId,
+          },
+          storage,
         })
-      ).resolves.toMatchObject({
-        conversationKind: "slack",
-        slackChannelId: originalRequest.slackChannelId,
-        slackTeamId: originalRequest.slackTeamId,
-        slackThreadTs: originalRequest.slackThreadTs,
-        status: "accepted",
-      });
+      ).rejects.toThrow(
+        "execution_recovery.action_unavailable:execution_recovery.exact_conversation_unavailable"
+      );
+      expect(workerSubmit).toHaveBeenCalledOnce();
 
       const recoveryStub = {
         rpcExecuteHostedExecutionRecovery: vi.fn(
@@ -8292,21 +8245,21 @@ describe("Remote Agent native delivery callback service", () => {
       expect(recoveryShardName).toHaveBeenCalledWith(
         `execution-recovery:${originalDelivery.deliveryId}`
       );
-      const routedExecution = await rpcExecuteExecutionRecovery(routedEnv, {
-        body: {
-          action: "resume_controller_conversation",
-          destination: routedInspection.recovery.destination,
-          expectedIdentity: routedInspection.recovery.identity,
-          operationId: "rpc-caller-resume-3",
-        },
-        context,
-        spaceId: originalRequest.conversationId,
-      });
-      expect(routedExecution).toEqual({
-        ...resume,
-        operationId: "rpc-caller-resume-3",
-      });
-      expect(workerSubmit).toHaveBeenCalledTimes(2);
+      await expect(
+        rpcExecuteExecutionRecovery(routedEnv, {
+          body: {
+            action: "resume_controller_conversation",
+            destination: routedInspection.recovery.destination,
+            expectedIdentity: routedInspection.recovery.identity,
+            operationId: "rpc-caller-resume-3",
+          },
+          context,
+          spaceId: originalRequest.conversationId,
+        })
+      ).rejects.toThrow(
+        "execution_recovery.action_unavailable:execution_recovery.exact_conversation_unavailable"
+      );
+      expect(workerSubmit).toHaveBeenCalledOnce();
       expect(
         recoveryStub.rpcInspectHostedExecutionRecovery
       ).toHaveBeenCalledOnce();
@@ -8348,7 +8301,7 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("keeps the immutable Lark locator on an exact hosted recovery turn", async () => {
+  it("keeps the immutable Lark locator without reopening a terminal outcome", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     const locator = {
@@ -8410,74 +8363,42 @@ describe("Remote Agent native delivery callback service", () => {
           spaceId: originalDelivery.spaceId,
           surface: "lark",
         },
-        recommendedAction: "resume_controller_conversation",
-        tier: "exact_controller_conversation_resume",
+        actions: {
+          resumeControllerConversation: {
+            enabled: false,
+            reasonCode: "execution_recovery.exact_conversation_unavailable",
+          },
+        },
+        recommendedAction: null,
+        tier: "none",
       });
       const storage = createExecutionRecoveryStorage();
-      const submission = await executeHostedExecutionRecovery({
-        db: harness.db,
-        env,
-        request: {
-          activeOrganizationId: "org_1",
-          body: {
-            action: "resume_controller_conversation",
-            destination: inspected.recovery.destination,
-            expectedIdentity: inspected.recovery.identity,
-            operationId: "caller-lark-resume-1",
-          },
-          conversationId: originalDelivery.spaceId,
-        },
-        storage,
-      });
-      const repeated = await executeHostedExecutionRecovery({
-        db: harness.db,
-        env,
-        request: {
-          activeOrganizationId: "org_1",
-          body: {
-            action: "resume_controller_conversation",
-            destination: inspected.recovery.destination,
-            expectedIdentity: inspected.recovery.identity,
-            operationId: "caller-lark-resume-2",
-          },
-          conversationId: originalDelivery.spaceId,
-        },
-        storage,
-      });
-
-      expect(workerSubmit).toHaveBeenCalledTimes(1);
-      expect(workerSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          dispatchId: expect.stringContaining(
-            "remote-agent-execution-recovery-dispatch"
-          ),
-          spaceId: createMessageChannelTurnEnvelope().space.id,
-        })
-      );
-      expect(repeated).toEqual({
-        ...submission,
-        operationId: "caller-lark-resume-2",
-      });
       await expect(
-        readRemoteAgentNativeDeliveryByIdempotencyKey({
+        executeHostedExecutionRecovery({
           db: harness.db,
-          idempotencyKey: String(
-            workerSubmit.mock.calls[0]?.[0]?.idempotencyKey
-          ),
+          env,
+          request: {
+            activeOrganizationId: "org_1",
+            body: {
+              action: "resume_controller_conversation",
+              destination: inspected.recovery.destination,
+              expectedIdentity: inspected.recovery.identity,
+              operationId: "caller-lark-resume-1",
+            },
+            conversationId: originalDelivery.spaceId,
+          },
+          storage,
         })
-      ).resolves.toMatchObject({
-        conversationKind: "message_channel",
-        messageChannelLocator: locator,
-        providerPublicationIdempotencyKey:
-          expect.stringMatching(UUID_V5_PATTERN),
-        status: "accepted",
-      });
+      ).rejects.toThrow(
+        "execution_recovery.action_unavailable:execution_recovery.exact_conversation_unavailable"
+      );
+      expect(workerSubmit).not.toHaveBeenCalled();
     } finally {
       harness.close();
     }
   });
 
-  it("runs hosted Lark Tier 3 as one new execution only after exact conversation resume is unavailable", async () => {
+  it("keeps a fresh hosted Lark Wake outside terminal outcome recovery", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     const locator = {
@@ -8586,76 +8507,36 @@ describe("Remote Agent native delivery callback service", () => {
         identity: {
           agentControllerConversationId: null,
         },
-        recommendedAction: "retry_as_new_execution",
-        tier: "fresh_execution",
+        actions: {
+          retryAsNewExecution: {
+            enabled: false,
+            reasonCode: "execution_recovery.new_wake_required",
+          },
+        },
+        recommendedAction: null,
+        tier: "none",
       });
       const storage = createExecutionRecoveryStorage();
-      const first = await executeHostedExecutionRecovery({
-        db: harness.db,
-        env,
-        request: {
-          activeOrganizationId: "org_1",
-          body: {
-            action: "retry_as_new_execution",
-            destination: inspected.recovery.destination,
-            expectedIdentity: inspected.recovery.identity,
-            operationId: "caller-lark-fresh-1",
-          },
-          conversationId: turnEnvelope.space.id,
-        },
-        storage,
-      });
-      const repeated = await executeHostedExecutionRecovery({
-        db: harness.db,
-        env,
-        request: {
-          activeOrganizationId: "org_1",
-          body: {
-            action: "retry_as_new_execution",
-            destination: inspected.recovery.destination,
-            expectedIdentity: inspected.recovery.identity,
-            operationId: "caller-lark-fresh-2",
-          },
-          conversationId: turnEnvelope.space.id,
-        },
-        storage,
-      });
-
-      expect(first).toMatchObject({
-        action: "retry_as_new_execution",
-        newExecutionId: expect.stringContaining(
-          "remote-agent-execution-recovery-dispatch"
-        ),
-        operationId: "caller-lark-fresh-1",
-        status: "new_execution_requested",
-      });
-      expect(repeated).toEqual({
-        ...first,
-        operationId: "caller-lark-fresh-2",
-      });
-      expect(workerSubmit).toHaveBeenCalledOnce();
-      expect(workerSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          messages: [
-            {
-              content: "Prepare a fresh review.",
-              role: "user",
-            },
-          ],
-          spaceId: turnEnvelope.space.id,
-        })
-      );
       await expect(
-        readRemoteAgentNativeDeliveryByDispatchAndConversation({
-          conversationId: turnEnvelope.space.id,
+        executeHostedExecutionRecovery({
           db: harness.db,
-          dispatchId: String(first.newExecutionId),
+          env,
+          request: {
+            activeOrganizationId: "org_1",
+            body: {
+              action: "retry_as_new_execution",
+              destination: inspected.recovery.destination,
+              expectedIdentity: inspected.recovery.identity,
+              operationId: "caller-lark-fresh-1",
+            },
+            conversationId: turnEnvelope.space.id,
+          },
+          storage,
         })
-      ).resolves.toMatchObject({
-        conversationKind: "message_channel",
-        messageChannelLocator: locator,
-        status: "accepted",
-      });
+      ).rejects.toThrow(
+        "execution_recovery.action_unavailable:execution_recovery.new_wake_required"
+      );
+      expect(workerSubmit).not.toHaveBeenCalled();
 
       harness.run({
         params: ["idempotency-lark-tier3-original"],
@@ -8677,13 +8558,13 @@ describe("Remote Agent native delivery callback service", () => {
       expect(historyLimited.recovery).toMatchObject({
         actions: {
           retryAsNewExecution: {
-            enabled: true,
-            reasonCode: "execution_recovery.fresh_execution_only",
+            enabled: false,
+            reasonCode: "execution_recovery.new_wake_required",
           },
         },
-        recommendedAction: "retry_as_new_execution",
-        status: "available",
-        tier: "fresh_execution",
+        recommendedAction: null,
+        status: "unavailable",
+        tier: "none",
       });
     } finally {
       harness.close();
