@@ -389,6 +389,7 @@ type SpaceLandingInput = {
 	initialSpaceView?: SpaceView;
 	isPersonalContext?: boolean;
 	isCenterAgentDirectMessage?: boolean;
+	isDirectMessageConversation?: boolean;
 	loadingFallback?: ReactNode;
 	onInitialPendingMessageConsumed?: () => void;
 	onSpaceViewCommitted?: (view: SpaceView) => void;
@@ -397,6 +398,19 @@ type SpaceLandingInput = {
 	spaceId: string;
 	profileId: string;
 };
+
+function resolveSpaceInboxUnreadDestination(input: {
+	isCenterAgentDirectMessage: boolean;
+	isDirectMessageConversation: boolean;
+}): "center-agent" | "direct-message" | "ordinary-space" {
+	if (input.isCenterAgentDirectMessage) {
+		return "center-agent";
+	}
+	if (input.isDirectMessageConversation) {
+		return "direct-message";
+	}
+	return "ordinary-space";
+}
 
 function useSpaceLandingState(input: SpaceLandingInput) {
 	const queryClient = useQueryClient();
@@ -418,10 +432,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	);
 	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
 	const organizationId = resolveOptionalAppOrganizationId(organizationContext);
-	const spaceInboxReadPosition = useSpaceInboxReadPosition({
-		organizationId,
-		spaceId: input.spaceId,
-	});
 	const centerAgentState = useSpaceCenterAgentState({
 		knownCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
 		organizationId,
@@ -429,6 +439,14 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	});
 	const currentSpaceIsCenterAgentDirectMessage =
 		centerAgentState.isCenterAgentDirectMessage;
+	const spaceInboxReadPosition = useSpaceInboxReadPosition({
+		destination: resolveSpaceInboxUnreadDestination({
+			isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+			isDirectMessageConversation: input.isDirectMessageConversation === true,
+		}),
+		organizationId,
+		spaceId: input.spaceId,
+	});
 	const recovery = useLocalAgentRecoveryController({
 		currentLocalRuntimeReplyReadinessRefetchIntervalMs: false,
 		loadAgentExecutionReadiness: false,
