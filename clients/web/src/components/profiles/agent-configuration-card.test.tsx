@@ -51,4 +51,23 @@ describe("AgentConfigurationCard", () => {
 			ownerCard?.querySelector('[data-slot="shared-layout-background"]')
 		).toBeTruthy();
 	});
+
+	it("keeps long summaries on one line when a compact card requests it", () => {
+		render(
+			<AgentConfigurationGrid>
+				<AgentConfigurationCard
+					icon={<span />}
+					itemId="working-folder"
+					label="Working folder"
+					readOnly
+					summary="/Users/felix/a/very/long/project/path"
+					summaryClassName="truncate"
+					summaryTitle="/Users/felix/a/very/long/project/path"
+				/>
+			</AgentConfigurationGrid>
+		);
+
+		const summary = screen.getByTitle("/Users/felix/a/very/long/project/path");
+		expect(summary.className).toContain("truncate");
+	});
 });
