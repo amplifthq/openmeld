@@ -85,7 +85,7 @@ describe("route catalog", () => {
     });
   });
 
-  it("keeps routable profiles when one profile binding read is unavailable", async () => {
+  it("rejects the catalog read when one profile binding read is unavailable", async () => {
     listOpenMeldProfiles.mockResolvedValue([
       createProfile("agt-ready", "Ready Codex", "project-1"),
       createProfile("agt-binding-down", "Binding API Down"),
@@ -127,54 +127,19 @@ describe("route catalog", () => {
       }
     );
 
-    const catalog = await loadDaemonRouteCatalog({
-      localAdapterContainer: {} as never,
-      ownerUserId: "owner-1",
-      presenter: {
-        view: "agent",
-        data: vi.fn(),
-        event: vi.fn(),
-        line: vi.fn(),
-      },
-      quiet: true,
-    });
-
-    expect(catalog.profileIds).toEqual(["agt-ready"]);
-    expect(catalog.routeByProfileId.get("agt-ready")?.bindingId).toBe(
-      "bind-ready"
-    );
-    expect(
-      resolveCurrentEffectiveProfileWorkingFolderRuntime
-    ).toHaveBeenCalledWith({
-      account: { hostKey: "gateway.test", userKey: "owner-1" },
-      defaultProjectId: "project-1",
-      mode: "inspect",
-      openMeldProfileId: "agt-ready",
-    });
-    expect(
-      catalog.routeByProfileId.get("agt-ready")?.workingFolderRuntime
-        ?.effectiveRuntimeWorkingDirectory
-    ).toBe("/tmp/default-project");
-    expect(catalog.skippedProfiles).toEqual([
-      {
-        profileId: "agt-binding-down",
-        profileName: "Binding API Down",
-        skipReason: "profile.binding.read_unavailable",
-      },
-    ]);
-    expect(catalog.workingFolderObservations).toEqual([
-      {
-        bindingId: "bind-ready",
-        configurationRevision: null,
-        defaultProjectId: "project-1",
-        localProjectBindingGeneration: "project-generation-1",
-        observedAtMs: 1,
-        profileId: "agt-ready",
-        reasonCode: null,
-        source: "default_project",
-        status: "ready",
-      },
-    ]);
+    await expect(
+      loadDaemonRouteCatalog({
+        localAdapterContainer: {} as never,
+        ownerUserId: "owner-1",
+        presenter: {
+          view: "agent",
+          data: vi.fn(),
+          event: vi.fn(),
+          line: vi.fn(),
+        },
+        quiet: true,
+      })
+    ).rejects.toThrow("gateway fetch failed");
   });
 
   it("keeps a precise current fact when a Default Project folder is missing", async () => {

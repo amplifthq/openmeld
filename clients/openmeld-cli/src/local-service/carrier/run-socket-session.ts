@@ -136,7 +136,10 @@ import {
 } from "../routing/route-catalog";
 import { forkAgentSession } from "../session-control/fork-agent-session";
 import { runAgentSessionForkOperation } from "../session-control/session-fork-operation-store";
-import { readDaemonCatalogSyncSignal } from "../state/catalog-sync-signal";
+import {
+  type DaemonCatalogSyncSignal,
+  readDaemonCatalogSyncSignal,
+} from "../state/catalog-sync-signal";
 import { createDaemonStreamKeepalive } from "./daemon-stream-keepalive";
 import {
   handleDaemonSocketFrame,
@@ -166,6 +169,15 @@ function resolveHeartbeatIdleWaiters(waiters: Array<() => void>): void {
   while (waiters.length > 0) {
     waiters.shift()?.();
   }
+}
+
+function resolveCatalogSyncSignalMarker(
+  signal: DaemonCatalogSyncSignal | null
+): string | null {
+  if (!signal) {
+    return null;
+  }
+  return signal.signalId ?? signal.updatedAt;
 }
 
 type CatalogSyncForceReason =
@@ -558,7 +570,7 @@ export async function runDaemonSocketSession(input: {
     | "skipped"
     | null = null;
   let latestSkippedProfilesFingerprint: string | null = null;
-  let latestCatalogSyncSignalUpdatedAtMs = 0;
+  let latestCatalogSyncSignalMarker: string | null = null;
   let forceCatalogSyncReason: CatalogSyncForceReason | null = null;
   let pendingLocalExecutionEvidenceRefreshReason: CatalogSyncForceReason | null =
     null;
@@ -1050,10 +1062,11 @@ export async function runDaemonSocketSession(input: {
     if (!signal) {
       return;
     }
-    if (signal.updatedAtMs <= latestCatalogSyncSignalUpdatedAtMs) {
+    const signalMarker = resolveCatalogSyncSignalMarker(signal);
+    if (signalMarker === latestCatalogSyncSignalMarker) {
       return;
     }
-    latestCatalogSyncSignalUpdatedAtMs = signal.updatedAtMs;
+    latestCatalogSyncSignalMarker = signalMarker;
     requestLocalExecutionEvidenceRefresh({
       reason: "local_state_changed",
       scheduleReason: "catalog_sync_signal",
@@ -2452,8 +2465,12 @@ export async function runDaemonSocketSession(input: {
     }
     scheduleCatalogSyncNext(bootstrapPlan.nextSyncDelayMs);
   }
-  latestCatalogSyncSignalUpdatedAtMs =
-    (await readDaemonCatalogSyncSignal().catch(() => null))?.updatedAtMs ?? 0;
+  const initialCatalogSyncSignal = await readDaemonCatalogSyncSignal().catch(
+    () => null
+  );
+  latestCatalogSyncSignalMarker = resolveCatalogSyncSignalMarker(
+    initialCatalogSyncSignal
+  );
   scheduleCatalogSyncSignalPoll();
 
   await sendHeartbeat();

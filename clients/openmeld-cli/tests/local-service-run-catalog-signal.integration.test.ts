@@ -531,7 +531,7 @@ describe("local service run catalog signal", () => {
     });
   });
 
-  it("registers startup catalog and performs sync after catalog signal poll", async () => {
+  it("syncs a new catalog signal even when two writes share one millisecond", async () => {
     vi.useFakeTimers();
     const lines: Array<{ code: string; text: string }> = [];
     loadDaemonRouteCatalogMock.mockResolvedValue({
@@ -546,13 +546,15 @@ describe("local service run catalog signal", () => {
     });
     readDaemonCatalogSyncSignalMock
       .mockResolvedValueOnce({
+        signalId: "signal-baseline",
         updatedAt: "2026-03-06T00:00:00.000Z",
         updatedAtMs: 1000,
         reason: "baseline",
       })
       .mockResolvedValue({
-        updatedAt: "2026-03-06T00:00:01.500Z",
-        updatedAtMs: 1500,
+        signalId: "signal-project-change",
+        updatedAt: "2026-03-06T00:00:00.000Z",
+        updatedAtMs: 1000,
         reason: "profile_updated",
       });
 

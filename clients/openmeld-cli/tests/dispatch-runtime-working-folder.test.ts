@@ -6,19 +6,28 @@ import {
   resolveDispatchWorkingFolderRuntimeContext,
 } from "../src/local-service/execution/dispatch-runtime-preparation";
 
-const { resolveEffectiveProfileWorkingFolderRuntime } = vi.hoisted(() => ({
+const {
+  resolveCurrentEffectiveProfileWorkingFolderRuntime,
+  resolveEffectiveProfileWorkingFolderRuntime,
+} = vi.hoisted(() => ({
+  resolveCurrentEffectiveProfileWorkingFolderRuntime: vi.fn(),
   resolveEffectiveProfileWorkingFolderRuntime: vi.fn(),
 }));
 const CURRENT_WORKING_FOLDER_FACT_ERROR_PATTERN =
   /^profile\.working_folder\.current_fact_/u;
 
 vi.mock("../src/profile-workspace/effective-runtime-resolution", () => ({
+  resolveCurrentEffectiveProfileWorkingFolderRuntime,
   resolveEffectiveProfileWorkingFolderRuntime,
 }));
 
 describe("dispatch runtime working folder", () => {
   beforeEach(() => {
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockReset();
     resolveEffectiveProfileWorkingFolderRuntime.mockReset();
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockResolvedValue(
+      createCurrentWorkingFolder()
+    );
   });
 
   it("preserves a precise invalid Default Project connection failure", async () => {
@@ -70,6 +79,58 @@ describe("dispatch runtime working folder", () => {
       providerRuntimeWorkingDirectory: "/tmp/current-default-project",
     });
     expect(resolveEffectiveProfileWorkingFolderRuntime).not.toHaveBeenCalled();
+    expect(
+      resolveCurrentEffectiveProfileWorkingFolderRuntime
+    ).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed after the Default Project mutation is durable but before the new route is registered", async () => {
+    const routeConfig = createCurrentRoute();
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockResolvedValue(
+      createCurrentWorkingFolder({
+        bindingGeneration: "generation-2",
+        repositoryPath: "/tmp/new-default-project",
+      })
+    );
+
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: null,
+        defaultProjectIdWasProvided: false,
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).rejects.toMatchObject({
+      code: "profile.working_folder.current_fact_changed",
+    });
+  });
+
+  it("automatically accepts the new Default Project after its route is registered", async () => {
+    const routeConfig = createCurrentRoute({
+      bindingGeneration: "generation-2",
+      repositoryPath: "/tmp/new-default-project",
+    });
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockResolvedValue(
+      createCurrentWorkingFolder({
+        bindingGeneration: "generation-2",
+        repositoryPath: "/tmp/new-default-project",
+      })
+    );
+
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: null,
+        defaultProjectIdWasProvided: false,
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).resolves.toEqual({
+      providerRuntimeWorkingDirectory: "/tmp/new-default-project",
+    });
   });
 
   it.each([
@@ -164,10 +225,15 @@ describe("dispatch runtime working folder", () => {
 function createCurrentRoute(
   overrides: {
     bindingId?: string;
+    bindingGeneration?: string;
     configurationRevision?: number;
     observedAtMs?: number;
+    repositoryPath?: string;
   } = {}
 ): DaemonProfileRouteConfig {
+  const bindingGeneration = overrides.bindingGeneration ?? "generation-1";
+  const repositoryPath =
+    overrides.repositoryPath ?? "/tmp/current-default-project";
   return {
     agentControllerRef: "builtin:codex",
     bindingId: overrides.bindingId ?? "binding-1",
@@ -182,17 +248,17 @@ function createCurrentRoute(
     transportMode: "local-cli",
     workingFolderRuntime: {
       configPath: null,
-      configuredWorkspacePath: "/tmp/current-default-project",
-      defaultProjectBindingGeneration: "generation-1",
+      configuredWorkspacePath: repositoryPath,
+      defaultProjectBindingGeneration: bindingGeneration,
       defaultProjectId: "project-1",
-      effectiveRuntimeWorkingDirectory: "/tmp/current-default-project",
+      effectiveRuntimeWorkingDirectory: repositoryPath,
       runtimeContext: {
-        providerRuntimeWorkingDirectory: "/tmp/current-default-project",
+        providerRuntimeWorkingDirectory: repositoryPath,
       },
       status: "ready",
       workingFolderFact: {
         defaultProjectId: "project-1",
-        localProjectBindingGeneration: "generation-1",
+        localProjectBindingGeneration: bindingGeneration,
         observedAtMs: overrides.observedAtMs ?? 9000,
         reasonCode: null,
         source: "default_project",
@@ -201,6 +267,35 @@ function createCurrentRoute(
       workingFolderSource: "default_project",
       workspaceMode: null,
     },
+  };
+}
+
+function createCurrentWorkingFolder(
+  overrides: { bindingGeneration?: string; repositoryPath?: string } = {}
+) {
+  const bindingGeneration = overrides.bindingGeneration ?? "generation-1";
+  const repositoryPath =
+    overrides.repositoryPath ?? "/tmp/current-default-project";
+  return {
+    configPath: null,
+    configuredWorkspacePath: repositoryPath,
+    defaultProjectBindingGeneration: bindingGeneration,
+    defaultProjectId: "project-1",
+    effectiveRuntimeWorkingDirectory: repositoryPath,
+    runtimeContext: {
+      providerRuntimeWorkingDirectory: repositoryPath,
+    },
+    status: "ready" as const,
+    workingFolderFact: {
+      defaultProjectId: "project-1",
+      localProjectBindingGeneration: bindingGeneration,
+      observedAtMs: 10_000,
+      reasonCode: null,
+      source: "default_project" as const,
+      status: "ready" as const,
+    },
+    workingFolderSource: "default_project" as const,
+    workspaceMode: null,
   };
 }
 

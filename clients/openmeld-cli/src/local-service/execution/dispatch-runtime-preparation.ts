@@ -5,7 +5,10 @@ import type {
   ProviderDispatchRuntimeContext,
   RuntimeTransportDeliveryExecutionIdentity,
 } from "@openmeld/schemas/types";
-import { resolveEffectiveProfileWorkingFolderRuntime } from "../../profile-workspace/effective-runtime-resolution";
+import {
+  resolveCurrentEffectiveProfileWorkingFolderRuntime,
+  resolveEffectiveProfileWorkingFolderRuntime,
+} from "../../profile-workspace/effective-runtime-resolution";
 import {
   type ProviderRuntimePreparationDetails,
   prepareProviderRuntime,
@@ -146,11 +149,36 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
       "the current route working-folder observation has expired"
     );
   }
+  if (workingFolderRuntime.workingFolderFact.source === "default_project") {
+    const currentWorkingFolder =
+      await resolveCurrentEffectiveProfileWorkingFolderRuntime({
+        defaultProjectId:
+          workingFolderRuntime.workingFolderFact.defaultProjectId,
+        mode: "dispatch",
+        openMeldProfileId: input.targetProfileId,
+      });
+    const currentFact = currentWorkingFolder.workingFolderFact;
+    if (
+      currentWorkingFolder.status !== "ready" ||
+      currentFact.source !== "default_project" ||
+      currentFact.defaultProjectId !==
+        workingFolderRuntime.workingFolderFact.defaultProjectId ||
+      currentFact.localProjectBindingGeneration !==
+        workingFolderRuntime.workingFolderFact.localProjectBindingGeneration ||
+      currentWorkingFolder.runtimeContext.providerRuntimeWorkingDirectory !==
+        workingFolderRuntime.runtimeContext.providerRuntimeWorkingDirectory
+    ) {
+      throwCurrentWorkingFolderFactError(
+        "changed",
+        "the local Default Project connection changed after this route was observed"
+      );
+    }
+  }
   return workingFolderRuntime.runtimeContext;
 }
 
 function throwCurrentWorkingFolderFactError(
-  reason: "identity_mismatch" | "missing" | "stale",
+  reason: "changed" | "identity_mismatch" | "missing" | "stale",
   detail: string
 ): never {
   throw new DaemonServiceRunError({

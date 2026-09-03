@@ -42,6 +42,7 @@ describe("local service catalog sync signal", () => {
 
     const signal = await readDaemonCatalogSyncSignal();
     expect(signal).toEqual({
+      signalId: expect.any(String),
       updatedAt: expect.any(String),
       updatedAtMs: expect.any(Number),
       reason: "profile_created",
@@ -67,6 +68,7 @@ describe("local service catalog sync signal", () => {
     });
     const second = await readDaemonCatalogSyncSignal();
     expect(second?.reason).toBe("device_runtime_state_updated");
+    expect(second?.signalId).not.toBe(first?.signalId);
     expect(second?.updatedAtMs ?? 0).toBeGreaterThanOrEqual(
       first?.updatedAtMs ?? 0
     );

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,6 +16,10 @@ import {
 } from "@openmeld/schemas";
 import type { RuntimeTransportDeliverDispatchRequest } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  bindProject,
+  setDefaultProjectConnection,
+} from "../src/agent-activity/project-bindings";
 import { handleLocalControlPlaneCancel } from "../src/local-service/carrier/local-control-handlers";
 import type {
   CurrentDaemonSocketRef,
@@ -265,7 +269,8 @@ function createCurrentRouteByProfileId(
 }
 
 function createCurrentDefaultProjectRouteByProfileId(
-  workspacePath: string
+  workspacePath: string,
+  bindingGeneration = "project-generation-1"
 ): ReturnType<typeof createCurrentRouteByProfileId> {
   const routes = createCurrentRouteByProfileId(workspacePath);
   const route = routes.get("agent-profile-1");
@@ -275,7 +280,7 @@ function createCurrentDefaultProjectRouteByProfileId(
   route.workingFolderRuntime = {
     configPath: null,
     configuredWorkspacePath: workspacePath,
-    defaultProjectBindingGeneration: "project-generation-1",
+    defaultProjectBindingGeneration: bindingGeneration,
     defaultProjectId: "project-1",
     effectiveRuntimeWorkingDirectory: workspacePath,
     runtimeContext: {
@@ -284,7 +289,7 @@ function createCurrentDefaultProjectRouteByProfileId(
     status: "ready",
     workingFolderFact: {
       defaultProjectId: "project-1",
-      localProjectBindingGeneration: "project-generation-1",
+      localProjectBindingGeneration: bindingGeneration,
       observedAtMs: Date.now(),
       reasonCode: null,
       source: "default_project",
@@ -545,15 +550,24 @@ describe("dispatch result outbox around preview teardown", () => {
   });
 
   it("launches a legacy dispatch in the exact Default Project folder stored on its current route", async () => {
-    await withTempHome(async () => {
+    await withTempHome(async (home) => {
       const ledgerPaths = createLedgerPaths();
       const presenter = createPresenter();
       const socket = createAcceptedSettlementSocket({
         ledgerPaths,
         presenter,
       }) as never;
+      const workspacePath = join(home, "current-default-project");
+      mkdirSync(workspacePath, { recursive: true });
+      const connection = await bindProject({
+        organizationId: "org-1",
+        projectId: "project-1",
+        projectSlug: "openmeld",
+        repositoryFingerprint: null,
+        repositoryPath: workspacePath,
+      });
       const runtimeContext = {
-        providerRuntimeWorkingDirectory: "/tmp/current-default-project",
+        providerRuntimeWorkingDirectory: connection.repositoryPath,
       };
       prepareProviderRuntimeMock.mockImplementation((input) => {
         expect(input.runtimeContext).toEqual(runtimeContext);
@@ -585,7 +599,8 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerUserId: "user-1",
         presenter,
         routeByProfileId: createCurrentDefaultProjectRouteByProfileId(
-          runtimeContext.providerRuntimeWorkingDirectory
+          runtimeContext.providerRuntimeWorkingDirectory,
+          connection.bindingGeneration
         ),
         socket,
       });
@@ -598,6 +613,73 @@ describe("dispatch result outbox around preview teardown", () => {
       expect(prepareProviderRuntimeMock).toHaveBeenCalled();
       expect(runRuntimeTaskMock).toHaveBeenCalledOnce();
       expect(resolveProfileWorkspaceRuntimeMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not start the controller after the durable Default Project changes but before its route refresh finishes", async () => {
+    await withTempHome(async (home) => {
+      const firstPath = join(home, "first-default-project");
+      const secondPath = join(home, "second-default-project");
+      mkdirSync(firstPath, { recursive: true });
+      mkdirSync(secondPath, { recursive: true });
+      const first = await bindProject({
+        organizationId: "org-1",
+        projectId: "project-1",
+        projectSlug: "openmeld",
+        repositoryFingerprint: null,
+        repositoryPath: firstPath,
+      });
+      const second = await bindProject({
+        organizationId: "org-1",
+        projectId: "project-1",
+        projectSlug: "openmeld",
+        repositoryFingerprint: null,
+        repositoryPath: secondPath,
+      });
+      await setDefaultProjectConnection({
+        expectedBindingGeneration: second.bindingGeneration,
+        organizationId: "org-1",
+        projectId: "project-1",
+      });
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const socket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      }) as never;
+
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest: createDeliverRequest(),
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({ adapter: {} }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: createCurrentDefaultProjectRouteByProfileId(
+          firstPath,
+          first.bindingGeneration
+        ),
+        socket,
+      });
+
+      expect(result).toMatchObject({
+        errorCode: "profile.working_folder.current_fact_changed",
+        result: "failed",
+      });
+      expect(prepareProviderRuntimeMock).not.toHaveBeenCalled();
+      expect(runRuntimeTaskMock).not.toHaveBeenCalled();
     });
   });
 
