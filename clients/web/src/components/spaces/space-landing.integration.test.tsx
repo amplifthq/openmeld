@@ -124,6 +124,7 @@ const {
 	createStartHumanProfileMock,
 	notifyAgentExecutionReadinessRefreshMock,
 	readSpaceMembersMock,
+	threadProgrammaticSendHarness,
 	toastMock,
 	useAccountAvatarMock,
 	clearSpaceConversationCacheMock,
@@ -145,6 +146,10 @@ const {
 	createStartHumanProfileMock: vi.fn(),
 	notifyAgentExecutionReadinessRefreshMock: vi.fn(),
 	readSpaceMembersMock: vi.fn(),
+	threadProgrammaticSendHarness: {
+		enabled: false,
+		text: "Programmatic thread message",
+	},
 	useAccountAvatarMock: vi.fn(),
 	clearSpaceConversationCacheMock: vi.fn(async () => undefined),
 	toastMock: Object.assign(vi.fn(), {
@@ -326,6 +331,39 @@ vi.mock("#/hooks/account.hooks", async () => {
 vi.mock("sonner", () => ({
 	toast: toastMock,
 }));
+
+vi.mock("./space-thread-panel", async () => {
+	const actual = await vi.importActual<typeof import("./space-thread-panel")>(
+		"./space-thread-panel"
+	);
+	return {
+		...actual,
+		SpaceThreadPanel: (...args: Parameters<typeof actual.SpaceThreadPanel>) => {
+			const [props] = args;
+			const ActualSpaceThreadPanel = actual.SpaceThreadPanel;
+			return (
+				<>
+					<ActualSpaceThreadPanel {...props} />
+					{threadProgrammaticSendHarness.enabled &&
+					props.activeThread &&
+					props.onSendText ? (
+						<button
+							onClick={() => {
+								const sendPromise = props.onSendText?.(
+									threadProgrammaticSendHarness.text
+								);
+								sendPromise?.catch(() => undefined);
+							}}
+							type="button"
+						>
+							Send programmatic thread text
+						</button>
+					) : null}
+				</>
+			);
+		},
+	};
+});
 
 vi.mock("#/components/agents/use-local-agent-recovery-controller", () => ({
 	useLocalAgentRecoveryController: (...args: unknown[]) => ({
@@ -685,6 +723,8 @@ describe("SpaceLanding", () => {
 		readSpaceMembersMock
 			.mockReset()
 			.mockResolvedValue(createMembersSnapshot() as SpaceMembersSnapshot);
+		threadProgrammaticSendHarness.enabled = false;
+		threadProgrammaticSendHarness.text = "Programmatic thread message";
 		toastMock.mockReset();
 		toastMock.error.mockReset();
 		toastMock.success.mockReset();
@@ -8875,7 +8915,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(
 				screen.getByText(
-					"OpenMeld couldn't confirm that this agent can reply right now. Try again, or change Wake to Reference."
+					"OpenMeld couldn't confirm that this agent can reply right now. Try again."
 				)
 			).toBeTruthy();
 		});
@@ -13059,6 +13099,83 @@ describe("SpaceLanding", () => {
 		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
 	});
 
+	it("checks current Wakeability before publishing selected files", async () => {
+		const postNormalMessageMock = vi.fn();
+		const publishComposerUploadMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		const currentBlockedReason =
+			currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary;
+		if (!currentBlockedReason) {
+			throw new Error(
+				"Expected current Core Wakeability reason in the fixture."
+			);
+		}
+		readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
+			},
+		});
+		await screen.findByText("Ready");
+
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await insertComposerMember(RUNNER_OPTION_NAME);
+		await appendComposerText(
+			textarea,
+			"review these notes",
+			"@Runner review these notes"
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(screen.getByText(currentBlockedReason)).toBeTruthy();
+		});
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(screen.getByText("Ready")).toBeTruthy();
+		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
+	});
+
 	it("keeps a file-only Composer open when its staged file cannot be published", async () => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
@@ -15273,8 +15390,106 @@ describe("SpaceLanding", () => {
 		);
 	});
 
+	it.each([
+		"blocked",
+		"network failure",
+	] as const)("blocks a main Wake Retry before publication when current Wakeability is %s", async (failureKind) => {
+		const postNormalMessageMock = vi.fn();
+		const stageComposerUploadMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		if (failureKind === "blocked") {
+			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		} else {
+			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
+		}
+		const messageDetailsDialog = await openFailedWakeRetry({
+			postNormalMessageMock,
+			stageComposerUploadMock,
+			thread: false,
+		});
+
+		fireEvent.click(
+			within(messageDetailsDialog).getByRole("button", {
+				name: "Retry as new execution",
+			})
+		);
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(
+				within(messageDetailsDialog).getByRole("button", {
+					name: "New execution failed. Try again",
+				})
+			).toBeTruthy();
+		});
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(stageComposerUploadMock).not.toHaveBeenCalled();
+		expect(screen.getByText("@Runner check the release build")).toBeTruthy();
+	});
+
+	it.each([
+		"blocked",
+		"network failure",
+	] as const)("blocks a thread Wake Retry before publication when current Wakeability is %s", async (failureKind) => {
+		const postThreadSignalMock = vi.fn();
+		const stageComposerUploadMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		if (failureKind === "blocked") {
+			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		} else {
+			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
+		}
+		const messageDetailsDialog = await openFailedWakeRetry({
+			postThreadSignalMock,
+			stageComposerUploadMock,
+			thread: true,
+		});
+
+		fireEvent.click(
+			within(messageDetailsDialog).getByRole("button", {
+				name: "Retry as new execution",
+			})
+		);
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(
+				within(messageDetailsDialog).getByRole("button", {
+					name: "New execution failed. Try again",
+				})
+			).toBeTruthy();
+		});
+		expect(postThreadSignalMock).not.toHaveBeenCalled();
+		expect(stageComposerUploadMock).not.toHaveBeenCalled();
+		expect(
+			screen
+				.getByLabelText("Thread")
+				.querySelector('[data-signal-id="sig-blocked-retry-source"]')
+		).not.toBeNull();
+	});
+
 	it("retries a single-target anchored execution failure as a new Wake", async () => {
 		const sourceText = "@Scout check the release build";
+		const membersSnapshot = createMembersSnapshot({
+			extraAgents: [
+				{
+					mentionAlias: "scout",
+					profileId: SECOND_AGENT_PROFILE_ID,
+					profileName: "Scout",
+				},
+			],
+		}) as SpaceMembersSnapshot;
+		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				id: "sig-retried-wake",
@@ -15304,15 +15519,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "scout",
-							profileId: SECOND_AGENT_PROFILE_ID,
-							profileName: "Scout",
-						},
-					],
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -15401,6 +15608,16 @@ describe("SpaceLanding", () => {
 
 	it("keeps an outcome-unknown Wake Retry under one client message identity", async () => {
 		const sourceText = "@Scout check the release build";
+		const membersSnapshot = createMembersSnapshot({
+			extraAgents: [
+				{
+					mentionAlias: "scout",
+					profileId: SECOND_AGENT_PROFILE_ID,
+					profileName: "Scout",
+				},
+			],
+		}) as SpaceMembersSnapshot;
+		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 		const hangingRequest = createHangingFetchRequest();
 		const postNormalMessageMock = vi.fn(
 			async (input: Parameters<SpaceApi["postNormalMessage"]>[0]) =>
@@ -15428,15 +15645,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "scout",
-							profileId: SECOND_AGENT_PROFILE_ID,
-							profileName: "Scout",
-						},
-					],
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -15546,6 +15755,56 @@ describe("SpaceLanding", () => {
 			hangingRequest.abortForTimeout();
 			await Promise.resolve();
 		});
+	});
+
+	it.each([
+		"blocked",
+		"network failure",
+	] as const)("blocks Agent Direct Message programmatic thread text before publication when current Wakeability is %s", async (failureKind) => {
+		const postThreadSignalMock = vi.fn();
+		const stageComposerUploadMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		if (failureKind === "blocked") {
+			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		} else {
+			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
+		}
+		const expectedErrorMessage =
+			failureKind === "blocked"
+				? currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary
+				: "OpenMeld couldn't confirm that this agent can reply right now. Try again.";
+		if (!expectedErrorMessage) {
+			throw new Error("Expected a current Wakeability failure message.");
+		}
+		threadProgrammaticSendHarness.enabled = true;
+		threadProgrammaticSendHarness.text =
+			"Keep this programmatic Agent DM thread message";
+		const sendButton = await openAgentDirectMessageThreadProgrammaticSend({
+			postThreadSignalMock,
+			stageComposerUploadMock,
+		});
+
+		fireEvent.click(sendButton);
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(screen.getByText(expectedErrorMessage)).toBeTruthy();
+		});
+		expect(postThreadSignalMock).not.toHaveBeenCalled();
+		expect(stageComposerUploadMock).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("button", {
+				name: "Send programmatic thread text",
+			})
+		).toBeTruthy();
+		expect(threadProgrammaticSendHarness.text).toBe(
+			"Keep this programmatic Agent DM thread message"
+		);
 	});
 
 	it("retries a failed Wake inside its originating thread", async () => {
@@ -16777,6 +17036,209 @@ describe("SpaceLanding", () => {
 	});
 });
 
+async function openFailedWakeRetry(input: {
+	postNormalMessageMock?: ReturnType<typeof vi.fn>;
+	postThreadSignalMock?: ReturnType<typeof vi.fn>;
+	stageComposerUploadMock: ReturnType<typeof vi.fn>;
+	thread: boolean;
+}) {
+	const sourceText = "@Runner check the release build";
+	const sourceSignal = createTextSignal({
+		id: "sig-blocked-retry-source",
+		messageEnvelope: {
+			activationTargets: [DEFAULT_AGENT_PROFILE_ID],
+			referenceTargets: [],
+			text: sourceText,
+		},
+		meta: { clientMessageId: "client-message-original" },
+		text: sourceText,
+	});
+	const failureSignal = createTerminalFailureNoticeSignal({
+		actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+		dispatchId: null,
+		failureStage: "execution",
+		id: "sig-blocked-retry-failure",
+		replyToSignalId: sourceSignal.id,
+		text: "Runner could not complete this Wake.",
+	});
+	createWebSpaceApiMock.mockReturnValue({
+		getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		getWakeProgress: vi.fn().mockResolvedValue({
+			items: [],
+			query: {
+				clientMessageId: "client-message-original",
+				spaceId: "space-123",
+				targetProfileId: null,
+			},
+		}),
+		postNormalMessage: input.postNormalMessageMock ?? vi.fn(),
+		postThreadSignal: input.postThreadSignalMock ?? vi.fn(),
+		stageComposerUpload: input.stageComposerUploadMock,
+	});
+	mockSpaceQueries({
+		status: createQueryResult({
+			isSuccess: true,
+			data: createSpaceStatus(),
+		}),
+		members: createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		}),
+		history: createQueryResult({
+			isSuccess: true,
+			data: {
+				envelopes: input.thread
+					? [sourceSignal]
+					: [sourceSignal, failureSignal],
+				nextCursor: null,
+			},
+		}),
+		...(input.thread
+			? {
+					threadSignals: createQueryResult({
+						isSuccess: true,
+						data: { signals: [sourceSignal, failureSignal] },
+					}),
+					threads: createQueryResult({
+						isSuccess: true,
+						data: {
+							threads: [
+								{
+									createdAt: "2026-04-11T00:00:00.000Z",
+									createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+									rootSignalId: sourceSignal.id,
+									spaceId: "space-123",
+									threadId: "thread-1",
+									updatedAt: "2026-04-11T00:00:00.000Z",
+								},
+							],
+						},
+					}),
+				}
+			: {
+					messageDetailsBySignalId: {
+						[sourceSignal.id]: createMessageDetailsQueryResult({
+							signalId: sourceSignal.id,
+						}),
+					},
+				}),
+	});
+
+	renderSpaceLanding();
+
+	let sourceRow: Element | null;
+	if (input.thread) {
+		const rootMessage = document.querySelector(
+			`[data-signal-id="${sourceSignal.id}"]`
+		);
+		if (!rootMessage) {
+			throw new Error("Expected the failed Wake source message.");
+		}
+		fireEvent.mouseEnter(rootMessage as HTMLElement);
+		fireEvent.click(
+			within(rootMessage as HTMLElement).getAllByRole("button", {
+				name: "Open thread",
+			})[0] as HTMLElement
+		);
+		const threadPanel = screen.getByLabelText("Thread");
+		sourceRow =
+			threadPanel
+				.querySelector(`[data-signal-id="${sourceSignal.id}"]`)
+				?.closest("[data-message-row-id]") ?? null;
+	} else {
+		sourceRow =
+			document
+				.querySelector(`[data-signal-id="${sourceSignal.id}"]`)
+				?.closest("[data-message-row-id]") ?? null;
+	}
+	if (!sourceRow) {
+		throw new Error("Expected the failed Wake source message row.");
+	}
+	fireEvent.click(
+		within(sourceRow as HTMLElement).getByRole("button", {
+			name: "Message details",
+		})
+	);
+	return await screen.findByRole("dialog", { name: "Message details" });
+}
+
+async function openAgentDirectMessageThreadProgrammaticSend(input: {
+	postThreadSignalMock: ReturnType<typeof vi.fn>;
+	stageComposerUploadMock: ReturnType<typeof vi.fn>;
+}) {
+	const rootSignal = createTextSignal({
+		id: "sig-agent-dm-thread-root",
+		text: "Start an Agent Direct Message thread",
+	});
+	createWebSpaceApiMock.mockReturnValue({
+		getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		getWakeProgress: vi.fn().mockResolvedValue({
+			items: [],
+			query: {
+				clientMessageId: "client-message-1",
+				spaceId: "space-123",
+				targetProfileId: null,
+			},
+		}),
+		postNormalMessage: vi.fn(),
+		postThreadSignal: input.postThreadSignalMock,
+		stageComposerUpload: input.stageComposerUploadMock,
+	});
+	mockSpaceQueries({
+		status: createQueryResult({
+			isSuccess: true,
+			data: {
+				...createSpaceStatus(),
+				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+			},
+		}),
+		members: createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		}),
+		history: createQueryResult({
+			isSuccess: true,
+			data: { envelopes: [rootSignal], nextCursor: null },
+		}),
+		threadSignals: createQueryResult({
+			isSuccess: true,
+			data: { signals: [rootSignal] },
+		}),
+		threads: createQueryResult({
+			isSuccess: true,
+			data: {
+				threads: [
+					{
+						createdAt: "2026-04-11T00:00:00.000Z",
+						createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+						rootSignalId: rootSignal.id,
+						spaceId: "space-123",
+						threadId: "thread-1",
+						updatedAt: "2026-04-11T00:00:00.000Z",
+					},
+				],
+			},
+		}),
+	});
+
+	renderSpaceLanding();
+	const rootMessage = document.querySelector(
+		`[data-signal-id="${rootSignal.id}"]`
+	);
+	if (!rootMessage) {
+		throw new Error("Expected the Agent Direct Message thread root.");
+	}
+	fireEvent.mouseEnter(rootMessage as HTMLElement);
+	fireEvent.click(
+		within(rootMessage as HTMLElement).getAllByRole("button", {
+			name: "Open thread",
+		})[0] as HTMLElement
+	);
+	return await screen.findByRole("button", {
+		name: "Send programmatic thread text",
+	});
+}
+
 function expectSpaceAgentAvailabilityIndicator(
 	scope: HTMLElement,
 	input: { isRefreshing?: boolean; label: string; tooltip?: string }
@@ -16890,7 +17352,7 @@ function createTestAgentAgentWakeAvailability(
 			phase: "checking_status",
 			reasonCode: "agent_execution.check_status",
 			status,
-			summary: "Checking this agent's Wake availability.",
+			summary: "Checking whether this agent can reply.",
 			tooltip: "Checking Wake availability",
 		};
 	}

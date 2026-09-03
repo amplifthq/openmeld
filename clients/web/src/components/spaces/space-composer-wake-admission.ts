@@ -5,7 +5,7 @@ import {
 } from "@openmeld/space";
 
 const WAKEABILITY_CHECK_FAILED_MESSAGE =
-	"OpenMeld couldn't confirm that this agent can reply right now. Try again, or change Wake to Reference.";
+	"OpenMeld couldn't confirm that this agent can reply right now. Try again.";
 
 export async function requireCurrentSpaceComposerWakeAdmission(input: {
 	agentProfileIds: readonly string[];
@@ -44,9 +44,14 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 }
 
 function normalizeAgentProfileIds(profileIds: readonly string[]): string[] {
-	return [
-		...new Set(profileIds.map((profileId) => profileId.trim()).filter(Boolean)),
-	];
+	const normalizedProfileIds = new Set<string>();
+	for (const profileId of profileIds) {
+		const normalizedProfileId = profileId.trim();
+		if (normalizedProfileId) {
+			normalizedProfileIds.add(normalizedProfileId);
+		}
+	}
+	return [...normalizedProfileIds];
 }
 
 function normalizeMessage(value: string | null | undefined): string | null {

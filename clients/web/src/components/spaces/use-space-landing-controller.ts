@@ -2588,6 +2588,10 @@ export function useSpaceLandingController(input: {
 			if (isThreadRetry) {
 				await threadController.onRetryWakeTarget(retryInput);
 			} else {
+				await requireCurrentSpaceComposerWakeAdmission({
+					agentProfileIds: [retryInput.targetProfileId],
+					readCurrentMembers: readCurrentMembersForWakeAdmission,
+				});
 				await sendPreparedSpaceMessage({
 					files: [],
 					filePreviewUrlsById: new Map<string, string>(),
@@ -3411,11 +3415,22 @@ function useSpaceThreadController(input: {
 		setComposerBlockedWakeProfileId(null);
 		setIsSendingMessage(true);
 		try {
+			const preparedSubmission = mentionAuthoring.preparePlainTextSubmission(
+				trimmedText,
+				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before continuing."
+			);
+			await requireCurrentSpaceComposerWakeAdmission({
+				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+					explicitActivationTargets:
+						preparedSubmission.messageEnvelope?.activationTargets ?? [],
+					membersSnapshot: input.membersSnapshot,
+					senderProfileId: input.profileId,
+					status: input.status,
+				}),
+				readCurrentMembers: input.readCurrentMembers,
+			});
 			await sendPreparedThreadMessage({
-				preparedSubmission: mentionAuthoring.preparePlainTextSubmission(
-					trimmedText,
-					"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before continuing."
-				),
+				preparedSubmission,
 				thread,
 			});
 		} catch (error) {
@@ -3462,6 +3477,10 @@ function useSpaceThreadController(input: {
 
 		setIsSendingMessage(true);
 		try {
+			await requireCurrentSpaceComposerWakeAdmission({
+				agentProfileIds: [retryInput.targetProfileId],
+				readCurrentMembers: input.readCurrentMembers,
+			});
 			await sendPreparedThreadMessage({
 				clientMessageId: retryInput.clientMessageId,
 				preparedSubmission: prepareProgrammaticWakeRetrySubmission(retryInput),

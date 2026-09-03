@@ -301,7 +301,7 @@ function resolvePublicWakeAvailability(
     // Summary is the canonical explanatory sentence; tooltip is the shorter
     // hover label and would discard recovery context in mention clients.
     reasonText: refreshingAvailable
-      ? "Checking this agent's Wake availability."
+      ? "Checking whether this agent can reply."
       : agentWakeAvailability.summary,
   };
 }

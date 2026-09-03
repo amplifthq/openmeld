@@ -448,7 +448,7 @@ describe("space target catalog", () => {
     expect(target?.wakeAvailability).toEqual(
       expect.objectContaining({
         reasonCodes: ["agent_execution.check_status"],
-        reasonText: "Checking this agent's Wake availability.",
+        reasonText: "Checking whether this agent can reply.",
         status: "blocked",
       })
     );
@@ -475,7 +475,7 @@ describe("space target catalog", () => {
 
     expect(target?.wakeAvailability).toEqual({
       reasonCodes: [],
-      reasonText: "Checking this agent's Wake availability.",
+      reasonText: "Checking whether this agent can reply.",
       status: "blocked",
     });
   });

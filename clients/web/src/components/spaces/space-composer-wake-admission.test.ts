@@ -75,7 +75,7 @@ describe("current Space Composer Wake admission", () => {
 		).rejects.toMatchObject({
 			code: "addressing.wake_blocked",
 			message:
-				"OpenMeld couldn't confirm that this agent can reply right now. Try again, or change Wake to Reference.",
+				"OpenMeld couldn't confirm that this agent can reply right now. Try again.",
 		});
 	});
 });

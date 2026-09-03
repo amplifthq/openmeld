@@ -49,7 +49,7 @@ export function createTestAgentAgentWakeAvailability(
         phase: "checking_status",
         reasonCode: "agent_execution.check_status",
         status,
-        summary: "Checking this agent's Wake availability.",
+        summary: "Checking whether this agent can reply.",
         tooltip: "Checking Wake availability",
       };
     case "offline_for_wake":
