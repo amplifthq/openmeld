@@ -276,22 +276,18 @@ describe("agent controller interface display", () => {
       version: "1.18.1",
     });
 
-    expect(formatAgentControllerInterfaceSummary(snapshot)).toBe(
-      "Couldn't check · v1.18.1"
-    );
+    expect(formatAgentControllerInterfaceSummary(snapshot)).toBe("v1.18.1");
     expect(
       resolveAgentControllerInterfaceDescription({
         displayDescription: "Built-in local agent found on this computer.",
         snapshot,
       })
-    ).toBe(
-      "OpenMeld couldn't finish checking Codex. It will try again automatically."
-    );
+    ).toBe("Codex check is delayed. OpenMeld will retry automatically.");
     expect(createAgentControllerInterfaceDisplayRows(snapshot)).toEqual(
       expect.arrayContaining([
         {
           label: "Controller",
-          value: "Couldn't check",
+          value: "Check delayed",
         },
         {
           label: "Account",

@@ -3788,9 +3788,13 @@ is running; it must not manufacture a checking state from an unrelated
 readiness fetch or a fixed grace timer. Computers, Agents, and Space recovery
 surfaces must consume the Core-owned current-local-runtime `nextAction` for the
 completed outcome. A completed `check_status` verdict uses the same amber
-**Couldn't check** outcome on the affected local-agent row, the current Computer
-summary, and current-Computer toolbar attention. It never becomes a red repair
-alert or setup action.
+**Check delayed** outcome on the affected local-agent row, the current Computer
+summary, and current-Computer toolbar attention. The local-agent card footer
+shows the last trusted check as concise relative copy such as **Checked 3
+minutes ago**, with the same evidence repeated in its detail dialog. Only an
+affected controller offers the quiet **Check again** action; routine automatic
+retries do not add a global recovery button. A delayed check never becomes a
+red repair alert, whole-computer reconnect instruction, or setup action.
 
 The current-Computer toolbar keeps that coarse warning or danger attention
 stable while page navigation or a full browser refresh revalidates current

@@ -8,6 +8,7 @@ import {
   LocalDaemonControlPlaneClientError,
   requestLocalDaemonShutdown,
 } from "../local-service/control-plane/client";
+import { CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS } from "../local-service/core/constants";
 import {
   emitDaemonLifecycleEvent,
   runDaemonServiceManagerAction,
@@ -315,10 +316,10 @@ async function prepareManagedDaemonServiceForStop(input: {
         gracePeriodMs: STOP_WAIT_MS,
         mode: "graceful",
       },
-      // The Service acknowledges only after the active socket session has
-      // sent its final heartbeat and drained durable results. A client-side
-      // deadline would let the manager kill the process before that proof.
-      timeoutMs: 0,
+      // Bound the control request so a half-open legacy socket cannot park the
+      // command forever. This command still never force-kills without an
+      // explicit --force request.
+      timeoutMs: CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS,
     });
     await emitDaemonLifecycleEvent({
       command: "openmeld service stop",

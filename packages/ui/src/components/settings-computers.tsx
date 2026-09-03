@@ -322,6 +322,7 @@ export type SettingsLocalAgentRowSummaryStatus = {
 export type SettingsLocalAgentRow = {
   advisory?: ReactNode;
   badge?: ReactNode;
+  checkedAtLabel?: ReactNode;
   control?: ReactNode;
   defaultExpanded?: boolean;
   description?: string;
@@ -1523,21 +1524,29 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
           <SettingsLocalAgentRowControl control={row.control} />
         </div>
       </div>
-      {hasDialog ? (
-        <div className="flex justify-end px-5 pb-3.5">
-          <button
-            aria-label={`${row.displayName} details`}
-            className="inline-flex items-center gap-0.5 rounded-sm text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-            data-testid="settings-local-agent-more-button"
-            onClick={(event) => {
-              event.stopPropagation();
-              openDetails();
-            }}
-            type="button"
-          >
-            Details
-            <CaretRightIcon aria-hidden="true" className="size-3.5" />
-          </button>
+      {hasDialog || row.checkedAtLabel ? (
+        <div
+          className="flex min-h-5 items-center justify-between gap-3 px-5 pb-3.5"
+          data-testid="settings-local-agent-footer"
+        >
+          <span className="min-w-0 truncate text-muted-foreground text-xs">
+            {row.checkedAtLabel}
+          </span>
+          {hasDialog ? (
+            <button
+              aria-label={`${row.displayName} details`}
+              className="inline-flex items-center gap-0.5 rounded-sm text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              data-testid="settings-local-agent-more-button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openDetails();
+              }}
+              type="button"
+            >
+              Details
+              <CaretRightIcon aria-hidden="true" className="size-3.5" />
+            </button>
+          ) : null}
         </div>
       ) : null}
       <SettingsLocalAgentDetailsDialog
@@ -1601,6 +1610,11 @@ function SettingsLocalAgentDetailsDialog({
               </p>
               {row.description ? (
                 <DialogDescription>{row.description}</DialogDescription>
+              ) : null}
+              {row.checkedAtLabel ? (
+                <p className="text-muted-foreground text-xs">
+                  {row.checkedAtLabel}
+                </p>
               ) : null}
             </div>
           </div>
