@@ -674,6 +674,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			screen.getByRole("heading", { name: "How this Agent works" })
 		).toBeTruthy();
+		expect(screen.queryByText("Runs on")).toBeNull();
+		expect(
+			screen.queryByText("The local tool and computer that run this Agent.")
+		).toBeNull();
 	});
 
 	it("keeps current work out of the metadata dialog", () => {

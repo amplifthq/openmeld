@@ -39,6 +39,8 @@ import { toast } from "sonner";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+import { resolveSpaceMemberInlineStatusTextClassName } from "#/components/spaces/space-member-status-tone";
+import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { copyTextToClipboard } from "#/lib/clipboard";
 
 const AGENT_WORKSPACE_TECHNICAL_SECTION_IDS: ReadonlySet<ProfileDetailsSectionId> =
@@ -64,6 +66,7 @@ export function ProfileDetailsDialog(input: {
 	};
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending?: boolean;
+	isCenterAgent?: boolean;
 	isRecoveryActionPending?: boolean;
 	moreDetailsHref?: string;
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
@@ -101,9 +104,28 @@ export function ProfileDetailsDialog(input: {
 				configurationContent={input.agentConfigurationContent}
 				details={input.details}
 				entry={input.agentEntry}
+				isCenterAgent={input.isCenterAgent}
 				isDirectMessagePending={input.isDirectMessagePending}
 				moreDetailsHref={input.moreDetailsHref}
 				onOpenDirectMessage={input.onOpenDirectMessage}
+			/>
+		);
+	} else if (input.agentEntry?.profileKind === "human") {
+		content = (
+			<ProfileDetailsContent
+				className="min-h-0 flex-1 overflow-y-auto pr-1"
+				details={input.details}
+				summaryAvatar={
+					<SpaceProfileIcon
+						agentControllerRef={null}
+						avatarImageUrl={input.agentEntry.avatarUrl}
+						profileId={input.agentEntry.profileId}
+						profileKind="human"
+						profileName={input.agentEntry.profileName}
+						size="sm"
+					/>
+				}
+				testId="profile-details-dialog-scroll-area"
 			/>
 		);
 	}
@@ -129,6 +151,7 @@ export function AgentProfileDetailsContent(input: {
 	details: ProfileDetailsSnapshot;
 	entry: SpaceMemberDirectoryEntry;
 	isDirectMessagePending?: boolean;
+	isCenterAgent?: boolean;
 	moreDetailsHref?: string;
 	onOpenDirectMessage?: () => void;
 }) {
@@ -153,11 +176,22 @@ export function AgentProfileDetailsContent(input: {
 			data-testid="profile-details-dialog-scroll-area"
 		>
 			<div className="flex min-w-0 items-start gap-3">
-				<AgentProfileControllerAvatar
-					agentControllerRef={input.entry.agentControllerRef}
-					profileId={input.entry.profileId}
-					size={64}
-				/>
+				{input.isCenterAgent ? (
+					<SpaceProfileIcon
+						agentControllerRef={input.entry.agentControllerRef}
+						isCenterAgent
+						profileId={input.entry.profileId}
+						profileKind="agent"
+						profileName={input.entry.profileName}
+						size="lg"
+					/>
+				) : (
+					<AgentProfileControllerAvatar
+						agentControllerRef={input.entry.agentControllerRef}
+						profileId={input.entry.profileId}
+						size={64}
+					/>
+				)}
 				<div className="min-w-0 flex-1 pt-0.5">
 					<p className="break-words font-semibold text-base text-foreground">
 						{input.entry.profileName}
@@ -166,7 +200,14 @@ export function AgentProfileDetailsContent(input: {
 						{modelSummary}
 					</p>
 					{presenceSummary ? (
-						<p className="mt-2 text-foreground text-xs">{presenceSummary}</p>
+						<p
+							className={cn(
+								"mt-2 text-xs",
+								resolveSpaceMemberInlineStatusTextClassName(input.entry)
+							)}
+						>
+							{presenceSummary}
+						</p>
 					) : null}
 					{input.entry.availabilitySummary &&
 					input.entry.availabilitySummary !== presenceSummary ? (
@@ -284,6 +325,7 @@ export function AgentProfileDetailsPopover(input: {
 	details: ProfileDetailsSnapshot;
 	entry: SpaceMemberDirectoryEntry;
 	isDirectMessagePending?: boolean;
+	isCenterAgent?: boolean;
 	moreDetailsHref?: string;
 	onOpenDirectMessage?: () => void;
 	trigger: ReactElement;
@@ -297,7 +339,7 @@ export function AgentProfileDetailsPopover(input: {
 					className="z-50"
 					collisionAvoidance={{
 						align: "shift",
-						fallbackAxisSide: "end",
+						fallbackAxisSide: "none",
 						side: "flip",
 					}}
 					collisionPadding={12}
@@ -314,6 +356,7 @@ export function AgentProfileDetailsPopover(input: {
 							configurationContent={input.configurationContent}
 							details={input.details}
 							entry={input.entry}
+							isCenterAgent={input.isCenterAgent}
 							isDirectMessagePending={input.isDirectMessagePending}
 							moreDetailsHref={input.moreDetailsHref}
 							onOpenDirectMessage={input.onOpenDirectMessage}
@@ -437,6 +480,7 @@ export function ProfileDetailsContent(input: {
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	onOpenDirectMessage?: () => void;
 	showSummary?: boolean;
+	summaryAvatar?: ReactNode;
 	testId?: string;
 }) {
 	const excludedSectionIds = new Set(input.excludedSectionIds ?? []);
@@ -460,13 +504,16 @@ export function ProfileDetailsContent(input: {
 		<div className={cn("min-w-0", input.className)} data-testid={input.testId}>
 			{input.showSummary === false ? null : (
 				<div className="flex min-w-0 items-start justify-between gap-3">
-					<div className="min-w-0">
-						<p className="break-words font-medium text-sm">
-							{input.details.profileName}
-						</p>
-						<p className="text-muted-foreground text-xs">
-							{formatProfileKind(input.details.profileKind)}
-						</p>
+					<div className="flex min-w-0 items-start gap-2.5">
+						{input.summaryAvatar}
+						<div className="min-w-0">
+							<p className="break-words font-medium text-sm">
+								{input.details.profileName}
+							</p>
+							<p className="text-muted-foreground text-xs">
+								{formatProfileKind(input.details.profileKind)}
+							</p>
+						</div>
 					</div>
 					{input.onOpenDirectMessage ? (
 						<Button

@@ -67,6 +67,7 @@ type SpaceMemberRowProps = {
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
 	entry: SpaceMemberDirectoryEntry;
+	entriesByProfileId?: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 	isAgentWakeAvailabilityCheckPending: boolean;
 	isAgentRecoveryPending: boolean;
 	modelCatalog?: ModelCatalog | null;
@@ -116,8 +117,10 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 		input,
 	});
 	const detailsDialog = useSpaceProfileDetailsDialog({
+		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.entry,
+		entriesByProfileId: input.entriesByProfileId,
 		modelCatalog: input.modelCatalog ?? null,
 		orgSlug: input.orgSlug,
 	});
@@ -354,8 +357,10 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 		resolvedPrimaryDetail
 	);
 	const detailsDialog = useSpaceProfileDetailsDialog({
+		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.entry,
+		entriesByProfileId: input.entriesByProfileId,
 		modelCatalog: input.modelCatalog ?? null,
 		orgSlug: input.orgSlug,
 	});

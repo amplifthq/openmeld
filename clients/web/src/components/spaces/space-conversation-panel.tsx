@@ -1980,6 +1980,7 @@ function SpaceComposerSection(input: {
 							addressingTargets={panel.composerAddressingTargets ?? []}
 							ariaLabel={input.composerAccessibleName}
 							authoredMentions={panel.composerAuthoredMentions ?? []}
+							centerAgentProfileId={panel.centerAgentProfileId}
 							composerRef={panel.textareaRef}
 							mentionPickerItems={panel.composerMentionPickerItems ?? []}
 							onChange={(change) => {
@@ -2680,6 +2681,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 	const messageContentPaddingClassName =
 		resolveSpaceMessageContentPaddingClassName({ isSelf: input.run.isSelf });
 	const detailsDialog = useSpaceProfileDetailsDialog({
+		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
 		entriesByProfileId: input.profileEntriesById,

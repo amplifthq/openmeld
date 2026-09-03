@@ -473,11 +473,14 @@ describe("SpaceMembersSidePanel", () => {
 							}),
 						],
 						humans: [
-							createSpaceMemberHumanSnapshot({
-								ownerUserId: "user_felix",
-								profileId: "11111111-1111-4111-8111-111111111111",
-								profileName: "Felix",
-							}),
+							{
+								...createSpaceMemberHumanSnapshot({
+									ownerUserId: "user_felix",
+									profileId: "11111111-1111-4111-8111-111111111111",
+									profileName: "Felix",
+								}),
+								avatarUrl: "https://images.example.test/felix.png",
+							},
 						],
 					})}
 				/>
@@ -501,6 +504,11 @@ describe("SpaceMembersSidePanel", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", { name: "Edit Permissions" })
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("dialog", { name: "Check this Profile" })
+				.querySelector('img[src="https://images.example.test/felix.png"]')
 		).toBeTruthy();
 	});
 

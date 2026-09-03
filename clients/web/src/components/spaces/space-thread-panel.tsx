@@ -405,6 +405,7 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 		[input.centerAgentProfileId, profileEntriesById]
 	);
 	const profileDetailsDialog = useSpaceProfileDetailsDialog({
+		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entriesByProfileId: profileEntriesById,
 		entry: null,
@@ -789,6 +790,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 		<ThreadComposer
 			agentDirectConversationKind={input.agentDirectConversationKind}
 			blockedWakeProfileId={input.composerBlockedWakeProfileId}
+			centerAgentProfileId={input.centerAgentProfileId}
 			composerAddressingTargets={input.composerAddressingTargets ?? []}
 			composerAuthoredMentions={input.composerAuthoredMentions ?? []}
 			composerErrorMessage={input.composerErrorMessage}
@@ -1722,6 +1724,7 @@ function resolveThreadComposerHint(input: {
 function ThreadComposer(input: {
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	blockedWakeProfileId: string | null;
+	centerAgentProfileId: string | null;
 	composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions: readonly ComposerDraftAuthoredMention[];
 	composerErrorMessage: string | null;
@@ -1789,6 +1792,7 @@ function ThreadComposer(input: {
 						addressingTargets={input.composerAddressingTargets}
 						ariaLabel="Reply in thread"
 						authoredMentions={input.composerAuthoredMentions}
+						centerAgentProfileId={input.centerAgentProfileId}
 						composerRef={input.textareaRef}
 						maxHeight={180}
 						mentionPickerItems={input.composerMentionPickerItems}
