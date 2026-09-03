@@ -26,7 +26,7 @@ import {
 } from "@openmeld/space";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import type { KeyboardEvent, SetStateAction } from "react";
+import type { SetStateAction } from "react";
 import {
 	useCallback,
 	useEffect,
@@ -170,7 +170,6 @@ import {
 import { useSpaceLandingFeed } from "./use-space-landing-feed";
 import type {
 	SpaceComposerAddressingTarget,
-	SpaceComposerSelection,
 	SpaceMentionPickerItem,
 	useSpaceMentionAuthoring,
 } from "./use-space-mention-authoring";
@@ -962,18 +961,14 @@ function shouldShowSpaceLandingLoading(input: {
 
 export type SpaceLandingController =
 	| {
+			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
+			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
+			composerMentionPickerItems: readonly SpaceMentionPickerItem[];
 			composerText: string;
 			mode: "loading";
 			onComposerBlur: () => void;
-			onComposerChange: (
-				value: string,
-				selection: SpaceComposerSelection
-			) => void;
+			onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onComposerFocus: () => void;
-			onComposerKeyDown: (
-				event: KeyboardEvent<HTMLTextAreaElement>
-			) => Promise<void>;
-			onComposerSelectionChange: (selection: SpaceComposerSelection) => void;
 			textareaRef: SpaceComposerInputRef;
 	  }
 	| {
@@ -2063,19 +2058,18 @@ export function useSpaceLandingController(input: {
 		})
 	) {
 		return {
+			composerAddressingTargets: mentionAuthoring.addressingTargets,
+			composerAuthoredMentions: mentionAuthoring.authoredMentions,
+			composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
 			composerText: mentionAuthoring.composerText,
 			mode: "loading",
 			onComposerBlur: () => {
 				restoreColdLoadingComposerFocusRef.current = false;
 			},
-			onComposerChange: mentionAuthoring.onComposerChange,
+			onComposerEditorChange: composerSession.onEditorChange,
 			onComposerFocus: () => {
 				restoreColdLoadingComposerFocusRef.current = true;
 			},
-			onComposerKeyDown: async (event) => {
-				await mentionAuthoring.onComposerKeyDown(event, sendMessage);
-			},
-			onComposerSelectionChange: mentionAuthoring.onComposerSelectionChange,
 			textareaRef: mentionAuthoring.textareaRef,
 		};
 	}

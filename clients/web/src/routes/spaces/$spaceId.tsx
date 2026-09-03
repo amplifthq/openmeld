@@ -27,13 +27,14 @@ import {
 import { LockKeyIcon, SignInIcon, UserIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import type { ReactNode, RefObject } from "react";
+import type { ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
 import {
 	APP_PAGE_FRAME_CLASS_NAME,
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 } from "#/components/app/shell-layout";
+import type { SpaceComposerInputRef } from "#/components/spaces/space-composer-editor";
 import { SpaceConversationPanel } from "#/components/spaces/space-conversation-panel";
 import { SpaceFilesPanel } from "#/components/spaces/space-files-panel";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
@@ -122,8 +123,8 @@ export function PublicSpacePage(input: {
 		revision: number;
 	} | null>(null);
 	const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-	const threadTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const textareaRef: SpaceComposerInputRef = useRef(null);
+	const threadTextareaRef: SpaceComposerInputRef = useRef(null);
 	const openSpaceFile = (fileId: string, revision: number) => {
 		setSpaceFileToOpen({
 			fileId,
@@ -450,13 +451,13 @@ type PublicSpaceOpenViewProps = {
 	spaceView: SpaceView;
 	spaceViewIdPrefix: string;
 	status: GetSpaceStatusResponse | null;
-	textareaRef: RefObject<HTMLTextAreaElement | null>;
+	textareaRef: SpaceComposerInputRef;
 	threadPreviews: readonly SpaceThreadPreview[];
 	threads: readonly SpaceThread[];
 	threadSignals: readonly SignalEnvelope[];
 	threadSignalsError: unknown;
 	threadSignalsIsPending: boolean;
-	threadTextareaRef: RefObject<HTMLTextAreaElement | null>;
+	threadTextareaRef: SpaceComposerInputRef;
 	timelineItems: ReturnType<typeof buildSpaceTimelineItems>;
 };
 

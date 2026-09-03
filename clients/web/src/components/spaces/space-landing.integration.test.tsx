@@ -1865,7 +1865,15 @@ describe("SpaceLanding", () => {
 		const loadingComposer = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		expect((loadingComposer as HTMLTextAreaElement).disabled).toBe(false);
+		expect(loadingComposer).toBeInstanceOf(HTMLDivElement);
+		expect(loadingComposer.getAttribute("contenteditable")).toBe("true");
+		expect(document.querySelector('textarea[name="space-message"]')).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Choose files to send" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
 		loadingComposer.focus();
 		await setComposerValue(loadingComposer, "Draft from the first frame");
 		expect(

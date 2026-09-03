@@ -35,11 +35,13 @@ import type {
 
 export type SpaceComposerProps = {
 	actions: {
-		onAddFiles: (files: readonly File[]) => Promise<void>;
+		onAddFiles?: (files: readonly File[]) => Promise<void>;
 		onEditorChange: (change: SpaceComposerEditorChange) => void;
-		onMentionButtonClick: () => void;
-		onRemoveFile: (localId: string) => void;
+		onMentionButtonClick?: () => void;
+		onRemoveFile?: (localId: string) => void;
 		onSubmit: () => void;
+		onBlur?: () => void;
+		onFocus?: () => void;
 	};
 	availability: {
 		canSendMessage: boolean;
@@ -73,9 +75,18 @@ export type SpaceComposerProps = {
 		error?: ReactNode;
 		primaryAction?: ReactNode;
 		profileControl?: ReactNode;
+		status?: ReactNode;
 	};
 	centerAgentProfileId: string | null;
+	capabilities?: {
+		attachments?: boolean;
+		mentions?: boolean;
+	};
 };
+
+const ignoreFiles = (_files: readonly File[]): Promise<void> =>
+	Promise.resolve();
+const ignoreFileRemoval = (_localId: string): void => undefined;
 
 export function SpaceComposer(input: SpaceComposerProps) {
 	const policy = resolveSpaceComposerPolicy({
@@ -102,7 +113,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		isDraggingFiles,
 	} = useSpaceComposerFileInput({
 		disabled: composerActionsDisabled,
-		onAddFiles: input.actions.onAddFiles,
+		onAddFiles: input.actions.onAddFiles ?? ignoreFiles,
 	});
 	const fileHint = resolveSpaceComposerFileHint({
 		files: input.content.files,
@@ -151,7 +162,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					<SpaceComposerFileTray
 						disabled={input.availability.isSendingMessage}
 						files={input.content.files}
-						onRemove={input.actions.onRemoveFile}
+						onRemove={input.actions.onRemoveFile ?? ignoreFileRemoval}
 					/>
 					<SpaceComposerEditor
 						addressingTargets={input.content.addressingTargets}
@@ -161,11 +172,13 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						composerRef={input.composerRef}
 						maxHeight={input.presentation?.maxHeight}
 						mentionPickerItems={input.content.mentionPickerItems}
+						onBlur={input.actions.onBlur}
 						onChange={input.actions.onEditorChange}
 						onDragEnter={handleDragOver}
 						onDragLeave={handleDragLeave}
 						onDragOver={handleDragOver}
 						onDrop={handleDrop}
+						onFocus={input.actions.onFocus}
 						onPaste={handlePaste}
 						onSend={input.actions.onSubmit}
 						placeholder={policy.placeholder}
@@ -173,12 +186,15 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					/>
 					<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
 						<div className="flex min-w-0 flex-1 items-center gap-0">
-							<SpaceComposerFileMenu
-								addFiles={addFiles}
-								disabled={composerActionsDisabled}
-								limitReached={input.availability.fileLimitReached}
-							/>
-							{policy.showMentionButton ? (
+							{input.capabilities?.attachments !== false ? (
+								<SpaceComposerFileMenu
+									addFiles={addFiles}
+									disabled={composerActionsDisabled}
+									limitReached={input.availability.fileLimitReached}
+								/>
+							) : null}
+							{policy.showMentionButton &&
+							input.capabilities?.mentions !== false ? (
 								<Button
 									aria-label="Mention a member"
 									className="size-8 text-base"
@@ -191,17 +207,18 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									<span aria-hidden="true">@</span>
 								</Button>
 							) : null}
-							{composerHint ? (
-								<p
-									aria-live="polite"
-									className={cn(
-										"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
-										composerHintClassName
-									)}
-								>
-									{composerHint}
-								</p>
-							) : null}
+							{input.slots?.status ??
+								(composerHint ? (
+									<p
+										aria-live="polite"
+										className={cn(
+											"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
+											composerHintClassName
+										)}
+									>
+										{composerHint}
+									</p>
+								) : null)}
 						</div>
 						<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
 							{input.slots?.profileControl}
