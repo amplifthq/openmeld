@@ -412,10 +412,11 @@ function runCanaryCli(input) {
   });
 }
 
-function stagingCanaryEnv() {
+export function stagingCanaryEnv() {
   return {
     ...process.env,
     OPENMELD_ACCEPT_DISCLAIMER: "1",
+    OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN: "1",
     OPENMELD_AUTH_URL: STAGING_AUTH_URL,
     OPENMELD_ENV_PRESET: "canary",
     OPENMELD_GATEWAY_URL: STAGING_GATEWAY_URL,

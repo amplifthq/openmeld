@@ -15,6 +15,7 @@ import {
 import {
   readProtectedSetupCommand,
   resolveStagingServiceStatus,
+  stagingCanaryEnv,
 } from "./staging-computer-update-smoke-local.mjs";
 import { formatStagingSmokeCleanupMessage } from "./staging-computer-update-smoke-runner.mjs";
 
@@ -192,6 +193,13 @@ test("reads setup credentials only from a private mode-600 file", async () => {
   } finally {
     await rm(directory, { force: true, recursive: true });
   }
+});
+
+test("keeps the isolated smoke credential readable by its source API helper", () => {
+  const env = stagingCanaryEnv();
+  assert.equal(env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN, "1");
+  assert.equal(env.OPENMELD_ENV_PRESET, "canary");
+  assert.equal(env.OPENMELD_HOME.endsWith("/.openmeld-canary"), true);
 });
 
 test("plans the high-value update regression without Production state", () => {
