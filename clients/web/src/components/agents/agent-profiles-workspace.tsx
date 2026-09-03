@@ -46,6 +46,7 @@ import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
+import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
 const AGENT_REQUESTS_DESCRIPTION =
 	"Approve requests for Agents you’re being asked to own, and track requests you sent.";
@@ -77,6 +78,7 @@ export type AgentProfilesWorkspaceProps = {
 	>;
 	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
 	readinessErrorByProfileId?: ReadonlyMap<string, string>;
+	readinessIsRefreshing?: boolean;
 	readinessPendingProfileIds?: ReadonlySet<string>;
 	renderProfilesController: () => ReactNode;
 	renderProfileDetail: (profile: AuthProfileView) => ReactNode;
@@ -208,6 +210,7 @@ function AgentProfilesWorkspaceSidebar(input: {
 						readinessErrorByProfileId={
 							input.input.readinessErrorByProfileId ?? new Map()
 						}
+						readinessIsRefreshing={input.input.readinessIsRefreshing === true}
 						readinessPendingProfileIds={
 							input.input.readinessPendingProfileIds ?? new Set()
 						}
@@ -418,6 +421,7 @@ function AgentProfileSidebarList(input: {
 	profiles: readonly AuthProfileView[];
 	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
 	readinessErrorByProfileId: ReadonlyMap<string, string>;
+	readinessIsRefreshing: boolean;
 	readinessPendingProfileIds: ReadonlySet<string>;
 }) {
 	return (
@@ -457,6 +461,7 @@ function AgentProfileSidebarList(input: {
 					readinessIsPending={input.readinessPendingProfileIds.has(
 						profile.openMeldProfileId
 					)}
+					readinessIsRefreshing={input.readinessIsRefreshing}
 				/>
 			))}
 		</FluidNavMenu>
@@ -475,6 +480,7 @@ function AgentProfileSidebarItem(input: {
 	readiness: GetAgentExecutionReadinessResponse | null;
 	readinessErrorMessage: string | null;
 	readinessIsPending: boolean;
+	readinessIsRefreshing: boolean;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
 	const agentControllerRef = resolveAgentProfileControllerRef(
@@ -487,6 +493,7 @@ function AgentProfileSidebarItem(input: {
 		isPending: input.readinessIsPending,
 		modelCatalog: input.modelCatalog,
 		readiness: input.readiness,
+		isRefreshing: input.readinessIsRefreshing,
 	});
 	const isOwner = input.profile.ownerUserId === input.currentUserId;
 	const operationalStatus = resolveAgentProfileOperationalStatus(
@@ -500,7 +507,8 @@ function AgentProfileSidebarItem(input: {
 		hasReducedProminence ? "text-muted-foreground" : null
 	);
 	const showAvailability =
-		presentation.availabilityCategory !== "available" &&
+		(presentation.availabilityCategory !== "available" ||
+			presentation.availabilityIsRefreshing) &&
 		presentation.availabilityLabel.length > 0;
 	return (
 		<FluidNavMenuItem
@@ -571,6 +579,9 @@ function AgentProfileSidebarItem(input: {
 								}
 							>
 								{presentation.availabilityLabel}
+								{presentation.availabilityIsRefreshing ? (
+									<span className="text-muted-foreground"> · Refreshing…</span>
+								) : null}
 							</TooltipTrigger>
 							<TooltipContent side="top">
 								{presentation.availabilityTooltip}
@@ -586,6 +597,7 @@ function AgentProfileSidebarItem(input: {
 function resolveAgentProfileSidebarPresentation(input: {
 	agentControllerRef: string | null;
 	errorMessage: string | null;
+	isRefreshing: boolean;
 	isPending: boolean;
 	modelCatalog: ModelCatalog | null;
 	readiness: GetAgentExecutionReadinessResponse | null;
@@ -595,6 +607,7 @@ function resolveAgentProfileSidebarPresentation(input: {
 	> | null;
 	availabilityClassName: string;
 	availabilityLabel: string;
+	availabilityIsRefreshing: boolean;
 	availabilityTooltip: string;
 	controllerModelSummary: string;
 } {
@@ -619,6 +632,7 @@ function resolveAgentProfileSidebarPresentation(input: {
 			availabilityCategory: availability.category,
 			availabilityClassName: availability.className,
 			availabilityLabel: availability.label,
+			availabilityIsRefreshing: false,
 			availabilityTooltip: availability.tooltip,
 			controllerModelSummary,
 		};
@@ -628,7 +642,16 @@ function resolveAgentProfileSidebarPresentation(input: {
 	return {
 		availabilityCategory: category,
 		availabilityClassName: resolveAvailabilityClassName(category),
-		availabilityLabel: wakeAvailability.badgeLabel,
+		availabilityLabel: [
+			wakeAvailability.badgeLabel,
+			formatAgentWakeAvailabilityCheckedAt(
+				input.readiness?.generatedAt ?? null
+			),
+		]
+			.filter(Boolean)
+			.join(" · "),
+		availabilityIsRefreshing:
+			input.isRefreshing || wakeAvailability.isRefreshing,
 		availabilityTooltip: wakeAvailability.tooltip,
 		controllerModelSummary,
 	};

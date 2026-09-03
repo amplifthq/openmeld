@@ -110,7 +110,6 @@ import {
 	DirectoryCardItem,
 	DirectoryOwnerGroup,
 } from "#/components/directory/directory-card-grid";
-import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import {
 	AgentConfigurationCard,
 	AgentConfigurationEditorCard,
@@ -195,6 +194,7 @@ import {
 	buildDuplicateConversationProfileNamesByProfileId,
 	canManuallyRefreshAgentProfileConnection,
 	formatAgentProfileExecutionComputerDetail,
+	formatAgentWakeAvailabilityCheckedAt,
 	hasAgentExecutionReason,
 	isAgentExecutionDisplayProjectionRefreshing,
 	isAgentExecutionSelfHealing,
@@ -370,6 +370,7 @@ export type AgentProfilesCardProps = {
 		GetAgentExecutionReadinessResponse
 	>;
 	agentExecutionReadinessErrorByProfileId?: ReadonlyMap<string, string>;
+	agentExecutionReadinessIsRefreshing?: boolean;
 	agentExecutionReadinessPendingProfileIds?: ReadonlySet<string>;
 	agentProfiles?: readonly AuthProfileView[];
 	agentProfilesQueryState?: {
@@ -1828,6 +1829,8 @@ function AgentProfileDirectoryRow(input: {
 					controller.agentExecutionReadinessPendingProfileIds.has(
 						profile.openMeldProfileId
 					),
+				isReadinessRefreshing:
+					input.cardInput.agentExecutionReadinessIsRefreshing === true,
 			}}
 			setupAction={configuration.setupAction}
 			storageScope={input.cardInput.recovery.storageScope}
@@ -2170,6 +2173,7 @@ type AgentProfileRowState = {
 	currentLocalRuntimeCanReply: boolean | null;
 	isFocused: boolean;
 	isReadinessPending: boolean;
+	isReadinessRefreshing: boolean;
 };
 
 type AgentProfileActionPendingState = {
@@ -2362,9 +2366,6 @@ function AgentProfileExecutionReadinessRow(
 	});
 	const rawDisplayedAgentWakeAvailability =
 		resolveAgentProfileRowWakeAvailability({
-			autoRefreshExhausted: input.rowState.autoRefreshExhausted,
-			currentLocalRuntimeCanReply: input.rowState.currentLocalRuntimeCanReply,
-			localAgentDisplayName,
 			readiness,
 		});
 	const displayedAgentWakeAvailability = resolveAgentProfileVisualAvailability({
@@ -2451,8 +2452,10 @@ function AgentProfileExecutionReadinessRow(
 						availabilityAction={displayedAgentWakeAvailability.action}
 						availabilityPhase={displayedAgentWakeAvailability.phase}
 						availabilityReasonCode={displayedAgentWakeAvailability.reasonCode}
+						checkedAt={readiness.generatedAt}
 						className={statusTextClassName}
 						isRefreshing={
+							input.rowState.isReadinessRefreshing ||
 							displayedAgentWakeAvailability.isRefreshing ||
 							(showConnecting &&
 								displayedAgentWakeAvailability.category === "checking")
@@ -2575,8 +2578,10 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 				input.row.readiness?.publicProfileConfiguration ?? null
 			}
 			readinessErrorMessage={input.row.errorMessage}
+			readinessGeneratedAt={input.row.readiness?.generatedAt ?? null}
 			readinessIsMissing={input.row.readiness === null}
 			readinessIsPending={input.row.rowState.isReadinessPending}
+			readinessIsRefreshing={input.row.rowState.isReadinessRefreshing}
 			repairActions={input.row.repairActions}
 			runtimeComputer={
 				input.row.readiness?.routeDeviceId &&
@@ -2833,17 +2838,20 @@ function AgentProfileFooterAvailabilityBadge(input: {
 	availabilityAction?: string | null;
 	availabilityPhase?: string | null;
 	availabilityReasonCode?: string | null;
+	checkedAt?: string | null;
 	className?: string;
 	isRefreshing?: boolean;
 	label: string;
 	tooltip: string;
 }) {
+	const checkedAt = formatAgentWakeAvailabilityCheckedAt(
+		input.checkedAt ?? null
+	);
 	const statusText = (
 		<span
 			className={cn(
 				"block min-w-0 truncate font-medium text-xs",
-				input.className,
-				input.isRefreshing ? "shimmer-text" : null
+				input.className
 			)}
 			data-availability-action={input.availabilityAction ?? undefined}
 			data-availability-phase={input.availabilityPhase ?? undefined}
@@ -2852,6 +2860,10 @@ function AgentProfileFooterAvailabilityBadge(input: {
 			title={input.tooltip}
 		>
 			{input.label}
+			{checkedAt ? ` · ${checkedAt}` : ""}
+			{input.isRefreshing ? (
+				<span className="text-muted-foreground"> · Refreshing…</span>
+			) : null}
 		</span>
 	);
 
@@ -3198,8 +3210,10 @@ type AgentProfileRowMoreMenuProps = {
 	ownerProfile: AuthProfileView | null;
 	profileName: string;
 	readinessErrorMessage: string | null;
+	readinessGeneratedAt: string | null;
 	readinessIsMissing: boolean;
 	readinessIsPending: boolean;
+	readinessIsRefreshing: boolean;
 	repairActions: readonly AgentProfileRepairAction[];
 	primaryAgentControllerRef: string | null;
 	primaryNativeSessionId: string | null;
@@ -3730,9 +3744,6 @@ function AgentProfileWorkspacePresentation(input: {
 	const controllerModelSummary = ownerControllerModelSummary;
 	const wakeAvailabilityRecoveryActions = (
 		<AgentProfileWakeAvailabilityRecoveryActions
-			hasEnabledPrimaryBinding={
-				input.input.capabilities.hasEnabledPrimaryBinding
-			}
 			isPending={input.input.pendingState.repair}
 			onRepairAction={input.input.onRepairAction}
 			readinessIsPending={input.input.readinessIsPending}
@@ -3800,14 +3811,11 @@ function AgentProfileWorkspacePresentation(input: {
 								input.onOpenChange.projectSettings(true)
 							}
 							onRenameProfile={input.input.onRenameProfile}
-							onRepairAction={input.input.onRepairAction}
 							ownerAvatarUrl={input.ownerAvatarUrl}
 							ownerProfileId={
 								input.input.ownerProfile?.openMeldProfileId ??
 								input.input.ownerProfile?.ownerUserId
 							}
-							repairActions={input.input.repairActions}
-							repairIsPending={input.input.pendingState.repair}
 							runtime={input.runtime}
 						/>
 					) : (
@@ -3847,8 +3855,13 @@ function AgentProfileWorkspacePresentation(input: {
 						: input.input.supportingContent
 				}
 				wakeAvailability={input.input.wakeAvailability}
+				wakeAvailabilityCheckedAt={input.input.readinessGeneratedAt}
 				wakeAvailabilityErrorMessage={input.input.readinessErrorMessage}
 				wakeAvailabilityIsPending={input.input.readinessIsPending}
+				wakeAvailabilityIsRefreshing={
+					input.input.readinessIsRefreshing ||
+					input.input.wakeAvailability?.isRefreshing === true
+				}
 			/>
 			<ProfileDetailsDialog
 				agentProfile={input.input.profile}
@@ -3925,9 +3938,6 @@ type AgentProfileConfigurationOverviewProps = {
 	onRenameProfile: (profileName: string) => Promise<void>;
 	ownerAvatarUrl: string | null | undefined;
 	ownerProfileId?: string | null;
-	onRepairAction?: (action: AgentProfileRepairAction) => Promise<void>;
-	repairActions?: readonly AgentProfileRepairAction[];
-	repairIsPending?: boolean;
 	runtime: {
 		computerName: string;
 		controllerConversationId?: string | null;
@@ -4290,40 +4300,15 @@ function AgentProfileModelConfigurationCard(input: {
 	input: AgentProfileConfigurationOverviewProps;
 }) {
 	const { editor, input: props } = input;
-	const repairActions = props.repairActions ?? [];
-	const onRepairAction = props.onRepairAction;
-	const needsConnection =
-		repairActions.length > 0 &&
-		repairActions.every((action) => action.intent === "connect") &&
-		onRepairAction !== undefined;
 	return (
 		<AgentConfigurationCard
-			attention={needsConnection}
 			disabled={props.disabled}
 			icon={<BrainIcon aria-hidden="true" />}
-			inlineContent={
-				needsConnection && onRepairAction ? (
-					<div className="grid gap-2">
-						<TextShimmer
-							as="span"
-							className="font-medium text-primary text-xs"
-							duration={2.2}
-						>
-							Connect to a local agent
-						</TextShimmer>
-						<AgentProfileRepairActions
-							actions={repairActions}
-							isPending={props.repairIsPending ?? false}
-							onRepairAction={onRepairAction}
-						/>
-					</div>
-				) : undefined
-			}
 			itemId="model"
 			label="Model"
 			onOpenChange={(open) => editor.setEditorOpen("model", open)}
 			open={editor.activeEditor === "model"}
-			readOnly={!editor.modelSelection || needsConnection}
+			readOnly={!editor.modelSelection}
 			status={resolveAgentConfigurationCardStatus({
 				active: editor.activeEditor === "model",
 				disabled: props.disabled,
@@ -6050,10 +6035,6 @@ function AgentProfileRepairActions(input: {
 	}
 
 	if (input.actions.length === 1) {
-		const actionLabel =
-			selectedAction.intent === "reconnect"
-				? `Reconnect to ${selectedAction.agentDisplayName}`
-				: `Connect to ${selectedAction.agentDisplayName}`;
 		const pendingLabel =
 			selectedAction.intent === "reconnect"
 				? "Reconnecting..."
@@ -6075,7 +6056,7 @@ function AgentProfileRepairActions(input: {
 					variant="outline"
 				>
 					<WrenchIcon aria-hidden="true" data-icon="inline-start" />
-					{input.isPending ? pendingLabel : actionLabel}
+					{input.isPending ? pendingLabel : "Connect local agent"}
 				</Button>
 			</div>
 		);
@@ -6122,7 +6103,7 @@ function AgentProfileRepairActions(input: {
 				variant="outline"
 			>
 				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
-				{input.isPending ? "Connecting..." : "Connect"}
+				{input.isPending ? "Connecting..." : "Connect local agent"}
 			</Button>
 		</div>
 	);
@@ -6165,14 +6146,13 @@ function AgentProfileSetupActionLink(input: {
 }
 
 function AgentProfileWakeAvailabilityRecoveryActions(input: {
-	hasEnabledPrimaryBinding: boolean;
 	isPending: boolean;
 	onRepairAction: (action: AgentProfileRepairAction) => Promise<void>;
 	readinessIsPending: boolean;
 	repairActions: readonly AgentProfileRepairAction[];
 	setupAction: AgentProfileSetupAction | null;
 }) {
-	if (!input.hasEnabledPrimaryBinding || input.readinessIsPending) {
+	if (input.readinessIsPending) {
 		return null;
 	}
 	if (input.repairActions.length > 0) {

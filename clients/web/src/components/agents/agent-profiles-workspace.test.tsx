@@ -374,6 +374,25 @@ describe("AgentProfilesWorkspace", () => {
 		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
 	});
 
+	it("retains a cached Available verdict and its age during background refresh", () => {
+		renderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...createReadiness(),
+						generatedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+					},
+				],
+			]),
+			readinessIsRefreshing: true,
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(item.textContent).toContain("Available · checked 3 minutes ago");
+		expect(item.textContent).toContain("Refreshing…");
+	});
+
 	it("shows the Controller default model when no model is explicitly selected", () => {
 		const readiness = createReadiness();
 		if (!readiness.primaryBinding) {

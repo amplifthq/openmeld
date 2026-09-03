@@ -849,7 +849,55 @@ describe("PeopleAndAgentsPage", () => {
 			}),
 		]);
 		expect(workspaceProps.profilesStatus).toBe("ready");
-		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([]);
+		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([
+			"agt_11111111-1111-4111-8111-111111111111",
+		]);
+		expect(workspaceProps.readinessIsRefreshing).toBe(false);
+	});
+
+	it("keeps the cached Core overview visible while a background refresh runs", () => {
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				organizationDirectoryFixture
+			);
+			if (organizationProjection) {
+				return queryKey.includes("agent-runtime-overview")
+					? { ...organizationProjection, isFetching: true }
+					: organizationProjection;
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		const workspaceProps = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
+		expect(workspaceProps.readinessIsRefreshing).toBe(true);
+		expect(agentProfilesCardSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentExecutionReadinessIsRefreshing: true,
+				agentExecutionReadinessByProfileId: expect.any(Map),
+			})
+		);
 	});
 
 	it("counts only pending requests from the existing organization request query", () => {

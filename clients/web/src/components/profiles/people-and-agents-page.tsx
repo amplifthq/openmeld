@@ -739,16 +739,20 @@ function AgentsWorkspaceHomeView(input: {
 			profilesStatus={input.profilesStatus}
 			readinessByProfileId={input.readinessByProfileId}
 			readinessErrorByProfileId={input.errorByProfileId}
-			readinessPendingProfileIds={
-				workspace.runtimeOverviewQuery.data
-					? input.pendingProfileIds
-					: EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS
+			readinessIsRefreshing={
+				workspace.runtimeOverviewQuery.isFetching === true &&
+				workspace.runtimeOverviewQuery.data !== undefined
 			}
+			readinessPendingProfileIds={input.pendingProfileIds}
 			renderProfileDetail={(profile) => (
 				<AgentProfilesCard
 					agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 					agentExecutionReadinessByProfileId={input.readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
+					agentExecutionReadinessIsRefreshing={
+						workspace.runtimeOverviewQuery.isFetching === true &&
+						workspace.runtimeOverviewQuery.data !== undefined
+					}
 					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
 					agentProfileActivityNavigationByProfileId={
 						input.activityPresentation.navigationByProfileId
@@ -779,6 +783,10 @@ function AgentsWorkspaceHomeView(input: {
 					agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 					agentExecutionReadinessByProfileId={input.readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
+					agentExecutionReadinessIsRefreshing={
+						workspace.runtimeOverviewQuery.isFetching === true &&
+						workspace.runtimeOverviewQuery.data !== undefined
+					}
 					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
 					agentProfileOperationalContextByProfileId={
 						input.operationalContextByProfileId
@@ -983,6 +991,7 @@ type OrganizationAgentRuntimeOverviewQueryState = {
 	data?: OrganizationAgentRuntimeOverviewResponse;
 	error: { message?: string } | null;
 	isError: boolean;
+	isFetching?: boolean;
 	isPending: boolean;
 };
 
