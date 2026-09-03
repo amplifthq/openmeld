@@ -587,16 +587,26 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
   async (input: {
     db: D1Database;
     limit?: number;
+    sourceSignalIds?: readonly string[];
     spaceId: string;
     targetProfileId?: string;
   }): Promise<RuntimeCoordinatorExecutionWakeProgressSelector[]> => {
     const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 25)));
     const targetProfileId = input.targetProfileId?.trim() || null;
+    const sourceSignalIds = input.sourceSignalIds?.filter(
+      (sourceSignalId) => sourceSignalId.trim().length > 0
+    );
+    if (sourceSignalIds && sourceSignalIds.length === 0) {
+      return [];
+    }
     const statusPlaceholders = ACTIVE_WAKE_PROGRESS_STATUSES.map(
       () => "?"
     ).join(", ");
     const whereTargetSql = targetProfileId
       ? "AND executions.target_profile_id = ?"
+      : "";
+    const whereSourceSql = sourceSignalIds
+      ? "AND ledger.source_event_id IN (SELECT value FROM json_each(?))"
       : "";
     const statement = input.db.prepare(
       `
@@ -638,19 +648,19 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
         WHERE executions.space_id = ?
           AND executions.status IN (${statusPlaceholders})
           ${whereTargetSql}
+          ${whereSourceSql}
         ORDER BY executions.updated_at_ms DESC,
           executions.runtime_coordinator_execution_id DESC
         LIMIT ?
       `
     );
-    const bindings = targetProfileId
-      ? [
-          input.spaceId,
-          ...ACTIVE_WAKE_PROGRESS_STATUSES,
-          targetProfileId,
-          limit,
-        ]
-      : [input.spaceId, ...ACTIVE_WAKE_PROGRESS_STATUSES, limit];
+    const bindings = [
+      input.spaceId,
+      ...ACTIVE_WAKE_PROGRESS_STATUSES,
+      ...(targetProfileId ? [targetProfileId] : []),
+      ...(sourceSignalIds ? [JSON.stringify(sourceSignalIds)] : []),
+      limit,
+    ];
     const rows = await statement
       .bind(...bindings)
       .all<RuntimeCoordinatorExecutionWakeProgressSelectorRow>();

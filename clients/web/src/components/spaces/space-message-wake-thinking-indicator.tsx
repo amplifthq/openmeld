@@ -103,7 +103,7 @@ function WakeThinkingIndicatorContent(input: {
 	});
 	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
 	const isWaitingForFinalStatus = isSpaceWakeProgressWaitingForFinalStatus({
-		lastEvidenceAtMs: input.rawElapsedEntry?.elapsedStartedAtMs ?? null,
+		lastEvidenceAtMs: input.rawElapsedEntry?.lastEvidenceAtMs ?? null,
 		nowMs,
 	});
 	const words = input.progressEntries.map((entry) =>

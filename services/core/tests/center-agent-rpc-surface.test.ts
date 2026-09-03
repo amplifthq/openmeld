@@ -28,6 +28,11 @@ const PROJECT_RPC_METHODS = [
   "centerAgentRemoveProject",
 ] as const;
 
+const WAKE_PROGRESS_RPC_METHODS = [
+  "centerAgentListActiveSpaceWakes",
+  "centerAgentReadSpaceWakeProgress",
+] as const;
+
 describe("Private Center Agent RPC surface", () => {
   it("keeps the local scheduler trigger unavailable outside local development", async () => {
     const entrypoint = Object.create(
@@ -94,6 +99,20 @@ describe("Private Center Agent RPC surface", () => {
     );
 
     for (const method of PROJECT_RPC_METHODS) {
+      expect(centerAgentMethods).toContain(method);
+      expect(gatewayMethods).not.toContain(method);
+    }
+  });
+
+  it("exposes Wake progress reads only on the private Center Agent entrypoint", () => {
+    const centerAgentMethods = Object.getOwnPropertyNames(
+      CenterAgentRpcEntrypoint.prototype
+    );
+    const gatewayMethods = Object.getOwnPropertyNames(
+      GatewayRpcEntrypoint.prototype
+    );
+
+    for (const method of WAKE_PROGRESS_RPC_METHODS) {
       expect(centerAgentMethods).toContain(method);
       expect(gatewayMethods).not.toContain(method);
     }

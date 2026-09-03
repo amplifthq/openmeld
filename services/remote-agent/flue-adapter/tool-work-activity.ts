@@ -63,6 +63,8 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_list_routines", "routines.read"],
   ["openmeld_list_slack_channels", "slack.channels.read"],
   ["openmeld_list_spaces", "spaces.read"],
+  ["openmeld_list_active_space_wakes", "spaces.read"],
+  ["openmeld_read_space_wake_progress", "spaces.read"],
   ["openmeld_learn_about_me", "organization.member_research.start"],
   ["openmeld_pause_routine", "routine.pause"],
   ["openmeld_post_slack_channel_message", "slack.message.post"],

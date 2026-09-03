@@ -11,6 +11,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import {
+	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
 	listPendingWakeProgressClientMessageIds,
 	mergeActiveWakeProgressPresentation,
@@ -29,6 +30,68 @@ const createWebSpaceApiMock = vi.mocked(createUnscopedWebSpaceApi);
 
 const AGENT_PROFILE_ID = "agent-profile-1";
 const HUMAN_PROFILE_ID = "human-profile-1";
+
+describe("areWakeProgressItemsEqual", () => {
+	it("observes every Wake field that changes rendered state or actions", () => {
+		const item = createWakeProgressItem({
+			clientMessageId: "client-message-1",
+			dispatchId: "dispatch-1",
+			phase: "running",
+			runtimeCoordinatorExecutionId: "execution-1",
+			sourceSignalId: "signal-1",
+			startedAtMs: 50,
+			targetLabel: "Runner",
+			targetProfileId: AGENT_PROFILE_ID,
+			updatedAtMs: 100,
+			waitReasonCode: null,
+			sourceContext: {
+				messagePreview: "Investigate the queue",
+				profileId: HUMAN_PROFILE_ID,
+				profileKind: "human",
+				profileName: "Mira",
+				threadId: null,
+			},
+		});
+
+		expect(
+			areWakeProgressItemsEqual(
+				[item],
+				[{ ...item, runtimeCoordinatorExecutionId: "execution-2" }]
+			)
+		).toBe(false);
+		expect(
+			areWakeProgressItemsEqual([item], [{ ...item, startedAtMs: 60 }])
+		).toBe(false);
+		expect(
+			areWakeProgressItemsEqual(
+				[item],
+				[
+					{
+						...item,
+						waitReasonCode: "runtime.agent_controller_conversation.occupied",
+					},
+				]
+			)
+		).toBe(false);
+		expect(
+			areWakeProgressItemsEqual(
+				[item],
+				[
+					{
+						...item,
+						sourceContext: {
+							messagePreview: "Investigate the queue",
+							profileId: HUMAN_PROFILE_ID,
+							profileKind: "human",
+							profileName: "Mira",
+							threadId: "thread-1",
+						},
+					},
+				]
+			)
+		).toBe(false);
+	});
+});
 
 describe("listPendingWakeProgressClientMessageIds", () => {
 	it("keeps polling fresh Core running evidence until Core sends a terminal outcome", () => {

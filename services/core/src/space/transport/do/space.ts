@@ -582,6 +582,7 @@ import {
   listSignalEntriesAfterAnchor,
   listSignalEntriesAroundAnchor,
   listSignalEntriesPageWindow,
+  listTextSignalIdsByProfileId,
   readFinalReplyClaimSignalId,
   readSignalEntryById,
   rejectTextSignalClientMessageIfAbsent,
@@ -6653,6 +6654,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
     }
+    if (input.includeSourceContext === true) {
+      url.searchParams.set("includeSourceContext", "true");
+    }
     if (input.includeWaitReason === true) {
       url.searchParams.set("includeWaitReason", "true");
     }
@@ -6686,11 +6690,17 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
     }
+    if (input.includeSourceContext === true) {
+      url.searchParams.set("includeSourceContext", "true");
+    }
     if (input.includeWaitReason === true) {
       url.searchParams.set("includeWaitReason", "true");
     }
     if (typeof input.targetProfileId === "string") {
       url.searchParams.set("targetProfileId", input.targetProfileId);
+    }
+    if (typeof input.sourceProfileId === "string") {
+      url.searchParams.set("sourceProfileId", input.sourceProfileId);
     }
     if (input.includeWakeStopEligibility === true) {
       url.searchParams.set("includeWakeStopEligibility", "true");
@@ -9262,11 +9272,13 @@ export class Space extends DurableObject<CoreBindings> {
         const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
           spaceId: this.spaceId,
           includeTiming: url.searchParams.get("includeTiming"),
+          includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
           ),
           targetProfileId: url.searchParams.get("targetProfileId"),
+          sourceProfileId: url.searchParams.get("sourceProfileId"),
         });
         if (!parsed.success) {
           return new Response(
@@ -9291,11 +9303,15 @@ export class Space extends DurableObject<CoreBindings> {
               actorOwnerUserId,
               db,
               includeTiming: parsed.data.includeTiming === true,
+              includeSourceContext: parsed.data.includeSourceContext === true,
               includeWaitReason: parsed.data.includeWaitReason === true,
               includeWakeStopEligibility:
                 parsed.data.includeWakeStopEligibility === true,
               ...(parsed.data.targetProfileId
                 ? { targetProfileId: parsed.data.targetProfileId }
+                : {}),
+              ...(parsed.data.sourceProfileId
+                ? { sourceProfileId: parsed.data.sourceProfileId }
                 : {}),
             })
           );
@@ -9863,6 +9879,7 @@ export class Space extends DurableObject<CoreBindings> {
           spaceId: this.spaceId,
           clientMessageId: url.searchParams.get("clientMessageId"),
           includeTiming: url.searchParams.get("includeTiming"),
+          includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
@@ -9884,6 +9901,7 @@ export class Space extends DurableObject<CoreBindings> {
             ),
             clientMessageId: parsed.data.clientMessageId,
             includeTiming: parsed.data.includeTiming === true,
+            includeSourceContext: parsed.data.includeSourceContext === true,
             includeWaitReason: parsed.data.includeWaitReason === true,
             includeWakeStopEligibility:
               parsed.data.includeWakeStopEligibility === true,
@@ -15464,6 +15482,7 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     clientMessageId?: string | null;
     includeTiming?: boolean;
+    includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     sourceSignalId?: string | null;
@@ -15606,13 +15625,61 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
 
+    const responseItems =
+      input.includeSourceContext === true
+        ? this.attachWakeProgressSourceContexts(items)
+        : items;
     return {
       query: {
         spaceId: this.spaceId,
         clientMessageId,
         targetProfileId,
       },
-      items,
+      items: responseItems,
+    };
+  }
+
+  private attachWakeProgressSourceContexts(
+    items: readonly WakeProgressItem[]
+  ): WakeProgressItem[] {
+    const logContext = createSpaceDispatchLogNameContext(
+      this.ctx.storage.sql,
+      this.spaceId
+    );
+    return items.map((item) =>
+      this.attachWakeProgressSourceContext(item, logContext)
+    );
+  }
+
+  private attachWakeProgressSourceContext(
+    item: WakeProgressItem,
+    logContext: SpaceDispatchLogNameContext
+  ): WakeProgressItem {
+    const sourceSignal = item.sourceSignalId
+      ? this.readSignalById(item.sourceSignalId)
+      : null;
+    if (!sourceSignal || sourceSignal.type !== "signal.text") {
+      return { ...item, sourceContext: null };
+    }
+    const placement = readSpaceThreadSignalPlacementBySignalId(
+      this.ctx.storage.sql,
+      sourceSignal.id
+    );
+    return {
+      ...item,
+      sourceContext: {
+        messagePreview:
+          sanitizeSignalTextPreview(sourceSignal.data.text) ?? null,
+        profileId: sourceSignal.profile.profileId,
+        profileKind: sourceSignal.profile.kind,
+        profileName: resolveSpaceDispatchProfileName({
+          explicitProfileName: sourceSignal.profile.profileName,
+          logContext,
+          profileId: sourceSignal.profile.profileId,
+          profileKind: sourceSignal.profile.kind,
+        }),
+        threadId: placement?.threadId ?? null,
+      },
     };
   }
 
@@ -15639,22 +15706,30 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     db: D1Database;
     includeTiming?: boolean;
+    includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
+    sourceProfileId?: string;
     targetProfileId?: string;
   }): Promise<GetActiveSpaceWakeProgressResponse> {
     const targetProfileId = normalizeOptionalText(input.targetProfileId);
+    const sourceProfileId = normalizeOptionalText(input.sourceProfileId);
+    const sourceSignalIds = sourceProfileId
+      ? listTextSignalIdsByProfileId(this.ctx.storage.sql, sourceProfileId)
+      : undefined;
     const useFastSummary = input.includeWakeStopEligibility !== true;
     const [executions, activeNativeDeliveries] = await Promise.all([
       listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
         db: input.db,
         limit: 25,
+        ...(sourceSignalIds ? { sourceSignalIds } : {}),
         spaceId: this.spaceId,
         ...(targetProfileId ? { targetProfileId } : {}),
       }),
       listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
         db: input.db,
         limit: 25,
+        ...(sourceSignalIds ? { sourceSignalIds } : {}),
         spaceId: this.spaceId,
         ...(targetProfileId ? { targetProfileId } : {}),
       }),
@@ -15663,6 +15738,7 @@ export class Space extends DurableObject<CoreBindings> {
       this.ctx.storage.sql,
       {
         limit: 25,
+        ...(sourceSignalIds ? { sourceSignalIds } : {}),
         spaceId: this.spaceId,
         ...(targetProfileId ? { targetProfileId } : {}),
       }
@@ -15821,9 +15897,13 @@ export class Space extends DurableObject<CoreBindings> {
       return {
         query: {
           spaceId: this.spaceId,
+          ...(sourceProfileId ? { sourceProfileId } : {}),
           targetProfileId,
         },
-        items: fastSummaryItems,
+        items:
+          input.includeSourceContext === true
+            ? this.attachWakeProgressSourceContexts(fastSummaryItems)
+            : fastSummaryItems,
       };
     }
 
@@ -15871,6 +15951,7 @@ export class Space extends DurableObject<CoreBindings> {
           ...selector,
           actorOwnerUserId: input.actorOwnerUserId,
           includeTiming: input.includeTiming === true,
+          includeSourceContext: false,
           includeWaitReason: input.includeWaitReason === true,
           includeWakeStopEligibility: input.includeWakeStopEligibility === true,
         });
@@ -15886,16 +15967,21 @@ export class Space extends DurableObject<CoreBindings> {
     const items = responses.flatMap((response) =>
       response.items.filter((item) => isActiveWakeProgressProjectionItem(item))
     );
+    const activeItems = clearWakeProgressItemsClosedByRecentSignals({
+      items,
+      sql: this.ctx.storage.sql,
+    });
 
     return {
       query: {
         spaceId: this.spaceId,
+        ...(sourceProfileId ? { sourceProfileId } : {}),
         targetProfileId,
       },
-      items: clearWakeProgressItemsClosedByRecentSignals({
-        items,
-        sql: this.ctx.storage.sql,
-      }),
+      items:
+        input.includeSourceContext === true
+          ? this.attachWakeProgressSourceContexts(activeItems)
+          : activeItems,
     };
   }
 

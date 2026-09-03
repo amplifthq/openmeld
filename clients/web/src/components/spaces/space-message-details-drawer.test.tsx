@@ -449,6 +449,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 			wakeProgressEntries: [
 				{
 					elapsedStartedAtMs: Date.UTC(2026, 5, 3, 22, 8),
+					lastEvidenceAtMs: Date.UTC(2026, 5, 3, 22, 8),
 					key: "runner-working",
 					kind: "progress",
 					phase: "running",

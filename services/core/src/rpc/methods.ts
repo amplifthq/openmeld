@@ -2358,6 +2358,7 @@ export type GetSpaceWakeProgressInput = {
   spaceId: string;
   clientMessageId: string;
   includeTiming?: boolean;
+  includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
   targetProfileId?: string;
@@ -2369,8 +2370,10 @@ export type GetSpaceWakeProgressInput = {
 export type GetActiveSpaceWakeProgressInput = {
   spaceId: string;
   includeTiming?: boolean;
+  includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
+  sourceProfileId?: string;
   targetProfileId?: string;
   password?: string;
   context?: CoreRpcContextInput;
@@ -3135,6 +3138,16 @@ export type CenterAgentReadOrganizationSpaceDirectoryInput = {
   context?: CoreRpcContextInput;
   speakerMember?: CenterAgentToolSpeaker;
 };
+
+export type CenterAgentListActiveSpaceWakesInput =
+  CenterAgentReadOrganizationSpaceDirectoryInput;
+
+export type CenterAgentReadSpaceWakeProgressInput =
+  CenterAgentReadOrganizationSpaceDirectoryInput & {
+    sourceProfileId?: string;
+    spaceId: string;
+    targetProfileId?: string;
+  };
 
 export type OpenCenterAgentDirectMessageSpaceInput = {
   context?: CoreRpcContextInput;
@@ -13590,6 +13603,88 @@ export async function rpcCenterAgentGetOrganizationSpaceDirectory(
   return response;
 }
 
+export async function rpcCenterAgentListActiveSpaceWakes(
+  env: CoreBindings,
+  input: CenterAgentListActiveSpaceWakesInput
+): Promise<AccountSpaceActiveWakeSummaryResponse> {
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  const { authorization } = prepared;
+  const directory = await rpcGetCurrentOrganizationSpaceDirectory(env, {
+    context: authorization.context,
+  });
+  const response = await buildActiveWakeSummaryForSpaceIds({
+    env,
+    ownerUserId: authorization.actorProfile.ownerUserId,
+    spaceIds: directory.spaces.map((space) => space.spaceId),
+  });
+  await writeCenterAgentAuditEntry({
+    action: "read_org_space_directory",
+    authorization,
+    onBehalfOfProfileId: null,
+    resource: {
+      type: "organization",
+      id: authorization.activeOrganization.organizationId,
+    },
+    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+  });
+  return response;
+}
+
+export async function rpcCenterAgentReadSpaceWakeProgress(
+  env: CoreBindings,
+  input: CenterAgentReadSpaceWakeProgressInput
+): Promise<GetActiveSpaceWakeProgressResponse> {
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  const { authorization } = prepared;
+  const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
+    includeSourceContext: true,
+    includeTiming: true,
+    includeWaitReason: true,
+    spaceId: input.spaceId,
+    ...(input.sourceProfileId
+      ? { sourceProfileId: input.sourceProfileId }
+      : {}),
+    ...(input.targetProfileId
+      ? { targetProfileId: input.targetProfileId }
+      : {}),
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "Center Agent Space Wake progress input is invalid.",
+      status: 400,
+    });
+  }
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization,
+    env,
+    spaceId: parsed.data.spaceId,
+  });
+  const response = await rpcGetActiveSpaceWakeProgress(env, {
+    context: authorization.context,
+    includeSourceContext: true,
+    includeTiming: true,
+    includeWaitReason: true,
+    spaceId: parsed.data.spaceId,
+    ...(parsed.data.sourceProfileId
+      ? { sourceProfileId: parsed.data.sourceProfileId }
+      : {}),
+    ...(parsed.data.targetProfileId
+      ? { targetProfileId: parsed.data.targetProfileId }
+      : {}),
+  });
+  await writeCenterAgentAuditEntry({
+    action: "read_space_context",
+    authorization,
+    onBehalfOfProfileId: null,
+    resource: { type: "space", id: parsed.data.spaceId },
+    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+  });
+  return response;
+}
+
 async function prepareCenterAgentOrganizationMemberRead(
   env: CoreBindings,
   input: {
@@ -18255,7 +18350,26 @@ export async function rpcListAccountSpaceActiveWakeSummary(
     return { generatedAtMs, items: [] };
   }
 
-  const wakeDb = wakeEvidenceDb(env);
+  return await buildActiveWakeSummaryForSpaceIds({
+    env,
+    generatedAtMs,
+    ownerUserId: parsedInput.data.ownerUserId,
+    spaceIds,
+  });
+}
+
+async function buildActiveWakeSummaryForSpaceIds(input: {
+  env: CoreBindings;
+  generatedAtMs?: number;
+  ownerUserId: string;
+  spaceIds: readonly string[];
+}): Promise<AccountSpaceActiveWakeSummaryResponse> {
+  const generatedAtMs = input.generatedAtMs ?? Date.now();
+  if (input.spaceIds.length === 0) {
+    return { generatedAtMs, items: [] };
+  }
+
+  const wakeDb = wakeEvidenceDb(input.env);
   if (!wakeDb) {
     throw createCoreRpcHttpError({
       status: 503,
@@ -18269,12 +18383,12 @@ export async function rpcListAccountSpaceActiveWakeSummary(
     listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds({
       db: wakeDb,
       freshAfterMs,
-      spaceIds,
+      spaceIds: input.spaceIds,
     }),
     listActiveRemoteAgentNativeDeliveryTargetsBySpaceIds({
       db: wakeDb,
       freshAfterMs,
-      spaceIds,
+      spaceIds: input.spaceIds,
     }),
   ]);
 
@@ -18290,11 +18404,11 @@ export async function rpcListAccountSpaceActiveWakeSummary(
   }
   const targetProfileNamesBySpaceAndId =
     await readActiveWakeTargetProfileNameSnapshots({
-      db: projectionsDb(env),
+      db: projectionsDb(input.env),
       targets: [...targetCountsBySpaceId].flatMap(([spaceId, targetCounts]) =>
         [...targetCounts.keys()].map((profileId) => ({ profileId, spaceId }))
       ),
-      viewerOwnerUserId: parsedInput.data.ownerUserId,
+      viewerOwnerUserId: input.ownerUserId,
     });
 
   return {
@@ -19603,6 +19717,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includeSourceContext === undefined
+      ? {}
+      : { includeSourceContext: input.includeSourceContext }),
     ...(input.includeWaitReason === undefined
       ? {}
       : { includeWaitReason: input.includeWaitReason }),
@@ -19634,6 +19751,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includeSourceContext === undefined
+      ? {}
+      : { includeSourceContext: parsed.data.includeSourceContext }),
     ...(parsed.data.includeWaitReason === undefined
       ? {}
       : { includeWaitReason: parsed.data.includeWaitReason }),
@@ -19656,12 +19776,18 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includeSourceContext === undefined
+      ? {}
+      : { includeSourceContext: input.includeSourceContext }),
     ...(input.includeWaitReason === undefined
       ? {}
       : { includeWaitReason: input.includeWaitReason }),
     ...(input.includeWakeStopEligibility === undefined
       ? {}
       : { includeWakeStopEligibility: input.includeWakeStopEligibility }),
+    ...(input.sourceProfileId === undefined
+      ? {}
+      : { sourceProfileId: input.sourceProfileId }),
     ...(input.targetProfileId === undefined
       ? {}
       : { targetProfileId: input.targetProfileId }),
@@ -19686,12 +19812,18 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includeSourceContext === undefined
+      ? {}
+      : { includeSourceContext: parsed.data.includeSourceContext }),
     ...(parsed.data.includeWaitReason === undefined
       ? {}
       : { includeWaitReason: parsed.data.includeWaitReason }),
     ...(parsed.data.includeWakeStopEligibility === undefined
       ? {}
       : { includeWakeStopEligibility: parsed.data.includeWakeStopEligibility }),
+    ...(parsed.data.sourceProfileId
+      ? { sourceProfileId: parsed.data.sourceProfileId }
+      : {}),
     ...(parsed.data.targetProfileId
       ? { targetProfileId: parsed.data.targetProfileId }
       : {}),

@@ -745,6 +745,8 @@ describe("openMeldDaemon dispatch outbox sql store", () => {
       expect.stringContaining("FROM openMeldDaemon_outbox"),
       "pending",
       "queued",
+      "space-1",
+      "agt-1",
       500
     );
   });

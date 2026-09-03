@@ -255,6 +255,7 @@ function createWakeProgressEntry(
 ): SpaceMessageWakeThinkingEntry {
 	return {
 		elapsedStartedAtMs: 1_800_000_000_000,
+		lastEvidenceAtMs: 1_800_000_000_000,
 		key: "dispatch:agt_runner",
 		kind: "progress",
 		phase: "running",
@@ -272,6 +273,7 @@ function createWakeProgressEntry(
 function createWakePreviewEntry(): SpaceMessageWakeThinkingEntry {
 	return {
 		elapsedStartedAtMs: null,
+		lastEvidenceAtMs: null,
 		key: "dispatch:agt_runner:preview",
 		kind: "preview",
 		phase: "writing",
