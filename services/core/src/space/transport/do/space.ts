@@ -582,7 +582,6 @@ import {
   listSignalEntriesAfterAnchor,
   listSignalEntriesAroundAnchor,
   listSignalEntriesPageWindow,
-  listTextSignalIdsByProfileId,
   readFinalReplyClaimSignalId,
   readSignalEntryById,
   rejectTextSignalClientMessageIfAbsent,
@@ -807,6 +806,7 @@ const SPACE_INDEX_PROJECTION_OUTBOX_REDRIVE_BATCH_SIZE = 10;
 const SPACE_INBOX_PROJECTION_OUTBOX_REDRIVE_BATCH_SIZE = 20;
 const ACTIVE_REPLYING_SIGNAL_MAX_AGE_MS = 180_000;
 const ACTIVE_WAKE_PROGRESS_READ_CONCURRENCY = 6;
+const ACTIVE_WAKE_PROGRESS_PAGE_LIMIT = 25;
 const DISPATCH_PLANNER_LOG_SAMPLE_LIMIT = 10;
 const OPENMELD_GENERATED_SIGNAL_SOURCE = "openmeld";
 const MENTION_HINT_PROFILE: Profile = {
@@ -6687,6 +6687,9 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<GetActiveSpaceWakeProgressResponse> {
     this.applySpaceRef(input.spaceId);
     const url = new URL("https://openmeld.local/active-wake-progress");
+    if (input.includePageInfo === true) {
+      url.searchParams.set("includePageInfo", "true");
+    }
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
     }
@@ -9271,6 +9274,7 @@ export class Space extends DurableObject<CoreBindings> {
         const url = new URL(request.url);
         const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
           spaceId: this.spaceId,
+          includePageInfo: url.searchParams.get("includePageInfo"),
           includeTiming: url.searchParams.get("includeTiming"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
@@ -9302,6 +9306,7 @@ export class Space extends DurableObject<CoreBindings> {
             await this.readActiveSpaceWakeProgress({
               actorOwnerUserId,
               db,
+              includePageInfo: parsed.data.includePageInfo === true,
               includeTiming: parsed.data.includeTiming === true,
               includeSourceContext: parsed.data.includeSourceContext === true,
               includeWaitReason: parsed.data.includeWaitReason === true,
@@ -15702,10 +15707,59 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
+  private async readActiveWakeProgressOwnerEvidence(input: {
+    db: D1Database;
+    includePageInfo: boolean;
+    sourceProfileId: string | null;
+    targetProfileId: string | null;
+  }) {
+    const ownerReadLimit =
+      ACTIVE_WAKE_PROGRESS_PAGE_LIMIT + Number(input.includePageInfo);
+    const outboxRecords = listActiveDispatchOutboxRecordsBySpace(
+      this.ctx.storage.sql,
+      {
+        limit: ownerReadLimit,
+        ...(input.sourceProfileId
+          ? { sourceProfileId: input.sourceProfileId }
+          : {}),
+        spaceId: this.spaceId,
+        ...(input.targetProfileId
+          ? { targetProfileId: input.targetProfileId }
+          : {}),
+      }
+    );
+    const sourceDispatchIds = outboxRecords.map((record) => record.dispatchId);
+    const sourceFilter = input.sourceProfileId
+      ? { sourceDispatchIds, sourceProfileId: input.sourceProfileId }
+      : {};
+    const [executions, activeNativeDeliveries] = await Promise.all([
+      listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+        db: input.db,
+        limit: ownerReadLimit,
+        ...sourceFilter,
+        spaceId: this.spaceId,
+        ...(input.targetProfileId
+          ? { targetProfileId: input.targetProfileId }
+          : {}),
+      }),
+      listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+        db: input.db,
+        limit: ownerReadLimit,
+        ...sourceFilter,
+        spaceId: this.spaceId,
+        ...(input.targetProfileId
+          ? { targetProfileId: input.targetProfileId }
+          : {}),
+      }),
+    ]);
+    return { activeNativeDeliveries, executions, outboxRecords };
+  }
+
   private async readActiveSpaceWakeProgress(input: {
     actorOwnerUserId?: string | null;
     db: D1Database;
     includeTiming?: boolean;
+    includePageInfo?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
@@ -15714,35 +15768,14 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<GetActiveSpaceWakeProgressResponse> {
     const targetProfileId = normalizeOptionalText(input.targetProfileId);
     const sourceProfileId = normalizeOptionalText(input.sourceProfileId);
-    const sourceSignalIds = sourceProfileId
-      ? listTextSignalIdsByProfileId(this.ctx.storage.sql, sourceProfileId)
-      : undefined;
     const useFastSummary = input.includeWakeStopEligibility !== true;
-    const [executions, activeNativeDeliveries] = await Promise.all([
-      listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+    const { activeNativeDeliveries, executions, outboxRecords } =
+      await this.readActiveWakeProgressOwnerEvidence({
         db: input.db,
-        limit: 25,
-        ...(sourceSignalIds ? { sourceSignalIds } : {}),
-        spaceId: this.spaceId,
-        ...(targetProfileId ? { targetProfileId } : {}),
-      }),
-      listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
-        db: input.db,
-        limit: 25,
-        ...(sourceSignalIds ? { sourceSignalIds } : {}),
-        spaceId: this.spaceId,
-        ...(targetProfileId ? { targetProfileId } : {}),
-      }),
-    ]);
-    const outboxRecords = listActiveDispatchOutboxRecordsBySpace(
-      this.ctx.storage.sql,
-      {
-        limit: 25,
-        ...(sourceSignalIds ? { sourceSignalIds } : {}),
-        spaceId: this.spaceId,
-        ...(targetProfileId ? { targetProfileId } : {}),
-      }
-    );
+        includePageInfo: input.includePageInfo === true,
+        sourceProfileId,
+        targetProfileId,
+      });
     const activeNativeDeliveryByTarget = new Map(
       activeNativeDeliveries.map(
         (delivery) => [buildDispatchTargetKey(delivery), delivery] as const
@@ -15889,9 +15922,13 @@ export class Space extends DurableObject<CoreBindings> {
         }),
       ];
     });
-    const fastSummaryItems = clearWakeProgressItemsClosedByRecentSignals({
+    const activeSummaryItems = clearWakeProgressItemsClosedByRecentSignals({
       items: [...executionItems, ...outboxItems, ...nativeDeliveryItems],
       sql: this.ctx.storage.sql,
+    });
+    const page = paginateActiveWakeProgressItems({
+      includePageInfo: input.includePageInfo === true,
+      items: activeSummaryItems,
     });
     if (useFastSummary) {
       return {
@@ -15900,10 +15937,11 @@ export class Space extends DurableObject<CoreBindings> {
           ...(sourceProfileId ? { sourceProfileId } : {}),
           targetProfileId,
         },
+        ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
         items:
           input.includeSourceContext === true
-            ? this.attachWakeProgressSourceContexts(fastSummaryItems)
-            : fastSummaryItems,
+            ? this.attachWakeProgressSourceContexts(page.items)
+            : page.items,
       };
     }
 
@@ -15914,7 +15952,7 @@ export class Space extends DurableObject<CoreBindings> {
       targetProfileId: string;
     }> = [];
 
-    for (const item of fastSummaryItems) {
+    for (const item of page.items) {
       const clientMessageId = normalizeOptionalText(item.clientMessageId);
       const sourceSignalId = normalizeOptionalText(item.sourceSignalId);
       if (!(clientMessageId || sourceSignalId)) {
@@ -15978,6 +16016,7 @@ export class Space extends DurableObject<CoreBindings> {
         ...(sourceProfileId ? { sourceProfileId } : {}),
         targetProfileId,
       },
+      ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
       items:
         input.includeSourceContext === true
           ? this.attachWakeProgressSourceContexts(activeItems)
@@ -17485,6 +17524,42 @@ function clearWakeProgressItemsClosedByRecentSignals(input: {
 
 function isActiveWakeProgressProjectionItem(item: WakeProgressItem): boolean {
   return !item.terminal && item.phase !== "replied";
+}
+
+function paginateActiveWakeProgressItems(input: {
+  includePageInfo: boolean;
+  items: readonly WakeProgressItem[];
+}): {
+  items: WakeProgressItem[];
+  pageInfo?: { hasMore: boolean; limit: number };
+} {
+  if (!input.includePageInfo) {
+    return { items: [...input.items] };
+  }
+  const items = [...input.items].sort(
+    (left, right) =>
+      right.updatedAtMs - left.updatedAtMs ||
+      buildActiveWakeProgressSelectorKey({
+        clientMessageId: normalizeOptionalText(left.clientMessageId),
+        dispatchId: normalizeOptionalText(left.dispatchId),
+        sourceSignalId: normalizeOptionalText(left.sourceSignalId),
+        targetProfileId: left.targetProfileId,
+      }).localeCompare(
+        buildActiveWakeProgressSelectorKey({
+          clientMessageId: normalizeOptionalText(right.clientMessageId),
+          dispatchId: normalizeOptionalText(right.dispatchId),
+          sourceSignalId: normalizeOptionalText(right.sourceSignalId),
+          targetProfileId: right.targetProfileId,
+        })
+      )
+  );
+  return {
+    items: items.slice(0, ACTIVE_WAKE_PROGRESS_PAGE_LIMIT),
+    pageInfo: {
+      hasMore: items.length > ACTIVE_WAKE_PROGRESS_PAGE_LIMIT,
+      limit: ACTIVE_WAKE_PROGRESS_PAGE_LIMIT,
+    },
+  };
 }
 
 function buildActiveWakeProgressSelectorKey(input: {

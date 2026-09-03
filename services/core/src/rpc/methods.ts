@@ -2331,6 +2331,7 @@ export type GetSpaceWakeProgressInput = {
 
 export type GetActiveSpaceWakeProgressInput = {
   spaceId: string;
+  includePageInfo?: boolean;
   includeTiming?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
@@ -19028,6 +19029,9 @@ export async function rpcGetActiveSpaceWakeProgress(
 ): Promise<GetActiveSpaceWakeProgressResponse> {
   const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
     spaceId: input.spaceId,
+    ...(input.includePageInfo === undefined
+      ? {}
+      : { includePageInfo: input.includePageInfo }),
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
@@ -19064,6 +19068,9 @@ export async function rpcGetActiveSpaceWakeProgress(
   );
   return await stub.rpcGetActiveWakeProgress({
     spaceId,
+    ...(parsed.data.includePageInfo === undefined
+      ? {}
+      : { includePageInfo: parsed.data.includePageInfo }),
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),

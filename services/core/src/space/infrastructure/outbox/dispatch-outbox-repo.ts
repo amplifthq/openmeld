@@ -703,7 +703,7 @@ export const listActiveDispatchOutboxRecordsBySpace = (
   sql: SqlStorage,
   input: {
     limit?: number;
-    sourceSignalIds?: readonly string[];
+    sourceProfileId?: string;
     spaceId: string;
     targetProfileId?: string | null;
   }
@@ -715,12 +715,7 @@ export const listActiveDispatchOutboxRecordsBySpace = (
   const normalizedTargetProfileId = normalizeOptionalSnapshot(
     input.targetProfileId
   );
-  const sourceSignalIds = input.sourceSignalIds?.filter(
-    (sourceSignalId) => normalizeOptionalSnapshot(sourceSignalId) !== null
-  );
-  if (sourceSignalIds && sourceSignalIds.length === 0) {
-    return [];
-  }
+  const sourceProfileId = normalizeOptionalSnapshot(input.sourceProfileId);
   const limit = Math.max(
     1,
     Math.min(
@@ -731,15 +726,15 @@ export const listActiveDispatchOutboxRecordsBySpace = (
   const whereTargetSql = normalizedTargetProfileId
     ? "AND target_profile_id = ?"
     : "";
-  const whereSourceSql = sourceSignalIds
-    ? "AND source_event_id IN (SELECT value FROM json_each(?))"
+  const whereSourceSql = sourceProfileId
+    ? "AND json_extract(payload_json, '$.sourceSignalSnapshot.profileId') = ?"
     : "";
   const bindings = [
     OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
     PERSISTED_OUTBOX_STATUS_QUEUED,
     normalizedSpaceId,
     ...(normalizedTargetProfileId ? [normalizedTargetProfileId] : []),
-    ...(sourceSignalIds ? [JSON.stringify(sourceSignalIds)] : []),
+    ...(sourceProfileId ? [sourceProfileId] : []),
     limit,
   ];
   const rows = sql

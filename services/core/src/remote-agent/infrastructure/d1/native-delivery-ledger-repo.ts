@@ -413,26 +413,41 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
 export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace(input: {
   db: D1Database;
   limit?: number;
-  sourceSignalIds?: readonly string[];
+  sourceDispatchIds?: readonly string[];
+  sourceProfileId?: string;
   spaceId: string;
   targetProfileId?: string;
 }): Promise<ActiveRemoteAgentNativeDeliveryWakeProgressEvidence[]> {
   const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 25)));
   const targetProfileId = input.targetProfileId?.trim() || null;
-  const sourceSignalIds = input.sourceSignalIds?.filter(
-    (sourceSignalId) => sourceSignalId.trim().length > 0
+  const sourceDispatchIds = input.sourceDispatchIds?.filter(
+    (dispatchId) => dispatchId.trim().length > 0
   );
-  if (sourceSignalIds && sourceSignalIds.length === 0) {
+  const sourceProfileId = input.sourceProfileId?.trim() || null;
+  if (!sourceProfileId && sourceDispatchIds && sourceDispatchIds.length === 0) {
     return [];
   }
   const whereTargetSql = targetProfileId ? "AND deliveries.profile_id = ?" : "";
-  const whereSourceSql = sourceSignalIds
-    ? "AND deliveries.trigger_message_id IN (SELECT value FROM json_each(?))"
-    : "";
+  let whereSourceSql = "";
+  let sourceBindings: string[] = [];
+  if (sourceProfileId) {
+    whereSourceSql = `AND (
+        deliveries.on_behalf_of_profile_id = ?
+        OR (
+          deliveries.on_behalf_of_profile_id IS NULL
+          AND deliveries.dispatch_id IN (SELECT value FROM json_each(?))
+        )
+      )`;
+    sourceBindings = [sourceProfileId, JSON.stringify(sourceDispatchIds ?? [])];
+  } else if (sourceDispatchIds) {
+    whereSourceSql =
+      "AND deliveries.dispatch_id IN (SELECT value FROM json_each(?))";
+    sourceBindings = [JSON.stringify(sourceDispatchIds)];
+  }
   const bindings = [
     input.spaceId,
     ...(targetProfileId ? [targetProfileId] : []),
-    ...(sourceSignalIds ? [JSON.stringify(sourceSignalIds)] : []),
+    ...sourceBindings,
     limit,
   ];
   const rows = await input.db
