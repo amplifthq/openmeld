@@ -4,8 +4,6 @@ import { createCoreRpcHttpError } from "../../core/src/rpc/errors";
 import app from "../src/index";
 
 type CoreRpcMock = {
-  authorizeAgentProfileBindingForOrganization: ReturnType<typeof vi.fn>;
-  bulkAuthorizeAgentProfileBindingsForOrganization: ReturnType<typeof vi.fn>;
   disableAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   ensureAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   executeAgentProfileWorkRecovery: ReturnType<typeof vi.fn>;
@@ -15,14 +13,7 @@ type CoreRpcMock = {
   getAgentProfileControllerChangeEligibility: ReturnType<typeof vi.fn>;
   getAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   getCurrentAgentProfileSession: ReturnType<typeof vi.fn>;
-  getOrganizationBindingAuthorizationPreference: ReturnType<typeof vi.fn>;
-  listCurrentUserAgentProfileOrganizationWakeAccess: ReturnType<typeof vi.fn>;
-  listOrganizationBindingAuthorizationProfiles: ReturnType<typeof vi.fn>;
-  listOrganizationBindingAuthorizations: ReturnType<typeof vi.fn>;
-  revokeAgentProfileBindingForOrganization: ReturnType<typeof vi.fn>;
-  saveOrganizationWakeAccessChoice: ReturnType<typeof vi.fn>;
   setAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
-  setOrganizationBindingAuthorizationPreference: ReturnType<typeof vi.fn>;
   updateAgentProfileDefaultProject: ReturnType<typeof vi.fn>;
   updateAgentProfilePrimaryBindingAgentControllerCollaborationMode: ReturnType<
     typeof vi.fn
@@ -51,18 +42,6 @@ function makeEnv(input?: {
   coreOverrides?: Partial<CoreRpcMock>;
 }) {
   const coreRpc: CoreRpcMock = {
-    authorizeAgentProfileBindingForOrganization: vi.fn(async () => ({
-      agentProfileId: AGENT_PROFILE_ID,
-      authorizedBy: "owner-1",
-      bindingId: "binding_opaque_1",
-      createdAt: "2026-07-04T00:00:00.000Z",
-      organizationId: "org-1",
-      status: "authorized",
-    })),
-    bulkAuthorizeAgentProfileBindingsForOrganization: vi.fn(async () => ({
-      authorized: [],
-      organizationId: "org-1",
-    })),
     disableAgentProfilePrimaryBinding: vi.fn(async () => ({
       agentProfileId: AGENT_PROFILE_ID,
       disabled: true,
@@ -139,14 +118,6 @@ function makeEnv(input?: {
         "agent_profile_binding.controller_change_blocked_active_execution",
       status: "blocked",
     })),
-    getOrganizationBindingAuthorizationPreference: vi.fn(async () => ({
-      preference: {
-        autoAuthorizeAgentProfileBindings: false,
-        organizationId: "org-1",
-        updatedAt: "2026-07-16T00:00:00.000Z",
-        userId: "owner-1",
-      },
-    })),
     getAgentProfileCreationDefaults: vi.fn(async () => ({
       agentControllerCollaborationMode: "codex:plan",
       agentControllerPermissionMode: "codex:approveForMe",
@@ -170,64 +141,6 @@ function makeEnv(input?: {
       reasoningLevel: "high",
       updatedAt: "2026-08-18T12:00:00.000Z",
       userId: "owner-1",
-    })),
-    listOrganizationBindingAuthorizations: vi.fn(async () => ({
-      organizationId: "org-1",
-      authorizations: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "owner-1",
-          bindingId: "binding_opaque_1",
-          createdAt: "2026-07-04T00:00:00.000Z",
-        },
-      ],
-    })),
-    listCurrentUserAgentProfileOrganizationWakeAccess: vi.fn(async () => ({
-      organizationId: "org-1",
-      profiles: [],
-    })),
-    listOrganizationBindingAuthorizationProfiles: vi.fn(async () => ({
-      organizationId: "org-1",
-      profiles: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          authorized: false,
-          authorizedAt: null,
-          authorizedBy: null,
-          bindingId: null,
-          ownerUserId: "owner-1",
-          profileHandle: "codex",
-          profileName: "Codex",
-          profileOrganizationId: "org-1",
-          status: "binding_required",
-        },
-      ],
-    })),
-    revokeAgentProfileBindingForOrganization: vi.fn(async () => ({
-      agentProfileId: AGENT_PROFILE_ID,
-      bindingId: "binding_opaque_1",
-      organizationId: "org-1",
-      revoked: true,
-      status: "revoked",
-    })),
-    saveOrganizationWakeAccessChoice: vi.fn(async () => ({
-      alreadyAuthorizedCount: 0,
-      authorizedCount: 1,
-      organizationId: "org-1",
-      preference: {
-        autoAuthorizeAgentProfileBindings: true,
-        organizationId: "org-1",
-        updatedAt: "2026-07-16T00:00:00.000Z",
-        userId: "owner-1",
-      },
-    })),
-    setOrganizationBindingAuthorizationPreference: vi.fn(async () => ({
-      preference: {
-        autoAuthorizeAgentProfileBindings: true,
-        organizationId: "org-1",
-        updatedAt: "2026-07-16T00:00:00.000Z",
-        userId: "owner-1",
-      },
     })),
     updateAgentProfileDefaultProject: vi.fn(async () => ({
       ok: true,
@@ -775,94 +688,6 @@ describe("agent profile binding routes", () => {
         agentProfileId: AGENT_PROFILE_ID,
       })
     );
-  });
-
-  it.each([
-    {
-      coreRpcMethod: "authorizeAgentProfileBindingForOrganization" as const,
-      method: "PUT",
-      name: "single-profile authorization",
-      path: `/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/primary-binding/organization-authorization`,
-    },
-    {
-      coreRpcMethod: "revokeAgentProfileBindingForOrganization" as const,
-      method: "DELETE",
-      name: "single-profile revocation",
-      path: `/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/primary-binding/organization-authorization`,
-    },
-    {
-      coreRpcMethod: "listOrganizationBindingAuthorizations" as const,
-      method: "GET",
-      name: "authorization listing",
-      path: "/v1/agent-profiles/primary-bindings/organization-authorizations",
-    },
-    {
-      coreRpcMethod:
-        "listCurrentUserAgentProfileOrganizationWakeAccess" as const,
-      method: "GET",
-      name: "Wake access listing",
-      path: "/v1/agent-profiles/primary-bindings/organization-wake-access",
-    },
-    {
-      body: { authorizations: [] },
-      coreRpcMethod:
-        "bulkAuthorizeAgentProfileBindingsForOrganization" as const,
-      method: "POST",
-      name: "bulk authorization",
-      path: "/v1/organizations/org-1/binding-authorizations/bulk",
-    },
-    {
-      coreRpcMethod: "listOrganizationBindingAuthorizationProfiles" as const,
-      method: "GET",
-      name: "authorization profile listing",
-      path: "/v1/organizations/org-1/binding-authorizations/profiles",
-    },
-    {
-      coreRpcMethod: "getOrganizationBindingAuthorizationPreference" as const,
-      method: "GET",
-      name: "authorization preference read",
-      path: "/v1/organizations/org-1/binding-authorization-preference",
-    },
-    {
-      body: { autoAuthorizeAgentProfileBindings: true },
-      coreRpcMethod: "setOrganizationBindingAuthorizationPreference" as const,
-      method: "PUT",
-      name: "authorization preference write",
-      path: "/v1/organizations/org-1/binding-authorization-preference",
-    },
-    {
-      body: { enableWakeAccess: true },
-      coreRpcMethod: "saveOrganizationWakeAccessChoice" as const,
-      method: "PUT",
-      name: "Wake access choice",
-      path: "/v1/organizations/org-1/wake-access-choice",
-    },
-  ])("rejects retired $name without calling Core", async (testCase) => {
-    const { coreRpc, env } = makeEnv();
-    const response = await app.fetch(
-      new Request(`http://local${testCase.path}`, {
-        ...(testCase.body
-          ? {
-              body: JSON.stringify(testCase.body),
-              headers: { "content-type": "application/json" },
-            }
-          : {}),
-        method: testCase.method,
-      }),
-      env,
-      TEST_EXECUTION_CONTEXT
-    );
-
-    expect(response.status).toBe(410);
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "upstream_error",
-        message:
-          "Agent Profiles can only be used in the workspace where they were created.",
-        upstreamCode: "agent_profile.organization_ownership_required",
-      },
-    });
-    expect(coreRpc[testCase.coreRpcMethod]).not.toHaveBeenCalled();
   });
 
   it("forwards model selection updates without runtime target fields", async () => {

@@ -45,20 +45,6 @@ export function buildAgentProfilePrimaryBindingOpenCodePermissionRoute(
   return `${buildAgentProfilePrimaryBindingRoute(agentProfileId)}/opencode-permission`;
 }
 
-export function buildAgentProfilePrimaryBindingOrganizationAuthorizationRoute(
-  agentProfileId: string
-): string {
-  return `${buildAgentProfilePrimaryBindingRoute(agentProfileId)}/organization-authorization`;
-}
-
-export function buildAgentProfileBindingOrganizationAuthorizationsRoute(): string {
-  return "/v1/agent-profiles/primary-bindings/organization-authorizations";
-}
-
-export function buildCurrentUserAgentProfileOrganizationWakeAccessRoute(): string {
-  return "/v1/agent-profiles/primary-bindings/organization-wake-access";
-}
-
 export function buildAgentProfileRouteCatalogSyncRoute(
   agentProfileId: string
 ): string {

@@ -1,7 +1,6 @@
 import {
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
-  authorizeAgentProfileBindingForOrganizationResponseSchema,
   currentAgentProfileSessionLookupQuerySchema,
   currentAgentProfileSessionLookupResponseSchema,
   disableAgentProfilePrimaryBindingResponseSchema,
@@ -12,13 +11,10 @@ import {
   getAgentExecutionReadinessResponseSchema,
   getAgentProfileControllerChangeEligibilityResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
-  listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema,
-  listOrganizationBindingAuthorizationsResponseSchema,
   notifyAgentProfileRouteCatalogChangedBodySchema,
   notifyAgentProfileRouteCatalogChangedResponseSchema,
   notifyAgentProfilesRouteCatalogChangedBodySchema,
   openMeldRequestContextSchema,
-  revokeAgentProfileBindingForOrganizationResponseSchema,
   updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerPermissionModeBodySchema,
   updateAgentProfilePrimaryBindingModelSelectionBodySchema,
@@ -28,21 +24,17 @@ import type { OpenMeldApiClientFoundation } from "../client";
 import {
   buildAgentExecutionReadinessBatchRoute,
   buildAgentExecutionReadinessRoute,
-  buildAgentProfileBindingOrganizationAuthorizationsRoute,
   buildAgentProfileControllerChangeEligibilityRoute,
   buildAgentProfilePrimaryBindingAgentControllerCollaborationModeRoute,
   buildAgentProfilePrimaryBindingAgentControllerPermissionModeRoute,
   buildAgentProfilePrimaryBindingModelSelectionRoute,
   buildAgentProfilePrimaryBindingOpenCodePermissionRoute,
-  buildAgentProfilePrimaryBindingOrganizationAuthorizationRoute,
   buildAgentProfilePrimaryBindingRoute,
   buildAgentProfileRouteCatalogSyncRoute,
   buildAgentProfilesRouteCatalogSyncRoute,
   buildCurrentAgentProfileSessionRoute,
-  buildCurrentUserAgentProfileOrganizationWakeAccessRoute,
 } from "./routes";
 import type {
-  AuthorizeAgentProfileBindingForOrganizationInput,
   CreateAgentProfileBindingApi,
   DisableAgentProfilePrimaryBindingInput,
   EnsureAgentProfilePrimaryBindingInput,
@@ -51,7 +43,6 @@ import type {
   GetCurrentAgentProfileSessionInput,
   NotifyAgentProfileRouteCatalogChangedInput,
   NotifyAgentProfilesRouteCatalogChangedInput,
-  RevokeAgentProfileBindingForOrganizationInput,
   UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput,
   UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput,
   UpdateAgentProfilePrimaryBindingModelSelectionInput,
@@ -156,10 +147,7 @@ function requireValidBindingCommandBody(
 }
 
 function requireValidBindingRouteInput(
-  input:
-    | AuthorizeAgentProfileBindingForOrganizationInput
-    | DisableAgentProfilePrimaryBindingInput
-    | RevokeAgentProfileBindingForOrganizationInput
+  input: DisableAgentProfilePrimaryBindingInput
 ) {
   const parsed = agentProfileBindingRouteParamsSchema
     .extend({
@@ -399,52 +387,6 @@ export const createAgentProfileBindingApi: CreateAgentProfileBindingApi = (
         requestContext: input.requestContext,
         schema: ensureAgentProfilePrimaryBindingResponseSchema,
         url: buildAgentProfilePrimaryBindingRoute(input.agentProfileId),
-      });
-    },
-    authorizePrimaryBindingForOrganization: async (input) => {
-      const request = requireValidBindingRouteInput(input);
-      return await client.requestJson({
-        invalidMessage: "Invalid Organization Binding authorization response.",
-        method: "PUT",
-        operation: "agent_profile_binding.organization_authorization.authorize",
-        requestContext: request.requestContext,
-        schema: authorizeAgentProfileBindingForOrganizationResponseSchema,
-        url: buildAgentProfilePrimaryBindingOrganizationAuthorizationRoute(
-          request.agentProfileId
-        ),
-      });
-    },
-    listOrganizationAuthorizations: async (input = {}) =>
-      await client.requestJson({
-        invalidMessage:
-          "Invalid Organization Binding authorization list response.",
-        method: "GET",
-        operation: "agent_profile_binding.organization_authorization.list",
-        requestContext: input.requestContext,
-        schema: listOrganizationBindingAuthorizationsResponseSchema,
-        url: buildAgentProfileBindingOrganizationAuthorizationsRoute(),
-      }),
-    listCurrentUserOrganizationWakeAccess: async (input = {}) =>
-      await client.requestJson({
-        invalidMessage: "Invalid organization Wake access list response.",
-        method: "GET",
-        operation: "agent_profile_binding.organization_wake_access.list",
-        requestContext: input.requestContext,
-        schema: listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema,
-        url: buildCurrentUserAgentProfileOrganizationWakeAccessRoute(),
-      }),
-    revokePrimaryBindingForOrganization: async (input) => {
-      const request = requireValidBindingRouteInput(input);
-      return await client.requestJson({
-        invalidMessage:
-          "Invalid Organization Binding authorization revoke response.",
-        method: "DELETE",
-        operation: "agent_profile_binding.organization_authorization.revoke",
-        requestContext: request.requestContext,
-        schema: revokeAgentProfileBindingForOrganizationResponseSchema,
-        url: buildAgentProfilePrimaryBindingOrganizationAuthorizationRoute(
-          request.agentProfileId
-        ),
       });
     },
     disablePrimaryBinding: async (input) => {
