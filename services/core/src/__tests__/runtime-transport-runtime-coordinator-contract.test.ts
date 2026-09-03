@@ -10,6 +10,7 @@ import {
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
 } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceSnapshot,
@@ -91,6 +92,10 @@ const RUN_ID_PATTERN = /^rctr_/;
 const SQL_SELECT_PATTERN = /^\s*SELECT\b/i;
 const TOKEN_FINGERPRINT_PATTERN = /^etfp_v1_[a-f0-9]{32}$/;
 const TOKEN_VALIDATION_HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const buildAcceptedDispatchPayloadFingerprintStorageKey = (
+  runtimeCoordinatorExecutionId: string
+): string =>
+  `runtime-coordinator:accepted-dispatch-payload-fingerprint:v1:${runtimeCoordinatorExecutionId}`;
 
 const deliveryExecutionIdentity = {
   authority: "core_runtime_registry_binding_route" as const,
@@ -4101,7 +4106,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(getReadinessImpactWriteCalls(recordingD1.calls)).toHaveLength(0);
   });
 
-  it("compares the accepted payload fingerprint when a terminal Wake head is replayed", async () => {
+  it("keeps authority v1 rollback-compatible and compares the fingerprint sidecar on terminal replay", async () => {
     const { hub, sentFrames, socket, state, storageRecords } = createHarness();
     configureCompatibleRoute({ socket, state });
     const originalSnapshot = buildAcceptedDispatchSnapshot({
@@ -4129,9 +4134,23 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(deliveryResponse.status).toBe(200);
     const authority =
       findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords);
-    expect(authority?.acceptedDispatchPayloadFingerprint).toBe(
-      originalSnapshot.payloadFingerprint
-    );
+    expect(authority).not.toHaveProperty("acceptedDispatchPayloadFingerprint");
+    expect(
+      runtimeCoordinatorExecutionTokenAuthorityRecordSchema.safeParse(authority)
+        .success
+    ).toBe(true);
+    expect(
+      storageRecords.get(
+        buildAcceptedDispatchPayloadFingerprintStorageKey(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
+      )
+    ).toEqual({
+      acceptedDispatchPayloadFingerprint: originalSnapshot.payloadFingerprint,
+      modelVersion:
+        "openmeld.runtime_coordinator.accepted_dispatch_payload_fingerprint.v1",
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+    });
     await (
       hub as unknown as {
         writeRuntimeCoordinatorTokenAuthority: (
@@ -4146,6 +4165,18 @@ describe("runtime transport runtime coordinator transport contract", () => {
         replySignalId: "signal-terminal-replay-1",
         status: "reply_published",
       },
+    });
+    expect(
+      storageRecords.get(
+        buildAcceptedDispatchPayloadFingerprintStorageKey(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
+      )
+    ).toEqual({
+      acceptedDispatchPayloadFingerprint: originalSnapshot.payloadFingerprint,
+      modelVersion:
+        "openmeld.runtime_coordinator.accepted_dispatch_payload_fingerprint.v1",
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
     });
     storageRecords.delete(
       buildRuntimeCoordinatorHeadLifecycleStorageKey(
@@ -4184,7 +4215,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).toEqual([]);
   });
 
-  it("fails closed when a legacy terminal Wake authority has no accepted payload fingerprint", async () => {
+  it("safely dedupes a legacy terminal replay without claiming the Wake details changed", async () => {
     const { hub, sentFrames, socket, state, storageRecords } = createHarness();
     configureCompatibleRoute({ socket, state });
     const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest({
@@ -4213,10 +4244,6 @@ describe("runtime transport runtime coordinator transport contract", () => {
     if (!authority) {
       throw new Error("Expected terminal replay authority fixture.");
     }
-    const {
-      acceptedDispatchPayloadFingerprint: _legacyMissingFingerprint,
-      ...legacyAuthority
-    } = authority;
     await (
       hub as unknown as {
         writeRuntimeCoordinatorTokenAuthority: (
@@ -4224,7 +4251,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ) => Promise<void>;
       }
     ).writeRuntimeCoordinatorTokenAuthority({
-      ...legacyAuthority,
+      ...authority,
       terminalOutcome: {
         finalizedAtMs: Date.now(),
         reasonCode: "space.reply_published",
@@ -4237,21 +4264,41 @@ describe("runtime transport runtime coordinator transport contract", () => {
         acceptRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
       )
     );
+    storageRecords.delete(
+      buildAcceptedDispatchPayloadFingerprintStorageKey(
+        RUNTIME_COORDINATOR_EXECUTION_ID
+      )
+    );
     sentFrames.length = 0;
 
-    const response = await fetchRuntimeTransportJson(
-      hub,
-      "/runtime-coordinator/head/accept",
-      acceptRequest
-    );
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: false,
-      reasonCode:
-        RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
-      status: "conflict",
-    });
-    expect(sentFrames).toEqual([]);
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    try {
+      const response = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        acceptRequest
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        action: "skip_duplicate",
+        ok: true,
+        reasonCode: "runtime_coordinator.head_execution_already_linked",
+        status: "execution_linked",
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[core.runtime_transport.runtime_coordinator_legacy_terminal_replay_deduped]",
+        expect.objectContaining({
+          dispatchId: "dispatch-1",
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      );
+      expect(sentFrames).toEqual([]);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("keeps three consecutive Wakes for one Agent in separate execution and reply identities", async () => {

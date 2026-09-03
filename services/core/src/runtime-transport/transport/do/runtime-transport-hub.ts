@@ -10889,6 +10889,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       storage: this.ctx.storage,
     });
     if (
+      admission.status === "existing" &&
+      admission.compatibilityDiagnosticReasonCode
+    ) {
+      console.warn(
+        "[core.runtime_transport.runtime_coordinator_legacy_terminal_replay_deduped]",
+        {
+          dispatchId: request.dispatchId,
+          reasonCode: admission.compatibilityDiagnosticReasonCode,
+          runtimeCoordinatorExecutionId:
+            admission.effectiveRecord.runtimeCoordinatorExecutionId,
+          targetProfileId: identity.targetProfileId,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        }
+      );
+    }
+    if (
       admission.status === "queued" ||
       admission.status === "started" ||
       admission.status === "continuation_needs_attention"

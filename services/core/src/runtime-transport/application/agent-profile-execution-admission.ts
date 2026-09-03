@@ -41,17 +41,21 @@ import {
   writeAgentProfileWorkRecoveryInboxProjectionIntent,
 } from "./agent-profile-work-recovery-inbox-projection";
 import {
+  buildRuntimeCoordinatorAcceptedDispatchPayloadFingerprintStorageKey,
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
   buildRuntimeCoordinatorRunCommandStateStorageKey,
   buildRuntimeCoordinatorTokenAuthorityStorageKey,
   hasRuntimeCoordinatorDurableLocalProgress,
+  isRuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord,
   isRuntimeCoordinatorHeadLifecycleRecord,
   isRuntimeCoordinatorRunCommandState,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_MODEL_VERSION,
   RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_HEAD_LIFECYCLE_STORAGE_KEY_PREFIX,
   RUNTIME_COORDINATOR_MAX_HEAD_DUPLICATE_OBSERVATIONS,
   RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_RUN_COMMAND_STATE_STORAGE_KEY_PREFIX,
+  type RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord,
   type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorRunCommandState,
 } from "./runtime-coordinator-authority";
@@ -1080,6 +1084,7 @@ type AgentProfileWorkCoordinatorHeadWriteBaseResult =
   | { status: "execution_target_mutation_in_progress" }
   | { status: "continuation_needs_attention" }
   | {
+      compatibilityDiagnosticReasonCode?: "runtime_coordinator.terminal_replay_fingerprint_unavailable";
       effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
       status: "existing";
     }
@@ -1779,6 +1784,47 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
     : result;
 }
 
+const parseOptionalAcceptedDispatchPayloadFingerprintRecord = (
+  value: unknown
+): RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord | null => {
+  if (value === undefined) {
+    return null;
+  }
+  if (!isRuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord(value)) {
+    throw new Error(
+      "runtime_coordinator.accepted_dispatch_payload_fingerprint_invalid"
+    );
+  }
+  return value;
+};
+
+const acceptedDispatchPayloadFingerprintMatchesHead = (input: {
+  executionId: string;
+  head: RuntimeCoordinatorHeadLifecycleRecord;
+  record: RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord | null;
+}): boolean =>
+  input.record === null ||
+  (input.record.runtimeCoordinatorExecutionId === input.executionId &&
+    input.head.acceptedDispatchSnapshot !== undefined &&
+    input.record.acceptedDispatchPayloadFingerprint ===
+      input.head.acceptedDispatchSnapshot.payloadFingerprint);
+
+const writeAcceptedDispatchPayloadFingerprintInTransaction = (input: {
+  executionId: string;
+  head: RuntimeCoordinatorHeadLifecycleRecord;
+  storageKey: string;
+  transaction: Pick<DurableObjectTransaction, "put">;
+}): Promise<unknown> =>
+  input.head.acceptedDispatchSnapshot
+    ? input.transaction.put(input.storageKey, {
+        acceptedDispatchPayloadFingerprint:
+          input.head.acceptedDispatchSnapshot.payloadFingerprint,
+        modelVersion:
+          RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_MODEL_VERSION,
+        runtimeCoordinatorExecutionId: input.executionId,
+      } satisfies RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord)
+    : Promise.resolve();
+
 export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(input: {
   alarmAtMs: number;
   authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
@@ -1808,12 +1854,21 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
       buildRuntimeCoordinatorRunCommandStateStorageKey(executionId);
     const tokenAuthorityStorageKey =
       buildRuntimeCoordinatorTokenAuthorityStorageKey(executionId);
-    const [rawHead, rawExistingCommandState, rawExistingAuthority] =
-      await Promise.all([
-        transaction.get<unknown>(headLifecycleStorageKey),
-        transaction.get<unknown>(runCommandStateStorageKey),
-        transaction.get<unknown>(tokenAuthorityStorageKey),
-      ]);
+    const acceptedPayloadFingerprintStorageKey =
+      buildRuntimeCoordinatorAcceptedDispatchPayloadFingerprintStorageKey(
+        executionId
+      );
+    const [
+      rawHead,
+      rawExistingCommandState,
+      rawExistingAuthority,
+      rawAcceptedPayloadFingerprint,
+    ] = await Promise.all([
+      transaction.get<unknown>(headLifecycleStorageKey),
+      transaction.get<unknown>(runCommandStateStorageKey),
+      transaction.get<unknown>(tokenAuthorityStorageKey),
+      transaction.get<unknown>(acceptedPayloadFingerprintStorageKey),
+    ]);
     if (rawHead === undefined) {
       return {
         ok: false,
@@ -1823,6 +1878,10 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
     if (!isRuntimeCoordinatorHeadLifecycleRecord(rawHead)) {
       throw new Error("runtime_coordinator.head_lifecycle_record_invalid");
     }
+    const existingAcceptedPayloadFingerprint =
+      parseOptionalAcceptedDispatchPayloadFingerprintRecord(
+        rawAcceptedPayloadFingerprint
+      );
 
     const targetProfileId = input.authority.executionScope.targetProfileId;
     const deliveryRequest = input.commandState.sanitizedDeliveryRequest;
@@ -1871,10 +1930,11 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
         deliveryRequest.connectionGeneration ||
       input.commandState.lastDeliveryProvenance.leaseEpoch !==
         deliveryRequest.leaseEpoch ||
-      (input.authority.acceptedDispatchPayloadFingerprint !== undefined &&
-        rawHead.acceptedDispatchSnapshot !== undefined &&
-        input.authority.acceptedDispatchPayloadFingerprint !==
-          rawHead.acceptedDispatchSnapshot.payloadFingerprint)
+      !acceptedDispatchPayloadFingerprintMatchesHead({
+        executionId,
+        head: rawHead,
+        record: existingAcceptedPayloadFingerprint,
+      })
     ) {
       return {
         ok: false,
@@ -1897,14 +1957,6 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
         reasonCode: deliveryFence,
       };
     }
-
-    const acceptedAuthority = rawHead.acceptedDispatchSnapshot
-      ? runtimeCoordinatorExecutionTokenAuthorityRecordSchema.parse({
-          ...input.authority,
-          acceptedDispatchPayloadFingerprint:
-            rawHead.acceptedDispatchSnapshot.payloadFingerprint,
-        })
-      : input.authority;
 
     const linkedHead = {
       ...rawHead,
@@ -1937,15 +1989,22 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
     const nextRunCommandStateIds = [
       ...new Set([...runCommandStateIds, executionId]),
     ].sort();
-    await Promise.all([
-      transaction.put(tokenAuthorityStorageKey, acceptedAuthority),
+    const writes: Promise<unknown>[] = [
+      transaction.put(tokenAuthorityStorageKey, input.authority),
       transaction.put(runCommandStateStorageKey, input.commandState),
       transaction.put(
         RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
         nextRunCommandStateIds
       ),
       transaction.setAlarm(input.alarmAtMs),
-    ]);
+      writeAcceptedDispatchPayloadFingerprintInTransaction({
+        executionId,
+        head: rawHead,
+        storageKey: acceptedPayloadFingerprintStorageKey,
+        transaction,
+      }),
+    ];
+    await Promise.all(writes);
     return { ok: true };
   });
 }
@@ -2258,15 +2317,23 @@ async function resolveExistingHeadLifecycleWrite(input: {
     buildRuntimeCoordinatorTokenAuthorityStorageKey(
       runtimeCoordinatorExecutionId
     );
+  const acceptedPayloadFingerprintStorageKey =
+    buildRuntimeCoordinatorAcceptedDispatchPayloadFingerprintStorageKey(
+      runtimeCoordinatorExecutionId
+    );
   const storedCurrentState = await input.transaction.get<unknown>([
     input.headLifecycleStorageKey,
     tokenAuthorityStorageKey,
+    acceptedPayloadFingerprintStorageKey,
   ]);
   const rawExistingHead = storedCurrentState.get(input.headLifecycleStorageKey);
   const rawTokenAuthority = storedCurrentState.get(tokenAuthorityStorageKey);
   if (rawExistingHead === undefined) {
     return resolveTerminalExecutionHeadReplay({
       proposedRecord: input.proposedRecord,
+      rawAcceptedPayloadFingerprint: storedCurrentState.get(
+        acceptedPayloadFingerprintStorageKey
+      ),
       rawAuthority: rawTokenAuthority,
       runtimeCoordinatorExecutionId,
     });
@@ -2374,6 +2441,7 @@ async function resolveExistingHeadLifecycleWrite(input: {
 
 function resolveTerminalExecutionHeadReplay(input: {
   proposedRecord: RuntimeCoordinatorHeadLifecycleRecord;
+  rawAcceptedPayloadFingerprint: unknown;
   rawAuthority: unknown;
   runtimeCoordinatorExecutionId: string;
 }): AgentProfileWorkCoordinatorHeadWriteResult | null {
@@ -2420,19 +2488,38 @@ function resolveTerminalExecutionHeadReplay(input: {
       status: "conflict",
     };
   }
+  const acceptedPayloadFingerprintRecord =
+    isRuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord(
+      input.rawAcceptedPayloadFingerprint
+    ) &&
+    input.rawAcceptedPayloadFingerprint.runtimeCoordinatorExecutionId ===
+      input.runtimeCoordinatorExecutionId
+      ? input.rawAcceptedPayloadFingerprint
+      : null;
   const acceptedPayloadFingerprint =
-    authority.acceptedDispatchPayloadFingerprint;
+    acceptedPayloadFingerprintRecord?.acceptedDispatchPayloadFingerprint;
   const proposedPayloadFingerprint =
     input.proposedRecord.acceptedDispatchSnapshot?.payloadFingerprint;
   if (
-    acceptedPayloadFingerprint === undefined ||
-    proposedPayloadFingerprint === undefined ||
+    acceptedPayloadFingerprint !== undefined &&
+    proposedPayloadFingerprint !== undefined &&
     acceptedPayloadFingerprint !== proposedPayloadFingerprint
   ) {
     return {
       conflictKind: "accepted_dispatch_payload",
       effectiveRecord,
       status: "conflict",
+    };
+  }
+  if (
+    acceptedPayloadFingerprint === undefined ||
+    proposedPayloadFingerprint === undefined
+  ) {
+    return {
+      compatibilityDiagnosticReasonCode:
+        "runtime_coordinator.terminal_replay_fingerprint_unavailable",
+      effectiveRecord,
+      status: "existing",
     };
   }
   return { effectiveRecord, status: "existing" };
