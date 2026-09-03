@@ -1445,7 +1445,7 @@ function formatCurrentLocalRuntimeServiceStatus(input: {
 	if (input.replyReadiness.status === "needs_repair") {
 		return formatLocalSetupActionLabel("reconnect_service");
 	}
-	return "Status unavailable";
+	return "Connection status delayed";
 }
 
 function formatOpenMeldServiceDescription(input: {

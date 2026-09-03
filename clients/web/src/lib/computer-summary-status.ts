@@ -85,7 +85,7 @@ const AGENT_SIGN_IN_NEEDED_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const AGENT_CHECK_FAILED_STATUS = {
-	label: "Couldn't check",
+	label: "Check delayed",
 	reason: "agent_check_failed",
 	showLabel: true,
 	tone: "warning",

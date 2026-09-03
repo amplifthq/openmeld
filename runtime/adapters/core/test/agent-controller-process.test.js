@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createAgentControllerProcessTableSnapshotReader } from "../dist/agent-controller-process.js";
+import {
+  createAgentControllerProcessDiscoveryDiagnosticAggregator,
+  createAgentControllerProcessTableSnapshotReader,
+} from "../dist/agent-controller-process.js";
 import {
   resolveAgentControllerSupervisedProcessIds,
   signalAgentControllerProcessTree,
   terminateRemainingAgentControllerProcesses,
 } from "../dist/index.js";
 
-test("shares one process-table snapshot across a simultaneous controller stop phase", () => {
+test("shares one async process-table snapshot across a simultaneous controller stop phase", async () => {
   let nowMs = 0;
   let readCount = 0;
   const readProcessTable = createAgentControllerProcessTableSnapshotReader({
@@ -16,21 +19,21 @@ test("shares one process-table snapshot across a simultaneous controller stop ph
     now: () => nowMs,
     readProcessTable: () => {
       readCount += 1;
-      return `snapshot-${String(readCount)}`;
+      return Promise.resolve(`snapshot-${String(readCount)}`);
     },
   });
 
-  assert.equal(readProcessTable(), "snapshot-1");
+  assert.equal(await readProcessTable(), "snapshot-1");
   nowMs = 74;
-  assert.equal(readProcessTable(), "snapshot-1");
+  assert.equal(await readProcessTable(), "snapshot-1");
   assert.equal(readCount, 1);
 
   nowMs = 75;
-  assert.equal(readProcessTable(), "snapshot-2");
+  assert.equal(await readProcessTable(), "snapshot-2");
   assert.equal(readCount, 2);
 });
 
-test("shares one process-table timeout without suppressing the bounded retry", () => {
+test("shares one async process-table timeout without suppressing the bounded retry", async () => {
   const timeoutError = Object.assign(new Error("spawnSync ps ETIMEDOUT"), {
     code: "ETIMEDOUT",
   });
@@ -42,20 +45,94 @@ test("shares one process-table timeout without suppressing the bounded retry", (
     readProcessTable: () => {
       readCount += 1;
       if (readCount === 1) {
-        throw timeoutError;
+        return Promise.reject(timeoutError);
       }
-      return "retry-snapshot";
+      return Promise.resolve("retry-snapshot");
     },
   });
 
-  assert.throws(() => readProcessTable(), timeoutError);
+  await assert.rejects(readProcessTable(), timeoutError);
   nowMs = 74;
-  assert.throws(() => readProcessTable(), timeoutError);
+  await assert.rejects(readProcessTable(), timeoutError);
   assert.equal(readCount, 1);
 
   nowMs = 100;
-  assert.equal(readProcessTable(), "retry-snapshot");
+  assert.equal(await readProcessTable(), "retry-snapshot");
   assert.equal(readCount, 2);
+});
+
+test("keeps the event loop responsive while process discovery is pending", async () => {
+  let releaseProcessTable;
+  const readProcessTable = createAgentControllerProcessTableSnapshotReader({
+    maxAgeMs: 75,
+    readProcessTable: () =>
+      new Promise((resolve) => {
+        releaseProcessTable = resolve;
+      }),
+  });
+
+  let settled = false;
+  const processTable = readProcessTable().then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+
+  releaseProcessTable("4242 1 4242");
+  assert.equal(await processTable, "4242 1 4242");
+});
+
+test("aggregates repeated discovery timeouts and records recovery", () => {
+  let nowMs = 1000;
+  const writes = [];
+  const diagnostics = createAgentControllerProcessDiscoveryDiagnosticAggregator(
+    {
+      now: () => nowMs,
+      windowMs: 60_000,
+      write: (level, event, payload) => writes.push({ event, level, payload }),
+    }
+  );
+  const timeoutError = Object.assign(new Error("Command failed: ps"), {
+    code: null,
+    killed: true,
+    signal: "SIGTERM",
+  });
+
+  diagnostics.failure({
+    error: timeoutError,
+    processId: 4242,
+    signal: "SIGKILL",
+    source: "supervision_marker",
+  });
+  nowMs += 1000;
+  diagnostics.failure({
+    error: timeoutError,
+    processId: 4343,
+    signal: "SIGKILL",
+    source: "supervision_marker",
+  });
+
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].payload.reasonCode, "process_discovery_timeout");
+  assert.equal(writes[0].payload.occurrenceCount, 1);
+
+  nowMs += 60_000;
+  diagnostics.failure({
+    error: timeoutError,
+    processId: 4444,
+    signal: "SIGKILL",
+    source: "supervision_marker",
+  });
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].payload.occurrenceCount, 3);
+  assert.deepEqual(writes[1].payload.affectedProcessIds, [4242, 4343, 4444]);
+
+  diagnostics.recovered("supervision_marker");
+  assert.equal(writes.length, 3);
+  assert.equal(writes[2].level, "info");
+  assert.equal(writes[2].payload.reasonCode, "process_discovery_recovered");
+  assert.equal(writes[2].payload.occurrenceCount, 3);
 });
 
 test("keeps reparented supervised processes after the leader exits", () => {
@@ -74,32 +151,18 @@ test("keeps reparented supervised processes after the leader exits", () => {
   assert.deepEqual(processIds, [4300, 4400]);
 });
 
-test("signals the process group when descendant inspection times out", () => {
-  const timeoutError = Object.assign(new Error("spawnSync ps ETIMEDOUT"), {
-    code: "ETIMEDOUT",
-  });
+test("signals the process group without waiting for process discovery", () => {
   const killCalls = [];
-  const discoveryFailures = [];
-  const events = [];
   const trackedDescendantProcessIds = new Set([4343]);
 
   const sent = signalAgentControllerProcessTree({
     killProcess: (processId, signal) => {
       killCalls.push({ processId, signal });
-      events.push("signal");
       return true;
     },
-    listSupervisedProcessIds: () => {
-      throw timeoutError;
-    },
     processId: 4242,
-    reportDiscoveryFailure: (failure) => {
-      discoveryFailures.push(failure);
-      events.push("diagnostic");
-    },
     signal: "SIGTERM",
     signalTarget: "process_group",
-    supervisionId: "supervision-4242",
     trackedDescendantProcessIds,
   });
 
@@ -108,15 +171,6 @@ test("signals the process group when descendant inspection times out", () => {
     { processId: -4242, signal: "SIGTERM" },
     { processId: 4343, signal: "SIGTERM" },
   ]);
-  assert.deepEqual(discoveryFailures, [
-    {
-      error: timeoutError,
-      processId: 4242,
-      signal: "SIGTERM",
-      source: "supervision_marker",
-    },
-  ]);
-  assert.deepEqual(events, ["signal", "signal", "diagnostic"]);
 });
 
 test("preserves signaling failures for task control callers", () => {
@@ -130,11 +184,9 @@ test("preserves signaling failures for task control callers", () => {
         killProcess: () => {
           throw signalError;
         },
-        listSupervisedProcessIds: () => [],
         processId: 4242,
         signal: "SIGKILL",
         signalTarget: "process_group",
-        supervisionId: "supervision-4242",
       }),
     signalError
   );
@@ -150,7 +202,7 @@ test("reports post-exit cleanup failures as an incomplete cleanup", async () => 
     killProcess: () => {
       throw cleanupError;
     },
-    listSupervisedProcessIds: () => [],
+    listSupervisedProcessIds: async () => [],
     processId: 4242,
     reportCleanupFailure: (failure) => {
       cleanupFailures.push(failure);
@@ -194,9 +246,9 @@ test("retries discovery when inspection and leader cleanup fail together", async
     listSupervisedProcessIds: () => {
       discoveryAttempts += 1;
       if (discoveryAttempts === 1) {
-        throw discoveryError;
+        return Promise.reject(discoveryError);
       }
-      return [4343];
+      return Promise.resolve([4343]);
     },
     processId: 4242,
     waitForDiscoveryRetry: async () => undefined,
@@ -237,9 +289,9 @@ test("retries supervised discovery when the leader exits during an inspection fa
     listSupervisedProcessIds: () => {
       discoveryAttempts += 1;
       if (discoveryAttempts === 1) {
-        throw timeoutError;
+        return Promise.reject(timeoutError);
       }
-      return [4343];
+      return Promise.resolve([4343]);
     },
     processId: 4242,
     reportDiscoveryFailure: (failure) => {
@@ -281,7 +333,7 @@ test("retries with a fresh scan when the exited leader had no visible descendant
     },
     listSupervisedProcessIds: () => {
       discoveryAttempts += 1;
-      return discoveryAttempts === 1 ? [] : [4343];
+      return Promise.resolve(discoveryAttempts === 1 ? [] : [4343]);
     },
     processId: 4242,
     waitForDiscoveryRetry: async () => undefined,
@@ -307,9 +359,11 @@ test("waits for the supervised discovery retry before completing cleanup", async
     listSupervisedProcessIds: () => {
       discoveryAttempts += 1;
       if (discoveryAttempts === 1) {
-        throw new Error("process table temporarily unavailable");
+        return Promise.reject(
+          new Error("process table temporarily unavailable")
+        );
       }
-      return [];
+      return Promise.resolve([]);
     },
     processId: 4242,
     signalTarget: "process_group",
