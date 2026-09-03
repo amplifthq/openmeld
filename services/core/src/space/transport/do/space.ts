@@ -4619,37 +4619,51 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       targetProfileId: input.targetProfileId,
     });
-    await this.rpcPostSignalOnceByClientMessageId({
-      authoringPolicy: "user_authored",
-      clientMessageId: continuationClientMessageId,
-      context: continuationContext,
-      messageEnvelope: {
-        activationTargets: [input.targetProfileId],
-        referenceTargets:
-          sourceSignal.data.messageEnvelope?.referenceTargets ?? [],
-        ...(sourceSignal.data.messageEnvelope?.mentionTargets
+    try {
+      await this.rpcPostSignalOnceByClientMessageId({
+        authoringPolicy: "user_authored",
+        clientMessageId: continuationClientMessageId,
+        context: continuationContext,
+        messageEnvelope: {
+          activationTargets: [input.targetProfileId],
+          referenceTargets:
+            sourceSignal.data.messageEnvelope?.referenceTargets ?? [],
+          ...(sourceSignal.data.messageEnvelope?.mentionTargets
+            ? {
+                mentionTargets:
+                  sourceSignal.data.messageEnvelope.mentionTargets,
+              }
+            : {}),
+          text: sourceSignal.data.text,
+        },
+        meta: { clientMessageId: continuationClientMessageId },
+        password: getSpaceAccessPassword(verifiedReplayAccess),
+        profile: sourceSignal.profile,
+        spaceAccess: verifiedReplayAccess,
+        spaceId: this.spaceId,
+        text: sourceSignal.data.text,
+        ...(sourceSignal.data.files ? { files: sourceSignal.data.files } : {}),
+        ...(thread
           ? {
-              mentionTargets: sourceSignal.data.messageEnvelope.mentionTargets,
+              threadContext: {
+                rootSignalId: thread.rootSignalId,
+                threadId: thread.threadId,
+              },
             }
           : {}),
-        text: sourceSignal.data.text,
-      },
-      meta: { clientMessageId: continuationClientMessageId },
-      password: getSpaceAccessPassword(verifiedReplayAccess),
-      profile: sourceSignal.profile,
-      spaceAccess: verifiedReplayAccess,
-      spaceId: this.spaceId,
-      text: sourceSignal.data.text,
-      ...(sourceSignal.data.files ? { files: sourceSignal.data.files } : {}),
-      ...(thread
-        ? {
-            threadContext: {
-              rootSignalId: thread.rootSignalId,
-              threadId: thread.threadId,
-            },
-          }
-        : {}),
-    });
+      });
+    } catch (error) {
+      if (!isUsageContinuationSourceValidationError(error)) {
+        throw error;
+      }
+      const sourceMismatch = new Error(
+        "agent_profile_work_recovery.continuation_source_mismatch",
+        { cause: error }
+      ) as Error & { code: string };
+      sourceMismatch.code =
+        "agent_profile_work_recovery.continuation_source_mismatch";
+      throw sourceMismatch;
+    }
     return {
       continuationClientMessageId,
       operationId,
@@ -17151,6 +17165,32 @@ function resolveSpaceFileAuditErrorCode(error: unknown): string {
     return error.code.trim().slice(0, 128);
   }
   return "space_file.internal_error";
+}
+
+const USAGE_CONTINUATION_SOURCE_VALIDATION_ERROR_CODES = new Set<string>([
+  SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+  SPACE_WAKE_TARGET_INVALID_ERROR_CODE,
+  "space_file.not_found",
+]);
+
+function isUsageContinuationSourceValidationError(error: unknown): boolean {
+  const visited = new Set<unknown>();
+  let current = error;
+  for (let depth = 0; depth < 4 && current !== null; depth += 1) {
+    if (visited.has(current) || typeof current !== "object") {
+      return false;
+    }
+    visited.add(current);
+    const record = current as Record<string, unknown>;
+    if (
+      typeof record.code === "string" &&
+      USAGE_CONTINUATION_SOURCE_VALIDATION_ERROR_CODES.has(record.code)
+    ) {
+      return true;
+    }
+    current = record.cause ?? null;
+  }
+  return false;
 }
 
 function isSpaceAgentStreamFrame(

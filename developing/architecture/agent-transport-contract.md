@@ -229,8 +229,14 @@ frozen interrupted dispatch/source identity and deterministic operation and
 client-message identities. It preserves the source message's canonical Space
 File revision references and structured Agent References, then Space posts
 through its ordinary exactly-once client-message writer so current file and
-addressing validation still fails closed. Repeated owner triggers resolve the
-same continuation instead of creating another handoff. It does not call the public Execution Recovery
+addressing validation still fails closed. If that writer proves the preserved
+Wake target, Agent Reference, Human Mention, or Space File revision is no longer
+valid, Space returns `continuation_source_mismatch`; the owner shard moves the
+gate to `continuation_needs_attention` and keeps later FIFO work held until the
+owner reviews or skips the interrupted work. Storage, transport, and unknown
+writer failures remain retryable against the same deterministic identity.
+Repeated owner triggers resolve the same continuation instead of creating
+another handoff. It does not call the public Execution Recovery
 `retry_as_new_execution` action. That legacy action remains parseable but is
 never enabled or executed for a user.
 One idempotent Inbox item links the original Wake. The owner may skip the exact

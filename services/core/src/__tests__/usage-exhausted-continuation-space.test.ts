@@ -1,5 +1,6 @@
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
+import { createCoreRpcHttpError } from "../rpc/errors";
 import type {
   StartUsageExhaustedContinuationInput,
   StartUsageExhaustedContinuationResponse,
@@ -9,6 +10,7 @@ import { Space } from "../space/transport/do/space";
 const SPACE_ID = "a".repeat(64);
 const TARGET_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const REFERENCE_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
+const MENTION_PROFILE_ID = "33333333-3333-4333-8333-333333333333";
 const SOURCE_SIGNAL_ID = "signal-interrupted";
 const INTERRUPTED_CLIENT_MESSAGE_ID = "client-interrupted";
 const CONTINUATION_CLIENT_MESSAGE_ID =
@@ -129,7 +131,169 @@ describe("Usage-exhausted Space continuation", () => {
       text: "Finish the original task",
     });
   });
+
+  it.each([
+    {
+      errorCode: "space.wake.target_invalid",
+      label: "Wake target",
+      sourceData: {
+        messageEnvelope: {
+          activationTargets: [TARGET_PROFILE_ID],
+          referenceTargets: [],
+          text: "Finish the original task",
+        },
+      },
+    },
+    {
+      errorCode: "space.addressing.target_invalid",
+      label: "Agent Reference",
+      sourceData: {
+        messageEnvelope: {
+          activationTargets: [TARGET_PROFILE_ID],
+          referenceTargets: [REFERENCE_PROFILE_ID],
+          text: "Finish the original task",
+        },
+      },
+    },
+    {
+      errorCode: "space.addressing.target_invalid",
+      label: "Human Mention",
+      sourceData: {
+        messageEnvelope: {
+          activationTargets: [TARGET_PROFILE_ID],
+          mentionTargets: [MENTION_PROFILE_ID],
+          referenceTargets: [],
+          text: "Finish the original task",
+        },
+      },
+    },
+    {
+      errorCode: "space_file.not_found",
+      label: "Space File revision",
+      sourceData: {
+        files: [
+          {
+            fileId: "file-removed",
+            mimeType: "application/pdf",
+            name: "removed.pdf",
+            revision: 3,
+            sizeBytes: 128,
+          },
+        ],
+        messageEnvelope: {
+          activationTargets: [TARGET_PROFILE_ID],
+          referenceTargets: [],
+          text: "Finish the original task",
+        },
+      },
+    },
+  ])("classifies an invalid $label as a definitive continuation source mismatch", async ({
+    errorCode,
+    sourceData,
+  }) => {
+    const writerError = createCoreRpcHttpError({
+      code: errorCode,
+      reason: "The preserved source is no longer valid.",
+      status: 422,
+    });
+    const sourceSignal = createSourceSignal(sourceData);
+    const postSignal = vi.fn().mockRejectedValue(writerError);
+    const space = createUsageContinuationSpaceHarness({
+      postSignal,
+      sourceSignal,
+    });
+
+    await expect(
+      space.rpcStartUsageExhaustedContinuation(continuationInput())
+    ).rejects.toMatchObject({
+      cause: writerError,
+      code: "agent_profile_work_recovery.continuation_source_mismatch",
+      message: "agent_profile_work_recovery.continuation_source_mismatch",
+    });
+    expect(postSignal).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      label: "Space File storage failure",
+      writerError: createCoreRpcHttpError({
+        code: "space_file.storage_failed",
+        reason: "Space File storage is temporarily unavailable.",
+        status: 503,
+      }),
+    },
+    {
+      label: "unknown transport failure",
+      writerError: new Error("connection reset"),
+    },
+  ])("keeps a $label retryable", async ({ writerError }) => {
+    const postSignal = vi.fn().mockRejectedValue(writerError);
+    const space = createUsageContinuationSpaceHarness({
+      postSignal,
+      sourceSignal: createSourceSignal(),
+    });
+
+    await expect(
+      space.rpcStartUsageExhaustedContinuation(continuationInput())
+    ).rejects.toBe(writerError);
+    expect(postSignal).toHaveBeenCalledOnce();
+  });
 });
+
+function createSourceSignal(dataOverrides: Record<string, unknown> = {}) {
+  return {
+    data: {
+      messageEnvelope: {
+        activationTargets: [TARGET_PROFILE_ID],
+        referenceTargets: [],
+        text: "Finish the original task",
+      },
+      meta: { clientMessageId: INTERRUPTED_CLIENT_MESSAGE_ID },
+      text: "Finish the original task",
+      ...dataOverrides,
+    },
+    id: SOURCE_SIGNAL_ID,
+    profile: {
+      kind: "human" as const,
+      profileId: "11111111-1111-4111-8111-111111111111",
+      profileName: "Mira",
+    },
+    spaceId: SPACE_ID,
+    ts: 1,
+    type: "signal.text" as const,
+    v: 1 as const,
+  };
+}
+
+function createUsageContinuationSpaceHarness(input: {
+  postSignal: ReturnType<typeof vi.fn>;
+  sourceSignal: ReturnType<typeof createSourceSignal>;
+}): UsageContinuationSpaceHarness {
+  const space = Object.create(
+    Space.prototype
+  ) as unknown as UsageContinuationSpaceHarness;
+  space.spaceId = SPACE_ID;
+  space.ctx = {
+    storage: {
+      sql: {
+        exec: () => ({ toArray: () => [] }),
+      },
+    },
+  };
+  space.applySpaceRef = vi.fn();
+  space.readSourceTextSignalById = vi.fn(() => input.sourceSignal);
+  space.rpcGetDispatchTrace = vi.fn(async () => ({
+    trace: {
+      dispatch: {
+        dispatchId: "dispatch-interrupted",
+        sourceEventId: SOURCE_SIGNAL_ID,
+        targetProfileId: TARGET_PROFILE_ID,
+      },
+    },
+  }));
+  space.rpcPostSignalOnceByClientMessageId = input.postSignal;
+  return space;
+}
 
 function continuationInput(): StartUsageExhaustedContinuationInput {
   const context = {

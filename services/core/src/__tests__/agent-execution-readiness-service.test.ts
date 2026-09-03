@@ -1827,7 +1827,7 @@ describe("Core Agent Execution Readiness", () => {
           source: "wake_failure",
         },
       },
-      primaryAction: "run_prepare",
+      primaryAction: "check_status",
     });
     expect(
       resolveAgentWakeAvailability({
@@ -1838,7 +1838,13 @@ describe("Core Agent Execution Readiness", () => {
       })
     ).toMatchObject({
       action: "none",
+      badgeLabel: "Sign-in needed",
+      category: "unavailable",
+      phase: "provider_sign_in_needed",
+      reasonCode: "controller.auth.unauthenticated",
       status: "unavailable_for_wake",
+      summary:
+        "Run codex login in a terminal on this computer to sign in to Codex.",
     });
   });
 

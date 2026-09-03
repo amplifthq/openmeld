@@ -832,8 +832,11 @@ interrupted dispatch and source message as its internal continuation authority.
 The new Wake keeps the original source message's author; the Agent owner's Human
 Profile authorizes recovery but is not shown as the original sender. Space File
 references keep their exact immutable revisions and Agent References keep their
-structured targets through the ordinary Space message writer; missing or invalid
-source content fails closed instead of producing a partial continuation.
+structured targets through the ordinary Space message writer. If that writer
+proves a preserved file revision, Wake, Reference, or Human Mention is no longer
+valid, the interrupted work moves to `Needs attention` once and keeps later work
+held for owner review. Temporary writer or storage failures retry the same
+continuation identity instead of producing a partial continuation.
 
 Owners may keep editing settings while work is queued or running under the
 existing capability rules. A running Wake keeps its accepted Binding and
