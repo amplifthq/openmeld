@@ -74,6 +74,7 @@ describe("SpaceExecutionRecoveryButton", () => {
 			<SpaceExecutionRecoveryButton
 				onRecoverExecution={inspect}
 				request={recoveryRequest}
+				unavailableFallback={<a href="/computers">Reconnect Computer</a>}
 			/>
 		);
 
@@ -81,10 +82,74 @@ describe("SpaceExecutionRecoveryButton", () => {
 		await waitFor(() => {
 			expect(screen.queryByRole("button")).toBeNull();
 		});
+		expect(
+			screen.queryByRole("link", { name: "Reconnect Computer" })
+		).toBeNull();
 		expect(consoleError).toHaveBeenCalledWith(
 			"Failed to inspect execution recovery.",
 			error
 		);
+	});
+
+	it("shows a separately confirmed current action only after execution recovery is unavailable", async () => {
+		let resolveInspection:
+			| ((value: Awaited<ReturnType<SpaceExecutionRecoveryHandler>>) => void)
+			| undefined;
+		const inspect = vi.fn<SpaceExecutionRecoveryHandler>(
+			async () =>
+				await new Promise((resolve) => {
+					resolveInspection = resolve;
+				})
+		);
+
+		render(
+			<SpaceExecutionRecoveryButton
+				onRecoverExecution={inspect}
+				request={recoveryRequest}
+				unavailableFallback={<a href="/computers">Reconnect Computer</a>}
+			/>
+		);
+
+		expect(
+			screen.queryByRole("link", { name: "Reconnect Computer" })
+		).toBeNull();
+
+		act(() => {
+			resolveInspection?.({
+				action: null,
+				label: null,
+				status: "unavailable",
+				warning: null,
+			});
+		});
+
+		await screen.findByRole("link", { name: "Reconnect Computer" });
+	});
+
+	it.each([
+		"in_progress",
+		"outcome_unknown",
+		"recovered",
+	] as const)("does not replace a %s execution outcome with a generic current action", async (status) => {
+		const inspect = vi.fn<SpaceExecutionRecoveryHandler>(async () => ({
+			action: null,
+			label: null,
+			status,
+			warning: null,
+		}));
+
+		render(
+			<SpaceExecutionRecoveryButton
+				onRecoverExecution={inspect}
+				request={recoveryRequest}
+				unavailableFallback={<a href="/computers">Reconnect Computer</a>}
+			/>
+		);
+
+		await waitFor(() => expect(inspect).toHaveBeenCalledOnce());
+		expect(
+			screen.queryByRole("link", { name: "Reconnect Computer" })
+		).toBeNull();
 	});
 
 	it("names exact-conversation recovery by its user outcome and explains that the task will not rerun", async () => {

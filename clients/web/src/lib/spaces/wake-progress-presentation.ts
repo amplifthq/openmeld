@@ -297,22 +297,10 @@ function resolveWakeIssueEntry(input: {
 
 	const plan =
 		input.agentRecoveryPlansByProfileId?.get(item.targetProfileId) ?? null;
-	if (
-		plan &&
-		plan.kind !== "none" &&
-		shouldPreferRecoveryPlanForWakeFailure(item)
-	) {
-		return [
-			{
-				action: { kind: "agent_recovery", plan },
-				body: resolveWakeIssueRecoveryFallbackDetail(plan),
-				key: resolveWakeProgressKey(item),
-				message: resolveWakeIssueMessage(item),
-				targetLabel: item.targetLabel,
-				targetProfileId: item.targetProfileId,
-			},
-		];
-	}
+	const currentAction =
+		plan && plan.kind !== "none"
+			? ({ kind: "agent_recovery", plan } as const)
+			: null;
 
 	const display = resolveWakeFailureDisplay({
 		failureReasonCode: item.failureReasonCode,
@@ -325,7 +313,7 @@ function resolveWakeIssueEntry(input: {
 	if (display) {
 		return [
 			{
-				action: { display, kind: "wake_failure" },
+				action: currentAction,
 				body: display.body,
 				key: resolveWakeProgressKey(item),
 				message: resolveWakeIssueMessage(item),
@@ -335,15 +323,11 @@ function resolveWakeIssueEntry(input: {
 		];
 	}
 
-	const fallbackPlan = item.failureReasonCode ? null : plan;
-	if (fallbackPlan) {
+	if (plan) {
 		return [
 			{
-				action:
-					fallbackPlan.kind === "none"
-						? null
-						: { kind: "agent_recovery", plan: fallbackPlan },
-				body: resolveWakeIssueRecoveryFallbackDetail(fallbackPlan),
+				action: currentAction,
+				body: resolveWakeIssueRecoveryFallbackDetail(plan),
 				key: resolveWakeProgressKey(item),
 				message: resolveWakeIssueMessage(item),
 				targetLabel: item.targetLabel,
@@ -362,16 +346,6 @@ function resolveWakeIssueEntry(input: {
 			targetProfileId: item.targetProfileId,
 		},
 	];
-}
-
-function shouldPreferRecoveryPlanForWakeFailure(
-	item: WakeProgressItem
-): boolean {
-	const reasonCode = item.failureReasonCode?.trim().toLowerCase();
-	return (
-		reasonCode === "profile.unbound" ||
-		reasonCode === "agent_profile_binding.missing"
-	);
 }
 
 function resolveWakeIssueRecoveryFallbackDetail(

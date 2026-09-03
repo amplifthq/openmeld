@@ -106,6 +106,58 @@ function createHangingFetchRequest() {
 	};
 }
 
+function createUnavailableExecutionRecovery(input: {
+	dispatchId: string;
+	targetProfileId: string;
+}) {
+	return {
+		actions: {
+			recoverResult: {
+				action: "recover_result" as const,
+				enabled: false,
+				label: "Recover result" as const,
+				reasonCode: "execution_recovery.unavailable",
+				warning: null,
+			},
+			resumeControllerConversation: {
+				action: "resume_controller_conversation" as const,
+				enabled: false,
+				label: "Recover reply" as const,
+				reasonCode: "execution_recovery.unavailable",
+				warning: null,
+			},
+			retryAsNewExecution: {
+				action: "retry_as_new_execution" as const,
+				enabled: false,
+				label: "Retry as new execution" as const,
+				reasonCode: "execution_recovery.unavailable",
+				warning: null,
+			},
+		},
+		destination: {
+			spaceId: "space-123",
+			surface: "space" as const,
+			threadId: null,
+		},
+		identity: {
+			agentControllerConversationId: null,
+			agentControllerRef: null,
+			attemptId: null,
+			dispatchId: input.dispatchId,
+			resultRef: null,
+			runtimeCoordinatorExecutionId: null,
+			spaceId: "space-123",
+			targetProfileId: input.targetProfileId,
+			taskId: null,
+		},
+		recommendedAction: null,
+		recoveredPublicationId: null,
+		status: "unavailable" as const,
+		tier: "none" as const,
+		updatedAtMs: RECENT_ACTIVITY_TS,
+	};
+}
+
 const {
 	createDirectMessageApiMock,
 	createWebSpaceApiMock,
@@ -692,6 +744,14 @@ describe("SpaceLanding", () => {
 					targetProfileId: null,
 				},
 			}),
+			inspectExecutionRecovery: vi.fn(
+				async (input: { dispatchId: string }) => ({
+					recovery: createUnavailableExecutionRecovery({
+						dispatchId: input.dispatchId,
+						targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+					}),
+				})
+			),
 			leaveSpace: vi.fn().mockResolvedValue({
 				leftProfileId: DEFAULT_SPACE_PROFILE_ID,
 				status: "left",
@@ -4288,6 +4348,16 @@ describe("SpaceLanding", () => {
 	});
 
 	it("connects a local agent for failed Wake setup recovery", async () => {
+		const membersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createWorkspaceMissingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
+			wakeState: "offline",
+			wakeability: {
+				status: "blocked",
+				reasonCodes: ["runtime.projection_missing"],
+				reasonText: "Local setup is incomplete",
+			},
+		});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -4295,16 +4365,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentExecutionReadiness:
-						createRunPrepareAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
-					wakeState: "offline",
-					wakeability: {
-						status: "blocked",
-						reasonCodes: ["runtime.projection_missing"],
-						reasonText: "Local setup is incomplete",
-					},
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -4323,26 +4384,13 @@ describe("SpaceLanding", () => {
 							text: "@runner(wake) status check",
 							ts: RECENT_ACTIVITY_TS,
 						}),
-						createTextSignal({
+						createTerminalFailureNoticeSignal({
+							actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+							dispatchId: "dispatch-1",
 							id: "sig-route-failed",
+							replyToSignalId: "sig-user",
 							text: "Couldn't route @runner right now",
 							ts: RECENT_ACTIVITY_TS + 1,
-							meta: {
-								clientMessageId: "client-message-1",
-								dispatchId: "dispatch-1",
-								errorCode: "runtime.projection_missing",
-								purpose: DISPATCH_ACTIVITY_FAILED_PURPOSE,
-								sourceClientMessageId: "client-message-1",
-								sourceEventId: "sig-user",
-								targetMentionLabel: "runner",
-								targetProfileId: DEFAULT_AGENT_PROFILE_ID,
-								transient: true,
-							},
-							profile: {
-								kind: "system",
-								profileId: "openmeld-system",
-								profileName: "OpenMeld System",
-							},
 						}),
 					],
 					nextCursor: null,
@@ -4366,11 +4414,13 @@ describe("SpaceLanding", () => {
 		const failedAgentActivity = await screen.findByRole("region", {
 			name: "Runner activity",
 		});
-		expect(
-			within(failedAgentActivity)
-				.getByRole("link", { name: "Connect local agent" })
-				.getAttribute("href")
-		).toBe("/o/acme/connect?returnTo=space&session=fresh&spaceId=space-123");
+		const connectLocalAgent = await within(failedAgentActivity).findByRole(
+			"link",
+			{ name: "Connect local agent" }
+		);
+		expect(connectLocalAgent.getAttribute("href")).toBe(
+			"/o/acme/connect?returnTo=space&session=fresh&spaceId=space-123"
+		);
 	});
 
 	it("does not guess a local agent from the profile name when routing fails", () => {

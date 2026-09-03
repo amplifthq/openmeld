@@ -363,7 +363,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.issueEntries).toEqual([]);
 	});
 
-	it("resolves current-user per-Wake service failures to the local repair action", () => {
+	it("keeps the failure reason without turning historical service state into an action", () => {
 		const copy =
 			"Runner's computer is disconnected from OpenMeld. Reconnect the computer so it can receive local Wake work.";
 		const state = resolveSpaceMessageWakeProgressState({
@@ -396,14 +396,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				targetLabel: "@runner",
 			}),
 		]);
-		expect(state.issueEntries[0]?.action).toMatchObject({
-			display: {
-				actionTarget: "prepare_setup",
-				body: copy,
-				primaryActionLabel: "Reconnect Computer",
-			},
-			kind: "wake_failure",
-		});
+		expect(state.issueEntries[0]?.action).toBeNull();
 	});
 
 	it("keeps another user's local-service Wake failure informative without local repair", () => {
@@ -434,13 +427,10 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				body: "Runner could not complete this Wake on Ming's MacBook Pro. Ask Ming Yoo to reconnect the computer and check the local agent, then wake the Agent again.",
 			}),
 		]);
-		expect(state.issueEntries[0]?.action).toMatchObject({
-			display: { actionTarget: null },
-			kind: "wake_failure",
-		});
+		expect(state.issueEntries[0]?.action).toBeNull();
 	});
 
-	it("uses the current recovery plan only when a failed Wake has no per-Wake reason", () => {
+	it("uses a current confirmed recovery plan instead of an old failure action", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			agentRecoveryPlansByProfileId: new Map([
 				[TARGET_PROFILE_ID, createConnectControllerPlan()],
@@ -448,17 +438,26 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			item: createTimelineItem(),
 			items: [
 				createWakeProgressItem({
-					failureReasonCode: null,
+					failureReasonCode: "service.not_running",
 					message: "@runner couldn't reply.",
 					phase: "failed",
 					updatedAtMs: 4,
 				}),
 			],
+			wakeFailureTargetContextsByProfileId: new Map([
+				[
+					TARGET_PROFILE_ID,
+					createWakeFailureTargetContext({
+						isCurrentUserManageable: true,
+						ownerDisplayName: "Mira",
+					}),
+				],
+			]),
 		});
 
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: "Runner is in this space, and Codex is available on this computer.",
+				body: "Runner's computer is disconnected from OpenMeld. Reconnect the computer so it can receive local Wake work.",
 			}),
 		]);
 		expect(state.issueEntries[0]?.action).toMatchObject({

@@ -1,3 +1,4 @@
+import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import type {
 	GetSpaceMessageDetailsResponse,
 	PostSpaceWakeStopResponse,
@@ -30,7 +31,6 @@ import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 const useQueryMock = vi.hoisted(() => vi.fn());
 const REPORT_POINTER_COPY_PATTERN =
 	/The report sends message IDs and system trace pointers/;
-const AGENTS_RECOVERY_HREF_PATTERN = /\/agents$/u;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
 const REFERENCED_SPACE_ID = "d".repeat(64);
 
@@ -533,13 +533,16 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(screen.queryByRole("heading", { name: "Replies" })).toBeNull();
 	});
 
-	it("keeps a historical failure notice verbatim and links its known reason to recovery", () => {
+	it("keeps a historical failure notice verbatim and uses the current confirmed recovery", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
 		const persistedNoticeText = "Runner needs setup before it can reply.";
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_triage", createChooseControllerPlan("agt_triage", "Runner")],
+			]),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -564,8 +567,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const recoveryLink = within(reasonSection).getByRole("link", {
 			name: "Choose local agent",
 		});
-		expect(recoveryLink.getAttribute("href")).toMatch(
-			AGENTS_RECOVERY_HREF_PATTERN
+		expect(recoveryLink.getAttribute("href")).toBe(
+			"/o/acme/agents?profileId=agt_triage"
 		);
 	});
 
@@ -575,6 +578,17 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					"agt_opencode",
+					createReviewAgentPlan({
+						actionId: "review_agent_permissions",
+						actionLabel: "Review Agent Profile permissions",
+						profileId: "agt_opencode",
+						profileName: "OpenCode Agent",
+					}),
+				],
+			]),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -595,8 +609,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const recoveryLink = screen.getByRole("link", {
 			name: "Review Agent Profile permissions",
 		});
-		expect(recoveryLink.getAttribute("href")).toMatch(
-			AGENTS_RECOVERY_HREF_PATTERN
+		expect(recoveryLink.getAttribute("href")).toBe(
+			"/o/acme/agents?profileId=agt_opencode"
 		);
 	});
 
@@ -607,6 +621,9 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const onRetryWakeTarget = vi.fn().mockResolvedValue(undefined);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_triage", createChooseControllerPlan("agt_triage", "Runner")],
+			]),
 			item: createTimelineItem({
 				id: "sig-human",
 				text: "@Runner check the release build",
@@ -828,6 +845,43 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeTruthy();
 	});
 
+	it("does not bypass exact recovery inspection when the recovery handler is unavailable", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					"agt_cursor",
+					createReviewComputerPlan({
+						actionId: "reconnect_openmeld_service",
+						actionLabel: "Reconnect Computer",
+						profileId: "agt_cursor",
+						profileName: "Cursor",
+					}),
+				],
+			]),
+			replyItems: [
+				createTimelineItem({
+					id: "sig-cursor-failure",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeDispatchId: "dispatch-cursor",
+					systemNoticeTargetProfileId: "agt_cursor",
+					systemNoticeType: "terminal_failure",
+					text: "Cursor could not reply.",
+				}),
+			],
+			targetProfileDisplayNamesByProfileId: new Map([["agt_cursor", "Cursor"]]),
+		});
+
+		expect(screen.getByText("Cursor could not reply.")).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Reconnect Computer" })
+		).toBeNull();
+	});
+
 	it("explains a reply-publication failure with one recovery action", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
@@ -851,6 +905,17 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					"agt_cursor",
+					createReviewComputerPlan({
+						actionId: "reconnect_openmeld_service",
+						actionLabel: "Reconnect Computer",
+						profileId: "agt_cursor",
+						profileName: "Cursor",
+					}),
+				],
+			]),
 			item: createTimelineItem({
 				id: "sig-human",
 				text: "Run the release check",
@@ -883,6 +948,11 @@ describe("SpaceMessageDetailsDrawer", () => {
 			name: "Recover reply",
 		});
 		expect(
+			within(reasonSection).queryByRole("link", {
+				name: "Reconnect Computer",
+			})
+		).toBeNull();
+		expect(
 			within(reasonSection).getByText(
 				"OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again."
 			)
@@ -901,12 +971,21 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeNull();
 	});
 
-	it("links Cursor plan limits to Cursor instead of local-agent setup", () => {
+	it("links a currently confirmed Cursor plan limit after exact recovery is unavailable", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_cursor", createProviderAccountPlan("agt_cursor", "Cursor")],
+			]),
+			onRecoverExecution: async () => ({
+				action: null,
+				label: null,
+				status: "unavailable",
+				warning: null,
+			}),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-cursor-plan-failure",
@@ -924,7 +1003,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const reasonSection = getActivityRegion("Cursor");
-		const managePlan = within(reasonSection).getByRole("link", {
+		const managePlan = await within(reasonSection).findByRole("link", {
 			name: "Manage Cursor plan",
 		});
 		expect(managePlan.getAttribute("href")).toBe(
@@ -1157,6 +1236,9 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_runner", createChooseControllerPlan("agt_runner", "Runner")],
+			]),
 			item: createTimelineItem({
 				id: "sig-human",
 				wakeTargetProfileIds: ["agt_runner"],
@@ -1231,12 +1313,23 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(screen.getByText("Technical details")).toBeTruthy();
 	});
 
-	it("links a manageable local-service failure to its shared recovery target", () => {
+	it("links a confirmed current local-service blocker to Computer recovery", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					"agt_triage",
+					createReviewComputerPlan({
+						actionId: "reconnect_openmeld_service",
+						actionLabel: "Reconnect Computer",
+						profileId: "agt_triage",
+						profileName: "Runner",
+					}),
+				],
+			]),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -1267,6 +1360,37 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(recoveryLink.getAttribute("href")).toMatch(
 			COMPUTERS_RECOVERY_HREF_PATTERN
 		);
+	});
+
+	it("keeps the failure outcome but hides a stale reconnect after the Agent is connected", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map(),
+			replyItems: [
+				createTimelineItem({
+					id: "sig-terminal-failure",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeReasonCode: "service.not_running",
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeType: "terminal_failure",
+					text: "Runner could not reply because its computer disconnected.",
+				}),
+			],
+			targetProfileDisplayNamesByProfileId: new Map([["agt_triage", "Runner"]]),
+		});
+
+		expect(
+			screen.getByText(
+				"Runner could not reply because its computer disconnected."
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Reconnect Computer" })
+		).toBeNull();
 	});
 
 	it("shows a cross-workspace Agent failure without a dead-end action", () => {
@@ -1599,7 +1723,83 @@ function getActivityRegion(name: string): HTMLElement {
 	return screen.getByRole("region", { name: `${name} activity` });
 }
 
+function createChooseControllerPlan(
+	profileId: string,
+	profileName: string
+): AgentProfileReplyRecoveryPlan {
+	return {
+		body: `Choose the local agent that should control ${profileName}.`,
+		kind: "choose_controller",
+		primaryActionId: "choose_local_agent",
+		primaryActionLabel: "Choose local agent",
+		profileId,
+		profileName,
+		recoveryReasonCode: "agent_profile_binding.missing",
+		secondaryLabel: "No local agent is connected.",
+		title: "Choose a local agent",
+	};
+}
+
+function createReviewAgentPlan(input: {
+	actionId: "review_agent_permissions";
+	actionLabel: string;
+	profileId: string;
+	profileName: string;
+}): AgentProfileReplyRecoveryPlan {
+	return {
+		body: `Review ${input.profileName}'s permissions before waking it again.`,
+		kind: "review_agent_profile",
+		primaryActionId: input.actionId,
+		primaryActionLabel: input.actionLabel,
+		profileId: input.profileId,
+		profileName: input.profileName,
+		recoveryReasonCode: "permission.denied.runtime",
+		secondaryLabel: "The Agent Profile blocked this action.",
+		title: "Review Agent Profile permissions",
+	};
+}
+
+function createProviderAccountPlan(
+	profileId: string,
+	profileName: string
+): AgentProfileReplyRecoveryPlan {
+	return {
+		body: `Review the provider plan for ${profileName}.`,
+		kind: "review_provider_account",
+		primaryActionId: "manage_cursor_plan",
+		primaryActionLabel: "Manage Cursor plan",
+		profileId,
+		profileName,
+		recoveryReasonCode: "cursor.plan_upgrade_required",
+		secondaryLabel: "The Cursor plan needs attention.",
+		title: "Manage Cursor plan",
+	};
+}
+
+function createReviewComputerPlan(input: {
+	actionId: "reconnect_openmeld_service" | "update_openmeld_service";
+	actionLabel: string;
+	profileId: string;
+	profileName: string;
+}): AgentProfileReplyRecoveryPlan {
+	return {
+		body: `${input.actionLabel} before waking ${input.profileName} again.`,
+		kind: "review_computer",
+		primaryActionId: input.actionId,
+		primaryActionLabel: input.actionLabel,
+		profileId: input.profileId,
+		profileName: input.profileName,
+		recoveryReasonCode: "service.not_running",
+		secondaryLabel: `${input.profileName}'s computer is not connected.`,
+		title: input.actionLabel,
+	};
+}
+
 function renderMessageDetailsPanel(input?: {
+	agentRecoveryPlansByProfileId?: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
 	canJumpToMessage?: (signalId: string) => boolean;
 	item?: SpaceTimelineItem;
 	onJumpToMessage?: (signalId: string) => void;
@@ -1628,6 +1828,7 @@ function renderMessageDetailsPanel(input?: {
 	const item = input?.item ?? createTimelineItem({ id: "sig-human" });
 	return render(
 		<SpaceMessageDetailsDrawer
+			agentRecoveryPlansByProfileId={input?.agentRecoveryPlansByProfileId}
 			canJumpToMessage={
 				input?.canJumpToMessage ??
 				((signalId) =>
