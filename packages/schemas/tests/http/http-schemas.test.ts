@@ -1890,6 +1890,21 @@ describe("http schemas", () => {
       });
       expect(validAround.success).toBe(true);
 
+      const exactAnchor = listSignalsQuerySchema.safeParse({
+        afterTs: null,
+        cursor: null,
+        limit: null,
+        recent: null,
+        afterSignalId: null,
+        aroundSignalId: "sig-anchor-exact",
+        beforeCount: "0",
+        afterCount: "0",
+        fromProfileIds: [],
+        signalTypes: ["signal.text"],
+        hasLimit: false,
+      });
+      expect(exactAnchor.success).toBe(true);
+
       const invalidMixedAnchors = listSignalsQuerySchema.safeParse({
         afterTs: null,
         cursor: null,

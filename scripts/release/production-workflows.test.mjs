@@ -408,12 +408,17 @@ test("routes every agent to one delivery contract without duplicating it", () =>
   assert.ok(delivery.includes("OpenMeld Final Candidate"));
   assert.ok(delivery.includes("trusted-final-candidate.sh"));
   assert.ok(delivery.includes("cancel-in-progress: false"));
+  assert.ok(delivery.includes("gh pr merge <pr-number> --merge"));
+  assert.ok(delivery.includes("Do not pass `--delete-branch`"));
   assert.ok(delivery.includes("Health And Real-User Smoke"));
   assert.ok(
     development.includes("section owns only the lower-level test commands")
   );
   assert.ok(
     release.includes("used to invent a second merge or evidence contract")
+  );
+  assert.ok(
+    release.includes("node scripts/release/prepare-release-worktree.mjs")
   );
 });
 

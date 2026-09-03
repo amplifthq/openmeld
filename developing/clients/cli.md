@@ -1331,7 +1331,9 @@ Profile selection.
 conversation history without presence-event noise. Brief mode caps every
 message body at 1,200 Unicode code points, reports the original character count
 and truncation fact, and gives an exact anchored non-brief command when the
-caller genuinely needs one complete message. Raw JSON and ordinary non-brief
+caller genuinely needs one complete message. An anchored read always includes
+the anchor itself; `--before 0 --after 0` therefore means exactly that one
+message rather than an invalid empty window. Raw JSON and ordinary non-brief
 history remain complete. `space status` is the current
 Space/member status check. Its Human View labels the independent access facts
 as `Organization visibility` and `Link access`; Agent View and explicit JSON
