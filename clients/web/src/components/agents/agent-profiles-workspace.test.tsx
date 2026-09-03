@@ -167,6 +167,26 @@ describe("AgentProfilesWorkspace", () => {
 		]);
 	});
 
+	it("puts a newly created idle Agent ahead of older idle activity", () => {
+		const groups = resolveAgentProfileSidebarGroups({
+			currentUserId: CURRENT_USER_ID,
+			profiles: [
+				createProfile("agent-used", CURRENT_USER_ID, "Felix", "Used Agent", {
+					createdAt: "2026-08-01T00:00:00.000Z",
+					lastUsedAt: "2026-09-02T09:00:00.000Z",
+				}),
+				createProfile("agent-new", CURRENT_USER_ID, "Felix", "New Agent", {
+					createdAt: "2026-09-03T09:00:00.000Z",
+					lastUsedAt: null,
+				}),
+			],
+		});
+
+		expect(
+			groups[0]?.profiles.map((profile) => profile.openMeldProfileId)
+		).toEqual(["agent-new", "agent-used"]);
+	});
+
 	it("keeps Agent requests fixed above owner groups and uses the Core request count", () => {
 		renderWorkspace({ pendingRequestCount: 2 });
 

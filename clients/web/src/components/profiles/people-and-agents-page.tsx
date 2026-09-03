@@ -371,10 +371,14 @@ function AgentsWorkspaceHome(input: {
 			string,
 			AgentProfileOperationalContextInput
 		>();
+		const ownerAvatarUrlByUserId = new Map<string, string | null>();
 		const readinessByProfileId = new Map<
 			string,
 			OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
 		>();
+		for (const member of input.profileDirectoryQuery.data?.members ?? []) {
+			ownerAvatarUrlByUserId.set(member.userId, member.user.image);
+		}
 		for (const profile of input.profileDirectoryQuery.data?.agentProfiles ??
 			[]) {
 			if (profile.managedRole === "center_agent") {
@@ -397,10 +401,16 @@ function AgentsWorkspaceHome(input: {
 				);
 			}
 		}
-		return { operationalContextByProfileId, profiles, readinessByProfileId };
+		return {
+			operationalContextByProfileId,
+			ownerAvatarUrlByUserId,
+			profiles,
+			readinessByProfileId,
+		};
 	}, [
 		input.currentUserId,
 		input.profileDirectoryQuery.data?.agentProfiles,
+		input.profileDirectoryQuery.data?.members,
 		input.runtimeOverviewQuery.data?.agentProfiles,
 	]);
 	const agentProfiles = organizationAgentProjection.profiles;
@@ -602,6 +612,9 @@ function AgentsWorkspaceHome(input: {
 			input={input}
 			normalizedSearchQuery={normalizedSearchQuery}
 			operationalContextByProfileId={operationalContextByProfileId}
+			ownerAvatarUrlByUserId={
+				organizationAgentProjection.ownerAvatarUrlByUserId
+			}
 			pendingProfileIds={pendingProfileIds}
 			pendingRequestCount={pendingRequestCount}
 			profilesErrorMessage={profilesErrorMessage}
@@ -633,6 +646,7 @@ function AgentsWorkspaceHomeView(input: {
 		string,
 		AgentProfileOperationalContextInput
 	>;
+	ownerAvatarUrlByUserId: ReadonlyMap<string, string | null>;
 	pendingProfileIds: ReadonlySet<string>;
 	pendingRequestCount: number;
 	profilesErrorMessage: string | undefined;
@@ -688,6 +702,7 @@ function AgentsWorkspaceHomeView(input: {
 					focusProfileId={profile.openMeldProfileId}
 					isCurrentComputer={true}
 					key={profile.openMeldProfileId}
+					ownerAvatarUrlByUserId={input.ownerAvatarUrlByUserId}
 					presentation="detail"
 					queryClient={input.queryClient}
 					recovery={workspace.recovery}
@@ -712,6 +727,7 @@ function AgentsWorkspaceHomeView(input: {
 					fallbackOwnerLabel={workspace.fallbackOwnerLabel}
 					focusProfileId={null}
 					isCurrentComputer={true}
+					ownerAvatarUrlByUserId={input.ownerAvatarUrlByUserId}
 					presentation="controller"
 					queryClient={input.queryClient}
 					recovery={workspace.recovery}

@@ -802,6 +802,38 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
+	it("lets a user change the selected local agent more than once", async () => {
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					displayName: "Codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+				buildCatalogEntry({
+					agentId: "claude-code",
+					displayName: "Claude Code",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+
+		const claudeCode = await screen.findByRole<HTMLInputElement>("radio", {
+			name: "Claude Code",
+		});
+		expect(claudeCode.disabled).toBe(false);
+		fireEvent.click(claudeCode);
+		await waitFor(() => expect(claudeCode.checked).toBe(true));
+		const codex = screen.getByRole<HTMLInputElement>("radio", {
+			name: "Codex",
+		});
+		expect(codex.disabled).toBe(false);
+		fireEvent.click(codex);
+		await waitFor(() => expect(codex.checked).toBe(true));
+	});
+
 	it("prefills a working Session Resume and gives only the lightweight Fork suggestion", async () => {
 		renderCreateProfileDialog({
 			agentActivitySessionPreset: {
@@ -1596,7 +1628,9 @@ describe("CreateProfileDialog", () => {
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(addMembersMock).not.toHaveBeenCalled();
 		await waitFor(() => {
-			expect(toastSuccessMock).toHaveBeenCalledWith("Agent created.");
+			expect(toastSuccessMock).toHaveBeenCalledWith(
+				"Agent created. Checking its connection now."
+			);
 		});
 	});
 
@@ -1725,6 +1759,36 @@ describe("CreateProfileDialog", () => {
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(addMembersMock).not.toHaveBeenCalled();
 		expect(recordProfileSpaceHistoryMock).not.toHaveBeenCalled();
+	});
+
+	it("refreshes the created Agent before opening its Profile Details", async () => {
+		const onAgentRequestCreated = vi.fn();
+		const { queryClient } = renderCreateProfileDialog({
+			onAgentRequestCreated,
+			organizationId: "organization-123",
+		});
+		let finishRefresh: () => void = () => undefined;
+		const refreshGate = new Promise<void>((resolve) => {
+			finishRefresh = resolve;
+		});
+		vi.spyOn(queryClient, "invalidateQueries").mockReturnValue(refreshGate);
+
+		await fillProfileForm({
+			kind: AGENT_PROFILE_CARD_PATTERN,
+			name: "Research Agent",
+		});
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledTimes(1);
+		});
+		expect(onAgentRequestCreated).not.toHaveBeenCalled();
+
+		finishRefresh();
+		await waitFor(() => {
+			expect(onAgentRequestCreated).toHaveBeenCalledWith(
+				expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
+			);
+		});
 	});
 
 	it("reports Core's partial result without repeating local Binding or Space writes", async () => {

@@ -306,7 +306,6 @@ function buildConnectionSection(input: {
       label: "Model",
       source: "binding",
       value: input.modelDetail,
-      visibility: "owner_self",
     }),
   ]);
 }

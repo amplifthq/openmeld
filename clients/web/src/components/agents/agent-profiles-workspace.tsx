@@ -611,6 +611,7 @@ function resolveAgentProfileControllerRef(
 ): string | null {
 	return (
 		readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
+		readiness?.publicProfileConfiguration?.agentControllerRef ??
 		readiness?.agentControllerRef ??
 		null
 	);

@@ -127,11 +127,11 @@ function compareAgentProfileActivity(
 	if (operationalPriorityDelta !== 0) {
 		return operationalPriorityDelta;
 	}
-	const lastUsedDelta =
-		resolveActivityTimestamp(right.lastUsedAt) -
-		resolveActivityTimestamp(left.lastUsedAt);
-	if (lastUsedDelta !== 0) {
-		return lastUsedDelta;
+	const recencyDelta =
+		resolveProfileRecencyTimestamp(right) -
+		resolveProfileRecencyTimestamp(left);
+	if (recencyDelta !== 0) {
+		return recencyDelta;
 	}
 	return 0;
 }
@@ -154,4 +154,11 @@ function resolveActivityTimestamp(value: string | null): number {
 	}
 	const timestamp = Date.parse(value);
 	return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function resolveProfileRecencyTimestamp(profile: AuthProfileView): number {
+	return Math.max(
+		resolveActivityTimestamp(profile.createdAt),
+		resolveActivityTimestamp(profile.lastUsedAt)
+	);
 }
