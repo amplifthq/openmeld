@@ -203,11 +203,18 @@ local facts and freshness only. The Core lane produces the single Wakeability
 verdict from the implemented owner inputs. Touched paths stop making duplicate
 current-versus-history decisions and preserve the owner of each answer.
 
+This batch must stop using a historical Wake failure or persisted
+`readinessImpact` as a direct input to later Wakeability. When old failure
+evidence suggests that a blocker may still exist, Core must reread or reconfirm
+the current fact from its owner before producing the current verdict.
+
 Existing aggregate APIs and compatibility entrypoints may remain when they
-delegate to the same owner answer. Narrower reads, removal of the implemented
-`readinessImpact` lifecycle, list/runtime separation, and targeted invalidation
-are follow-ups only where behavior and measurement justify them; they are not
-automatic Batch 2 completion requirements.
+delegate to the same owner answer. Narrower reads, list/runtime separation, and
+targeted invalidation are follow-ups only where behavior and measurement justify
+them. The physical removal of `readinessImpact` persistence, historical
+diagnostic use, tables, schemas, and lifecycle code may also remain a follow-up
+after it no longer decides Wakeability. None of those cleanup items is an
+automatic Batch 2 completion requirement.
 
 The same pull requests update
 `developing/architecture/local-openmeld-service.md`,
