@@ -19,18 +19,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@openmeld/ui/components/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CaretDownIcon,
 	ChatCircleTextIcon,
 	CopyIcon,
-	DotsThreeIcon,
 	InfoIcon,
 	PencilSimpleIcon,
 } from "@phosphor-icons/react";
@@ -109,6 +102,7 @@ export function ProfileDetailsDialog(input: {
 		description = "See what this Agent is doing and how it is set up.";
 		content = (
 			<AgentProfileDetailsContent
+				actionPresentation="dialog"
 				configurationContent={input.agentConfigurationContent}
 				details={input.details}
 				entry={input.agentEntry}
@@ -152,6 +146,7 @@ export function ProfileDetailsDialog(input: {
 }
 
 export function AgentProfileDetailsContent(input: {
+	actionPresentation: "dialog" | "popover";
 	className?: string;
 	configurationContent?: ReactNode;
 	details: ProfileDetailsSnapshot;
@@ -170,6 +165,7 @@ export function AgentProfileDetailsContent(input: {
 			data-testid="profile-details-dialog-scroll-area"
 		>
 			<AgentProfileDetailsHeader
+				actionPresentation={input.actionPresentation}
 				canEdit={canEdit}
 				details={input.details}
 				entry={input.entry}
@@ -188,12 +184,12 @@ export function AgentProfileDetailsContent(input: {
 				details={input.details}
 				show={input.showConfiguration !== false}
 			/>
-			<AgentProfileDetailsLink canEdit={canEdit} href={input.moreDetailsHref} />
 		</div>
 	);
 }
 
 function AgentProfileDetailsHeader(input: {
+	actionPresentation: "dialog" | "popover";
 	canEdit: boolean;
 	details: ProfileDetailsSnapshot;
 	entry: SpaceMemberDirectoryEntry;
@@ -253,7 +249,8 @@ function AgentProfileDetailsHeader(input: {
 					</p>
 				) : null}
 			</div>
-			<AgentProfileMoreMenu
+			<AgentProfileDetailsAction
+				actionPresentation={input.actionPresentation}
 				canEdit={input.canEdit}
 				href={input.moreDetailsHref}
 				profileName={input.entry.profileName}
@@ -262,7 +259,8 @@ function AgentProfileDetailsHeader(input: {
 	);
 }
 
-function AgentProfileMoreMenu(input: {
+function AgentProfileDetailsAction(input: {
+	actionPresentation: "dialog" | "popover";
 	canEdit: boolean;
 	href?: string;
 	profileName: string;
@@ -270,33 +268,38 @@ function AgentProfileMoreMenu(input: {
 	if (!input.href) {
 		return null;
 	}
+	if (input.actionPresentation === "popover") {
+		if (!input.canEdit) {
+			return null;
+		}
+		return (
+			<a
+				aria-label={`Edit ${input.profileName}`}
+				className={cn(
+					buttonVariants({ size: "icon-sm", variant: "ghost" }),
+					"shrink-0"
+				)}
+				href={input.href}
+			>
+				<PencilSimpleIcon aria-hidden="true" />
+			</a>
+		);
+	}
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger
-				render={
-					<Button
-						aria-label={`More options for ${input.profileName}`}
-						size="icon-sm"
-						type="button"
-						variant="ghost"
-					>
-						<DotsThreeIcon aria-hidden="true" />
-					</Button>
-				}
-			/>
-			<DropdownMenuContent align="end" className="w-40">
-				<DropdownMenuItem
-					onClick={() => window.location.assign(input.href ?? "")}
-				>
-					{input.canEdit ? (
-						<PencilSimpleIcon aria-hidden="true" />
-					) : (
-						<InfoIcon aria-hidden="true" />
-					)}
-					{input.canEdit ? "Edit Agent" : "Check more"}
-				</DropdownMenuItem>
-			</DropdownMenuContent>
-		</DropdownMenu>
+		<a
+			className={cn(
+				buttonVariants({ size: "default", variant: "outline" }),
+				"min-h-10 shrink-0 justify-center px-4"
+			)}
+			href={input.href}
+		>
+			{input.canEdit ? (
+				<PencilSimpleIcon aria-hidden="true" />
+			) : (
+				<InfoIcon aria-hidden="true" />
+			)}
+			{input.canEdit ? "Check more or edit" : "Check more"}
+		</a>
 	);
 }
 
@@ -385,28 +388,6 @@ function AgentProfileConfigurationSection(input: {
 	);
 }
 
-function AgentProfileDetailsLink(input: { canEdit: boolean; href?: string }) {
-	if (!input.href) {
-		return null;
-	}
-	return (
-		<a
-			className={cn(
-				buttonVariants({ size: "default", variant: "outline" }),
-				"mt-5 ml-auto flex min-h-10 w-fit justify-center px-4"
-			)}
-			href={input.href}
-		>
-			{input.canEdit ? (
-				<PencilSimpleIcon aria-hidden="true" />
-			) : (
-				<InfoIcon aria-hidden="true" />
-			)}
-			{input.canEdit ? "Check more or edit" : "Check more"}
-		</a>
-	);
-}
-
 export function AgentProfileDetailsPopover(input: {
 	details: ProfileDetailsSnapshot;
 	entry: SpaceMemberDirectoryEntry;
@@ -438,6 +419,7 @@ export function AgentProfileDetailsPopover(input: {
 						role="dialog"
 					>
 						<AgentProfileDetailsContent
+							actionPresentation="popover"
 							className="max-h-[min(34rem,calc(var(--available-height)-2rem))]"
 							details={input.details}
 							entry={input.entry}

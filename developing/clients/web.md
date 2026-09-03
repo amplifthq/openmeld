@@ -1849,11 +1849,15 @@ low-frequency actions remain in the overflow menu. This presentation does not
 create a second Agent Profile, Binding, readiness, request, or edit authority.
 Agent identity controls in messages, Threads, and other in-context collaboration
 surfaces open one compact Profile Details popover. The Members panel opens the
-same content in a larger **Check this Profile** dialog. Both presentations show
-the Agent identity, current Presence and Activity, a **Direct Message** action,
-the same configuration cards, and **More Details** navigation to the canonical
-Agent route. Owners edit supported settings from those cards; other viewers see
-the same cards read-only. The overflow contains only non-destructive actions.
+same content in a larger **Check this Agent** dialog. Both presentations show
+the Agent identity, current Presence and Activity, and a primary **Chat with
+{Agent name}** action. The compact popover omits configuration cards and gives
+the owner one persistent pencil action to open the canonical Agent route; it
+shows no edit affordance to other viewers. The larger dialog keeps the shared
+configuration cards and places **Check more or edit** in the header for the
+owner, or **Check more** for other viewers. Neither presentation adds an
+overflow menu. Owners edit supported settings from the canonical route or the
+dialog cards; other viewers see the same dialog cards read-only.
 Web must not maintain a separate About-versus-Edit presentation or mutation
 path. Disruptive Controller and working-folder changes keep the account-wide
 execution lock and Core writer guard described below.

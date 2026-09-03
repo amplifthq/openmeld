@@ -3993,6 +3993,7 @@ describe("SpaceConversationPanel", () => {
 	it("opens the exact structured Wake target from an inline Agent mention", () => {
 		const membersSnapshot = createWakeReceiptMembersSnapshot();
 		renderSpaceConversationPanel({
+			currentOwnerUserId: "user_felix",
 			membersSnapshot,
 			timelineItems: [
 				createStructuredWakeTimelineItem({
@@ -4013,6 +4014,17 @@ describe("SpaceConversationPanel", () => {
 		expect(dialog.queryByText("How this Agent works")).toBeNull();
 		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
 		expect(dialog.getByText("Available for Wake")).toBeTruthy();
+		expect(
+			dialog
+				.getByRole("link", { name: "Edit Codex 5.6 Sol" })
+				.getAttribute("href")
+		).toBe(`/o/acme/agents?profileId=${TARGET_PROFILE_ID}`);
+		expect(dialog.queryByText("Check more or edit")).toBeNull();
+		expect(
+			dialog.queryByRole("button", {
+				name: "More options for Codex 5.6 Sol",
+			})
+		).toBeNull();
 	});
 
 	it("keeps historical profile headers passive when the member entry is unavailable", () => {

@@ -210,9 +210,14 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("thread-codex-1")).toBeNull();
 		expect(screen.getByText("How this Agent works")).toBeTruthy();
+		const detailsLink = screen.getByRole("link", {
+			name: "Check more or edit",
+		});
+		expect(detailsLink).toBeTruthy();
+		expect(detailsLink.parentElement?.className).toContain("items-start");
 		expect(
-			screen.getByRole("link", { name: "Check more or edit" })
-		).toBeTruthy();
+			screen.queryByRole("button", { name: "More options for Codex" })
+		).toBeNull();
 		expect(screen.getByText("Workspace directory")).toBeTruthy();
 		expect(screen.getByText("/Users/felix/project")).toBeTruthy();
 		expect(
