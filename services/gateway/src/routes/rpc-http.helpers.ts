@@ -287,23 +287,6 @@ export async function executeRpcRoute(
   }
 }
 
-export function respondAgentProfileOrganizationOwnershipRequired(
-  input: Pick<ExecuteRpcRouteInput, "c" | "method" | "route">
-): Promise<Response> {
-  return executeRpcRoute({
-    ...input,
-    execute: () => {
-      const error = new Error(
-        "Agent Profiles can only be used in the workspace where they were created."
-      ) as Error & { code: string; status: number };
-      error.code = "agent_profile.organization_ownership_required";
-      error.status = 410;
-      return Promise.reject(error);
-    },
-    retryMode: "none",
-  });
-}
-
 export async function executePublicRpcRoute(
   input: ExecutePublicRpcRouteInput
 ): Promise<Response> {
