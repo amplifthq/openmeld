@@ -4,6 +4,9 @@ title: Create and understand Agents without misleading gaps
 kind: fixed
 areas: ["agents", "web"]
 audiences: ["members"]
+publishedAt: 2026-09-03
+release: v0.3.149
+evidence: ["pr:585", "commit:9cfabe2c", "workflow:33723770346", "workflow:33724852824"]
 ---
 
 New Agents now appear immediately at the top of their owner's list and show an

@@ -65,6 +65,8 @@ export function AgentConfigurationCard(input: {
 	readOnly?: boolean;
 	status?: "idle" | "saving" | "saved";
 	summary: string;
+	summaryClassName?: string;
+	summaryTitle?: string;
 }) {
 	const card = (
 		<div
@@ -85,7 +87,13 @@ export function AgentConfigurationCard(input: {
 					</span>
 					{resolveConfigurationStatus(input.status)}
 				</span>
-				<span className="mt-1 block break-words font-medium text-sm leading-5">
+				<span
+					className={cn(
+						"mt-1 block break-words font-medium text-sm leading-5",
+						input.summaryClassName
+					)}
+					title={input.summaryTitle}
+				>
 					{input.summary}
 				</span>
 				{input.description ? (

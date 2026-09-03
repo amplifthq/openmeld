@@ -2,6 +2,27 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "clearer-agent-creation-and-team-details",
+      "title": "Create and understand Agents without misleading gaps",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-03",
+      "release": "v0.3.149",
+      "evidence": [
+        "pr:585",
+        "commit:9cfabe2c",
+        "workflow:33723770346",
+        "workflow:33724852824"
+      ],
+      "body": "New Agents now appear immediately at the top of their owner's list and show an\nhonest checking state while Wake availability loads, without briefly claiming\nthe Agent does not exist or cannot be reached. The local Agent picker also keeps\nthe user's latest choice instead of snapping back to an earlier selection.\nTeammates can see the same safe Agent identity, avatar, public setup, and compact\nactivity summary whether the Agent is available, checking, or offline, while\nprivate computer and local execution details remain owner-only."
+    },
+    {
       "id": "fast-agent-space-add-me",
       "title": "Add the current Agent to a Space without profile scans",
       "kind": "improved",
