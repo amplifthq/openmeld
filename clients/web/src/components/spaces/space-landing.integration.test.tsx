@@ -8785,6 +8785,23 @@ describe("SpaceLanding", () => {
 	});
 
 	it("keeps a stale-Available Wake draft editable and sends it after switching to Reference", async () => {
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			currentDeviceTargetQuery: {
+				data: {
+					availability: "resolved",
+					deviceId: "device-office",
+				},
+			},
+			selectedTargetDevice: {
+				deviceId: "device-office",
+				deviceDisplayName: "Office Mac mini",
+			},
+			refreshAll: vi.fn().mockResolvedValue(undefined),
+			runtimeLane: "dev-local",
+			startStateQuery: {
+				data: createStartStateWithCodexCatalog(),
+			},
+		});
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				id: "sig-runner-reference",
@@ -8793,10 +8810,37 @@ describe("SpaceLanding", () => {
 		);
 		const currentMembersSnapshot = createMembersSnapshot({
 			defaultAgentExecutionReadiness:
-				createServiceNotConnectedAgentExecutionReadiness(
-					DEFAULT_AGENT_PROFILE_ID
-				),
+				createMissingBindingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
 		}) as SpaceMembersSnapshot;
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		});
+		const setQueryDataMock = vi.fn(
+			(queryKey: readonly unknown[], snapshot: unknown) => {
+				if (
+					JSON.stringify(queryKey) ===
+						JSON.stringify(
+							spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
+						) &&
+					typeof snapshot === "object" &&
+					snapshot !== null &&
+					"humans" in snapshot &&
+					"agents" in snapshot
+				) {
+					Object.assign(membersResult, { data: snapshot });
+				}
+			}
+		);
+		useQueryClientMock.mockReturnValue({
+			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			fetchQuery: vi.fn().mockResolvedValue(undefined),
+			getQueryData: vi.fn(() => undefined),
+			invalidateQueries: vi.fn().mockResolvedValue(undefined),
+			resetQueries: vi.fn().mockResolvedValue(undefined),
+			setQueriesData: vi.fn(),
+			setQueryData: setQueryDataMock,
+		});
 		const currentBlockedReason =
 			currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary;
 		if (!currentBlockedReason) {
@@ -8813,10 +8857,7 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: createSpaceStatus(),
 			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot(),
-			}),
+			members: membersResult,
 			history: createQueryResult({
 				isSuccess: true,
 				data: {
@@ -8840,11 +8881,20 @@ describe("SpaceLanding", () => {
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 				spaceId: "space-123",
 			});
-			expect(screen.getByText(currentBlockedReason)).toBeTruthy();
+			expect(
+				screen.getAllByText(currentBlockedReason).length
+			).toBeGreaterThanOrEqual(2);
 		});
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		expect(readComposerValue(textarea)).toBe("@Runner please reply");
 		expect(textarea.getAttribute("contenteditable")).toBe("true");
+		expect(setQueryDataMock).toHaveBeenCalledWith(
+			spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
+			currentMembersSnapshot
+		);
+		expect(
+			screen.getByRole("link", { name: "Choose local agent" })
+		).toBeTruthy();
 
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
@@ -15765,10 +15815,41 @@ describe("SpaceLanding", () => {
 	] as const)("blocks Agent Direct Message programmatic thread text before publication when current Wakeability is %s", async (failureKind) => {
 		const postThreadSignalMock = vi.fn();
 		const stageComposerUploadMock = vi.fn();
+		const initialMembersSnapshot =
+			createMembersSnapshot() as SpaceMembersSnapshot;
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: initialMembersSnapshot,
+		});
 		const currentMembersSnapshot = createMembersSnapshot({
 			defaultAgentExecutionReadiness:
 				createMissingBindingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
 		}) as SpaceMembersSnapshot;
+		const setQueryDataMock = vi.fn(
+			(queryKey: readonly unknown[], snapshot: unknown) => {
+				if (
+					JSON.stringify(queryKey) ===
+						JSON.stringify(
+							spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
+						) &&
+					typeof snapshot === "object" &&
+					snapshot !== null &&
+					"humans" in snapshot &&
+					"agents" in snapshot
+				) {
+					Object.assign(membersResult, { data: snapshot });
+				}
+			}
+		);
+		useQueryClientMock.mockReturnValue({
+			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			fetchQuery: vi.fn().mockResolvedValue(undefined),
+			getQueryData: vi.fn(() => undefined),
+			invalidateQueries: vi.fn().mockResolvedValue(undefined),
+			resetQueries: vi.fn().mockResolvedValue(undefined),
+			setQueriesData: vi.fn(),
+			setQueryData: setQueryDataMock,
+		});
 		if (failureKind === "blocked") {
 			useLocalAgentRecoveryControllerMock.mockReturnValue({
 				currentDeviceTargetQuery: {
@@ -15802,8 +15883,7 @@ describe("SpaceLanding", () => {
 		threadProgrammaticSendHarness.text =
 			"Keep this programmatic Agent DM thread message";
 		const sendButton = await openAgentDirectMessageThreadProgrammaticSend({
-			membersSnapshot:
-				failureKind === "blocked" ? currentMembersSnapshot : undefined,
+			membersQueryResult: membersResult,
 			postThreadSignalMock,
 			stageComposerUploadMock,
 		});
@@ -15832,12 +15912,18 @@ describe("SpaceLanding", () => {
 		}
 		expect(threadComposer.textContent).not.toContain(DEFAULT_AGENT_PROFILE_ID);
 		if (failureKind === "blocked") {
+			expect(membersResult.data).toBe(currentMembersSnapshot);
+			expect(setQueryDataMock).toHaveBeenCalledWith(
+				spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
+				currentMembersSnapshot
+			);
 			expect(
 				within(threadComposer as HTMLElement).getByRole("link", {
 					name: "Choose local agent",
 				})
 			).toBeTruthy();
 		} else {
+			expect(membersResult.data).toBe(initialMembersSnapshot);
 			expect(
 				within(threadComposer as HTMLElement).queryByRole("link")
 			).toBeNull();
@@ -17200,7 +17286,7 @@ async function openFailedWakeRetry(input: {
 }
 
 async function openAgentDirectMessageThreadProgrammaticSend(input: {
-	membersSnapshot?: SpaceMembersSnapshot;
+	membersQueryResult?: ReturnType<typeof createQueryResult>;
 	postThreadSignalMock: ReturnType<typeof vi.fn>;
 	stageComposerUploadMock: ReturnType<typeof vi.fn>;
 }) {
@@ -17230,10 +17316,12 @@ async function openAgentDirectMessageThreadProgrammaticSend(input: {
 				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 			},
 		}),
-		members: createQueryResult({
-			isSuccess: true,
-			data: input.membersSnapshot ?? createMembersSnapshot(),
-		}),
+		members:
+			input.membersQueryResult ??
+			createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
 		history: createQueryResult({
 			isSuccess: true,
 			data: { envelopes: [rootSignal], nextCursor: null },

@@ -2435,11 +2435,16 @@ export function useSpaceLandingController(input: {
 		}
 	}
 
-	function readCurrentMembersForWakeAdmission(): Promise<SpaceMembersSnapshot> {
-		return readSpaceMembers({
+	async function readCurrentMembersForWakeAdmission(): Promise<SpaceMembersSnapshot> {
+		const currentMembersSnapshot = await readSpaceMembers({
 			openMeldProfileId: input.profileId,
 			spaceId: input.spaceId,
 		});
+		queryClient.setQueryData(
+			spaceQueryKeys.members(input.spaceId, input.profileId),
+			currentMembersSnapshot
+		);
+		return currentMembersSnapshot;
 	}
 
 	async function sendTextMessage(text: string) {
