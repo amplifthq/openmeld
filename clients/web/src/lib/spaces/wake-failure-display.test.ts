@@ -92,4 +92,17 @@ describe("resolveHistoricalWakeFailureBody", () => {
 			})
 		).toBe("Runner could not start this Wake.");
 	});
+
+	it.each([
+		"daemon.delivery.execution_stalled",
+		"daemon.delivery.finalization_timeout",
+	])("does not turn %s into a historical disconnect", (failureReasonCode) => {
+		const display = resolveHistoricalWakeFailureBody({
+			failureReasonCode,
+			targetLabel: "@runner",
+		});
+
+		expect(display).toBe("Runner could not complete this Wake.");
+		expect(display).not.toContain("not connected");
+	});
 });

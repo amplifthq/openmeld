@@ -108,9 +108,9 @@ export function resolveHistoricalWakeFailureBody(input: {
 
 	switch (recovery.kind) {
 		case "local_service":
-			return resolveHistoricalLocalServiceFailureBody({
-				targetName,
-			});
+			return reasonCode === "service.not_running"
+				? `${targetName} could not complete this Wake because its computer was not connected to OpenMeld at the time.`
+				: `${targetName} could not complete this Wake.`;
 		case "local_agent_connection":
 		case "local_agent_prepare":
 			return `${targetName} could not start this Wake.`;
@@ -165,12 +165,6 @@ function resolveNonCurrentOwnerLocalServiceFailureBody(input: {
 		return `${input.targetName} could not complete this Wake on ${formatPossessiveName(ownerDisplayName)} computer. Ask ${ownerDisplayName} to reconnect the computer and check the local agent, then wake the Agent again.`;
 	}
 	return `${input.targetName} could not complete this Wake. Ask the Agent owner to reconnect the computer and check the local agent, then wake the Agent again.`;
-}
-
-function resolveHistoricalLocalServiceFailureBody(input: {
-	targetName: string;
-}): string {
-	return `${input.targetName} could not complete this Wake because its computer was not connected to OpenMeld at the time.`;
 }
 
 function normalizeOptionalText(

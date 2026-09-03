@@ -429,7 +429,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: "Runner could not complete this Wake because its computer was not connected to OpenMeld at the time.",
+				body: "Runner could not complete this Wake.",
 			}),
 		]);
 		expect(afterBindingMove.issueEntries).toEqual(state.issueEntries);
