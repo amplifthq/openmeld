@@ -6,6 +6,8 @@ import {
 } from "#/lib/organizations/organization-routes";
 
 export type AgentProfileActivityDestination = {
+	computerName?: string;
+	conversationId?: string;
 	href: string;
 	source: "computer" | "direct_message" | "space";
 	title: string;

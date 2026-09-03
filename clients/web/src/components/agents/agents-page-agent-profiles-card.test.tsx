@@ -748,6 +748,26 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.getByText("Runtime")).toBeTruthy();
 		expect(screen.getByText("Felix’s MacBook Pro")).toBeTruthy();
 		expect(screen.getByText("Conversation ID: conversation-123")).toBeTruthy();
+		const overview = screen.getByTestId("agent-configuration-overview");
+		const cards = Array.from(
+			overview.querySelectorAll("[data-fluid-card-item]")
+		);
+		const cardOrder = [
+			"Owner",
+			"Model",
+			"Working folder",
+			"Collaboration mode",
+			"Permissions",
+			"Runtime",
+		].map((label) => {
+			const labelElement = within(overview).getByText(label, { exact: true });
+			const card = labelElement.closest("[data-fluid-card-item]");
+			if (!card) {
+				throw new Error(`Expected ${label} inside a configuration card.`);
+			}
+			return cards.indexOf(card);
+		});
+		expect(cardOrder).toEqual([0, 1, 2, 3, 4, 5]);
 	});
 
 	it("keeps a checking Wake projection as checking in Profile Details", () => {
@@ -936,8 +956,8 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(oneItemActivityList.className).not.toContain(
 			"@[36rem]/agent-detail:grid-cols-2"
 		);
-		const nextWorkBadge = screen.getByText("Next work", { exact: true });
-		expect(nextWorkBadge.closest('[data-slot="badge"]')?.className).toContain(
+		const currentBadge = screen.getByText("Current", { exact: true });
+		expect(currentBadge.closest('[data-slot="badge"]')?.className).toContain(
 			"text-primary"
 		);
 		expect(screen.queryByText("Current work", { exact: true })).toBeNull();
@@ -1433,7 +1453,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
-	it("shows the current native Session title and links back to Agent Activity", async () => {
+	it("does not treat an idle bound Session as current activity", async () => {
 		const baseBinding =
 			createPrimaryBindingResponse("codex:approveForMe").binding;
 		const primaryBinding = {
@@ -1481,12 +1501,92 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 		renderAgentProfilesCard({}, primaryBinding, { presentation: "detail" });
 
+		await waitFor(() => {
+			expect(readCurrentAgentActivitySessionsMock).toHaveBeenCalled();
+		});
 		expect(
-			await screen.findByText("Ship the Agent Profile upgrade")
-		).toBeTruthy();
-		const sessionLink = screen.getByRole("link", {
+			screen.queryByRole("heading", { name: "Current activity" })
+		).toBeNull();
+		expect(screen.queryByText("Ship the Agent Profile upgrade")).toBeNull();
+	});
+
+	it("shows a working bound Session with its title, conversation, and computer", async () => {
+		const baseBinding =
+			createPrimaryBindingResponse("codex:approveForMe").binding;
+		const primaryBinding = {
+			...baseBinding,
+			executionTarget: {
+				...baseBinding.executionTarget,
+				agentControllerConversationId: "native-session-1",
+			},
+		};
+		readCurrentAgentActivitySessionsMock.mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "org-acme", name: "Acme" },
+			sessions: [
+				{
+					bindingState: "bound",
+					boundAgentProfileId: AGENT_PROFILE_ID,
+					canFork: true,
+					canResume: false,
+					computer: {
+						id: "computer-1",
+						lastSeenAtMs: 1_787_220_000_000,
+						name: "Mira's MacBook Pro",
+						state: "online",
+					},
+					dataState: "current",
+					inventoryUpdatedAtMs: 1_787_220_000_000,
+					lastActiveAtMs: 1_787_220_000_000,
+					localAgent: {
+						agentControllerRef: "builtin:codex",
+						name: "Codex",
+						provider: "codex",
+					},
+					nativeSessionId: "native-session-1",
+					nativeSessionTitle: "Ship the Agent Profile upgrade",
+					organization: { id: "org-acme", name: "Acme" },
+					origin: "openmeld",
+					owner: { name: "Mira", userId: "user-1" },
+					project: { id: "project-1", name: "OpenMeld", slug: "openmeld" },
+					startedAtMs: 1_787_218_000_000,
+					status: "working",
+				},
+			],
+		});
+		renderAgentProfilesCard({}, primaryBinding, {
+			agentProfileOperationalContextByProfileId: new Map([
+				[
+					AGENT_PROFILE_ID,
+					{
+						currentWorkLocation: null,
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "working",
+						waitingCount: 0,
+					},
+				],
+			]),
+			presentation: "detail",
+		});
+
+		const sessionLinks = await screen.findAllByRole("link", {
 			name: "Open Computer: Ship the Agent Profile upgrade",
 		});
+		const sessionLink = sessionLinks.find((link) =>
+			link.closest('[role="list"][aria-label="Current activity"]')
+		);
+		expect(sessionLink).toBeTruthy();
+		if (!sessionLink) {
+			throw new Error("Expected the working Session in Current activity.");
+		}
+		expect(sessionLink.textContent).toContain(
+			"Ship the Agent Profile upgrade · native-session-1"
+		);
+		expect(within(sessionLink).getByText("Mira's MacBook Pro")).toBeTruthy();
+		expect(within(sessionLink).getByText("Working")).toBeTruthy();
 		expect(sessionLink.getAttribute("href")).toBe(
 			"/o/acme/agent-activity/sessions?query=native-session-1"
 		);

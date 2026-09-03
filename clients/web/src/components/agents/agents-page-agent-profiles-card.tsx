@@ -3330,8 +3330,11 @@ function useAgentProfileCurrentSession(input: {
 			) ?? null)
 		: null;
 	const currentSessionLink =
-		input.canManage && input.primaryNativeSessionId
+		input.canManage &&
+		input.primaryNativeSessionId &&
+		currentSession?.computer.name
 			? {
+					computerName: currentSession.computer.name,
 					href: `${buildOrganizationAgentActivitySessionsPath(input.organizationSlug)}?query=${encodeURIComponent(input.primaryNativeSessionId)}`,
 					nativeSessionId: input.primaryNativeSessionId,
 					title:
@@ -3462,6 +3465,7 @@ function AgentProfileCardPresentation(input: {
 	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	controllerChangeStatusLabel: string | null;
 	currentSession?: {
+		computerName: string;
 		href: string;
 		nativeSessionId: string;
 		title: string;
@@ -3664,6 +3668,7 @@ function AgentProfileWorkspacePresentation(input: {
 	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	controllerChangeStatusLabel: string | null;
 	currentSession?: {
+		computerName: string;
 		href: string;
 		nativeSessionId: string;
 		title: string;
@@ -4108,10 +4113,21 @@ export function AgentProfileConfigurationOverview(
 					owner={owner}
 					profileId={ownerProfileId}
 				/>
+				<AgentProfileModelConfigurationCard editor={editor} input={input} />
 				<AgentProfileWorkingFolderConfigurationCard
 					disabled={input.disabled}
 					onOpen={input.onOpenProjectSettings}
 					summary={workingFolder}
+				/>
+				<AgentProfileCollaborationConfigurationCard
+					editor={editor}
+					input={input}
+					summary={collaborationSummary}
+				/>
+				<AgentProfilePermissionsConfigurationCard
+					editor={editor}
+					input={input}
+					summary={permissionSummary}
 				/>
 				{input.runtime ? (
 					<AgentConfigurationCard
@@ -4127,17 +4143,6 @@ export function AgentProfileConfigurationOverview(
 						summary={input.runtime.computerName}
 					/>
 				) : null}
-				<AgentProfileModelConfigurationCard editor={editor} input={input} />
-				<AgentProfileCollaborationConfigurationCard
-					editor={editor}
-					input={input}
-					summary={collaborationSummary}
-				/>
-				<AgentProfilePermissionsConfigurationCard
-					editor={editor}
-					input={input}
-					summary={permissionSummary}
-				/>
 			</AgentConfigurationGrid>
 		</section>
 	);
@@ -4196,7 +4201,7 @@ function AgentProfileReadOnlyConfigurationOverview(input: {
 				<AgentConfigurationCard
 					icon={<HandIcon aria-hidden="true" />}
 					itemId="collaboration"
-					label="Collaboration"
+					label="Collaboration mode"
 					readOnly
 					summary={collaborationSummary}
 				/>
@@ -4347,7 +4352,7 @@ function AgentProfileCollaborationConfigurationCard(input: {
 			disabled={props.disabled}
 			icon={<HandIcon aria-hidden="true" />}
 			itemId="collaboration"
-			label="Collaboration"
+			label="Collaboration mode"
 			onOpenChange={(open) => editor.setEditorOpen("collaboration", open)}
 			open={editor.activeEditor === "collaboration"}
 			readOnly={!editor.controllerCollaborationMode?.editable}

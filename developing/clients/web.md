@@ -1842,7 +1842,14 @@ version 2; Core omits Skip from callers that do not advertise that receiver
 capability, including already-loaded older Web builds.
 Non-owners see the same neutral workload summary without the interrupted source
 or recovery action.
-**Direct Message** is a primary header action. An authorized owner may choose
+The **Current activity** section renders a bound Local Agent Session only while
+the Work Coordinator projects that Profile as working. Binding a controller
+conversation is Runtime configuration, not evidence of current work. When a
+working bound Session is shown, Web displays its provider-native title,
+Conversation ID, and Computer name. The configuration grid keeps **Runtime** as
+its final card and uses it to show the bound Computer and Conversation ID even
+when that Session is idle.
+**Chat with {Agent name}** is a primary header action. An authorized owner may choose
 **Edit Agent** to edit in place, then explicitly **Save changes** or **Cancel**;
 a failed save keeps the draft and its diagnostic visible. Dangerous or
 low-frequency actions remain in the overflow menu. This presentation does not

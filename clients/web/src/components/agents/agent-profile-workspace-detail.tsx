@@ -48,6 +48,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	controllerModelSummary: string;
 	configurationContent?: ReactNode;
 	currentSession?: {
+		computerName: string;
 		href: string;
 		nativeSessionId: string;
 		title: string;
@@ -90,6 +91,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	const currentActivityDestination = resolveCurrentActivityDestination({
 		activityNavigation: visibleActivityNavigation,
 		currentSession: input.currentSession,
+		operationalContext: input.operationalContext,
 	});
 	let operationalRecoveryAction: ReactNode = null;
 	if (
@@ -445,6 +447,7 @@ function AgentProfilePresenceIcon(input: {
 function AgentProfileCurrentActivity(input: {
 	activityNavigation: AgentProfileActivityNavigation | null;
 	currentSession?: {
+		computerName: string;
 		href: string;
 		nativeSessionId: string;
 		title: string;
@@ -578,13 +581,21 @@ function resolveNeutralActivitySummary(
 
 function resolveCurrentActivityDestination(input: {
 	activityNavigation: AgentProfileActivityNavigation | null;
-	currentSession?: { href: string; title: string };
+	currentSession?: {
+		computerName: string;
+		href: string;
+		nativeSessionId: string;
+		title: string;
+	};
+	operationalContext: AgentProfileOperationalContextInput | null;
 }): AgentProfileActivityDestination | null {
 	if (input.activityNavigation?.current) {
 		return input.activityNavigation.current;
 	}
-	return input.currentSession
+	return input.operationalContext?.status === "working" && input.currentSession
 		? {
+				computerName: input.currentSession.computerName,
+				conversationId: input.currentSession.nativeSessionId,
 				href: input.currentSession.href,
 				source: "computer",
 				title: input.currentSession.title,
@@ -705,7 +716,9 @@ function ActivityDestinationLink(input: {
 	state: ActivityDestinationState;
 	trailingAction: ReactNode;
 }) {
-	const sourceLabel = resolveActivitySourceLabel(input.destination.source);
+	const sourceLabel =
+		input.destination.computerName ??
+		resolveActivitySourceLabel(input.destination.source);
 	const isInterrupted = input.state === "interrupted";
 	let icon = <DesktopTowerIcon aria-hidden="true" className="size-4" />;
 	if (input.destination.source === "space") {
@@ -724,6 +737,12 @@ function ActivityDestinationLink(input: {
 				<span className="min-w-0 flex-1">
 					<span className="block truncate font-medium text-sm">
 						{input.destination.title}
+						{input.destination.conversationId ? (
+							<span className="text-muted-foreground">
+								{" · "}
+								{input.destination.conversationId}
+							</span>
+						) : null}
 					</span>
 					<span className="mt-0.5 flex min-w-0 items-center gap-2 text-muted-foreground text-xs">
 						<span>{sourceLabel}</span>
@@ -759,7 +778,7 @@ function resolveActivityDestinationStateLabel(
 	if (state === "interrupted") {
 		return "Needs attention";
 	}
-	return "Next work";
+	return "Current";
 }
 
 function resolveActivityDestinationStateBadgeClassName(

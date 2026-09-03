@@ -497,7 +497,7 @@ describe("SpaceMembersSidePanel", () => {
 			await screen.findByRole("heading", { name: "Check this Agent" })
 		).toBeTruthy();
 		expect(
-			await screen.findByRole("button", { name: "Edit Collaboration" })
+			await screen.findByRole("button", { name: "Edit Collaboration mode" })
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", { name: "Edit Permissions" })
@@ -594,7 +594,7 @@ describe("SpaceMembersSidePanel", () => {
 		);
 		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
 		fireEvent.click(
-			await screen.findByRole("button", { name: "Edit Collaboration" })
+			await screen.findByRole("button", { name: "Edit Collaboration mode" })
 		);
 		fireEvent.click(
 			await screen.findByRole("combobox", {

@@ -431,7 +431,36 @@ function AgentsWorkspaceHome(input: {
 		]
 	);
 	const agentProfiles = organizationAgentProjection.profiles;
-	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
+	const readinessByProfileId = useMemo(() => {
+		if (!input.activityPreview) {
+			return organizationAgentProjection.readinessByProfileId;
+		}
+		const previewReadiness = new Map(
+			organizationAgentProjection.readinessByProfileId
+		);
+		for (const profile of agentProfiles) {
+			const readiness = previewReadiness.get(profile.openMeldProfileId);
+			if (
+				profile.ownerUserId !== input.currentUserId ||
+				!readiness ||
+				!resolveAgentProfileActivityPreview(profile.profileName, input.orgSlug)
+			) {
+				continue;
+			}
+			previewReadiness.set(profile.openMeldProfileId, {
+				...readiness,
+				routeDeviceId: "device-fixture-felix",
+				runtimeDeviceDisplayName: "Felix test MacBook Pro",
+			});
+		}
+		return previewReadiness;
+	}, [
+		agentProfiles,
+		input.activityPreview,
+		input.currentUserId,
+		input.orgSlug,
+		organizationAgentProjection.readinessByProfileId,
+	]);
 	const activityPresentation = useMemo(() => {
 		if (!input.activityPreview) {
 			return {
