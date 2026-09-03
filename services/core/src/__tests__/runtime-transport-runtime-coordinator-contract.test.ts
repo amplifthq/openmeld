@@ -4731,6 +4731,119 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
+  it("atomically upgrades a promoted legacy head from its exact pending promotion", async () => {
+    const { hub, socket, state, storageRecords } = createHarness();
+    configureCompatibleRoute({ socket, state });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const deliveryResponse = await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(buildDeliverRequest()),
+        method: "POST",
+      })
+    );
+    expect(deliveryResponse.status).toBe(200);
+
+    const successorIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-promoted-legacy",
+      dispatchId: "dispatch-promoted-legacy",
+      sourceSignalId: "signal-promoted-legacy",
+      spaceId: "b".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const legacySuccessorRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      dispatchId: "dispatch-promoted-legacy",
+      idempotencyKey: "idempotency-promoted-legacy",
+      targetWakeLifecycleIdentity: successorIdentity,
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          legacySuccessorRequest
+        )
+      ).json()
+    ).resolves.toMatchObject({ status: "queued" });
+
+    const authority =
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords);
+    expect(authority).toBeDefined();
+    await (
+      hub as unknown as {
+        writeRuntimeCoordinatorTokenAuthority: (
+          authority: RuntimeCoordinatorExecutionTokenAuthorityRecord
+        ) => Promise<void>;
+      }
+    ).writeRuntimeCoordinatorTokenAuthority({
+      ...(authority as RuntimeCoordinatorExecutionTokenAuthorityRecord),
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "space.reply_published",
+        replySignalId: "signal-promoted-legacy-predecessor-final",
+        status: "reply_published",
+      },
+    });
+
+    const pendingPromotionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.pendingPromotion(
+        TARGET_AGENT_PROFILE_ID
+      );
+    expect(storageRecords.get(pendingPromotionKey)).toMatchObject({
+      dispatchId: "dispatch-promoted-legacy",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+      targetWakeLifecycleId: successorIdentity.targetWakeLifecycleId,
+    });
+    const promotedLegacyHead = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        successorIdentity.targetWakeLifecycleId
+      )
+    );
+    expect(promotedLegacyHead).toMatchObject({
+      primaryDispatchId: "dispatch-promoted-legacy",
+      status: "accepted",
+      targetWakeLifecycleIdentity: successorIdentity,
+    });
+    expect(promotedLegacyHead).not.toHaveProperty("acceptedDispatchSnapshot");
+
+    const acceptedSnapshot = buildAcceptedDispatchSnapshot({
+      fingerprint: "c",
+    });
+    const upgradedResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      {
+        ...legacySuccessorRequest,
+        acceptedDispatchSnapshot: acceptedSnapshot,
+      }
+    );
+
+    expect(upgradedResponse.status).toBe(200);
+    await expect(upgradedResponse.json()).resolves.toMatchObject({
+      acceptedDispatchSnapshot: acceptedSnapshot,
+      action: "create_execution",
+      primaryDispatchId: "dispatch-promoted-legacy",
+      status: "already_accepted",
+      targetWakeLifecycleId: successorIdentity.targetWakeLifecycleId,
+    });
+    expect(storageRecords.has(pendingPromotionKey)).toBe(false);
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          successorIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({
+      acceptedDispatchSnapshot: acceptedSnapshot,
+      primaryDispatchId: "dispatch-promoted-legacy",
+      status: "accepted",
+      targetWakeLifecycleIdentity: successorIdentity,
+    });
+  });
+
   it("preserves the running Wake and FIFO queue across an execution-index generation repair", async () => {
     const { hub, socket, spaceFetchRequests, state, storageRecords } =
       createHarness();
@@ -7851,7 +7964,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toHaveLength(0);
   });
 
-  it("keeps a failed immediate promotion redrive durable for bounded alarm recovery", async () => {
+  it("keeps a failed legacy promotion redrive durable through Space enqueue until identity reacceptance", async () => {
     vi.useFakeTimers({ now: 1_700_000_000_000 });
     try {
       const { hub, spaceFetchRequests, spaceStub, storageRecords } =
@@ -7909,7 +8022,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       vi.setSystemTime(1_700_000_001_001);
       await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
-      expect(storageRecords.has(pendingPromotionKey)).toBe(false);
+      expect(storageRecords.get(pendingPromotionKey)).toMatchObject({
+        attemptCount: 2,
+        dispatchId: "dispatch-recovery-2",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: successorIdentity.targetWakeLifecycleId,
+      });
       expect(
         spaceFetchRequests.filter(
           (request) =>

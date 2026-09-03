@@ -30,6 +30,7 @@ import {
   buildPendingAgentProfileWorkPromotion,
   buildPendingAgentProfileWorkPromotionStorageKey,
   type PendingAgentProfileWorkPromotion,
+  parsePendingAgentProfileWorkPromotion,
 } from "./agent-profile-work-promotion";
 import {
   type AgentProfileWorkRecoveryInboxProjectionIntent,
@@ -2305,7 +2306,7 @@ async function resolveExistingHeadLifecycleWrite(input: {
   headLifecycleStorageKey: string;
   nowMs: number;
   proposedRecord: RuntimeCoordinatorHeadLifecycleRecord;
-  transaction: Pick<DurableObjectTransaction, "get" | "put">;
+  transaction: Pick<DurableObjectTransaction, "delete" | "get" | "put">;
 }): Promise<AgentProfileWorkCoordinatorHeadWriteResult | null> {
   const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
     dispatchId: input.proposedRecord.primaryDispatchId,
@@ -2321,13 +2322,21 @@ async function resolveExistingHeadLifecycleWrite(input: {
     buildRuntimeCoordinatorAcceptedDispatchPayloadFingerprintStorageKey(
       runtimeCoordinatorExecutionId
     );
+  const pendingPromotionStorageKey =
+    buildPendingAgentProfileWorkPromotionStorageKey(
+      input.proposedRecord.targetWakeLifecycleIdentity.targetProfileId
+    );
   const storedCurrentState = await input.transaction.get<unknown>([
     input.headLifecycleStorageKey,
     tokenAuthorityStorageKey,
     acceptedPayloadFingerprintStorageKey,
+    pendingPromotionStorageKey,
   ]);
   const rawExistingHead = storedCurrentState.get(input.headLifecycleStorageKey);
   const rawTokenAuthority = storedCurrentState.get(tokenAuthorityStorageKey);
+  const pendingPromotion = parsePendingAgentProfileWorkPromotion(
+    storedCurrentState.get(pendingPromotionStorageKey)
+  );
   if (rawExistingHead === undefined) {
     return resolveTerminalExecutionHeadReplay({
       proposedRecord: input.proposedRecord,
@@ -2371,14 +2380,13 @@ async function resolveExistingHeadLifecycleWrite(input: {
     !rawExistingHead.acceptedDispatchSnapshot &&
     input.proposedRecord.acceptedDispatchSnapshot
   ) {
-    const canAtomicallyUpgradeQueuedLegacyHead =
-      rawExistingHead.primaryDispatchId ===
-        input.proposedRecord.primaryDispatchId &&
-      rawExistingHead.status === "queued" &&
-      rawExistingHead.executionLinkedAtMs === null &&
-      rawExistingHead.runtimeCoordinatorExecutionId === null &&
-      rawTokenAuthority === undefined;
-    if (!canAtomicallyUpgradeQueuedLegacyHead) {
+    const upgradeKind = resolveLegacyHeadSnapshotUpgradeKind({
+      existingHead: rawExistingHead,
+      pendingPromotion,
+      proposedRecord: input.proposedRecord,
+      rawTokenAuthority,
+    });
+    if (!upgradeKind) {
       return {
         effectiveRecord: rawExistingHead,
         reasonCode: "runtime_coordinator.legacy_head_snapshot_upgrade_unsafe",
@@ -2394,6 +2402,9 @@ async function resolveExistingHeadLifecycleWrite(input: {
       input.headLifecycleStorageKey,
       effectiveExistingHead
     );
+    if (upgradeKind === "promoted") {
+      await input.transaction.delete(pendingPromotionStorageKey);
+    }
   }
   if (
     !sameRuntimeCoordinatorHeadAuthority(
@@ -2437,6 +2448,36 @@ async function resolveExistingHeadLifecycleWrite(input: {
     status: "queued",
     waitingCount: Math.max(0, input.admission.workItems.length - 1),
   };
+}
+
+function resolveLegacyHeadSnapshotUpgradeKind(input: {
+  existingHead: RuntimeCoordinatorHeadLifecycleRecord;
+  pendingPromotion: PendingAgentProfileWorkPromotion | null;
+  proposedRecord: RuntimeCoordinatorHeadLifecycleRecord;
+  rawTokenAuthority: unknown;
+}): "promoted" | "queued" | null {
+  const hasNoExecutionAuthority =
+    input.existingHead.primaryDispatchId ===
+      input.proposedRecord.primaryDispatchId &&
+    input.existingHead.executionLinkedAtMs === null &&
+    input.existingHead.runtimeCoordinatorExecutionId === null &&
+    input.rawTokenAuthority === undefined;
+  if (!hasNoExecutionAuthority) {
+    return null;
+  }
+  if (input.existingHead.status === "queued") {
+    return "queued";
+  }
+  const hasExactPendingPromotion =
+    input.pendingPromotion?.dispatchId ===
+      input.existingHead.primaryDispatchId &&
+    input.pendingPromotion.targetProfileId ===
+      input.existingHead.targetWakeLifecycleIdentity.targetProfileId &&
+    input.pendingPromotion.targetWakeLifecycleId ===
+      input.existingHead.targetWakeLifecycleId;
+  return input.existingHead.status === "accepted" && hasExactPendingPromotion
+    ? "promoted"
+    : null;
 }
 
 function resolveTerminalExecutionHeadReplay(input: {

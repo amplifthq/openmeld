@@ -16470,43 +16470,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             : "runtime_coordinator.agent_profile_work_promotion_response_invalid"
         );
       }
-      if (parsedResponse.data.status === "retry_scheduled") {
-        const deferred = await deferPendingAgentProfileWorkPromotion({
-          expected: pendingPromotion,
-          nowMs,
-          storage: this.ctx.storage,
-        });
-        console.info(
-          "[core.runtime_transport.agent_profile_work_promotion_retry_scheduled]",
-          {
-            attemptCount:
-              deferred?.attemptCount ?? pendingPromotion.attemptCount,
-            dispatchId: pendingPromotion.dispatchId,
-            nextAttemptAtMs: deferred?.nextAttemptAtMs ?? null,
-            spaceId: identity.spaceId,
-            targetProfileId: pendingPromotion.targetProfileId,
-            targetWakeLifecycleId: pendingPromotion.targetWakeLifecycleId,
-            trigger,
-          }
-        );
-        await this.syncHousekeepingAlarm();
-        return;
-      }
-      await clearPendingAgentProfileWorkPromotion(
-        this.ctx.storage,
-        pendingPromotion
-      );
-      console.info(
-        "[core.runtime_transport.agent_profile_work_promotion_redriven]",
-        {
-          dispatchId: pendingPromotion.dispatchId,
-          redriveStatus: parsedResponse.data.status,
-          spaceId: identity.spaceId,
-          targetProfileId: pendingPromotion.targetProfileId,
-          targetWakeLifecycleId: pendingPromotion.targetWakeLifecycleId,
-          trigger,
-        }
-      );
+      await this.settleAcceptedAgentProfileWorkPromotionRedrive({
+        head,
+        nowMs,
+        pendingPromotion,
+        redriveStatus: parsedResponse.data.status,
+        spaceId: identity.spaceId,
+        trigger,
+      });
     } catch (error) {
       const deferred = await deferPendingAgentProfileWorkPromotion({
         expected: pendingPromotion,
@@ -16527,6 +16498,61 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
     await this.syncHousekeepingAlarm();
+  }
+
+  private async settleAcceptedAgentProfileWorkPromotionRedrive(input: {
+    head: RuntimeCoordinatorHeadLifecycleRecord;
+    nowMs: number;
+    pendingPromotion: PendingAgentProfileWorkPromotion;
+    redriveStatus: "cancelled" | "enqueued" | "retry_scheduled" | "submitted";
+    spaceId: string;
+    trigger: "alarm_recovery" | "terminal_transaction";
+  }): Promise<void> {
+    const requiresIdentityReacceptance =
+      (input.redriveStatus === "enqueued" ||
+        input.redriveStatus === "submitted") &&
+      !input.head.acceptedDispatchSnapshot;
+    if (
+      input.redriveStatus === "retry_scheduled" ||
+      requiresIdentityReacceptance
+    ) {
+      const deferred = await deferPendingAgentProfileWorkPromotion({
+        expected: input.pendingPromotion,
+        nowMs: input.nowMs,
+        storage: this.ctx.storage,
+      });
+      console.info(
+        input.redriveStatus === "retry_scheduled"
+          ? "[core.runtime_transport.agent_profile_work_promotion_retry_scheduled]"
+          : "[core.runtime_transport.agent_profile_work_promotion_identity_reacceptance_pending]",
+        {
+          attemptCount:
+            deferred?.attemptCount ?? input.pendingPromotion.attemptCount,
+          dispatchId: input.pendingPromotion.dispatchId,
+          nextAttemptAtMs: deferred?.nextAttemptAtMs ?? null,
+          spaceId: input.spaceId,
+          targetProfileId: input.pendingPromotion.targetProfileId,
+          targetWakeLifecycleId: input.pendingPromotion.targetWakeLifecycleId,
+          trigger: input.trigger,
+        }
+      );
+      return;
+    }
+    await clearPendingAgentProfileWorkPromotion(
+      this.ctx.storage,
+      input.pendingPromotion
+    );
+    console.info(
+      "[core.runtime_transport.agent_profile_work_promotion_redriven]",
+      {
+        dispatchId: input.pendingPromotion.dispatchId,
+        redriveStatus: input.redriveStatus,
+        spaceId: input.spaceId,
+        targetProfileId: input.pendingPromotion.targetProfileId,
+        targetWakeLifecycleId: input.pendingPromotion.targetWakeLifecycleId,
+        trigger: input.trigger,
+      }
+    );
   }
 
   private async triggerRuntimeCoordinatorHeadWaitingRecovery(input: {

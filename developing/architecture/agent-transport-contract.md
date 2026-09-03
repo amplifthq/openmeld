@@ -172,9 +172,13 @@ During a rolling Core deployment, a caller that omits the snapshot cannot
 reaccept a head that already owns one; RuntimeCoordinator returns the legacy-
 parseable `retry_later` shape and never grants `create_execution`. A legacy
 head may gain a proposed snapshot only inside the admission transaction while
-it is still queued and has no linked execution or token authority. Any legacy
-head that may already be executing also returns `retry_later` instead of
-silently adopting or discarding the snapshot.
+it is still queued and has no linked execution or token authority. A legacy
+head promoted to `accepted` may gain that snapshot in the same transaction only
+while its exact dispatch, target profile, and Wake lifecycle still own the
+pending-promotion record and no execution authority exists. Promotion remains
+pending after the Space accepts redrive until this identity reacceptance
+finishes. Any other legacy head that may already be executing returns
+`retry_later` instead of silently adopting or discarding the snapshot.
 `profile_queue_waiting` is a D1 ledger projection, not scheduling authority.
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.

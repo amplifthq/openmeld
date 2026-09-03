@@ -207,6 +207,12 @@ execution, duplicate publication, or ledger rewrite. An already-prepared
 non-conflict failure keeps its owning RuntimeCoordinator reason instead of being
 relabeled as a payload conflict. A per-Wake conflict may publish its exact
 outcome but must not write a current Wakeability blocker.
+During rolling deployment, a queued legacy head may atomically adopt the frozen
+snapshot before execution. If FIFO promotion has already changed that head to
+`accepted`, the upgrade additionally requires the exact pending-promotion
+record for the same dispatch, target profile, and Wake lifecycle; the record is
+cleared only when that identity reacceptance succeeds. An ordinary legacy
+`accepted` head without this evidence remains fail-closed.
 Validation covers three consecutive Wakes to one Agent Profile plus controlled
 Service update and replacement-generation redelivery without crossed execution
 or reply identities.
