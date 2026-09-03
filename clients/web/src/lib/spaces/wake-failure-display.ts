@@ -70,20 +70,11 @@ export function resolveWakeFailureDisplay(input: {
 export function resolveHistoricalWakeFailureBody(input: {
 	failureReasonCode: string | null | undefined;
 	targetLabel: string;
-}): string | null {
-	const reasonCode = normalizeOptionalText(input.failureReasonCode);
-	if (!reasonCode) {
-		return null;
-	}
+}): string {
+	const reasonCode = normalizeOptionalText(
+		input.failureReasonCode
+	)?.toLowerCase();
 	const targetName = formatTargetName(input.targetLabel);
-	const recovery = resolvePublicAgentFailureRecovery({
-		errorCode: reasonCode,
-		includeUnknown: false,
-		targetLabel: targetName,
-	});
-	if (!recovery) {
-		return null;
-	}
 
 	if (reasonCode === "cursor.plan_upgrade_required") {
 		return `${targetName} stopped this Wake because the Cursor plan had reached its usage limit.`;
@@ -94,35 +85,38 @@ export function resolveHistoricalWakeFailureBody(input: {
 	if (
 		reasonCode === "service.update_required" ||
 		reasonCode === "service.drifted" ||
-		reasonCode.startsWith("background_helper.update_required") ||
-		reasonCode.startsWith("background_helper.installed_outdated")
+		reasonCode?.startsWith("background_helper.update_required") ||
+		reasonCode?.startsWith("background_helper.installed_outdated")
 	) {
 		return `${targetName} could not complete this Wake because OpenMeld on its computer needed an update at the time.`;
 	}
 	if (reasonCode === "permission.denied.runtime") {
 		return `${targetName} could not complete this Wake because the Agent Profile's permission settings blocked the requested action.`;
 	}
+	if (reasonCode === "agent_profile.organization_mismatch") {
+		return `${targetName} could not start this Wake because its Agent Profile belonged to a different workspace.`;
+	}
+	if (
+		reasonCode?.endsWith("provider.unavailable") ||
+		reasonCode?.endsWith("provider.bad_gateway") ||
+		reasonCode?.endsWith("model.provider_unavailable")
+	) {
+		return `${targetName} could not complete this Wake because its selected model was unavailable.`;
+	}
 	if (reasonCode === "openmeld.space_action.repair_failed") {
-		return recovery.body;
+		return `${targetName} answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.`;
+	}
+	if (reasonCode === "service.not_running") {
+		return `${targetName} could not complete this Wake because its computer was not connected to OpenMeld at the time.`;
+	}
+	if (
+		reasonCode === "agent_profile_binding.missing" ||
+		reasonCode === "controller.runtime.missing"
+	) {
+		return `${targetName} could not start this Wake.`;
 	}
 
-	switch (recovery.kind) {
-		case "local_service":
-			return reasonCode === "service.not_running"
-				? `${targetName} could not complete this Wake because its computer was not connected to OpenMeld at the time.`
-				: `${targetName} could not complete this Wake.`;
-		case "local_agent_connection":
-		case "local_agent_prepare":
-			return `${targetName} could not start this Wake.`;
-		case "account_access":
-			return `${targetName} could not complete this Wake because its provider account or Agent settings blocked the request.`;
-		case "system_retry":
-			return `${targetName} could not complete this Wake because OpenMeld encountered a system problem.`;
-		case "unknown":
-			return null;
-		default:
-			return null;
-	}
+	return `${targetName} could not complete this Wake.`;
 }
 
 export function resolveWakeFailureTargetContext(input: {

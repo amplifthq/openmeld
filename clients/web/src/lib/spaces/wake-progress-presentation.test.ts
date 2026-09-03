@@ -501,7 +501,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.issueEntries[0]?.body).not.toBe(plan.body);
 	});
 
-	it("keeps only the historical failure when no current recovery action is available", () => {
+	it("uses a safe past-tense failure when no reason or current action is available", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			agentRecoveryPlansByProfileId: new Map([
 				[TARGET_PROFILE_ID, { kind: "none" }],
@@ -510,7 +510,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			items: [
 				createWakeProgressItem({
 					failureReasonCode: null,
-					message: "@runner couldn't reply.",
+					message: "Runner needs setup before it can reply.",
 					phase: "failed",
 					updatedAtMs: 4,
 				}),
@@ -520,9 +520,10 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
 				action: null,
-				body: "@runner couldn't reply.",
+				body: "Runner could not complete this Wake.",
 			}),
 		]);
+		expect(state.issueEntries[0]?.body).not.toContain("needs setup");
 	});
 
 	it.each([

@@ -529,7 +529,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const reasonSection = getActivityRegion("OpenMeld");
 		expect(
 			within(reasonSection).getByText(
-				"Runner couldn't reply: OpenMeld did not receive a message it could post in this space."
+				"This agent could not complete this Wake."
 			)
 		).toBeTruthy();
 		expect(within(reasonSection).queryByRole("link")).toBeNull();
@@ -582,7 +582,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 	});
 
-	it("keeps a recovered Agent's old binding failure in the past without setup advice", () => {
+	it("replaces an unmapped old setup notice with a safe past-tense outcome", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -596,7 +596,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 					id: "sig-terminal-failure",
 					replyToSignalId: "sig-human",
 					signalType: "signal.system_notice",
-					systemNoticeReasonCode: "agent_profile_binding.missing",
+					systemNoticeReasonCode: null,
 					systemNoticeTargetProfileId: "agt_triage",
 					systemNoticeType: "terminal_failure",
 					text: "Runner needs setup before it can reply.",
@@ -607,7 +607,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		const reasonSection = getActivityRegion("Runner");
 		expect(
-			within(reasonSection).getByText("Runner could not start this Wake.")
+			within(reasonSection).getByText("Runner could not complete this Wake.")
 		).toBeTruthy();
 		expect(reasonSection.textContent).not.toContain("needs setup");
 		expect(reasonSection.textContent).not.toContain("Review setup");
@@ -855,7 +855,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 
 		const reasonSection = getActivityRegion("Center Agent");
 		const failureReason = within(reasonSection).getByText(
-			"Center Agent could not complete this Wake because OpenMeld encountered a system problem."
+			"Center Agent could not complete this Wake."
 		);
 		expect(failureReason.closest("p")?.className).toContain("text-destructive");
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
@@ -915,7 +915,9 @@ describe("SpaceMessageDetailsDrawer", () => {
 			targetProfileDisplayNamesByProfileId: new Map([["agt_cursor", "Cursor"]]),
 		});
 
-		expect(screen.getByText("Cursor could not reply.")).toBeTruthy();
+		expect(
+			screen.getByText("Cursor could not complete this Wake.")
+		).toBeTruthy();
 		expect(
 			screen.queryByRole("link", { name: "Reconnect Computer" })
 		).toBeNull();
@@ -1457,7 +1459,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const failureSection = getActivityRegion("OpenMeld");
 		const statusBadge = within(failureSection).getByText("Failed");
 		const failureReason = within(failureSection).getByText(
-			"This agent could not complete this Wake because OpenMeld encountered a system problem."
+			"This agent could not start this Wake because its Agent Profile belonged to a different workspace."
 		);
 		expect(statusBadge.className).toContain("text-destructive");
 		expect(failureReason).toBeTruthy();

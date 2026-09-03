@@ -945,10 +945,6 @@ function resolveNoticeRecoveryPresentation(input: {
 			? ({ kind: "agent_recovery", plan: currentPlan } as const)
 			: null;
 	const reasonCode = input.notice.systemNoticeReasonCode?.trim();
-	if (!reasonCode) {
-		return currentAction ? { action: currentAction, body: null } : null;
-	}
-
 	const targetLabel = targetProfileId
 		? (input.targetProfileDisplayNamesByProfileId?.get(targetProfileId) ??
 			"This agent")

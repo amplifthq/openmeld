@@ -4,6 +4,8 @@ import {
 	resolveWakeFailureDisplay,
 } from "./wake-failure-display";
 
+const ACCOUNT_OR_SETTINGS_PATTERN = /account|settings/iu;
+
 describe("resolveWakeFailureDisplay", () => {
 	it("explains a cross-workspace Agent Profile without offering a dead-end action", () => {
 		const display = resolveWakeFailureDisplay({
@@ -73,6 +75,41 @@ describe("resolveWakeFailureDisplay", () => {
 });
 
 describe("resolveHistoricalWakeFailureBody", () => {
+	it("keeps a cross-workspace failure factual instead of calling it a system problem", () => {
+		expect(
+			resolveHistoricalWakeFailureBody({
+				failureReasonCode: "agent_profile.organization_mismatch",
+				targetLabel: "@runner",
+			})
+		).toBe(
+			"Runner could not start this Wake because its Agent Profile belonged to a different workspace."
+		);
+	});
+
+	it("does not turn provider unavailability into an account-settings failure", () => {
+		const display = resolveHistoricalWakeFailureBody({
+			failureReasonCode: "provider.unavailable",
+			targetLabel: "@runner",
+		});
+
+		expect(display).toBe(
+			"Runner could not complete this Wake because its selected model was unavailable."
+		);
+		expect(display).not.toMatch(ACCOUNT_OR_SETTINGS_PATTERN);
+	});
+
+	it.each([
+		null,
+		"future.unclassified_failure",
+	])("uses a safe past-tense outcome when the historical reason is %s", (failureReasonCode) => {
+		expect(
+			resolveHistoricalWakeFailureBody({
+				failureReasonCode,
+				targetLabel: "@runner",
+			})
+		).toBe("Runner could not complete this Wake.");
+	});
+
 	it("does not infer a historical device identity from current state", () => {
 		const display = resolveHistoricalWakeFailureBody({
 			failureReasonCode: "service.not_running",
