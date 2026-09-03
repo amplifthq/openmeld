@@ -905,18 +905,6 @@ async function seedResearchDeliveryAuthority(
       HOSTED_CENTER_AGENT_CONTROLLER_REF,
       input.modelId
     ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO organization_binding_authorizations (
-          id, organization_id, binding_id, authorized_by, created_at
-        ) VALUES (?, ?, ?, ?, 1000)
-      `
-    ).bind(
-      `member_research_authorization_${fixture.suffix}`,
-      fixture.organizationId,
-      bindingId,
-      fixture.requester.userId
-    ),
   ]);
   return { bindingId, directMessageSpaceId };
 }

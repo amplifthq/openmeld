@@ -48,42 +48,6 @@ type EnsureAgentProfilePrimaryBindingBodySchema =
   typeof import("../../schemas/http/agent-profile-binding")["ensureAgentProfilePrimaryBindingBodySchema"];
 type EnsureAgentProfilePrimaryBindingResponseSchema =
   typeof import("../../schemas/http/agent-profile-binding")["ensureAgentProfilePrimaryBindingResponseSchema"];
-type AuthorizeAgentProfileBindingForOrganizationResponseSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["authorizeAgentProfileBindingForOrganizationResponseSchema"];
-type BulkAuthorizeAgentProfileBindingsForOrganizationBodySchema =
-  typeof import("../../schemas/http/agent-profile-binding")["bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema"];
-type BulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema"];
-type BulkOrganizationBindingAuthorizationSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["bulkOrganizationBindingAuthorizationSchema"];
-type OrganizationBindingAuthorizationSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["organizationBindingAuthorizationSchema"];
-type OrganizationBindingAuthorizationPreferenceSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["organizationBindingAuthorizationPreferenceSchema"];
-type GetOrganizationBindingAuthorizationPreferenceResponseSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["getOrganizationBindingAuthorizationPreferenceResponseSchema"];
-type ListOrganizationBindingAuthorizationsResponseSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["listOrganizationBindingAuthorizationsResponseSchema"];
-type OrganizationBindingAuthorizationProfileStatusSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["organizationBindingAuthorizationProfileStatusSchema"];
-type OrganizationBindingAuthorizationProfileSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["organizationBindingAuthorizationProfileSchema"];
-type ListOrganizationBindingAuthorizationProfilesResponseSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["listOrganizationBindingAuthorizationProfilesResponseSchema"];
-type AgentProfileOrganizationWakeAccessEntrySchema =
-  typeof import("../../schemas/http/agent-profile-binding")["agentProfileOrganizationWakeAccessEntrySchema"];
-type ListCurrentUserAgentProfileOrganizationWakeAccessResponseSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema"];
-type RevokeAgentProfileBindingForOrganizationResponseSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["revokeAgentProfileBindingForOrganizationResponseSchema"];
-type SetOrganizationBindingAuthorizationPreferenceBodySchema =
-  typeof import("../../schemas/http/agent-profile-binding")["setOrganizationBindingAuthorizationPreferenceBodySchema"];
-type SetOrganizationBindingAuthorizationPreferenceResponseSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["setOrganizationBindingAuthorizationPreferenceResponseSchema"];
-type SaveOrganizationWakeAccessChoiceBodySchema =
-  typeof import("../../schemas/http/agent-profile-binding")["saveOrganizationWakeAccessChoiceBodySchema"];
-type SaveOrganizationWakeAccessChoiceResponseSchema =
-  typeof import("../../schemas/http/agent-profile-binding")["saveOrganizationWakeAccessChoiceResponseSchema"];
 type DisableAgentProfilePrimaryBindingResponseSchema =
   typeof import("../../schemas/http/agent-profile-binding")["disableAgentProfilePrimaryBindingResponseSchema"];
 type GetAgentProfilePrimaryBindingResponseSchema =
@@ -152,42 +116,6 @@ export type AgentProfileBindingSessionInventorySelection =
   z.infer<AgentProfileBindingSessionInventorySelectionSchema>;
 export type EnsureAgentProfilePrimaryBindingResponse =
   z.infer<EnsureAgentProfilePrimaryBindingResponseSchema>;
-export type AuthorizeAgentProfileBindingForOrganizationResponse =
-  z.infer<AuthorizeAgentProfileBindingForOrganizationResponseSchema>;
-export type BulkAuthorizeAgentProfileBindingsForOrganizationBody =
-  z.infer<BulkAuthorizeAgentProfileBindingsForOrganizationBodySchema>;
-export type BulkAuthorizeAgentProfileBindingsForOrganizationResponse =
-  z.infer<BulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema>;
-export type BulkOrganizationBindingAuthorization =
-  z.infer<BulkOrganizationBindingAuthorizationSchema>;
-export type OrganizationBindingAuthorization =
-  z.infer<OrganizationBindingAuthorizationSchema>;
-export type OrganizationBindingAuthorizationPreference =
-  z.infer<OrganizationBindingAuthorizationPreferenceSchema>;
-export type GetOrganizationBindingAuthorizationPreferenceResponse =
-  z.infer<GetOrganizationBindingAuthorizationPreferenceResponseSchema>;
-export type ListOrganizationBindingAuthorizationsResponse =
-  z.infer<ListOrganizationBindingAuthorizationsResponseSchema>;
-export type OrganizationBindingAuthorizationProfileStatus =
-  z.infer<OrganizationBindingAuthorizationProfileStatusSchema>;
-export type OrganizationBindingAuthorizationProfile =
-  z.infer<OrganizationBindingAuthorizationProfileSchema>;
-export type ListOrganizationBindingAuthorizationProfilesResponse =
-  z.infer<ListOrganizationBindingAuthorizationProfilesResponseSchema>;
-export type AgentProfileOrganizationWakeAccessEntry =
-  z.infer<AgentProfileOrganizationWakeAccessEntrySchema>;
-export type ListCurrentUserAgentProfileOrganizationWakeAccessResponse =
-  z.infer<ListCurrentUserAgentProfileOrganizationWakeAccessResponseSchema>;
-export type RevokeAgentProfileBindingForOrganizationResponse =
-  z.infer<RevokeAgentProfileBindingForOrganizationResponseSchema>;
-export type SetOrganizationBindingAuthorizationPreferenceBody =
-  z.infer<SetOrganizationBindingAuthorizationPreferenceBodySchema>;
-export type SetOrganizationBindingAuthorizationPreferenceResponse =
-  z.infer<SetOrganizationBindingAuthorizationPreferenceResponseSchema>;
-export type SaveOrganizationWakeAccessChoiceBody =
-  z.infer<SaveOrganizationWakeAccessChoiceBodySchema>;
-export type SaveOrganizationWakeAccessChoiceResponse =
-  z.infer<SaveOrganizationWakeAccessChoiceResponseSchema>;
 export type DisableAgentProfilePrimaryBindingResponse =
   z.infer<DisableAgentProfilePrimaryBindingResponseSchema>;
 export type GetAgentProfilePrimaryBindingResponse =

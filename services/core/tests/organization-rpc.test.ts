@@ -2420,7 +2420,6 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
       "designate_remote_center_agent",
     ]);
@@ -2458,7 +2457,6 @@ describe("organization Core RPC", () => {
       status: 503,
     });
     expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows).toEqual([]);
   });
 
@@ -2502,7 +2500,6 @@ describe("organization Core RPC", () => {
       status: 503,
     });
     expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentDesignations.size).toBe(0);
     expect(db.spaces).toEqual([]);
   });
@@ -2579,7 +2576,6 @@ describe("organization Core RPC", () => {
       })
     );
     expect(db.bindingRows).toEqual(new Map([[ownerBindingKey, ownerBinding]]));
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows).toEqual([]);
   });
 
@@ -2876,10 +2872,9 @@ describe("organization Core RPC", () => {
         organizationId: "org-a",
       }),
     ]);
-    expect(db.authorizationWrites).toEqual([]);
   });
 
-  it("releases every owner admission without touching retired Wake authorization", async () => {
+  it("releases every owner admission after designation", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -2890,7 +2885,6 @@ describe("organization Core RPC", () => {
           hasBinding: false,
         },
       ],
-      authorizationWriteFailures: 1,
       members: [
         memberRow("member-owner", "org-a", "owner-user", "owner"),
         memberRow("member-admin", "org-a", "admin-user", "admin"),
@@ -2936,7 +2930,6 @@ describe("organization Core RPC", () => {
     expect(
       releaseMutation.mock.calls.map(([request]) => request.ownerUserId).sort()
     ).toEqual(["admin-user", "owner-user"]);
-    expect(db.authorizationWrites).toEqual([]);
   });
 
   it("does not change D1 state when a legacy owner shard blocks reconciliation", async () => {
@@ -3160,7 +3153,6 @@ describe("organization Core RPC", () => {
       MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE
     );
     expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.authorizationWrites).toEqual([]);
   });
 
   it("lets every member read the Center Agent model while only owners and admins can change it", async () => {
@@ -3327,8 +3319,6 @@ describe("organization Core RPC", () => {
       }),
       runtime: "remote_agent",
     });
-
-    expect(db.authorizationWrites).toEqual([]);
     expect(
       db.centerAgentAuditRows
         .filter((row) => row.action === "carry_over_binding_authorization")
@@ -8261,7 +8251,6 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
       "designate_remote_center_agent",
     ]);
@@ -9059,7 +9048,6 @@ describe("organization Core RPC", () => {
     expect(agentProfiles).toEqual([]);
     expect(db.centerAgentDesignations).toHaveLength(0);
     expect(db.bindingRows).toHaveLength(0);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.disallowedWrites).toEqual([]);
   });
 
@@ -11007,8 +10995,6 @@ function buildEnv(
     createOrganizationRpcDb({
       agentProfiles: input.agentProfiles ?? [],
       authorizations: input.authorizations ?? [],
-      bindingAuthorizationPreferences:
-        input.bindingAuthorizationPreferences ?? [],
       centerAgentAuditJournal: input.centerAgentAuditJournal ?? [],
       centerAgentDesignations: input.centerAgentDesignations ?? [],
       centerAgentMemoryPolicies: input.centerAgentMemoryPolicies ?? [],
@@ -11308,23 +11294,6 @@ function authorizationRow(input: {
   };
 }
 
-function preferenceRow(input: {
-  autoAuthorizeAgentProfileBindings: boolean;
-  createdAtMs?: number;
-  organizationId: string;
-  updatedAtMs?: number;
-  userId: string;
-}) {
-  return {
-    autoAuthorizeAgentProfileBindings: input.autoAuthorizeAgentProfileBindings,
-    createdAtMs: input.createdAtMs ?? 1_700_000_000_000,
-    id: `preference-${input.organizationId}-${input.userId}`,
-    organizationId: input.organizationId,
-    updatedAtMs: input.updatedAtMs ?? input.createdAtMs ?? 1_700_000_000_000,
-    userId: input.userId,
-  };
-}
-
 function centerAgentDesignationRow(input: {
   agentProfileId: string;
   createdAtMs?: number;
@@ -11580,8 +11549,6 @@ function createOrganizationRpcDb(input: {
     updatedAt?: number;
   }>;
   authorizations?: ReturnType<typeof authorizationRow>[];
-  authorizationWriteFailures?: number;
-  bindingAuthorizationPreferences?: ReturnType<typeof preferenceRow>[];
   centerAgentAuditWriteFailures?: number;
   centerAgentDesignations?: ReturnType<typeof centerAgentDesignationRow>[];
   centerAgentDesignationReadbackOverride?: ReturnType<
@@ -11652,13 +11619,6 @@ function createOrganizationRpcDb(input: {
       authorization
     );
   }
-  const preferenceRows = new Map<string, ReturnType<typeof preferenceRow>>();
-  for (const preference of input.bindingAuthorizationPreferences ?? []) {
-    preferenceRows.set(
-      preferenceKey(preference.organizationId, preference.userId),
-      preference
-    );
-  }
   const centerAgentDesignationRows = new Map<
     string,
     ReturnType<typeof centerAgentDesignationRow>
@@ -11675,8 +11635,6 @@ function createOrganizationRpcDb(input: {
   const centerAgentAuditRows = [...(input.centerAgentAuditJournal ?? [])];
   let remainingCenterAgentAuditWriteFailures =
     input.centerAgentAuditWriteFailures ?? 0;
-  let remainingAuthorizationWriteFailures =
-    input.authorizationWriteFailures ?? 0;
   const centerAgentPublicationRows: CenterAgentPublicationOperationTestRow[] =
     [];
   const centerAgentMemoryPolicyRows = new Map<
@@ -11706,18 +11664,9 @@ function createOrganizationRpcDb(input: {
     protectedInformation: string | null;
     updatedByUserId: string;
   }> = [];
-  const authorizationWrites: Array<{
-    bindingId: string;
-    organizationId: string;
-  }> = [];
-  const authorizationDeletes: Array<{
-    bindingId: string;
-    organizationId: string;
-  }> = [];
   const disallowedWrites: string[] = [];
 
   const db = {
-    authorizationWrites,
     bindingRows,
     centerAgentAuditRows,
     centerAgentMemoryPolicyWrites,
@@ -11772,7 +11721,6 @@ function createOrganizationRpcDb(input: {
               normalizedSql,
               organizations: input.organizations,
               personalOrganizations: input.personalOrganizations,
-              preferenceRows,
               slackWorkspaceBindings: input.slackWorkspaceBindings,
               spaces: spaceRows,
             })
@@ -12037,34 +11985,6 @@ function createOrganizationRpcDb(input: {
             }
             if (
               normalizedSql.includes(
-                "insert into organization_binding_authorizations"
-              )
-            ) {
-              if (remainingAuthorizationWriteFailures > 0) {
-                remainingAuthorizationWriteFailures -= 1;
-                throw new Error("Test Binding authorization write failure.");
-              }
-              const organizationId = String(args[1] ?? "");
-              const bindingId = String(args[2] ?? "");
-              const key = authorizationKey(organizationId, bindingId);
-              if (authorizationRows.has(key)) {
-                return createD1RunResult(0);
-              }
-              authorizationRows.set(
-                key,
-                authorizationRow({
-                  agentProfileId: agentProfileIdFromBindingId(bindingId),
-                  authorizedBy: String(args[3] ?? ""),
-                  bindingId,
-                  createdAtMs: Number(args[4] ?? 0),
-                  organizationId,
-                })
-              );
-              authorizationWrites.push({ organizationId, bindingId });
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
                 "update openmelddaemon_agent_profile_bindings"
               ) &&
               normalizedSql.includes(
@@ -12316,40 +12236,6 @@ function createOrganizationRpcDb(input: {
               return createD1RunResult(deleted ? 1 : 0);
             }
             if (
-              normalizedSql.includes(
-                "insert into organization_binding_authorization_preferences"
-              )
-            ) {
-              const organizationId = String(args[1] ?? "");
-              const userId = String(args[2] ?? "");
-              preferenceRows.set(
-                preferenceKey(organizationId, userId),
-                preferenceRow({
-                  autoAuthorizeAgentProfileBindings: args[3] === 1,
-                  createdAtMs: Number(args[4] ?? 0),
-                  organizationId,
-                  updatedAtMs: Number(args[5] ?? 0),
-                  userId,
-                })
-              );
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "delete from organization_binding_authorizations"
-              )
-            ) {
-              const organizationId = String(args[0] ?? "");
-              const bindingId = String(args[1] ?? "");
-              const deleted = authorizationRows.delete(
-                authorizationKey(organizationId, bindingId)
-              );
-              if (deleted) {
-                authorizationDeletes.push({ organizationId, bindingId });
-              }
-              return createD1RunResult(deleted ? 1 : 0);
-            }
-            if (
               normalizedSql.includes("insert into organization_member_activity")
             ) {
               const memberActivities = input.memberActivities;
@@ -12392,7 +12278,6 @@ function createOrganizationRpcDb(input: {
   return {
     ...db,
     agentProfiles: input.agentProfiles,
-    authorizationDeletes,
     authorizationRows,
     bindingWriteEvents,
     members: input.members,
@@ -12480,7 +12365,6 @@ function resolveFirstRow(input: {
     typeof createOrganizationRpcDb
   >[0]["organizations"];
   personalOrganizations?: Array<{ organizationId: string; userId: string }>;
-  preferenceRows: Map<string, ReturnType<typeof preferenceRow>>;
   slackWorkspaceBindings?: Array<{
     createdAtMs: number;
     organizationId: string;
@@ -12673,29 +12557,6 @@ function resolveFirstRow(input: {
       name: organization?.name ?? "Test Organization",
       slug: organization?.slug ?? organizationId,
     };
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from organization_binding_authorization_preferences"
-    )
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const userId = String(input.args[1] ?? "");
-    const preference = input.preferenceRows.get(
-      preferenceKey(organizationId, userId)
-    );
-    return preference
-      ? {
-          auto_authorize_agent_profile_bindings:
-            preference.autoAuthorizeAgentProfileBindings ? 1 : 0,
-          created_at: preference.createdAtMs,
-          id: preference.id,
-          organization_id: preference.organizationId,
-          updated_at: preference.updatedAtMs,
-          user_id: preference.userId,
-        }
-      : null;
   }
 
   if (input.normalizedSql.includes("from center_agent_memory_policies")) {
@@ -13796,16 +13657,6 @@ function mapAgentProfileBindingTestRow(row: AgentProfileBindingTestRow) {
     updated_at_ms: row.updatedAtMs,
     openmeld_service_runtime_id: row.openMeldServiceRuntimeId,
   };
-}
-
-function preferenceKey(organizationId: string, userId: string): string {
-  return `${organizationId}:${userId}`;
-}
-
-function agentProfileIdFromBindingId(bindingId: string): string {
-  return bindingId.startsWith("binding-")
-    ? bindingId.slice("binding-".length)
-    : bindingId;
 }
 
 function buildTestSpaceBootstrap(input: {

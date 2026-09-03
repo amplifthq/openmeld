@@ -2070,7 +2070,7 @@ function applyAgentProfileBindingRpcMigrations(
     "openmeld_profiles",
     "openMeldDaemon_agent_profile_bindings",
   ]);
-  applyOrganizationAuthorizationFixtureTables(harness);
+  applyOrganizationMembershipFixtureTables(harness);
   seedPersonalOrganizationForOwner(harness);
   seedAgentProfileForOwner(harness);
 }
@@ -2112,10 +2112,9 @@ function applyOrganizationIdentityFixtureTables(
   });
 }
 
-function applyOrganizationAuthorizationFixtureTables(
+function applyOrganizationMembershipFixtureTables(
   harness: ReturnType<typeof createSqliteD1Harness>
 ): void {
-  applyOrganizationIdentityFixtureTables(harness);
   harness.run({
     sql: `
       CREATE UNIQUE INDEX IF NOT EXISTS organizations_slug_unique
@@ -2131,37 +2130,6 @@ function applyOrganizationAuthorizationFixtureTables(
         role text DEFAULT 'member' NOT NULL,
         created_at integer NOT NULL
       )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS projects (
-        id text PRIMARY KEY NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE UNIQUE INDEX IF NOT EXISTS organization_binding_authorizations_org_binding_uq_idx
-        ON organization_binding_authorizations (organization_id, binding_id)
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS organization_binding_authorization_preferences (
-        id text PRIMARY KEY NOT NULL,
-        organization_id text NOT NULL,
-        user_id text NOT NULL,
-        auto_authorize_agent_profile_bindings integer DEFAULT false NOT NULL,
-        created_at integer NOT NULL,
-        updated_at integer NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
-      CREATE UNIQUE INDEX IF NOT EXISTS organization_binding_auth_prefs_org_user_uq_idx
-        ON organization_binding_authorization_preferences (organization_id, user_id)
     `,
   });
 }
