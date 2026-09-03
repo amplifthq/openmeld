@@ -905,6 +905,45 @@ describe("planAgentProfileReplyRecovery", () => {
     expect(plan).toEqual({ kind: "none" });
   });
 
+  it("routes a current Cursor plan limit to the Cursor plan action", () => {
+    const reasonCode = "cursor.plan_upgrade_required";
+    const plan = planAgentProfileReplyRecovery({
+      member: createSpaceMemberAgentSnapshot({
+        agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+          displayState: "blocked",
+          facts: {
+            binding: {
+              routable: true,
+              source: "binding_truth",
+            },
+            providerAccount: {
+              blocked: true,
+              expiresAtMs: 1_770_000_000_000,
+              observedAtMs: 1_769_990_000_000,
+              provider: "codex",
+              reasonCodes: [reasonCode],
+              source: "wake_failure",
+            },
+          },
+          primaryAction: "fix_provider_account",
+          reasonCodes: [reasonCode],
+        }),
+        profileName: "Cursor",
+        wakeState: "offline",
+        wakeabilityStatus: "blocked",
+        wakeabilityReasonCodes: [reasonCode],
+        wakeabilityReasonText: "Blocked",
+      }),
+    });
+
+    expect(plan).toMatchObject({
+      kind: "review_provider_account",
+      primaryActionId: "manage_cursor_plan",
+      primaryActionLabel: "Manage Cursor plan",
+      recoveryReasonCode: reasonCode,
+    });
+  });
+
   it("does not let stale computer readiness override Core OpenMeld Service update action", () => {
     const plan = planAgentProfileReplyRecovery({
       currentLocalRuntimeReplyState: "not_ready",

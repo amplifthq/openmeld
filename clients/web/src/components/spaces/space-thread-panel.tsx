@@ -557,6 +557,7 @@ function ThreadSelectedMessageDetails(input: {
 	const panelInput = input.panelInput;
 	return (
 		<SpaceMessageDetailsDrawer
+			agentRecoveryPlansByProfileId={panelInput.agentRecoveryPlansByProfileId}
 			canJumpToMessage={() => false}
 			diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
 				isPending: panelInput.isDiagnosticReportPending(

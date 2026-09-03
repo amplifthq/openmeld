@@ -7,7 +7,7 @@ import {
 	type WakeFlowStep,
 } from "./wake-details-view";
 import {
-	resolveWakeFailureDisplay,
+	resolveHistoricalWakeFailureBody,
 	type WakeFailureDisplay,
 	type WakeFailureTargetContext,
 } from "./wake-failure-display";
@@ -122,7 +122,6 @@ export function resolveSpaceMessageWakeProgressState(input: {
 	const issueEntries = matchingItems.flatMap((item) =>
 		resolveWakeIssueEntry({
 			agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
-			isPersonalContext: input.isPersonalContext === true,
 			item,
 			wakeFailureTargetContextsByProfileId:
 				input.wakeFailureTargetContextsByProfileId,
@@ -271,7 +270,6 @@ function resolveWakeIssueEntry(input: {
 		string,
 		AgentProfileReplyRecoveryPlan
 	>;
-	isPersonalContext: boolean;
 	item: WakeProgressItem;
 	wakeFailureTargetContextsByProfileId?: ReadonlyMap<
 		string,
@@ -297,89 +295,23 @@ function resolveWakeIssueEntry(input: {
 
 	const plan =
 		input.agentRecoveryPlansByProfileId?.get(item.targetProfileId) ?? null;
-	if (
-		plan &&
-		plan.kind !== "none" &&
-		shouldPreferRecoveryPlanForWakeFailure(item)
-	) {
-		return [
-			{
-				action: { kind: "agent_recovery", plan },
-				body: resolveWakeIssueRecoveryFallbackDetail(plan),
-				key: resolveWakeProgressKey(item),
-				message: resolveWakeIssueMessage(item),
-				targetLabel: item.targetLabel,
-				targetProfileId: item.targetProfileId,
-			},
-		];
-	}
-
-	const display = resolveWakeFailureDisplay({
-		failureReasonCode: item.failureReasonCode,
-		isPersonalContext: input.isPersonalContext,
-		targetContext:
-			input.wakeFailureTargetContextsByProfileId?.get(item.targetProfileId) ??
-			null,
-		targetLabel: item.targetLabel,
-	});
-	if (display) {
-		return [
-			{
-				action: { display, kind: "wake_failure" },
-				body: display.body,
-				key: resolveWakeProgressKey(item),
-				message: resolveWakeIssueMessage(item),
-				targetLabel: item.targetLabel,
-				targetProfileId: item.targetProfileId,
-			},
-		];
-	}
-
-	const fallbackPlan = item.failureReasonCode ? null : plan;
-	if (fallbackPlan) {
-		return [
-			{
-				action:
-					fallbackPlan.kind === "none"
-						? null
-						: { kind: "agent_recovery", plan: fallbackPlan },
-				body: resolveWakeIssueRecoveryFallbackDetail(fallbackPlan),
-				key: resolveWakeProgressKey(item),
-				message: resolveWakeIssueMessage(item),
-				targetLabel: item.targetLabel,
-				targetProfileId: item.targetProfileId,
-			},
-		];
-	}
-
+	const currentAction =
+		plan && plan.kind !== "none"
+			? ({ kind: "agent_recovery", plan } as const)
+			: null;
 	return [
 		{
-			action: null,
-			body: resolveWakeIssueMessage(item),
+			action: currentAction,
+			body: resolveHistoricalWakeFailureBody({
+				failureReasonCode: item.failureReasonCode,
+				targetLabel: item.targetLabel,
+			}),
 			key: resolveWakeProgressKey(item),
 			message: resolveWakeIssueMessage(item),
 			targetLabel: item.targetLabel,
 			targetProfileId: item.targetProfileId,
 		},
 	];
-}
-
-function shouldPreferRecoveryPlanForWakeFailure(
-	item: WakeProgressItem
-): boolean {
-	const reasonCode = item.failureReasonCode?.trim().toLowerCase();
-	return (
-		reasonCode === "profile.unbound" ||
-		reasonCode === "agent_profile_binding.missing"
-	);
-}
-
-function resolveWakeIssueRecoveryFallbackDetail(
-	plan: AgentProfileReplyRecoveryPlan
-): string {
-	return plan.kind === "none"
-		? "OpenMeld could not route this agent. Open People to see the agent setup status."
-		: plan.body;
 }
 
 function resolveWakeIssueMessage(item: WakeProgressItem): string {

@@ -2,7 +2,14 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type { ExecutionRecoveryAction } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
-import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useEffect,
+	useEffectEvent,
+	useId,
+	useRef,
+	useState,
+} from "react";
 import { isSpaceComposerSendOutcomeUnknown } from "#/lib/spaces/errors";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { createClientMessageId } from "./use-space-landing-controller-helpers";
@@ -27,6 +34,10 @@ export type SpaceExecutionRecoveryRequest = {
 	resultRef: string | null;
 	targetProfileId: string;
 };
+
+export type AnchoredSpaceExecutionRecoveryState =
+	| { request: SpaceExecutionRecoveryRequest; status: "inspect" }
+	| { request: null; status: "closed" | "invalid" | "legacy" };
 
 export type SpaceExecutionRecoveryAttempt = SpaceExecutionRecoveryRequest & {
 	action: ExecutionRecoveryAction | null;
@@ -138,15 +149,23 @@ export function resolveAnchoredSpaceExecutionRecoveryRequest(input: {
 	notices: readonly SpaceTimelineItem[];
 	outcomeNotice: SpaceTimelineItem;
 }): SpaceExecutionRecoveryRequest | null {
+	const state = resolveAnchoredSpaceExecutionRecoveryState(input);
+	return state.status === "inspect" ? state.request : null;
+}
+
+export function resolveAnchoredSpaceExecutionRecoveryState(input: {
+	notices: readonly SpaceTimelineItem[];
+	outcomeNotice: SpaceTimelineItem;
+}): AnchoredSpaceExecutionRecoveryState {
 	const terminalFailure = input.outcomeNotice;
 	if (terminalFailure.systemNoticeType !== "terminal_failure") {
-		return null;
+		return { request: null, status: "legacy" };
 	}
 	const dispatchId = terminalFailure?.systemNoticeDispatchId?.trim() ?? "";
 	const targetProfileId =
 		terminalFailure?.systemNoticeTargetProfileId?.trim() ?? "";
 	if (!(dispatchId && targetProfileId)) {
-		return null;
+		return { request: null, status: "legacy" };
 	}
 	const exactAvailableNotices = input.notices.filter(
 		(notice) =>
@@ -164,7 +183,7 @@ export function resolveAnchoredSpaceExecutionRecoveryRequest(input: {
 		),
 	];
 	if (availableResultRefs.length > 1) {
-		return null;
+		return { request: null, status: "invalid" };
 	}
 	const resultRef = availableResultRefs[0] ?? null;
 	const completed = input.notices.some(
@@ -175,12 +194,15 @@ export function resolveAnchoredSpaceExecutionRecoveryRequest(input: {
 			(resultRef === null || notice.systemNoticeResultRef?.trim() === resultRef)
 	);
 	if (completed) {
-		return null;
+		return { request: null, status: "closed" };
 	}
 	return {
-		dispatchId,
-		resultRef,
-		targetProfileId,
+		request: {
+			dispatchId,
+			resultRef,
+			targetProfileId,
+		},
+		status: "inspect",
 	};
 }
 
@@ -313,6 +335,7 @@ export function SpaceExecutionRecoveryButton(input: {
 	onRecoverExecution: SpaceExecutionRecoveryHandler;
 	presentation?: "compact" | "detailed";
 	request: SpaceExecutionRecoveryRequest;
+	unavailableFallback?: ReactNode;
 }) {
 	const isCompact = input.presentation === "compact";
 	const warningId = useId();
@@ -359,11 +382,26 @@ export function SpaceExecutionRecoveryButton(input: {
 			cancelled = true;
 		};
 	}, [recoveryDispatchId, recoveryResultRef, recoveryTargetProfileId]);
-	if (inspectionFailed || resolution === null || resolution.action === null) {
+	if (inspectionFailed || resolution === null) {
+		return null;
+	}
+	if (resolution.status !== "available") {
+		return resolution.status === "unavailable"
+			? (input.unavailableFallback ?? null)
+			: null;
+	}
+	if (resolution.action === null) {
+		return null;
+	}
+	if (resolution.action === "retry_as_new_execution") {
 		return null;
 	}
 	const recover = async () => {
-		if (pendingRef.current || !resolution?.action) {
+		if (
+			pendingRef.current ||
+			resolution?.status !== "available" ||
+			!resolution.action
+		) {
 			return;
 		}
 		const operationId = buildSpaceExecutionRecoveryOperationId({
@@ -396,11 +434,7 @@ export function SpaceExecutionRecoveryButton(input: {
 	if (recoveryLabel === null) {
 		return null;
 	}
-	const recoveryWarning =
-		resolution?.action === "retry_as_new_execution"
-			? (resolution.warning ??
-				"This starts a new execution and may run the task and its side effects again.")
-			: (resolution?.warning ?? null);
+	const recoveryWarning = resolution.warning;
 	return (
 		<div
 			className={cn(
@@ -461,9 +495,7 @@ function resolveSpaceExecutionRecoveryButtonLabel(input: {
 		if (input.resolution?.action === "resume_controller_conversation") {
 			return "Recovering reply...";
 		}
-		return input.resolution?.action === "retry_as_new_execution"
-			? "Starting new execution..."
-			: "Recovering result...";
+		return "Recovering result...";
 	}
 	if (input.didFail) {
 		return "Recovery failed. Try again";

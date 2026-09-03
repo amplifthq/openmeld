@@ -3616,7 +3616,7 @@ describe("SpaceConversationPanel", () => {
 		expect(screen.getByText(detailedFailure)).toBeTruthy();
 	});
 
-	it("offers recovery only inside Message details for an anchored failure", async () => {
+	it("does not execute a fresh Wake through Message details recovery", async () => {
 		const onRecoverExecution = vi.fn<SpaceExecutionRecoveryHandler>(
 			async (attempt) =>
 				attempt.action === null
@@ -3663,19 +3663,11 @@ describe("SpaceConversationPanel", () => {
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
-		const retry = await screen.findByRole("button", {
-			name: "Retry as new execution",
-		});
-		fireEvent.click(retry);
-		await waitFor(() => {
-			expect(onRecoverExecution).toHaveBeenCalledWith({
-				action: "retry_as_new_execution",
-				dispatchId: "dispatch-1",
-				operationId: expect.any(String),
-				resultRef: null,
-				targetProfileId: TARGET_PROFILE_ID,
-			});
-		});
+		await screen.findByRole("dialog", { name: "Message details" });
+		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
 	});
 
 	it("summarizes multiple anchored failures in one stable footer", () => {

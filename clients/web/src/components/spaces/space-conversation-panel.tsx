@@ -684,6 +684,7 @@ export function SpaceConversationPanel(
 			) : null}
 			{messageDetailsItem && input.spaceId ? (
 				<SpaceMessageDetailsDrawer
+					agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 					canJumpToMessage={(signalId) =>
 						loadedMainTimelineSignalIds.has(signalId)
 					}

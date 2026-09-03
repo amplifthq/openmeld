@@ -908,7 +908,11 @@ function planProviderAccountRecovery(input: {
   return {
     body: copy.body,
     kind: "review_provider_account",
-    ...createPrimaryAction("review_agent_settings"),
+    ...createPrimaryAction(
+      reasonCode === "cursor.plan_upgrade_required"
+        ? "manage_cursor_plan"
+        : "review_agent_settings"
+    ),
     profileId: input.member.profileId,
     profileName: input.profileName,
     recoveryReasonCode: input.reasonCode,
