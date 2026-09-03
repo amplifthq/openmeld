@@ -206,12 +206,13 @@ converge on the same continuation operation. A transport failure or
 the pending or authorized identity so the next report can confirm or retry the
 same operation. A request that definitively cannot be replayed safely, has
 incomplete source context, no longer matches the same Profile, controller,
-Binding, or configuration, or whose one continuation execution fails moves to
-`continuation_needs_attention`; it cannot re-enter automatic continuation.
-Initial authorization compares the exact interrupted run command's accepted
-Binding, controller, and configuration revision with the current canonical Core
-Binding inside the owner-shard transaction. That authorization and every
-future-work settings write are ordered by the same owner shard. If a setting
+Binding, configuration, or Default Project, or whose one continuation execution
+fails moves to `continuation_needs_attention`; it cannot re-enter automatic
+continuation. Initial authorization compares the exact interrupted run
+command's accepted Binding, controller, configuration revision, and nullable
+Default Project with the current canonical Core and Auth facts inside the
+owner-shard transaction. That authorization and every future-work settings write
+are ordered by the same owner shard. If a setting
 write wins while the gate is pending or authorized, the same transaction moves
 the exact continuation to `continuation_needs_attention` and writes its Inbox
 intent before D1 settings may change. If head creation wins first, the gate is
@@ -225,9 +226,11 @@ unsafe and moves to `continuation_needs_attention` rather than being treated as
 unchanged.
 The handoff uses a dedicated owner-only Usage-continuation command with the
 frozen interrupted dispatch/source identity and deterministic operation and
-client-message identities. Space posts through its exactly-once client-message
-writer, so repeated owner triggers resolve the same continuation instead of
-creating another handoff. It does not call the public Execution Recovery
+client-message identities. It preserves the source message's canonical Space
+File revision references and structured Agent References, then Space posts
+through its ordinary exactly-once client-message writer so current file and
+addressing validation still fails closed. Repeated owner triggers resolve the
+same continuation instead of creating another handoff. It does not call the public Execution Recovery
 `retry_as_new_execution` action. That legacy action remains parseable but is
 never enabled or executed for a user.
 One idempotent Inbox item links the original Wake. The owner may skip the exact

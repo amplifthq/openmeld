@@ -362,6 +362,7 @@ describe("Agent Profile work recovery Core RPC", () => {
         currentAgentControllerRef: "builtin:codex",
         currentBindingId: "binding-1",
         currentConfigurationRevision: 1,
+        currentDefaultProjectId: "project-a",
         expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
         ownerUserId: "owner-1",
         requireAcceptedExecutionTargetRevision: true,
@@ -530,6 +531,7 @@ function createRuntimeTransportStub(input?: {
         currentAgentControllerRef: string;
         currentBindingId: string;
         currentConfigurationRevision: number;
+        currentDefaultProjectId: string | null;
         expectedInterruptedTargetWakeLifecycleId: string;
         ownerUserId: string;
         requireAcceptedExecutionTargetRevision: true;
@@ -569,6 +571,7 @@ function createEnv(input: {
         vi.fn(async () => ({
           ok: true as const,
           profile: {
+            defaultProjectId: "project-a",
             organizationId: "org-1",
             ownerUserId: "owner-1",
             profileHandle: "agent-one",

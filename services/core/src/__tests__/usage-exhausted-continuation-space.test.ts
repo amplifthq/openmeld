@@ -8,21 +8,31 @@ import { Space } from "../space/transport/do/space";
 
 const SPACE_ID = "a".repeat(64);
 const TARGET_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
+const REFERENCE_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const SOURCE_SIGNAL_ID = "signal-interrupted";
 const INTERRUPTED_CLIENT_MESSAGE_ID = "client-interrupted";
 const CONTINUATION_CLIENT_MESSAGE_ID =
   "agent-profile-work-continuation-5da1ee755432c68f046b7b774852d3f589118fa5c83839da03807fdde2423430";
 
 describe("Usage-exhausted Space continuation", () => {
-  it("replays the frozen Wake through one deterministic exactly-once writer identity", async () => {
+  it("replays the frozen Wake, files, and Agent References through one deterministic exactly-once writer identity", async () => {
     const posts: Record<string, unknown>[] = [];
     const persistedClientMessageIds = new Set<string>();
     let createdSignalCount = 0;
     const sourceSignal = {
       data: {
+        files: [
+          {
+            fileId: "file-1",
+            mimeType: "application/pdf",
+            name: "brief.pdf",
+            revision: 3,
+            sizeBytes: 128,
+          },
+        ],
         messageEnvelope: {
           activationTargets: [TARGET_PROFILE_ID],
-          referenceTargets: [],
+          referenceTargets: [REFERENCE_PROFILE_ID],
           text: "Finish the original task",
         },
         meta: { clientMessageId: INTERRUPTED_CLIENT_MESSAGE_ID },
@@ -92,9 +102,10 @@ describe("Usage-exhausted Space continuation", () => {
     expect(posts[0]).toMatchObject({
       authoringPolicy: "user_authored",
       clientMessageId: CONTINUATION_CLIENT_MESSAGE_ID,
+      files: sourceSignal.data.files,
       messageEnvelope: {
         activationTargets: [TARGET_PROFILE_ID],
-        referenceTargets: [],
+        referenceTargets: [REFERENCE_PROFILE_ID],
         text: "Finish the original task",
       },
       meta: { clientMessageId: CONTINUATION_CLIENT_MESSAGE_ID },

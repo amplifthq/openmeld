@@ -830,7 +830,10 @@ failure-to-recovery smoke test.
 For Space and Direct Message Wakes, that automatic continuation uses the exact
 interrupted dispatch and source message as its internal continuation authority.
 The new Wake keeps the original source message's author; the Agent owner's Human
-Profile authorizes recovery but is not shown as the original sender.
+Profile authorizes recovery but is not shown as the original sender. Space File
+references keep their exact immutable revisions and Agent References keep their
+structured targets through the ordinary Space message writer; missing or invalid
+source content fails closed instead of producing a partial continuation.
 
 Owners may keep editing settings while work is queued or running under the
 existing capability rules. A running Wake keeps its accepted Binding and
@@ -838,17 +841,17 @@ configuration revision. Saved model, reasoning, controller, and launch-only
 permission changes apply to future work. A native live permission update is
 shown as applied only after the provider acknowledges it.
 
-An approved Usage continuation rechecks its exact Binding, controller, and
-configuration revision before it can continue, not only when Usage first
-recovers. Continuation authorization, head admission, and every cloud-owned
-future-work settings change share one owner-shard ordering boundary. If the
-continuation becomes running first, the current Wake keeps its accepted
-settings and the saved change applies to later work. If the setting change wins
-while the continuation is pending or authorized, the continuation moves to
-`Needs attention` without executing. During a rolling deployment, an older
-owner shard that cannot coordinate future-work settings rejects that settings
-save before changing the Binding; ordinary Wakes keep using the unchanged fast
-path.
+An approved Usage continuation rechecks its exact Binding, controller,
+configuration revision, and nullable Default Project before it can continue,
+not only when Usage first recovers. Continuation authorization, head admission,
+and every cloud-owned future-work settings change share one owner-shard ordering
+boundary. If the continuation becomes running first, the current Wake keeps its
+accepted settings and the saved change applies to later work. If the setting
+change wins while the continuation is pending or authorized, the continuation
+moves to `Needs attention` without executing. During a rolling deployment, an
+older owner shard that cannot coordinate future-work settings rejects that
+settings save before changing the preference; ordinary Wakes keep using the
+unchanged fast path.
 
 ## Agent Profile Operational Context
 

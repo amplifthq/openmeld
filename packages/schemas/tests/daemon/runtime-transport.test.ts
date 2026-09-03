@@ -1325,6 +1325,7 @@ describe("runtime transport schema", () => {
         currentAgentControllerRef: "builtin:codex",
         currentBindingId: "binding-1",
         currentConfigurationRevision: 2,
+        currentDefaultProjectId: "project-1",
         expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
         ownerUserId: "owner-1",
         requireAcceptedExecutionTargetRevision: true,
@@ -1335,6 +1336,7 @@ describe("runtime transport schema", () => {
       currentAgentControllerRef: "builtin:codex",
       currentBindingId: "binding-1",
       currentConfigurationRevision: 2,
+      currentDefaultProjectId: "project-1",
       expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
       ownerUserId: "owner-1",
       requireAcceptedExecutionTargetRevision: true,
@@ -1345,6 +1347,18 @@ describe("runtime transport schema", () => {
         { status: "needs_attention" }
       )
     ).toEqual({ status: "needs_attention" });
+    expect(
+      runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.parse({
+        continuationClientMessageId: "client-continuation-legacy",
+        currentAgentControllerRef: "builtin:codex",
+        currentBindingId: "binding-1",
+        currentConfigurationRevision: 2,
+        expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
+        ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
+        targetProfileId: firstProfileId,
+      })
+    ).not.toHaveProperty("currentDefaultProjectId");
     expect(
       runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema.parse(
         {

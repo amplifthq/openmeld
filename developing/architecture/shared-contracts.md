@@ -5289,18 +5289,24 @@ interrupted target-Wake lifecycle id, and the owner shard compares that identity
 before mutation so a stale Web action cannot clear a later gate. Usage-based
 automatic continuation requires the exact current
 `usageLimitsSupportMatrixVersion`, the same Profile, controller, Binding, and
-configuration, complete replayable source context, and no prior automatic
-continuation attempt. The continuation authorization request also carries the
-current canonical Binding tuple and an explicit accepted-revision verification
-marker; the owner shard compares it with the interrupted run command snapshot
-in the same transaction. Missing or mismatched accepted revision evidence is
-unsafe. An unsafe request or failed automatic continuation stays behind one
-current Needs-attention projection instead of entering another retry loop.
+configuration, the same nullable Default Project, complete replayable source
+context, and no prior automatic continuation attempt. The continuation
+authorization request also carries the current canonical Binding tuple, the
+Auth-owned nullable Default Project, and an explicit accepted-revision
+verification marker; the owner shard compares them with the interrupted run
+command snapshot in the same transaction. The new Default Project field is
+additive on the wire, but a new owner shard treats an omitted field as unsafe so
+an older caller cannot continue without this fence. Missing or mismatched
+accepted evidence is unsafe. An unsafe request or failed automatic continuation
+stays behind one current Needs-attention projection instead of entering another
+retry loop.
 The resulting Space handoff is a separate owner-only Usage-continuation
 command. It carries the frozen interrupted source identity plus deterministic
-operation and client-message identities. Repeated commands converge through
-Space's exactly-once client-message writer and cannot create a second handoff.
-The command never depends on the public Execution Recovery
+operation and client-message identities, the exact canonical Space File
+revision references, and the structured Agent Reference targets. Repeated
+commands converge through Space's ordinary exactly-once client-message writer,
+including its current file and addressing validation, and cannot create a
+second handoff. The command never depends on the public Execution Recovery
 `retry_as_new_execution` capability. That legacy schema member remains accepted
 for mixed-version parsing while public inspection and execution keep it
 disabled.
@@ -5308,10 +5314,11 @@ disabled.
 RuntimeCoordinator head admission keeps its existing version 1 wire shape so a
 new Core caller cannot stall ordinary Wake traffic on an older strict owner
 shard. The initial continuation authorization compares the current canonical
-`bindingId`, `agentControllerRef`, and `configurationRevision` with the
-interrupted run command in the owner-shard transaction. Future-work settings
-use a dedicated owner-shard mutation RPC instead of adding a field to the
-existing strict execution-target mutation request. That transaction moves a
+`bindingId`, `agentControllerRef`, `configurationRevision`, and Auth-owned
+nullable `defaultProjectId` with the interrupted run command in the owner-shard
+transaction. Future-work settings use a dedicated owner-shard mutation RPC
+instead of adding a field to the existing strict execution-target mutation
+request. That transaction moves a
 pending or authorized continuation to the single Needs-attention gate and
 writes its Inbox intent before the cloud Binding write may begin. If the
 continuation head wins the owner-shard order first, it becomes running and the

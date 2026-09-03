@@ -1628,6 +1628,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         currentAgentControllerRef: parsed.data.currentAgentControllerRef,
         currentBindingId: parsed.data.currentBindingId,
         currentConfigurationRevision: parsed.data.currentConfigurationRevision,
+        currentDefaultProjectId: parsed.data.currentDefaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           parsed.data.expectedInterruptedTargetWakeLifecycleId,
         nowMs: Date.now(),

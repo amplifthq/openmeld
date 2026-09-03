@@ -5082,8 +5082,8 @@ async function executeAgentProfileWorkContinuation(input: {
     targetProfileId: input.targetProfileId,
   });
   if (input.recovery.authorizedContinuationClientMessageId === null) {
-    const currentBinding =
-      await requireCurrentAgentProfileWorkContinuationBinding({
+    const currentTarget =
+      await requireCurrentAgentProfileWorkContinuationTarget({
         env: input.env,
         ownerUserId: input.ownerUserId,
         targetProfileId: input.targetProfileId,
@@ -5091,9 +5091,10 @@ async function executeAgentProfileWorkContinuation(input: {
     const authorized =
       await input.ownerShard.rpcAuthorizeAgentProfileWorkContinuation({
         continuationClientMessageId,
-        currentAgentControllerRef: currentBinding.agentControllerRef,
-        currentBindingId: currentBinding.bindingId,
-        currentConfigurationRevision: currentBinding.configurationRevision,
+        currentAgentControllerRef: currentTarget.agentControllerRef,
+        currentBindingId: currentTarget.bindingId,
+        currentConfigurationRevision: currentTarget.configurationRevision,
+        currentDefaultProjectId: currentTarget.defaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           input.recovery.interruptedTargetWakeLifecycleId,
         ownerUserId: input.ownerUserId,
@@ -5143,7 +5144,7 @@ function throwAgentProfileWorkContinuationAuthorizationError(
   });
 }
 
-async function requireCurrentAgentProfileWorkContinuationBinding(input: {
+async function requireCurrentAgentProfileWorkContinuationTarget(input: {
   env: CoreBindings;
   ownerUserId: string;
   targetProfileId: string;
@@ -5151,6 +5152,7 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
   agentControllerRef: string;
   bindingId: string;
   configurationRevision: number;
+  defaultProjectId: string | null;
 }> {
   const bindingDb = localStateDb(input.env);
   if (!bindingDb) {
@@ -5160,18 +5162,27 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
       status: 503,
     });
   }
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.targetProfileId,
-    db: bindingDb,
-    owner: { id: input.ownerUserId, kind: "owner_account" },
-  });
+  const [binding, authScope] = await Promise.all([
+    readPrimaryAgentProfileBindingRecord({
+      agentProfileId: input.targetProfileId,
+      db: bindingDb,
+      owner: { id: input.ownerUserId, kind: "owner_account" },
+    }),
+    resolveAgentProfileWorkRecoveryAuthScope({
+      agentProfileId: input.targetProfileId,
+      authWorker: input.env.OPENMELD_AUTH_WORKER,
+    }),
+  ]);
   const agentControllerRef = binding
     ? parseAgentControllerRef(binding.agentControllerRef)
     : null;
   if (
     binding?.bindingState !== "enabled_primary" ||
     binding.runtimeKind !== "openmeld_service" ||
-    !agentControllerRef
+    !agentControllerRef ||
+    authScope.status === "invalid" ||
+    (authScope.status === "valid" &&
+      authScope.scope.ownerUserId !== input.ownerUserId)
   ) {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.continuation_unavailable",
@@ -5180,10 +5191,18 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
       status: 409,
     });
   }
+  if (authScope.status !== "valid") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld could not verify this Agent’s current setup yet.",
+      status: 503,
+    });
+  }
   return {
     agentControllerRef: agentControllerRef.ref,
     bindingId: binding.bindingId,
     configurationRevision: binding.configurationRevision,
+    defaultProjectId: authScope.scope.defaultProjectId,
   };
 }
 

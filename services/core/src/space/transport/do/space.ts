@@ -4625,7 +4625,13 @@ export class Space extends DurableObject<CoreBindings> {
       context: continuationContext,
       messageEnvelope: {
         activationTargets: [input.targetProfileId],
-        referenceTargets: [],
+        referenceTargets:
+          sourceSignal.data.messageEnvelope?.referenceTargets ?? [],
+        ...(sourceSignal.data.messageEnvelope?.mentionTargets
+          ? {
+              mentionTargets: sourceSignal.data.messageEnvelope.mentionTargets,
+            }
+          : {}),
         text: sourceSignal.data.text,
       },
       meta: { clientMessageId: continuationClientMessageId },
@@ -4634,6 +4640,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceAccess: verifiedReplayAccess,
       spaceId: this.spaceId,
       text: sourceSignal.data.text,
+      ...(sourceSignal.data.files ? { files: sourceSignal.data.files } : {}),
       ...(thread
         ? {
             threadContext: {

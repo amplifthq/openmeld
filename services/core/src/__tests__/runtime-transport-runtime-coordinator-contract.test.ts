@@ -1818,6 +1818,7 @@ const buildInteractionDeliveredRequest = (
 
 const buildDeliverRequest = (
   overrides: {
+    defaultProjectId?: string;
     replyToSnapshot?: {
       signalId: string;
       profileId: string;
@@ -1853,6 +1854,9 @@ const buildDeliverRequest = (
     dispatchContractVersion: 2,
     dispatchId: "dispatch-1",
     dispatchPolicy: "mention_only" as const,
+    ...(overrides.defaultProjectId
+      ? { defaultProjectId: overrides.defaultProjectId }
+      : {}),
     dispatchRulesSnapshot: {
       dispatchPolicy: "mention_only" as const,
       ruleId: "registry.default.all_members.v1",
@@ -2197,6 +2201,7 @@ const classifyPublicationClosureDiagnostics = (
 
 const issueDeliveryToken = async (input: {
   hub: RuntimeTransportHub;
+  defaultProjectId?: string;
   profileConfigurationRevision?: number;
   replyToSnapshot?: {
     signalId: string;
@@ -2235,6 +2240,9 @@ const issueDeliveryToken = async (input: {
     new Request("https://runtime-transport.test/deliver-dispatch", {
       body: JSON.stringify(
         buildDeliverRequest({
+          ...(input.defaultProjectId
+            ? { defaultProjectId: input.defaultProjectId }
+            : {}),
           ...(input.replyToSnapshot
             ? { replyToSnapshot: input.replyToSnapshot }
             : {}),
@@ -2294,6 +2302,7 @@ const acceptDefaultRuntimeCoordinatorHead = (
   );
 
 const prepareRunningContinuationWithQueuedWork = async (input: {
+  defaultProjectId?: string;
   hub: RuntimeTransportHub;
   profileConfigurationRevision?: number;
   queuedWorkName: string;
@@ -2307,6 +2316,9 @@ const prepareRunningContinuationWithQueuedWork = async (input: {
   queuedIdentity: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest["targetWakeLifecycleIdentity"];
 }> => {
   await issueDeliveryToken({
+    ...(input.defaultProjectId
+      ? { defaultProjectId: input.defaultProjectId }
+      : {}),
     hub: input.hub,
     profileConfigurationRevision: input.profileConfigurationRevision,
     sentFrames: input.sentFrames,
@@ -4508,9 +4520,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
-    ["still matches", false, "accepted"],
-    ["changes after approval", true, "needs_attention"],
-  ] as const)("holds FIFO work when the running Wake exhausts Usage and its execution target %s", async (_caseName, saveFutureSettings, expectedOutcome) => {
+    [
+      "the continuation wins before a later Default Project save",
+      false,
+      "accepted",
+    ],
+    [
+      "the Default Project save wins before the continuation head",
+      true,
+      "needs_attention",
+    ],
+  ] as const)("orders Usage continuation and Default Project writes when %s", async (_caseName, saveFutureSettings, expectedOutcome) => {
     const {
       hub,
       recordingD1,
@@ -4539,7 +4559,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     ).handleDeliverDispatchRequest(
       new Request("https://runtime-transport.test/deliver-dispatch", {
-        body: JSON.stringify(buildDeliverRequest()),
+        body: JSON.stringify(
+          buildDeliverRequest({ defaultProjectId: "project-a" })
+        ),
         method: "POST",
       })
     );
@@ -4647,6 +4669,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         currentAgentControllerRef: string;
         currentBindingId: string;
         currentConfigurationRevision: number;
+        currentDefaultProjectId: string | null;
         expectedInterruptedTargetWakeLifecycleId: string;
         ownerUserId: string;
         requireAcceptedExecutionTargetRevision: true;
@@ -4762,6 +4785,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         currentAgentControllerRef: "builtin:codex",
         currentBindingId: "binding-1",
         currentConfigurationRevision: 1,
+        currentDefaultProjectId: "project-a",
         expectedInterruptedTargetWakeLifecycleId:
           buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
             .targetWakeLifecycleId,
@@ -4907,6 +4931,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
       action: "create_execution",
       status: "accepted",
     });
+    await expect(
+      mutationHub.rpcAcquireAgentProfileFutureWorkSettingsMutation({
+        operationId: "save-default-project-after-continuation-started",
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({ status: "acquired" });
+    await expect(
+      mutationHub.rpcReleaseAgentProfileControllerMutation({
+        operationId: "save-default-project-after-continuation-started",
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "released" });
     await expect(
       mutationHub.rpcAcquireAgentProfileControllerMutation({
         operationId: "too-late-after-continuation-started",
@@ -5448,6 +5486,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         currentAgentControllerRef: string;
         currentBindingId: string;
         currentConfigurationRevision: number;
+        currentDefaultProjectId: string | null;
         expectedInterruptedTargetWakeLifecycleId: string;
         ownerUserId: string;
         requireAcceptedExecutionTargetRevision: true;
@@ -5480,6 +5519,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           currentAgentControllerRef: "builtin:codex",
           currentBindingId: "binding-1",
           currentConfigurationRevision: 1,
+          currentDefaultProjectId: null,
           expectedInterruptedTargetWakeLifecycleId:
             interruptedTargetWakeLifecycleId,
           ownerUserId: "owner-1",
@@ -5534,7 +5574,31 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).resolves.toEqual({ status: "released" });
   });
 
-  it("moves Usage recovery to Needs attention when the accepted configuration changed", async () => {
+  it.each([
+    {
+      acceptedDefaultProjectId: undefined,
+      currentConfigurationRevision: 2,
+      currentDefaultProjectId: null,
+      label: "configuration",
+    },
+    {
+      acceptedDefaultProjectId: "project-a",
+      currentConfigurationRevision: 1,
+      currentDefaultProjectId: "project-b",
+      label: "Default Project",
+    },
+    {
+      acceptedDefaultProjectId: "project-a",
+      currentConfigurationRevision: 1,
+      currentDefaultProjectId: undefined,
+      label: "missing Default Project evidence",
+    },
+  ] as const)("moves Usage recovery to Needs attention when $label no longer matches", async ({
+    acceptedDefaultProjectId,
+    currentConfigurationRevision,
+    currentDefaultProjectId,
+    label,
+  }) => {
     const { hub, sentFrames, socket, state, storageRecords } = createHarness();
     const publishAgentReadinessInvalidated = vi.fn();
     (
@@ -5546,9 +5610,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     ).publishAgentReadinessInvalidated = publishAgentReadinessInvalidated;
     const { admissionKey } = await prepareRunningContinuationWithQueuedWork({
+      ...(acceptedDefaultProjectId
+        ? { defaultProjectId: acceptedDefaultProjectId }
+        : {}),
       hub,
       profileConfigurationRevision: 1,
-      queuedWorkName: "changed-configuration-successor",
+      queuedWorkName: `changed-${label.toLowerCase().replace(" ", "-")}-successor`,
       sentFrames,
       socket,
       state,
@@ -5577,6 +5644,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             currentAgentControllerRef: string;
             currentBindingId: string;
             currentConfigurationRevision: number;
+            currentDefaultProjectId?: string | null;
             expectedInterruptedTargetWakeLifecycleId: string;
             ownerUserId: string;
             requireAcceptedExecutionTargetRevision: true;
@@ -5584,10 +5652,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
           }) => Promise<unknown>;
         }
       ).rpcAuthorizeAgentProfileWorkContinuation({
-        continuationClientMessageId: "client-message-changed-configuration",
+        continuationClientMessageId: `client-message-changed-${label.toLowerCase().replace(" ", "-")}`,
         currentAgentControllerRef: "builtin:codex",
         currentBindingId: "binding-1",
-        currentConfigurationRevision: 2,
+        currentConfigurationRevision,
+        currentDefaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           interruptedTargetWakeLifecycleId,
         ownerUserId: "owner-1",

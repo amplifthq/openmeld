@@ -259,6 +259,7 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
     currentAgentControllerRef: agentControllerRefSchema,
     currentBindingId: z.string().trim().min(1).max(512),
     currentConfigurationRevision: z.number().int().positive(),
+    currentDefaultProjectId: z.string().trim().min(1).nullable().optional(),
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
     requireAcceptedExecutionTargetRevision: z.literal(true),
   });
