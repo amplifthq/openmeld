@@ -1319,10 +1319,11 @@ const computerFileAccessRpc = createComputerFileAccessRpc({
   readPolicy: readRuntimeTransportComputerFileAccessPolicy,
   requireOwnerUserId: requireAuthenticatedOwnerUserId,
   resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, ownerService } =
+    const { bindingTarget, localRuntimes, ownerService } =
       await resolveCurrentLocalServiceContext({ env, userId });
     return requireCurrentLocalRuntimeServiceTarget({
       bindingTarget,
+      inventory: localRuntimes,
       ownerService,
       offlineError: {
         code: "computer.file_access.service_offline",
@@ -1337,10 +1338,11 @@ const computerFileAccessRpc = createComputerFileAccessRpc({
 const localFolderPickerRpc = createLocalFolderPickerRpc({
   requireOwnerUserId: requireAuthenticatedOwnerUserId,
   resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, ownerService } =
+    const { bindingTarget, localRuntimes, ownerService } =
       await resolveCurrentLocalServiceContext({ env, userId });
     return requireCurrentLocalRuntimeServiceTarget({
       bindingTarget,
+      inventory: localRuntimes,
       ownerService,
       offlineError: {
         code: "local.folder_picker.service_offline",
@@ -3360,6 +3362,7 @@ async function readOwnerCurrentComputerFileAccessSummary(input: {
         deviceId: input.localRuntimes.currentDeviceId,
         runtimeLane: input.localRuntimes.currentRuntimeLane,
       },
+      inventory: input.localRuntimes,
       offlineError: {
         code: "computer.file_access.service_offline",
         reason: "This computer isn't reachable for OpenMeld right now.",
@@ -3507,17 +3510,19 @@ async function resolveCurrentOpenMeldToolsControlTarget(input: {
   capability: "requestUpdate" | "setAutomaticUpdates";
   env: CoreBindings;
   userId: string;
-}): Promise<CurrentLocalControlTarget> {
-  const { currentTarget, ownerService } =
-    await resolveCurrentLocalControlTarget({
-      env: input.env,
-      offlineError: {
-        code: "service_offline",
-        reason: "OpenMeld Service is offline.",
-        status: 503,
-      },
-      userId: input.userId,
-    });
+}): Promise<{ deviceId: string; runtimeLane: DaemonServiceLane }> {
+  const { bindingTarget, localRuntimes, ownerService } =
+    await resolveCurrentLocalServiceContext(input);
+  const currentTarget = requireCurrentLocalRuntimeServiceTarget({
+    bindingTarget,
+    inventory: localRuntimes,
+    offlineError: {
+      code: "service_offline",
+      reason: "OpenMeld Service is offline.",
+      status: 503,
+    },
+    ownerService,
+  });
   const supportsControl =
     ownerService.online &&
     ownerService.sessions.some(
