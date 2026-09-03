@@ -941,6 +941,14 @@ function createUnavailableWakeAvailability(
     });
   }
 
+  if (
+    readiness.facts.runtime.reasonCodes.includes(
+      "controller.auth.unauthenticated"
+    )
+  ) {
+    return createControllerSignInNeededAvailability(agentControllerRef);
+  }
+
   if (readiness.primaryAction === "connect_service") {
     return createServiceNotConnectedAvailability({
       readiness,
@@ -955,13 +963,6 @@ function createUnavailableWakeAvailability(
     readiness.primaryAction === "reconnect_binding" ||
     readiness.primaryAction === "run_prepare"
   ) {
-    if (
-      readiness.primaryAction === "run_prepare" &&
-      hasReasonCode(readiness, "controller.auth.unauthenticated")
-    ) {
-      return createControllerSignInNeededAvailability(agentControllerRef);
-    }
-
     const controllerBlockerReasonCode = pickKnownReasonCode(readiness, [
       "controller.registry.disabled",
       "controller.bootstrap.failed",

@@ -422,6 +422,48 @@ describe("agent wake availability", () => {
     });
   });
 
+  it("prioritizes current Codex sign-in guidance while Usage is checking", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-07-13T06:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "needs_prepare",
+        ready: false,
+        reasonCodes: ["controller.auth.unauthenticated", "usage_checking"],
+      },
+    });
+
+    expect(readiness.primaryAction).toBe("check_status");
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "usage_checking"
+    );
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: "builtin:codex",
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+        readiness,
+      })
+    ).toEqual({
+      action: "none",
+      badgeLabel: "Sign-in needed",
+      category: "unavailable",
+      isRefreshing: false,
+      label: "Sign-in needed",
+      phase: "provider_sign_in_needed",
+      reasonCode: "controller.auth.unauthenticated",
+      status: "unavailable_for_wake",
+      summary:
+        "Run codex login in a terminal on this computer to sign in to Codex.",
+      tooltip:
+        "Codex is not signed in. Run codex login in a terminal on this computer.",
+    });
+  });
+
   it.each([
     {
       label: "Wrong workspace",
