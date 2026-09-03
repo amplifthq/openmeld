@@ -897,11 +897,11 @@ describe("LocalAgentsCard", () => {
 		});
 
 		const note = screen.getByText(
-			"Local agents will refresh after OpenMeld Service is reconnected."
+			"Local agents will refresh after this computer reconnects."
 		);
 		expect(note.className).toContain("text-foreground");
 		expect(
-			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
+			screen.queryByRole("link", { name: "Reconnect Computer" })
 		).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: "Local agents options" })
@@ -1543,7 +1543,7 @@ describe("LocalAgentsCard", () => {
 		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
 		expect(
 			within(screen.getByRole("dialog")).getByText(
-				"Last check found this local agent. Connect OpenMeld Service to refresh its status."
+				"Last check found this local agent. Connect this computer to refresh its status."
 			)
 		).toBeTruthy();
 	});

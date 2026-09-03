@@ -3513,7 +3513,7 @@ async function resolveCurrentOpenMeldToolsControlTarget(input: {
   if (!supportsControl) {
     throw createCoreRpcHttpError({
       code: "service_update_required",
-      reason: "Reconnect OpenMeld Service to use this action.",
+      reason: "Reconnect Computer to use this action.",
       status: 409,
     });
   }

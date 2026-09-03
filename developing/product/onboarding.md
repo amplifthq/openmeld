@@ -528,7 +528,7 @@ Banner content by decision:
 
 - `connect_this_computer` available — title "Connect this computer" (same copy
   whether or not the account has an agent yet); subtitle "So your local agents
-  can reply when you mention them"; and a single "Connect OpenMeld Service" button
+  can reply when you mention them"; and a single "Connect Computer" button
   that routes to the centralized setup page (the same destination as the Agents
   page). The OS-aware bootstrap command (macOS/Linux vs Windows toggle), the
   copy affordance, the command expiry + refresh, and the live "Waiting for this
@@ -615,7 +615,7 @@ drift):
 | Empty Space connect action  | `Connect this computer` / `Make Codex, Claude Code, or another local agent available in OpenMeld.`                                              |
 | Empty Space add action      | `Add people or agents` / `Choose people or agents for this Space, or create a new agent.`                                                       |
 | Banner heading              | `Get set up` / `Optional. Dismiss anytime.`                                                                                                     |
-| Connect (banner)            | `Connect this computer` / `So your local agents can reply when you mention them` / button `Connect OpenMeld Service` (routes to the setup page) |
+| Connect (banner)            | `Connect this computer` / `So your local agents can reply when you mention them` / button `Connect Computer` (routes to the setup page) |
 | Waiting status (setup page) | `Waiting for this computer…`                                                                                                                    |
 | Connected status            | `Connected`                                                                                                                                     |
 | Bring agents (available)    | `Add agents` (opens + flashes Add members)                                                                                                      |

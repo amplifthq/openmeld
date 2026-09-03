@@ -965,7 +965,7 @@ const createHarness = (input?: {
           dispatchId: "dispatch-1",
           generatedBy: "openmeld",
           reason: "runtime_coordinator.delivery_expired",
-          text: "Codex Agent did not receive this Wake before it expired. Wake the agent again when the local OpenMeld Service is online.",
+          text: "Codex Agent did not receive this Wake before it expired. Wake the Agent again when its computer is connected.",
         },
       });
     }),
@@ -1007,7 +1007,7 @@ const createHarness = (input?: {
             dispatchId: "dispatch-1",
             generatedBy: "openmeld",
             reason: "runtime_coordinator.delivery_expired",
-            text: "Codex Agent did not receive this Wake before it expired. Wake the agent again when the local OpenMeld Service is online.",
+            text: "Codex Agent did not receive this Wake before it expired. Wake the Agent again when its computer is connected.",
           },
         });
       }
@@ -14182,7 +14182,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           noticeType: "terminal_failure",
           reason: "runtime_coordinator.delivery_expired",
           reasonCode: "runtime_coordinator.delivery_expired",
-          text: "Codex Agent did not receive this Wake before it expired. Wake the agent again when the local OpenMeld Service is online.",
+          text: "Codex Agent did not receive this Wake before it expired. Wake the Agent again when its computer is connected.",
         },
       });
       const authority = [...storageRecords.values()].find(
@@ -15507,7 +15507,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           reason: "runtime.progress_stale",
           reasonCode: "runtime.progress_stale",
           stopCause: "controlled_service_update",
-          text: "Codex Agent stopped making progress on this Wake. Reconnect OpenMeld Service before trying again.",
+          text: "Codex Agent stopped making progress on this Wake. Reconnect the computer before trying again.",
         },
       });
       const progressStaleTerminalEvent = getRuntimeCoordinatorEventCalls(
@@ -16022,7 +16022,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             noticeType: "terminal_failure",
             reasonCode: "runtime.local_runtime_lost",
             stopCause: "controlled_service_update",
-            text: "Codex Agent was interrupted when OpenMeld Service restarted.",
+            text: "Codex Agent was interrupted when its computer reconnected.",
           }),
         },
       });

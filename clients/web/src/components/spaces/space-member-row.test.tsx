@@ -346,8 +346,8 @@ describe("SpaceMemberRow", () => {
 				availabilityPhase: "offline",
 				availabilityReasonCode: "local_service.not_connected_for_account",
 				availabilitySummary:
-					"Connect OpenMeld Service before this agent can reply.",
-				availabilityTooltip: "OpenMeld Service is not connected.",
+					"Connect your computer before this Agent can reply.",
+				availabilityTooltip: "Computer not connected",
 				lastSeenLabel: "Seen 16d ago",
 				presenceStatus: "offline",
 			}),
@@ -355,7 +355,7 @@ describe("SpaceMemberRow", () => {
 		});
 
 		expect(
-			screen.getByText("Connect OpenMeld Service before this agent can reply.")
+			screen.getByText("Connect your computer before this Agent can reply.")
 		).toBeTruthy();
 		expect(screen.queryByText("Codex · gpt-5.3-codex-spark · high")).toBeNull();
 		expect(
@@ -372,7 +372,7 @@ describe("SpaceMemberRow", () => {
 		expect(dialog.getByText("Felix")).toBeTruthy();
 		expect(dialog.queryByText("Last activity in this Space")).toBeNull();
 		expect(
-			dialog.getByText("Connect OpenMeld Service before this agent can reply.")
+			dialog.getByText("Connect your computer before this Agent can reply.")
 		).toBeTruthy();
 	});
 
@@ -958,7 +958,7 @@ describe("SpaceMemberRow", () => {
 			screen
 				.getByTestId("space-agent-availability-indicator")
 				.getAttribute("title")
-		).toBe("Codex needs OpenMeld Service");
+		).toBe("Codex’s computer is disconnected");
 		expect(screen.queryByText("OpenMeld Service is not connected")).toBeNull();
 	});
 
@@ -1359,15 +1359,15 @@ function buildConflictPlan(): AgentProfileReplyRecoveryPlan {
 
 function buildServiceConnectionPlan(): AgentProfileReplyRecoveryPlan {
 	return {
-		body: "Codex is connected, but OpenMeld Service is not running on this computer.",
+		body: "Codex’s computer is disconnected from OpenMeld. Reconnect the computer so it can receive local Wake work.",
 		kind: "review_computer",
 		primaryActionId: "reconnect_openmeld_service",
-		primaryActionLabel: "Reconnect OpenMeld Service",
+		primaryActionLabel: "Reconnect Computer",
 		profileId: "agt-1",
 		profileName: "Codex",
 		recoveryReasonCode: "local_service.not_connected_for_account",
-		secondaryLabel: "OpenMeld Service is not connected",
-		title: "Codex needs OpenMeld Service",
+		secondaryLabel: "Computer not connected",
+		title: "Codex’s computer is disconnected",
 	};
 }
 

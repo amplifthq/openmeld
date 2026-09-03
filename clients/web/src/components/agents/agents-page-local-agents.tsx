@@ -763,8 +763,7 @@ function resolveLocalAgentsCatalogNotice(input: {
 
 	if (input.serviceDependency === "not_connected") {
 		return {
-			description:
-				"Local agents will refresh after OpenMeld Service is reconnected.",
+			description: "Local agents will refresh after this computer reconnects.",
 			title: "Waiting for OpenMeld Service",
 			tone: "muted",
 			variant: "inline",
@@ -786,18 +785,16 @@ function resolveLocalAgentsCatalogNotice(input: {
 		input.target?.status === "stale"
 	) {
 		return {
-			description:
-				"Reconnect OpenMeld Service before this local agent list is current.",
-			title: "Reconnect OpenMeld Service",
+			description: "Reconnect this computer to refresh the local agent list.",
+			title: "Reconnect Computer",
 			tone: "warning",
 		};
 	}
 
 	if (input.target === null) {
 		return {
-			description:
-				"Connect OpenMeld Service to detect local agents on this computer.",
-			title: "Connect OpenMeld Service",
+			description: "Connect this computer to detect its local agents.",
+			title: "Connect Computer",
 			tone: "warning",
 		};
 	}
@@ -1001,7 +998,7 @@ function LocalAgentCatalogList(input: {
 						No supported local agents reported yet
 					</p>
 					<p className="text-muted-foreground text-xs leading-5">
-						Connect OpenMeld Service to check which supported local agents are
+						Connect this computer to check which supported local agents are
 						installed on this computer.
 					</p>
 					{input.showInstallGuideLink ? <LocalAgentInstallGuideLink /> : null}
@@ -2348,7 +2345,7 @@ function resolveLocalAgentCatalogAvailabilityDisplay(input: {
 		return {
 			badgeVariant: "outline",
 			description:
-				"Last check found this local agent. Connect OpenMeld Service to refresh its status.",
+				"Last check found this local agent. Connect this computer to refresh its status.",
 			label: null,
 		};
 	}

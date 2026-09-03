@@ -104,7 +104,7 @@ type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
 const OPENMELD_TOOLS_CARD_TITLE = "OpenMeld Tools";
 const OPENMELD_SKILLS_MANAGEMENT_COMMAND = "npx -y openmeld@latest skills";
-const RECONNECT_MANUALLY_LABEL = "Reconnect manually";
+const RECONNECT_MANUALLY_LABEL = "Reconnect Computer";
 const UPDATE_MANUALLY_LABEL = "Update manually";
 const UPDATE_STATUS_REFRESH_INTERVAL_MS = 2000;
 const UPDATE_STATUS_MAX_REFRESH_ATTEMPTS = 60;
@@ -1024,8 +1024,7 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 
 	if (input.serviceDisconnected) {
 		return {
-			description:
-				"Reconnect OpenMeld Service to use local agents on this computer.",
+			description: "Reconnect this computer to use its local agents.",
 			descriptionTone: "muted",
 			hideVersionDetails: false,
 			primaryAction: {
@@ -1470,7 +1469,7 @@ function formatOpenMeldServiceDescription(input: {
 		return "OpenMeld Service is not connected for this account on this computer.";
 	}
 	if (input.replyReadiness.reasonCode === "background_helper.not_running") {
-		return "Reconnect OpenMeld Service to refresh OpenMeld tools and local agents on this computer.";
+		return "Reconnect this computer to refresh OpenMeld tools and local agents.";
 	}
 	return formatComputerReplyReadinessDescription(input.replyReadiness);
 }

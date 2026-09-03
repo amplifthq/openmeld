@@ -1262,7 +1262,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const recoveryLink = screen.getByRole("link", {
-			name: "Reconnect OpenMeld Service",
+			name: "Reconnect Computer",
 		});
 		expect(recoveryLink.getAttribute("href")).toMatch(
 			COMPUTERS_RECOVERY_HREF_PATTERN

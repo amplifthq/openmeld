@@ -273,7 +273,7 @@ function readyAgentWakeAvailability() {
     phase: "available",
     reasonCode: "agent_execution.ready",
     status: "available_for_wake",
-    summary: "Can reply from this computer in Spaces.",
+    summary: "Available for Wake",
     tooltip: "Available for Wake",
   };
 }

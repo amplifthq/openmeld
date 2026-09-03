@@ -567,10 +567,10 @@ function resolveNeutralActivitySummary(
 	if (!operationalContext) {
 		return null;
 	}
-	if (operationalContext.status === "checking") {
-		return "Checking activity";
-	}
-	if (operationalContext.status === "idle") {
+	if (
+		operationalContext.status === "checking" ||
+		operationalContext.status === "idle"
+	) {
 		return null;
 	}
 	const waitingSuffix =

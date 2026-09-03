@@ -1085,7 +1085,7 @@ describe("public agent failure reason mapping", () => {
       "Center Agent is resting until the next budget window.",
     ],
     ["remote_agent.unavailable", "Center Agent cannot answer right now."],
-    ["agent_execution.ready", "Can reply from this computer in Spaces."],
+    ["agent_execution.ready", "Available for Wake"],
     [
       "agent_execution.check_status",
       "Checking this agent's Wake availability.",

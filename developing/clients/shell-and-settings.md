@@ -119,8 +119,8 @@ sanctioned (agent-transport-contract.md:408/414).
    diagnostic-only — never availability/readiness blockers, never in public badges.
 6. **Status surfaces are read-only.** Status displays never silently
    start/stop/repair/reinstall/toggle. Explicit user-visible actions only.
-7. **Setup action labels come from the Local Components Manifest** (`Connect OpenMeld
-Service`, `Reconnect OpenMeld Service`, `Update OpenMeld Service`, `Connect local agent`,
+7. **Setup action labels come from the Local Components Manifest** (`Connect
+Computer`, `Reconnect Computer`, `Update OpenMeld on Computer`, `Connect local agent`,
    `Update OpenMeld skills`, `Everything is up to date`) — never invented copy like
    "Service not running". Status (Running/Stopped/Not installed) is a SEPARATE
    concern from the manifest action label — show both; never infer the action from

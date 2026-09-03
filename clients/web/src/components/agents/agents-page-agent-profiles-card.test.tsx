@@ -604,7 +604,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 	});
 
-	it("uses the shared text shimmer while checking activity", () => {
+	it("keeps checking activity in the header without showing Current activity", () => {
 		renderAgentProfilesCard(
 			{},
 			createPrimaryBindingResponse("codex:approveForMe").binding,
@@ -637,8 +637,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			title.closest('[data-testid="agent-profile-presence"]')
 		).toBeTruthy();
 		expect(
-			screen.getByRole("heading", { name: "Current activity" })
-		).toBeTruthy();
+			screen.queryByRole("heading", { name: "Current activity" })
+		).toBeNull();
+		expect(screen.queryByTestId("agent-current-activity")).toBeNull();
 	});
 
 	it("hides Current activity when the Agent has no current work", () => {

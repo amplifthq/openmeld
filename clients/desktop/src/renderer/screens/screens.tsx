@@ -761,9 +761,7 @@ function resolveNeedsAttentionAction(input: NeedsAttentionActionInput): {
   }
   return {
     disabled: input.busy,
-    label: input.cliMissing
-      ? "Set Up This Computer"
-      : "Reconnect OpenMeld Service",
+    label: input.cliMissing ? "Set Up This Computer" : "Reconnect Computer",
     onClick: input.onSetup,
   };
 }

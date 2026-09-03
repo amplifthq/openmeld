@@ -3563,7 +3563,7 @@ describe("SpaceConversationPanel", () => {
 
 	it("moves an anchored failure into the source message footer and keeps full details behind Details", () => {
 		const detailedFailure =
-			"OpenMeld could not reach Codex 5.6 Sol on this computer for this Wake. Reconnect OpenMeld Service, then try again.";
+			"OpenMeld could not reach Codex 5.6 Sol on this computer for this Wake. Reconnect the computer, then try again.";
 		renderSpaceConversationPanel({
 			membersSnapshot: createWakeReceiptMembersSnapshot(),
 			readOnly: false,

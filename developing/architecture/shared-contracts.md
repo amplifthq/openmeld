@@ -4374,9 +4374,9 @@ truth.
 Clients should use the shared setup action labels instead of inventing local
 copy for the same local alignment state:
 
-- `Connect OpenMeld Service`
-- `Reconnect OpenMeld Service`
-- `Update OpenMeld Service`
+- `Connect Computer`
+- `Reconnect Computer`
+- `Update OpenMeld on Computer`
 - `Connect local agent`
 - `Update OpenMeld skills`
 - `Everything is up to date`
