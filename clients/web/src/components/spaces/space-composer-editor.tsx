@@ -459,8 +459,14 @@ function SpaceComposerProfileToken(
 					value={element.relation}
 				>
 					{choices.map((choice) => (
-						<option key={choice.relation} value={choice.relation}>
-							{choice.label}
+						<option
+							disabled={choice.disabled}
+							key={choice.relation}
+							value={choice.relation}
+						>
+							{choice.disabled && choice.disabledReason
+								? `${choice.label} — ${choice.disabledReason}`
+								: choice.label}
 						</option>
 					))}
 				</select>
@@ -623,12 +629,22 @@ function SpaceComposerMentionGroup(input: {
 						{item.suggestion.profileName}
 					</span>
 					<span className="ml-2 text-muted-foreground text-xs">
-						{item.suggestion.profileKind === "human" ? "Mention" : "Wake"}
+						{resolveMentionPickerRelationLabel(item.suggestion)}
 					</span>
 				</InlineComboboxItem>
 			))}
 		</InlineComboboxGroup>
 	);
+}
+
+function resolveMentionPickerRelationLabel(
+	suggestion: SpaceMentionPickerItem["suggestion"]
+): "Mention" | "Reference" | "Wake" {
+	const relation = resolveDefaultSpaceComposerMentionRelation(suggestion);
+	if (relation === "reference") {
+		return "Reference";
+	}
+	return suggestion.profileKind === "human" ? "Mention" : "Wake";
 }
 
 function insertProfile(

@@ -446,8 +446,16 @@ export function buildSpaceMentionTargetItems(input: {
 export function resolveDefaultSpaceComposerMentionRelation(
 	suggestion: SpaceMentionSuggestion
 ): MessageMentionType | null {
-	if (suggestion.profileKind === "agent" && suggestion.allowedRelations.wake) {
-		return "wake";
+	if (suggestion.profileKind === "agent") {
+		if (
+			suggestion.allowedRelations.wake &&
+			suggestion.wakeAvailability.status === "ready"
+		) {
+			return "wake";
+		}
+		if (suggestion.allowedRelations.reference) {
+			return "reference";
+		}
 	}
 
 	if (
