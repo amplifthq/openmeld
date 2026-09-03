@@ -85,6 +85,7 @@ export type AgentProfilesWorkspaceProps = {
 export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 	const groups = resolveAgentProfileSidebarGroups({
 		currentUserId: input.currentUserId,
+		operationalContextByProfileId: input.operationalContextByProfileId,
 		profiles: input.profiles,
 	});
 	if (input.profilesStatus === "ready") {

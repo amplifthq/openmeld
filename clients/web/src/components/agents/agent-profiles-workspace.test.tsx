@@ -1,3 +1,4 @@
+import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
@@ -80,20 +81,89 @@ afterEach(() => {
 });
 
 describe("AgentProfilesWorkspace", () => {
-	it("puts the current user's owner group first and sorts remaining owners stably", () => {
+	it("keeps the current user's owner group first, then orders owners by Agent activity", () => {
 		const groups = resolveAgentProfileSidebarGroups({
 			currentUserId: CURRENT_USER_ID,
+			operationalContextByProfileId: new Map<
+				string,
+				AgentProfileOperationalContextInput
+			>([
+				[
+					"agent-zed",
+					{
+						currentWorkLocation: "Release room",
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "working",
+						waitingCount: 0,
+					},
+				],
+			]),
 			profiles: [
 				createProfile("agent-zed", "user-zed", "Zed", "Zed Agent"),
-				createProfile("agent-amy", "user-amy", "Amy", "Amy Agent"),
+				createProfile("agent-amy", "user-amy", "Amy", "Amy Agent", {
+					lastUsedAt: "2026-09-03T08:00:00.000Z",
+				}),
 				createProfile("agent-current", CURRENT_USER_ID, "Felix", "Felix Agent"),
 			],
 		});
 
 		expect(groups.map((group) => group.label)).toEqual([
 			"Felix (you)",
-			"Amy",
 			"Zed",
+			"Amy",
+		]);
+	});
+
+	it("orders Agents within an owner by live work, waiting work, and recent use", () => {
+		const groups = resolveAgentProfileSidebarGroups({
+			currentUserId: CURRENT_USER_ID,
+			operationalContextByProfileId: new Map<
+				string,
+				AgentProfileOperationalContextInput
+			>([
+				[
+					"agent-working",
+					{
+						currentWorkLocation: "Launch",
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "working",
+						waitingCount: 0,
+					},
+				],
+				[
+					"agent-waiting",
+					{
+						currentWorkLocation: "Release",
+						queuedWorkLocations: ["Checks"],
+						recoveryAction: { kind: "continue_interrupted_work" },
+						status: "paused",
+						waitingCount: 1,
+					},
+				],
+			]),
+			profiles: [
+				createProfile("agent-no-activity", CURRENT_USER_ID, "Felix", "Alpha"),
+				createProfile("agent-recent", CURRENT_USER_ID, "Felix", "Recent", {
+					lastUsedAt: "2026-09-03T09:00:00.000Z",
+				}),
+				createProfile("agent-working", CURRENT_USER_ID, "Felix", "Working"),
+				createProfile("agent-older", CURRENT_USER_ID, "Felix", "Older", {
+					lastUsedAt: "2026-09-02T09:00:00.000Z",
+				}),
+				createProfile("agent-waiting", CURRENT_USER_ID, "Felix", "Waiting"),
+			],
+		});
+
+		expect(
+			groups[0]?.profiles.map((profile) => profile.openMeldProfileId)
+		).toEqual([
+			"agent-working",
+			"agent-waiting",
+			"agent-recent",
+			"agent-older",
+			"agent-no-activity",
 		]);
 	});
 
@@ -612,7 +682,8 @@ function createProfile(
 	profileId: string,
 	ownerUserId: string,
 	ownerName: string,
-	profileName: string
+	profileName: string,
+	overrides: Partial<AuthProfileView> = {}
 ): AuthProfileView {
 	return {
 		avatarUrl: undefined,
@@ -631,6 +702,7 @@ function createProfile(
 		source: "web_create",
 		status: "active",
 		updatedAt: "2026-08-01T00:00:00.000Z",
+		...overrides,
 	};
 }
 
