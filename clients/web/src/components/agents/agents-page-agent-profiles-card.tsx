@@ -354,6 +354,7 @@ function pruneInactiveProfileIds(
 }
 
 export type AgentProfilesCardProps = {
+	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
 	availabilityFilter: AgentProfileAvailabilityFilter;
 	agentProfileActivityNavigationByProfileId?: ReadonlyMap<
 		string,
@@ -1696,6 +1697,10 @@ function AgentProfileDirectoryRow(input: {
 	});
 	const primaryBinding =
 		controller.primaryBindingByProfileId.get(profile.openMeldProfileId) ?? null;
+	const directoryAgentControllerRef =
+		input.cardInput.agentControllerRefByProfileId?.get(
+			profile.openMeldProfileId
+		) ?? null;
 	const modelCompatibilityContext =
 		resolveAgentProfileModelCompatibilityContext({
 			agentControllerRef:
@@ -1716,6 +1721,7 @@ function AgentProfileDirectoryRow(input: {
 			}
 			actorProfileId={input.cardInput.recovery.selectedHumanProfileId}
 			controllerChangeOptions={controller.controllerChangeOptions}
+			directoryAgentControllerRef={directoryAgentControllerRef}
 			duplicateConversationProfileNames={
 				controller.duplicateConversationProfileNamesByProfileId.get(
 					profile.openMeldProfileId
@@ -2129,6 +2135,7 @@ type AgentProfileActionPendingState = {
 type AgentProfileExecutionReadinessRowProps = {
 	activityNavigation: AgentProfileActivityNavigation | null;
 	actorProfileId: string | null;
+	directoryAgentControllerRef: string | null;
 	duplicateConversationProfileNames: readonly string[];
 	errorMessage: string | null;
 	localAgentCatalogEntries: readonly DeviceAgentCatalogEntry[];
@@ -2438,6 +2445,7 @@ function renderUnavailableAgentProfilePresentation(input: {
 		return input.menu;
 	}
 	return renderAgentProfileReadinessPlaceholderCard({
+		agentControllerRef: input.input.directoryAgentControllerRef,
 		controllerPermissionModeDisplay: input.controllerPermissionModeDisplay,
 		errorMessage: input.input.errorMessage,
 		isFocusedProfile: input.input.rowState.isFocused,
@@ -2500,7 +2508,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			primaryAgentControllerRef={
 				input.row.primaryBinding?.executionTarget?.agentControllerRef ??
 				input.row.readiness?.publicProfileConfiguration?.agentControllerRef ??
-				null
+				input.row.directoryAgentControllerRef
 			}
 			primaryNativeSessionId={
 				input.row.primaryBinding?.executionTarget
@@ -2599,6 +2607,7 @@ function renderAgentProfileCardActions(input: {
 }
 
 function renderAgentProfileReadinessPlaceholderCard(input: {
+	agentControllerRef: string | null;
 	controllerPermissionModeDisplay: ReturnType<
 		typeof resolveWebAgentControllerPermissionModeDisplayFromBinding
 	>;
@@ -2614,6 +2623,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 	repairIsPending: boolean;
 	rowRef?: Ref<HTMLElement>;
 }): ReactNode {
+	const agentId = parseAgentControllerRef(input.agentControllerRef)?.id ?? null;
 	if (input.isPending && input.readiness === null) {
 		return (
 			<ProfileCard
@@ -2634,7 +2644,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 						tooltip="Loading Wake availability"
 					/>
 				}
-				icon={<AgentProfileRowIcon tone="muted" />}
+				icon={<AgentProfileRowIcon agentId={agentId} tone="muted" />}
 				menu={input.menu}
 				rowRef={input.rowRef}
 				secondarySubtitle={
@@ -2672,7 +2682,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 						tooltip="Status unavailable"
 					/>
 				}
-				icon={<AgentProfileRowIcon tone="muted" />}
+				icon={<AgentProfileRowIcon agentId={agentId} tone="muted" />}
 				menu={input.menu}
 				rowRef={input.rowRef}
 				secondarySubtitle={
@@ -2719,7 +2729,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 						tooltip="Not checked yet"
 					/>
 				}
-				icon={<AgentProfileRowIcon tone="muted" />}
+				icon={<AgentProfileRowIcon agentId={agentId} tone="muted" />}
 				menu={input.menu}
 				rowRef={input.rowRef}
 				secondarySubtitle={

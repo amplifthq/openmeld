@@ -371,6 +371,7 @@ function AgentsWorkspaceHome(input: {
 			string,
 			AgentProfileOperationalContextInput
 		>();
+		const agentControllerRefByProfileId = new Map<string, string | null>();
 		const ownerAvatarUrlByUserId = new Map<string, string | null>();
 		const readinessByProfileId = new Map<
 			string,
@@ -385,6 +386,10 @@ function AgentsWorkspaceHome(input: {
 				continue;
 			}
 			profileById.set(profile.profileId, profile);
+			agentControllerRefByProfileId.set(
+				profile.profileId,
+				profile.agentControllerRef
+			);
 			profiles.push(buildAuthProfileViewFromOrganizationAgentProfile(profile));
 		}
 		for (const runtime of input.runtimeOverviewQuery.data?.agentProfiles ??
@@ -402,6 +407,7 @@ function AgentsWorkspaceHome(input: {
 			}
 		}
 		return {
+			agentControllerRefByProfileId,
 			operationalContextByProfileId,
 			ownerAvatarUrlByUserId,
 			profiles,
@@ -607,6 +613,9 @@ function AgentsWorkspaceHome(input: {
 			accountComputerSetupPath={accountComputerSetupPath}
 			accountServiceUpdatePath={accountServiceUpdatePath}
 			activityPresentation={activityPresentation}
+			agentControllerRefByProfileId={
+				organizationAgentProjection.agentControllerRefByProfileId
+			}
 			agentProfiles={agentProfiles}
 			errorByProfileId={errorByProfileId}
 			input={input}
@@ -639,6 +648,7 @@ function AgentsWorkspaceHomeView(input: {
 		>;
 	};
 	agentProfiles: readonly AuthProfileView[];
+	agentControllerRefByProfileId: ReadonlyMap<string, string | null>;
 	errorByProfileId: ReadonlyMap<string, string>;
 	input: Parameters<typeof AgentsWorkspaceHome>[0];
 	normalizedSearchQuery: string;
@@ -664,6 +674,7 @@ function AgentsWorkspaceHomeView(input: {
 	return (
 		<AgentProfilesWorkspace
 			activeView={workspace.activeView}
+			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 			createPanel={workspace.createPanel}
 			currentUserId={workspace.currentUserId}
 			filterControl={workspace.filterControl}
@@ -680,9 +691,14 @@ function AgentsWorkspaceHomeView(input: {
 			profilesStatus={input.profilesStatus}
 			readinessByProfileId={input.readinessByProfileId}
 			readinessErrorByProfileId={input.errorByProfileId}
-			readinessPendingProfileIds={input.pendingProfileIds}
+			readinessPendingProfileIds={
+				workspace.runtimeOverviewQuery.data
+					? input.pendingProfileIds
+					: EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS
+			}
 			renderProfileDetail={(profile) => (
 				<AgentProfilesCard
+					agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 					agentExecutionReadinessByProfileId={input.readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
 					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
@@ -712,6 +728,7 @@ function AgentsWorkspaceHomeView(input: {
 			)}
 			renderProfilesController={() => (
 				<AgentProfilesCard
+					agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 					agentExecutionReadinessByProfileId={input.readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
 					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
