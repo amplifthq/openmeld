@@ -3,6 +3,8 @@
 import type {
 	CenterAgentMemberResearchBatch,
 	MessageChannelProvider,
+	ModelCatalog,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -145,9 +147,11 @@ type DirectoryMembersOverviewProps = {
 	directoryQuery: DirectoryQueryState;
 	focusProfileId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
+	modelCatalog?: ModelCatalog | null;
 	onCreateProfile: () => void;
 	onFocusConsumed?: () => void;
 	recovery: LocalAgentRecoveryController;
+	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 	storageScope: string;
 };
 
@@ -481,6 +485,7 @@ function useDirectoryMembersOverviewModel(
 				messageChannelsStatus,
 				members: input.directoryQuery.data?.members ?? [],
 				orgSlug: input.currentOrganization.slug,
+				runtimeOverview: input.runtimeOverview,
 			});
 	const profilesArePending = isPersonalWorkspace
 		? personalProfilesQuery.isPending
@@ -519,6 +524,7 @@ function useDirectoryMembersOverviewModel(
 			latestBatch: latestResearchBatch,
 			memberResearchError: researchErrors.member,
 			members: memberRows,
+			modelCatalog: input.modelCatalog ?? null,
 			onCreateProfile: input.onCreateProfile,
 			onDisconnectConnectedAccount: (identityLinkId) =>
 				disconnectConnectedAccountMutation.mutate(identityLinkId),

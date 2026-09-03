@@ -4,6 +4,7 @@ import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import type {
 	CenterAgentMemberResearchBatch,
 	CenterAgentMemberResearchTask,
+	ModelCatalog,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
@@ -82,6 +83,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	latestBatch: CenterAgentMemberResearchBatch | null;
 	memberResearchError: { message: string; subjectUserId: string } | null;
 	members: readonly DirectoryHumanProfileRow[];
+	modelCatalog?: ModelCatalog | null;
 	onCreateProfile: () => void;
 	onDisconnectConnectedAccount: (identityLinkId: string) => void;
 	onOpenDirectMessage: (profileId: string) => Promise<void>;
@@ -271,6 +273,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 					directMessageIsPending={input.state.directMessage === "pending"}
 					key={selectedMember.id}
 					member={selectedMember}
+					modelCatalog={input.modelCatalog ?? null}
 					onDisconnectConnectedAccount={input.onDisconnectConnectedAccount}
 					onOpenDirectMessage={() => {
 						input.onOpenDirectMessage(selectedMember.id).catch((error) => {
@@ -302,6 +305,7 @@ function SelectedHumanProfileWorkspace(input: {
 	computersContent: ReactNode;
 	directMessageIsPending: boolean;
 	member: DirectoryHumanProfileRow;
+	modelCatalog: ModelCatalog | null;
 	onDisconnectConnectedAccount: (identityLinkId: string) => void;
 	onOpenDirectMessage: () => void;
 	onRequestChannelSetup: (
@@ -327,6 +331,7 @@ function SelectedHumanProfileWorkspace(input: {
 				directMessageIsPending={input.directMessageIsPending}
 				editing={editing}
 				member={input.member}
+				modelCatalog={input.modelCatalog}
 				onConnectAccount={(account) => setConnectableAccounts([account])}
 				onEditingChange={setEditing}
 				onManageAccount={setConnectedAccount}

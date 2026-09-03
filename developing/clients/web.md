@@ -1645,10 +1645,11 @@ tooltips. Local Agent identity
 uses the same catalog-owned logo and name as Computer detail; Web never creates
 a second name or logo map for People.
 
-People reads the lightweight Profile Directory and does not wait for or request
-the Agent Runtime Overview. Its Agent counts and controller icons come from the
-permission-scoped lightweight summary, so unavailable Runtime Transport cannot
-blank member identity or delay the People workspace.
+People reads the lightweight Profile Directory first and renders member and
+Agent identity without waiting for the Agent Runtime Overview. It loads that
+overview independently to add the permission-scoped Controller and model
+summary to Agent cards when known. Unavailable Runtime Transport cannot blank
+member identity or delay the People workspace.
 
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
@@ -1669,21 +1670,29 @@ tie breakers.
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
 back, and forward navigation return to the same person. The persistent detail
-owns member account details, Organization role, join time, an ordinary Agent
-Profile count with up to three controller icons and an overflow count,
-Computers, Connected Channels, shared Profile details, and the permitted
-Profile Report, Learn about, Direct Message, inline edit, connect, or manage
-actions. The Agent Profile count links to Agents and focuses the first Agent
-Profile in that member's owner group. Member-account, Channel-account, Profile,
-and advanced-detail values are text-selectable. Editing remains available only
+hero presents the member email and join time as one muted metadata line, while
+the Organization role remains in the badge beside the member name. The detail
+owns an **Agents** section whose header keeps **All Agents** at the trailing
+edge. Every ordinary Agent appears as a compact card with its avatar, name, and
+permission-scoped Controller and model summary when known. Cards stay in one
+horizontal row and the row scrolls inline when it overflows; selecting a card
+opens that exact Agent, while **All Agents** opens the first Agent in the
+member's owner group. The detail also owns Computers, Connected Channels,
+shared Profile details, and the permitted Profile Report, Learn about,
+**Chat with {member}**, inline edit, connect, or manage actions. **Chat with
+{member}** is the primary action and keeps the same compact button height as
+adjacent actions. It does not repeat those account facts in a separate
+member-account section. Header metadata, Channel-account, Profile, and
+advanced-detail values are
+text-selectable. Editing remains available only
 for the signed-in member's own active default Human Profile. The sidebar and
 detail omit the internal Handle, undefined recent activity, and the ubiquitous
 **Active** state; only an exceptional disabled state is visible. Web does not
 derive an Organization online dot from last-used time, Computer state, or
-Space-scoped presence. Members without an active Human Profile have no Direct
-Message or edit action, but their detail remains available for inspecting
+Space-scoped presence. Members without an active Human Profile do not receive
+a **Chat with** or edit action, but their detail remains available for inspecting
 account details and the explicit unavailable or disabled profile state. The
-signed-in member cannot Direct Message themself.
+signed-in member does not receive a **Chat with** action for themself.
 People admits only one pending Direct Message
 open intent at a time so competing responses cannot navigate to an earlier
 selection. The People sidebar includes
@@ -1816,8 +1825,11 @@ follow, and the remaining Agents sort by the newer of `lastUsedAt` and
 activity. Missing or invalid recency sorts last; owner name, Agent name, and
 stable IDs break ties. Checking
 readiness and Wake availability never count as work activity. Each row shows the
-Agent avatar, name, a compact Controller and model summary when known, and the
-existing Core-owned Wake availability projection. Route-online,
+Agent avatar, name, a compact Controller and friendly model summary when known,
+and the existing Core-owned Wake availability projection. The summary resolves
+Controller defaults through the shared Model Catalog and never substitutes a
+raw model ID for the catalog display name. People Agent cards use the same
+formatter. Route-online,
 Binding existence, browser-local recovery state, and completed Prepare evidence
 cannot substitute for that readiness. The selected `profileId` remains in the
 route search contract so refresh, back, forward, and request-to-Agent navigation
