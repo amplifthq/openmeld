@@ -658,7 +658,7 @@ remain release-sensitive.
 for daemon lifecycle journal entries that the CLI may attach to a failed
 Prepare step. The CLI writes this diagnostic bundle and Core validates it only
 for bounded logging; rejection must not change Prepare completion, setup truth,
-Wake availability, or execution state.
+Wakeability, or execution state.
 
 Adding an event type is therefore backward-compatible for product behavior but
 not forward-compatible for diagnostic logging: an older Core rejects the whole
@@ -676,7 +676,7 @@ new type; removing that consumer first would recreate the diagnostic gap.
 versioned `LocalMachineIssue` contract and its CLI Agent View error event. The
 contract carries one stable code, the failed local operation, the recovery
 policy, a plain-language summary, one primary action, and bounded diagnostic
-detail. It does not carry Service readiness, Wake availability, execution
+detail. It does not carry Service readiness, Wakeability, execution
 state, or authority to mutate local state.
 
 The CLI is the classifier and writer. Prepare, Desktop, and Web are consumers:
@@ -836,12 +836,16 @@ contains Auth-owned member and Agent Profile identity, Center Agent designation,
 the optional member-activity overlay, and only the current viewer's
 permission-scoped primary Agent Controller summary. It does not read Runtime
 Transport or RuntimeCoordinator. `OrganizationAgentRuntimeOverviewResponse`
-contains readiness and Agent Profile Operational Context keyed by Profile id.
-Core resolves its inputs in bounded owner batches: one route batch, one owner
-Service read, and one local-runtime display inventory per owner, with bounded
-per-Profile readiness work. Splitting transport does not split authority: Auth,
-Core readiness, Binding, and RuntimeCoordinator remain the same owners, and the
-browser never derives or writes either projection.
+is a compatibility aggregate that contains readiness and Agent Profile
+Operational Context keyed by Profile id. New list and authoring consumers must
+not depend on it. During the Wake state convergence, Core replaces its normal
+surface use with independently readable Profile Directory, Wakeability,
+Activity, Wake Progress, Wake Outcome, and Recovery projections. Splitting the
+reads does not split authority: Auth, Core Wakeability, Binding, Agent Activity,
+the Work Coordinator, RuntimeCoordinator, and Space remain their existing fact
+owners, and the browser never derives or writes any of those projections. The
+migration order and removal gates live in
+`developing/architecture/wake-state-convergence-plan.md`.
 
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member
@@ -1576,7 +1580,7 @@ Rules:
 - Clients may use the frame to trigger a targeted read-model refresh.
 - The authoritative facts remain the Space members snapshot, Space status
   snapshot, Core Wake/readiness projections, and their shared schemas.
-- Clients must not derive final membership, Wake availability, Agent Profile
+- Clients must not derive final membership, Wakeability, Agent Profile
   Binding, local service liveness, or execution outcome directly from an
   invalidation frame.
 - The frame version must be monotonic for a Space across Durable Object
@@ -2214,14 +2218,15 @@ Core may include a `primaryBinding` read projection on readiness responses so a
 client can render Binding diagnostics without issuing a separate Binding read
 per Agent Profile. That projection is copied from Binding-owned truth and is
 read-only. It must not become a second Binding writer, reservation, claim
-authority, or Wake availability owner.
+authority, or Wakeability owner.
 
 Rules:
 
 - Binding writes and command eligibility stay on the Agent Profile Binding
   contract.
-- Wake availability still comes from Core-owned `AgentExecutionReadiness`, not
-  from Binding existence or route/service evidence alone.
+- Wakeability still comes from the Core-owned projection. Its current
+  compatibility implementation is `AgentExecutionReadiness`; Binding existence
+  or route/service evidence alone does not provide the verdict.
 - Clients may use `primaryBinding` for display and local cache hydration only.
   They must refresh the owning Binding or readiness read model after a mutation
   instead of treating a stale projection as authority.
@@ -4619,7 +4624,7 @@ and projections for those facts. It remains optional so older Core producers
 and already-deployed strict consumers remain compatible during rollout.
 
 `packages/schemas/src/schemas/http/space-members.ts` owns the shared HTTP
-contracts for Space member snapshots, public Wake availability fields, owner
+contracts for Space member snapshots, public Wakeability fields, owner
 diagnostics, and Space member directory entries.
 
 Core's Organization-directory member-addition boundary expands every selected
@@ -4987,7 +4992,7 @@ fact authority. It may compose:
 
 - Agent or Human Profile identity from profile-owned read models.
 - Space membership context from Space-owned membership projections.
-- Wake availability from Core-owned readiness projections.
+- Wakeability from the Core-owned projection.
 - local connection and Binding diagnostics from Binding, Runtime, and local OpenMeld
   Service evidence.
 
@@ -5038,50 +5043,32 @@ parsing `text` or the legacy `reason` field. See the `signal.system_notice
 Field Contract` in `developing/architecture/agent-transport-contract.md` for
 the full per-field breakdown, including `failureStage`.
 
-## Readiness Impact Taxonomy
+## Compatibility Readiness Impact Taxonomy
 
 `packages/schemas/src/agent-execution-readiness-impact-taxonomy.ts` owns the
-shared readiness-impact taxonomy for Wake failure reason codes that may affect
-current Agent execution readiness.
+compatibility classification of Wake failure reason codes. Current code may
+still persist and consume this classification as `readinessImpact`; that direct
+failure-to-Wakeability path is migration debt tracked by
+`developing/architecture/wake-state-convergence-plan.md`.
 
-A readiness impact is not the Wake's Final Visible Outcome. It is a Core-readable
-input into the current `AgentExecutionReadiness` projection. The current
-taxonomy records only Wake failures whose effect is a current readiness blocker
-for the exact Agent Profile, Binding, OpenMeld Service Runtime, and Agent Controller
-scope.
-
-The lifecycle is explicit: the impact is fresh for the shared TTL. A later
-token-validated `running` lifecycle for the exact same Agent Profile, Binding,
-OpenMeld Service Runtime, and Agent Controller scope clears it because that
-execution has disproved the stale pre-execution blocker. The running lifecycle
-may clear only an impact observed no later than that execution's token
-authorization, or an impact written by that same dispatch. A delayed running
-lifecycle from an older execution must not clear a newer impact written by a
-different dispatch. A successful matching execution also clears it.
-`runtime_coordinator.delivery_expired` is an explicit readiness impact because a
-Wake that expires before local delivery is current local-execution evidence for
-the same Agent Profile, Binding, OpenMeld Service Runtime, and Agent Controller
-scope. Local setup blockers such as
+A durable Wake failure is the Outcome of one exact Wake. It may select the
+owner facts that Core should refresh, but it must not itself become the current
+Wakeability verdict for a later Wake. `runtime_coordinator.delivery_expired`,
 `controller.launch.choice_required`, `controller.launch.needs_repair`,
-`workspace.missing`, and `workspace.invalid` also belong here because the next
-Wake for the same execution target is likely to fail until the user repairs the
-local setup.
+`workspace.missing`, and `workspace.invalid` therefore remain per-Wake outcome
+or diagnostic evidence until the route, controller, workspace, or other current
+fact owner confirms the blocker.
 
-Readiness impact must stay narrower than Wake failure. Long-running execution,
-stale progress-evidence diagnostics, malformed agent replies, invalid Space
-actions, and Space publication failures remain per-Wake outcome or diagnostic
-facts. They do not prove that the Agent Profile cannot currently be woken from
-this computer.
+The same rule applies to provider-account evidence. A structured failure may
+request a current provider-account or Usage refresh, but passive Usage Limits,
+an unclassified provider error, or an earlier execution cannot synthesize the
+current blocker. Current account, Binding, route, service, controller,
+workspace, and provider-account facts decide Wakeability.
 
-Provider-account evidence follows the same exact-identity and monotonic-time
-rules but remains its own typed readiness input because its recovery action is
-provider account access, not local setup. It must never be synthesized from
-passive Usage Limits or an unclassified provider error.
-
-Evidence freshness is not a readiness blocker class. Stale agent controller
-reports and aged local evidence mirrors explain diagnostics; they must not
-enter the public readiness blocker taxonomy. Current account, Binding, route,
-service, and provider-account facts decide availability.
+The compatibility taxonomy remains stable only while affected producers and
+consumers migrate together. Batch 2 must retire it as a direct Wakeability input
+and remove the obsolete persistence or clearing lifecycle once no supported
+consumer requires it.
 
 ## Shared Database Contracts
 
@@ -5495,7 +5482,7 @@ field unchanged until the adapter serializes it into `OPENCODE_PERMISSION`.
 OpenMeld must not invent a controller-agnostic permission policy layer for this
 field.
 
-Binding existence does not equal `Available for Wake`.
+Binding existence does not make Wakeability `Available`.
 
 Binding command eligibility does not grant claim success.
 
@@ -5510,19 +5497,20 @@ reusing the rule prevents cross-client drift.
 
 Its current scope is Agent Profile Reply Recovery:
 
-- consume Core-owned `AgentExecutionReadiness`
-- consume Core-provided action intent or primary action evidence
-- consume adapter-provided current-local-Runtime evidence
+- consume Core-owned Wakeability or one exact Wake Outcome classification
+- consume Core-provided action intent and viewer-permitted action capability
 - translate those facts into one user-visible next action and copy
 
-It does not own readiness truth.
+It does not own Wakeability or Wake Outcome truth.
 
 It also does not own Start or Prepare orchestration, OpenMeld Service lifecycle,
 Space rendering, RuntimeCoordinator execution truth, dispatch, claim, final Wake
 outcomes, or reply placement.
 
-Adapters must flatten source-specific evidence before calling this package. Do
-not import Start-owned setup, device projection, or profile readiness types into
+Adapters may supply presentation context such as a known Computer or Local Agent
+name. They must not flatten reason codes or current-local-Runtime evidence into a
+second blocker or action decision before calling this package. Do not import
+Start-owned setup, device projection, or profile Wakeability types into
 `packages/agent-profile`.
 
 ## Cross-Client Reuse Policy

@@ -156,7 +156,8 @@ Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
 
 Core gates fresh Work Coordinator admission with the same canonical
-`AgentExecutionReadiness` used by product surfaces. A current blocking fact
+Wakeability projection used by product surfaces. Its current compatibility
+identifier is `AgentExecutionReadiness`. A current blocking fact
 ends as a visible pre-head no-execution outcome; it must not create a current or
 queued Coordinator item. The gate reads current Core-held facts only. It does
 not poll the Local Service, call a provider, scan Profiles, enumerate
@@ -759,9 +760,10 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   owner-level answer from per-profile `/primary-binding` fan-out — the same
   no-fan-out discipline as batch readiness. The per-profile Binding read
   remains for single-profile surfaces.
-- The projection does not replace `AgentExecutionReadiness` or
-  `AgentWakeAvailability`. Final readiness stays with the readiness contract,
-  and `execution-readiness/batch` keeps serving readiness display; its
+- The projection does not replace the compatibility `AgentExecutionReadiness`
+  or `AgentWakeAvailability` implementations. Final Wakeability stays with the
+  Wakeability contract, and `execution-readiness/batch` keeps serving the
+  current display contract during migration; its
   response intentionally lacks Binding execution-target fields, so it cannot
   substitute for this projection either.
 
@@ -794,10 +796,13 @@ Rules:
   a route, reserve a lease, accept Wake work, or change final readiness by
   itself.
 
-## Readiness Contract
+## Wakeability Contract
 
-Core-owned `AgentExecutionReadiness` is the Wake availability truth. Product
-surfaces render the positive state as `Available for Wake`.
+Core-owned Wakeability is the current answer to whether an Agent Profile can
+accept a new Wake in the requested context. The current compatibility schema
+and endpoints call this projection `AgentExecutionReadiness`; consumers must not
+treat that identifier as another concept. Product surfaces render the positive
+verdict as `Available`.
 
 ```text
 This Agent Profile can reply in this Space from the intended Runtime now.
@@ -806,15 +811,14 @@ This Agent Profile can reply in this Space from the intended Runtime now.
 Route online is not enough. Binding existence is not enough. Completed Prepare
 evidence is not enough. Process health is not business readiness.
 
-Core-owned `AgentExecutionReadiness` is the only final user-facing Wake
-availability projection. Web, CLI, Space, and Start render this projection; they
-do not recompute final Wake availability.
+Core-owned Wakeability is the only final user-facing projection for this
+question. Web, CLI, Space, and Start render it; they do not recompute it.
 
-Current Wake availability and one concrete Wake execution are separate facts.
-Wake availability is a current reply-path projection. A Wake execution is what
-happened to one user request. A current `Available for Wake` state must not hide
+Current Wakeability and one concrete Wake execution are separate facts.
+Wakeability is a current reply-path projection. A Wake execution is what
+happened to one user request. A current `Available` verdict must not hide
 a real Wake failure, and a real Wake failure must be preserved as
-execution/diagnostic evidence instead of being rewritten as generic availability
+execution/diagnostic evidence instead of being rewritten as generic Wakeability
 drift.
 
 Core may project `Unavailable` before a new Wake when the exact current Agent
@@ -846,20 +850,14 @@ The same exact-version rule gates Usage recovery after an accepted Wake. A
 legacy report may remain compatible for ordinary execution, but its Usage fields
 cannot trigger automatic continuation under a newer Core capability matrix.
 
-After a Wake is accepted, a provider failure changes later Wake availability
-only when the result carries fresh structured hard-blocker evidence for the
-exact Agent Profile, Binding, device, runtime lane, OpenMeld Service Runtime,
-Agent Controller, and provider. Organization access disabled, subscription
-access unavailable, and exhausted hard quota/credit capacity may project
-`Unavailable`. A later accepted success for the same exact execution identity
-may clear only evidence no newer than that success. Core durably retains the
-latest accepted-result watermark even when no failure row existed, so a delayed
-older failure cannot reopen cleared evidence. Accepted-result time is the
-persisted ordering key; an exact-time success/failure tie fails closed in favor
-of the hard failure, while delayed failures and successes cannot overwrite
-newer accepted facts.
+After a Wake is accepted, its provider failure remains the Outcome of that exact
+Wake. It does not directly change later Wakeability. When structured failure
+evidence suggests a durable organization, provider-account, subscription, or
+Usage blocker, Core asks the owner of that current fact to confirm it and then
+refreshes Wakeability. A delayed failure may remain visible in diagnostics, but
+it cannot reopen a current blocker after the owner has returned a newer fact.
 
-The canonical read paths are:
+The current compatibility read paths are:
 
 ```text
 GET  /v1/agent-profiles/:agentProfileId/execution-readiness
@@ -872,10 +870,10 @@ Readiness surfaces must not fan out one route lookup per profile; that pattern
 overloads the per-account Durable Object and collapses every verdict into
 `Checking`.
 
-### Agent Readiness Invalidation Lifecycle
+### Agent Wakeability Invalidation Lifecycle
 
-`agent.readiness.invalidated` is a refresh signal for Core-owned readiness read
-models. It is not state and is not Wake availability truth.
+`agent.readiness.invalidated` is a compatibility refresh signal for Core-owned
+Wakeability read models. It is not state and is not Wakeability truth.
 
 Core may publish the frame after facts that feed readiness change, including
 Binding writes, route catalog convergence, lease reaping, service liveness
@@ -887,7 +885,7 @@ Clients may broadcast the frame locally across app surfaces and coalesce
 profile IDs before refreshing active readiness, local-runtime, Binding display,
 or Organization Directory caches that embed those Core-owned readiness facts.
 They must then read the owning snapshots or readiness projections. They must not
-derive membership, Wake availability, Binding state, local service liveness, or
+derive membership, Wakeability, Binding state, local service liveness, or
 execution outcome directly from the frame.
 
 A missed frame must be recoverable by the next snapshot/readiness read. A frame
@@ -946,14 +944,14 @@ Stale local evidence (for example an aged Agent Controller report) is
 diagnostic input. It explains; it does not decide public availability.
 Account, Binding, route, service, and provider-account facts decide.
 
-An Agent Profile may display `Available for Wake` only when aligned evidence
+An Agent Profile may display `Available` only when aligned evidence
 exists for the profile, Binding, intended account, Runtime, lane, capability,
 route, OpenMeld Service execution compatibility, RuntimeCoordinator claim
 eligibility, and recent Wake diagnostics.
 
-Public Agent Profile availability uses one four-state model:
+Public Wakeability uses one four-verdict model:
 
-- `Available for Wake`: the full reply path is aligned now.
+- `Available`: the full reply path is aligned now.
 - `Checking`: OpenMeld is refreshing or missing enough evidence to decide.
 - `Offline`: OpenMeld has stable evidence that the selected local service or route is
   not running or not online.
@@ -986,7 +984,7 @@ still has not reported, skipped, rejected, or leased that profile by then, the
 lookup must stop returning pending-first-report owner-service evidence and
 readiness must fail closed instead of keeping a permanent `Checking` state.
 Web, CLI, and Desktop surfaces must consume the Core-owned projection for this
-public state; they may keep refreshing diagnostics, but they must not repaint a
+public verdict; they may keep refreshing diagnostics, but they must not repaint a
 Core-owned `Offline` or `Unavailable` verdict as `Checking`.
 
 Owner-only recovery surfaces may show concrete actions such as `Update OpenMeld
@@ -1725,6 +1723,6 @@ Use scoped owner documents for detailed rules:
 - Prepare writes Runtime readiness evidence only.
 - Reference never creates dispatch work.
 - A bare `@Agent Name` in prose never creates dispatch work.
-- Route online never equals `Available for Wake`.
+- Route online never makes Wakeability `Available`.
 - Process health never equals business readiness.
 - Recovery never becomes the hot path.

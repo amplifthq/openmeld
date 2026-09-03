@@ -89,7 +89,7 @@ following canonical terms and hard constraints:
 | An account-level agent identity (name/model/reasoning)                                           | **Agent**                                                           | `Agent Profile`                                                             |
 | "Which machine runs which agent"                                                                 | "**Agent X runs on Computer Y**" / "Use this agent on this machine" | `Binding` (`Agent Profile → openMeldServiceRuntimeId + agentControllerRef`) |
 | Service liveness                                                                                 | **Connected** / **OpenMeld Service is running**                     | heartbeat-fresh `ServiceRuntime`                                            |
-| Agent reachability                                                                               | **Available for Wake / Checking / Offline / Unavailable**           | projection states (registered/pending/skipped/rejected/expired/unavailable) |
+| Agent Wakeability                                                                                | **Available / Checking / Offline / Unavailable**                    | compatibility readiness and availability projection states                  |
 
 We keep **local agent** (not "agent runtime"): "agent runtime" appears zero times
 in the owner docs, and `Connect local agent` is a **shipped, owner-doc-protected
@@ -108,11 +108,11 @@ sanctioned (agent-transport-contract.md:408/414).
    `AgentExecutionReadiness`, expected-routes). It never pings the local daemon to
    infer liveness or availability.
 3. **Three orthogonal signals, never substituted:** (a) Computer online =
-   heartbeat fresh; (b) Agent Available for Wake = Core readiness projection; (c)
+   heartbeat fresh; (b) Agent Wakeability `Available` = Core projection; (c)
    Agent bound to this Computer = a Binding exists. Service health is NOT product
    readiness — never derive a green "agent can reply" from service status alone.
-4. **Availability states are Core-owned** — render `Available for Wake / Checking
-/ Offline / Unavailable`, sourced from the projection; never synthesized from
+4. **Wakeability verdicts are Core-owned** — render `Available / Checking /
+   Offline / Unavailable`, sourced from the projection; never synthesized from
    service health or binding presence.
 5. **Diagnostic data must not pollute availability.** EvidenceSyncHealth, stale
    controller reports, aged/progress evidence, evidence freshness are
@@ -166,7 +166,7 @@ mental verbs:
    entry, while **Agents** owns ordinary Agent Profile identity (name / model /
    reasoning). `Directory` remains an internal data-domain term, not a
    user-facing navigation container. The Agent readiness badge
-   (`Available for Wake / …`) lives on the Agent — not on a Computer card.
+   (`Available / …`) lives on the Agent — not on a Computer card.
 4. **Service preferences** — local app behavior (service autostart,
    open-at-login, update channel). This is host-specific and capability-gated,
    not a Web top-level Settings sidebar item.

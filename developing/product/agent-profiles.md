@@ -544,9 +544,9 @@ grants. OpenMeld must never loosen permissions automatically.
 Keep these product facts separate:
 
 ```text
-Space membership does not equal Available for Wake.
-Binding existence does not equal Available for Wake.
-Agent Controller Permission Mode does not equal Available for Wake.
+Space membership does not make Wakeability `Available`.
+Binding existence does not make Wakeability `Available`.
+Agent Controller Permission Mode does not make Wakeability `Available`.
 Codex Collaboration Mode does not equal Agent Controller Permission Mode.
 Space Thread placement does not equal Agent Controller conversation continuity.
 ```
@@ -724,8 +724,10 @@ payload. Agent Activity still owns provider-observed coding-session awareness.
 The Coordinator must not duplicate any of those truths.
 
 Before a fresh workstation Wake can become the current or a queued Work
-Coordinator item, Core consumes the canonical `AgentExecutionReadiness` for
-that Profile. A blocking current fact rejects the Wake before Coordinator
+Coordinator item, Core consumes the canonical Wakeability projection for that
+Profile. The current compatibility API and schema call this projection
+`AgentExecutionReadiness`; that name does not define a second product concept.
+A blocking current fact rejects the Wake before Coordinator
 admission and produces a visible no-execution outcome with one recovery action.
 In particular, disabling the selected Local Agent means no new work: rejected
 Wakes are not retained as a hidden backlog that can start after the Local Agent
@@ -850,6 +852,13 @@ Profile identity, Wakeability, current workload, applied execution settings,
 Usage, and recovery actions. It does not own those facts and cannot decide
 execution by itself.
 
+This aggregate is a compatibility Profile Details projection during the Wake
+state convergence. Profile Directory, Wakeability, Activity, Wake Progress,
+Wake Outcome, and Recovery remain independently readable answers. New list and
+authoring consumers must not adopt Operational Context as a universal Agent
+status contract. The migration boundary and removal gates live in
+`developing/architecture/wake-state-convergence-plan.md`.
+
 When interrupted work needs attention, the owner projection exposes one direct
 `Skip interrupted work` action. The action is idempotent, resolves only the exact
 current recovery gate, and promotes the oldest queued Wake. A stale page cannot
@@ -892,34 +901,34 @@ order before applying the same privacy projection. This is a read-only Profile
 Details path, never Wake admission work; the storage limits must not become a
 user-visible partial result or slow a new Wake.
 
-## Readiness And Recovery Surfaces
+## Wakeability And Recovery Surfaces
 
-Readiness may appear on Agent Profile surfaces because users need to know
-whether an AI teammate can reply now.
+Wakeability may appear on Agent Profile surfaces because users need to know
+whether an AI teammate can accept a new Wake now.
 
 The user-facing question is:
 
 ```text
-Can this Agent Profile reply from this computer in this Space right now?
+Can this Agent accept a new Wake here right now?
 ```
 
 Agent Profile identity does not own the answer.
 
-Final user-facing readiness comes from transport-owned evidence, not from Agent
+Final user-facing Wakeability comes from transport-owned evidence, not from Agent
 Profile identity. Route online is not enough. Binding existence is not enough.
 Completed Prepare evidence is not enough. Local process health is not enough.
 For an Organization Space, readiness must verify that the Agent Profile's
 canonical `organizationId` equals the Space's Organization. Missing or
 unverifiable Organization identity, or any mismatch, is `Unavailable`, never
-`Available for Wake`, even when the Binding, Runtime, and route are otherwise
+`Available`, even when the Binding, Runtime, and route are otherwise
 healthy. Legacy authorization records never satisfy or override this check.
 
-Agent Profile surfaces may display `Available for Wake` only when the
-Core-owned readiness projection says the full reply path is aligned for the
+Agent Profile surfaces may display `Available` only when the Core-owned
+Wakeability projection says the full reply path is aligned for the
 target profile, intended account, OpenMeld Service Runtime, Agent Controller, OpenMeld
 Service compatibility, and claim eligibility.
 
-Public availability uses four states only: `Available for Wake`, `Checking`,
+Public Wakeability uses four verdicts only: `Available`, `Checking`,
 `Offline`, and `Unavailable`. Concrete repair actions such as `Update OpenMeld
 on Computer`, `Reconnect Computer`, or `Connect local agent` are owner guidance,
 not separate public states.
@@ -954,9 +963,11 @@ not send the user through setup or reinterpret diagnostic reason codes into a
 second recovery verdict. Ready controllers do not change that decision merely
 because they carry additional non-blocking diagnostic reason codes.
 
-Concrete setup failures name the controller and computer, such as `OpenCode
-needs setup on Felix's MacBook Pro`, while a healthy Binding describes where the
-profile runs.
+Concrete blockers name the affected object and place one verb-first action next
+to the explanation. For example, `Felix's MacBook Pro is not connected.` uses
+`Connect computer`, while `Felix's MacBook Pro needs an update.` uses `Update`.
+Primary blocker copy must not collapse a known problem into `needs setup` or
+`Review setup`. A healthy Binding may still describe where the profile runs.
 
 Reply recovery answers:
 
@@ -1050,14 +1061,14 @@ Use scoped owner documents for detailed rules:
 - An Agent Profile is an AI teammate identity.
 - An Agent Profile is not Runtime, computer, OpenMeld Service, controller, or local
   process.
-- Space membership does not equal `Available for Wake`.
+- Space membership does not make Wakeability `Available`.
 - Binding is the execution connection from an Agent Profile to an OpenMeld Service
   Runtime and Agent Controller.
 - Controller-native permission settings are Binding-level launch intent, not
   Agent Profile identity, Space permission, or readiness truth.
 - A pending local-agent request is RuntimeCoordinator execution state, not
   Binding configuration, Space message history, or durable approval truth.
-- Binding existence does not equal `Available for Wake`.
+- Binding existence does not make Wakeability `Available`.
 - Agent Profile identity does not own readiness truth.
 - Working-folder mode is a device-scoped local execution fact with only
   `openmeld_managed` and `custom` states.

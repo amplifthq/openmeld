@@ -180,7 +180,7 @@ Prepare must not:
 - send a Wake
 - decide execution ownership
 - decide final Wake outcome
-- decide final user-facing Wake availability
+- decide final user-facing Wakeability
 
 Prepare can make the local side able to work. It cannot replace Space
 membership, Binding truth, transport readiness, or RuntimeCoordinator execution
@@ -259,7 +259,7 @@ ACI must not own:
 - Agent Profile identity
 - Agent Profile Binding truth
 - Space membership or Space reply placement
-- final `Available for Wake` truth
+- final Wakeability `Available` truth
 - RuntimeCoordinator execution truth
 - the user's model intent stored on a Binding
 
@@ -1125,24 +1125,26 @@ when a supported local picker adapter is available. Temporary absence of an
 interactive session is an operation result, not a reconnect-time capability
 rewrite.
 
-## Service Health And Product Readiness
+## Service Health And Wakeability
 
-Service health is not product readiness.
+Service health is not Wakeability.
 
 A service can be installed, running, or able to report local inventory while the
 Agent Profile still cannot reply in the current Space. Local service evidence is
 one input to the product reply path, not the final answer.
 
-Final user-facing readiness belongs to the transport readiness contract. Agent
+Final user-facing Wakeability belongs to the transport Wakeability contract. Agent
 Profile surfaces, Web setup, CLI guidance, and Space membership displays must
-not recompute final Wake availability from service health alone.
+not recompute Wakeability from service health alone. The Service reports current
+local facts and freshness; it does not consume a Wake Outcome or infer a lasting
+blocker from an earlier failure.
 
 OS service manager job-state evidence (for launchd: `launchctl print` runs,
 state, last exit code, and pended-spawn markers) is startup failure diagnostic
 evidence only. After a startup wait fails it may drive failure cards, the
 lifecycle journal, and Agent View diagnostics — for example distinguishing a
 job macOS never spawned (Login Items blocked) from a crash loop with a nonzero
-exit code. It must never feed service health, Wake availability, readiness, or
+exit code. It must never feed service health, Wakeability, readiness, or
 lifecycle decisions.
 
 ## RuntimeTransportHub Fast Paths
@@ -1191,7 +1193,7 @@ Profile is currently registered on a connected local OpenMeld Service for Wake.
 OpenMeld Service reports local Wake route evidence through `LocalWakeRouteReport`.
 That report contains the local route catalog the service can currently carry
 and the profiles it deliberately skipped, with diagnostic reasons. The report is
-local evidence only. It does not make an Agent Profile `Available for Wake`,
+local evidence only. It does not make an Agent Profile's Wakeability `Available`,
 reserve execution, or decide the final Wake outcome.
 
 When every route came from negotiated expected-routes `v3`, the Service also
@@ -1230,8 +1232,9 @@ Can this Agent Profile reply in this Space through the intended Wake path now?
 ```
 
 `AgentWakeRouteRegistration` answers only the local route part of that question.
-`AgentWakeAvailability` and `AgentExecutionReadiness` combine it with Binding,
-transport, compatibility, and policy evidence into the user-facing status.
+The compatibility `AgentWakeAvailability` and `AgentExecutionReadiness`
+implementations combine it with Binding, transport, compatibility, and policy
+evidence into the user-facing Wakeability verdict.
 
 ### Route Catalog Derivation
 
@@ -1406,7 +1409,7 @@ live records with no known disconnect timestamp, Runtime Transport may
 synthesize the restore moment as the disconnect clock and persist it after
 restore/adopt convergence, so repeated cold starts keep one stable diagnostic
 timestamp. That timestamp explains delivery interruption and adoption history;
-it does not decide service liveness, Wake availability, or a public route
+it does not decide service liveness, Wakeability, or a public route
 state. The restored record's last heartbeat stays the service-liveness
 timestamp.
 
@@ -1500,7 +1503,7 @@ blocked by a required Service update; `needs_attention` means current sessions
 exist but none are usable; `not_connected` means the authoritative lookup has
 no current session; and `unknown` means the lookup failed. Multiple computers
 collapse to `connected` when any one current session is usable. These states
-must never be promoted into Agent Profile readiness or Wake availability.
+must never be promoted into Agent Profile readiness or Wakeability.
 
 ## Service Freshness And Compatibility
 
@@ -1746,7 +1749,7 @@ the Computer projection independently.
 
 Repair succeeds only for the component it repairs. It must not claim success
 just because a process started, local files were rewritten, or inventory was
-detected, and it must not project service health as final Wake availability.
+detected, and it must not project service health as final Wakeability.
 The top-level command entry owns interactive authentication. Nested lifecycle
 and background-start operations run only after that entry decision and must not
 open another authentication prompt. A cancelled start remains `cancelled`; it
@@ -2150,7 +2153,8 @@ The Service Thin Core line must not reassign ownership:
 - Space remains the final visible reply, explicit visible stopped outcome, or
   explicit visible failure surface.
 - Agent Profile and Binding remain identity and execution-connection truth.
-- Core-owned `AgentExecutionReadiness` remains final user-facing readiness.
+- Core-owned Wakeability remains the final user-facing verdict; the current
+  compatibility implementation is `AgentExecutionReadiness`.
 - OpenMeld Service evidence remains local execution evidence.
 
 The next extraction target after the marker pass is a local runtime inventory
@@ -2161,7 +2165,7 @@ What local controllers/capabilities are detected on this computer, and what
 local blocker prevents each one from being launched?
 ```
 
-It must not answer final Wake availability, create Binding truth, join Spaces,
+It must not answer final Wakeability, create Binding truth, join Spaces,
 or claim a Wake outcome.
 
 ## Architecture Invariants

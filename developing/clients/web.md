@@ -5,13 +5,13 @@
 - Purpose: Define the OpenMeld Web client's product responsibilities in
   navigation, Projects presentation, Space collaboration, hosted reply
   streaming, Center Agent memory controls, Wake authoring, thread presentation,
-  Center Agent Tasks and compact window, setup handoff, Wake availability
+  Center Agent Tasks and compact window, setup handoff, Wakeability
   display, Wake diagnostics, and browser-side diagnostic pointers.
 - Read this when: You are changing OpenMeld Web navigation, Settings placement,
   Project routes or current-computer presentation, Space flows, Wake authoring,
   thread UI, reply context, hosted reply streaming, the public agent manual,
   Center Agent memory settings, Wake details, Diagnostic Reports, setup handoff
-  entry, Wake availability presentation, Agent Profile surfaces, or Web
+  entry, Wakeability presentation, Agent Profile surfaces, or Web
   user-facing recovery copy.
 - Update this when: Web-owned navigation or product entry points, browser
   diagnostic surfaces, browser persistence, stream reconciliation, memory
@@ -1176,7 +1176,7 @@ OpenMeld Web owns the browser experience for:
 - Slack workspace installation and connection-result presentation
 - hosted Center Agent reply-stream presentation and reconnect recovery
 - Center Agent member-memory wipe and organization-memory policy controls
-- Wake availability and reply-recovery presentation
+- Wakeability and reply-recovery presentation
 - sanitized browser-side diagnostic pointers
 
 This is product-surface ownership, not authority ownership.
@@ -1824,9 +1824,9 @@ follow, and the remaining Agents sort by the newer of `lastUsedAt` and
 `createdAt`. This keeps a just-created Agent at the top until it has real work
 activity. Missing or invalid recency sorts last; owner name, Agent name, and
 stable IDs break ties. Checking
-readiness and Wake availability never count as work activity. Each row shows the
+readiness and Wakeability never count as work activity. Each row shows the
 Agent avatar, name, a compact Controller and friendly model summary when known,
-and the existing Core-owned Wake availability projection. The summary resolves
+and the existing Core-owned Wakeability projection. The summary resolves
 Controller defaults through the shared Model Catalog and never substitutes a
 raw model ID for the catalog display name. People Agent cards use the same
 formatter. Route-online,
@@ -2510,8 +2510,9 @@ combining immediate write-response cache patches with live invalidation frames.
 When Web creates or adds an Agent Profile to a Space, the successful
 `addMembers` response may be applied to the current members snapshot immediately
 so the new member appears without waiting for a slow follow-up refresh. Any
-missing Wake availability must remain unknown/checking until Core's readiness
-read model returns it. For a newly created Agent Profile that Web just bound to
+missing Wakeability remains unresolved until the Core read returns. Web shows
+`Checking` only while that owner determination is active and bounded. For a
+newly created Agent Profile that Web just bound to
 a local controller and added to the Space, the immediate mutation cache patch may
 show `Checking` until the follow-up readiness refresh completes. Web must not
 show `Offline` merely because the mutation response is missing or racing
@@ -2520,7 +2521,7 @@ refetches, but they are not state and must not replace the Space/Core read
 models.
 
 Bootstrap member cache seeding is lower-fidelity reconciliation, not
-authority. When an incoming Agent item omits Wake availability, Web may merge
+authority. When an incoming Agent item omits Wakeability, Web may merge
 its basic fields but must not erase richer controller, runtime, readiness, or
 activity display evidence already read from the owning projection. An explicit
 incoming Wake-availability verdict replaces the cached verdict; cached
@@ -2588,7 +2589,7 @@ source, or prior decisions.
 For Profile Details dialogs, Web should consume the shared Profile Details
 snapshot or section model from the shared contract layer. Web may render the
 dialog, copy buttons, scrolling, and disclosure states, but it must not decide
-Profile identity, Space membership, Wake availability, Binding, or local
+Profile identity, Space membership, Wakeability, Binding, or local
 connection truth by stitching unrelated browser-side facts together.
 
 Profile Details includes immutable **Created by** and **Created from** rows.
@@ -3618,8 +3619,9 @@ device-name matching.
 
 An accepted Agent Profile Binding reconnect is a completed cloud save. Web must
 not report that save as failed because route-catalog notification or
-`AgentExecutionReadiness` has not converged within a browser-side polling
-window. Core owns the route-catalog notification issued with the Binding write;
+the compatibility `AgentExecutionReadiness` projection has not converged within
+a browser-side polling window. Core owns the route-catalog notification issued
+with the Binding write;
 Web then refreshes the primary Binding and canonical readiness projections and
 shows their current state without issuing a duplicate notification.
 
@@ -3975,37 +3977,41 @@ scenario should expose one primary action and one primary entrypoint. Web should
 not make users choose between `openmeld setup`, `openmeld service repair`, `openmeld service
 update`, and skills commands.
 
-## Wake Availability And Recovery Presentation
+## Wakeability And Recovery Presentation
 
-Web may display Wake availability on Agent Profile and Space surfaces, but it
+Web may display Wakeability on Agent Profile and Space surfaces, but it
 does not own execution truth.
 
-Final user-facing Wake availability must come from Core-owned Agent execution
-status. Web must not reconstruct it from local browser state, Space membership,
-Binding existence, route-online evidence, service health, setup completion, or
-capability inventory.
+Final user-facing Wakeability must come from the Core-owned Wakeability
+projection. Web must not reconstruct it from local browser state, Space
+membership, Binding existence, route-online evidence, service health, setup
+completion, Agent Activity, one Wake's Outcome, or capability inventory. The
+current compatibility APIs and types may still use readiness or execution-status
+names during the migration described in
+`developing/architecture/wake-state-convergence-plan.md`.
 
-Web may briefly refresh local owner diagnostics when Core reports checking or
-self-healing evidence, but that refresh behavior must have an explicit
-expiration boundary. After the refresh window or attempt budget is exhausted,
-Web must stop presenting transient checking as the public state and must return
-to the latest Core-owned Wake availability or owner recovery guidance. It must
-not keep a last-known `Available for Wake` badge when the current Core
-projection says the route, service, or execution path is no longer available.
+Web keeps the latest settled Core verdict visible while refreshing and presents
+freshness separately, for example **Available · Checked 3 minutes ago** with
+**Refreshing…** while the request is active. `Checking` is reserved for an
+active owner determination when the current owner lacks enough evidence for a
+settled verdict. It is bounded; after
+the refresh window or attempt budget is exhausted, Web stops the transient and
+renders the latest Core-owned verdict or recovery guidance. A newly returned
+Core `Offline` or `Unavailable` verdict replaces an older `Available` verdict
+immediately.
 
 The Space Members surface may use Core/Space active Wake progress read models to
 show that a target Agent Profile is actively running or waiting for OpenMeld Service,
-even when the latest member availability row is stale or degraded. That overlay
-is presentation-only evidence for one active Wake. It must not become final Wake
-availability, recovery eligibility, Binding truth, member sorting, mention
+even when the latest member Wakeability row is stale or degraded. That overlay
+is presentation-only evidence for one active Wake. It must not become final
+Wakeability, recovery eligibility, Binding truth, member sorting, mention
 authoring, or Profile Details truth.
 
-Visual smoothing for brief `checking_connection` flicker may replay the last
-`Available for Wake` presentation only for the compact row indicator and its
-accessible label, and only inside a bounded debounce window. Terminal
-`offline_for_wake` or `unavailable_for_wake`, cold-start checking, recovery
-actions, diagnostics, Profile Details, sorting, and command eligibility must
-continue to read the raw Core/Space snapshot.
+Visual smoothing may debounce a brief transport refresh, but every surface
+continues to render the same settled Core verdict. Terminal `offline_for_wake`
+or `unavailable_for_wake`, cold-start checking, recovery actions, diagnostics,
+Profile Details, sorting, and command eligibility continue to read the owning
+Core/Space projection; smoothing never creates another status rule.
 
 The Space Members surface presents an Agent Profile's availability as a compact
 status indicator immediately after the profile name instead of repeating the
@@ -4021,9 +4027,17 @@ red indicator until the owning readiness contract exposes a distinct failure
 severity that warrants it.
 
 Reply recovery copy may be shared through Agent Profile recovery semantics. Web
-adapts browser-local and current-local-runtime evidence into that shared copy,
-then presents one clear next action. The copy explains known evidence and the
-next step. It does not decide execution truth.
+consumes the Core-provided action intent and viewer-permitted capability, adds
+presentation context such as a known Computer name, and presents one clear next
+action. It does not reinterpret reason codes or current-local-runtime evidence
+into another blocker or action decision.
+
+Known blockers name the affected object and place the action beside the
+explanation. Computer recovery uses **Connect computer**, **Reconnect
+computer**, or **Update** with copy such as **Felix's MacBook Pro is not
+connected.** or **Felix's MacBook Pro needs an update.** Primary blocker copy
+does not say `needs setup` and does not use `Review setup`. Setup language remains
+appropriate only when the destination is an actual multi-step setup flow.
 
 When a Wake failure maps to a computer-connection recovery action, Web may show
 a local repair entry only when the failed target is manageable by the current
@@ -4088,6 +4102,6 @@ Use the scoped owner documents for deeper rules:
   derive them from browser state.
 - Conversation compaction markers consume the durable server-authored final
   Signal checkpoint; Web does not infer or animate compaction.
-- Final Wake availability must come from Core-owned Agent execution status.
+- Final Wakeability must come from the Core-owned Wakeability projection.
 - A visible Wake problem should end with a clear outcome, one next action, and a
   diagnostic path, not internal subsystem vocabulary.
