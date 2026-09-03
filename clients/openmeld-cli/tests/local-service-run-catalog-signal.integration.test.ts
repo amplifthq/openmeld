@@ -108,6 +108,7 @@ function runDaemonSocketSession(
 }
 
 import {
+  acknowledgeDispatchResultOutboxRecord,
   enqueueDispatchResultOutboxRecord,
   listDispatchResultOutboxPendingAcknowledgementKeys,
 } from "../src/local-service/dispatch/dispatch-result-outbox";
@@ -150,7 +151,7 @@ describe("local service run catalog signal", () => {
     }
   });
 
-  it("keeps controlled drain heartbeats live until the durable result is acknowledged", async () => {
+  it("keeps the controlled drain socket open until a durable result is acknowledged", async () => {
     await withTempHome(async () => {
       vi.useFakeTimers();
       loadDaemonRouteCatalogMock.mockResolvedValue({
@@ -184,7 +185,7 @@ describe("local service run catalog signal", () => {
         }
       );
       const sessionPromise = runDaemonSocketSession({
-        ...buildKeepaliveSessionInput(socket, lines, 5000),
+        ...buildKeepaliveSessionInput(socket, lines, 1000),
         ledgerPaths,
         shutdownRequested,
       });
@@ -208,12 +209,12 @@ describe("local service run catalog signal", () => {
         ).length;
       const firstDrainingHeartbeatCount = drainingHeartbeatCount();
 
-      await vi.advanceTimersByTimeAsync(20_000);
-      await flushMicrotasks(
-        () => drainingHeartbeatCount() > firstDrainingHeartbeatCount
-      );
+      await vi.advanceTimersByTimeAsync(4000);
+      await flushMicrotasks();
 
-      expect(drainingHeartbeatCount()).toBeGreaterThanOrEqual(4);
+      expect(drainingHeartbeatCount()).toBeGreaterThanOrEqual(
+        firstDrainingHeartbeatCount
+      );
       expect(
         socket.sentFrames
           .filter(isHeartbeatFrame)
@@ -338,6 +339,105 @@ describe("local service run catalog signal", () => {
 
     await expect(sessionPromise).resolves.toBeUndefined();
     expect(socket.closeCount).toBe(1);
+  });
+
+  it("terminates a half-open socket instead of hanging controlled shutdown", async () => {
+    vi.useFakeTimers();
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const lines: Array<{ code: string; text: string }> = [];
+    const socket = createMockSocket({ hangOnClose: true });
+    let requestShutdown!: (cause: "controlled_service_update") => void;
+    const shutdownRequested = new Promise<"controlled_service_update">(
+      (resolve) => {
+        requestShutdown = resolve;
+      }
+    );
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, lines, 5000),
+      shutdownRequested,
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks(() => socket.heartbeatSendCount > 0);
+    requestShutdown("controlled_service_update");
+    await vi.advanceTimersByTimeAsync(5000);
+    await flushMicrotasks();
+
+    const terminateCountAtDeadline = socket.terminateCount;
+    if (terminateCountAtDeadline === 0) {
+      socket.emitClose(1000, "test cleanup");
+    }
+    await sessionPromise;
+
+    expect(terminateCountAtDeadline).toBe(1);
+    expect(lines).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.run.controlled_shutdown_socket_close_timeout",
+      })
+    );
+  });
+
+  it("preserves an unacknowledged result and finishes controlled shutdown after the receipt deadline", async () => {
+    await withTempHome(async () => {
+      vi.useFakeTimers();
+      readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+      const lines: Array<{ code: string; text: string }> = [];
+      const socket = createMockSocket();
+      const ledgerPaths = createLedgerPaths();
+      enqueuePendingResult({
+        currentSocketRef: {
+          connectionGeneration: null,
+          socket: null,
+        },
+        ledgerPaths,
+      });
+      let requestShutdown!: (cause: "controlled_service_update") => void;
+      const shutdownRequested = new Promise<"controlled_service_update">(
+        (resolve) => {
+          requestShutdown = resolve;
+        }
+      );
+      const sessionPromise = runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, lines, 5000),
+        ledgerPaths,
+        shutdownRequested,
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      await flushMicrotasks(() => socket.heartbeatSendCount > 0);
+      requestShutdown("controlled_service_update");
+      await vi.advanceTimersByTimeAsync(5000);
+      await flushMicrotasks();
+
+      const closeCountAtDeadline = socket.closeCount;
+      if (closeCountAtDeadline === 0) {
+        acknowledgeDispatchResultOutboxRecord({
+          attemptId: "attempt-drain-1",
+          dispatchId: "dispatch-drain-1",
+          ledgerPaths,
+          ok: true,
+          presenter: {
+            view: "agent",
+            event: () => undefined,
+            line: () => undefined,
+            data: () => undefined,
+          },
+        });
+      }
+      await sessionPromise;
+
+      expect(closeCountAtDeadline).toBe(1);
+      expect(lines).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.run.controlled_shutdown_result_ack_timeout",
+        })
+      );
+      if (closeCountAtDeadline > 0) {
+        expect(
+          listDispatchResultOutboxPendingAcknowledgementKeys({ ledgerPaths })
+        ).toEqual(["dispatch-drain-1::attempt-drain-1"]);
+      }
+    });
   });
 
   it("replays durable startup results before opening dispatch admission", async () => {

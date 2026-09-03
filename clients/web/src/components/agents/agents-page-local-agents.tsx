@@ -94,6 +94,7 @@ import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
 import { useCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
 import { resolveCurrentExecutionTarget } from "./agents-page-computer";
 import {
+	formatCheckedAt,
 	formatMutationError,
 	isLocalAgentControlStillRunningError,
 } from "./agents-page-formatters";
@@ -169,7 +170,9 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 	const description = resolveTeamLocalAgentDescription(agent);
 	const detailRows = agent.details
 		? placeLaunchCheckSecond(
-				createAgentControllerInterfaceOperationalDisplayRows(agent.details)
+				withoutCheckedAtDetailRows(
+					createAgentControllerInterfaceOperationalDisplayRows(agent.details)
+				)
 			)
 		: [
 				{
@@ -179,6 +182,7 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 				{ label: "Status", value: description },
 			];
 	return {
+		checkedAtLabel: formatAgentControllerCheckedAtLabel(agent.details),
 		control: (
 			<Switch
 				aria-label={`${agent.displayName} local agent`}
@@ -226,7 +230,7 @@ function resolveTeamLocalAgentSummaryStatus(
 			return { label: "Ready", tone: "ready" };
 		case "not_ready": {
 			if (agent.details?.check?.status === "failed") {
-				return { label: "Couldn't check", tone: "warning" };
+				return { label: "Check delayed", tone: "warning" };
 			}
 			if (agent.details?.status === "error") {
 				return agent.details.launch.status === "needs_repair"
@@ -251,7 +255,7 @@ function resolveTeamLocalAgentDescription(agent: TeamLocalAgent): string {
 			return "Available on this computer";
 		case "not_ready":
 			return agent.details?.check?.status === "failed"
-				? "The latest local agent check did not finish"
+				? "OpenMeld will retry automatically"
 				: "Unavailable on this computer";
 		case "stale":
 			return "Needs a fresh check from this computer";
@@ -1655,6 +1659,9 @@ function buildLocalAgentCatalogRow(
 				}}
 			/>
 		),
+		checkedAtLabel: formatAgentControllerCheckedAtLabel(
+			agentControllerInterface
+		),
 		description,
 		detail: renderLocalAgentCatalogRowDetail({
 			canChangeInstallation,
@@ -1867,39 +1874,84 @@ function createAgentControllerInterfaceDetailRows(input: {
 }): SettingsDetailListRow[] {
 	const email = resolveAgentControllerAccountEmailText(input.snapshot);
 	const hasIssueMessage = shouldRenderAgentControllerIssueRow(input.snapshot);
-	const rows = createAgentControllerInterfaceDisplayRows(input.snapshot).map(
-		(row) => {
-			if (hasIssueMessage && row.label === "Message") {
-				return {
-					label: "Issue",
-					value: (
-						<AgentControllerIssueDetail
-							canRefreshCatalog={input.canRefreshCatalog}
-							isCheckingAgents={input.isCheckingAgents}
-							message={row.value}
-							onCheckAgents={input.onCheckAgents}
-						/>
-					),
-				};
-			}
-			if (email && row.label === "Account" && row.value === email) {
-				return {
-					...row,
-					value: (
-						<AgentControllerAccountEmail
-							agentId={input.agentId}
-							email={email}
-							location="detail"
-							onReveal={input.onRevealEmail}
-							revealed={input.emailRevealed}
-						/>
-					),
-				};
-			}
-			return row;
+	const canCheckAgain = shouldOfferAgentControllerCheckAgain(input.snapshot);
+	const rows = withoutCheckedAtDetailRows(
+		createAgentControllerInterfaceDisplayRows(input.snapshot)
+	).map((row) => {
+		if (hasIssueMessage && row.label === "Message") {
+			return {
+				label: "Issue",
+				value: (
+					<AgentControllerIssueDetail
+						canCheckAgain={canCheckAgain}
+						canRefreshCatalog={input.canRefreshCatalog}
+						isCheckingAgents={input.isCheckingAgents}
+						message={row.value}
+						onCheckAgents={input.onCheckAgents}
+					/>
+				),
+			};
 		}
-	);
+		if (email && row.label === "Account" && row.value === email) {
+			return {
+				...row,
+				value: (
+					<AgentControllerAccountEmail
+						agentId={input.agentId}
+						email={email}
+						location="detail"
+						onReveal={input.onRevealEmail}
+						revealed={input.emailRevealed}
+					/>
+				),
+			};
+		}
+		return row;
+	});
+	if (input.snapshot.check?.status === "failed" && !hasIssueMessage) {
+		const controllerRowIndex = rows.findIndex(
+			(row) => row.label === "Controller"
+		);
+		rows.splice(controllerRowIndex >= 0 ? controllerRowIndex + 1 : 0, 0, {
+			label: "Issue",
+			value: (
+				<AgentControllerIssueDetail
+					canCheckAgain={canCheckAgain}
+					canRefreshCatalog={input.canRefreshCatalog}
+					isCheckingAgents={input.isCheckingAgents}
+					message={`${input.snapshot.displayName} check is delayed. OpenMeld will retry automatically.`}
+					onCheckAgents={input.onCheckAgents}
+				/>
+			),
+		});
+	}
 	return placeLaunchCheckSecond(rows);
+}
+
+function withoutCheckedAtDetailRows(
+	rows: readonly SettingsDetailListRow[]
+): SettingsDetailListRow[] {
+	return rows.filter(
+		(row) =>
+			row.label !== "Last checked" && row.label !== "Last successful check"
+	);
+}
+
+function formatAgentControllerCheckedAtLabel(
+	snapshot:
+		| AgentControllerInterfaceSnapshot
+		| OrganizationComputerLocalAgentDetails
+		| null
+		| undefined
+): string | null {
+	if (!snapshot) {
+		return null;
+	}
+	const checkedAt =
+		snapshot.check?.status === "failed" && snapshot.check.lastSucceededAt
+			? snapshot.check.lastSucceededAt
+			: snapshot.checkedAt;
+	return formatCheckedAt(checkedAt);
 }
 
 function placeLaunchCheckSecond(
@@ -1920,15 +1972,16 @@ function placeLaunchCheckSecond(
 }
 
 function AgentControllerIssueDetail(input: {
+	canCheckAgain: boolean;
 	canRefreshCatalog: boolean;
 	isCheckingAgents: boolean;
-	message: string;
+	message: ReactNode;
 	onCheckAgents: () => Promise<void>;
 }) {
 	return (
 		<span className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 			<span className="min-w-0">{input.message}</span>
-			{input.canRefreshCatalog ? (
+			{input.canCheckAgain && input.canRefreshCatalog ? (
 				<Button
 					className="w-fit shrink-0"
 					disabled={input.isCheckingAgents}
@@ -1946,6 +1999,16 @@ function AgentControllerIssueDetail(input: {
 				</Button>
 			) : null}
 		</span>
+	);
+}
+
+function shouldOfferAgentControllerCheckAgain(
+	snapshot: AgentControllerInterfaceSnapshot
+): boolean {
+	return (
+		snapshot.check?.status === "failed" ||
+		snapshot.status === "warning" ||
+		snapshot.status === "error"
 	);
 }
 
@@ -2104,7 +2167,7 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return null;
 	}
 	if (snapshot.check?.status === "failed") {
-		return { label: "Couldn't check", tone: "warning" };
+		return { label: "Check delayed", tone: "warning" };
 	}
 	if (snapshot.auth.status === "unauthenticated") {
 		// Signing in is a routine account state, not a computer failure: keep it

@@ -34,6 +34,7 @@ import {
   LocalDaemonControlPlaneClientError,
   requestLocalDaemonShutdown,
 } from "../control-plane/client";
+import { CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS } from "../core/constants";
 import {
   normalizeHeartbeatIntervalMs,
   normalizeOptionalText,
@@ -1370,10 +1371,11 @@ async function requestControlledSystemServiceDrain(input: {
         gracePeriodMs: input.drainWaitMs,
         mode: "graceful",
       },
-      // The service acknowledges only after active local work and its durable
-      // result receipts drain. A fixed client deadline would recreate the
-      // process-loss race this handshake prevents.
-      timeoutMs: 0,
+      // New Services bound their post-work result-receipt and socket-close
+      // waits. Bound this request too so an older Service cannot hold setup
+      // forever; the compatibility path below still preserves the guarded
+      // stale-heartbeat force-kill boundary.
+      timeoutMs: CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS,
     });
     await emitDaemonLifecycleEvent({
       command: `openmeld service ${input.operation.replaceAll("_", "-")}`,
@@ -1402,13 +1404,20 @@ async function requestControlledSystemServiceDrain(input: {
         error,
         inventory: input.inventory,
       });
+    const isLegacyControlledShutdownTimeout =
+      isOlderServiceControlledShutdownTimeout({
+        error,
+        inventory: input.inventory,
+      });
     const isCompatibilityFallback =
       isLegacyShutdownContract ||
       isLegacyMissingCloseReason ||
+      isLegacyControlledShutdownTimeout ||
       isManagerRunningWithoutRuntime;
-    const observedDaemonVersion = isLegacyMissingCloseReason
-      ? resolveObservedDaemonVersion(input.inventory)
-      : null;
+    const observedDaemonVersion =
+      isLegacyMissingCloseReason || isLegacyControlledShutdownTimeout
+        ? resolveObservedDaemonVersion(input.inventory)
+        : null;
     await emitDaemonLifecycleEvent({
       command: `openmeld service ${input.operation.replaceAll("_", "-")}`,
       intent: input.lifecycleIntent,
@@ -1418,6 +1427,13 @@ async function requestControlledSystemServiceDrain(input: {
           ? {
               compatibilityReason: "legacy_missing_close_reason",
               observedDaemonVersion,
+            }
+          : {}),
+        ...(isLegacyControlledShutdownTimeout
+          ? {
+              compatibilityReason: "legacy_controlled_shutdown_timeout",
+              observedDaemonVersion,
+              reasonCode: "socket_close_timeout",
             }
           : {}),
         ...(isManagerRunningWithoutRuntime
@@ -1435,6 +1451,32 @@ async function requestControlledSystemServiceDrain(input: {
       return false;
     }
     throw new DaemonServiceLifecycleControlledDrainError(error);
+  }
+}
+
+function isOlderServiceControlledShutdownTimeout(input: {
+  error: unknown;
+  inventory: DaemonServiceInventory;
+}): boolean {
+  if (
+    !(input.error instanceof LocalDaemonControlPlaneClientError) ||
+    input.error.code !== "daemon.control.timeout"
+  ) {
+    return false;
+  }
+  const observedDaemonVersion = resolveObservedDaemonVersion(input.inventory);
+  if (!observedDaemonVersion) {
+    return false;
+  }
+  try {
+    return (
+      resolveVersionChangeDirection({
+        fromVersion: observedDaemonVersion,
+        toVersion: input.inventory.expectedVersion,
+      }) === "upgrade"
+    );
+  } catch {
+    return false;
   }
 }
 

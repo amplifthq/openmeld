@@ -533,7 +533,7 @@ describe("local service lifecycle", () => {
         gracePeriodMs: 2000,
         mode: "graceful",
       },
-      timeoutMs: 0,
+      timeoutMs: 15_000,
     });
     expect(
       prepareDaemonServiceBundleMock.mock.invocationCallOrder[0]
@@ -878,6 +878,69 @@ describe("local service lifecycle", () => {
         type: "stop.controlled_drain",
       })
     );
+  });
+
+  it("escapes a timed-out controlled shutdown when upgrading an older service", async () => {
+    requestLocalDaemonShutdownMock.mockRejectedValue(
+      new LocalDaemonControlPlaneClientError(
+        "daemon.control.timeout",
+        "local daemon control timed out after 15000ms"
+      )
+    );
+    inspectDaemonServiceInventoryMock
+      .mockReset()
+      .mockResolvedValueOnce(
+        buildInitialInventory(serviceManager, {
+          installedVersion: PREVIOUS_VERSION,
+        })
+      )
+      .mockResolvedValue(buildFinalInventory(serviceManager));
+
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "upgrade_reconcile",
+      installSource: "daemon.command.install",
+      desiredState: "stopped",
+      shouldStartAfterLifecycle: false,
+      forceReinstall: true,
+    });
+
+    expect(result.status).toBe("aligned");
+    expect(serviceManager.stop).toHaveBeenCalledOnce();
+    expect(emitDaemonLifecycleEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          compatibilityFallback: true,
+          compatibilityReason: "legacy_controlled_shutdown_timeout",
+          observedDaemonVersion: PREVIOUS_VERSION,
+          reasonCode: "socket_close_timeout",
+        }),
+        result: "fallback",
+        type: "stop.controlled_drain",
+      })
+    );
+  });
+
+  it("does not bypass a timed-out controlled shutdown on the current service version", async () => {
+    requestLocalDaemonShutdownMock.mockRejectedValue(
+      new LocalDaemonControlPlaneClientError(
+        "daemon.control.timeout",
+        "local daemon control timed out after 15000ms"
+      )
+    );
+
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "upgrade_reconcile",
+      installSource: "daemon.command.install",
+      desiredState: "stopped",
+      shouldStartAfterLifecycle: false,
+      forceReinstall: true,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(serviceManager.stop).not.toHaveBeenCalled();
+    expect(serviceManager.enableAutostart).toHaveBeenCalledOnce();
   });
 
   it("does not treat the same socket close from a fixed service as a legacy drain", async () => {
