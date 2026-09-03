@@ -3642,7 +3642,10 @@ function AgentProfileWorkspacePresentation(input: {
 							}
 							onRenameProfile={input.input.onRenameProfile}
 							ownerAvatarUrl={input.ownerAvatarUrl}
-							ownerProfile={input.input.ownerProfile}
+							ownerProfileId={
+								input.input.ownerProfile?.openMeldProfileId ??
+								input.input.ownerProfile?.ownerUserId
+							}
 							runtime={input.runtime}
 						/>
 					) : null
@@ -3753,7 +3756,7 @@ type AgentProfileConfigurationOverviewProps = {
 	onOpenProjectSettings?: () => void;
 	onRenameProfile: (profileName: string) => Promise<void>;
 	ownerAvatarUrl: string | null | undefined;
-	ownerProfile: AuthProfileView | null;
+	ownerProfileId?: string | null;
 	runtime: {
 		computerName: string;
 		controllerName: string;
@@ -3924,17 +3927,10 @@ export function AgentProfileConfigurationOverview(
 			}).label
 		: "Controller default";
 	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "You";
-	const ownerProfileId =
-		input.ownerProfile?.openMeldProfileId ??
-		input.ownerProfile?.ownerUserId ??
-		owner;
+	const ownerProfileId = input.ownerProfileId ?? owner;
 	const workingFolder =
 		resolveProfileDetailsValue(input.details, "workspace_directory") ??
 		"OpenMeld managed";
-	const controllerSummary = input.runtime
-		? `${input.runtime.controllerName} · ${input.runtime.computerName}`
-		: (input.controllerDisplayName ?? "Connect later");
-
 	return (
 		<section
 			className="grid min-w-0 gap-3"
@@ -3948,11 +3944,6 @@ export function AgentProfileConfigurationOverview(
 					avatarUrl={input.ownerAvatarUrl}
 					owner={owner}
 					profileId={ownerProfileId}
-				/>
-				<AgentProfileControllerConfigurationCard
-					editor={editor}
-					input={input}
-					summary={controllerSummary}
 				/>
 				<AgentProfileWorkingFolderConfigurationCard
 					disabled={input.disabled}
@@ -4016,73 +4007,6 @@ function AgentProfileOwnerConfigurationCard(input: {
 			readOnly
 			summary={input.owner}
 		/>
-	);
-}
-
-function AgentProfileControllerConfigurationCard(input: {
-	editor: AgentProfileConfigurationEditor;
-	input: AgentProfileConfigurationOverviewProps;
-	summary: string;
-}) {
-	const { editor, input: props } = input;
-	return (
-		<AgentConfigurationCard
-			description="The local tool and computer that run this Agent."
-			disabled={props.disabled}
-			icon={<DesktopTowerIcon aria-hidden="true" />}
-			itemId="runs-on"
-			label="Runs on"
-			onOpenChange={(open) => editor.setEditorOpen("controller", open)}
-			open={editor.activeEditor === "controller"}
-			readOnly={!props.editState}
-			status={resolveAgentConfigurationCardStatus({
-				active: editor.activeEditor === "controller",
-				disabled: props.disabled,
-				saved: editor.savedEditor === "controller",
-			})}
-			summary={input.summary}
-		>
-			<AgentProfileControllerConfigurationEditor
-				editor={editor}
-				input={props}
-			/>
-		</AgentConfigurationCard>
-	);
-}
-
-function AgentProfileControllerConfigurationEditor(input: {
-	editor: AgentProfileConfigurationEditor;
-	input: AgentProfileConfigurationOverviewProps;
-}) {
-	if (!(input.input.editState && input.editor.activeEditState)) {
-		return null;
-	}
-	return (
-		<>
-			<AgentProfileControllerChangeEditSection
-				activeDraft={input.editor.draft}
-				currentAgentControllerRef={input.input.editState.agentControllerRef}
-				currentControllerCollaborationMode={
-					input.input.editState.controllerCollaborationMode
-				}
-				currentControllerPermissionMode={
-					input.input.editState.controllerPermissionMode
-				}
-				currentModelSelection={input.input.editState.modelSelection}
-				disabled={
-					input.input.disabled ||
-					input.input.controllerChangeEligibilityStatus !== "allowed"
-				}
-				draftKey={input.editor.draftInput.draftKey}
-				modelCatalog={input.input.modelCatalog}
-				onDraftChange={input.editor.setDraft}
-				options={input.input.controllerChangeOptions}
-			/>
-			<ControllerChangeAvailabilityNote
-				status={input.input.controllerChangeEligibilityStatus}
-			/>
-			{input.editor.editorFooter("controller")}
-		</>
 	);
 }
 

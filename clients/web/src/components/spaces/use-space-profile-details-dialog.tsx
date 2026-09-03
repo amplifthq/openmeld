@@ -15,9 +15,16 @@ import { buildAgentProfilePath } from "#/lib/profile-routes";
 import { resolveWebAgentControllerPermissionModeDisplay } from "#/lib/profiles/agent-controller-permission-mode-display";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
+import { resolveAgentProfileOwnerEntry } from "./space-collaboration-profile";
 import { isSameOwnerUserId } from "./space-member-ownership";
 
+const EMPTY_SPACE_MEMBER_ENTRIES_BY_PROFILE_ID: ReadonlyMap<
+	string,
+	SpaceMemberDirectoryEntry
+> = new Map();
+
 export function useSpaceProfileDetailsDialog(input: {
+	centerAgentProfileId?: string | null;
 	currentOwnerUserId: string | null;
 	entry: SpaceMemberDirectoryEntry | null;
 	entriesByProfileId?: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
@@ -80,11 +87,17 @@ export function useSpaceProfileDetailsDialog(input: {
 					details={targetDetails}
 					entry={targetEntry}
 					modelCatalog={agentProfileEditContext.modelCatalog}
+					ownerEntry={resolveAgentProfileOwnerEntry({
+						agentEntry: targetEntry,
+						entriesByProfileId:
+							input.entriesByProfileId ??
+							EMPTY_SPACE_MEMBER_ENTRIES_BY_PROFILE_ID,
+					})}
 					profile={profile}
 				/>
 			);
 		},
-		[agentProfileEditContext]
+		[agentProfileEditContext, input.entriesByProfileId]
 	);
 	const buildOpenDirectMessageAction = useCallback(
 		(profileId: string) => {
@@ -105,6 +118,7 @@ export function useSpaceProfileDetailsDialog(input: {
 							configurationContent={renderAgentConfiguration(entry, details)}
 							details={details}
 							entry={entry}
+							isCenterAgent={entry.profileId === input.centerAgentProfileId}
 							isDirectMessagePending={
 								agentProfileEditContext?.pendingDirectMessageProfileId ===
 								entry.profileId
@@ -147,6 +161,7 @@ export function useSpaceProfileDetailsDialog(input: {
 					)}
 					details={targetDetails}
 					entry={targetEntry}
+					isCenterAgent={targetEntry.profileId === input.centerAgentProfileId}
 					isDirectMessagePending={
 						agentProfileEditContext?.pendingDirectMessageProfileId ===
 						targetEntry.profileId
@@ -175,6 +190,7 @@ export function useSpaceProfileDetailsDialog(input: {
 				}
 				agentEntry={entry ?? undefined}
 				details={details}
+				isCenterAgent={entry?.profileId === input.centerAgentProfileId}
 				isDirectMessagePending={
 					agentProfileEditContext?.pendingDirectMessageProfileId ===
 					entry?.profileId

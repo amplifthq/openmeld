@@ -393,7 +393,9 @@ describe("SpaceMemberRow", () => {
 
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Mira")).toBeTruthy();
-		expect(dialog.getByText("Available for Wake")).toBeTruthy();
+		const availableForWake = dialog.getByText("Available for Wake");
+		expect(availableForWake).toBeTruthy();
+		expect(availableForWake.className).toContain("text-emerald-");
 		expect(dialog.getByText("How this Agent works")).toBeTruthy();
 		expect(dialog.queryByText("Connection")).toBeNull();
 		expect(dialog.queryByText("Controller conversation ID")).toBeNull();

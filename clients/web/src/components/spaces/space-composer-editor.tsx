@@ -86,6 +86,7 @@ type SpaceComposerEditorProps = {
 	addressingTargets: readonly SpaceComposerAddressingTarget[];
 	ariaLabel: string;
 	authoredMentions: readonly ComposerDraftAuthoredMention[];
+	centerAgentProfileId?: string | null;
 	composerRef?: SpaceComposerInputRef;
 	disabled?: boolean;
 	maxHeight?: number;
@@ -103,7 +104,7 @@ type SpaceComposerEditorProps = {
 
 type SpaceComposerEditorContextValue = Pick<
 	SpaceComposerEditorProps,
-	"addressingTargets" | "mentionPickerItems"
+	"addressingTargets" | "centerAgentProfileId" | "mentionPickerItems"
 >;
 
 const SpaceComposerEditorContext =
@@ -156,9 +157,14 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 	const contextValue = useMemo(
 		() => ({
 			addressingTargets: input.addressingTargets,
+			centerAgentProfileId: input.centerAgentProfileId,
 			mentionPickerItems: input.mentionPickerItems,
 		}),
-		[input.addressingTargets, input.mentionPickerItems]
+		[
+			input.addressingTargets,
+			input.centerAgentProfileId,
+			input.mentionPickerItems,
+		]
 	);
 
 	useLayoutEffect(() => {
@@ -488,6 +494,7 @@ function SpaceComposerProfileToken(
 						}
 						avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
 						className="size-4"
+						isCenterAgent={element.profileId === context.centerAgentProfileId}
 						profileId={element.profileId}
 						profileKind={profileKind}
 						profileName={profileName}
@@ -579,6 +586,7 @@ function SpaceComposerMentionGroup(input: {
 	items: readonly SpaceMentionPickerItem[];
 	title: string;
 }) {
+	const context = useSpaceComposerEditorContext();
 	const editor = useEditorRef();
 	if (input.items.length === 0) {
 		return null;
@@ -599,6 +607,9 @@ function SpaceComposerMentionGroup(input: {
 						agentControllerRef={item.memberEntry.agentControllerRef}
 						avatarImageUrl={item.memberEntry.avatarUrl}
 						className="mr-2 size-5"
+						isCenterAgent={
+							item.suggestion.profileId === context.centerAgentProfileId
+						}
 						profileId={item.suggestion.profileId}
 						profileKind={item.suggestion.profileKind}
 						profileName={item.suggestion.profileName}
