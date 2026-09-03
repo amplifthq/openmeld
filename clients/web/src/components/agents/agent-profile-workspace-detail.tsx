@@ -859,7 +859,6 @@ function AgentProfileNameEditor(input: {
 					render={
 						<Button
 							aria-label="Edit Name"
-							className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/name:opacity-100 motion-reduce:transition-none"
 							size="icon-sm"
 							type="button"
 							variant="ghost"

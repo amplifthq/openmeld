@@ -105,7 +105,7 @@ export function AgentConfigurationCard(input: {
 			{input.readOnly || input.disabled ? null : (
 				<PencilSimpleIcon
 					aria-hidden="true"
-					className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none"
+					className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
 				/>
 			)}
 		</div>

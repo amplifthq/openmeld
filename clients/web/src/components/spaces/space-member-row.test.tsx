@@ -206,11 +206,13 @@ describe("SpaceMemberRow", () => {
 		expect(
 			screen.getByTestId("profile-details-dialog-scroll-area").className
 		).toContain("overflow-y-auto");
-		expect(screen.getByText("Check this Profile")).toBeTruthy();
+		expect(screen.getByText("Check this Agent")).toBeTruthy();
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("thread-codex-1")).toBeNull();
 		expect(screen.getByText("How this Agent works")).toBeTruthy();
-		expect(screen.getByRole("link", { name: "More Details" })).toBeTruthy();
+		expect(
+			screen.getByRole("link", { name: "Check more or edit" })
+		).toBeTruthy();
 		expect(screen.getByText("Workspace directory")).toBeTruthy();
 		expect(screen.getByText("/Users/felix/project")).toBeTruthy();
 		expect(
@@ -296,9 +298,7 @@ describe("SpaceMemberRow", () => {
 			})
 		);
 		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
-		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Check this Profile" })
-		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
 		expect(screen.getByRole("dialog")).toBeTruthy();
 	});
 
@@ -324,14 +324,14 @@ describe("SpaceMemberRow", () => {
 		).toContain("rounded-md");
 		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
 		const aboutItem = screen.getByRole("menuitem", {
-			name: "Check this Profile",
+			name: "Check this Agent",
 		});
 		expect(aboutItem.className).toContain("rounded-md");
 		fireEvent.click(aboutItem);
 		expect(screen.getByRole("dialog")).toBeTruthy();
 	});
 
-	it("keeps Agent Profile diagnostics in Check this Profile instead of the member row", () => {
+	it("keeps Agent Profile diagnostics in Check this Agent instead of the member row", () => {
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildServiceConnectionPlan(),
 			entry: buildAgentEntry({

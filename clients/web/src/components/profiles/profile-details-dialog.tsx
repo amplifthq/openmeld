@@ -27,12 +27,12 @@ import {
 } from "@openmeld/ui/components/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	ArrowRightIcon,
 	CaretDownIcon,
 	ChatCircleTextIcon,
 	CopyIcon,
 	DotsThreeIcon,
 	InfoIcon,
+	PencilSimpleIcon,
 } from "@phosphor-icons/react";
 import type { ReactElement, ReactNode } from "react";
 import { toast } from "sonner";
@@ -75,6 +75,14 @@ export function ProfileDetailsDialog(input: {
 	open: boolean;
 }) {
 	const isAgentMoreDetails = input.agentProfile !== undefined;
+	const isAgentProfile = input.agentEntry?.profileKind === "agent";
+	let title = "Check this Profile";
+	if (isAgentProfile) {
+		title = "Check this Agent";
+	}
+	if (isAgentMoreDetails) {
+		title = "More details";
+	}
 	let description =
 		"Profile details from OpenMeld, scoped to what this viewer can access.";
 	let content: ReactNode = (
@@ -133,9 +141,7 @@ export function ProfileDetailsDialog(input: {
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
 			<DialogContent className="flex max-h-[min(46rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
 				<DialogHeader className="shrink-0 pr-8">
-					<DialogTitle>
-						{isAgentMoreDetails ? "More details" : "Check this Profile"}
-					</DialogTitle>
+					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>{description}</DialogDescription>
 				</DialogHeader>
 
@@ -154,6 +160,7 @@ export function AgentProfileDetailsContent(input: {
 	isCenterAgent?: boolean;
 	moreDetailsHref?: string;
 	onOpenDirectMessage?: () => void;
+	showConfiguration?: boolean;
 }) {
 	const activitySection = input.details.sections.find(
 		(section) => section.id === "activity"
@@ -169,6 +176,8 @@ export function AgentProfileDetailsContent(input: {
 		input.entry.controllerDisplayName ??
 		"Agent";
 	const presenceSummary = resolveAgentPresenceSummary(input.entry);
+	const canEdit = input.details.viewerScope === "owner_self";
+	const moreDetailsLabel = canEdit ? "Check more or edit" : "Check more";
 
 	return (
 		<div
@@ -209,8 +218,11 @@ export function AgentProfileDetailsContent(input: {
 							{presenceSummary}
 						</p>
 					) : null}
-					{input.entry.availabilitySummary &&
-					input.entry.availabilitySummary !== presenceSummary ? (
+					{input.showConfiguration !== false &&
+					input.entry.availabilitySummary &&
+					input.entry.availabilitySummary !== presenceSummary &&
+					input.entry.availabilitySummary !==
+						"Can reply from this computer in Spaces." ? (
 						<p className="mt-1 text-muted-foreground text-xs">
 							{input.entry.availabilitySummary}
 						</p>
@@ -236,8 +248,12 @@ export function AgentProfileDetailsContent(input: {
 									window.location.assign(input.moreDetailsHref ?? "")
 								}
 							>
-								<InfoIcon aria-hidden="true" />
-								More Details
+								{canEdit ? (
+									<PencilSimpleIcon aria-hidden="true" />
+								) : (
+									<InfoIcon aria-hidden="true" />
+								)}
+								{canEdit ? "Edit Agent" : "Check more"}
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
@@ -246,22 +262,14 @@ export function AgentProfileDetailsContent(input: {
 
 			{input.onOpenDirectMessage ? (
 				<Button
-					className="mt-4 h-auto w-full justify-start rounded-lg border border-border bg-muted/35 px-3 py-3 text-left hover:bg-muted/60"
+					className="mt-4 min-h-10 w-full min-w-0 justify-center px-4"
 					disabled={input.isDirectMessagePending === true}
 					onClick={input.onOpenDirectMessage}
 					type="button"
-					variant="ghost"
+					variant="default"
 				>
-					<span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background text-foreground ring-1 ring-border">
-						<ChatCircleTextIcon aria-hidden="true" className="size-4" />
-					</span>
-					<span className="min-w-0 flex-1">
-						<span className="block font-medium text-sm">Direct Message</span>
-						<span className="block text-muted-foreground text-xs">
-							Start a private conversation with this Agent.
-						</span>
-					</span>
-					<ArrowRightIcon aria-hidden="true" className="size-4" />
+					<ChatCircleTextIcon aria-hidden="true" className="size-4 shrink-0" />
+					<span className="truncate">Chat with {input.entry.profileName}</span>
 				</Button>
 			) : null}
 
@@ -275,45 +283,50 @@ export function AgentProfileDetailsContent(input: {
 				</section>
 			) : null}
 
-			<section className="mt-5 grid gap-2">
-				<div>
-					<h3 className="font-medium text-sm">How this Agent works</h3>
-					<p className="mt-0.5 text-muted-foreground text-xs">
-						{input.details.viewerScope === "owner_self"
-							? "Open a setting to make a change."
-							: "Settings are read-only because you do not own this Agent."}
-					</p>
-				</div>
-				{input.configurationContent ?? (
-					<div className="grid gap-2 sm:grid-cols-2">
-						{summaryRows.map((row) => (
-							<div
-								className="min-w-0 rounded-lg border border-border bg-muted/20 px-3 py-2.5"
-								key={row.id}
-							>
-								<p className="text-muted-foreground text-xs">{row.label}</p>
-								<p className="mt-1 break-words text-foreground text-sm">
-									{row.value}
-								</p>
-							</div>
-						))}
+			{input.showConfiguration === false ? null : (
+				<section className="mt-5 grid gap-2">
+					<div>
+						<h3 className="font-medium text-sm">How this Agent works</h3>
+						<p className="mt-0.5 text-muted-foreground text-xs">
+							{input.details.viewerScope === "owner_self"
+								? "Open a setting to make a change."
+								: "Settings are read-only because you do not own this Agent."}
+						</p>
 					</div>
-				)}
-			</section>
+					{input.configurationContent ?? (
+						<div className="grid gap-2 sm:grid-cols-2">
+							{summaryRows.map((row) => (
+								<div
+									className="min-w-0 rounded-lg border border-border bg-muted/20 px-3 py-2.5"
+									key={row.id}
+								>
+									<p className="text-muted-foreground text-xs">{row.label}</p>
+									<p className="mt-1 break-words text-foreground text-sm">
+										{row.value}
+									</p>
+								</div>
+							))}
+						</div>
+					)}
+				</section>
+			)}
 
 			{input.moreDetailsHref ? (
 				<a
 					className={cn(
-						buttonVariants({ size: "sm", variant: "outline" }),
-						"mt-5 w-full justify-between"
+						buttonVariants({ size: "default", variant: "outline" }),
+						"mt-5 ml-auto flex min-h-10 w-fit justify-center px-4"
 					)}
 					href={input.moreDetailsHref}
 				>
 					<span className="inline-flex items-center gap-2">
-						<InfoIcon aria-hidden="true" />
-						More Details
+						{canEdit ? (
+							<PencilSimpleIcon aria-hidden="true" />
+						) : (
+							<InfoIcon aria-hidden="true" />
+						)}
+						{moreDetailsLabel}
 					</span>
-					<ArrowRightIcon aria-hidden="true" />
 				</a>
 			) : null}
 		</div>
@@ -321,7 +334,6 @@ export function AgentProfileDetailsContent(input: {
 }
 
 export function AgentProfileDetailsPopover(input: {
-	configurationContent?: ReactNode;
 	details: ProfileDetailsSnapshot;
 	entry: SpaceMemberDirectoryEntry;
 	isDirectMessagePending?: boolean;
@@ -353,13 +365,13 @@ export function AgentProfileDetailsPopover(input: {
 					>
 						<AgentProfileDetailsContent
 							className="max-h-[min(34rem,calc(var(--available-height)-2rem))]"
-							configurationContent={input.configurationContent}
 							details={input.details}
 							entry={input.entry}
 							isCenterAgent={input.isCenterAgent}
 							isDirectMessagePending={input.isDirectMessagePending}
 							moreDetailsHref={input.moreDetailsHref}
 							onOpenDirectMessage={input.onOpenDirectMessage}
+							showConfiguration={false}
 						/>
 					</Popover.Popup>
 				</Popover.Positioner>

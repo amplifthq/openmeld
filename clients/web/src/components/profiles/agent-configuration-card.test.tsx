@@ -70,4 +70,21 @@ describe("AgentConfigurationCard", () => {
 		const summary = screen.getByTitle("/Users/felix/a/very/long/project/path");
 		expect(summary.className).toContain("truncate");
 	});
+
+	it("keeps the edit affordance visible for editable settings", () => {
+		const { container } = render(
+			<AgentConfigurationGrid>
+				<AgentConfigurationCard
+					icon={<span />}
+					itemId="model"
+					label="Model"
+					onClick={vi.fn()}
+					summary="GPT-5.6 Sol"
+				/>
+			</AgentConfigurationGrid>
+		);
+
+		const editIcon = Array.from(container.querySelectorAll("svg")).at(-1);
+		expect(editIcon?.className.baseVal).not.toContain("opacity-0");
+	});
 });
