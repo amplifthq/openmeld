@@ -34,8 +34,6 @@ import {
   joinWaitlistBodySchema,
   joinWaitlistResponseSchema,
   leaveSpaceResponseSchema,
-  listOrganizationBindingAuthorizationProfilesResponseSchema,
-  listOrganizationBindingAuthorizationsResponseSchema,
   listProfileSpaceHistoryQuerySchema,
   listProfileSpaceHistoryResponseSchema,
   listProfilesResponseSchema,
@@ -81,7 +79,6 @@ import {
   removeSpaceMembersResponseSchema,
   resolveInitialSpaceAccessMode,
   resolveProfileResponseSchema,
-  revokeAgentProfileBindingForOrganizationResponseSchema,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_SIGNAL_AUTHORING_POLICY_REQUIRED_ERROR_CODE,
@@ -918,64 +915,6 @@ describe("http schemas", () => {
       });
 
       expect(parsed.success).toBe(true);
-    });
-  });
-
-  describe("Organization Binding authorization schemas", () => {
-    it("accepts list and revoke responses for Organization Binding authorizations", () => {
-      const listParsed =
-        listOrganizationBindingAuthorizationsResponseSchema.safeParse({
-          organizationId: "org-1",
-          authorizations: [
-            {
-              bindingId: "binding-1",
-              agentProfileId: AGENT_PROFILE_ID,
-              authorizedBy: "user-1",
-              createdAt: "2026-07-04T00:00:00.000Z",
-            },
-          ],
-        });
-      expect(listParsed.success).toBe(true);
-
-      const profileListParsed =
-        listOrganizationBindingAuthorizationProfilesResponseSchema.safeParse({
-          organizationId: "org-1",
-          profiles: [
-            {
-              agentProfileId: AGENT_PROFILE_ID,
-              authorized: false,
-              authorizedAt: null,
-              authorizedBy: null,
-              bindingId: null,
-              ownerUserId: "user-1",
-              profileHandle: "codex",
-              profileName: "Codex",
-              profileOrganizationId: "org-1",
-              status: "binding_required",
-            },
-          ],
-        });
-      expect(profileListParsed.success).toBe(true);
-
-      const revokedParsed =
-        revokeAgentProfileBindingForOrganizationResponseSchema.safeParse({
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding-1",
-          organizationId: "org-1",
-          revoked: true,
-          status: "revoked",
-        });
-      expect(revokedParsed.success).toBe(true);
-
-      const missingParsed =
-        revokeAgentProfileBindingForOrganizationResponseSchema.safeParse({
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: null,
-          organizationId: "org-1",
-          revoked: false,
-          status: "missing",
-        });
-      expect(missingParsed.success).toBe(true);
     });
   });
 
@@ -1889,6 +1828,21 @@ describe("http schemas", () => {
         hasLimit: false,
       });
       expect(validAround.success).toBe(true);
+
+      const exactAnchor = listSignalsQuerySchema.safeParse({
+        afterTs: null,
+        cursor: null,
+        limit: null,
+        recent: null,
+        afterSignalId: null,
+        aroundSignalId: "sig-anchor-exact",
+        beforeCount: "0",
+        afterCount: "0",
+        fromProfileIds: [],
+        signalTypes: ["signal.text"],
+        hasLimit: false,
+      });
+      expect(exactAnchor.success).toBe(true);
 
       const invalidMixedAnchors = listSignalsQuerySchema.safeParse({
         afterTs: null,
@@ -6300,8 +6254,7 @@ function buildAgentAgentWakeAvailability(
         phase: "service_not_connected",
         reasonCode: "service.not_running",
         status,
-        summary:
-          "Connect OpenMeld Service on this computer before this agent can reply.",
+        summary: "Connect your computer before this Agent can reply.",
         tooltip: "OpenMeld Service is not connected on this computer.",
       };
     case "checking_connection":

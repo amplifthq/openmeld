@@ -8,6 +8,7 @@ import {
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
+	ModelCatalog,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
@@ -43,6 +44,7 @@ import {
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
+import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 
 const AGENT_REQUESTS_DESCRIPTION =
@@ -54,6 +56,7 @@ const EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID: ReadonlyMap<
 
 export type AgentProfilesWorkspaceProps = {
 	activeView: "agents" | "create" | "requests";
+	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
 	createPanel?: ReactNode;
 	currentUserId: string;
 	filterControl?: ReactNode;
@@ -67,6 +70,7 @@ export type AgentProfilesWorkspaceProps = {
 	profiles: readonly AuthProfileView[];
 	profilesErrorMessage?: string;
 	profilesStatus?: "error" | "loading" | "ready";
+	modelCatalog?: ModelCatalog | null;
 	operationalContextByProfileId?: ReadonlyMap<
 		string,
 		AgentProfileOperationalContextInput
@@ -85,6 +89,7 @@ export type AgentProfilesWorkspaceProps = {
 export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 	const groups = resolveAgentProfileSidebarGroups({
 		currentUserId: input.currentUserId,
+		operationalContextByProfileId: input.operationalContextByProfileId,
 		profiles: input.profiles,
 	});
 	if (input.profilesStatus === "ready") {
@@ -188,7 +193,11 @@ function AgentProfilesWorkspaceSidebar(input: {
 				content: (
 					<AgentProfileSidebarList
 						activeProfileId={input.activeProfileId}
+						agentControllerRefByProfileId={
+							input.input.agentControllerRefByProfileId ?? new Map()
+						}
 						currentUserId={input.input.currentUserId}
+						modelCatalog={input.input.modelCatalog ?? null}
 						onSelectProfile={input.input.onSelectProfile}
 						operationalContextByProfileId={
 							input.input.operationalContextByProfileId ??
@@ -398,7 +407,9 @@ function AgentProfilesWorkspaceEmptyState(input: {
 
 function AgentProfileSidebarList(input: {
 	activeProfileId: string | null;
+	agentControllerRefByProfileId: ReadonlyMap<string, string | null>;
 	currentUserId: string;
+	modelCatalog: ModelCatalog | null;
 	onSelectProfile: (profileId: string) => void;
 	operationalContextByProfileId: ReadonlyMap<
 		string,
@@ -419,10 +430,16 @@ function AgentProfileSidebarList(input: {
 		>
 			{input.profiles.map((profile, index) => (
 				<AgentProfileSidebarItem
+					agentControllerRef={
+						input.agentControllerRefByProfileId.get(
+							profile.openMeldProfileId
+						) ?? null
+					}
 					currentUserId={input.currentUserId}
 					index={index}
 					isActive={profile.openMeldProfileId === input.activeProfileId}
 					key={profile.openMeldProfileId}
+					modelCatalog={input.modelCatalog}
 					onSelectProfile={input.onSelectProfile}
 					operationalContext={
 						input.operationalContextByProfileId.get(
@@ -447,9 +464,11 @@ function AgentProfileSidebarList(input: {
 }
 
 function AgentProfileSidebarItem(input: {
+	agentControllerRef: string | null;
 	currentUserId: string;
 	index: number;
 	isActive: boolean;
+	modelCatalog: ModelCatalog | null;
 	onSelectProfile: (profileId: string) => void;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	profile: AuthProfileView;
@@ -458,10 +477,15 @@ function AgentProfileSidebarItem(input: {
 	readinessIsPending: boolean;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
-	const agentControllerRef = resolveAgentProfileControllerRef(input.readiness);
+	const agentControllerRef = resolveAgentProfileControllerRef(
+		input.readiness,
+		input.agentControllerRef
+	);
 	const presentation = resolveAgentProfileSidebarPresentation({
+		agentControllerRef,
 		errorMessage: input.readinessErrorMessage,
 		isPending: input.readinessIsPending,
+		modelCatalog: input.modelCatalog,
 		readiness: input.readiness,
 	});
 	const isOwner = input.profile.ownerUserId === input.currentUserId;
@@ -560,8 +584,10 @@ function AgentProfileSidebarItem(input: {
 }
 
 function resolveAgentProfileSidebarPresentation(input: {
+	agentControllerRef: string | null;
 	errorMessage: string | null;
 	isPending: boolean;
+	modelCatalog: ModelCatalog | null;
 	readiness: GetAgentExecutionReadinessResponse | null;
 }): {
 	availabilityCategory: ReturnType<
@@ -572,13 +598,20 @@ function resolveAgentProfileSidebarPresentation(input: {
 	availabilityTooltip: string;
 	controllerModelSummary: string;
 } {
-	const agentControllerRef = resolveAgentProfileControllerRef(input.readiness);
-	const parsedControllerRef = parseAgentControllerRef(agentControllerRef);
+	const parsedControllerRef = parseAgentControllerRef(input.agentControllerRef);
 	const controllerName = parsedControllerRef
 		? formatLocalAgentDisplayName(parsedControllerRef.id)
 		: "No Controller connected";
-	const modelId =
-		input.readiness?.primaryBinding?.modelSelection?.modelId?.trim();
+	const controllerModelSummary =
+		resolveAgentProfileControllerModelDetail({
+			agentControllerRef: input.agentControllerRef,
+			controllerDisplayName: controllerName,
+			modelCatalog: input.modelCatalog,
+			modelSelection:
+				input.readiness?.primaryBinding?.modelSelection ??
+				input.readiness?.publicProfileConfiguration?.modelSelection ??
+				null,
+		}) ?? controllerName;
 	const wakeAvailability = input.readiness?.agentWakeAvailability ?? null;
 	if (input.errorMessage || !wakeAvailability) {
 		const availability = resolveMissingSidebarAvailability(input);
@@ -587,9 +620,7 @@ function resolveAgentProfileSidebarPresentation(input: {
 			availabilityClassName: availability.className,
 			availabilityLabel: availability.label,
 			availabilityTooltip: availability.tooltip,
-			controllerModelSummary: modelId
-				? `${controllerName} · ${modelId}`
-				: controllerName,
+			controllerModelSummary,
 		};
 	}
 	const category =
@@ -599,19 +630,19 @@ function resolveAgentProfileSidebarPresentation(input: {
 		availabilityClassName: resolveAvailabilityClassName(category),
 		availabilityLabel: wakeAvailability.badgeLabel,
 		availabilityTooltip: wakeAvailability.tooltip,
-		controllerModelSummary: modelId
-			? `${controllerName} · ${modelId}`
-			: controllerName,
+		controllerModelSummary,
 	};
 }
 
 function resolveAgentProfileControllerRef(
-	readiness: GetAgentExecutionReadinessResponse | null
+	readiness: GetAgentExecutionReadinessResponse | null,
+	fallbackAgentControllerRef: string | null = null
 ): string | null {
 	return (
 		readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
+		readiness?.publicProfileConfiguration?.agentControllerRef ??
 		readiness?.agentControllerRef ??
-		null
+		fallbackAgentControllerRef
 	);
 }
 

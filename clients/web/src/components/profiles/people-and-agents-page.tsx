@@ -8,6 +8,7 @@ import {
 import type {
 	AgentProfileCreationRequest,
 	AuthProfileView,
+	ModelCatalog,
 	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -46,6 +47,7 @@ import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
+import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import {
 	organizationAgentRuntimeOverviewQueryOptions,
 	organizationProfileDirectoryQueryOptions,
@@ -137,10 +139,11 @@ export function PeopleAndAgentsPage(input: {
 	const organizationAgentRuntimeOverviewQuery = useQuery(
 		organizationAgentRuntimeOverviewQueryOptions({
 			enabled:
-				activeAgentView === "agents" && input.activeSectionId === "agents",
+				input.activeSectionId === "people" || activeAgentView === "agents",
 			organizationId: currentOrganization.id,
 		})
 	);
+	const modelCatalogQuery = useQuery(modelCatalogQueryOptions());
 	const agentProfileFilterCounts = useMemo(() => {
 		return summarizeOrganizationAgentProfileAvailabilityFilters({
 			profiles: (
@@ -235,8 +238,10 @@ export function PeopleAndAgentsPage(input: {
 					directoryQuery={organizationProfileDirectoryQuery}
 					focusProfileId={input.focusProfileId}
 					initialSidebarStates={input.initialSidebarStates}
+					modelCatalog={modelCatalogQuery.data ?? null}
 					onCreateProfile={() => setIsCreateProfileOpen(true)}
 					recovery={recovery}
+					runtimeOverview={organizationAgentRuntimeOverviewQuery.data}
 					storageScope={recovery.storageScope}
 				/>
 				{createProfileDialog}
@@ -278,6 +283,7 @@ export function PeopleAndAgentsPage(input: {
 				focusRequestId={input.focusRequestId ?? null}
 				initialSidebarStates={input.initialSidebarStates}
 				isOrganizationContext={isOrganizationContext}
+				modelCatalog={modelCatalogQuery.data ?? null}
 				onCreateAgent={() => input.onAgentViewChange?.("create")}
 				onSelectProfile={(profileId) => {
 					navigate({
@@ -329,6 +335,62 @@ function resolveActiveAgentView(input: {
 		: "agents";
 }
 
+function buildOrganizationAgentProjection(input: {
+	currentUserId: string;
+	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
+	runtimeOverview: OrganizationAgentRuntimeOverviewResponse | undefined;
+}) {
+	const profiles: AuthProfileView[] = [];
+	const profileById = new Map<
+		string,
+		OrganizationProfileDirectoryResponse["agentProfiles"][number]
+	>();
+	const operationalContextByProfileId = new Map<
+		string,
+		AgentProfileOperationalContextInput
+	>();
+	const agentControllerRefByProfileId = new Map<string, string | null>();
+	const ownerAvatarUrlByUserId = new Map<string, string | null>();
+	const readinessByProfileId = new Map<
+		string,
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
+	>();
+	for (const member of input.profileDirectory?.members ?? []) {
+		ownerAvatarUrlByUserId.set(member.userId, member.user.image);
+	}
+	for (const profile of input.profileDirectory?.agentProfiles ?? []) {
+		if (profile.managedRole === "center_agent") {
+			continue;
+		}
+		profileById.set(profile.profileId, profile);
+		agentControllerRefByProfileId.set(
+			profile.profileId,
+			profile.agentControllerRef
+		);
+		profiles.push(buildAuthProfileViewFromOrganizationAgentProfile(profile));
+	}
+	for (const runtime of input.runtimeOverview?.agentProfiles ?? []) {
+		readinessByProfileId.set(runtime.profileId, runtime.readiness);
+		const profile = profileById.get(runtime.profileId);
+		if (profile && runtime.operationalContext) {
+			operationalContextByProfileId.set(
+				runtime.profileId,
+				projectAgentProfileOperationalContext(
+					runtime.operationalContext,
+					profile.ownerUserId === input.currentUserId
+				)
+			);
+		}
+	}
+	return {
+		agentControllerRefByProfileId,
+		operationalContextByProfileId,
+		ownerAvatarUrlByUserId,
+		profiles,
+		readinessByProfileId,
+	};
+}
+
 function AgentsWorkspaceHome(input: {
 	activeView: AgentWorkspaceView;
 	activityPreview: boolean;
@@ -343,6 +405,7 @@ function AgentsWorkspaceHome(input: {
 	focusRequestId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	isOrganizationContext: boolean;
+	modelCatalog: ModelCatalog | null;
 	onCreateAgent: () => void;
 	onSelectProfile: (profileId: string) => void;
 	onViewChange: (view: AgentWorkspaceView, profileId?: string) => void;
@@ -361,50 +424,50 @@ function AgentsWorkspaceHome(input: {
 		serviceAction: "update_service",
 		session: "fresh",
 	});
-	const organizationAgentProjection = useMemo(() => {
-		const profiles: AuthProfileView[] = [];
-		const profileById = new Map<
-			string,
-			OrganizationProfileDirectoryResponse["agentProfiles"][number]
-		>();
-		const operationalContextByProfileId = new Map<
-			string,
-			AgentProfileOperationalContextInput
-		>();
-		const readinessByProfileId = new Map<
-			string,
-			OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
-		>();
-		for (const profile of input.profileDirectoryQuery.data?.agentProfiles ??
-			[]) {
-			if (profile.managedRole === "center_agent") {
+	const organizationAgentProjection = useMemo(
+		() =>
+			buildOrganizationAgentProjection({
+				currentUserId: input.currentUserId,
+				profileDirectory: input.profileDirectoryQuery.data,
+				runtimeOverview: input.runtimeOverviewQuery.data,
+			}),
+		[
+			input.currentUserId,
+			input.profileDirectoryQuery.data,
+			input.runtimeOverviewQuery.data,
+		]
+	);
+	const agentProfiles = organizationAgentProjection.profiles;
+	const readinessByProfileId = useMemo(() => {
+		if (!input.activityPreview) {
+			return organizationAgentProjection.readinessByProfileId;
+		}
+		const previewReadiness = new Map(
+			organizationAgentProjection.readinessByProfileId
+		);
+		for (const profile of agentProfiles) {
+			const readiness = previewReadiness.get(profile.openMeldProfileId);
+			if (
+				profile.ownerUserId !== input.currentUserId ||
+				!readiness ||
+				!resolveAgentProfileActivityPreview(profile.profileName, input.orgSlug)
+			) {
 				continue;
 			}
-			profileById.set(profile.profileId, profile);
-			profiles.push(buildAuthProfileViewFromOrganizationAgentProfile(profile));
+			previewReadiness.set(profile.openMeldProfileId, {
+				...readiness,
+				routeDeviceId: "device-fixture-felix",
+				runtimeDeviceDisplayName: "Felix test MacBook Pro",
+			});
 		}
-		for (const runtime of input.runtimeOverviewQuery.data?.agentProfiles ??
-			[]) {
-			readinessByProfileId.set(runtime.profileId, runtime.readiness);
-			const profile = profileById.get(runtime.profileId);
-			if (profile && runtime.operationalContext) {
-				operationalContextByProfileId.set(
-					runtime.profileId,
-					projectAgentProfileOperationalContext(
-						runtime.operationalContext,
-						profile.ownerUserId === input.currentUserId
-					)
-				);
-			}
-		}
-		return { operationalContextByProfileId, profiles, readinessByProfileId };
+		return previewReadiness;
 	}, [
+		agentProfiles,
+		input.activityPreview,
 		input.currentUserId,
-		input.profileDirectoryQuery.data?.agentProfiles,
-		input.runtimeOverviewQuery.data?.agentProfiles,
+		input.orgSlug,
+		organizationAgentProjection.readinessByProfileId,
 	]);
-	const agentProfiles = organizationAgentProjection.profiles;
-	const readinessByProfileId = organizationAgentProjection.readinessByProfileId;
 	const activityPresentation = useMemo(() => {
 		if (!input.activityPreview) {
 			return {
@@ -597,11 +660,17 @@ function AgentsWorkspaceHome(input: {
 			accountComputerSetupPath={accountComputerSetupPath}
 			accountServiceUpdatePath={accountServiceUpdatePath}
 			activityPresentation={activityPresentation}
+			agentControllerRefByProfileId={
+				organizationAgentProjection.agentControllerRefByProfileId
+			}
 			agentProfiles={agentProfiles}
 			errorByProfileId={errorByProfileId}
 			input={input}
 			normalizedSearchQuery={normalizedSearchQuery}
 			operationalContextByProfileId={operationalContextByProfileId}
+			ownerAvatarUrlByUserId={
+				organizationAgentProjection.ownerAvatarUrlByUserId
+			}
 			pendingProfileIds={pendingProfileIds}
 			pendingRequestCount={pendingRequestCount}
 			profilesErrorMessage={profilesErrorMessage}
@@ -626,6 +695,7 @@ function AgentsWorkspaceHomeView(input: {
 		>;
 	};
 	agentProfiles: readonly AuthProfileView[];
+	agentControllerRefByProfileId: ReadonlyMap<string, string | null>;
 	errorByProfileId: ReadonlyMap<string, string>;
 	input: Parameters<typeof AgentsWorkspaceHome>[0];
 	normalizedSearchQuery: string;
@@ -633,6 +703,7 @@ function AgentsWorkspaceHomeView(input: {
 		string,
 		AgentProfileOperationalContextInput
 	>;
+	ownerAvatarUrlByUserId: ReadonlyMap<string, string | null>;
 	pendingProfileIds: ReadonlySet<string>;
 	pendingRequestCount: number;
 	profilesErrorMessage: string | undefined;
@@ -650,12 +721,14 @@ function AgentsWorkspaceHomeView(input: {
 	return (
 		<AgentProfilesWorkspace
 			activeView={workspace.activeView}
+			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 			createPanel={workspace.createPanel}
 			currentUserId={workspace.currentUserId}
 			filterControl={workspace.filterControl}
 			hasAnyProfiles={input.agentProfiles.length > 0}
 			initialSidebarStates={workspace.initialSidebarStates}
 			isSearchActive={input.normalizedSearchQuery.length > 0}
+			modelCatalog={workspace.modelCatalog}
 			onCreateAgent={workspace.onCreateAgent}
 			onSelectProfile={workspace.onSelectProfile}
 			onViewChange={workspace.onViewChange}
@@ -666,9 +739,14 @@ function AgentsWorkspaceHomeView(input: {
 			profilesStatus={input.profilesStatus}
 			readinessByProfileId={input.readinessByProfileId}
 			readinessErrorByProfileId={input.errorByProfileId}
-			readinessPendingProfileIds={input.pendingProfileIds}
+			readinessPendingProfileIds={
+				workspace.runtimeOverviewQuery.data
+					? input.pendingProfileIds
+					: EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS
+			}
 			renderProfileDetail={(profile) => (
 				<AgentProfilesCard
+					agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 					agentExecutionReadinessByProfileId={input.readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
 					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
@@ -688,6 +766,7 @@ function AgentsWorkspaceHomeView(input: {
 					focusProfileId={profile.openMeldProfileId}
 					isCurrentComputer={true}
 					key={profile.openMeldProfileId}
+					ownerAvatarUrlByUserId={input.ownerAvatarUrlByUserId}
 					presentation="detail"
 					queryClient={input.queryClient}
 					recovery={workspace.recovery}
@@ -697,6 +776,7 @@ function AgentsWorkspaceHomeView(input: {
 			)}
 			renderProfilesController={() => (
 				<AgentProfilesCard
+					agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 					agentExecutionReadinessByProfileId={input.readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
 					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
@@ -712,6 +792,7 @@ function AgentsWorkspaceHomeView(input: {
 					fallbackOwnerLabel={workspace.fallbackOwnerLabel}
 					focusProfileId={null}
 					isCurrentComputer={true}
+					ownerAvatarUrlByUserId={input.ownerAvatarUrlByUserId}
 					presentation="controller"
 					queryClient={input.queryClient}
 					recovery={workspace.recovery}

@@ -239,6 +239,13 @@ on both sides of another, including any Remote Agent receiver-first family
 combined with a worker-response producer, the planner fails closed and requires
 separate releases.
 
+The shared Space history query has its own receiver-first profile. When its
+schema changes, the automatic plan includes Gateway, Core, and CLI, deploys both
+cloud receivers before the CLI caller, and rejects a CLI-only release. A staged
+Gateway/Core release remains valid before the CLI publication. Compatible
+profiles may choose a different order between Gateway and Core, but both must
+still precede CLI.
+
 When any receiver-first profile includes both Core and CLI, the first Core
 deploy reads the stable production CLI version, loads that version's
 `release/local-components.json` from its immutable `v<version>` Git tag, and
@@ -391,6 +398,7 @@ workspace and is not an agent release lane.
 ```sh
 git status --short
 git fetch origin main --tags
+node scripts/release/prepare-release-worktree.mjs
 pnpm run release:plan
 pnpm run release:deploy:local -- --scope web
 ```
@@ -406,6 +414,13 @@ then releases held scopes in reverse order. Deployment or evidence publication
 failure remains red and still releases the leases. It does not repeat package
 checks, unit tests, or integration tests that already established confidence in
 the commit.
+
+The prepare script only prepares this worktree's package dependencies. It
+exits without changing them when the required release runtime is already
+available. When a frozen install reports success without creating the required
+links, it retries once with a forced frozen relink and verifies the dependency
+again. It does not read or mutate OpenMeld user state and does not contact
+production.
 
 The shared lease is a Git compare-and-swap ref under
 `refs/heads/openmeld-production-leases/<scope>`. Its canonical metadata records

@@ -1331,7 +1331,9 @@ Profile selection.
 conversation history without presence-event noise. Brief mode caps every
 message body at 1,200 Unicode code points, reports the original character count
 and truncation fact, and gives an exact anchored non-brief command when the
-caller genuinely needs one complete message. Raw JSON and ordinary non-brief
+caller genuinely needs one complete message. An anchored read always includes
+the anchor itself; `--before 0 --after 0` therefore means exactly that one
+message rather than an invalid empty window. Raw JSON and ordinary non-brief
 history remain complete. `space status` is the current
 Space/member status check. Its Human View labels the independent access facts
 as `Organization visibility` and `Link access`; Agent View and explicit JSON
@@ -1392,9 +1394,15 @@ the same output path to a Local Agent handling a Wake.
 `space wake-progress <space-id>` is the live, polling-oriented Wake read. With
 no selector it returns the active Wake summary for the Space. With
 `--client-message <id>` it returns the progress associated with that authored
-message, optionally narrowed by `--target-profile <id>`. Agent View emits the
-stable `mode`, `pollState`, active and terminal counts, validated query, and
-validated progress items. While a deleted Agent's accepted Wake is still
+message, optionally narrowed by `--target-profile <id>`. The active summary can
+also use `--source-profile <id>` to show only work requested by one Human or
+Agent Profile. The CLI fails closed if a mixed-version server does not echo the
+requested source filter, rather than presenting unfiltered work as filtered.
+Agent View emits the stable `mode`, `pollState`, active and
+terminal counts, validated query, and validated progress items. Each current
+CLI read opts into Space-owned public source context: requester Profile ID,
+kind, display name, sanitized source-message preview, and nullable thread ID.
+While a deleted Agent's accepted Wake is still
 stopping, its progress item uses the Space's frozen membership name instead of
 degrading to the removed Profile id. A valid read exits zero even when `pollState` is
 `idle` or `not_observed`; transport, permission, and projection failures exit

@@ -48,6 +48,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	controllerModelSummary: string;
 	configurationContent?: ReactNode;
 	currentSession?: {
+		computerName: string;
 		href: string;
 		nativeSessionId: string;
 		title: string;
@@ -65,7 +66,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
-	wakeAvailabilityRecoveryActions?: ReactNode;
+	headerRecoveryActions?: ReactNode;
 }) {
 	const displayedWakeAvailability = input.wakeAvailabilityErrorMessage
 		? null
@@ -90,6 +91,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	const currentActivityDestination = resolveCurrentActivityDestination({
 		activityNavigation: visibleActivityNavigation,
 		currentSession: input.currentSession,
+		operationalContext: input.operationalContext,
 	});
 	let operationalRecoveryAction: ReactNode = null;
 	if (
@@ -129,37 +131,40 @@ export function AgentProfileWorkspaceDetail(input: {
 							onRenameProfile={input.onRenameProfile}
 							profileName={input.profile.profileName}
 						/>
-						{showOwnerOperationalContext ? (
-							<p className="mt-1 break-words text-muted-foreground text-sm">
-								{input.controllerModelSummary}
-							</p>
-						) : null}
+						<p className="mt-1 break-words text-muted-foreground text-sm">
+							{input.controllerModelSummary}
+						</p>
 						<AgentProfilePresence
 							currentDestination={currentActivityDestination}
 							operationalContext={input.operationalContext}
 							wakeAvailability={displayedWakeAvailability}
 							wakeAvailabilityErrorMessage={input.wakeAvailabilityErrorMessage}
 							wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
-							wakeAvailabilityRecoveryActions={
-								showOwnerOperationalContext
-									? input.wakeAvailabilityRecoveryActions
-									: null
-							}
 						/>
 					</div>
 				</div>
-				<div className="flex max-w-full shrink-0 flex-wrap items-end gap-2 self-end">
-					<Button
-						disabled={input.isDirectMessagePending}
-						onClick={input.onOpenDirectMessage}
-						size="sm"
-						type="button"
-						variant="default"
-					>
-						<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-						Direct Message
-					</Button>
-					{input.overflowActions}
+				<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
+					{showOwnerOperationalContext && input.headerRecoveryActions ? (
+						<div
+							className="flex max-w-full flex-wrap items-center justify-end gap-2"
+							data-testid="agent-profile-header-recovery-actions"
+						>
+							{input.headerRecoveryActions}
+						</div>
+					) : null}
+					<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
+						<Button
+							disabled={input.isDirectMessagePending}
+							onClick={input.onOpenDirectMessage}
+							size="sm"
+							type="button"
+							variant="default"
+						>
+							<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
+							Chat with {input.profile.profileName}
+						</Button>
+						{input.overflowActions}
+					</div>
 				</div>
 			</div>
 			<AgentProfileCurrentActivity
@@ -191,7 +196,6 @@ function AgentProfilePresence(input: {
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
-	wakeAvailabilityRecoveryActions?: ReactNode;
 }) {
 	const presentation = resolveAgentProfilePresence(input);
 	const waitingWork = formatWaitingWork({
@@ -266,6 +270,11 @@ function AgentProfilePresence(input: {
 			title={presentation.tooltip}
 		>
 			{presenceStatus}
+			{presentation.reason ? (
+				<span className="text-muted-foreground text-xs leading-5">
+					{presentation.reason}
+				</span>
+			) : null}
 			{waitingWork ? (
 				<span
 					className={cn(
@@ -282,7 +291,6 @@ function AgentProfilePresence(input: {
 					<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
 				</span>
 			) : null}
-			{input.wakeAvailabilityRecoveryActions}
 		</div>
 	);
 }
@@ -295,6 +303,7 @@ function resolveAgentProfilePresence(input: {
 	wakeAvailabilityIsPending: boolean;
 }): {
 	label: string;
+	reason: string | null;
 	shimmer: boolean;
 	status: AgentProfilePresenceStatus;
 	textClassName: string;
@@ -304,6 +313,7 @@ function resolveAgentProfilePresence(input: {
 	if (operationalContext?.status === "checking") {
 		return {
 			label: "Checking activity",
+			reason: null,
 			shimmer: true,
 			status: "checking",
 			textClassName: resolveStatusToneTextClassName("checking"),
@@ -316,6 +326,7 @@ function resolveAgentProfilePresence(input: {
 			label: currentWorkLocation
 				? `Working in ${currentWorkLocation}`
 				: "Working",
+			reason: null,
 			shimmer: true,
 			status: "working",
 			textClassName: "text-foreground",
@@ -330,6 +341,7 @@ function resolveAgentProfilePresence(input: {
 	) {
 		return {
 			label: "Needs attention",
+			reason: null,
 			shimmer: false,
 			status: "needs_attention",
 			textClassName: resolveStatusToneIconClassName("warning"),
@@ -339,6 +351,7 @@ function resolveAgentProfilePresence(input: {
 	if (operationalContext?.status === "paused") {
 		return {
 			label: "Waiting to continue",
+			reason: null,
 			shimmer: true,
 			status: "waiting",
 			textClassName: resolveStatusToneTextClassName("checking"),
@@ -348,6 +361,7 @@ function resolveAgentProfilePresence(input: {
 	if (input.wakeAvailabilityErrorMessage) {
 		return {
 			label: "Unavailable for Wake",
+			reason: null,
 			shimmer: false,
 			status: "unavailable",
 			textClassName: resolveStatusToneTextClassName("muted"),
@@ -357,6 +371,7 @@ function resolveAgentProfilePresence(input: {
 	if (input.wakeAvailabilityIsPending || !input.wakeAvailability) {
 		return {
 			label: "Checking availability",
+			reason: null,
 			shimmer: true,
 			status: "checking",
 			textClassName: resolveStatusToneTextClassName("checking"),
@@ -366,9 +381,20 @@ function resolveAgentProfilePresence(input: {
 	const availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
 		input.wakeAvailability
 	);
+	if (availabilityCategory === "checking") {
+		return {
+			label: input.wakeAvailability.label,
+			reason: null,
+			shimmer: true,
+			status: "checking",
+			textClassName: resolveStatusToneTextClassName("checking"),
+			tooltip: input.wakeAvailability.summary,
+		};
+	}
 	if (availabilityCategory === "available") {
 		return {
 			label: "Available for Wake",
+			reason: null,
 			shimmer: false,
 			status: "available",
 			textClassName: resolveStatusToneTextClassName("ready"),
@@ -377,11 +403,26 @@ function resolveAgentProfilePresence(input: {
 	}
 	return {
 		label: "Unavailable for Wake",
+		reason: resolveUnavailableWakeReason(input.wakeAvailability),
 		shimmer: false,
 		status: "unavailable",
 		textClassName: resolveStatusToneTextClassName("muted"),
 		tooltip: input.wakeAvailability.tooltip,
 	};
+}
+
+function resolveUnavailableWakeReason(
+	wakeAvailability: AgentWakeAvailability
+): string | null {
+	const summary = wakeAvailability.summary.trim();
+	if (
+		summary.length === 0 ||
+		summary.toLowerCase() === "unavailable for wake" ||
+		summary.toLowerCase() === "this agent is unavailable for wake."
+	) {
+		return null;
+	}
+	return summary;
 }
 
 function AgentProfilePresenceIcon(input: {
@@ -409,6 +450,7 @@ function AgentProfilePresenceIcon(input: {
 function AgentProfileCurrentActivity(input: {
 	activityNavigation: AgentProfileActivityNavigation | null;
 	currentSession?: {
+		computerName: string;
 		href: string;
 		nativeSessionId: string;
 		title: string;
@@ -419,23 +461,61 @@ function AgentProfileCurrentActivity(input: {
 }) {
 	const currentDestination = resolveCurrentActivityDestination(input);
 	const queuedDestinations = input.activityNavigation?.queued ?? [];
-	const interruptedRecoveryAction =
-		input.recoveryActionKind === "skip_interrupted_work"
-			? input.recoveryAction
-			: null;
-	const footerRecoveryAction = interruptedRecoveryAction
-		? null
-		: input.recoveryAction;
+	const { footerRecoveryAction, interruptedRecoveryAction } =
+		resolveActivityRecoveryActions(input);
 	const hasActivityDestinations =
 		currentDestination !== null || queuedDestinations.length > 0;
+	const neutralActivitySummary =
+		hasActivityDestinations || interruptedRecoveryAction
+			? null
+			: resolveNeutralActivitySummary(input.operationalContext);
 	if (
 		!(
 			hasActivityDestinations ||
 			interruptedRecoveryAction ||
-			footerRecoveryAction
+			footerRecoveryAction ||
+			neutralActivitySummary
 		)
 	) {
 		return null;
+	}
+	let activityContent: ReactNode = null;
+	if (hasActivityDestinations || interruptedRecoveryAction) {
+		activityContent = (
+			<CardContent className="min-w-0 py-4">
+				<ActivityDestinationsPanel
+					currentDestination={currentDestination}
+					currentWorkLocation={
+						input.operationalContext?.currentWorkLocation ?? null
+					}
+					interruptedRecoveryAction={interruptedRecoveryAction}
+					isWorking={input.operationalContext?.status === "working"}
+					queuedDestinations={queuedDestinations}
+				/>
+			</CardContent>
+		);
+	} else if (neutralActivitySummary) {
+		activityContent = (
+			<CardContent className="min-w-0 py-4">
+				<FluidCardGroup aria-label="Current activity" role="list">
+					<FluidCardItem
+						className="border border-border/70"
+						itemId="activity-summary"
+						role="listitem"
+					>
+						<div className="flex min-w-0 items-center gap-3 px-4 py-3">
+							<DesktopTowerIcon
+								aria-hidden="true"
+								className="size-5 shrink-0 text-muted-foreground"
+							/>
+							<span className="truncate font-medium text-sm">
+								{neutralActivitySummary}
+							</span>
+						</div>
+					</FluidCardItem>
+				</FluidCardGroup>
+			</CardContent>
+		);
 	}
 	return (
 		<section
@@ -451,19 +531,7 @@ function AgentProfileCurrentActivity(input: {
 				className="gap-0 overflow-hidden py-0"
 				data-testid="agent-current-activity"
 			>
-				{hasActivityDestinations || interruptedRecoveryAction ? (
-					<CardContent className="min-w-0 py-4">
-						<ActivityDestinationsPanel
-							currentDestination={currentDestination}
-							currentWorkLocation={
-								input.operationalContext?.currentWorkLocation ?? null
-							}
-							interruptedRecoveryAction={interruptedRecoveryAction}
-							isWorking={input.operationalContext?.status === "working"}
-							queuedDestinations={queuedDestinations}
-						/>
-					</CardContent>
-				) : null}
+				{activityContent}
 				{footerRecoveryAction ? (
 					<CardFooter className="flex-col items-start gap-3 border-border/70">
 						{footerRecoveryAction}
@@ -474,15 +542,63 @@ function AgentProfileCurrentActivity(input: {
 	);
 }
 
+function resolveActivityRecoveryActions(input: {
+	recoveryAction: ReactNode;
+	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
+}): {
+	footerRecoveryAction: ReactNode;
+	interruptedRecoveryAction: ReactNode;
+} {
+	if (input.recoveryActionKind === "skip_interrupted_work") {
+		return {
+			footerRecoveryAction: null,
+			interruptedRecoveryAction: input.recoveryAction,
+		};
+	}
+	return {
+		footerRecoveryAction: input.recoveryAction,
+		interruptedRecoveryAction: null,
+	};
+}
+
+function resolveNeutralActivitySummary(
+	operationalContext: AgentProfileOperationalContextInput | null
+): string | null {
+	if (!operationalContext) {
+		return null;
+	}
+	if (operationalContext.status === "checking") {
+		return "Checking activity";
+	}
+	if (operationalContext.status === "idle") {
+		return null;
+	}
+	const waitingSuffix =
+		operationalContext.waitingCount > 0
+			? ` · ${operationalContext.waitingCount} queued`
+			: "";
+	return operationalContext.status === "working"
+		? `Working${waitingSuffix}`
+		: `Waiting to continue${waitingSuffix}`;
+}
+
 function resolveCurrentActivityDestination(input: {
 	activityNavigation: AgentProfileActivityNavigation | null;
-	currentSession?: { href: string; title: string };
+	currentSession?: {
+		computerName: string;
+		href: string;
+		nativeSessionId: string;
+		title: string;
+	};
+	operationalContext: AgentProfileOperationalContextInput | null;
 }): AgentProfileActivityDestination | null {
 	if (input.activityNavigation?.current) {
 		return input.activityNavigation.current;
 	}
-	return input.currentSession
+	return input.operationalContext?.status === "working" && input.currentSession
 		? {
+				computerName: input.currentSession.computerName,
+				conversationId: input.currentSession.nativeSessionId,
 				href: input.currentSession.href,
 				source: "computer",
 				title: input.currentSession.title,
@@ -603,7 +719,9 @@ function ActivityDestinationLink(input: {
 	state: ActivityDestinationState;
 	trailingAction: ReactNode;
 }) {
-	const sourceLabel = resolveActivitySourceLabel(input.destination.source);
+	const sourceLabel =
+		input.destination.computerName ??
+		resolveActivitySourceLabel(input.destination.source);
 	const isInterrupted = input.state === "interrupted";
 	let icon = <DesktopTowerIcon aria-hidden="true" className="size-4" />;
 	if (input.destination.source === "space") {
@@ -622,6 +740,12 @@ function ActivityDestinationLink(input: {
 				<span className="min-w-0 flex-1">
 					<span className="block truncate font-medium text-sm">
 						{input.destination.title}
+						{input.destination.conversationId ? (
+							<span className="text-muted-foreground">
+								{" · "}
+								{input.destination.conversationId}
+							</span>
+						) : null}
 					</span>
 					<span className="mt-0.5 flex min-w-0 items-center gap-2 text-muted-foreground text-xs">
 						<span>{sourceLabel}</span>
@@ -657,7 +781,7 @@ function resolveActivityDestinationStateLabel(
 	if (state === "interrupted") {
 		return "Needs attention";
 	}
-	return "Next work";
+	return "Current";
 }
 
 function resolveActivityDestinationStateBadgeClassName(
@@ -786,7 +910,6 @@ function AgentProfileNameEditor(input: {
 					render={
 						<Button
 							aria-label="Edit Name"
-							className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/name:opacity-100 motion-reduce:transition-none"
 							size="icon-sm"
 							type="button"
 							variant="ghost"

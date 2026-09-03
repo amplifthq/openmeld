@@ -274,6 +274,42 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
+	it("uses the Center Agent identity in the member picker", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message this space"
+				authoredMentions={[]}
+				centerAgentProfileId={AGENT_PROFILE_ID}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={vi.fn()}
+				onSend={vi.fn()}
+				placeholder="To wake an agent, type @, then pick the agent."
+				text=""
+			/>
+		);
+
+		act(() => composerRef.current?.insertMentionTrigger());
+
+		const runnerOption = await screen.findByRole("option", {
+			name: RUNNER_OPTION_NAME,
+		});
+		const avatar = within(runnerOption).getByTestId(
+			`space-profile-icon-${AGENT_PROFILE_ID}`
+		);
+		expect(avatar.getAttribute("data-profile-kind")).toBe("center-agent");
+		expect(
+			avatar.querySelector("canvas")?.getAttribute("data-profile-avatar-seed")
+		).toBe(
+			`openmeld-dither-profile-avatar:v1:center-agent:${AGENT_PROFILE_ID}`
+		);
+		expect(
+			within(runnerOption).queryByTestId("local-agent-logo-codex")
+		).toBeNull();
+	});
+
 	it("inserts a Human Mention token without an Agent relation control", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();
@@ -876,6 +912,7 @@ function createMentionPickerItems() {
 		snapshot: createSpaceMembersSnapshot({
 			agents: [
 				createSpaceMemberAgentSnapshot({
+					agentControllerRef: "builtin:codex",
 					profileId: AGENT_PROFILE_ID,
 					profileName: "Runner",
 				}),

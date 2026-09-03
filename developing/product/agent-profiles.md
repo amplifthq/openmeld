@@ -688,7 +688,9 @@ the current local-agent catalog, model catalog, permission options, and Project
 list; otherwise it discards the stale draft and uses current defaults. A
 successful creation clears the journey draft. Restoring or abandoning this
 browser draft never writes or replaces the Core-owned remembered creation
-defaults.
+defaults. Once the member changes the selected local Agent or execution target,
+that direct choice ends draft restoration for the current open creation flow;
+later renders must not restore an older choice over the member's input.
 
 The Center Agent can read every saved controller-specific row for the
 represented member before creating a local Agent Profile. These values are
@@ -862,6 +864,16 @@ neutral workload state and count; they do not receive Space names, task text,
 controller conversation identifiers, local paths, or other owner diagnostics.
 This projection belongs in the existing Profile Details surface, not a separate
 status product.
+
+Organization-member Agent details may also include one explicit public display
+configuration: the friendly Agent Controller, model, reasoning level,
+collaboration mode, and permission mode already used to identify how the
+teammate works. Core projects that allowlisted display object independently of
+owner-only readiness diagnostics. It never includes a Computer identity, local
+path, controller conversation identifier, runtime identifier, raw provider
+account data, or mutation authority. Offline, unavailable, and checking Agents
+keep this stable identity and configuration visible; temporary readiness does
+not blank the Profile Details surface.
 
 The non-owner readiness projection keeps the public four-state Wakeability
 status and may additionally name one exact, structured `usage_exhausted` fact

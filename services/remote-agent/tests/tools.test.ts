@@ -5828,6 +5828,69 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_list_spaces",
     },
     {
+      expectedPayload: {},
+      input: {},
+      response: {
+        generatedAtMs: TEST_NOW_MS,
+        items: [
+          {
+            activeWakeCount: 1,
+            activeTargets: [
+              {
+                activeWakeCount: 1,
+                profileId: AGENT_PROFILE_ID,
+                profileName: "Release Agent",
+              },
+            ],
+            spaceId: SPACE_ID,
+          },
+        ],
+      },
+      rpcName: "centerAgentListActiveSpaceWakes",
+      toolName: "openmeld_list_active_space_wakes",
+    },
+    {
+      expectedPayload: {
+        sourceProfileId: HUMAN_PROFILE_ID,
+        spaceId: SPACE_ID,
+        targetProfileId: AGENT_PROFILE_ID,
+      },
+      input: {
+        sourceProfileId: HUMAN_PROFILE_ID,
+        spaceId: SPACE_ID,
+        targetProfileId: AGENT_PROFILE_ID,
+      },
+      response: {
+        items: [
+          {
+            clientMessageId: "client-message-1",
+            dispatchId: "dispatch-1",
+            message: "@Release Agent is working on this computer...",
+            phase: "running",
+            sourceContext: {
+              messagePreview: "Prepare the release candidate.",
+              profileId: HUMAN_PROFILE_ID,
+              profileKind: "human",
+              profileName: "Mira",
+              threadId: null,
+            },
+            sourceSignalId: "signal-1",
+            targetLabel: "@Release Agent",
+            targetProfileId: AGENT_PROFILE_ID,
+            terminal: false,
+            updatedAtMs: TEST_NOW_MS,
+          },
+        ],
+        query: {
+          sourceProfileId: HUMAN_PROFILE_ID,
+          spaceId: SPACE_ID,
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      },
+      rpcName: "centerAgentReadSpaceWakeProgress",
+      toolName: "openmeld_read_space_wake_progress",
+    },
+    {
       expectedPayload: {
         projectId: "project-1",
         speakerMember: { memberId: "member_123", userId: "user_1" },

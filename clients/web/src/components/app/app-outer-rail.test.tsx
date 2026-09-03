@@ -158,6 +158,7 @@ const TOGGLE_TRIGGER_NAME_PATTERN = /Toggle/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
+	"New Agent",
 	"Home",
 	"Spaces",
 	"Messages",
@@ -318,9 +319,8 @@ describe("AppOuterRail", () => {
 		const groups = screen
 			.getByTestId("app-outer-rail")
 			.querySelectorAll('[data-slot="sidebar-group"]');
-		expect(groups).toHaveLength(3);
+		expect(groups).toHaveLength(2);
 		expect(groups[1]?.className).toContain("mt-5");
-		expect(groups[2]?.className).toContain("mt-5");
 	});
 
 	it("warms the Center Agent conversation from primary navigation intent", () => {
@@ -384,6 +384,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "full", width: "9rem" });
 
 		for (const label of [
+			"New Agent",
 			"Home",
 			"Spaces",
 			"Messages",
@@ -587,6 +588,15 @@ describe("AppOuterRail", () => {
 		expect(peopleLink.getAttribute("href")).toBe("/o/acme/people");
 	});
 
+	it("opens Agent creation in the current organization", () => {
+		renderRail();
+
+		const newAgentLink = screen.getByRole("link", { name: "New Agent" });
+		expect(newAgentLink.getAttribute("href")).toBe(
+			"/o/acme/agents?view=create"
+		);
+	});
+
 	it("opens the canonical Direct Messages home", () => {
 		renderRail();
 
@@ -598,7 +608,7 @@ describe("AppOuterRail", () => {
 		);
 	});
 
-	it("collapses destinations under stable group labels without exposing Resources", () => {
+	it("keeps primary destinations flat while Team remains collapsible", () => {
 		renderRail();
 
 		const railContent = screen
@@ -609,31 +619,22 @@ describe("AppOuterRail", () => {
 			return;
 		}
 
-		const workHeading = within(railContent).getByRole("heading", {
-			name: "Work",
-		});
 		const teamHeading = within(railContent).getByRole("heading", {
 			name: "Team",
 		});
-		expect(workHeading).toBeTruthy();
 		expect(teamHeading).toBeTruthy();
-		for (const heading of [workHeading, teamHeading]) {
-			expect(heading.className).toContain("ps-[5px]");
-			expect(heading.className).toContain("pe-2");
-			expect(heading.className).not.toContain("px-2");
-		}
-		expect(
-			workHeading
-				.closest('[data-slot="sidebar-group"]')
-				?.classList.contains("gap-2")
-		).toBe(true);
+		expect(teamHeading.className).toContain("ps-[5px]");
+		expect(teamHeading.className).toContain("pe-2");
+		expect(teamHeading.className).not.toContain("px-2");
 		expect(
 			teamHeading
 				.closest('[data-slot="sidebar-group"]')
 				?.classList.contains("gap-2")
 		).toBe(true);
 		expect(
-			within(railContent).getByRole("navigation", { name: "Work" })
+			within(railContent).getByRole("navigation", {
+				name: "Primary navigation",
+			})
 		).toBeTruthy();
 		expect(
 			within(railContent).getByRole("navigation", { name: "Team" })
@@ -641,20 +642,18 @@ describe("AppOuterRail", () => {
 		expect(
 			within(railContent).queryByRole("navigation", { name: "Resources" })
 		).toBeNull();
-		const workTrigger = within(railContent).getByRole("button", {
-			name: "Work",
-		});
-		expect(workTrigger.getAttribute("aria-expanded")).toBe("true");
 		expect(
 			within(railContent).getByRole("button", { name: "Team" })
 		).toBeTruthy();
 		expect(
+			within(railContent).queryByRole("button", { name: "Work" })
+		).toBeNull();
+		expect(
 			within(railContent).queryByRole("button", { name: "Resources" })
 		).toBeNull();
-
-		fireEvent.click(workTrigger);
-
-		expect(workTrigger.getAttribute("aria-expanded")).toBe("false");
+		expect(
+			within(railContent).getByRole("link", { name: "New Agent" })
+		).toBeTruthy();
 		expect(
 			within(railContent).getByRole("link", { name: "Home" })
 		).toBeTruthy();
@@ -662,28 +661,29 @@ describe("AppOuterRail", () => {
 			within(railContent).queryByRole("link", { name: "Center Agent" })
 		).toBeNull();
 		expect(
-			within(railContent).queryByRole("link", { name: "Spaces" })
-		).toBeNull();
+			within(railContent).getByRole("link", { name: "Spaces" })
+		).toBeTruthy();
 		expect(
-			within(railContent).queryByRole("link", { name: "Messages" })
-		).toBeNull();
+			within(railContent).getByRole("link", { name: "Messages" })
+		).toBeTruthy();
 		expect(
 			within(railContent).getByRole("link", { name: "People" })
 		).toBeTruthy();
 	});
 
-	it("keeps every destination visible in compact mode even when a full-mode group is persisted as collapsed", () => {
+	it("ignores a stale collapsed Work preference in the full rail", () => {
 		rememberClientSidebarState("outer", {
 			collapsedGroupIds: ["work"],
-			tier: "compact",
-			width: "9rem",
+			tier: "full",
+			width: "13.75rem",
 		});
 		renderRail({
 			collapsedGroupIds: ["work"],
-			tier: "compact",
-			width: "9rem",
+			tier: "full",
+			width: "13.75rem",
 		});
 
+		expect(screen.getByRole("link", { name: "New Agent" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Home" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Center Agent" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();

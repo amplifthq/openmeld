@@ -128,7 +128,7 @@ function buildOnboardingOutcomes(input: {
 			description:
 				input.localAgentNames.length > 0
 					? `${formatNames(input.localAgentNames)} can receive work on ${input.computerName}.`
-					: `OpenMeld Service is connected on ${input.computerName}.`,
+					: `${input.computerName} is connected.`,
 			icon: <CodeIcon weight="duotone" />,
 			title:
 				input.localAgentNames.length > 0

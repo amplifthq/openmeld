@@ -206,11 +206,18 @@ describe("SpaceMemberRow", () => {
 		expect(
 			screen.getByTestId("profile-details-dialog-scroll-area").className
 		).toContain("overflow-y-auto");
-		expect(screen.getByText("Check this Profile")).toBeTruthy();
+		expect(screen.getByText("Check this Agent")).toBeTruthy();
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("thread-codex-1")).toBeNull();
 		expect(screen.getByText("How this Agent works")).toBeTruthy();
-		expect(screen.getByRole("link", { name: "More Details" })).toBeTruthy();
+		const detailsLink = screen.getByRole("link", {
+			name: "Check more or edit",
+		});
+		expect(detailsLink).toBeTruthy();
+		expect(detailsLink.parentElement?.className).toContain("items-start");
+		expect(
+			screen.queryByRole("button", { name: "More options for Codex" })
+		).toBeNull();
 		expect(screen.getByText("Workspace directory")).toBeTruthy();
 		expect(screen.getByText("/Users/felix/project")).toBeTruthy();
 		expect(
@@ -296,9 +303,7 @@ describe("SpaceMemberRow", () => {
 			})
 		);
 		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
-		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Check this Profile" })
-		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
 		expect(screen.getByRole("dialog")).toBeTruthy();
 	});
 
@@ -324,14 +329,14 @@ describe("SpaceMemberRow", () => {
 		).toContain("rounded-md");
 		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
 		const aboutItem = screen.getByRole("menuitem", {
-			name: "Check this Profile",
+			name: "Check this Agent",
 		});
 		expect(aboutItem.className).toContain("rounded-md");
 		fireEvent.click(aboutItem);
 		expect(screen.getByRole("dialog")).toBeTruthy();
 	});
 
-	it("keeps Agent Profile diagnostics in Check this Profile instead of the member row", () => {
+	it("keeps Agent Profile diagnostics in Check this Agent instead of the member row", () => {
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildServiceConnectionPlan(),
 			entry: buildAgentEntry({
@@ -393,7 +398,9 @@ describe("SpaceMemberRow", () => {
 
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Mira")).toBeTruthy();
-		expect(dialog.getByText("Available for Wake")).toBeTruthy();
+		const availableForWake = dialog.getByText("Available for Wake");
+		expect(availableForWake).toBeTruthy();
+		expect(availableForWake.className).toContain("text-emerald-");
 		expect(dialog.getByText("How this Agent works")).toBeTruthy();
 		expect(dialog.queryByText("Connection")).toBeNull();
 		expect(dialog.queryByText("Controller conversation ID")).toBeNull();
@@ -778,7 +785,7 @@ describe("SpaceMemberRow", () => {
 		// only asserts the transient-state messaging.
 		expect(screen.queryByText("Waiting for OpenMeld Service")).toBeNull();
 		expect(
-			screen.getByText("A Wake is waiting for OpenMeld Service to reconnect.")
+			screen.getByText("A Wake is waiting for the computer to reconnect.")
 		).toBeTruthy();
 	});
 
@@ -851,7 +858,7 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByText("Service not connected")).toBeNull();
 		expect(screen.queryByText("Reconnecting local reply route")).toBeNull();
 		expect(
-			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
+			screen.queryByRole("link", { name: "Reconnect Computer" })
 		).toBeNull();
 		expect(screen.queryByRole("link", { name: "Check status" })).toBeNull();
 	});
@@ -869,7 +876,7 @@ describe("SpaceMemberRow", () => {
 			"Available"
 		);
 		expect(screen.queryByText("Reconnecting")).toBeNull();
-		expect(screen.queryByText("Reconnect OpenMeld Service")).toBeNull();
+		expect(screen.queryByText("Reconnect Computer")).toBeNull();
 		expect(screen.queryByText("Reconnecting local reply route")).toBeNull();
 	});
 
@@ -891,7 +898,7 @@ describe("SpaceMemberRow", () => {
 		expect(
 			screen.queryByText("OpenMeld is checking this agent's local connection.")
 		).toBeNull();
-		expect(screen.queryByText("Reconnect OpenMeld Service")).toBeNull();
+		expect(screen.queryByText("Reconnect Computer")).toBeNull();
 	});
 
 	it("does not let owner checking diagnostics override shared AgentWakeAvailability", () => {
@@ -932,7 +939,7 @@ describe("SpaceMemberRow", () => {
 			"Available"
 		);
 		expect(
-			screen.getByText("A Wake is waiting for OpenMeld Service to reconnect.")
+			screen.getByText("A Wake is waiting for the computer to reconnect.")
 		).toBeTruthy();
 		expect(screen.queryByText("Connected to Office Mac")).toBeNull();
 	});
@@ -945,7 +952,7 @@ describe("SpaceMemberRow", () => {
 		});
 
 		expect(
-			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
+			screen.queryByRole("link", { name: "Reconnect Computer" })
 		).toBeNull();
 		expect(
 			screen
@@ -1049,7 +1056,7 @@ describe("SpaceMemberRow", () => {
 			"Checking"
 		);
 		expect(
-			screen.queryByText("A Wake is waiting for OpenMeld Service to reconnect.")
+			screen.queryByText("A Wake is waiting for the computer to reconnect.")
 		).toBeNull();
 	});
 

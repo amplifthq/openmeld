@@ -6,13 +6,21 @@ import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar
 
 const SPACE_PROFILE_ICON_SIZE_CLASS_NAMES = {
 	inline: "size-3.5",
+	lg: "size-16",
 	sm: "size-6",
 	xs: "size-5",
 } as const;
 const SPACE_PROFILE_ICON_SIZE_PIXELS = {
 	inline: 14,
+	lg: 64,
 	sm: 24,
 	xs: 20,
+} as const;
+const LOCAL_AGENT_LOGO_SIZE_BY_PROFILE_ICON_SIZE = {
+	inline: "xs",
+	lg: "md",
+	sm: "sm",
+	xs: "xs",
 } as const;
 
 export function SpaceProfileIcon(input: {
@@ -80,7 +88,7 @@ export function SpaceProfileIcon(input: {
 				<LocalAgentLogo
 					agentId={controllerLogoRef}
 					className="h-full w-full"
-					size={size === "inline" ? "xs" : size}
+					size={LOCAL_AGENT_LOGO_SIZE_BY_PROFILE_ICON_SIZE[size]}
 				/>
 			) : (
 				<RobotIcon

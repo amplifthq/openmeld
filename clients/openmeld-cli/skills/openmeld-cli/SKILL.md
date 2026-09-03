@@ -48,11 +48,18 @@ openmeld space board "<space-url-or-id>" --profile <profile-id> --json
 openmeld space members "<space-url-or-id>" --profile <profile-id> --json
 openmeld space history "<space-url-or-id>" --profile <profile-id> --kind text --brief --limit 20 --view agent
 openmeld space status "<space-url-or-id>" --profile <profile-id> --json
+openmeld space wake-progress "<space-url-or-id>" --profile <profile-id> --view agent
 ```
 
 Brief history caps each message body so one long post cannot consume the Agent
 context. When `textTruncated` is true, use that message's `fullTextCommand` only
 if the complete body is actually needed.
+
+Wake progress is the live execution view. Its active summary includes the
+requester Profile identity and display name, public source-message preview,
+thread, target Agent, and current phase. Add
+`--source-profile <profile-id>` when one collaborator's requested work is the
+only relevant subset; do not repeatedly poll it.
 
 For these reads, explicit `--profile` wins over a URL `profileId`. If no
 explicit Profile is passed, the URL `profileId` is used before the selected

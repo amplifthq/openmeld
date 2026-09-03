@@ -23,6 +23,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { createOpenMeldApiClient, createSpaceApi } from "../src";
+import { buildSpaceSignalsReadPath } from "../src/space";
 
 const REQUEST_CONTEXT = {
   actorContext: {
@@ -1578,6 +1579,19 @@ describe("api-client space api", () => {
     );
   });
 
+  it("serializes an exact anchored history read with zero surrounding messages", () => {
+    expect(
+      buildSpaceSignalsReadPath("space-123", {
+        aroundSignalId: "sig-anchor-exact",
+        beforeCount: 0,
+        afterCount: 0,
+        kinds: ["text"],
+      })
+    ).toBe(
+      "/v1/spaces/space-123/signals?aroundSignalId=sig-anchor-exact&beforeCount=0&afterCount=0&signalType=signal.text"
+    );
+  });
+
   it("rejects signal anchors combined with timestamp pagination", async () => {
     const api = createSpaceApi(
       createOpenMeldApiClient({
@@ -2091,6 +2105,7 @@ describe("api-client space api", () => {
             query: isActiveWakeProgress
               ? {
                   spaceId: "space-123",
+                  sourceProfileId: "human-source-1",
                   targetProfileId: null,
                 }
               : {
@@ -2134,6 +2149,7 @@ describe("api-client space api", () => {
 
     await api.getWakeProgress({
       clientMessageId: "client-message-1",
+      includeSourceContext: true,
       includeTiming: true,
       includeWaitReason: true,
       includeWakeStopEligibility: true,
@@ -2141,9 +2157,11 @@ describe("api-client space api", () => {
       spaceId: "space-123",
     });
     await api.getActiveWakeProgress({
+      includeSourceContext: true,
       includeTiming: true,
       includeWaitReason: true,
       includeWakeStopEligibility: true,
+      sourceProfileId: "human-source-1",
       requestContext: REQUEST_CONTEXT,
       spaceId: "space-123",
     });
@@ -2151,15 +2169,53 @@ describe("api-client space api", () => {
     expect(transport).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/wake-progress?clientMessageId=client-message-1&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/wake-progress?clientMessageId=client-message-1&includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true",
       })
     );
     expect(transport).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-source-1",
       })
     );
+  });
+
+  it("fails closed when an older server ignores the active Wake source filter", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            query: {
+              spaceId: "space-123",
+              targetProfileId: null,
+            },
+            items: [],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      )
+    );
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.getActiveWakeProgress({
+        requestContext: REQUEST_CONTEXT,
+        sourceProfileId: "human-source-1",
+        spaceId: "space-123",
+      })
+    ).rejects.toMatchObject({
+      code: "gateway.invalid_response",
+      operation: "space.active_wake_progress",
+      schemaIssuePath: "query.sourceProfileId",
+    });
   });
 
   it("posts Space Wake Stop through the shared space api", async () => {

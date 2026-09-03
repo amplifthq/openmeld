@@ -1197,6 +1197,12 @@ conversation receives escaped text observations and immutable file metadata,
 never source or derivative image bytes. Clients must not derive image rendering
 from Markdown or relax the Markdown image policy.
 
+The shared Space signal history query treats `aroundSignalId` as an inclusive
+anchor. `beforeCount` and `afterCount` count only neighboring signals, so both
+may be zero when a caller needs exactly the anchored signal and no surrounding
+history. Gateway and Core must preserve that meaning instead of rejecting the
+zero-neighbor window as empty.
+
 Remote Agent browser screenshots reuse the same attachment contract in the
 opposite direction. The worker asks Core to create organization- and
 Space-scoped attachment metadata under the represented member context, writes
@@ -3867,7 +3873,20 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 
 `packages/schemas/src/schemas/http/space-wake-progress.ts` owns the Wake
 progress read model, including the optional `startedAtMs` timing projection and
-the optional `wakeStopEligibility` projection. It may also expose the bounded
+the optional `wakeStopEligibility` projection. A caller may also opt into
+`sourceContext`, which contains only the Space-owned requester Profile ID, kind,
+display name, sanitized public source-message preview, and nullable thread root.
+Active reads may filter by one `sourceProfileId`; Core resolves that filter to
+Space source Signal identities before each bounded owner query, never after a
+global limit.
+The response query must echo the accepted `sourceProfileId`. A new client that
+requested this filter fails closed when the echo is absent or different, so an
+older Gateway or Core cannot silently return an unfiltered result.
+This context is a read-time join over existing Space truth. It is not copied
+into an execution owner, cannot authorize or advance work, and never contains
+provider prompts, transcripts, or other private runtime context.
+
+The contract may also expose the bounded
 optional `waitReasonCode=runtime.agent_controller_conversation.occupied` from
 RuntimeCoordinator lifecycle evidence. Clients request that projection with
 `includeWaitReason=true`; Core must omit the field entirely when the caller
@@ -3879,8 +3898,9 @@ mixed-version opt-in: clients request authoritative elapsed-time timing with
 `includeTiming=true`, the occupancy wait reason with
 `includeWaitReason=true`, and Stop eligibility with
 `includeWakeStopEligibility=true` on Wake progress and active Wake progress
-reads. Core must omit each field when the corresponding request does not opt
-in, so new Core does not break older strict clients. `startedAtMs` is the
+reads. Public source context is similarly requested with
+`includeSourceContext=true`. Core must omit each field when the corresponding
+request does not opt in, so new Core does not break older strict clients. `startedAtMs` is the
 authoritative execution start anchor while `updatedAtMs` remains freshness and
 ordering evidence. A new client must omit elapsed time when `startedAtMs` is
 missing, and must treat a missing `wakeStopEligibility` field as not eligible
@@ -3890,9 +3910,10 @@ The timing rollout is Core receiver/producer first, then Gateway forwarding,
 then Web opt-in. Old Gateway ignores the unknown browser query and old Core
 never receives it; new Gateway must not forward `includeTiming` to an old Core
 strict RPC input. Existing CLI versions do not send `includeTiming=true`, so
-new Core preserves their previous strict response shape. This additive HTTP/RPC
-projection changes no OpenMeld Service, daemon, Prepare, Runtime Transport,
-RuntimeCoordinator authority, or local-component contract version.
+new Core preserves their previous strict response shape. These additive timing
+and public source-context HTTP/RPC projections change no OpenMeld Service,
+daemon, Prepare, Runtime Transport, RuntimeCoordinator authority, or
+local-component contract version.
 
 The occupancy wait-reason rollout is Web receiver first, then Core producer.
 The field is optional so new Web remains compatible with old Core; an old
@@ -4100,7 +4121,7 @@ the Computer verdict. When every non-ready enabled capability is blocked only
 by `controller.interface.check_failed`, Core must keep Wake fail closed with
 `canReplyFromThisComputer: false` and `status: blocked`, while publishing
 `nextAction: check_status` instead of `run_setup`. Clients present that verdict
-as the same warning-level **Couldn't check** outcome used by the affected local
+as the same warning-level **Check delayed** outcome used by the affected local
 agent row; they must not escalate it to repair guidance.
 
 When the Computer reports capabilities but all of them are disabled, Core keeps

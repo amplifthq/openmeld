@@ -1,7 +1,5 @@
 import type {
   AgentProfileCreationRequestMutationResponse,
-  BulkAuthorizeAgentProfileBindingsForOrganizationBody,
-  BulkAuthorizeAgentProfileBindingsForOrganizationResponse,
   CenterAgentOrganizationMemoryPolicyResponse,
   CenterAgentWipeMemberMemoryResponse,
   CreateAgentProfileCreationRequestBody,
@@ -9,13 +7,11 @@ import type {
   DecideAgentProfileCreationRequestBody,
   GetAgentProfileCreationApprovalPreferenceResponse,
   GetAgentProfileCreationDefaultsResponse,
-  GetOrganizationBindingAuthorizationPreferenceResponse,
   LarkPlatformActiveRegistrationListResponse,
   LarkPlatformProvider,
   LarkPlatformRegistrationBeginMode,
   LarkPlatformRegistrationResponse,
   ListAgentProfileCreationRequestsResponse,
-  ListOrganizationBindingAuthorizationProfilesResponse,
   MessageChannelConnectionListResponse,
   MessageChannelIdentityLinkConsumeBody,
   MessageChannelIdentityLinkConsumeResponse,
@@ -32,14 +28,10 @@ import type {
   OrganizationMemberOpenMeldServiceStatusesResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
-  SaveOrganizationWakeAccessChoiceBody,
-  SaveOrganizationWakeAccessChoiceResponse,
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsBody,
   SetAgentProfileCreationDefaultsResponse,
-  SetOrganizationBindingAuthorizationPreferenceBody,
-  SetOrganizationBindingAuthorizationPreferenceResponse,
   UpdateCenterAgentOrganizationMemoryPolicyBody,
   UpdateOrganizationInformationProtectionPolicyBody,
 } from "@openmeld/schemas/types";
@@ -69,21 +61,12 @@ export type UpdateCurrentOrganizationLogoInput = OrganizationRequestInput & {
   mimeType: OrganizationLogoMimeType;
 };
 
-export type BulkAuthorizeAgentProfileBindingsForOrganizationInput =
-  OrganizationRouteInput & BulkAuthorizeAgentProfileBindingsForOrganizationBody;
-
-export type SetOrganizationBindingAuthorizationPreferenceInput =
-  OrganizationRouteInput & SetOrganizationBindingAuthorizationPreferenceBody;
-
 export type AgentProfileCreationDefaultsRouteInput = OrganizationRouteInput & {
   agentControllerRef: string;
 };
 
 export type SetAgentProfileCreationDefaultsInput =
   AgentProfileCreationDefaultsRouteInput & SetAgentProfileCreationDefaultsBody;
-
-export type SaveOrganizationWakeAccessChoiceInput = OrganizationRouteInput &
-  SaveOrganizationWakeAccessChoiceBody;
 
 export type CreateAgentProfileCreationRequestInput = OrganizationRouteInput &
   CreateAgentProfileCreationRequestBody;
@@ -159,15 +142,6 @@ export type OrganizationApi = {
   removeCurrentLogo: (
     input?: OrganizationRequestInput
   ) => Promise<OrganizationLogoResponse>;
-  bulkAuthorizeAgentProfileBindings: (
-    input: BulkAuthorizeAgentProfileBindingsForOrganizationInput
-  ) => Promise<BulkAuthorizeAgentProfileBindingsForOrganizationResponse>;
-  getBindingAuthorizationPreference: (
-    input: OrganizationRouteInput
-  ) => Promise<GetOrganizationBindingAuthorizationPreferenceResponse>;
-  listBindingAuthorizationProfiles: (
-    input: OrganizationRouteInput
-  ) => Promise<ListOrganizationBindingAuthorizationProfilesResponse>;
   getCurrentDirectory: (
     input?: GetCurrentOrganizationDirectoryInput
   ) => Promise<OrganizationDirectoryResponse>;
@@ -225,15 +199,9 @@ export type OrganizationApi = {
   setCurrentInformationProtection: (
     input: SetOrganizationInformationProtectionInput
   ) => Promise<OrganizationInformationProtectionPolicyResponse>;
-  setBindingAuthorizationPreference: (
-    input: SetOrganizationBindingAuthorizationPreferenceInput
-  ) => Promise<SetOrganizationBindingAuthorizationPreferenceResponse>;
   setAgentProfileCreationDefaults: (
     input: SetAgentProfileCreationDefaultsInput
   ) => Promise<SetAgentProfileCreationDefaultsResponse>;
-  saveWakeAccessChoice: (
-    input: SaveOrganizationWakeAccessChoiceInput
-  ) => Promise<SaveOrganizationWakeAccessChoiceResponse>;
 };
 
 export type CreateOrganizationApi = (

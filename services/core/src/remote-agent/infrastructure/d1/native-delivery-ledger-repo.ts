@@ -413,15 +413,28 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
 export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace(input: {
   db: D1Database;
   limit?: number;
+  sourceSignalIds?: readonly string[];
   spaceId: string;
   targetProfileId?: string;
 }): Promise<ActiveRemoteAgentNativeDeliveryWakeProgressEvidence[]> {
   const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 25)));
   const targetProfileId = input.targetProfileId?.trim() || null;
+  const sourceSignalIds = input.sourceSignalIds?.filter(
+    (sourceSignalId) => sourceSignalId.trim().length > 0
+  );
+  if (sourceSignalIds && sourceSignalIds.length === 0) {
+    return [];
+  }
   const whereTargetSql = targetProfileId ? "AND deliveries.profile_id = ?" : "";
-  const bindings = targetProfileId
-    ? [input.spaceId, targetProfileId, limit]
-    : [input.spaceId, limit];
+  const whereSourceSql = sourceSignalIds
+    ? "AND deliveries.trigger_message_id IN (SELECT value FROM json_each(?))"
+    : "";
+  const bindings = [
+    input.spaceId,
+    ...(targetProfileId ? [targetProfileId] : []),
+    ...(sourceSignalIds ? [JSON.stringify(sourceSignalIds)] : []),
+    limit,
+  ];
   const rows = await input.db
     .prepare(
       `
@@ -455,6 +468,7 @@ export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceByS
           AND deliveries.routine_run_id IS NULL
           AND deliveries.status IN ('accepted', 'retry_observed')
           ${whereTargetSql}
+          ${whereSourceSql}
         ORDER BY deliveries.updated_at_ms DESC, deliveries.delivery_id DESC
         LIMIT ?
       `

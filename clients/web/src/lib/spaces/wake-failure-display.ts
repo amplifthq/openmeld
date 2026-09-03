@@ -101,12 +101,12 @@ function resolveNonCurrentOwnerLocalServiceFailureBody(input: {
 	const controllerDisplayName =
 		input.targetContext?.controllerDisplayName ?? null;
 	if (ownerDisplayName && controllerDisplayName) {
-		return `${input.targetName} could not complete this Wake on ${controllerDisplayName}. Ask ${ownerDisplayName} to check OpenMeld Service and the local agent, then wake the agent again.`;
+		return `${input.targetName} could not complete this Wake on ${controllerDisplayName}. Ask ${ownerDisplayName} to reconnect the computer and check the local agent, then wake the Agent again.`;
 	}
 	if (ownerDisplayName) {
-		return `${input.targetName} could not complete this Wake on ${formatPossessiveName(ownerDisplayName)} computer. Ask ${ownerDisplayName} to check OpenMeld Service and the local agent, then wake the agent again.`;
+		return `${input.targetName} could not complete this Wake on ${formatPossessiveName(ownerDisplayName)} computer. Ask ${ownerDisplayName} to reconnect the computer and check the local agent, then wake the Agent again.`;
 	}
-	return `${input.targetName} could not complete this Wake. Ask the agent owner to check OpenMeld Service and the local agent, then wake the agent again.`;
+	return `${input.targetName} could not complete this Wake. Ask the Agent owner to reconnect the computer and check the local agent, then wake the Agent again.`;
 }
 
 function normalizeOptionalText(

@@ -1,10 +1,11 @@
 import { buildProfileDetailsSnapshotFromHumanProfile } from "@openmeld/agent-profile";
-import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import type {
+	AgentProfileBindingModelSelection,
 	AuthProfileView,
 	ListOrganizationDocumentsResponse,
 	MessageChannelConnectionListResponse,
 	MessageChannelConnectionProjection,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
@@ -50,10 +51,13 @@ export type DirectoryHumanProfileComputer = {
 };
 
 export type DirectoryAgentProfileSummary = {
-	agentId: string | null;
+	agentControllerRef: string | null;
 	avatarImageUrl: string | null;
 	id: string;
+	modelSelection: AgentProfileBindingModelSelection | null;
+	modelSelectionIsKnown: boolean;
 	name: string;
+	path: string;
 };
 
 export type DirectoryIdentityAccount = {
@@ -131,9 +135,14 @@ export function buildOrganizationHumanProfileRows(input: {
 	messageChannelsStatus: DirectoryProjectionStatus;
 	members: OrganizationProfileDirectoryResponse["members"];
 	orgSlug: string;
+	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
-	const agentProfilesByOwner = indexAgentProfilesByOwner(input.agentProfiles);
+	const agentProfilesByOwner = indexAgentProfilesByOwner({
+		agentProfiles: input.agentProfiles,
+		orgSlug: input.orgSlug,
+		runtimeOverview: input.runtimeOverview,
+	});
 	return input.members
 		.map((member) => {
 			const document = reportsBySubject.get(member.user.id);
@@ -213,7 +222,10 @@ export function buildPersonalHumanProfileRows(input: {
 	const humanProfiles = input.profiles.filter(
 		(candidate) => candidate.profileKind === "human"
 	);
-	const agentProfiles = buildPersonalAgentProfileSummaries(input.profiles);
+	const agentProfiles = buildPersonalAgentProfileSummaries({
+		orgSlug: input.orgSlug,
+		profiles: input.profiles,
+	});
 	const profileReport = resolveProfileReport({
 		document,
 		documentsStatus: input.documentsStatus,
@@ -298,45 +310,77 @@ export function buildPersonalHumanProfileRows(input: {
 	];
 }
 
-function buildPersonalAgentProfileSummaries(
-	profiles: readonly AuthProfileView[]
-): readonly DirectoryAgentProfileSummary[] {
+function buildPersonalAgentProfileSummaries(input: {
+	orgSlug: string;
+	profiles: readonly AuthProfileView[];
+}): readonly DirectoryAgentProfileSummary[] {
 	const agentProfiles: DirectoryAgentProfileSummary[] = [];
-	for (const profile of profiles) {
+	for (const profile of input.profiles) {
 		if (profile.profileKind !== "agent" || profile.managedRole !== null) {
 			continue;
 		}
 		agentProfiles.push({
-			agentId: null,
+			agentControllerRef: null,
 			avatarImageUrl: profile.avatarUrl ?? null,
 			id: profile.openMeldProfileId,
+			modelSelection: null,
+			modelSelectionIsKnown: false,
 			name: profile.profileName,
+			path: buildAgentProfilePath({
+				orgSlug: input.orgSlug,
+				profileId: profile.openMeldProfileId,
+			}),
 		});
 	}
 	return sortAgentProfileSummaries(agentProfiles);
 }
 
-function indexAgentProfilesByOwner(
+function indexAgentProfilesByOwner(input: {
 	agentProfiles: readonly (
 		| OrganizationProfileDirectoryResponse["agentProfiles"][number]
 		| OrganizationDirectoryResponse["agentProfiles"][number]
-	)[]
-): ReadonlyMap<string, readonly DirectoryAgentProfileSummary[]> {
+	)[];
+	orgSlug: string;
+	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
+}): ReadonlyMap<string, readonly DirectoryAgentProfileSummary[]> {
+	const readinessByProfileId = new Map(
+		(input.runtimeOverview?.agentProfiles ?? []).map((profile) => [
+			profile.profileId,
+			profile.readiness,
+		])
+	);
 	const profilesByOwner = new Map<string, DirectoryAgentProfileSummary[]>();
-	for (const profile of agentProfiles) {
+	for (const profile of input.agentProfiles) {
 		if (profile.isCenterAgent === true) {
 			continue;
 		}
 		const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
+		const directoryReadiness =
+			"readiness" in profile ? profile.readiness : null;
+		const readiness =
+			readinessByProfileId.get(profile.profileId) ?? directoryReadiness;
+		const lightweightAgentControllerRef =
+			"agentControllerRef" in profile ? profile.agentControllerRef : null;
 		const agentControllerRef =
-			"agentControllerRef" in profile
-				? profile.agentControllerRef
-				: profile.readiness.agentControllerRef;
+			lightweightAgentControllerRef ??
+			readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
+			readiness?.publicProfileConfiguration?.agentControllerRef ??
+			readiness?.agentControllerRef ??
+			null;
 		profiles.push({
-			agentId: parseAgentControllerRef(agentControllerRef)?.id ?? null,
+			agentControllerRef,
 			avatarImageUrl: profile.avatarUrl ?? null,
 			id: profile.profileId,
+			modelSelection:
+				readiness?.primaryBinding?.modelSelection ??
+				readiness?.publicProfileConfiguration?.modelSelection ??
+				null,
+			modelSelectionIsKnown: readiness !== null,
 			name: profile.profileName,
+			path: buildAgentProfilePath({
+				orgSlug: input.orgSlug,
+				profileId: profile.profileId,
+			}),
 		});
 		profilesByOwner.set(profile.ownerUserId, profiles);
 	}

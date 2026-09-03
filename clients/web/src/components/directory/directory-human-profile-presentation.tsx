@@ -1,5 +1,5 @@
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
+import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import type { ModelCatalog } from "@openmeld/schemas/types";
 import {
 	Tooltip,
 	TooltipContent,
@@ -7,12 +7,9 @@ import {
 } from "@openmeld/ui/components/tooltip";
 import { resolveStatusToneRingIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	CaretRightIcon,
-	DesktopTowerIcon,
-	RobotIcon,
-} from "@phosphor-icons/react";
+import { CaretRightIcon, DesktopTowerIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
+import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import {
 	resolveDirectoryComputerStatusTone,
 	resolveDirectoryComputerToneClassName,
@@ -30,6 +27,8 @@ import {
 	SLACK_CHANNEL_IDENTITY,
 } from "#/components/organizations/app-catalog";
 import { AppLogo } from "#/components/organizations/app-logo";
+import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
+import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 
 export function DirectoryComputerSummary(input: {
 	interactive?: boolean;
@@ -157,58 +156,94 @@ function DirectoryComputerDetailSummary(input: {
 	);
 }
 
-const MAX_VISIBLE_AGENT_PROFILES = 3;
-
 export function DirectoryAgentProfilesSummary(input: {
+	modelCatalog: ModelCatalog | null;
 	ownerName: string;
 	path: string;
 	profiles: readonly DirectoryAgentProfileSummary[];
 }) {
-	const visibleProfiles = input.profiles.slice(0, MAX_VISIBLE_AGENT_PROFILES);
-	const overflowCount = input.profiles.length - visibleProfiles.length;
 	return (
-		<div className="flex min-h-14 min-w-0 items-center justify-between gap-4 px-4 py-3">
-			<div className="flex min-w-0 items-center -space-x-2">
-				{visibleProfiles.length > 0 ? (
-					visibleProfiles.map((profile) => (
-						<AgentProfileSummaryIcon key={profile.id} profile={profile} />
-					))
-				) : (
-					<span
-						aria-hidden="true"
-						className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground ring-2 ring-background"
-					>
-						<RobotIcon className="size-4" />
-					</span>
-				)}
-				{overflowCount > 0 ? (
-					<span className="grid size-8 place-items-center rounded-full bg-muted font-medium text-muted-foreground text-xs ring-2 ring-background">
-						+{overflowCount}
-					</span>
-				) : null}
+		<section className="min-w-0 space-y-2">
+			<div className="flex min-w-0 items-center justify-between gap-4">
+				<h3 className="font-medium text-muted-foreground text-xs">Agents</h3>
+				<Link
+					aria-label={`View all of ${input.ownerName}'s Agents`}
+					className="shrink-0 rounded-sm text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+					to={input.path}
+				>
+					All Agents
+				</Link>
 			</div>
-			<Link
-				aria-label={`View ${input.ownerName}'s Agent Profiles`}
-				className="shrink-0 rounded-sm text-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-				to={input.path}
-			>
-				{formatAgentProfileCount(input.profiles.length)}
-			</Link>
-		</div>
+			{input.profiles.length > 0 ? (
+				<ul
+					aria-label={`${input.ownerName}'s Agents`}
+					className="scrollbar-hide flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+				>
+					{input.profiles.map((profile) => (
+						<li className="shrink-0" key={profile.id}>
+							<AgentProfileSummaryCard
+								modelCatalog={input.modelCatalog}
+								profile={profile}
+							/>
+						</li>
+					))}
+				</ul>
+			) : (
+				<p className="rounded-md border border-border px-4 py-3 text-muted-foreground text-sm">
+					No Agents yet
+				</p>
+			)}
+		</section>
 	);
 }
 
-function AgentProfileSummaryIcon(input: {
+function AgentProfileSummaryCard(input: {
+	modelCatalog: ModelCatalog | null;
 	profile: DirectoryAgentProfileSummary;
 }) {
-	let content = (
-		<RobotIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+	const parsedControllerRef = parseAgentControllerRef(
+		input.profile.agentControllerRef
 	);
+	const controllerDisplayName = parsedControllerRef
+		? formatLocalAgentDisplayName(parsedControllerRef.id)
+		: null;
+	const controllerModelDetail = input.profile.modelSelectionIsKnown
+		? resolveAgentProfileControllerModelDetail({
+				agentControllerRef: input.profile.agentControllerRef,
+				controllerDisplayName,
+				modelCatalog: input.modelCatalog,
+				modelSelection: input.profile.modelSelection,
+			})
+		: controllerDisplayName;
+	return (
+		<Link
+			aria-label={`Open ${input.profile.name}`}
+			className="flex w-60 shrink-0 items-center gap-3 rounded-md border border-border bg-card px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			to={input.profile.path}
+		>
+			<AgentProfileSummaryAvatar profile={input.profile} />
+			<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
+				<span className="truncate font-medium text-sm">
+					{input.profile.name}
+				</span>
+				{controllerModelDetail ? (
+					<span className="truncate text-muted-foreground text-xs">
+						{controllerModelDetail}
+					</span>
+				) : null}
+			</span>
+		</Link>
+	);
+}
+
+function AgentProfileSummaryAvatar(input: {
+	profile: DirectoryAgentProfileSummary;
+}) {
 	if (input.profile.avatarImageUrl) {
-		content = (
+		return (
 			<img
 				alt=""
-				className="size-full object-cover"
+				className="size-8 shrink-0 rounded-lg object-cover"
 				data-testid="agent-profile-summary-avatar"
 				height={32}
 				referrerPolicy="no-referrer"
@@ -216,27 +251,14 @@ function AgentProfileSummaryIcon(input: {
 				width={32}
 			/>
 		);
-	} else if (
-		input.profile.agentId &&
-		hasLocalAgentLogo(input.profile.agentId)
-	) {
-		content = <LocalAgentLogo agentId={input.profile.agentId} size="sm" />;
 	}
 	return (
-		<span
-			aria-label={input.profile.name}
-			className="grid size-8 place-items-center overflow-hidden rounded-full bg-muted ring-2 ring-background"
-			data-testid="agent-profile-summary-icon"
-			role="img"
-			title={input.profile.name}
-		>
-			{content}
-		</span>
+		<AgentProfileControllerAvatar
+			agentControllerRef={input.profile.agentControllerRef}
+			profileId={input.profile.id}
+			size={32}
+		/>
 	);
-}
-
-function formatAgentProfileCount(count: number): string {
-	return `${count} Agent ${count === 1 ? "Profile" : "Profiles"}`;
 }
 
 export function DirectoryIdentityLogo(input: {

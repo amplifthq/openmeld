@@ -2,9 +2,40 @@ import type { AuthProfileView } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
 	isOrdinaryActiveAgentProfile,
+	resolveAgentExecutionReadinessState,
 	resolveShouldLoadAgentExecutionReadiness,
 	shouldRefreshLocalRuntimeAfterServiceReconnect,
 } from "#/components/agents/use-local-agent-recovery-controller";
+
+describe("resolveAgentExecutionReadinessState", () => {
+	it("keeps cached rows stable while their shared batch refetches", () => {
+		const cachedReadiness = {
+			agentProfileId: "agent-one",
+		} as unknown as import("@openmeld/schemas/types").GetAgentExecutionReadinessResponse;
+		const state = resolveAgentExecutionReadinessState({
+			agentProfiles: [
+				{ openMeldProfileId: "agent-one" },
+				{ openMeldProfileId: "agent-two" },
+			],
+			queryBatches: [
+				{
+					profileIds: ["agent-one", "agent-two"],
+					query: {
+						data: { items: [cachedReadiness] },
+						error: null,
+						fetchStatus: "fetching",
+						isError: false,
+						isPending: false,
+					},
+				},
+			],
+		});
+
+		expect(state.pendingProfileIds.has("agent-one")).toBe(false);
+		expect(state.pendingProfileIds.has("agent-two")).toBe(true);
+		expect(state.byProfileId.get("agent-one")).toBe(cachedReadiness);
+	});
+});
 
 function buildAgentProfile(
 	overrides: Partial<AuthProfileView> = {}

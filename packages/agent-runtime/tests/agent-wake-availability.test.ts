@@ -647,10 +647,8 @@ describe("agent wake availability", () => {
       phase: "offline",
       reasonCode: "wake_route.registration_expired",
       status: "offline_for_wake",
-      summary:
-        "This agent's connection is offline. Check OpenMeld Service on its computer.",
-      tooltip:
-        "Agent connection is offline. Check OpenMeld Service on its computer.",
+      summary: "This Agent's computer is offline.",
+      tooltip: "Agent computer is offline",
     });
   });
 
@@ -720,9 +718,8 @@ describe("agent wake availability", () => {
       phase: "service_not_connected",
       reasonCode: "service.not_running",
       status: "offline_for_wake",
-      summary:
-        "Connect OpenMeld Service on this computer before this agent can reply.",
-      tooltip: "OpenMeld Service is not connected on this computer.",
+      summary: "Connect your computer before this Agent can reply.",
+      tooltip: "Computer not connected",
     });
   });
 
@@ -754,10 +751,8 @@ describe("agent wake availability", () => {
       phase: "unavailable",
       reasonCode: "lookup_failed",
       status: "unavailable_for_wake",
-      summary:
-        "This agent's Wake route is unavailable right now. Check OpenMeld Service on its computer.",
-      tooltip:
-        "Wake route unavailable. Check OpenMeld Service on its computer.",
+      summary: "This Agent's computer connection is unavailable right now.",
+      tooltip: "Computer connection unavailable",
     });
   });
 
@@ -796,10 +791,8 @@ describe("agent wake availability", () => {
       phase: "offline",
       reasonCode: "route.offline",
       status: "offline_for_wake",
-      summary:
-        "This agent's connection is offline. Check OpenMeld Service on its computer.",
-      tooltip:
-        "Agent connection is offline. Check OpenMeld Service on its computer.",
+      summary: "This Agent's computer is offline.",
+      tooltip: "Agent computer is offline",
     });
   });
 
@@ -1131,12 +1124,12 @@ describe("agent wake availability", () => {
       badgeLabel: "Update",
       category: "unavailable",
       isRefreshing: false,
-      label: "Update OpenMeld Service",
+      label: "Update OpenMeld on Computer",
       phase: "service_update_required",
       reasonCode: "service.update_required",
       status: "unavailable_for_wake",
-      summary: "Update OpenMeld Service before this agent can reply.",
-      tooltip: "Update OpenMeld Service",
+      summary: "Update OpenMeld on your computer before this Agent can reply.",
+      tooltip: "Update OpenMeld on Computer",
     });
   });
 });
@@ -1197,12 +1190,12 @@ describe("delivery reconnect availability", () => {
       badgeLabel: "Reconnecting",
       category: "checking",
       isRefreshing: true,
-      label: "Reconnecting OpenMeld Service",
+      label: "Reconnecting Computer",
       phase: "checking_route",
       reasonCode: "local_service.reconnecting",
       status: "checking_connection",
-      summary: "OpenMeld Service is reconnecting on this computer.",
-      tooltip: "Reconnecting OpenMeld Service",
+      summary: "Computer is reconnecting.",
+      tooltip: "Reconnecting Computer",
     });
   });
 });

@@ -1,7 +1,6 @@
 import type {
   AgentExecutionReadinessRouteParams,
   AgentProfileBindingRouteParams,
-  AuthorizeAgentProfileBindingForOrganizationResponse,
   CurrentAgentProfileSessionLookupQuery,
   CurrentAgentProfileSessionLookupResponse,
   DisableAgentProfilePrimaryBindingResponse,
@@ -12,13 +11,10 @@ import type {
   GetAgentExecutionReadinessResponse,
   GetAgentProfileControllerChangeEligibilityResponse,
   GetAgentProfilePrimaryBindingResponse,
-  ListCurrentUserAgentProfileOrganizationWakeAccessResponse,
-  ListOrganizationBindingAuthorizationsResponse,
   NotifyAgentProfileRouteCatalogChangedBody,
   NotifyAgentProfileRouteCatalogChangedResponse,
   NotifyAgentProfilesRouteCatalogChangedBody,
   OpenMeldRequestContext,
-  RevokeAgentProfileBindingForOrganizationResponse,
   UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeBody,
   UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeBody,
   UpdateAgentProfilePrimaryBindingModelSelectionBody,
@@ -57,28 +53,10 @@ export type EnsureAgentProfilePrimaryBindingInput =
       requestContext?: OpenMeldRequestContext;
     };
 
-export type AuthorizeAgentProfileBindingForOrganizationInput =
-  AgentProfileBindingRouteParams & {
-    requestContext?: OpenMeldRequestContext;
-  };
-
-export type RevokeAgentProfileBindingForOrganizationInput =
-  AgentProfileBindingRouteParams & {
-    requestContext?: OpenMeldRequestContext;
-  };
-
 export type DisableAgentProfilePrimaryBindingInput =
   AgentProfileBindingRouteParams & {
     requestContext?: OpenMeldRequestContext;
   };
-
-export type ListOrganizationBindingAuthorizationsInput = {
-  requestContext?: OpenMeldRequestContext;
-};
-
-export type ListCurrentUserAgentProfileOrganizationWakeAccessInput = {
-  requestContext?: OpenMeldRequestContext;
-};
 
 export type NotifyAgentProfileRouteCatalogChangedInput =
   AgentProfileBindingRouteParams &
@@ -121,18 +99,6 @@ export type CreateAgentProfileBindingApi = (
   ensurePrimaryBinding: (
     input: EnsureAgentProfilePrimaryBindingInput
   ) => Promise<EnsureAgentProfilePrimaryBindingResponse>;
-  authorizePrimaryBindingForOrganization: (
-    input: AuthorizeAgentProfileBindingForOrganizationInput
-  ) => Promise<AuthorizeAgentProfileBindingForOrganizationResponse>;
-  listOrganizationAuthorizations: (
-    input?: ListOrganizationBindingAuthorizationsInput
-  ) => Promise<ListOrganizationBindingAuthorizationsResponse>;
-  listCurrentUserOrganizationWakeAccess: (
-    input?: ListCurrentUserAgentProfileOrganizationWakeAccessInput
-  ) => Promise<ListCurrentUserAgentProfileOrganizationWakeAccessResponse>;
-  revokePrimaryBindingForOrganization: (
-    input: RevokeAgentProfileBindingForOrganizationInput
-  ) => Promise<RevokeAgentProfileBindingForOrganizationResponse>;
   disablePrimaryBinding: (
     input: DisableAgentProfilePrimaryBindingInput
   ) => Promise<DisableAgentProfilePrimaryBindingResponse>;

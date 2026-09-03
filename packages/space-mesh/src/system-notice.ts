@@ -36,13 +36,13 @@ export function buildSystemNoticeText(input: {
     case "terminal_failure": {
       const targetName = normalizedActorName ?? FALLBACK_TARGET_AGENT_NAME;
       if (input.variant === "delivery_expired") {
-        return `${targetName} did not receive this Wake before it expired. Wake the agent again when the local OpenMeld Service is online.`;
+        return `${targetName} did not receive this Wake before it expired. Wake the Agent again when its computer is connected.`;
       }
       if (input.variant === "progress_stale") {
-        return `${targetName} stopped making progress on this Wake. Reconnect OpenMeld Service before trying again.`;
+        return `${targetName} stopped making progress on this Wake. Reconnect the computer before trying again.`;
       }
       if (input.variant === "local_runtime_lost") {
-        return `${targetName} was interrupted when OpenMeld Service restarted.`;
+        return `${targetName} was interrupted when its computer reconnected.`;
       }
       return reason
         ? `${actorName} couldn't reply: ${reason}`

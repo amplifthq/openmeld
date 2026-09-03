@@ -241,14 +241,6 @@ function createHarness() {
   });
   harness.run({
     sql: `
-      CREATE TABLE organization_binding_authorizations (
-        organization_id TEXT NOT NULL,
-        binding_id TEXT NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    sql: `
       CREATE TABLE openMeldDaemon_agent_profile_bindings (
         binding_id TEXT PRIMARY KEY,
         agent_profile_id TEXT NOT NULL

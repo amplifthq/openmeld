@@ -75,7 +75,7 @@ to the current workspace, and the page names its owner where useful.
 
 | Layer                            | Concepts                                                                                                                                                   | When visible                                                                                                                  |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Global structure                 | Work: Center Agent, Spaces, Direct Messages; Team: People, Agents; the Settings utility; the current-Computer toolbar launcher; and the workspace switcher | From first sign-in, in the same order for every workspace and role                                                            |
+| Global structure                 | New Agent, Home, Spaces, and Direct Messages as flat primary entries; Team: People, Agents; the Settings utility; the current-Computer toolbar launcher; and the workspace switcher | From first sign-in, in the same order for every workspace and role                                                            |
 | Temporarily hidden product homes | Projects, Documents, Agent Activity                                                                                                                        | Available through their existing direct and contextual routes, but absent from the primary rail until placement is redesigned |
 | Contextual collaboration content | Organization members, invitations, roles, shared access, and Organization directory-listing controls                                                       | Only when the selected workspace and current role make the content meaningful; the destination itself remains present         |
 | Never surfaced as domain truth   | "personal org" as a separate tenant type and per-Binding authorization mechanics in ordinary product flows                                                 | —                                                                                                                             |
@@ -88,8 +88,8 @@ is first-level in every context (the one-person-company story).
 ## Current Navigation Principle
 
 The sidebar structure from the original 2026-07-05 design is superseded. The
-approved fixed product rail uses **Work** for **Center Agent / Spaces / Direct
-Messages** and **Team** for **People / Agents** in both personal and
+approved fixed product rail uses flat **New Agent / Home / Spaces / Direct
+Messages** entries followed by **Team** for **People / Agents** in both personal and
 multi-member workspaces, with **Settings** separated as a utility. The former
 **Resources** group and its **Projects / Documents / Agent Activity**
 destinations are temporarily hidden from the primary rail; their canonical

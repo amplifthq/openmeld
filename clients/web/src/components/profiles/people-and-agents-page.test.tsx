@@ -779,7 +779,7 @@ describe("PeopleAndAgentsPage", () => {
 		).toBe(false);
 	});
 
-	it("does not request Agent runtime state on People", () => {
+	it("loads Agent runtime display data independently on People", () => {
 		render(
 			<PeopleAndAgentsPage
 				activeSectionId="people"
@@ -791,7 +791,14 @@ describe("PeopleAndAgentsPage", () => {
 			options.queryKey?.includes("agent-runtime-overview")
 		)?.[0];
 		expect(runtimeQueryOptions).toEqual(
-			expect.objectContaining({ enabled: false })
+			expect.objectContaining({ enabled: true })
+		);
+		expect(directoryMembersOverviewSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				runtimeOverview: expect.objectContaining({
+					agentProfiles: expect.any(Array),
+				}),
+			})
 		);
 	});
 
@@ -842,9 +849,7 @@ describe("PeopleAndAgentsPage", () => {
 			}),
 		]);
 		expect(workspaceProps.profilesStatus).toBe("ready");
-		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([
-			"agt_11111111-1111-4111-8111-111111111111",
-		]);
+		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([]);
 	});
 
 	it("counts only pending requests from the existing organization request query", () => {

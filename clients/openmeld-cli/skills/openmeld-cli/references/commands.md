@@ -462,6 +462,7 @@ openmeld space files history <space-id> <file-id> --profile <profile-id> --view 
 openmeld space files restore <space-id> <entry-id> --profile <profile-id> --view agent
 openmeld space files restore-version <space-id> <file-id> <revision> --base-revision <n> --profile <profile-id> --view agent
 openmeld space wake-progress <space-id> --profile <profile-id> --view agent
+openmeld space wake-progress <space-id> --source-profile <requester-profile-id> --profile <profile-id> --view agent
 openmeld space wake-progress <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent
 openmeld space wake-stop <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent
 openmeld space wake-stop <space-id> --source-signal <source-signal-id> --target-profile <agent-profile-id> --reason <text> --profile <profile-id> --view agent
@@ -522,10 +523,16 @@ agents.
 
 Read live Wake progress. With no selector, the command returns the active Wake
 summary for the Space. Use `--client-message` to poll one authored message and
-optionally `--target-profile` to narrow it to one Agent Profile.
+optionally `--target-profile` to narrow it to one Agent Profile. For the active
+summary, use `--source-profile` to keep only work requested by one Human or
+Agent Profile. Agent View includes the requester Profile ID, kind, display name,
+sanitized public source-message preview, nullable thread ID, target Agent, and
+current phase.
+It never includes private agent context.
 
 ```bash
 openmeld space wake-progress <space-id> --profile <profile-id> --view agent
+openmeld space wake-progress <space-id> --source-profile <requester-profile-id> --profile <profile-id> --view agent
 openmeld space wake-progress <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent
 ```
 

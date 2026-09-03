@@ -6,7 +6,7 @@ import type { BrowserQueryPersistenceController } from "#/query/persistence/brow
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
-	prefetchAgentsRouteData,
+	prefetchAgentsRouteIdentityData,
 	prefetchAppCatalogRouteData,
 	prefetchAppDetailRouteData,
 	prefetchCenterAgentConversationData,
@@ -213,10 +213,10 @@ describe("organization app route prefetch", () => {
 		expect(listCurrentOrganizationAppConnectionsMock).not.toHaveBeenCalled();
 	});
 
-	it("warms Agents and account profiles under the component query keys", async () => {
+	it("warms Agent identities without blocking navigation on runtime status", async () => {
 		const queryClient = createQueryClient();
 
-		await prefetchAgentsRouteData({
+		await prefetchAgentsRouteIdentityData({
 			organizationSlug: "acme",
 			queryClient,
 			queryPersistence,
@@ -235,7 +235,7 @@ describe("organization app route prefetch", () => {
 			queryClient.getQueryData(
 				organizationQueryKeys.agentRuntimeOverview("org-acme")
 			)
-		).toEqual(organizationAgentRuntimeOverview);
+		).toBeUndefined();
 	});
 
 	it("warms the Spaces list and account profiles in parallel", async () => {

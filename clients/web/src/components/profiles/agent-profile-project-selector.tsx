@@ -639,8 +639,8 @@ function ProjectSelectionDetails(input: {
 			) : null}
 			{input.branch === "service_unavailable" ? (
 				<p className="text-sm">
-					OpenMeld Service is unavailable on this computer. Reconnect or update
-					the Service, then try again.
+					This computer isn't connected to OpenMeld. Reconnect or update it,
+					then try again.
 				</p>
 			) : null}
 			{input.branch === "verification_unavailable" ? (

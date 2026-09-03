@@ -94,6 +94,8 @@ const LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER = [
 ];
 const WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER =
   LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER;
+const SPACE_HISTORY_QUERY_RECEIVERS_FIRST_SCOPE_ORDER =
+  LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER;
 const CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
   "auth",
@@ -140,6 +142,8 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER,
   "wake-progress-opt-in-receivers-first":
     WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER,
+  "space-history-query-receivers-first":
+    SPACE_HISTORY_QUERY_RECEIVERS_FIRST_SCOPE_ORDER,
   "default-auth-receiver-first": SCOPE_ORDER,
   "inbox-source-target-receiver-first":
     INBOX_SOURCE_TARGET_RECEIVER_FIRST_SCOPE_ORDER,
@@ -157,6 +161,8 @@ const INBOX_SOURCE_TARGET_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/inbox.ts";
 const WAKE_PROGRESS_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/space-wake-progress.ts";
+const SPACE_HISTORY_QUERY_SCHEMA_PATH =
+  "packages/schemas/src/schemas/http/list-signals-query.ts";
 const WAKE_PROGRESS_CLI_CALLER_PATH =
   "clients/openmeld-cli/src/space/wake-control-command.ts";
 const WAKE_PROGRESS_CORE_PRODUCER_PATHS = new Set([
@@ -366,6 +372,11 @@ export function resolveAutomaticReleaseScopes(input) {
     scopes.add("gateway");
     scopes.add("core");
   }
+  if (isSpaceHistoryQueryContractDiff(input.changedPaths)) {
+    scopes.add("cli");
+    scopes.add("gateway");
+    scopes.add("core");
+  }
 
   return sortScopes(scopes);
 }
@@ -518,9 +529,11 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertInboxSourceTargetReleaseScopes(scopes, changedPaths);
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
+  assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
   const orderedScopes = resolveProductionDeployScopeOrder(scopes, changedPaths);
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
+  assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
   for (const scope of orderedScopes) {
     appendProductionDeployScopeSteps({
       deployOrderProfile,
@@ -744,7 +757,13 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   if (isLocalServiceReceiverFirst) {
     return "local-service-runtime-receiver-first";
   }
-  return "default-auth-receiver-first";
+  return resolveDefaultDeployOrderProfile(changedPaths);
+}
+
+function resolveDefaultDeployOrderProfile(changedPaths) {
+  return isSpaceHistoryQueryContractDiff(changedPaths)
+    ? "space-history-query-receivers-first"
+    : "default-auth-receiver-first";
 }
 
 function resolveWakeProgressOptInDeployOrderProfile(input) {
@@ -855,6 +874,46 @@ function isWakeProgressOptInContractDiff(changedPaths) {
     changedPaths.includes(WAKE_PROGRESS_CLI_CALLER_PATH) &&
     changedPaths.some((path) => WAKE_PROGRESS_CORE_PRODUCER_PATHS.has(path))
   );
+}
+
+function isSpaceHistoryQueryContractDiff(changedPaths) {
+  return changedPaths.includes(SPACE_HISTORY_QUERY_SCHEMA_PATH);
+}
+
+function assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths) {
+  if (
+    !(isSpaceHistoryQueryContractDiff(changedPaths) && scopes.includes("cli"))
+  ) {
+    return;
+  }
+  const selected = new Set(scopes);
+  if (selected.has("gateway") && selected.has("core")) {
+    return;
+  }
+  throw new Error(
+    "The Space history query contract requires the Gateway and Core scopes before publishing its CLI caller."
+  );
+}
+
+function assertSpaceHistoryQueryDeployOrder(scopes, changedPaths) {
+  if (
+    !(isSpaceHistoryQueryContractDiff(changedPaths) && scopes.includes("cli"))
+  ) {
+    return;
+  }
+  const gatewayIndex = scopes.indexOf("gateway");
+  const coreIndex = scopes.indexOf("core");
+  const cliIndex = scopes.indexOf("cli");
+  if (
+    gatewayIndex < 0 ||
+    coreIndex < 0 ||
+    gatewayIndex > cliIndex ||
+    coreIndex > cliIndex
+  ) {
+    throw new Error(
+      "The Space history query contract must deploy Gateway and Core before CLI. Split conflicting receiver-first changes into independently releasable releases."
+    );
+  }
 }
 
 function assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths) {

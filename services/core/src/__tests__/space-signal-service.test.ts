@@ -840,6 +840,7 @@ function createWakeProgressOutboxRecord(input: {
 function createWakeProgressSourceSignal(input: {
   clientMessageId?: string | null;
   id?: string;
+  profileId?: string;
   targetProfileIds?: readonly string[];
 }): Extract<SignalEnvelope, { type: "signal.text" }> {
   const clientMessageId =
@@ -847,6 +848,10 @@ function createWakeProgressSourceSignal(input: {
   return {
     ...createSignal(),
     id: input.id ?? "sig-source-1",
+    profile: {
+      ...createSignal().profile,
+      profileId: input.profileId ?? "human-1",
+    },
     data: {
       text: "@Codex Agent(wake) hello",
       messageEnvelope: {
@@ -898,6 +903,12 @@ function createActiveWakeProgressSql(input: {
   const sqlExec = vi.fn((query: string, ...params: unknown[]) => {
     if (query.includes("FROM openMeldDaemon_outbox")) {
       const statusParams = new Set(params.map(String));
+      const sourceSignalIdsJson = params.find(
+        (param) => typeof param === "string" && param.startsWith("[")
+      );
+      const sourceSignalIds = sourceSignalIdsJson
+        ? new Set(JSON.parse(String(sourceSignalIdsJson)) as string[])
+        : null;
       return {
         toArray: () =>
           outboxRows
@@ -909,6 +920,10 @@ function createActiveWakeProgressSql(input: {
                   : record.outboxStatus,
             }))
             .filter(({ persistedStatus }) => statusParams.has(persistedStatus))
+            .filter(
+              ({ record }) =>
+                !sourceSignalIds || sourceSignalIds.has(record.sourceEventId)
+            )
             .map(({ persistedStatus, record }) => ({
               payload_json: record.payloadJson,
               status: persistedStatus,
@@ -926,6 +941,15 @@ function createActiveWakeProgressSql(input: {
       };
     }
     if (query.includes("FROM space_signals")) {
+      if (query.includes("WHERE profile_id = ?")) {
+        const profileId = String(params[0] ?? "");
+        return {
+          toArray: () =>
+            sourceSignals
+              .filter((signal) => signal.profile.profileId === profileId)
+              .map((signal) => ({ id: signal.id })),
+        };
+      }
       if (query.includes("WHERE id = ?")) {
         const signalId = String(params[0] ?? "");
         return {
@@ -1024,6 +1048,12 @@ function createWakeEvidenceDb(
   const prepare = vi.fn((query: string) => {
     const bind = vi.fn((...params: unknown[]) => {
       const all = vi.fn(() => {
+        const sourceSignalIdsJson = params.find(
+          (param) => typeof param === "string" && param.startsWith("[")
+        );
+        const sourceSignalIds = sourceSignalIdsJson
+          ? new Set(JSON.parse(String(sourceSignalIdsJson)) as string[])
+          : null;
         if (
           query.includes(
             "FROM openMeldDaemon_runtime_coordinator_executions AS executions"
@@ -1037,6 +1067,11 @@ function createWakeEvidenceDb(
                     execution.status ??
                     "result_accepted"
                 )
+              )
+              .filter(
+                (execution) =>
+                  !sourceSignalIds ||
+                  sourceSignalIds.has(execution.sourceEventId)
               )
               .map((execution, index) => ({
                 dispatch_id: execution.dispatchId,
@@ -1074,6 +1109,10 @@ function createWakeEvidenceDb(
                 ["accepted", "retry_observed"].includes(
                   row.nativeDeliveryStatus ?? "accepted"
                 )
+              )
+              .filter(
+                (row) =>
+                  !sourceSignalIds || sourceSignalIds.has(row.sourceEventId)
               )
               .map((row, index) => ({
                 started_at_ms:
@@ -1328,6 +1367,7 @@ async function readActiveWakeProgressForTest(input: {
   actorOwnerUserId?: string;
   executionRows?: readonly WakeProgressExecutionRow[];
   includeTiming?: boolean;
+  includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
   lookupRows?: readonly WakeProgressExecutionRow[];
@@ -1348,6 +1388,7 @@ async function readActiveWakeProgressForTest(input: {
     };
   }) => Promise<WakeProgressItem["pendingInteraction"]>;
   sourceSignals?: readonly Extract<SignalEnvelope, { type: "signal.text" }>[];
+  sourceProfileId?: string;
   targetProfileId?: string;
   headLifecycleReadStatus?:
     | "accepted"
@@ -1371,8 +1412,10 @@ async function readActiveWakeProgressForTest(input: {
       actorOwnerUserId?: string | null;
       db: D1Database;
       includeTiming?: boolean;
+      includeSourceContext?: boolean;
       includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
+      sourceProfileId?: string;
       targetProfileId?: string;
     }) => Promise<GetActiveSpaceWakeProgressResponse>;
     readSpaceWakeProgress: NonNullable<typeof input.readSpaceWakeProgress>;
@@ -1418,8 +1461,12 @@ async function readActiveWakeProgressForTest(input: {
     actorOwnerUserId: input.actorOwnerUserId,
     db: wakeEvidenceDb,
     includeTiming: input.includeTiming,
+    includeSourceContext: input.includeSourceContext,
     includeWaitReason: input.includeWaitReason,
     includeWakeStopEligibility: input.includeWakeStopEligibility,
+    ...(input.sourceProfileId
+      ? { sourceProfileId: input.sourceProfileId }
+      : {}),
     ...(input.targetProfileId
       ? { targetProfileId: input.targetProfileId }
       : {}),
@@ -5211,6 +5258,56 @@ describe("space signal service", () => {
     ]);
   });
 
+  it("filters active Wake progress by requester and returns Space-owned source context", async () => {
+    const requestedSource = createWakeProgressSourceSignal({
+      id: "signal-requested-source",
+      profileId: "human-requester",
+    });
+    const otherSource = createWakeProgressSourceSignal({
+      id: "signal-other-source",
+      profileId: "agent-other",
+    });
+    const response = await readActiveWakeProgressForTest({
+      executionRows: [
+        {
+          dispatchId: "dispatch-requested",
+          executionStatus: "running",
+          sourceEventId: requestedSource.id,
+          targetProfileId: "agent-target-requested",
+        },
+        {
+          dispatchId: "dispatch-other",
+          executionStatus: "running",
+          sourceEventId: otherSource.id,
+          targetProfileId: "agent-target-other",
+        },
+      ],
+      includeSourceContext: true,
+      outboxRows: [],
+      sourceProfileId: "human-requester",
+      sourceSignals: [requestedSource, otherSource],
+    });
+
+    expect(response.query).toEqual({
+      sourceProfileId: "human-requester",
+      spaceId: "space-1",
+      targetProfileId: null,
+    });
+    expect(response.items).toEqual([
+      expect.objectContaining({
+        dispatchId: "dispatch-requested",
+        sourceContext: {
+          messagePreview: "@Codex Agent(wake) hello",
+          profileId: "human-requester",
+          profileKind: "human",
+          profileName: "Felix",
+          threadId: null,
+        },
+        sourceSignalId: "signal-requested-source",
+      }),
+    ]);
+  });
+
   it("projects active RuntimeCoordinator summary without rebuilding dispatch traces", async () => {
     const readSpaceWakeProgress = vi.fn();
     const response = await readActiveWakeProgressForTest({
@@ -5592,6 +5689,7 @@ describe("space signal service", () => {
     expect(readSpaceWakeProgress).toHaveBeenCalledWith({
       actorOwnerUserId: undefined,
       clientMessageId: "client-message-hosted-stop-1",
+      includeSourceContext: false,
       includeTiming: false,
       includeWaitReason: false,
       includeWakeStopEligibility: true,

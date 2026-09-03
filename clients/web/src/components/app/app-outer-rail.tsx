@@ -80,6 +80,7 @@ import { selectLastSelectedOrganization } from "#/lib/organizations/account-orga
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAccountSettingsPath,
+	buildOrganizationAgentCreationPath,
 	buildOrganizationAgentsPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationNewOrganizationPath,
@@ -109,11 +110,13 @@ type AppOuterRailAccount = {
 	name?: string | null;
 };
 
+type AppRailDestinationId = AppOuterRailDestination | "newAgent";
+
 type AppRailDestination = {
 	attentionCount?: number;
 	compactLabel?: string;
 	icon: ReactNode;
-	id: AppOuterRailDestination;
+	id: AppRailDestinationId;
 	label: string;
 	onIntentPrefetch?: () => void;
 	to: string;
@@ -155,9 +158,15 @@ function buildAppRailGroups(input: {
 }): readonly AppRailGroup[] {
 	return [
 		{
-			id: "home",
+			id: "primary",
 			label: null,
 			destinations: [
+				{
+					id: "newAgent",
+					label: "New Agent",
+					to: buildOrganizationAgentCreationPath(input.orgSlug),
+					icon: <PlusIcon aria-hidden="true" className="size-4" />,
+				},
 				{
 					id: "home",
 					label: "Home",
@@ -166,12 +175,6 @@ function buildAppRailGroups(input: {
 					icon: <HouseIcon aria-hidden="true" className="size-4" />,
 					unreadCount: input.centerAgentUnreadCount,
 				},
-			],
-		},
-		{
-			id: "work",
-			label: "Work",
-			destinations: [
 				{
 					id: "spaces",
 					label: "Spaces",
@@ -427,7 +430,7 @@ function AppRailNavigationGroup(input: {
 		<FluidNavMenu
 			activeIndicatorClassName="bg-sidebar-accent"
 			activeValue={input.activeDestination}
-			aria-label={input.group.label ?? "Home"}
+			aria-label={input.group.label ?? "Primary navigation"}
 			focusIndicatorClassName="border-sidebar-ring"
 			hoverIndicatorClassName="bg-sidebar-accent"
 		>
@@ -1198,7 +1201,7 @@ function AppRailStatusDot(input: {
 
 function buildAppRailAccessibleLabel(input: {
 	attentionCount: number;
-	destinationId: AppOuterRailDestination;
+	destinationId: AppRailDestinationId;
 	label: string;
 	unreadCount: number;
 }): string {
@@ -1217,7 +1220,7 @@ function buildAppRailAccessibleLabel(input: {
 }
 
 function resolveAppRailUnreadIndicatorKind(
-	destinationId: AppOuterRailDestination
+	destinationId: AppRailDestinationId
 ): AppRailStatusIndicatorKind | null {
 	if (destinationId === "home") {
 		return "center-agent-unread";
@@ -1230,7 +1233,7 @@ function resolveAppRailUnreadIndicatorKind(
 
 function resolveAppRailUnreadCopy(input: {
 	count: number;
-	destinationId: AppOuterRailDestination;
+	destinationId: AppRailDestinationId;
 }): string {
 	if (input.destinationId === "home") {
 		return input.count === 1 ? "reply" : "replies";

@@ -233,7 +233,7 @@ describe("computer summary status", () => {
 				}),
 			})
 		).toMatchObject({
-			label: "OpenMeld Service is not connected",
+			label: "Computer not connected",
 			reason: "service_not_connected",
 			tone: "danger",
 		});
@@ -458,7 +458,7 @@ describe("computer summary status", () => {
 		});
 
 		expect(status).toMatchObject({
-			label: "Couldn't check",
+			label: "Check delayed",
 			reason: "agent_check_failed",
 			tone: "warning",
 		});

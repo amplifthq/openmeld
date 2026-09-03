@@ -160,6 +160,46 @@ describe("SpaceThreadPanel", () => {
 		expect(onViewedThroughTs).toHaveBeenCalledWith(latestTs);
 	});
 
+	it("returns thread reads to the normal debounce after a retry succeeds", async () => {
+		vi.useFakeTimers();
+		const warning = vi
+			.spyOn(console, "warn")
+			.mockImplementation(() => undefined);
+		const onViewedThroughTs = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValue(undefined);
+		const firstTs = Date.UTC(2026, 4, 27, 10, 0, 9);
+		const secondTs = firstTs + 1000;
+		const view = renderThreadPanel({
+			onViewedThroughTs,
+			signals: [createTextSignal({ ts: firstTs })],
+		});
+
+		await act(async () => {
+			vi.advanceTimersByTime(800);
+			await Promise.resolve();
+		});
+		await act(async () => {
+			vi.advanceTimersByTime(1000);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
+
+		view.rerenderThreadPanel({
+			onViewedThroughTs,
+			signals: [createTextSignal({ ts: secondTs })],
+		});
+		await act(async () => vi.advanceTimersByTime(799));
+		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
+		await act(async () => {
+			vi.advanceTimersByTime(1);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenLastCalledWith(secondTs);
+		warning.mockRestore();
+	});
+
 	it("keeps the Thread composer actions flush and aligned while sending", () => {
 		const view = renderThreadPanel();
 
@@ -1201,9 +1241,7 @@ describe("SpaceThreadPanel", () => {
 		);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(
-			dialog.getByRole("heading", { name: "How this Agent works" })
-		).toBeTruthy();
+		expect(dialog.queryByText("How this Agent works")).toBeNull();
 		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
 		expect(dialog.getByText("Available for Wake")).toBeTruthy();
 	});

@@ -40,6 +40,28 @@ export function buildWakeStopTargetLabelsByProfileId(
 	return labelsByProfileId;
 }
 
+export function resolveAgentProfileOwnerEntry(input: {
+	agentEntry: SpaceMemberDirectoryEntry;
+	entriesByProfileId: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+}): SpaceMemberDirectoryEntry | null {
+	if (
+		!(input.agentEntry.profileKind === "agent" && input.agentEntry.ownerUserId)
+	) {
+		return null;
+	}
+
+	for (const entry of input.entriesByProfileId.values()) {
+		if (
+			entry.profileKind === "human" &&
+			entry.ownerUserId === input.agentEntry.ownerUserId
+		) {
+			return entry;
+		}
+	}
+
+	return null;
+}
+
 export function buildSpaceCollaborationProfilePresentations(input: {
 	centerAgentProfileId: string | null;
 	entriesByProfileId: ReadonlyMap<string, SpaceMemberDirectoryEntry>;

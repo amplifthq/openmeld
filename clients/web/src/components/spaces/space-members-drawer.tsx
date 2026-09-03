@@ -62,6 +62,7 @@ import {
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
+import { buildSpaceMemberDirectoryEntryByProfileId } from "./space-collaboration-profile";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { isSameOwnerUserId } from "./space-member-ownership";
 import { SpaceMemberRow } from "./space-member-row";
@@ -1852,6 +1853,10 @@ function SpaceMembersList(input: {
 	snapshot: SpaceMembersSnapshot | null;
 }) {
 	const [isRetryPending, setIsRetryPending] = useState(false);
+	const entriesByProfileId = useMemo(
+		() => buildSpaceMemberDirectoryEntryByProfileId(input.snapshot),
+		[input.snapshot]
+	);
 	const activeWakeDisplayTargetProfileIds =
 		input.activeWakeDisplayTargetProfileIds ??
 		EMPTY_ACTIVE_WAKE_DISPLAY_TARGET_PROFILE_IDS;
@@ -1978,6 +1983,7 @@ function SpaceMembersList(input: {
 										centerAgentProfileId={input.centerAgentProfileId}
 										currentOwnerUserId={input.currentOwnerUserId}
 										currentProfileId={input.currentProfileId}
+										entriesByProfileId={entriesByProfileId}
 										entry={entry}
 										isAgentRecoveryPending={input.isAgentRecoveryPending(
 											entry.profileId

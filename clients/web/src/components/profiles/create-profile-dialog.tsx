@@ -363,9 +363,11 @@ export type CreateProfileDialogProps = {
 	allowTeammateRequests?: boolean;
 	currentUserId?: string;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
-	onAgentRequestCreated?: (request: AgentProfileCreationRequest) => void;
+	onAgentRequestCreated?: (
+		request: AgentProfileCreationRequest
+	) => void | Promise<void>;
 	onOpenChange: (open: boolean) => void;
-	onProfileCreated?: (profile: AuthProfileView) => void;
+	onProfileCreated?: (profile: AuthProfileView) => void | Promise<void>;
 	open: boolean;
 	organizationId: string;
 	orgSlug?: string;
@@ -540,6 +542,7 @@ function useCreateProfileDialogController(
 		initialSessionPresetKey
 	);
 	const creationDefaultsEditedRef = useRef(Boolean(sessionPreset));
+	const journeyDraftRestorationDismissedRef = useRef(false);
 	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
 	const currentOrgSlug = useOptionalCurrentOrganizationSlug();
 	const orgSlug = input.orgSlug ?? currentOrgSlug;
@@ -638,7 +641,11 @@ function useCreateProfileDialogController(
 		});
 	const restoredJourneyDraft = useAgentProfileCreationJourneyDraft({
 		availableLocalAgentIds,
-		canRestore: !creationDefaultsEditedRef.current,
+		canRestore: canRestoreAgentProfileCreationJourneyDraft({
+			creationDefaultsEdited: creationDefaultsEditedRef.current,
+			journeyDraftRestorationDismissed:
+				journeyDraftRestorationDismissedRef.current,
+		}),
 		current: {
 			agentControllerCollaborationMode:
 				rawBoundAgentControllerCollaborationMode,
@@ -821,6 +828,7 @@ function useCreateProfileDialogController(
 		creationIntentRef.current = null;
 		appliedCreationDefaultsKeyRef.current = null;
 		creationDefaultsEditedRef.current = false;
+		journeyDraftRestorationDismissedRef.current = false;
 		dispatchForm({
 			state: {
 				...createInitialCreateProfileDialogFormState({
@@ -889,9 +897,9 @@ function useCreateProfileDialogController(
 				setupRefreshAvailable: false,
 			});
 		},
-		onSuccess: (result) => {
+		onSuccess: async (result) => {
 			clearCreationJourneyDraft(journeyDraftStorageKey);
-			handleProfileCreationSuccess({
+			await handleProfileCreationSuccess({
 				onAfterJoin: input.onAfterJoin,
 				onAgentRequestCreated: input.onAgentRequestCreated,
 				onClose: () => input.onOpenChange(false),
@@ -1100,6 +1108,7 @@ function useCreateProfileDialogController(
 		modelCatalog,
 		modelCompatibilityContext,
 		onChangeAgentBindingValue: (value: string) => {
+			journeyDraftRestorationDismissedRef.current = true;
 			setAgentBindingValue(value);
 			const nextAgentId = resolveOwnerBoundAgentId({
 				ownerMode,
@@ -1149,6 +1158,7 @@ function useCreateProfileDialogController(
 		onChangeBoundAgentControllerPermissionModeConfirmed:
 			setBoundAgentControllerPermissionModeConfirmed,
 		onChangeBoundAgentId: (nextAgentId: string) => {
+			journeyDraftRestorationDismissedRef.current = true;
 			appliedCreationDefaultsKeyRef.current = null;
 			creationDefaultsEditedRef.current = false;
 			setBoundAgentId(nextAgentId);
@@ -1282,6 +1292,15 @@ function useCreateProfileDialogController(
 		},
 		title: dialogTitle,
 	};
+}
+
+function canRestoreAgentProfileCreationJourneyDraft(input: {
+	creationDefaultsEdited: boolean;
+	journeyDraftRestorationDismissed: boolean;
+}): boolean {
+	return !(
+		input.creationDefaultsEdited || input.journeyDraftRestorationDismissed
+	);
 }
 
 function resolveSessionOwnerUserId(input: {
@@ -1816,11 +1835,13 @@ async function submitProfileCreation(input: CreateProfileSubmissionInput) {
 	return await createHumanProfile(input);
 }
 
-function handleProfileCreationSuccess(input: {
+async function handleProfileCreationSuccess(input: {
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
-	onAgentRequestCreated?: (request: AgentProfileCreationRequest) => void;
+	onAgentRequestCreated?: (
+		request: AgentProfileCreationRequest
+	) => void | Promise<void>;
 	onClose: () => void;
-	onProfileCreated?: (profile: AuthProfileView) => void;
+	onProfileCreated?: (profile: AuthProfileView) => void | Promise<void>;
 	onReset: () => void;
 	organizationId: string;
 	queryClient: QueryClient;
@@ -1833,8 +1854,7 @@ function handleProfileCreationSuccess(input: {
 			customWorkingFolderIssue: input.result.customWorkingFolderIssue,
 			request: input.result.request,
 		});
-		input.onAgentRequestCreated?.(input.result.request);
-		refreshAgentProfileCreationRequestCaches({
+		await refreshAgentProfileCreationRequestCaches({
 			createdAgentProfileId: input.result.request.createdAgentProfileId,
 			onAfterJoin: input.onAfterJoin,
 			organizationId: input.organizationId,
@@ -1846,6 +1866,14 @@ function handleProfileCreationSuccess(input: {
 		}).catch((error) => {
 			console.warn(
 				"OpenMeld created the Agent request but could not refresh its current status.",
+				error
+			);
+		});
+		await Promise.resolve(
+			input.onAgentRequestCreated?.(input.result.request)
+		).catch((error) => {
+			console.warn(
+				"OpenMeld created the Agent but could not open its current profile.",
 				error
 			);
 		});
@@ -1865,7 +1893,14 @@ function handleProfileCreationSuccess(input: {
 		profile: input.result.profile,
 		spaceContext: input.spaceContext,
 	});
-	input.onProfileCreated?.(input.result.profile);
+	await Promise.resolve(input.onProfileCreated?.(input.result.profile)).catch(
+		(error) => {
+			console.warn(
+				"OpenMeld created the profile but could not open its current details.",
+				error
+			);
+		}
+	);
 	input.onReset();
 	input.onClose();
 }
@@ -2930,7 +2965,7 @@ function showCreatedAgentRequestToast(input: {
 		case "completed":
 			toast.success(
 				input.request.requesterUserId === input.request.targetOwnerUserId
-					? "Agent created."
+					? "Agent created. Checking its connection now."
 					: "Agent created for your teammate."
 			);
 			return;

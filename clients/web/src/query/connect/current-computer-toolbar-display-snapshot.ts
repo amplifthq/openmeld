@@ -68,7 +68,7 @@ export function readCurrentComputerToolbarAttention(
 	switch (attention.reason) {
 		case "agent_check_failed":
 			return {
-				label: "Couldn't check",
+				label: "Check delayed",
 				reason: attention.reason,
 				showLabel: true,
 				tone: attention.tone,
@@ -82,7 +82,7 @@ export function readCurrentComputerToolbarAttention(
 			};
 		case "service_not_connected":
 			return {
-				label: "OpenMeld Service is not connected",
+				label: "Computer not connected",
 				reason: attention.reason,
 				showLabel: true,
 				tone: attention.tone,

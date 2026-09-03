@@ -7,6 +7,7 @@ import type {
   GetSpaceWakeProgressResponse,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { OpenMeldApiClientInvalidResponseError } from "../errors";
 import {
   buildActiveSpaceWakeProgressPath,
   buildSpaceWakeProgressPath,
@@ -17,6 +18,7 @@ export async function getSpaceWakeProgress(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
     clientMessageId: string;
+    includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
@@ -25,6 +27,9 @@ export async function getSpaceWakeProgress(
 ): Promise<GetSpaceWakeProgressResponse> {
   const searchParams = new URLSearchParams();
   searchParams.set("clientMessageId", input.clientMessageId);
+  if (input.includeSourceContext === true) {
+    searchParams.set("includeSourceContext", "true");
+  }
   if (input.includeTiming === true) {
     searchParams.set("includeTiming", "true");
   }
@@ -57,13 +62,18 @@ export async function getSpaceWakeProgress(
 export async function getActiveSpaceWakeProgress(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
+    includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     targetProfileId?: string;
+    sourceProfileId?: string;
   }
 ): Promise<GetActiveSpaceWakeProgressResponse> {
   const searchParams = new URLSearchParams();
+  if (input.includeSourceContext === true) {
+    searchParams.set("includeSourceContext", "true");
+  }
   if (input.includeTiming === true) {
     searchParams.set("includeTiming", "true");
   }
@@ -76,9 +86,12 @@ export async function getActiveSpaceWakeProgress(
   if (input.targetProfileId) {
     searchParams.set("targetProfileId", input.targetProfileId);
   }
+  if (input.sourceProfileId) {
+    searchParams.set("sourceProfileId", input.sourceProfileId);
+  }
 
   const query = searchParams.toString();
-  return await client.requestJson({
+  const response = await client.requestJson({
     url: query
       ? `${buildActiveSpaceWakeProgressPath(input.spaceId)}?${query}`
       : buildActiveSpaceWakeProgressPath(input.spaceId),
@@ -93,4 +106,24 @@ export async function getActiveSpaceWakeProgress(
     schema: getActiveSpaceWakeProgressResponseSchema,
     invalidMessage: "invalid active wake progress response",
   });
+
+  if (
+    input.sourceProfileId &&
+    response.query.sourceProfileId !== input.sourceProfileId
+  ) {
+    throw new OpenMeldApiClientInvalidResponseError({
+      message:
+        "Active Wake progress did not confirm the requested source profile filter.",
+      operation: "space.active_wake_progress",
+      status: 200,
+      rawBody: JSON.stringify(response),
+      schemaIssue: {
+        message:
+          "The response source profile did not match the requested source profile.",
+        path: ["query", "sourceProfileId"],
+      },
+    });
+  }
+
+  return response;
 }

@@ -105,7 +105,6 @@ import type { WakeDisplayOverrideByProfileId } from "./use-wake-display-debounce
 const EMPTY_SPACE_CTA_NAME = /It is just you here so far/;
 const EXISTING_MESSAGES_AND_FILES_PATTERN = /existing messages and files/i;
 const CANNOT_BE_UNDONE_PATTERN = /cannot be undone/i;
-const DIRECT_MESSAGE_PATTERN = /Direct Message/;
 const TEST_PANEL_WIDTH = "22rem";
 const noopPanelWidthChange = () => undefined;
 
@@ -473,11 +472,14 @@ describe("SpaceMembersSidePanel", () => {
 							}),
 						],
 						humans: [
-							createSpaceMemberHumanSnapshot({
-								ownerUserId: "user_felix",
-								profileId: "11111111-1111-4111-8111-111111111111",
-								profileName: "Felix",
-							}),
+							{
+								...createSpaceMemberHumanSnapshot({
+									ownerUserId: "user_felix",
+									profileId: "11111111-1111-4111-8111-111111111111",
+									profileName: "Felix",
+								}),
+								avatarUrl: "https://images.example.test/felix.png",
+							},
 						],
 					})}
 				/>
@@ -489,18 +491,21 @@ describe("SpaceMembersSidePanel", () => {
 				name: "Member options for Research Agent",
 			})
 		);
-		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Check this Profile" })
-		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
 
 		expect(
-			await screen.findByRole("heading", { name: "Check this Profile" })
+			await screen.findByRole("heading", { name: "Check this Agent" })
 		).toBeTruthy();
 		expect(
-			await screen.findByRole("button", { name: "Edit Collaboration" })
+			await screen.findByRole("button", { name: "Edit Collaboration mode" })
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", { name: "Edit Permissions" })
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("dialog", { name: "Check this Agent" })
+				.querySelector('img[src="https://images.example.test/felix.png"]')
 		).toBeTruthy();
 	});
 
@@ -587,11 +592,9 @@ describe("SpaceMembersSidePanel", () => {
 				name: "Member options for Research Agent",
 			})
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
 		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Check this Profile" })
-		);
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Edit Collaboration" })
+			await screen.findByRole("button", { name: "Edit Collaboration mode" })
 		);
 		fireEvent.click(
 			await screen.findByRole("combobox", {
@@ -618,7 +621,7 @@ describe("SpaceMembersSidePanel", () => {
 			).toBeNull();
 		});
 		expect(
-			screen.getByRole("heading", { name: "Check this Profile" })
+			screen.getByRole("heading", { name: "Check this Agent" })
 		).toBeTruthy();
 		expect(toastMock.error).toHaveBeenCalledWith(
 			"The Agent was saved, but OpenMeld could not refresh the latest settings. Refresh the page to see them."
@@ -687,11 +690,11 @@ describe("SpaceMembersSidePanel", () => {
 				name: "Member options for Research Agent",
 			})
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
 		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Check this Profile" })
-		);
-		fireEvent.click(
-			await screen.findByRole("button", { name: DIRECT_MESSAGE_PATTERN })
+			await screen.findByRole("button", {
+				name: "Chat with Research Agent",
+			})
 		);
 
 		await waitFor(() => {

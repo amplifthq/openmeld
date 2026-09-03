@@ -3,8 +3,6 @@ import {
   agentControllerCollaborationModeSchema,
   agentControllerPermissionModeSchema,
   agentProfileBindingRouteParamsSchema,
-  bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
-  bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   currentAgentProfileSessionLookupQuerySchema,
   currentAgentProfileSessionLookupResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
@@ -12,13 +10,8 @@ import {
   getAgentProfileControllerChangeEligibilityResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
-  getOrganizationBindingAuthorizationPreferenceResponseSchema,
   listAgentProfileCreationDefaultsResponseSchema,
-  listOrganizationBindingAuthorizationProfilesResponseSchema,
-  saveOrganizationWakeAccessChoiceBodySchema,
-  saveOrganizationWakeAccessChoiceResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
-  setOrganizationBindingAuthorizationPreferenceBodySchema,
 } from "../../src/schemas";
 
 const REASONING_REQUIRES_MODEL_PATTERN = /reasoningLevel requires modelId/u;
@@ -521,126 +514,6 @@ describe("agent profile binding http schemas", () => {
         status: "accepted",
       }).success
     ).toBe(false);
-  });
-
-  it("accepts bulk Organization Binding authorization and preference contracts", () => {
-    expect(
-      bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema.parse({
-        agentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
-      })
-    ).toEqual({
-      agentProfileIds: ["agt_11111111-1111-4111-8111-111111111111"],
-    });
-
-    expect(
-      bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema.parse({
-        alreadyAuthorizedCount: 1,
-        authorizedCount: 1,
-        authorizations: [
-          {
-            agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
-            authorizedBy: "user-1",
-            bindingId: "binding-1",
-            createdAt: "2026-07-05T00:00:00.000Z",
-            organizationId: "org-1",
-            status: "authorized",
-          },
-          {
-            agentProfileId: "agt_22222222-2222-4222-8222-222222222222",
-            authorizedBy: "user-1",
-            bindingId: "binding-2",
-            createdAt: "2026-07-05T00:00:00.000Z",
-            organizationId: "org-1",
-            status: "already_authorized",
-          },
-        ],
-        organizationId: "org-1",
-      })
-    ).toMatchObject({
-      authorizedCount: 1,
-      alreadyAuthorizedCount: 1,
-    });
-
-    expect(
-      setOrganizationBindingAuthorizationPreferenceBodySchema.parse({
-        autoAuthorizeAgentProfileBindings: true,
-      })
-    ).toEqual({
-      autoAuthorizeAgentProfileBindings: true,
-    });
-    expect(
-      getOrganizationBindingAuthorizationPreferenceResponseSchema.parse({
-        autoAuthorizeAgentProfileBindings: false,
-        organizationId: "org-1",
-        updatedAt: null,
-        userId: "user-1",
-      })
-    ).toMatchObject({
-      autoAuthorizeAgentProfileBindings: false,
-      updatedAt: null,
-    });
-
-    expect(
-      saveOrganizationWakeAccessChoiceBodySchema.parse({
-        enableWakeAccess: true,
-      })
-    ).toEqual({ enableWakeAccess: true });
-    expect(
-      saveOrganizationWakeAccessChoiceResponseSchema.parse({
-        alreadyAuthorizedCount: 1,
-        authorizedCount: 2,
-        organizationId: "org-1",
-        preference: {
-          autoAuthorizeAgentProfileBindings: true,
-          organizationId: "org-1",
-          updatedAt: "2026-07-16T00:00:00.000Z",
-          userId: "user-1",
-        },
-      })
-    ).toMatchObject({
-      alreadyAuthorizedCount: 1,
-      authorizedCount: 2,
-      organizationId: "org-1",
-      preference: { autoAuthorizeAgentProfileBindings: true },
-    });
-
-    expect(
-      listOrganizationBindingAuthorizationProfilesResponseSchema.parse({
-        organizationId: "org-1",
-        profiles: [
-          {
-            agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
-            authorized: true,
-            authorizedAt: "2026-07-05T00:00:00.000Z",
-            authorizedBy: "user-1",
-            bindingId: "binding-1",
-            ownerUserId: "user-1",
-            profileHandle: "codex",
-            profileName: "Codex",
-            profileOrganizationId: "org-personal",
-            status: "authorized",
-          },
-          {
-            agentProfileId: "agt_22222222-2222-4222-8222-222222222222",
-            authorized: false,
-            authorizedAt: null,
-            authorizedBy: null,
-            bindingId: null,
-            ownerUserId: "user-1",
-            profileHandle: "assistant",
-            profileName: "Assistant",
-            profileOrganizationId: "org-1",
-            status: "binding_required",
-          },
-        ],
-      })
-    ).toMatchObject({
-      organizationId: "org-1",
-      profiles: [
-        expect.objectContaining({ status: "authorized" }),
-        expect.objectContaining({ status: "binding_required" }),
-      ],
-    });
   });
 
   it("keeps rejected Binding command responses free of caller openMeldServiceRuntimeId evidence", () => {

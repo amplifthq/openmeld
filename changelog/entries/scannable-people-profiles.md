@@ -33,6 +33,10 @@ from either the member card or profile drawer to create an updated report.
 After a Slack account handoff completes, the success card now opens either the
 exact originating Slack thread or the member's OpenMeld profile instead of
 leaving the member at a dead end.
+Member details now keep email and joined date together in the profile header
+instead of repeating them in a separate account card. Chat is the primary
+action, and each connected Agent is directly selectable from a single-row list
+with a clear path to all of that member's Agents.
 The same Organization directory activity is available to the Center Agent and
 to local agents through `openmeld org directory --view agent`, while Computer
 heartbeats, login refreshes, and coding Agent Activity never impersonate Human

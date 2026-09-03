@@ -27,6 +27,7 @@ import {
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
+import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { spaceMembersQueryOptions } from "#/query/spaces/members";
 import {
@@ -72,6 +73,14 @@ export function AppDirectMessagesSidebar(input: {
 				sections: spacesQuery.data,
 			}).directMessageItems
 		: [];
+	const centerAgentDesignationQuery = useQuery(
+		centerAgentDesignationQueryOptions({
+			enabled: true,
+			organizationId: currentOrganization.id,
+		})
+	);
+	const centerAgentProfileId =
+		centerAgentDesignationQuery.data?.designation?.agentProfileId ?? null;
 	const unreadBySpaceId = useSpaceInboxUnreadById({
 		enabled: input.currentProfileId.trim().length > 0,
 		organizationId: currentOrganization.id,
@@ -96,6 +105,7 @@ export function AppDirectMessagesSidebar(input: {
 			<AppInnerSidebarHeader title="Direct Messages" />
 			<SidebarContent className="px-3 pt-[9px] pb-2">
 				<DirectMessagesList
+					centerAgentProfileId={centerAgentProfileId}
 					currentProfileId={input.currentProfileId}
 					currentSpaceId={input.currentSpaceId}
 					items={directMessageItems}
@@ -123,6 +133,7 @@ export function AppDirectMessagesSidebar(input: {
 }
 
 function DirectMessagesList(input: {
+	centerAgentProfileId: string | null;
 	currentProfileId: string;
 	currentSpaceId: string;
 	items: readonly AccountSpaceItem[];
@@ -187,6 +198,7 @@ function DirectMessagesList(input: {
 			>
 				{input.items.map((item, index) => (
 					<DirectMessageSidebarItem
+						centerAgentProfileId={input.centerAgentProfileId}
 						currentProfileId={input.currentProfileId}
 						index={index}
 						isActive={item.spaceId === input.currentSpaceId}
@@ -232,6 +244,7 @@ function DirectMessagesList(input: {
 }
 
 function DirectMessageSidebarItem(input: {
+	centerAgentProfileId: string | null;
 	currentProfileId: string;
 	index: number;
 	isActive: boolean;
@@ -333,6 +346,7 @@ function DirectMessageSidebarItem(input: {
 									avatarImageUrl={
 										peer.profileKind === "human" ? peer.avatarUrl : undefined
 									}
+									isCenterAgent={peer.profileId === input.centerAgentProfileId}
 									profileId={peer.profileId}
 									profileKind={peer.profileKind}
 									profileName={peer.profileName}

@@ -7,7 +7,6 @@ import {
 } from "#/query/organizations/app-connections";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
-	organizationAgentRuntimeOverviewQueryOptions,
 	organizationProfileDirectoryQueryOptions,
 	organizationSpacesQueryOptions,
 } from "#/query/organizations/organization-directory";
@@ -65,7 +64,7 @@ export async function prefetchAppDetailRouteData(
 	);
 }
 
-export async function prefetchAgentsRouteData(
+export async function prefetchAgentsRouteIdentityData(
 	input: OrganizationRoutePrefetchInput
 ): Promise<void> {
 	const scope = await resolveAuthorizedPrefetchScope(input);
@@ -85,12 +84,6 @@ export async function prefetchAgentsRouteData(
 		queries.push(
 			input.queryClient.prefetchQuery(
 				organizationProfileDirectoryQueryOptions({
-					enabled: true,
-					organizationId: scope.currentOrganization.id,
-				})
-			),
-			input.queryClient.prefetchQuery(
-				organizationAgentRuntimeOverviewQueryOptions({
 					enabled: true,
 					organizationId: scope.currentOrganization.id,
 				})
