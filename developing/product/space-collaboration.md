@@ -559,15 +559,21 @@ target remains readable through the compatibility projection even if its
 membership later changes.
 
 Composer authoring keeps these relations explicit without imposing a required
-confirmation step after every `@` selection. Agent Profiles default to Wake and
-may be changed to Reference. Human Profiles always create Human Mention, so Web
+confirmation step after every `@` selection. An Agent Profile defaults to Wake
+only when the current Core-owned Wakeability projection is `ready`; an
+unavailable or checking Agent defaults to Reference. Human Profiles always
+create Human Mention, so Web
 shows a fixed `@Name` mark instead of a meaningless Wake/Reference selector.
 Each inline Agent token shows its own Wake or Reference relation, so Web does
 not repeat those relations in a bottom count summary. Human Mentions stay
 visible in the message itself without an Agent relation label. Every Composer
 inline target provides a direct remove action in addition to keyboard deletion.
 The system may warn about a possible semantic mismatch, but it must not silently
-convert one structured Agent relation into another. Repeating the same Agent
+convert one structured Agent relation into another. An existing or restored
+Wake draft remains a Wake while the user edits it, but every send attempt checks
+the current Core-owned Wakeability before publishing the message or files.
+Reference authoring and ordinary text input remain usable while Wake is blocked.
+Repeating the same Agent
 mention in one message keeps every occurrence explicit: the first token owns
 the selected Wake or Reference, while later tokens resolve to Reference and
 never create another Wake. Web preserves the authored visible text. The generic
