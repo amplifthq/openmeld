@@ -93,6 +93,49 @@ describe("useSpaceUnread", () => {
 		});
 		expect(onViewedThroughTs).not.toHaveBeenCalled();
 	});
+
+	it("returns to the normal debounce after a retry succeeds", async () => {
+		const warning = vi
+			.spyOn(console, "warn")
+			.mockImplementation(() => undefined);
+		const onViewedThroughTs = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValue(undefined);
+		const { rerender } = renderHook(
+			({ envelopes }) =>
+				useSpaceUnread({
+					envelopes,
+					isReady: true,
+					isViewingLatest: true,
+					onViewedThroughTs,
+					spaceId: "space-1",
+					targets: [],
+				}),
+			{ initialProps: { envelopes: [textSignal(40)] } }
+		);
+
+		await act(async () => {
+			vi.advanceTimersByTime(800);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			vi.advanceTimersByTime(1000);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
+
+		rerender({ envelopes: [textSignal(40), textSignal(50, "new-main")] });
+		await act(async () => vi.advanceTimersByTime(799));
+		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
+		await act(async () => {
+			vi.advanceTimersByTime(1);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenLastCalledWith(50);
+		warning.mockRestore();
+	});
 });
 
 function textSignal(ts: number, id = "signal-main"): SignalEnvelope {
