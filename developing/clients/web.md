@@ -1784,6 +1784,9 @@ entry points use the dialog composition. Both surfaces use the same creation
 controller and generator components: local-Agent selection is the first
 decision, lower-frequency configuration stays under an inline **Advanced**
 disclosure, and the editable generated name appears only in the final review.
+An unfinished browser-local draft may prefill that first decision, but the first
+new local-Agent or execution-target choice dismisses restoration for the current
+open flow so later renders cannot reverse the user's click.
 Creating for another Organization member remains the same Core-owned Agent
 Profile Creation Request flow; Web does not introduce a simplified parallel
 request model. The previous full-form dialog may remain as a temporary internal
@@ -1799,12 +1802,19 @@ error state. Automatic readiness refresh invalidates only the runtime overview;
 identity refresh remains tied to membership, Profile, designation, and Binding
 summary changes.
 
+After creation commits, Web refreshes the Profile Directory before navigating
+to the new `profileId`. The existing page stays in its checking state while the
+independent runtime overview catches up; it must not flash **Agent not found**
+or reuse a stale unavailable verdict for the new identity.
+
 The sidebar groups ordinary Agents by owner name. The signed-in member’s group
 is always first. Remaining owner groups put current work first, then interrupted
-or waiting work, then sort by the most recently used Agent in that group. Within
-each group, working Agents come first, interrupted or waiting Agents follow, and
-the remaining Agents sort by descending `lastUsedAt`. Missing or invalid
-activity sorts last; owner name, Agent name, and stable IDs break ties. Checking
+or waiting work, then sort by the most recent Agent activity in that group.
+Within each group, working Agents come first, interrupted or waiting Agents
+follow, and the remaining Agents sort by the newer of `lastUsedAt` and
+`createdAt`. This keeps a just-created Agent at the top until it has real work
+activity. Missing or invalid recency sorts last; owner name, Agent name, and
+stable IDs break ties. Checking
 readiness and Wake availability never count as work activity. Each row shows the
 Agent avatar, name, a compact Controller and model summary when known, and the
 existing Core-owned Wake availability projection. Route-online,
