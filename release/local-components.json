@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-02T16:30:05.107Z",
+  "updatedAt": "2026-09-03T05:33:41.120Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.148",
+      "packageVersion": "0.3.149",
       "updatePolicy": "available",
       "reason": "Existing CLI commands remain compatible; older CLIs only omit optional Wake progress detail and safe installation switching."
     },
     "service": {
-      "bundleHash": "f33ad69a45120fa4afefcd075cc9996e01c506bc3af6b31125ab3149b6543998",
-      "bundleVersion": "0.3.148",
+      "bundleHash": "4254b1b77f0be04bd8f0c1300b7378d055ee861e95e680ef613c6e86966acf58",
+      "bundleVersion": "0.3.149",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Core deploys first; older Services omit the capability so switching stays unavailable while Wake execution remains compatible."
+      "reason": "The optional public Agent configuration is consumed only by Web; existing Services neither send nor require it and remain compatible with both cloud versions."
     },
     "skills": {
       "bundleHash": "f5766d823e7570d94514985ae3c4cae8539ed4bc9cbe2f43ca41755c608d5821",
