@@ -107,6 +107,29 @@ export const findTextSignalIdByClientMessageId = (
   return signalId.length > 0 ? signalId : null;
 };
 
+export const listTextSignalIdsByProfileId = (
+  sql: SqlStorage,
+  profileId: string
+): string[] => {
+  const normalizedProfileId = normalizeOptionalString(profileId);
+  if (!normalizedProfileId) {
+    return [];
+  }
+  return sql
+    .exec<{ id: string }>(
+      `
+        SELECT id
+        FROM space_signals
+        WHERE profile_id = ?
+          AND type = 'signal.text'
+        ORDER BY ts DESC, id DESC
+      `,
+      normalizedProfileId
+    )
+    .toArray()
+    .map((row) => row.id);
+};
+
 export const readFinalReplyClaimSignalId = (
   sql: SqlStorage,
   input: { dispatchId: string; profileId: string }

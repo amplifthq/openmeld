@@ -160,7 +160,12 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		render(
 			<SpaceMessageWakeThinkingIndicator
-				entries={[createThinkingEntry({ elapsedStartedAtMs: STARTED_AT_MS })]}
+				entries={[
+					createThinkingEntry({
+						elapsedStartedAtMs: STARTED_AT_MS,
+						lastEvidenceAtMs: STARTED_AT_MS,
+					}),
+				]}
 			/>
 		);
 
@@ -179,7 +184,8 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 			<SpaceMessageWakeThinkingIndicator
 				entries={[
 					createThinkingEntry({
-						elapsedStartedAtMs: STARTED_AT_MS + 20_000,
+						elapsedStartedAtMs: STARTED_AT_MS,
+						lastEvidenceAtMs: STARTED_AT_MS + 20_000,
 					}),
 				]}
 			/>
@@ -187,7 +193,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe("Agent is working · 30s");
+		).toBe("Agent is working · 50s");
 	});
 
 	it("right-aligns self message progress without an extra leading offset", () => {
@@ -230,6 +236,7 @@ function createThinkingEntry(
 	const targetProfileId = input.targetProfileId ?? "agt_runner";
 	return {
 		elapsedStartedAtMs: input.elapsedStartedAtMs,
+		lastEvidenceAtMs: input.lastEvidenceAtMs ?? input.elapsedStartedAtMs,
 		key: input.key ?? `dispatch:${targetProfileId}`,
 		kind: input.kind ?? "progress",
 		phase: input.phase ?? (input.kind === "preview" ? "writing" : "running"),

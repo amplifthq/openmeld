@@ -750,7 +750,19 @@ into a running, correctly-populated Space, measured by our own dogfood org
 (first org = ourselves building OpenMeld with OpenMeld).
 
 "The Center Agent can do many things" is not an open-ended license. Org-wide
-statistics and autonomous cross-Space work brokering remain deferred. Center
+statistics and autonomous cross-Space work brokering remain deferred. The
+read-only `openmeld_list_active_space_wakes` and
+`openmeld_read_space_wake_progress` tools are the narrow coordination exception:
+they let a verified represented member's Center Agent discover execution-backed
+active work across the current Organization and inspect one authorized Space's
+canonical Wake progress. The detailed read uses the same Core/Space projection
+as Web and CLI, including public requester/message/thread context, rather than
+reconstructing lifecycle state inside the model or Remote Agent. The list is a
+bounded discovery snapshot; the model reads detail once for a concrete
+coordination decision and does not poll. Neither tool exposes private runtime
+context, mutates Space state, or grants execution authority.
+
+Center
 Agent Routines are the bounded recurring-work exception and follow their own
 authority, target, scheduling, and native-delivery contract in
 `developing/product/center-agent-routines.md`; do not use them to widen the

@@ -564,10 +564,10 @@ describe("command entry CLI wiring", () => {
       "space-alpha",
       "--profile",
       "agt-observer",
-      "--client-message",
-      "client-message-1",
       "--target-profile",
       "agt-target",
+      "--source-profile",
+      "human-source",
       "--password",
       "space-secret",
     ]);
@@ -575,10 +575,11 @@ describe("command entry CLI wiring", () => {
     expect(runMocks.runSpaceWakeProgress).toHaveBeenCalledOnce();
     expect(runMocks.runSpaceWakeProgress).toHaveBeenCalledWith({
       baseUrl: "https://gateway.example.test",
-      clientMessageId: "client-message-1",
+      clientMessageId: undefined,
       entryChecksHandled: true,
       password: "space-secret",
       profile: "agt-observer",
+      sourceProfileId: "human-source",
       space: "space-alpha",
       targetProfileId: "agt-target",
       view: "agent",

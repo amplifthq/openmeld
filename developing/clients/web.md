@@ -3428,6 +3428,13 @@ sidebar status uses the same progress projection and a non-Working waiting
 indicator instead of its animated Working orb. Both surfaces return to ordinary
 Wake progress as soon as Core projects the conversation as available.
 
+Web derives message-level progress, the details drawer, and Space-level current
+work from the same shared Wake progress item. It must not introduce a second
+resolver that independently combines dispatch, RuntimeCoordinator, native
+delivery, or reply state. The shared item may include opt-in Space-owned public
+source context for later presentation, but this contract change alone does not
+add a new visible UI surface.
+
 When active Wake progress includes a pending Agent Interaction for the current
 Binding owner, Web projects it into one collapsed Pending Action Surface above
 the currently visible main Space Composer or active Thread Composer. Web mounts

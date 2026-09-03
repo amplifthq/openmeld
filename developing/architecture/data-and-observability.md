@@ -763,6 +763,14 @@ Examples:
   member count.
 - Dispatch Ledger is a ledger/query projection for Wake execution.
 - Wake trace read models compose existing facts for diagnosis.
+- Wake progress composes each execution owner's current lifecycle with
+  Space-owned public source context at read time. Space remains the only owner
+  of requester identity, source-message text, and thread placement; the
+  dispatch outbox, RuntimeCoordinator projection, and native-delivery ledger
+  remain lifecycle evidence and never receive a copied author/thread state.
+  Author-filtered bounded reads resolve Space source Signal IDs first and apply
+  them inside each owner query before ordering and limiting, so a busy
+  Organization cannot push the requested author's work out of the result.
 - Diagnostic Report pointers can derive Wake context, but the user-submitted
   report event itself belongs to Diagnostics.
 

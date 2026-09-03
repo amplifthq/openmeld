@@ -1394,9 +1394,15 @@ the same output path to a Local Agent handling a Wake.
 `space wake-progress <space-id>` is the live, polling-oriented Wake read. With
 no selector it returns the active Wake summary for the Space. With
 `--client-message <id>` it returns the progress associated with that authored
-message, optionally narrowed by `--target-profile <id>`. Agent View emits the
-stable `mode`, `pollState`, active and terminal counts, validated query, and
-validated progress items. While a deleted Agent's accepted Wake is still
+message, optionally narrowed by `--target-profile <id>`. The active summary can
+also use `--source-profile <id>` to show only work requested by one Human or
+Agent Profile. The CLI fails closed if a mixed-version server does not echo the
+requested source filter, rather than presenting unfiltered work as filtered.
+Agent View emits the stable `mode`, `pollState`, active and
+terminal counts, validated query, and validated progress items. Each current
+CLI read opts into Space-owned public source context: requester Profile ID,
+kind, display name, sanitized source-message preview, and nullable thread ID.
+While a deleted Agent's accepted Wake is still
 stopping, its progress item uses the Space's frozen membership name instead of
 degrading to the removed Profile id. A valid read exits zero even when `pollState` is
 `idle` or `not_observed`; transport, permission, and projection failures exit
