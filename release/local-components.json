@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-03T10:44:19.191Z",
+  "updatedAt": "2026-09-03T11:54:02.871Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.151",
+      "packageVersion": "0.3.152",
       "updatePolicy": "available",
-      "reason": "The wake-progress command is additive; existing CLI behavior remains compatible, and cloud receivers will deploy before publication."
+      "reason": "Copy-only Agent availability and recovery labels remain compatible with old and new cloud responses."
     },
     "service": {
-      "bundleHash": "5f64de40bd393547858cce815df13019ed656aa975f3af15b1fe0777fe8afb1e",
-      "bundleVersion": "0.3.151",
+      "bundleHash": "ceb4708b4890b1e24e9e1cffbcce504bcc645446796f09804c0bc3043ac6ac85",
+      "bundleVersion": "0.3.152",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "No Service runtime or transport contract changed; existing Services continue current and new Wake work."
+      "reason": "Copy-only shared recovery labels do not change Service transport, readiness, or execution contracts."
     },
     "skills": {
       "bundleHash": "40b26531a2a2ea3a800df3cb40bc801eac2a7ebfc0407ca7907d2bd121112c30",
