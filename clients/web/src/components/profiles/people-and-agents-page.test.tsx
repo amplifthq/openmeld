@@ -779,7 +779,7 @@ describe("PeopleAndAgentsPage", () => {
 		).toBe(false);
 	});
 
-	it("does not request Agent runtime state on People", () => {
+	it("loads Agent runtime display data independently on People", () => {
 		render(
 			<PeopleAndAgentsPage
 				activeSectionId="people"
@@ -791,7 +791,14 @@ describe("PeopleAndAgentsPage", () => {
 			options.queryKey?.includes("agent-runtime-overview")
 		)?.[0];
 		expect(runtimeQueryOptions).toEqual(
-			expect.objectContaining({ enabled: false })
+			expect.objectContaining({ enabled: true })
+		);
+		expect(directoryMembersOverviewSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				runtimeOverview: expect.objectContaining({
+					agentProfiles: expect.any(Array),
+				}),
+			})
 		);
 	});
 

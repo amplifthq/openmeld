@@ -2,6 +2,7 @@ import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profil
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
+	ModelCatalog,
 } from "@openmeld/schemas/types";
 import {
 	cleanup,
@@ -74,6 +75,24 @@ vi.mock("#/components/app/app-navigation-presentation", () => ({
 }));
 
 const CURRENT_USER_ID = "user-current";
+const TEST_MODEL_CATALOG: ModelCatalog = {
+	agentControllers: {
+		codex: {
+			defaultModelId: "gpt-5.6-sol",
+			models: [
+				{
+					displayName: "GPT-5.6 Sol",
+					id: "gpt-5.6-sol",
+					minCliVersion: null,
+					supportedReasoningLevels: ["low", "medium", "high"],
+					unavailable: false,
+				},
+			],
+		},
+	},
+	schemaVersion: 1,
+	updatedAt: "2026-09-03T00:00:00.000Z",
+};
 
 afterEach(() => {
 	cleanup();
@@ -336,7 +355,7 @@ describe("AgentProfilesWorkspace", () => {
 		renderWorkspace();
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(item.textContent).toContain("Codex · gpt-5.6-sol");
+		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
 		expect(item.textContent).not.toContain("Available");
 		expect(item.textContent).not.toContain("Idle");
 		expect(
@@ -353,6 +372,31 @@ describe("AgentProfilesWorkspace", () => {
 		expect(avatar.className).toContain("rounded-lg");
 		expect(avatar.className).toContain("overflow-hidden");
 		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
+	});
+
+	it("shows the Controller default model when no model is explicitly selected", () => {
+		const readiness = createReadiness();
+		if (!readiness.primaryBinding) {
+			throw new Error("Expected a primary Binding fixture");
+		}
+		const {
+			modelSelection: _modelSelection,
+			...primaryBindingWithoutModelSelection
+		} = readiness.primaryBinding;
+		renderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...readiness,
+						primaryBinding: primaryBindingWithoutModelSelection,
+					},
+				],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
 	});
 
 	it("uses the shared text shimmer on the Agent name while checking activity", () => {
@@ -673,6 +717,7 @@ function renderWorkspace(
 			activeView="agents"
 			currentUserId={CURRENT_USER_ID}
 			initialSidebarStates={undefined}
+			modelCatalog={TEST_MODEL_CATALOG}
 			onCreateAgent={vi.fn()}
 			onSelectProfile={vi.fn()}
 			onViewChange={vi.fn()}

@@ -1,6 +1,9 @@
 "use client";
 
-import type { ProfileDetailsField } from "@openmeld/schemas/types";
+import type {
+	ModelCatalog,
+	ProfileDetailsField,
+} from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Tooltip,
@@ -53,6 +56,7 @@ export type DirectoryHumanProfileDetailsProps = {
 	directMessageIsPending: boolean;
 	editing: boolean;
 	member: DirectoryHumanProfileRow;
+	modelCatalog: ModelCatalog | null;
 	onConnectAccount: (account: DirectoryIdentityAccount) => void;
 	onEditingChange: (editing: boolean) => void;
 	onManageAccount: (account: DirectoryIdentityAccount) => void;
@@ -89,13 +93,12 @@ export function DirectoryHumanProfileDetails(
 				</output>
 			) : null}
 
-			<DetailSection title="Agent Profiles">
-				<DirectoryAgentProfilesSummary
-					ownerName={input.member.name}
-					path={input.member.agentProfilesPath}
-					profiles={input.member.agentProfiles}
-				/>
-			</DetailSection>
+			<DirectoryAgentProfilesSummary
+				modelCatalog={input.modelCatalog}
+				ownerName={input.member.name}
+				path={input.member.agentProfilesPath}
+				profiles={input.member.agentProfiles}
+			/>
 
 			<DetailSection title="Computers">
 				{input.computersContent ?? (

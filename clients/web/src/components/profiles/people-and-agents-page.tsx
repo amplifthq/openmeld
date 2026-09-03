@@ -8,6 +8,7 @@ import {
 import type {
 	AgentProfileCreationRequest,
 	AuthProfileView,
+	ModelCatalog,
 	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -46,6 +47,7 @@ import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
+import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import {
 	organizationAgentRuntimeOverviewQueryOptions,
 	organizationProfileDirectoryQueryOptions,
@@ -137,10 +139,11 @@ export function PeopleAndAgentsPage(input: {
 	const organizationAgentRuntimeOverviewQuery = useQuery(
 		organizationAgentRuntimeOverviewQueryOptions({
 			enabled:
-				activeAgentView === "agents" && input.activeSectionId === "agents",
+				input.activeSectionId === "people" || activeAgentView === "agents",
 			organizationId: currentOrganization.id,
 		})
 	);
+	const modelCatalogQuery = useQuery(modelCatalogQueryOptions());
 	const agentProfileFilterCounts = useMemo(() => {
 		return summarizeOrganizationAgentProfileAvailabilityFilters({
 			profiles: (
@@ -235,8 +238,10 @@ export function PeopleAndAgentsPage(input: {
 					directoryQuery={organizationProfileDirectoryQuery}
 					focusProfileId={input.focusProfileId}
 					initialSidebarStates={input.initialSidebarStates}
+					modelCatalog={modelCatalogQuery.data ?? null}
 					onCreateProfile={() => setIsCreateProfileOpen(true)}
 					recovery={recovery}
+					runtimeOverview={organizationAgentRuntimeOverviewQuery.data}
 					storageScope={recovery.storageScope}
 				/>
 				{createProfileDialog}
@@ -278,6 +283,7 @@ export function PeopleAndAgentsPage(input: {
 				focusRequestId={input.focusRequestId ?? null}
 				initialSidebarStates={input.initialSidebarStates}
 				isOrganizationContext={isOrganizationContext}
+				modelCatalog={modelCatalogQuery.data ?? null}
 				onCreateAgent={() => input.onAgentViewChange?.("create")}
 				onSelectProfile={(profileId) => {
 					navigate({
@@ -343,6 +349,7 @@ function AgentsWorkspaceHome(input: {
 	focusRequestId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	isOrganizationContext: boolean;
+	modelCatalog: ModelCatalog | null;
 	onCreateAgent: () => void;
 	onSelectProfile: (profileId: string) => void;
 	onViewChange: (view: AgentWorkspaceView, profileId?: string) => void;
@@ -670,6 +677,7 @@ function AgentsWorkspaceHomeView(input: {
 			hasAnyProfiles={input.agentProfiles.length > 0}
 			initialSidebarStates={workspace.initialSidebarStates}
 			isSearchActive={input.normalizedSearchQuery.length > 0}
+			modelCatalog={workspace.modelCatalog}
 			onCreateAgent={workspace.onCreateAgent}
 			onSelectProfile={workspace.onSelectProfile}
 			onViewChange={workspace.onViewChange}
