@@ -501,6 +501,7 @@ function ActivityItemRow(input: {
 				agentRecoveryPlansByProfileId: activity.agentRecoveryPlansByProfileId,
 				isPersonalContext: activity.isPersonalContext,
 				notice: outcomeNotice,
+				targetLabel: item.kind === "target" ? item.title : undefined,
 				targetProfileDisplayNamesByProfileId:
 					activity.targetProfileDisplayNamesByProfileId,
 				wakeFailureTargetContextsByProfileId:
@@ -929,6 +930,7 @@ function resolveNoticeRecoveryPresentation(input: {
 	>;
 	isPersonalContext?: boolean;
 	notice: SpaceTimelineItem;
+	targetLabel?: string;
 	targetProfileDisplayNamesByProfileId?: ReadonlyMap<string, string>;
 	wakeFailureTargetContextsByProfileId?: ReadonlyMap<
 		string,
@@ -947,8 +949,9 @@ function resolveNoticeRecoveryPresentation(input: {
 	const reasonCode = input.notice.systemNoticeReasonCode?.trim();
 	const targetLabel = targetProfileId
 		? (input.targetProfileDisplayNamesByProfileId?.get(targetProfileId) ??
+			input.targetLabel ??
 			"This agent")
-		: "This agent";
+		: (input.targetLabel ?? "This agent");
 	const body = resolveHistoricalWakeFailureBody({
 		failureReasonCode: reasonCode,
 		targetLabel,

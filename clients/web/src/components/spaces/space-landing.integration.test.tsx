@@ -20,7 +20,6 @@ import type {
 	AuthProfileView,
 	CreateAgentProfileCreationRequestResponse,
 	GetSpaceStatusResponse,
-	OrganizationDirectoryResponse,
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
 	SpaceMemberAgentSnapshot,
@@ -45,6 +44,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
+import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
 import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import {
@@ -537,7 +537,7 @@ const SPACE_THREAD_PANEL_SELECTION_STORAGE_KEY =
 	"openmeld.space.thread-panel.active-thread:space-123";
 const NOTIFICATIONS_BUTTON_NAME_PATTERN = /notifications/i;
 const ACTIVE_WAKE_SERVICE_WAITING_NOTE_PATTERN =
-	/A Wake is waiting for OpenMeld Service to reconnect\./;
+	/A Wake is waiting for the computer to reconnect\./;
 const READY_WORD_PATTERN = /\bReady\b/u;
 const WAITING_FOR_OPENMELD_SERVICE_PATTERN = /Waiting for OpenMeld Service/;
 const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
@@ -3579,7 +3579,7 @@ describe("SpaceLanding", () => {
 		});
 		expect(
 			within(failedAgentActivity).getByText(
-				"MYCC-Invoko could not complete this Wake on Ming Yoo's computer. Ask Ming Yoo to check OpenMeld Service and the local agent, then wake the agent again."
+				"MYCC-Invoko could not complete this Wake because its computer was not connected to OpenMeld at the time."
 			)
 		).toBeTruthy();
 		expect(
@@ -4201,7 +4201,7 @@ describe("SpaceLanding", () => {
 		});
 		expect(
 			within(failedAgentActivity).getByText(
-				"Codex is in this space, but OpenMeld cannot tell which local agent should reply for it yet."
+				"Codex could not complete this Wake."
 			)
 		).toBeTruthy();
 		const localAgentLink = within(failedAgentActivity).getByRole("link", {
@@ -4841,7 +4841,7 @@ describe("SpaceLanding", () => {
 		const panel = screen.getByRole("complementary", { name: "Members" });
 		expectSpaceAgentAvailabilityIndicator(panel, {
 			label: "Offline",
-			tooltip: "OpenMeld Service is not connected on this computer.",
+			tooltip: "Computer not connected",
 		});
 		expect(
 			within(panel).queryByRole("link", { name: "Reconnect OpenMeld Service" })
@@ -5812,19 +5812,22 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentExecutionReadiness:
-						createRunPrepareAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
-					defaultAgentOwnerName: "Ming Yoo",
-					defaultAgentOwnerUserId: "user-ming",
-					defaultAgentRuntimeDeviceDisplayName: "Ming's MacBook Pro",
-					wakeState: "offline",
-					wakeability: {
-						status: "blocked",
-						reasonCodes: ["runtime.projection_missing"],
-						reasonText: "Local setup is incomplete",
-					},
-				}),
+				data: withDefaultAgentAgentWakeAvailability(
+					createMembersSnapshot({
+						defaultAgentExecutionReadiness:
+							createRunPrepareAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
+						defaultAgentOwnerName: "Ming Yoo",
+						defaultAgentOwnerUserId: "user-ming",
+						defaultAgentRuntimeDeviceDisplayName: "Ming's MacBook Pro",
+						wakeState: "offline",
+						wakeability: {
+							status: "blocked",
+							reasonCodes: ["runtime.projection_missing"],
+							reasonText: "Local setup is incomplete",
+						},
+					}) as SpaceMembersSnapshot,
+					createTestAgentAgentWakeAvailability("available_for_wake")
+				),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -6708,20 +6711,23 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentMentionAlias: "codex",
-					defaultAgentProfileName: "Codex",
-					defaultAgentExecutionReadiness:
-						createActionRequiredLocalReadinessAgentExecutionReadiness(
-							DEFAULT_AGENT_PROFILE_ID
-						),
-					wakeState: "offline",
-					wakeability: {
-						status: "blocked",
-						reasonCodes: ["runtime.agent_controller_report_stale"],
-						reasonText: "Local readiness report is stale",
-					},
-				}),
+				data: withDefaultAgentAgentWakeAvailability(
+					createMembersSnapshot({
+						defaultAgentMentionAlias: "codex",
+						defaultAgentProfileName: "Codex",
+						defaultAgentExecutionReadiness:
+							createActionRequiredLocalReadinessAgentExecutionReadiness(
+								DEFAULT_AGENT_PROFILE_ID
+							),
+						wakeState: "offline",
+						wakeability: {
+							status: "blocked",
+							reasonCodes: ["runtime.agent_controller_report_stale"],
+							reasonText: "Local readiness report is stale",
+						},
+					}) as SpaceMembersSnapshot,
+					createTestAgentAgentWakeAvailability("available_for_wake")
+				),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -6871,20 +6877,23 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentMentionAlias: "codex",
-					defaultAgentProfileName: "Codex",
-					defaultAgentExecutionReadiness:
-						createStaleLocalReadinessAgentExecutionReadiness(
-							DEFAULT_AGENT_PROFILE_ID
-						),
-					wakeState: "offline",
-					wakeability: {
-						status: "blocked",
-						reasonCodes: ["runtime.agent_controller_report_stale"],
-						reasonText: "Local readiness report is stale",
-					},
-				}),
+				data: withDefaultAgentAgentWakeAvailability(
+					createMembersSnapshot({
+						defaultAgentMentionAlias: "codex",
+						defaultAgentProfileName: "Codex",
+						defaultAgentExecutionReadiness:
+							createStaleLocalReadinessAgentExecutionReadiness(
+								DEFAULT_AGENT_PROFILE_ID
+							),
+						wakeState: "offline",
+						wakeability: {
+							status: "blocked",
+							reasonCodes: ["runtime.agent_controller_report_stale"],
+							reasonText: "Local readiness report is stale",
+						},
+					}) as SpaceMembersSnapshot,
+					createTestAgentAgentWakeAvailability("available_for_wake")
+				),
 				refetch: membersRefetchMock,
 			}),
 			history: createQueryResult({
@@ -10748,7 +10757,7 @@ describe("SpaceLanding", () => {
 		});
 		expectSpaceAgentAvailabilityIndicator(blockedPanel, {
 			label: "Offline",
-			tooltip: "OpenMeld Service is not connected on this computer.",
+			tooltip: "Computer not connected",
 		});
 		expect(
 			within(blockedPanel).queryByText("Reconnect OpenMeld Service")
@@ -10872,7 +10881,7 @@ describe("SpaceLanding", () => {
 		});
 		expectSpaceAgentAvailabilityIndicator(blockedPanel, {
 			label: "Offline",
-			tooltip: "OpenMeld Service is not connected on this computer.",
+			tooltip: "Computer not connected",
 		});
 		expect(
 			within(blockedPanel).queryByText("Reconnect OpenMeld Service")
@@ -10915,7 +10924,7 @@ describe("SpaceLanding", () => {
 		});
 		expectSpaceAgentAvailabilityIndicator(checkingPanel, {
 			label: "Offline",
-			tooltip: "OpenMeld Service is not connected on this computer.",
+			tooltip: "Computer not connected",
 		});
 		expect(
 			within(checkingPanel).queryByRole("link", {
@@ -15820,6 +15829,16 @@ describe("SpaceLanding", () => {
 
 	it("keeps an independent new Wake behind normal Core Wakeability admission", async () => {
 		const sourceText = "@Scout check the release build";
+		const membersSnapshot = createMembersSnapshot({
+			extraAgents: [
+				{
+					mentionAlias: "scout",
+					profileId: SECOND_AGENT_PROFILE_ID,
+					profileName: "Scout",
+				},
+			],
+		}) as SpaceMembersSnapshot;
+		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 		const consoleError = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
@@ -15851,15 +15870,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "scout",
-							profileId: SECOND_AGENT_PROFILE_ID,
-							profileName: "Scout",
-						},
-					],
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -17661,8 +17672,12 @@ function expectSpaceAgentAvailabilityIndicator(
 		return labelMatches && tooltipMatches;
 	});
 	if (!indicator) {
+		const actual = indicators.map((candidate) => ({
+			label: candidate.getAttribute("aria-label"),
+			tooltip: candidate.getAttribute("title"),
+		}));
 		throw new Error(
-			`Expected space agent availability indicator ${input.label}`
+			`Expected space agent availability indicator ${input.label}; received ${JSON.stringify(actual)}`
 		);
 	}
 	const indicatorClassName = indicator.className;
@@ -17747,8 +17762,22 @@ function withDefaultAgentAgentWakeAvailability(
 }
 
 function createTestAgentAgentWakeAvailability(
-	status: "checking_connection" | "unavailable_for_wake"
+	status: "available_for_wake" | "checking_connection" | "unavailable_for_wake"
 ): SpaceMemberAgentAgentWakeAvailability {
+	if (status === "available_for_wake") {
+		return {
+			action: "none",
+			badgeLabel: "Available",
+			category: "available",
+			isRefreshing: false,
+			label: "Available for Wake",
+			phase: "available",
+			reasonCode: "agent_execution.ready",
+			status,
+			summary: "This agent can receive Wake requests.",
+			tooltip: "Available for Wake",
+		};
+	}
 	if (status === "checking_connection") {
 		return {
 			action: "check_status",
@@ -17831,7 +17860,7 @@ function mockSpaceQueries(input: {
 	status: Record<string, unknown>;
 	members: Record<string, unknown>;
 	history: Record<string, unknown>;
-	organizationDirectory?: OrganizationDirectoryResponse;
+	organizationDirectory?: OrganizationSpaceProfileCandidates;
 	messageDetailsBySignalId?: Record<string, Record<string, unknown>>;
 	threads?: Record<string, unknown>;
 	threadSignals?: Record<string, unknown>;
@@ -18417,52 +18446,36 @@ function createOrganizationScope(
 function createOrganizationDirectoryFixture(input: {
 	centerAgentProfileId: string;
 	humanProfileId: string;
-}): OrganizationDirectoryResponse {
+}): OrganizationSpaceProfileCandidates {
 	return {
 		agentProfiles: [
 			{
+				agentControllerRef: null,
 				createdAt: "2026-07-16T00:00:00.000Z",
-				createdByUserId: "user-mira",
-				creatorProfileId: null,
 				isCenterAgent: true,
-				isDefault: false,
 				lastUsedAt: null,
-				managedRole: "center_agent",
-				organizationId: "org-acme",
 				ownerName: "Mira",
 				ownerUserId: "user-mira",
 				profileHandle: "center-agent",
 				profileId: input.centerAgentProfileId,
-				profileKind: "agent",
 				profileName: "Center Agent",
 				readiness: buildRemoteCenterAgentReadiness("available", {
 					agentProfileId: input.centerAgentProfileId,
 				}),
-				source: "managed",
 				status: "active",
-				updatedAt: "2026-07-16T00:00:00.000Z",
 			},
 		],
-		generatedAt: "2026-07-16T00:00:00.000Z",
 		members: [
 			{
+				avatarImageUrl: null,
 				humanProfile: {
-					lastUsedAt: "2026-07-16T00:00:00.000Z",
 					profileHandle: "alex",
 					profileId: input.humanProfileId,
 					profileName: "Alex",
 					status: "active",
 				},
-				joinedAt: "2026-07-16T00:00:00.000Z",
-				memberId: "member-alex",
-				organizationId: "org-acme",
-				role: "member",
-				user: {
-					email: "alex@example.com",
-					id: "user-alex",
-					image: null,
-					name: "Alex",
-				},
+				lastActiveAt: "2026-07-16T00:00:00.000Z",
+				memberName: "Alex",
 				userId: "user-alex",
 			},
 		],

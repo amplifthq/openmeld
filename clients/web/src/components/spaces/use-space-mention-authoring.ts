@@ -305,6 +305,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				text,
 			}),
 		recordPendingSubmission: () => {
+			currentComposerHasDraftRef.current = false;
 			resetComposerState();
 		},
 		restoreFailedSubmission: (
@@ -313,6 +314,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			if (currentComposerHasDraftRef.current) {
 				return false;
 			}
+			currentComposerHasDraftRef.current = true;
 			const nextCaretPosition = preparedSubmission.text.length;
 			composerDraft.setContent({
 				authoredMentions: trackAuthoredMentionsInText({
