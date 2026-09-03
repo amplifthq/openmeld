@@ -990,7 +990,7 @@ public state; they may keep refreshing diagnostics, but they must not repaint a
 Core-owned `Offline` or `Unavailable` verdict as `Checking`.
 
 Owner-only recovery surfaces may show concrete actions such as `Update OpenMeld
-Service`, `Reconnect OpenMeld Service`, `Connect local agent`, or `Wrong account`.
+on Computer`, `Reconnect Computer`, `Connect local agent`, or `Wrong account`.
 Those actions are repair guidance, not additional public availability states.
 
 Internal terms such as runtime, claim, route, lease, and binding belong in

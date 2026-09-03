@@ -205,9 +205,7 @@ function AgentProfileDetailsHeader(input: {
 	const showAvailabilitySummary =
 		input.showAvailabilitySummary &&
 		input.entry.availabilitySummary &&
-		input.entry.availabilitySummary !== presenceSummary &&
-		input.entry.availabilitySummary !==
-			"Can reply from this computer in Spaces.";
+		input.entry.availabilitySummary !== presenceSummary;
 	return (
 		<div className="flex min-w-0 items-start gap-3">
 			{input.isCenterAgent ? (

@@ -365,7 +365,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 
 	it("resolves current-user per-Wake service failures to the local repair action", () => {
 		const copy =
-			"Runner is connected, but OpenMeld Service is not running on this computer. Start OpenMeld Service so this computer can receive local Wake work.";
+			"Runner's computer is disconnected from OpenMeld. Reconnect the computer so it can receive local Wake work.";
 		const state = resolveSpaceMessageWakeProgressState({
 			item: createTimelineItem(),
 			items: [
@@ -400,7 +400,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			display: {
 				actionTarget: "prepare_setup",
 				body: copy,
-				primaryActionLabel: "Reconnect OpenMeld Service",
+				primaryActionLabel: "Reconnect Computer",
 			},
 			kind: "wake_failure",
 		});
@@ -431,7 +431,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: "Runner could not complete this Wake on Ming's MacBook Pro. Ask Ming Yoo to check OpenMeld Service and the local agent, then wake the agent again.",
+				body: "Runner could not complete this Wake on Ming's MacBook Pro. Ask Ming Yoo to reconnect the computer and check the local agent, then wake the Agent again.",
 			}),
 		]);
 		expect(state.issueEntries[0]?.action).toMatchObject({

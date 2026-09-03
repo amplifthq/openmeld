@@ -1006,7 +1006,7 @@ describe("App", () => {
     );
     fireEvent.click(
       await screen.findByRole("menuitem", {
-        name: "Reconnect OpenMeld Service",
+        name: "Reconnect Computer",
       })
     );
 

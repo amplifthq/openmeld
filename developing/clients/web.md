@@ -3924,9 +3924,9 @@ operation in verification; it becomes a separate actionable update. A stale
 refetch must not erase the local accepted-operation evidence, and a
 `current` control response must not produce **Up to date** until the component
 projection agrees. Request completion and installation completion are not
-verified update completion. Service connection recovery remains explicitly
-**Connect OpenMeld Service** or **Reconnect manually**. When Service is offline,
-both the card action and its More menu use **Reconnect manually** and open the
+verified update completion. Computer connection recovery remains explicitly
+**Connect Computer** or **Reconnect Computer**. When Service is offline,
+both the card action and its More menu use **Reconnect Computer** and open the
 existing Connect/CLI path; Web never pretends it can send a managed reconnect
 through the disconnected Service.
 

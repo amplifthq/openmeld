@@ -17840,7 +17840,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         true
     ) {
       return {
-        message: "Reconnect OpenMeld Service to use this action.",
+        message: "Reconnect Computer to use this action.",
         ok: false,
         reasonCode: "openmeld_tools_control.service_update_required",
       };

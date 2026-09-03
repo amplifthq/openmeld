@@ -4140,7 +4140,7 @@ function emitDaemonAlreadyRunningState(
   const repairCommand = formatOpenMeldCliCommand("openmeld service repair");
   const guidance =
     "OpenMeld Service is already running. If Wake or local setup still looks wrong, `openmeld service start` is not the repair step. " +
-    `Run \`${statusCommand}\`; if local participation is unhealthy, run \`${repairCommand}\` or use Reconnect OpenMeld Service in OpenMeld Web.`;
+    `Run \`${statusCommand}\`; if local participation is unhealthy, run \`${repairCommand}\` or use Reconnect Computer in OpenMeld Web.`;
   if (runtime.resolvedView === "agent") {
     presenter.data({
       code: "daemon.run.already_running",

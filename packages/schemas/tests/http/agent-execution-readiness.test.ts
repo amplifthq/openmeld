@@ -538,7 +538,7 @@ function buildAgentWakeAvailability(
       phase: "available",
       reasonCode: "agent_execution.ready",
       status,
-      summary: "Can reply from this computer in Spaces.",
+      summary: "Available for Wake",
       tooltip: "Available for Wake",
     },
     checking_connection: {

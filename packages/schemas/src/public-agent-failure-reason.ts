@@ -428,7 +428,7 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Available",
-      availabilitySummary: "Can reply from this computer in Spaces.",
+      availabilitySummary: "Available for Wake",
       availabilityTooltip: "Available for Wake",
       patterns: ["=agent_execution.ready"],
     },

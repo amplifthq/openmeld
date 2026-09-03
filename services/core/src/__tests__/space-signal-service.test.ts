@@ -3362,7 +3362,7 @@ describe("space signal service", () => {
           profileName: "Mira",
           signalId: "sig-source-1",
         },
-        text: "OpenMeld could not reach Codex Agent on this computer for this Wake. Reconnect OpenMeld Service, then try again.",
+        text: "OpenMeld could not reach Codex Agent on this computer for this Wake. Reconnect the computer, then try again.",
       },
       type: "signal.system_notice",
     });

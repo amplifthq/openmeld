@@ -1488,13 +1488,13 @@ describe("OpenMeldServiceCard", () => {
 			screen.getByText("OpenMeld Service is not connected").className
 		).toContain("text-destructive");
 		expect(
-			screen.getByRole("link", { name: "Reconnect manually" }).className
+			screen.getByRole("link", { name: "Reconnect Computer" }).className
 		).toContain("text-destructive");
 		fireEvent.click(
 			screen.getByRole("button", { name: "OpenMeld tools options" })
 		);
 		expect(
-			screen.getAllByRole("link", { name: "Reconnect manually" })
+			screen.getAllByRole("link", { name: "Reconnect Computer" })
 		).toHaveLength(2);
 		expect(
 			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
@@ -1539,7 +1539,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("OpenMeld Service is not connected")).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Reconnect manually" })
+			screen.getByRole("link", { name: "Reconnect Computer" })
 		).toBeTruthy();
 		expect(screen.queryByText("OpenMeld Service is connected")).toBeNull();
 	});

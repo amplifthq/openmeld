@@ -921,7 +921,7 @@ Service compatibility, and claim eligibility.
 
 Public availability uses four states only: `Available for Wake`, `Checking`,
 `Offline`, and `Unavailable`. Concrete repair actions such as `Update OpenMeld
-Service`, `Reconnect OpenMeld Service`, or `Connect local agent` are owner guidance,
+on Computer`, `Reconnect Computer`, or `Connect local agent` are owner guidance,
 not separate public states.
 
 `Offline` is reserved for stable Computer, OpenMeld Service, or route liveness

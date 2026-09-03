@@ -326,7 +326,7 @@ describe("space target catalog", () => {
     expect(target?.wakeAvailability).toEqual(
       expect.objectContaining({
         reasonCodes: ["agent_execution.ready"],
-        reasonText: "Can reply from this computer in Spaces.",
+        reasonText: "Available for Wake",
         status: "ready",
       })
     );
@@ -357,7 +357,7 @@ describe("space target catalog", () => {
     expect(target?.wakeAvailability).toEqual(
       expect.objectContaining({
         reasonCodes: ["agent_execution.ready"],
-        reasonText: "Can reply from this computer in Spaces.",
+        reasonText: "Available for Wake",
         status: "ready",
       })
     );
