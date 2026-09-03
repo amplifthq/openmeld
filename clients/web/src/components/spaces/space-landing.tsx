@@ -2555,6 +2555,7 @@ function SpaceLandingSecondaryPanels({
 				isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
 				isDiagnosticReportPending={controller.isDiagnosticReportPending}
 				isDiagnosticReportSent={controller.isDiagnosticReportSent}
+				isDirectMessage={state.isDirectMessage}
 				isPersonalContext={input.isPersonalContext === true}
 				isSendingMessage={controller.isSendingThreadMessage}
 				membersSnapshot={controller.presentationMembersSnapshot}
