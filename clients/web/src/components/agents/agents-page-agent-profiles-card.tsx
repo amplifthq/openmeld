@@ -4173,6 +4173,8 @@ function AgentProfileWorkingFolderConfigurationCard(input: {
 			onClick={input.onOpen}
 			readOnly={!input.onOpen}
 			summary={input.summary}
+			summaryClassName="truncate"
+			summaryTitle={input.summary}
 		/>
 	);
 }

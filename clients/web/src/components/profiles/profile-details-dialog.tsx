@@ -348,11 +348,11 @@ export function AgentProfileDetailsPopover(input: {
 				>
 					<Popover.Popup
 						aria-label={`${input.entry.profileName} Profile`}
-						className="w-[min(24rem,calc(100vw-1.5rem))] rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl outline-none"
+						className="max-h-[var(--available-height)] w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl outline-none"
 						role="dialog"
 					>
 						<AgentProfileDetailsContent
-							className="max-h-[min(34rem,calc(100dvh-3rem))]"
+							className="max-h-[min(34rem,calc(var(--available-height)-2rem))]"
 							configurationContent={input.configurationContent}
 							details={input.details}
 							entry={input.entry}
