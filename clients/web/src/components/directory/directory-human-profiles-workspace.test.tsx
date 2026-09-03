@@ -515,17 +515,18 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByText("Organization role")).toBeNull();
 	});
 
-	it("keeps Direct Message before Learn About in another member's hero", () => {
+	it("makes Chat with the primary action for another member", () => {
 		renderWorkspace({ selectedProfileId: "profile-grace" });
 
 		const actions = within(
 			screen.getByTestId("human-profile-hero")
 		).getByTestId("human-profile-header-actions");
-		expect(
-			within(actions)
-				.getAllByRole("button")
-				.map((button) => button.textContent)
-		).toEqual(["Direct Message", "Learn about Grace Hopper"]);
+		const [chatButton, researchButton] = within(actions).getAllByRole("button");
+		expect(chatButton?.textContent).toBe("Chat with Grace Hopper");
+		expect(chatButton?.classList.contains("bg-primary")).toBe(true);
+		expect(chatButton?.classList.contains("h-7")).toBe(true);
+		expect(researchButton?.textContent).toBe("Learn about Grace Hopper");
+		expect(researchButton?.classList.contains("bg-background")).toBe(true);
 	});
 
 	it("keeps a member-scoped research failure beside its retry action", () => {

@@ -130,6 +130,7 @@ export function DirectoryHumanProfileDetails(
 function ProfileActions(input: {
 	canEdit: boolean;
 	canOpenDirectMessage: boolean;
+	directMessageLabel: string;
 	directMessageIsPending: boolean;
 	onEdit: () => void;
 	onOpenDirectMessage: () => void;
@@ -146,14 +147,15 @@ function ProfileActions(input: {
 			<div className="flex max-w-full flex-wrap items-center justify-end gap-2">
 				{input.canOpenDirectMessage ? (
 					<Button
+						className="max-w-full"
 						disabled={input.directMessageIsPending}
 						onClick={input.onOpenDirectMessage}
 						size="sm"
 						type="button"
-						variant="outline"
+						variant="default"
 					>
 						<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-						Direct Message
+						<span className="truncate">{input.directMessageLabel}</span>
 					</Button>
 				) : null}
 				{input.researchAction ? (
@@ -288,6 +290,7 @@ function ProfileHero(input: {
 				canEdit={!input.editing && input.member.canEdit}
 				canOpenDirectMessage={input.canOpenDirectMessage}
 				directMessageIsPending={input.directMessageIsPending}
+				directMessageLabel={`Chat with ${input.member.name}`}
 				onEdit={() => input.onEditingChange(true)}
 				onOpenDirectMessage={input.onOpenDirectMessage}
 				researchAction={input.researchAction}

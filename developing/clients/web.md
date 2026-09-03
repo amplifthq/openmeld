@@ -1673,20 +1673,21 @@ hero presents the member email and join time as one muted metadata line, while
 the Organization role remains in the badge beside the member name. The detail
 owns an ordinary Agent Profile count with up to three controller icons and an
 overflow count, Computers, Connected Channels, shared Profile details, and the
-permitted Profile Report, Learn about, Direct Message, inline edit, connect, or
-manage actions. It does not repeat those account facts in a separate
-member-account section. The Agent Profile count links to Agents and focuses the
-first Agent Profile in that member's owner group. Header metadata,
-Channel-account, Profile, and advanced-detail values are text-selectable.
-Editing remains available only
+permitted Profile Report, Learn about, **Chat with {member}**, inline edit,
+connect, or manage actions. **Chat with {member}** is the primary action and
+keeps the same compact button height as adjacent actions. It does not repeat
+those account facts in a separate member-account section. The Agent Profile
+count links to Agents and focuses the first Agent Profile in that member's owner
+group. Header metadata, Channel-account, Profile, and advanced-detail values are
+text-selectable. Editing remains available only
 for the signed-in member's own active default Human Profile. The sidebar and
 detail omit the internal Handle, undefined recent activity, and the ubiquitous
 **Active** state; only an exceptional disabled state is visible. Web does not
 derive an Organization online dot from last-used time, Computer state, or
-Space-scoped presence. Members without an active Human Profile have no Direct
-Message or edit action, but their detail remains available for inspecting
+Space-scoped presence. Members without an active Human Profile do not receive
+a **Chat with** or edit action, but their detail remains available for inspecting
 account details and the explicit unavailable or disabled profile state. The
-signed-in member cannot Direct Message themself.
+signed-in member does not receive a **Chat with** action for themself.
 People admits only one pending Direct Message
 open intent at a time so competing responses cannot navigate to an earlier
 selection. The People sidebar includes
