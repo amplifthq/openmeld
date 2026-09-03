@@ -24,6 +24,7 @@ describe("AgentConfigurationCard", () => {
 		expect(trigger.closest("[data-fluid-card-item]")?.className).toContain(
 			"w-full"
 		);
+		expect(trigger.firstElementChild?.className).toContain("h-full");
 	});
 
 	it("includes a read-only card in the Fluid shared hover highlight", () => {

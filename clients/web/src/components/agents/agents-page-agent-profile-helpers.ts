@@ -736,9 +736,7 @@ export function resolveAgentProfileRepairActions(input: {
 		return [];
 	}
 	if (input.readiness === null) {
-		return createAgentProfileConnectActionsFromLocalAgents(
-			input.localAgentCatalogEntries
-		);
+		return [];
 	}
 
 	const readiness = input.readiness.agentExecutionReadiness;
