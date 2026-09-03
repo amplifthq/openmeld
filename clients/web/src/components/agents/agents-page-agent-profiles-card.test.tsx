@@ -689,9 +689,12 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 	});
 
 	it("puts the local-agent connection action inside the unbound Model card", async () => {
+		const readiness = createUnboundAgentReadiness();
 		renderAgentProfilesCard(
 			{
-				agentExecutionReadinessByProfileId: new Map(),
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
 				selectedExecutionTarget: createSelectedExecutionTarget(),
 			},
 			null,
@@ -716,6 +719,35 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			screen.getAllByRole("combobox", { name: "Choose local agent" })
 		).toHaveLength(1);
+	});
+
+	it("does not offer a local-agent connection while availability is loading", async () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map(),
+				agentExecutionReadinessPendingProfileIds: new Set([AGENT_PROFILE_ID]),
+				selectedExecutionTarget: createSelectedExecutionTarget(),
+			},
+			null,
+			{ presentation: "detail" }
+		);
+
+		const modelLabel = await screen.findByText("Model", { exact: true });
+		const modelCard = modelLabel.closest("[data-fluid-card-item]");
+		expect(modelCard).toBeTruthy();
+		expect(
+			within(modelCard as HTMLElement).queryByText("Connect to a local agent")
+		).toBeNull();
+		expect(
+			within(modelCard as HTMLElement).queryByRole("combobox", {
+				name: "Choose local agent",
+			})
+		).toBeNull();
+		expect(
+			within(modelCard as HTMLElement).queryByRole("button", {
+				name: "Connect",
+			})
+		).toBeNull();
 	});
 
 	it("shows the owner which computer and controller conversation run the Agent", () => {
@@ -3246,7 +3278,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.getByText("1 Agent")).toBeTruthy();
 	});
 
-	it("lets an unchecked Agent choose a local agent from the profile row", async () => {
+	it("lets an explicitly unbound Agent choose a local agent from the profile row", async () => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		let resolveBinding!: (value: { status: "accepted" }) => void;
 		ensureRuntimeBindingMock.mockReturnValueOnce(
@@ -3254,18 +3286,20 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				resolveBinding = resolve;
 			})
 		);
-		const { queryClient } = renderAgentProfilesCard({
-			agentExecutionReadinessByProfileId: new Map(),
-			refreshAll,
-			selectedExecutionTarget: createSelectedExecutionTarget(),
-		});
+		const { queryClient } = renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, createUnboundAgentReadiness()],
+				]),
+				refreshAll,
+				selectedExecutionTarget: createSelectedExecutionTarget(),
+			},
+			null
+		);
 		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
 
 		expect(
-			await screen.findByText("Wake availability not checked yet")
-		).toBeTruthy();
-		expect(
-			screen.getByRole("combobox", { name: "Choose local agent" })
+			await screen.findByRole("combobox", { name: "Choose local agent" })
 		).toBeTruthy();
 		expect(screen.getAllByText("Codex CLI").length).toBeGreaterThan(0);
 
@@ -3599,6 +3633,38 @@ function createReconnectBindingReadiness(
 		},
 		primaryBinding: binding,
 		runtimeDeviceDisplayName: "Felix's MacBook Pro",
+	};
+}
+
+function createUnboundAgentReadiness(): GetAgentExecutionReadinessResponse {
+	const readiness = createReconnectBindingReadiness(
+		AGENT_PROFILE_ID,
+		"builtin:codex"
+	);
+	return {
+		...readiness,
+		agentExecutionReadiness: {
+			...readiness.agentExecutionReadiness,
+			facts: {
+				...readiness.agentExecutionReadiness.facts,
+				binding: {
+					reasonCodes: ["agent_profile_binding.missing"],
+					routable: false,
+					source: "missing",
+				},
+			},
+			reasonCodes: ["agent_profile_binding.missing"],
+		},
+		agentWakeAvailability: {
+			...readiness.agentWakeAvailability,
+			reasonCode: "agent_profile_binding.missing",
+		},
+		primaryActionPlan: {
+			action: "reconnect_binding",
+			target: { kind: "choose_local_agent" },
+		},
+		primaryBinding: null,
+		runtimeDeviceDisplayName: null,
 	};
 }
 

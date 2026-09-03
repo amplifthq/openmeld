@@ -73,7 +73,7 @@ export function AgentConfigurationCard(input: {
 	const card = (
 		<div
 			className={cn(
-				"group flex min-h-28 w-full min-w-0 items-start gap-3 rounded-2xl border border-border/65 bg-transparent p-4 text-left shadow-[0_1px_0_rgb(255_255_255/0.025)_inset] transition-colors duration-150 data-[attention=true]:border-primary/45 data-[attention=true]:bg-primary/[0.045]",
+				"group flex h-full min-h-28 w-full min-w-0 items-start gap-3 rounded-2xl border border-border/65 bg-transparent p-4 text-left shadow-[0_1px_0_rgb(255_255_255/0.025)_inset] transition-colors duration-150 data-[attention=true]:border-primary/45 data-[attention=true]:bg-primary/[0.045]",
 				!(input.readOnly || input.disabled) && "hover:border-border",
 				input.disabled && "cursor-not-allowed opacity-55",
 				input.className

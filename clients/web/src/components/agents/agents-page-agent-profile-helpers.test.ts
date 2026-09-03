@@ -193,7 +193,7 @@ describe("Agent Profile availability presentation", () => {
 		});
 	});
 
-	it("uses the shared product priority for local agent connection choices", () => {
+	it("uses the shared product priority for confirmed local agent connection choices", () => {
 		const actions = resolveAgentProfileRepairActions({
 			isCurrentComputer: true,
 			localAgentCatalogEntries: [
@@ -204,7 +204,13 @@ describe("Agent Profile availability presentation", () => {
 				createLocalAgentCatalogEntry("grok-build", "Grok Build"),
 				createLocalAgentCatalogEntry("opencode", "OpenCode"),
 			],
-			readiness: null,
+			readiness: {
+				...createUnboundAgentReadiness(),
+				primaryActionPlan: {
+					action: "reconnect_binding",
+					target: { kind: "choose_local_agent" },
+				},
+			},
 		});
 
 		expect(actions.map((action) => action.agentControllerRef)).toEqual([
@@ -215,6 +221,18 @@ describe("Agent Profile availability presentation", () => {
 			"builtin:opencode",
 			"custom:custom-acp",
 		]);
+	});
+
+	it("does not infer a missing connection before readiness is known", () => {
+		expect(
+			resolveAgentProfileRepairActions({
+				isCurrentComputer: true,
+				localAgentCatalogEntries: [
+					createLocalAgentCatalogEntry("codex", "Codex CLI"),
+				],
+				readiness: null,
+			})
+		).toEqual([]);
 	});
 
 	it("offers one explicit bulk reconnect only for manageable profiles with a matching local agent", () => {
