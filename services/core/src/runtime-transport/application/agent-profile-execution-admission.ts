@@ -1084,6 +1084,7 @@ type AgentProfileWorkCoordinatorHeadWriteBaseResult =
       status: "existing";
     }
   | {
+      conflictKind: "accepted_dispatch_payload" | "head_lifecycle_authority";
       effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
       status: "conflict";
     }
@@ -2270,7 +2271,11 @@ async function resolveExistingHeadLifecycleWrite(input: {
       input.proposedRecord
     )
   ) {
-    return { effectiveRecord: rawExistingHead, status: "conflict" };
+    return {
+      conflictKind: "head_lifecycle_authority",
+      effectiveRecord: rawExistingHead,
+      status: "conflict",
+    };
   }
   let effectiveExistingHead = rawExistingHead;
   if (
@@ -2317,7 +2322,11 @@ async function resolveExistingHeadLifecycleWrite(input: {
       input.proposedRecord
     )
   ) {
-    return { effectiveRecord: effectiveExistingHead, status: "conflict" };
+    return {
+      conflictKind: "accepted_dispatch_payload",
+      effectiveRecord: effectiveExistingHead,
+      status: "conflict",
+    };
   }
   if (
     effectiveExistingHead.primaryDispatchId !==
@@ -2390,14 +2399,16 @@ function resolveTerminalExecutionHeadReplay(input: {
     status: "execution_linked",
     updatedAtMs: authority.terminalOutcome.finalizedAtMs,
   } satisfies RuntimeCoordinatorHeadLifecycleRecord;
-  return {
-    effectiveRecord,
-    status:
-      authority.executionScope.sourceClientMessageId ===
-      identity.clientMessageId
-        ? "existing"
-        : "conflict",
-  };
+  if (
+    authority.executionScope.sourceClientMessageId !== identity.clientMessageId
+  ) {
+    return {
+      conflictKind: "head_lifecycle_authority",
+      effectiveRecord,
+      status: "conflict",
+    };
+  }
+  return { effectiveRecord, status: "existing" };
 }
 
 function appendHeadLifecycleDuplicate(input: {

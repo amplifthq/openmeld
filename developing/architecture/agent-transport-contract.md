@@ -140,10 +140,18 @@ At first head acceptance, RuntimeCoordinator also freezes the secret-free
 execution-target identity (`bindingId`, `configurationRevision`, Agent
 Controller ref, OpenMeld Service Runtime id, and runtime kind) plus a SHA-256
 fingerprint of the Space-owned dispatch payload. It does not copy or become the
-owner of that payload. Promotion, alarm redrive, and reconnect reacceptance must
-return this accepted snapshot so Core can combine it with the same outbox
-payload. A different payload fingerprint for the same Wake lifecycle is an
-authority conflict, never permission to execute newer message content.
+owner of that payload. The fingerprint covers the immutable execution and reply
+content; transport-attempt timestamps, recovery provenance, and display-name
+enrichment are not Wake identity. Promotion, alarm redrive, and reconnect
+reacceptance must return the accepted snapshot so Core can combine it with the
+same outbox payload. A different immutable-payload fingerprint for the same Wake
+lifecycle is an accepted-payload authority conflict, never permission to
+execute newer message content and never evidence that the Wake is a duplicate.
+When the original head has not entered execution, RuntimeCoordinator freezes a
+visible no-execution failure for that exact Wake. If linked execution or a
+concurrent authority change makes that unsafe, Core retains the outbox item and
+retries the exact conflict; it does not execute the altered payload, mark the
+dispatch `deduped`, or reinterpret the conflict as Computer connectivity.
 During a rolling Core deployment, a caller that omits the snapshot cannot
 reaccept a head that already owns one; RuntimeCoordinator returns the legacy-
 parseable `retry_later` shape and never grants `create_execution`. A legacy
@@ -333,6 +341,13 @@ Important execution rules:
   Reconciliation is idempotent. A Wake already in `cancellation_requested`
   settles as cancelled when the task is absent; it must never be converted into
   a recoverable execution failure or resumed after the user's Stop.
+- A replacement Service connection generation may redeliver a claimed but not
+  yet terminal execution exactly once with new transport provenance only. The
+  RuntimeCoordinator execution id, token run and scope, dispatch and Wake source
+  identities, reply destination, task content, and accepted-payload fingerprint
+  remain unchanged. If the replacement proves that a running local task was
+  lost, the same execution ends once as `runtime.local_runtime_lost`; it does not
+  become a generic offline failure or a second execution.
 - After RuntimeCoordinator accepts a Wake head, an actual route lookup may
   return `daemon.profile.pending_first_report` while the intended owner's
   OpenMeld Service is still heartbeat-fresh but has not reported that Agent

@@ -1181,7 +1181,10 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
       return {
         ok: false,
         primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
-        reasonCode: "runtime_coordinator.head_authority_conflict",
+        reasonCode:
+          input.admission.conflictKind === "accepted_dispatch_payload"
+            ? "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload"
+            : "runtime_coordinator.head_authority_conflict",
         status: "conflict",
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };

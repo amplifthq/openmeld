@@ -685,6 +685,25 @@ describe("public agent failure reason mapping", () => {
     );
   });
 
+  it("keeps an accepted Wake payload conflict separate from computer connectivity", () => {
+    const reasonCode =
+      "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload";
+
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: reasonCode,
+        targetLabel: "Runner",
+      })
+    ).toEqual({
+      body: "OpenMeld stopped this Wake for Runner because the request no longer matched what OpenMeld originally accepted. Send the request again. If it keeps happening, open Diagnostics.",
+      kind: "system_retry",
+      recoveryTarget: null,
+    });
+    expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
+      "OpenMeld stopped this Wake for this agent because the request no longer matched what OpenMeld originally accepted. Send the request again. If it keeps happening, open Diagnostics."
+    );
+  });
+
   it("does not tell users to reconnect a Service that is waiting on its first route report", () => {
     expect(
       resolvePublicAgentFailureRecovery({

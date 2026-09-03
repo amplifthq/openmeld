@@ -191,6 +191,17 @@ ownership, reply attribution, deterministic redrive, and visible terminal
 outcomes. It must prove that requests, executions, and replies cannot be lost or
 crossed. It does not redesign Agent list loading or UI status presentation.
 
+The accepted identity includes the immutable request, target, Binding and
+configuration revision, execution authority, source message, and reply
+destination. Transport-attempt timestamps, recovery provenance, and
+display-name enrichment may change without changing that identity. A genuine
+accepted-payload conflict is neither a duplicate nor a connectivity verdict:
+RuntimeCoordinator settles the exact pre-execution Wake visibly when safe, and
+otherwise the dispatch remains retryable without executing changed content.
+Validation covers three consecutive Wakes to one Agent Profile plus controlled
+Service update and replacement-generation redelivery without crossed execution
+or reply identities.
+
 The same pull request updates the relevant sections of
 `developing/architecture/agent-transport-contract.md` and
 `developing/product/agent-profiles.md` when behavior changes.

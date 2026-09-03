@@ -961,6 +961,15 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
+        `OpenMeld stopped this Wake for ${formatObjectTargetName(targetName)} because the request no longer matched what OpenMeld originally accepted. Send the request again. If it keeps happening, open Diagnostics.`,
+      kind: "system_retry",
+      patterns: [
+        "=runtime_coordinator.head_authority_conflict.accepted_dispatch_payload",
+      ],
+      recoveryTarget: null,
+    },
+    {
+      body: (targetName) =>
         `This Wake expired before it reached ${formatObjectTargetName(targetName)}. Reconnect the computer, then wake the Agent again.`,
       kind: "local_service",
       patterns: ["runtime_coordinator.delivery_expired"],

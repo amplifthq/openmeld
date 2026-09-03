@@ -1440,6 +1440,7 @@ const settleFreshHeadAdmissionWithoutDelivery = async (input: {
   }
   if (
     input.headAcceptance.status === "profile_queue_waiting" ||
+    input.headAcceptance.status === "publication_intent_ready" ||
     input.headAcceptance.status === "skip_duplicate"
   ) {
     return {
@@ -1644,8 +1645,18 @@ type RuntimeCoordinatorHeadAcceptanceOutcome =
       status: "queue_full";
     }
   | { reasonCode: string; status: "retry" }
-  | { status: "publication_intent_ready" }
+  | { reasonCode: string; status: "publication_intent_ready" }
   | { status: "skip_duplicate" };
+
+const RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE =
+  "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload";
+
+const isAcceptedPayloadConflictPublicationIntentReady = (
+  outcome: RuntimeCoordinatorHeadAcceptanceOutcome
+): boolean =>
+  outcome.status === "publication_intent_ready" &&
+  outcome.reasonCode ===
+    RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE;
 
 const applyRuntimeCoordinatorAcceptedDispatchSnapshot = (input: {
   headAcceptance: RuntimeCoordinatorHeadAcceptanceOutcome;
@@ -1772,6 +1783,102 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   return null;
 };
 
+const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
+  db: D1Database;
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  executionAttemptId: string;
+  nowMs: number;
+  targetOwnerUserId: string;
+  targetWakeLifecycleIdentity: ReturnType<
+    typeof projectTargetWakeLifecycleIdentity
+  >;
+}): Promise<RuntimeCoordinatorHeadAcceptanceOutcome> => {
+  const response =
+    await recordRuntimeTransportRuntimeCoordinatorHeadNoExecution({
+      env: input.env,
+      ownerUserId: input.targetOwnerUserId,
+      noExecution: {
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        decisionSource: "dispatch_delivery_pre_execution",
+        dispatchId: input.dispatchMessage.dispatchId,
+        idempotencyKey: input.dispatchMessage.idempotencyKey,
+        ownerUserId: input.targetOwnerUserId,
+        publicationCategory: "agent_profile_unavailable",
+        reasonCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+        targetWakeLifecycleIdentity: input.targetWakeLifecycleIdentity,
+        userRecoveryAction: "check_status",
+      },
+    });
+
+  if (!response.ok) {
+    await markDispatchStatus({
+      attemptId: input.executionAttemptId,
+      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      db: input.db,
+      errorCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+      errorMessage: `RuntimeCoordinator rejected the changed accepted Wake payload and could not safely settle the original head: ${response.reasonCode}`,
+      idempotencyKey: input.dispatchMessage.idempotencyKey,
+      nowMs: input.nowMs,
+      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+    });
+    await writeOpenMeldDaemonOpsDecision({
+      db: input.db,
+      decisionCode:
+        "runtime_coordinator.head_payload_conflict_settlement_deferred",
+      decisionPayload: {
+        dispatchId: input.dispatchMessage.dispatchId,
+        reasonCode: response.reasonCode,
+        targetProfileId: input.dispatchMessage.targetProfileId,
+        targetWakeLifecycleId:
+          input.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      },
+      decidedBy: "core.dispatch_queue.runtime_coordinator_head",
+      decidedAtMs: input.nowMs,
+      expectedRecoveryCriteria:
+        "Queue retries the same frozen Wake until RuntimeCoordinator can preserve its original execution or publish an exact identity-conflict failure.",
+      source: "dispatch_queue",
+      correlationId: input.dispatchMessage.dispatchId,
+    });
+    return { reasonCode: response.reasonCode, status: "retry" };
+  }
+
+  await markDispatchStatus({
+    attemptId: input.executionAttemptId,
+    attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
+    db: input.db,
+    errorCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+    errorMessage:
+      "RuntimeCoordinator preserved the first accepted Wake payload and prepared an exact visible identity-conflict failure",
+    idempotencyKey: input.dispatchMessage.idempotencyKey,
+    nowMs: input.nowMs,
+    status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+  });
+  await writeOpenMeldDaemonOpsDecision({
+    db: input.db,
+    decisionCode:
+      "runtime_coordinator.head_payload_conflict_publication_intent_ready",
+    decisionPayload: {
+      dispatchId: input.dispatchMessage.dispatchId,
+      publicationIntentId: response.publicationIntentId,
+      reasonCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+      status: response.status,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+      targetWakeLifecycleId: response.targetWakeLifecycleId,
+    },
+    decidedBy: "core.dispatch_queue.runtime_coordinator_head",
+    decidedAtMs: input.nowMs,
+    expectedRecoveryCriteria:
+      "RuntimeCoordinator publishes one visible failure for the original Wake identity; the changed payload must never execute.",
+    source: "dispatch_queue",
+    correlationId: input.dispatchMessage.dispatchId,
+  });
+  return {
+    reasonCode: RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE,
+    status: "publication_intent_ready",
+  };
+};
+
 const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   allowPublicationIntentReconcile?: boolean;
   db: D1Database;
@@ -1842,13 +1949,33 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   }
 
   if (
+    !response.ok &&
+    response.status === "conflict" &&
+    response.reasonCode ===
+      RUNTIME_COORDINATOR_ACCEPTED_PAYLOAD_CONFLICT_REASON_CODE
+  ) {
+    return await settleRuntimeCoordinatorAcceptedPayloadConflict({
+      db: input.db,
+      dispatchMessage: input.dispatchMessage,
+      env: input.env,
+      executionAttemptId: input.executionAttemptId,
+      nowMs: input.nowMs,
+      targetOwnerUserId: input.targetOwnerUserId,
+      targetWakeLifecycleIdentity,
+    });
+  }
+
+  if (
     input.allowPublicationIntentReconcile === true &&
     response.ok &&
     response.action === "skip_duplicate" &&
     response.status === "publication_intent_ready" &&
     response.primaryDispatchId === input.dispatchMessage.dispatchId
   ) {
-    return { status: "publication_intent_ready" };
+    return {
+      reasonCode: response.reasonCode,
+      status: "publication_intent_ready",
+    };
   }
 
   if (
@@ -1899,7 +2026,40 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     return { status: "skip_duplicate" };
   }
 
-  if (!response.ok || response.action === "skip_duplicate") {
+  if (!response.ok) {
+    await markDispatchStatus({
+      attemptId: input.executionAttemptId,
+      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable,
+      db: input.db,
+      errorCode: response.reasonCode,
+      errorMessage:
+        "RuntimeCoordinator rejected this head admission without granting duplicate authority",
+      idempotencyKey: input.dispatchMessage.idempotencyKey,
+      nowMs: input.nowMs,
+      status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+    });
+    await writeOpenMeldDaemonOpsDecision({
+      db: input.db,
+      decisionCode: "runtime_coordinator.head_authority_conflict",
+      decisionPayload: {
+        dispatchId: input.dispatchMessage.dispatchId,
+        primaryDispatchId: response.primaryDispatchId,
+        reasonCode: response.reasonCode,
+        runtimeCoordinatorExecutionId: null,
+        targetProfileId: input.dispatchMessage.targetProfileId,
+        targetWakeLifecycleId: response.targetWakeLifecycleId,
+      },
+      decidedBy: "core.dispatch_queue.runtime_coordinator_head",
+      decidedAtMs: input.nowMs,
+      expectedRecoveryCriteria:
+        "Queue retries without executing or deduping this conflicting Wake until RuntimeCoordinator authority becomes unambiguous.",
+      source: "dispatch_queue",
+      correlationId: input.dispatchMessage.dispatchId,
+    });
+    return { reasonCode: response.reasonCode, status: "retry" };
+  }
+
+  if (response.action === "skip_duplicate") {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
       attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded,
@@ -1913,16 +2073,12 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     });
     await writeOpenMeldDaemonOpsDecision({
       db: input.db,
-      decisionCode: response.ok
-        ? "runtime_coordinator.head_duplicate_dispatch_skipped"
-        : "runtime_coordinator.head_authority_conflict",
+      decisionCode: "runtime_coordinator.head_duplicate_dispatch_skipped",
       decisionPayload: {
         dispatchId: input.dispatchMessage.dispatchId,
         primaryDispatchId: response.primaryDispatchId,
         reasonCode: response.reasonCode,
-        runtimeCoordinatorExecutionId: response.ok
-          ? response.runtimeCoordinatorExecutionId
-          : null,
+        runtimeCoordinatorExecutionId: response.runtimeCoordinatorExecutionId,
         targetProfileId: input.dispatchMessage.targetProfileId,
         targetWakeLifecycleId: response.targetWakeLifecycleId,
       },
@@ -1939,9 +2095,7 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
         dispatchId: input.dispatchMessage.dispatchId,
         primaryDispatchId: response.primaryDispatchId,
         reasonCode: response.reasonCode,
-        runtimeCoordinatorExecutionId: response.ok
-          ? response.runtimeCoordinatorExecutionId
-          : null,
+        runtimeCoordinatorExecutionId: response.runtimeCoordinatorExecutionId,
         status: response.status,
         targetProfileId: input.dispatchMessage.targetProfileId,
         targetWakeLifecycleId: response.targetWakeLifecycleId,
@@ -2051,6 +2205,9 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
         return { handled: true, shouldAck: false };
       }
       if (headAcceptance.status === "profile_queue_waiting") {
+        return { handled: true, shouldAck: true };
+      }
+      if (isAcceptedPayloadConflictPublicationIntentReady(headAcceptance)) {
         return { handled: true, shouldAck: true };
       }
       if (
@@ -3637,6 +3794,9 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
     return { handled: true, shouldAck: false };
   }
   if (headAcceptance.status === "profile_queue_waiting") {
+    return { handled: true, shouldAck: true };
+  }
+  if (isAcceptedPayloadConflictPublicationIntentReady(headAcceptance)) {
     return { handled: true, shouldAck: true };
   }
   if (

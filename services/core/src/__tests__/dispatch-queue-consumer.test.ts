@@ -8127,6 +8127,168 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
+  it("publishes an exact failure instead of deduping an accepted Wake payload conflict", async () => {
+    const reasonCode =
+      "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload";
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockImplementationOnce(async (input) => ({
+      ok: false,
+      primaryDispatchId: input.head.dispatchId,
+      reasonCode,
+      status: "conflict",
+      targetWakeLifecycleId:
+        input.head.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
+    const message = createQueueMessage(
+      createDispatchBody({
+        dispatchId: "dispatch-accepted-payload-conflict-1",
+        sourceEventId: "evt-accepted-payload-conflict-1",
+        targetProfileId: "agt-accepted-payload-conflict-1",
+        visitedProfileIdsHash: "stable32:dispatch-accepted-payload-conflict-1",
+      })
+    );
+
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(message.retry).not.toHaveBeenCalled();
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        noExecution: expect.objectContaining({
+          decisionSource: "dispatch_delivery_pre_execution",
+          dispatchId: "dispatch-accepted-payload-conflict-1",
+          publicationCategory: "agent_profile_unavailable",
+          reasonCode,
+          userRecoveryAction: "check_status",
+        }),
+      })
+    );
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: reasonCode,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      })
+    );
+    expect(markDispatchStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: OPENMELD_DAEMON_DISPATCH_STATE.deduped,
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite an accepted payload conflict with a second preflight failure", async () => {
+    const reasonCode =
+      "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload";
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockImplementationOnce(async (input) => ({
+      ok: false,
+      primaryDispatchId: input.head.dispatchId,
+      reasonCode,
+      status: "conflict",
+      targetWakeLifecycleId:
+        input.head.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
+    const dispatchBody = createDispatchBody({
+      dispatchId: "dispatch-preflight-payload-conflict-1",
+      sourceEventId: "evt-preflight-payload-conflict-1",
+      targetProfileId: "agt-preflight-payload-conflict-1",
+      visitedProfileIdsHash: "stable32:preflight-payload-conflict-1",
+    });
+    const message = createQueueMessage(dispatchBody);
+    const authRpc = createAuthRpcWithBindingSnapshot({
+      agentControllerRef: null,
+      bindingEnabled: false,
+      bindingState: "missing",
+      ownerUserId: "owner-default",
+    });
+
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(createOpenMeldDbWithProfileRow(null), authRpc),
+    });
+
+    expect(message.retry).not.toHaveBeenCalled();
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        noExecution: expect.objectContaining({ reasonCode }),
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        noExecution: expect.objectContaining({
+          reasonCode: "agent_profile_binding.missing",
+        }),
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+  });
+
+  it("retries an unsafe RuntimeCoordinator head authority conflict without deduping it", async () => {
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockImplementationOnce(async (input) => ({
+      ok: false,
+      primaryDispatchId: "dispatch-other-authority",
+      reasonCode: "runtime_coordinator.head_authority_conflict",
+      status: "conflict",
+      targetWakeLifecycleId:
+        input.head.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
+    const message = createQueueMessage(
+      createDispatchBody({
+        dispatchId: "dispatch-head-authority-conflict-1",
+        sourceEventId: "evt-head-authority-conflict-1",
+        targetProfileId: "agt-head-authority-conflict-1",
+        visitedProfileIdsHash: "stable32:dispatch-head-authority-conflict-1",
+      })
+    );
+
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(message.retry).toHaveBeenCalledTimes(1);
+    expect(message.ack).not.toHaveBeenCalled();
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: "runtime_coordinator.head_authority_conflict",
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+      })
+    );
+    expect(markDispatchStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: OPENMELD_DAEMON_DISPATCH_STATE.deduped,
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+  });
+
   it("records RuntimeCoordinator no-execution publication intent when runtime target binding is missing", async () => {
     const authRpc = createAuthRpcWithBindingSnapshot({
       bindingState: "missing",
