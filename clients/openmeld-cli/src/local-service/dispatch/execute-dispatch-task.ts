@@ -79,7 +79,7 @@ import { emitDaemonDispatchJournalEvent } from "../../local-service/dispatch/dae
 import {
   type DispatchRuntimePreparation,
   prepareDispatchRuntimeExecution,
-  resolveDispatchRuntimeContext,
+  resolveDispatchWorkingFolderRuntimeContext,
 } from "../../local-service/execution/dispatch-runtime-preparation";
 import { toTaskExecutionError as toTaskExecutionErrorInternal } from "../../local-service/execution/task-execution-error";
 import { resolveCurrentDaemonExpectedVersion } from "../../local-service/lifecycle/current-daemon-version";
@@ -255,6 +255,7 @@ export function enqueueDispatchDeliverFrame(input: {
   payload: Record<string, unknown>;
   profileOwnerName: string | null;
   profileOwnerUserId: string;
+  requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
   socket: WsClient;
@@ -376,6 +377,8 @@ export function enqueueDispatchDeliverFrame(input: {
         localAdapterContainer: input.localAdapterContainer,
         profileOwnerName: input.profileOwnerName,
         profileOwnerUserId: input.profileOwnerUserId,
+        requestCurrentWorkingFolderFactRefresh:
+          input.requestCurrentWorkingFolderFactRefresh,
         presenter: input.presenter,
         routeByProfileId: input.routeByProfileId,
         socket: input.socket,
@@ -835,6 +838,7 @@ export async function handleDispatchDeliverFrame(input: {
   localAdapterContainer: LocalDaemonAdapterContainer;
   profileOwnerName: string | null;
   profileOwnerUserId: string;
+  requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
   socket: WsClient;
@@ -999,9 +1003,18 @@ export async function handleDispatchDeliverFrame(input: {
   let dispatchSpaceActionContext: DispatchSpaceActionContext | null = null;
 
   try {
-    dispatchRuntimeContext = await resolveDispatchRuntimeContext({
+    dispatchRuntimeContext = await resolveDispatchWorkingFolderRuntimeContext({
+      controllerSnapshot: input.deliverRequest.payload.controllerSnapshot,
       defaultProjectId: parsedTask.defaultProjectId,
-      openMeldProfileId: parsedTask.targetProfileId,
+      defaultProjectIdWasProvided: Object.hasOwn(
+        input.deliverRequest.payload,
+        "defaultProjectId"
+      ),
+      executionIdentity: parsedTask.executionIdentity,
+      onCurrentWorkingFolderFactRejected:
+        input.requestCurrentWorkingFolderFactRefresh,
+      routeConfig,
+      targetProfileId: parsedTask.targetProfileId,
     });
     const runtimePreparation = await prepareDispatchRuntimeExecution({
       agentControllerRef: parsedTask.agentControllerRef,

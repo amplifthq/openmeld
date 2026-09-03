@@ -28,6 +28,8 @@ describe("Local Project Agent Activity sync", () => {
     ["remove_connection", { connections: [], status: "unchanged" }, false],
     ["remove_missing_connections", { connections: [], removedCount: 2 }, true],
     ["remove_missing_connections", { connections: [], removedCount: 0 }, false],
+    ["set_default_connection", { connections: [], status: "updated" }, true],
+    ["set_default_connection", { connections: [], status: "unchanged" }, false],
   ] as const)("reports whether %s changed the authorized local connections", (operation, result, expected) => {
     const frame = localProjectControlDaemonFrameSchema.parse({
       code: `daemon.local_project_control.${operation}_result`,
