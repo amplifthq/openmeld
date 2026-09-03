@@ -426,13 +426,8 @@ function AgentProfileCurrentActivity(input: {
 }) {
 	const currentDestination = resolveCurrentActivityDestination(input);
 	const queuedDestinations = input.activityNavigation?.queued ?? [];
-	const interruptedRecoveryAction =
-		input.recoveryActionKind === "skip_interrupted_work"
-			? input.recoveryAction
-			: null;
-	const footerRecoveryAction = interruptedRecoveryAction
-		? null
-		: input.recoveryAction;
+	const { footerRecoveryAction, interruptedRecoveryAction } =
+		resolveActivityRecoveryActions(input);
 	const hasActivityDestinations =
 		currentDestination !== null || queuedDestinations.length > 0;
 	const neutralActivitySummary =
@@ -510,6 +505,25 @@ function AgentProfileCurrentActivity(input: {
 			</Card>
 		</section>
 	);
+}
+
+function resolveActivityRecoveryActions(input: {
+	recoveryAction: ReactNode;
+	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
+}): {
+	footerRecoveryAction: ReactNode;
+	interruptedRecoveryAction: ReactNode;
+} {
+	if (input.recoveryActionKind === "skip_interrupted_work") {
+		return {
+			footerRecoveryAction: null,
+			interruptedRecoveryAction: input.recoveryAction,
+		};
+	}
+	return {
+		footerRecoveryAction: input.recoveryAction,
+		interruptedRecoveryAction: null,
+	};
 }
 
 function resolveNeutralActivitySummary(

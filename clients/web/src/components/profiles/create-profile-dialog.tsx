@@ -641,10 +641,11 @@ function useCreateProfileDialogController(
 		});
 	const restoredJourneyDraft = useAgentProfileCreationJourneyDraft({
 		availableLocalAgentIds,
-		canRestore: !(
-			creationDefaultsEditedRef.current ||
-			journeyDraftRestorationDismissedRef.current
-		),
+		canRestore: canRestoreAgentProfileCreationJourneyDraft({
+			creationDefaultsEdited: creationDefaultsEditedRef.current,
+			journeyDraftRestorationDismissed:
+				journeyDraftRestorationDismissedRef.current,
+		}),
 		current: {
 			agentControllerCollaborationMode:
 				rawBoundAgentControllerCollaborationMode,
@@ -1291,6 +1292,15 @@ function useCreateProfileDialogController(
 		},
 		title: dialogTitle,
 	};
+}
+
+function canRestoreAgentProfileCreationJourneyDraft(input: {
+	creationDefaultsEdited: boolean;
+	journeyDraftRestorationDismissed: boolean;
+}): boolean {
+	return !(
+		input.creationDefaultsEdited || input.journeyDraftRestorationDismissed
+	);
 }
 
 function resolveSessionOwnerUserId(input: {

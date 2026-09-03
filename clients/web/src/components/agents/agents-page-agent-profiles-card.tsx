@@ -1690,12 +1690,10 @@ function AgentProfileDirectoryRow(input: {
 		controller.agentExecutionReadinessByProfileId.get(
 			profile.openMeldProfileId
 		) ?? null;
-	const localAgentEntry = readiness
-		? resolveAgentProfileLocalAgentEntry({
-				entries: controller.localAgentCatalogEntries,
-				readiness,
-			})
-		: null;
+	const localAgentEntry = resolveOptionalAgentProfileLocalAgentEntry({
+		entries: controller.localAgentCatalogEntries,
+		readiness,
+	});
 	const primaryBinding =
 		controller.primaryBindingByProfileId.get(profile.openMeldProfileId) ?? null;
 	const modelCompatibilityContext =
@@ -1909,6 +1907,19 @@ function AgentProfileDirectoryRow(input: {
 			}
 		/>
 	);
+}
+
+function resolveOptionalAgentProfileLocalAgentEntry(input: {
+	entries: Parameters<typeof resolveAgentProfileLocalAgentEntry>[0]["entries"];
+	readiness: GetAgentExecutionReadinessResponse | null;
+}) {
+	if (!input.readiness) {
+		return null;
+	}
+	return resolveAgentProfileLocalAgentEntry({
+		entries: input.entries,
+		readiness: input.readiness,
+	});
 }
 
 function resolveAgentProfileModelCompatibilityContext(input: {
