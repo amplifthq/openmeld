@@ -366,6 +366,15 @@ function resolveAgentProfilePresence(input: {
 	const availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
 		input.wakeAvailability
 	);
+	if (availabilityCategory === "checking") {
+		return {
+			label: input.wakeAvailability.label,
+			shimmer: true,
+			status: "checking",
+			textClassName: resolveStatusToneTextClassName("checking"),
+			tooltip: input.wakeAvailability.summary,
+		};
+	}
 	if (availabilityCategory === "available") {
 		return {
 			label: "Available for Wake",

@@ -680,6 +680,30 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
+	it("keeps a checking Wake projection as checking in Profile Details", () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						createWakeAvailabilityReadiness("checking_connection"),
+					],
+				]),
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "detail" }
+		);
+
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(
+			within(presence).getByText("Checking Wake availability")
+		).toBeTruthy();
+		expect(presence.getAttribute("data-agent-presence-status")).toBe(
+			"checking"
+		);
+		expect(within(presence).queryByText("Unavailable for Wake")).toBeNull();
+	});
+
 	it("keeps current work out of the metadata dialog", () => {
 		renderAgentProfilesCard(
 			{},

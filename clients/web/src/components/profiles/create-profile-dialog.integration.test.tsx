@@ -1596,7 +1596,9 @@ describe("CreateProfileDialog", () => {
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(addMembersMock).not.toHaveBeenCalled();
 		await waitFor(() => {
-			expect(toastSuccessMock).toHaveBeenCalledWith("Agent created.");
+			expect(toastSuccessMock).toHaveBeenCalledWith(
+				"Agent created. Checking its connection now."
+			);
 		});
 	});
 
@@ -1725,6 +1727,36 @@ describe("CreateProfileDialog", () => {
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(addMembersMock).not.toHaveBeenCalled();
 		expect(recordProfileSpaceHistoryMock).not.toHaveBeenCalled();
+	});
+
+	it("refreshes the created Agent before opening its Profile Details", async () => {
+		const onAgentRequestCreated = vi.fn();
+		const { queryClient } = renderCreateProfileDialog({
+			onAgentRequestCreated,
+			organizationId: "organization-123",
+		});
+		let finishRefresh: () => void = () => undefined;
+		const refreshGate = new Promise<void>((resolve) => {
+			finishRefresh = resolve;
+		});
+		vi.spyOn(queryClient, "invalidateQueries").mockReturnValue(refreshGate);
+
+		await fillProfileForm({
+			kind: AGENT_PROFILE_CARD_PATTERN,
+			name: "Research Agent",
+		});
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledTimes(1);
+		});
+		expect(onAgentRequestCreated).not.toHaveBeenCalled();
+
+		finishRefresh();
+		await waitFor(() => {
+			expect(onAgentRequestCreated).toHaveBeenCalledWith(
+				expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
+			);
+		});
 	});
 
 	it("reports Core's partial result without repeating local Binding or Space writes", async () => {
