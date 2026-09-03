@@ -18,7 +18,6 @@ import {
 	type SpaceSendTargetAllowedRelations,
 	type SpaceSendTargetWakeAvailability,
 } from "@openmeld/space";
-import type { KeyboardEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
@@ -38,20 +37,6 @@ import type {
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 
 const AUTHORED_MENTION_CONTINUATION_PATTERN = /[('’A-Za-z0-9_-]/u;
-
-async function onComposerKeyDown(
-	event: KeyboardEvent<HTMLTextAreaElement>,
-	onSend: () => Promise<void>
-): Promise<void> {
-	if (event.nativeEvent.isComposing) {
-		return;
-	}
-	if (!shouldSendFromComposerKeyDown(event)) {
-		return;
-	}
-	event.preventDefault();
-	await onSend();
-}
 
 export type SpaceComposerSelection = {
 	end: number;
@@ -89,7 +74,7 @@ type TrackedComposerAuthoredMention =
 		start: number;
 	};
 
-export function useSpaceMentionAuthoring(input: {
+export type UseSpaceMentionAuthoringInput = {
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	composerDraftScope: ComposerDraftScope | null;
 	openMeldProfileId: string;
@@ -98,7 +83,9 @@ export function useSpaceMentionAuthoring(input: {
 	membersErrorMessage: string | null;
 	spaceId: string;
 	snapshot: SpaceMembersSnapshot | null;
-}) {
+};
+
+export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 	const textareaRef: SpaceComposerInputRef = useRef(null);
 	const pendingSelectionRef = useRef<SpaceComposerSelection | null>(null);
 	const composerDraft = useComposerDraft({
@@ -119,11 +106,6 @@ export function useSpaceMentionAuthoring(input: {
 		currentComposerTextRef.current = composerText;
 		currentComposerHasDraftRef.current = composerHasDraft;
 	}, [composerHasDraft, composerText]);
-	const [composerSelection, setComposerSelection] =
-		useState<SpaceComposerSelection>({
-			end: 0,
-			start: 0,
-		});
 	const [recentMentionProfileIds, setRecentMentionProfileIds] = useState<
 		string[]
 	>([]);
@@ -184,13 +166,9 @@ export function useSpaceMentionAuthoring(input: {
 		});
 	}, [authoredMentions, composerDraft.setContent, input.snapshot]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: Changing conversation identity must reset ephemeral picker and selection state even though the key is not rendered.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Changing conversation identity must discard a pending selection from the previous editor even though the key is not rendered.
 	useEffect(() => {
-		const nextComposerText = currentComposerTextRef.current;
-		setComposerSelection({
-			end: nextComposerText.length,
-			start: nextComposerText.length,
-		});
+		pendingSelectionRef.current = null;
 	}, [composerDraft.storageKey]);
 
 	useEffect(() => {
@@ -246,75 +224,25 @@ export function useSpaceMentionAuthoring(input: {
 		}
 
 		pendingSelectionRef.current = null;
-		if ("selectTextRange" in composerInput) {
-			composerInput.selectTextRange(pendingSelection);
-			return;
-		}
-		composerInput.focus();
-		composerInput.setSelectionRange(
-			pendingSelection.start,
-			pendingSelection.end
-		);
+		composerInput.selectTextRange(pendingSelection);
 	});
 
 	return {
 		addressingTargets,
 		authoredMentions,
-		composerSelection,
 		hasAuthoredMentions: authoredMentions.length > 0,
 		composerText,
 		mentionPickerItems,
 		replyTo,
-		onComposerChange: (value: string, selection: SpaceComposerSelection) => {
-			composerDraft.setContent((currentDraft) => ({
-				...currentDraft,
-				authoredMentions: reconcileTrackedAuthoredMentions({
-					mentions: currentDraft.authoredMentions,
-					nextText: value,
-					previousText: currentDraft.text,
-				}),
-				text: value,
-			}));
-			setComposerSelection(selection);
-		},
 		onComposerEditorChange: (change: SpaceComposerEditorChange) => {
 			composerDraft.setContent((currentDraft) => ({
 				...currentDraft,
 				authoredMentions: change.authoredMentions,
 				text: change.text,
 			}));
-			setComposerSelection(change.selection);
-		},
-		onComposerSelectionChange: (selection: SpaceComposerSelection) => {
-			setComposerSelection(selection);
 		},
 		onMentionButtonClick: () => {
-			if (
-				textareaRef.current &&
-				"insertMentionTrigger" in textareaRef.current
-			) {
-				textareaRef.current.insertMentionTrigger();
-				return;
-			}
-			const nextText = `${composerText.slice(0, composerSelection.start)}@${composerText.slice(composerSelection.end)}`;
-			const nextCaretPosition = composerSelection.start + 1;
-			composerDraft.setContent((currentDraft) => ({
-				...currentDraft,
-				authoredMentions: reconcileTrackedAuthoredMentions({
-					mentions: currentDraft.authoredMentions,
-					nextText,
-					previousText: currentDraft.text,
-				}),
-				text: nextText,
-			}));
-			setComposerSelection({
-				end: nextCaretPosition,
-				start: nextCaretPosition,
-			});
-			pendingSelectionRef.current = {
-				end: nextCaretPosition,
-				start: nextCaretPosition,
-			};
+			textareaRef.current?.insertMentionTrigger();
 		},
 		onClearReplyTo: () => {
 			composerDraft.setContent((currentDraft) => ({
@@ -348,12 +276,6 @@ export function useSpaceMentionAuthoring(input: {
 					text: nextText,
 				};
 			});
-			if (nextText !== composerText) {
-				setComposerSelection({
-					end: nextText.length,
-					start: nextText.length,
-				});
-			}
 			pendingSelectionRef.current = {
 				end: nextText.length,
 				start: nextText.length,
@@ -400,10 +322,6 @@ export function useSpaceMentionAuthoring(input: {
 				replyToSignalId: preparedSubmission.replyTo?.signalId ?? null,
 				text: preparedSubmission.text,
 			});
-			setComposerSelection({
-				end: nextCaretPosition,
-				start: nextCaretPosition,
-			});
 			pendingSelectionRef.current = {
 				end: nextCaretPosition,
 				start: nextCaretPosition,
@@ -438,12 +356,10 @@ export function useSpaceMentionAuthoring(input: {
 			}
 		},
 		textareaRef,
-		onComposerKeyDown,
 	};
 
 	function resetComposerState() {
 		composerDraft.setContent(EMPTY_COMPOSER_DRAFT_CONTENT);
-		setComposerSelection({ end: 0, start: 0 });
 	}
 }
 
@@ -688,77 +604,6 @@ function trackAuthoredMentionsInText(input: {
 	return trackedMentions;
 }
 
-function reconcileTrackedAuthoredMentions(input: {
-	mentions: readonly TrackedComposerAuthoredMention[];
-	nextText: string;
-	previousText: string;
-}): TrackedComposerAuthoredMention[] {
-	const edit = resolveSingleTextEdit({
-		nextText: input.nextText,
-		previousText: input.previousText,
-	});
-
-	return input.mentions
-		.map((mention): TrackedComposerAuthoredMention | null => {
-			if (mention.end <= edit.previousStart) {
-				return mention;
-			}
-
-			if (mention.start >= edit.previousEnd) {
-				return {
-					...mention,
-					end: mention.end + edit.delta,
-					start: mention.start + edit.delta,
-				};
-			}
-
-			return null;
-		})
-		.filter((mention): mention is TrackedComposerAuthoredMention => {
-			if (!mention) {
-				return false;
-			}
-
-			return isTrackedAuthoredMentionValid(input.nextText, mention);
-		});
-}
-
-function resolveSingleTextEdit(input: {
-	nextText: string;
-	previousText: string;
-}): {
-	delta: number;
-	previousEnd: number;
-	previousStart: number;
-} {
-	let prefixLength = 0;
-	while (
-		prefixLength < input.previousText.length &&
-		prefixLength < input.nextText.length &&
-		input.previousText[prefixLength] === input.nextText[prefixLength]
-	) {
-		prefixLength += 1;
-	}
-
-	let suffixLength = 0;
-	while (
-		suffixLength < input.previousText.length - prefixLength &&
-		suffixLength < input.nextText.length - prefixLength &&
-		input.previousText.at(-1 - suffixLength) ===
-			input.nextText.at(-1 - suffixLength)
-	) {
-		suffixLength += 1;
-	}
-
-	const previousEnd = input.previousText.length - suffixLength;
-	const nextEnd = input.nextText.length - suffixLength;
-	return {
-		delta: nextEnd - prefixLength - (previousEnd - prefixLength),
-		previousEnd,
-		previousStart: prefixLength,
-	};
-}
-
 function isTrackedAuthoredMentionValid(
 	text: string,
 	mention: TrackedComposerAuthoredMention
@@ -832,10 +677,4 @@ function resolveReplyWakeMention(input: {
 		relation: "wake",
 		text: `@${target.primaryMentionLabel}`,
 	};
-}
-
-function shouldSendFromComposerKeyDown(
-	event: KeyboardEvent<HTMLTextAreaElement>
-): boolean {
-	return (event.metaKey || event.ctrlKey) && event.key === "Enter";
 }

@@ -359,9 +359,7 @@ describe("SpaceComposerEditor", () => {
 	});
 
 	it("inserts a duplicate Agent appearance as an inline Reference token", async () => {
-		const composerRef = createRef<
-			HTMLTextAreaElement | SpaceComposerEditorHandle
-		>();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();
 		render(
 			<SpaceComposerEditor
@@ -488,9 +486,7 @@ describe("SpaceComposerEditor", () => {
 	});
 
 	it("copies an inline profile as ordinary public @Name text", () => {
-		const composerRef = createRef<
-			HTMLTextAreaElement | SpaceComposerEditorHandle
-		>();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
 		render(
 			<SpaceComposerEditor
 				addressingTargets={[createAgentTarget()]}
@@ -672,9 +668,7 @@ describe("SpaceComposerEditor", () => {
 	});
 
 	it("keeps Shift+Enter in the draft and sends with Enter", () => {
-		const composerRef = createRef<
-			HTMLTextAreaElement | SpaceComposerEditorHandle
-		>();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onSend = vi.fn();
 		render(
 			<SpaceComposerEditor
@@ -712,9 +706,7 @@ describe("SpaceComposerEditor", () => {
 	});
 
 	it("clears stale tokens when the existing draft is cleared after send", async () => {
-		const composerRef = createRef<
-			HTMLTextAreaElement | SpaceComposerEditorHandle
-		>();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const props = {
 			addressingTargets: [createAgentTarget()],
 			ariaLabel: "Message this space",
@@ -928,10 +920,10 @@ function createMentionPickerItems() {
 }
 
 function getComposerEditorHandle(input: {
-	current: HTMLTextAreaElement | SpaceComposerEditorHandle | null;
+	current: SpaceComposerEditorHandle | null;
 }): SpaceComposerEditorHandle {
 	const current = input.current;
-	if (!(current && "insertMentionTrigger" in current)) {
+	if (!current) {
 		throw new Error("Expected the structured Composer editor handle.");
 	}
 	return current;

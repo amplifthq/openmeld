@@ -1084,7 +1084,9 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 
 		expect(screen.queryByRole("checkbox", { name: "Felix" })).toBeNull();
 		expect(screen.queryByRole("checkbox", { name: "Joined Agent" })).toBeNull();
@@ -1100,7 +1102,7 @@ describe("SpaceMembersSidePanel", () => {
 		await waitFor(() => {
 			expect(
 				screen
-					.getByRole("button", { name: "Add members" })
+					.getByRole("button", { name: "Add People or Agents" })
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
@@ -1162,15 +1164,12 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
-
-		const humansGroup = screen.getByRole("group", { name: "Humans" });
-		expect(
-			within(humansGroup).queryByRole("checkbox", { name: "Codex Agent" })
-		).toBeNull();
 		fireEvent.click(
-			within(humansGroup).getByRole("checkbox", { name: "QA Human" })
+			screen.getByRole("button", { name: "Add People or Agents" })
 		);
+
+		expect(screen.getByRole("heading", { name: "People" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("checkbox", { name: "QA Human" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 
 		await waitFor(() => {
@@ -1181,7 +1180,7 @@ describe("SpaceMembersSidePanel", () => {
 		await waitFor(() => {
 			expect(
 				screen
-					.getByRole("button", { name: "Add members" })
+					.getByRole("button", { name: "Add People or Agents" })
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
@@ -1230,9 +1229,11 @@ describe("SpaceMembersSidePanel", () => {
 			buildOrganizationDirectory({ centerAgentProfileId, humanProfileId })
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		expect(
-			screen.getByText("Choose people and agents from Acme.")
+			screen.getByText("Choose people and their agents from Acme.")
 		).toBeTruthy();
 		expect(screen.queryByRole("checkbox", { name: "Felix" })).toBeNull();
 		expect(
@@ -1243,7 +1244,7 @@ describe("SpaceMembersSidePanel", () => {
 		).toBeNull();
 
 		const searchInput = screen.getByRole("searchbox", {
-			name: "Search members and agents",
+			name: "Search people and agents",
 		});
 		expect(screen.queryByText("mira@example.com")).toBeNull();
 		fireEvent.change(searchInput, { target: { value: "mira@example.com" } });
@@ -1252,13 +1253,25 @@ describe("SpaceMembersSidePanel", () => {
 		expect(screen.getByRole("checkbox", { name: "Mira" })).toBeTruthy();
 		expect(screen.queryByRole("checkbox", { name: "Center Agent" })).toBeNull();
 		fireEvent.change(searchInput, { target: { value: "" } });
-		expect(screen.getByText("Mira will join too")).toBeTruthy();
-
-		const membersGroup = screen.getByRole("group", { name: "Members" });
-		const agentsGroup = screen.getByRole("group", { name: "Agents" });
-		fireEvent.click(
-			within(membersGroup).getByRole("checkbox", { name: "Mira" })
+		expect(screen.getByRole("heading", { name: "People" })).toBeTruthy();
+		const organizationHeading = screen.getByRole("heading", {
+			name: "Organization",
+		});
+		const peopleHeading = screen.getByRole("heading", { name: "People" });
+		expect(organizationHeading.compareDocumentPosition(peopleHeading)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
 		);
+		expect(
+			within(screen.getByRole("checkbox", { name: "Center Agent" })).getByText(
+				"Remote"
+			)
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
+		expect(screen.getByText("Joins with selected Agent")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Add 2 members" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
+
+		fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
 		fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
 
@@ -1270,9 +1283,7 @@ describe("SpaceMembersSidePanel", () => {
 		});
 		expect(screen.getByText("Directory changed. Try again.")).toBeTruthy();
 		expect(screen.getByText("2 selected")).toBeTruthy();
-		expect(
-			within(agentsGroup).getByRole("checkbox", { name: "Center Agent" })
-		).toBeTruthy();
+		expect(screen.getByRole("checkbox", { name: "Center Agent" })).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
 
@@ -1282,7 +1293,7 @@ describe("SpaceMembersSidePanel", () => {
 		await waitFor(() => {
 			expect(
 				screen
-					.getByRole("button", { name: "Add members" })
+					.getByRole("button", { name: "Add People or Agents" })
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
@@ -1291,7 +1302,7 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
-	it("closes Add members when the server confirms the selection is already present", async () => {
+	it("closes Add People or Agents when the server confirms the selection is already present", async () => {
 		const onAddProfiles = vi.fn(async () => ({
 			addedCount: 0,
 			alreadyMemberCount: 1,
@@ -1337,14 +1348,16 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: "Codex Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 
 		await waitFor(() => {
 			expect(
 				screen
-					.getByRole("button", { name: "Add members" })
+					.getByRole("button", { name: "Add People or Agents" })
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
@@ -1418,7 +1431,9 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: "Codex Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 
@@ -1518,7 +1533,9 @@ describe("SpaceMembersSidePanel", () => {
 			</TestQueryClientProvider>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: "Codex Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 		expect(
@@ -1604,7 +1621,9 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: "Codex Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 
@@ -1672,7 +1691,9 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		expect(
 			screen.getByText("All eligible profiles are already in this Space.")
 		).toBeTruthy();
@@ -1702,13 +1723,15 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		expect(
 			screen.getByText("No matching profiles are available to add.")
 		).toBeTruthy();
 	});
 
-	it("groups selectable candidates under Agents and Humans", () => {
+	it("groups Agents under expandable People", () => {
 		renderWithQueryClient(
 			<SpaceMembersSidePanel
 				accountProfiles={[
@@ -1758,33 +1781,28 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		const trigger = screen.getByRole("button", { name: "Add members" });
+		const trigger = screen.getByRole("button", {
+			name: "Add People or Agents",
+		});
 		expect(trigger.getAttribute("aria-expanded")).toBe("false");
 		fireEvent.click(trigger);
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 
-		const region = document.getElementById("space-add-members-region");
-		expect(region).toBeTruthy();
-		expect(region?.className).toContain("rounded-lg");
-		expect(region?.className).toContain("bg-card");
-		expect(trigger.getAttribute("aria-controls")).toBe(
-			"space-add-members-region"
-		);
-		const scope = within(region as HTMLElement);
+		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
+		expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+		expect(trigger.getAttribute("aria-controls")).toBe(dialog.id);
+		const scope = within(dialog);
 
-		const agentsGroup = scope.getByRole("group", { name: "Agents" });
-		const humansGroup = scope.getByRole("group", { name: "Humans" });
-		expect(
-			within(agentsGroup).getByRole("checkbox", { name: "Codex Agent" })
-		).toBeTruthy();
-		expect(
-			within(humansGroup).getByRole("checkbox", { name: "QA Human" })
-		).toBeTruthy();
-		expect(
-			within(agentsGroup).queryByRole("checkbox", { name: "QA Human" })
-		).toBeNull();
+		expect(scope.getByRole("heading", { name: "People" })).toBeTruthy();
+		expect(scope.getByRole("checkbox", { name: "QA Human" })).toBeTruthy();
+		const collapseButton = scope.getByRole("button", {
+			name: "Collapse QA Human",
+		});
+		fireEvent.click(collapseButton);
+		expect(scope.queryByRole("checkbox", { name: "Codex Agent" })).toBeNull();
+		fireEvent.click(scope.getByRole("button", { name: "Expand QA Human" }));
 
-		const codexCheckbox = within(agentsGroup).getByRole("checkbox", {
+		const codexCheckbox = scope.getByRole("checkbox", {
 			name: "Codex Agent",
 		});
 		codexCheckbox.focus();
@@ -1793,7 +1811,7 @@ describe("SpaceMembersSidePanel", () => {
 		expect(screen.getByText("1 selected")).toBeTruthy();
 	});
 
-	it("offers an empty-space call to action that opens Add members", () => {
+	it("offers an empty-space call to action that opens Add People or Agents", () => {
 		renderWithQueryClient(
 			<SpaceMembersSidePanel
 				accountProfiles={[
@@ -1843,44 +1861,46 @@ describe("SpaceMembersSidePanel", () => {
 		const emptyCta = screen.getByRole("button", {
 			name: EMPTY_SPACE_CTA_NAME,
 		});
+		expect(emptyCta.getAttribute("aria-haspopup")).toBe("dialog");
 		fireEvent.click(emptyCta);
 
 		expect(
-			screen
-				.getByRole("button", { name: "Add members" })
-				.getAttribute("aria-expanded")
-		).toBe("true");
-		expect(screen.getByRole("heading", { name: "Add members" })).toBeTruthy();
-		const addMembersHeading = screen.getByRole("heading", {
-			name: "Add members",
+			screen.getByRole("heading", { name: "Add People or Agents" })
+		).toBeTruthy();
+		const dialog = screen.getByRole("dialog", {
+			name: "Add People or Agents",
 		});
-		const addMembersDescription = screen.getByText(
-			"Choose profiles to add to this Space."
-		);
-		const createProfileButton = screen.getByRole("button", {
-			name: "Create Agent",
+		expect(emptyCta.getAttribute("aria-controls")).toBe(dialog.id);
+		expect(emptyCta.getAttribute("aria-expanded")).toBe("true");
+		const dialogScope = within(dialog);
+		expect(
+			dialogScope.getByRole("heading", { name: "Add People or Agents" })
+		).toBeTruthy();
+		expect(
+			dialogScope.getByText(
+				"Choose people and their agents to add to this Space."
+			)
+		).toBeTruthy();
+		const createProfileButton = dialogScope.getByRole("button", {
+			name: "New Agent",
 		});
-		expect(addMembersDescription.parentElement).toBe(
-			addMembersHeading.parentElement?.parentElement
-		);
-		expect(createProfileButton.className).toContain("w-full");
-		expect(createProfileButton.className).toContain("@min-[20rem]:w-auto");
-		const footerLabel = screen.getByText("Select members to add");
+		expect(createProfileButton.className).toContain("bg-primary");
+		const footerLabel = dialogScope.getByText("Select members to add");
 		const footer = footerLabel.parentElement;
 		expect(footer?.className).toContain("flex-col");
 		expect(footer?.className).toContain("@min-[20rem]:flex-row");
 		expect(
-			screen.getByRole("button", { name: "Add selected" }).className
+			dialogScope.getByRole("button", { name: "Add selected" }).className
 		).toContain("flex-1");
-		expect(
-			screen.getAllByRole("button", { name: "Create Agent" })
-		).toHaveLength(1);
+		expect(screen.getAllByRole("button", { name: "New Agent" })).toHaveLength(
+			1
+		);
 		expect(
 			screen.queryByRole("button", { name: EMPTY_SPACE_CTA_NAME })
 		).toBeNull();
 	});
 
-	it("closes the Add members panel with Escape and returns focus to the trigger", () => {
+	it("closes the Add People or Agents dialog with Escape and returns focus to the trigger", async () => {
 		renderWithQueryClient(
 			<SpaceMembersSidePanel
 				accountProfiles={[
@@ -1931,14 +1951,20 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		const trigger = screen.getByRole("button", { name: "Add members" });
+		const trigger = screen.getByRole("button", {
+			name: "Add People or Agents",
+		});
+		trigger.focus();
 		fireEvent.click(trigger);
-		const region = document.getElementById("space-add-members-region");
-		expect(region).toBeTruthy();
+		const dialog = await screen.findByRole("dialog", {
+			name: "Add People or Agents",
+		});
 
-		fireEvent.keyDown(region as HTMLElement, { key: "Escape" });
-		expect(trigger.getAttribute("aria-expanded")).toBe("false");
-		expect(document.activeElement).toBe(trigger);
+		fireEvent.keyDown(dialog, { key: "Escape" });
+		await waitFor(() => {
+			expect(trigger.getAttribute("aria-expanded")).toBe("false");
+			expect(document.activeElement).toBe(trigger);
+		});
 	});
 });
 

@@ -263,6 +263,7 @@ interface CheckboxItemProps extends HTMLAttributes<HTMLDivElement> {
   description?: ReactNode;
   index: number;
   label: string;
+  labelAdornment?: ReactNode;
   labelClassName?: string;
   onToggle: () => void;
 }
@@ -277,6 +278,7 @@ const CheckboxItem = forwardRef<HTMLDivElement, CheckboxItemProps>(
       description,
       index,
       label,
+      labelAdornment,
       labelClassName,
       onToggle,
       ...props
@@ -419,7 +421,7 @@ const CheckboxItem = forwardRef<HTMLDivElement, CheckboxItemProps>(
             </span>
             <span
               className={cn(
-                "col-start-1 row-start-1 min-w-0 transition-[color,font-variation-settings] duration-[80ms]",
+                "col-start-1 row-start-1 flex min-w-0 items-center gap-1.5 transition-[color,font-variation-settings] duration-[80ms]",
                 checked || isActive
                   ? "text-foreground"
                   : "text-muted-foreground",
@@ -431,7 +433,8 @@ const CheckboxItem = forwardRef<HTMLDivElement, CheckboxItemProps>(
                   : fontWeights.normal,
               }}
             >
-              {label}
+              <span className="min-w-0 truncate">{label}</span>
+              {labelAdornment}
             </span>
           </span>
           {hasDescription ? (

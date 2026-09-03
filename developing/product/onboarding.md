@@ -539,10 +539,10 @@ Banner content by decision:
   owner for the terminal handoff and live setup status while `openmeld setup`
   runs.
 - `bring_agents` available — a single right-aligned "Add agents" control that
-  opens the Members panel AND expands its "Add members" card, then flashes the
-  card's border so a first-time user sees exactly where to act (it must not
-  just open the drawer and strand them). The card is the shipped grouped-list
-  selector backed by the shared profile-add planner in `packages/space`;
+  opens the Members panel and its "Add members" dialog so a first-time user
+  lands directly on the action (it must not just open the drawer and strand
+  them). The dialog is the shipped grouped-list selector backed by the shared
+  profile-add planner in `packages/space`;
   building a second selector is forbidden — this is an entry point only.
 - `bring_agents` done — a membership fact only: "<Agent> is in this Space".
   NEVER "can be woken" (Invariant 3). Whether it can be woken right now is
@@ -618,7 +618,7 @@ drift):
 | Connect (banner)            | `Connect this computer` / `So your local agents can reply when you mention them` / button `Connect Computer` (routes to the setup page) |
 | Waiting status (setup page) | `Waiting for this computer…`                                                                                                                    |
 | Connected status            | `Connected`                                                                                                                                     |
-| Bring agents (available)    | `Add agents` (opens + flashes Add members)                                                                                                      |
+| Bring agents (available)    | `Add agents` (opens the Members panel and Add members dialog)                                                                                   |
 | Bring agents (done)         | `<Agent> is in this Space` (membership only — never "can be woken")                                                                             |
 | Dismiss / Recall            | per-row `×` / header **Get set up** action                                                                                                      |
 
@@ -959,7 +959,7 @@ manual verification):
 18. The same account opens a second computer. Organization and Space membership
     remain intact while contextual guidance independently offers setup for that
     computer.
-19. `bring_agents` opens the existing Members panel and its Add members surface.
+19. `bring_agents` opens the existing Members panel and its Add members dialog.
     No parallel agent selector exists in onboarding.
 20. The centralized Connect page and Center Agent Direct Message render the
     same setup command and live timeline owner. The page stays a page; the

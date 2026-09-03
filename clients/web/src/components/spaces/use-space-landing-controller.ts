@@ -26,7 +26,7 @@ import {
 } from "@openmeld/space";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import type { KeyboardEvent, SetStateAction } from "react";
+import type { SetStateAction } from "react";
 import {
 	useCallback,
 	useEffect,
@@ -134,7 +134,7 @@ import type {
 	SpaceExecutionRecoveryResolution,
 	SpaceWakeRetryAttempt,
 } from "./space-wake-retry";
-import { useSpaceComposerFiles } from "./use-space-composer-attachments";
+import { useSpaceComposerSession } from "./use-space-composer-session";
 import {
 	addSetValue,
 	areWakeProgressItemsEqual,
@@ -170,10 +170,9 @@ import {
 import { useSpaceLandingFeed } from "./use-space-landing-feed";
 import type {
 	SpaceComposerAddressingTarget,
-	SpaceComposerSelection,
 	SpaceMentionPickerItem,
+	useSpaceMentionAuthoring,
 } from "./use-space-mention-authoring";
-import { useSpaceMentionAuthoring } from "./use-space-mention-authoring";
 import { useSpaceThreadPanelSelection } from "./use-space-thread-panel-selection";
 import { useSpaceUnread } from "./use-space-unread";
 
@@ -962,18 +961,14 @@ function shouldShowSpaceLandingLoading(input: {
 
 export type SpaceLandingController =
 	| {
+			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
+			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
+			composerMentionPickerItems: readonly SpaceMentionPickerItem[];
 			composerText: string;
 			mode: "loading";
 			onComposerBlur: () => void;
-			onComposerChange: (
-				value: string,
-				selection: SpaceComposerSelection
-			) => void;
+			onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onComposerFocus: () => void;
-			onComposerKeyDown: (
-				event: KeyboardEvent<HTMLTextAreaElement>
-			) => Promise<void>;
-			onComposerSelectionChange: (selection: SpaceComposerSelection) => void;
 			textareaRef: SpaceComposerInputRef;
 	  }
 	| {
@@ -1289,13 +1284,6 @@ export function useSpaceLandingController(input: {
 		string | null
 	>(null);
 	const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
-	const [composerErrorMessage, setComposerErrorMessage] = useState<
-		string | null
-	>(null);
-	const [composerBlockedWakeProfileId, setComposerBlockedWakeProfileId] =
-		useState<string | null>(null);
-	const [isSendingMessage, setIsSendingMessage] = useState(false);
-	const composerSendInFlightRef = useRef(false);
 	const [pendingOutgoingSignals, setPendingOutgoingSignals] = useState<
 		PendingOutgoingSignal[]
 	>([]);
@@ -1377,11 +1365,6 @@ export function useSpaceLandingController(input: {
 		activeWakeProgressSummaryQuery.isError,
 		input.spaceId,
 	]);
-	const composerFilesController = useSpaceComposerFiles({
-		organizationSlug: input.orgSlug,
-		profileId: input.profileId,
-		spaceId: input.spaceId,
-	});
 	const refreshStatusAndMembersDedupeRef = useRef(
 		createStatusAndMembersRefreshDedupe()
 	);
@@ -1534,31 +1517,51 @@ export function useSpaceLandingController(input: {
 		spaceId: input.spaceId,
 		targets: input.unreadTargets ?? [],
 	});
-	const mentionAuthoring = useSpaceMentionAuthoring({
-		composerDraftMigrationScopes: input.composerDraftMigrationScopes,
-		composerDraftScope: input.ownerAccountId.trim()
-			? {
-					kind: "space",
-					ownerAccountId: input.ownerAccountId,
-					profileId: input.profileId,
-					spaceId: input.spaceId,
-				}
-			: null,
-		openMeldProfileId: input.profileId,
-		initialComposerDraft: input.initialPendingMessage
-			? createComposerDraftRecord(
-					{
-						...EMPTY_COMPOSER_DRAFT_CONTENT,
-						text: input.initialPendingMessage.text,
-					},
-					input.initialPendingMessage.createdAtMs
-				)
-			: input.initialComposerDraft,
-		isMembersLoading: membersLoading,
-		membersErrorMessage,
-		spaceId: input.spaceId,
-		snapshot: membersSnapshot,
+	const composerSession = useSpaceComposerSession({
+		authoring: {
+			composerDraftMigrationScopes: input.composerDraftMigrationScopes,
+			composerDraftScope: input.ownerAccountId.trim()
+				? {
+						kind: "space",
+						ownerAccountId: input.ownerAccountId,
+						profileId: input.profileId,
+						spaceId: input.spaceId,
+					}
+				: null,
+			openMeldProfileId: input.profileId,
+			initialComposerDraft: input.initialPendingMessage
+				? createComposerDraftRecord(
+						{
+							...EMPTY_COMPOSER_DRAFT_CONTENT,
+							text: input.initialPendingMessage.text,
+						},
+						input.initialPendingMessage.createdAtMs
+					)
+				: input.initialComposerDraft,
+			isMembersLoading: membersLoading,
+			membersErrorMessage,
+			spaceId: input.spaceId,
+			snapshot: membersSnapshot,
+		},
+		files: {
+			organizationSlug: input.orgSlug,
+			profileId: input.profileId,
+			spaceId: input.spaceId,
+		},
 	});
+	const mentionAuthoring = composerSession.authoring;
+	const composerFilesController = composerSession.files;
+	const {
+		blockedWakeProfileId: composerBlockedWakeProfileId,
+		errorMessage: composerErrorMessage,
+		setBlockedWakeProfileId: setComposerBlockedWakeProfileId,
+		setErrorMessage: setComposerErrorMessage,
+	} = composerSession.feedback;
+	const {
+		inFlightRef: composerSendInFlightRef,
+		isSending: isSendingMessage,
+		setIsSending: setIsSendingMessage,
+	} = composerSession.send;
 	const restoreColdLoadingComposerFocusRef = useRef(false);
 	useLayoutEffect(() => {
 		if (!(statusReady && restoreColdLoadingComposerFocusRef.current)) {
@@ -1734,9 +1737,8 @@ export function useSpaceLandingController(input: {
 		setPassword("");
 		setPasswordErrorMessage(null);
 		setIsSubmittingPassword(false);
-		setComposerErrorMessage(null);
-		setComposerBlockedWakeProfileId(null);
-		setIsSendingMessage(false);
+		composerSession.feedback.clear();
+		composerSession.send.finish();
 		setHasEarlierHistory(true);
 		setHistoryActionErrorMessage(null);
 		setIsLoadingEarlierHistory(false);
@@ -1746,7 +1748,11 @@ export function useSpaceLandingController(input: {
 		setPendingDiagnosticReportSignalIds(new Set());
 		setSentDiagnosticReportSignalIds(new Set());
 		recoveredWakeProgressClientMessageIdsRef.current.clear();
-	}, [input.spaceId]);
+	}, [
+		composerSession.feedback.clear,
+		composerSession.send.finish,
+		input.spaceId,
+	]);
 
 	useEffect(() => {
 		if (!statusReady) {
@@ -2052,19 +2058,18 @@ export function useSpaceLandingController(input: {
 		})
 	) {
 		return {
+			composerAddressingTargets: mentionAuthoring.addressingTargets,
+			composerAuthoredMentions: mentionAuthoring.authoredMentions,
+			composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
 			composerText: mentionAuthoring.composerText,
 			mode: "loading",
 			onComposerBlur: () => {
 				restoreColdLoadingComposerFocusRef.current = false;
 			},
-			onComposerChange: mentionAuthoring.onComposerChange,
+			onComposerEditorChange: composerSession.onEditorChange,
 			onComposerFocus: () => {
 				restoreColdLoadingComposerFocusRef.current = true;
 			},
-			onComposerKeyDown: async (event) => {
-				await mentionAuthoring.onComposerKeyDown(event, sendMessage);
-			},
-			onComposerSelectionChange: mentionAuthoring.onComposerSelectionChange,
 			textareaRef: mentionAuthoring.textareaRef,
 		};
 	}
@@ -2180,11 +2185,7 @@ export function useSpaceLandingController(input: {
 		membersSnapshot,
 		presentationMembersSnapshot,
 		mode: "ready",
-		onComposerEditorChange: (change) => {
-			mentionAuthoring.onComposerEditorChange(change);
-			setComposerErrorMessage(null);
-			setComposerBlockedWakeProfileId(null);
-		},
+		onComposerEditorChange: composerSession.onEditorChange,
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
 		onRemoveComposerFile: composerFilesController.removeFile,
@@ -2323,10 +2324,7 @@ export function useSpaceLandingController(input: {
 		}
 		const { messageSeed } = sendAttempt;
 
-		setComposerErrorMessage(null);
-		setComposerBlockedWakeProfileId(null);
-		composerSendInFlightRef.current = true;
-		setIsSendingMessage(true);
+		composerSession.send.begin();
 
 		let postedMessage = false;
 		let hasPublishedFiles = false;
@@ -2417,8 +2415,7 @@ export function useSpaceLandingController(input: {
 				throwOnFailure: options?.throwOnFailure === true,
 			});
 		} finally {
-			composerSendInFlightRef.current = false;
-			setIsSendingMessage(false);
+			composerSession.send.finish();
 		}
 	}
 
@@ -3006,25 +3003,13 @@ function useSpaceThreadController(input: {
 	statusReady: boolean;
 	statusRefetch: () => Promise<unknown>;
 }) {
-	const [composerErrorMessage, setComposerErrorMessage] = useState<
-		string | null
-	>(null);
-	const [composerBlockedWakeProfileId, setComposerBlockedWakeProfileId] =
-		useState<string | null>(null);
 	const [isCreatingThread, setIsCreatingThread] = useState(false);
-	const [isSendingMessage, setIsSendingMessage] = useState(false);
-	const threadComposerSendInFlightRef = useRef(false);
 	const [wakeProgressItems, setWakeProgressItems] = useState<
 		WakeProgressItem[]
 	>([]);
 	const [pendingOutgoingSignals, setPendingOutgoingSignals] = useState<
 		PendingOutgoingSignal[]
 	>([]);
-	const composerFilesController = useSpaceComposerFiles({
-		organizationSlug: input.organizationSlug,
-		profileId: input.profileId,
-		spaceId: input.spaceId,
-	});
 	const threadsQuery = useQuery(
 		spaceThreadsQueryOptions({
 			spaceId: input.spaceId,
@@ -3054,23 +3039,43 @@ function useSpaceThreadController(input: {
 			enabled: input.statusReady && activeThreadId !== null,
 		})
 	);
-	const mentionAuthoring = useSpaceMentionAuthoring({
-		composerDraftScope:
-			input.ownerAccountId.trim() && activeThreadId
-				? {
-						kind: "space_thread",
-						ownerAccountId: input.ownerAccountId,
-						profileId: input.profileId,
-						spaceId: input.spaceId,
-						threadId: activeThreadId,
-					}
-				: null,
-		openMeldProfileId: input.profileId,
-		isMembersLoading: input.isMembersLoading,
-		membersErrorMessage: input.membersErrorMessage,
-		spaceId: input.spaceId,
-		snapshot: input.membersSnapshot,
+	const composerSession = useSpaceComposerSession({
+		authoring: {
+			composerDraftScope:
+				input.ownerAccountId.trim() && activeThreadId
+					? {
+							kind: "space_thread",
+							ownerAccountId: input.ownerAccountId,
+							profileId: input.profileId,
+							spaceId: input.spaceId,
+							threadId: activeThreadId,
+						}
+					: null,
+			openMeldProfileId: input.profileId,
+			isMembersLoading: input.isMembersLoading,
+			membersErrorMessage: input.membersErrorMessage,
+			spaceId: input.spaceId,
+			snapshot: input.membersSnapshot,
+		},
+		files: {
+			organizationSlug: input.organizationSlug,
+			profileId: input.profileId,
+			spaceId: input.spaceId,
+		},
 	});
+	const mentionAuthoring = composerSession.authoring;
+	const composerFilesController = composerSession.files;
+	const {
+		blockedWakeProfileId: composerBlockedWakeProfileId,
+		errorMessage: composerErrorMessage,
+		setBlockedWakeProfileId: setComposerBlockedWakeProfileId,
+		setErrorMessage: setComposerErrorMessage,
+	} = composerSession.feedback;
+	const {
+		inFlightRef: threadComposerSendInFlightRef,
+		isSending: isSendingMessage,
+		setIsSending: setIsSendingMessage,
+	} = composerSession.send;
 	const activeThread =
 		threads.find((thread) => thread.threadId === activeThreadId) ?? null;
 	const persistedThreadSignals = threadSignalsQuery.data?.signals ?? [];
@@ -3097,13 +3102,17 @@ function useSpaceThreadController(input: {
 		) {
 			return;
 		}
-		setComposerErrorMessage(null);
-		setComposerBlockedWakeProfileId(null);
+		composerSession.feedback.clear();
 		setIsCreatingThread(false);
-		setIsSendingMessage(false);
+		composerSession.send.finish();
 		setWakeProgressItems([]);
 		setPendingOutgoingSignals([]);
-	}, [currentProfileId, currentSpaceId]);
+	}, [
+		composerSession.feedback.clear,
+		composerSession.send.finish,
+		currentProfileId,
+		currentSpaceId,
+	]);
 
 	useWakeProgressPolling({
 		enabled: input.statusReady,
@@ -3124,11 +3133,7 @@ function useSpaceThreadController(input: {
 		onOpenUnreadThread: openUnreadThread,
 		onOpenThread: openThread,
 		onRetryWakeTarget: retryWakeTarget,
-		onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => {
-			mentionAuthoring.onComposerEditorChange(change);
-			setComposerErrorMessage(null);
-			setComposerBlockedWakeProfileId(null);
-		},
+		onThreadComposerEditorChange: composerSession.onEditorChange,
 		onThreadMentionButtonClick: mentionAuthoring.onMentionButtonClick,
 		onThreadSend: sendMessage,
 		onThreadSendText: sendTextMessage,
@@ -3165,16 +3170,14 @@ function useSpaceThreadController(input: {
 
 	function closeThread() {
 		threadPanelSelection.close();
-		setComposerErrorMessage(null);
-		setComposerBlockedWakeProfileId(null);
+		composerSession.feedback.clear();
 		setPendingOutgoingSignals([]);
 		composerFilesController.clearFiles();
 	}
 
 	function openThread(threadId: string) {
 		threadPanelSelection.open(threadId);
-		setComposerErrorMessage(null);
-		setComposerBlockedWakeProfileId(null);
+		composerSession.feedback.clear();
 		setPendingOutgoingSignals([]);
 		composerFilesController.clearFiles();
 	}
@@ -3259,10 +3262,7 @@ function useSpaceThreadController(input: {
 			return;
 		}
 
-		setComposerErrorMessage(null);
-		setComposerBlockedWakeProfileId(null);
-		threadComposerSendInFlightRef.current = true;
-		setIsSendingMessage(true);
+		composerSession.send.begin();
 
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		let publishedLocalIds: readonly string[] = [];
@@ -3304,8 +3304,7 @@ function useSpaceThreadController(input: {
 				publishedLocalIds,
 			});
 		} finally {
-			threadComposerSendInFlightRef.current = false;
-			setIsSendingMessage(false);
+			composerSession.send.finish();
 		}
 	}
 

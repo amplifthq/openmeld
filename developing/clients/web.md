@@ -2531,7 +2531,8 @@ gaps: cached rows must never authorize Wake or membership mutations, and a
 future fix must add explicit snapshot freshness and member-set reconciliation
 instead of another client-side readiness source.
 
-The Add members surface may present the designated Center Agent in its own
+The Add People or Agents surface may present the designated Center Agent in its
+own
 category, but the Organization directory result is display data, not mutation
 authority. Web must carry the displayed Center Agent Profile id as the expected
 designation identity and let Core reject a mismatch. Web submits one mixed
@@ -2817,14 +2818,22 @@ composited presentation properties such as transform and opacity so labels and
 message content never pass through a compressed wrapping state. Reduced-motion
 users receive the final layout without spatial motion.
 
-Members header descriptions and Add-members guidance own full-width rows below
-their related title-and-action rows. Add-members controls respond to the panel's
-own width rather than the browser viewport: narrow panels stack heading actions
-and footer actions into full-width rows, while wider panels keep the compact
-side-by-side layout. After Core confirms an Agent or Human membership write,
-Web collapses Add members so the roster regains the available space. Agent and
-Human names use the same compact type scale as the app sidebars so the Members
-panel does not introduce a heavier navigation hierarchy.
+Members header descriptions own a full-width row below the title and actions.
+The header Add People or Agents action and the one-member empty-state card both
+open the same Add People or Agents dialog. New Agent is a compact primary action
+below the dialog description; the title row is reserved for the title and close
+action.
+The picker presents People as the primary hierarchy, expanded by default, with
+each person's addable Agent Profiles indented below their People row. A person
+who is already in the Space remains visible when one of their Agents can still
+be added. Center Agent remains Organization-owned, appears first in a separate
+Organization group, and carries a compact Remote badge. The hierarchy uses
+spacing, avatars, and typography rather than nested cards or borders. Selecting
+an ordinary Agent explains and counts
+the Core-owned owner-Human participation effect without submitting a duplicate
+owner selection. After Core confirms an Agent or Human membership write, Web
+closes the dialog. Names use the same compact type scale as the app sidebars so
+the Members panel does not introduce a heavier navigation hierarchy.
 
 The active Thread panel selection is a per-Space browser presentation
 preference. Web persists only the selected Thread id, resolves that id against

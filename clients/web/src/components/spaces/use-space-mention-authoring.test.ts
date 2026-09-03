@@ -35,10 +35,11 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		);
 
 		act(() => {
-			firstComposer.result.current.onComposerChange(
-				"Keep this plan after refresh",
-				{ end: 28, start: 28 }
-			);
+			firstComposer.result.current.onComposerEditorChange({
+				authoredMentions: [],
+				selection: { end: 28, start: 28 },
+				text: "Keep this plan after refresh",
+			});
 		});
 		firstComposer.unmount();
 
@@ -84,9 +85,10 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		);
 
 		act(() => {
-			composer.result.current.onComposerChange("Draft for thread A", {
-				end: 18,
-				start: 18,
+			composer.result.current.onComposerEditorChange({
+				authoredMentions: [],
+				selection: { end: 18, start: 18 },
+				text: "Draft for thread A",
 			});
 		});
 
@@ -94,9 +96,10 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		expect(composer.result.current.composerText).toBe("");
 
 		act(() => {
-			composer.result.current.onComposerChange("Draft for thread B", {
-				end: 18,
-				start: 18,
+			composer.result.current.onComposerEditorChange({
+				authoredMentions: [],
+				selection: { end: 18, start: 18 },
+				text: "Draft for thread B",
 			});
 		});
 
@@ -217,40 +220,6 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		).toMatchObject({
 			mentionTargets: [humanProfileId],
 			referenceTargets: [],
-		});
-	});
-
-	it("inserts @ at the current selection for the cold-loading textarea", () => {
-		const composer = renderHook(() =>
-			useSpaceMentionAuthoring({
-				composerDraftScope: {
-					kind: "space",
-					ownerAccountId: "account-1",
-					profileId: "human-1",
-					spaceId: "space-1",
-				},
-				isMembersLoading: false,
-				membersErrorMessage: null,
-				openMeldProfileId: "human-1",
-				snapshot: createMentionOrderingSnapshot(),
-				spaceId: "space-1",
-			})
-		);
-
-		act(() => {
-			composer.result.current.onComposerChange("Hello teammate", {
-				end: 14,
-				start: 6,
-			});
-		});
-		act(() => {
-			composer.result.current.onMentionButtonClick();
-		});
-
-		expect(composer.result.current.composerText).toBe("Hello @");
-		expect(composer.result.current.composerSelection).toEqual({
-			end: 7,
-			start: 7,
 		});
 	});
 
