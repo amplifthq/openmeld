@@ -1213,7 +1213,9 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: "Alex" }));
 		fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
@@ -1232,7 +1234,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(
 				screen
-					.getByRole("button", { name: "Add members" })
+					.getByRole("button", { name: "Add People or Agents" })
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
@@ -1331,7 +1333,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("closes Add members when profile history refresh fails after the membership write", async () => {
+	it("closes Add People or Agents when profile history refresh fails after the membership write", async () => {
 		const addMembersMock = vi.fn().mockResolvedValue({
 			addedMemberIds: [SECOND_AGENT_PROFILE_ID],
 			alreadyMemberIds: [],
@@ -1410,7 +1412,9 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: SCOUT_OPTION_NAME }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 
@@ -1426,7 +1430,7 @@ describe("SpaceLanding", () => {
 			});
 			expect(
 				screen
-					.getByRole("button", { name: "Add members" })
+					.getByRole("button", { name: "Add People or Agents" })
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
@@ -1521,7 +1525,9 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: SCOUT_OPTION_NAME }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 
@@ -1654,8 +1660,10 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
-		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "New Agent" }));
 		const dialog = await screen.findByRole("dialog", {
 			name: "Create a new Agent",
 		});
@@ -1682,7 +1690,7 @@ describe("SpaceLanding", () => {
 		await flushPromiseQueue();
 		expect(
 			screen
-				.getByRole("button", { name: "Add members" })
+				.getByRole("button", { name: "Add People or Agents" })
 				.getAttribute("aria-expanded")
 		).toBe("false");
 		expect(membersRefetchMock).toHaveBeenCalledTimes(2);
@@ -4739,7 +4747,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows both empty Space setup cards and opens the existing Add members flow", () => {
+	it("shows both empty Space setup cards and opens Add People or Agents", () => {
 		useLocalAgentRecoveryControllerMock.mockReturnValue({
 			localRuntimesQuery: {
 				data: { localRuntimes: [] },
@@ -4803,13 +4811,15 @@ describe("SpaceLanding", () => {
 			})
 		);
 		const addMembersDialog = screen.getByRole("dialog", {
-			name: "Add members",
+			name: "Add People or Agents",
 		});
 		expect(
-			within(addMembersDialog).getByRole("heading", { name: "Add members" })
+			within(addMembersDialog).getByRole("heading", {
+				name: "Add People or Agents",
+			})
 		).toBeTruthy();
 		expect(
-			within(addMembersDialog).getByRole("button", { name: "Create Agent" })
+			within(addMembersDialog).getByRole("button", { name: "New Agent" })
 		).toBeTruthy();
 	});
 
