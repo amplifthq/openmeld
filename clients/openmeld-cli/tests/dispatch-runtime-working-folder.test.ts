@@ -238,33 +238,52 @@ describe("dispatch runtime working folder", () => {
     });
   });
 
-  it("keeps the explicit Default Project path on the canonical resolver", async () => {
-    resolveEffectiveProfileWorkingFolderRuntime.mockResolvedValue({
-      defaultProjectId: "project-explicit",
-      effectiveRuntimeWorkingDirectory: "/tmp/project-explicit",
-      runtimeContext: {
-        providerRuntimeWorkingDirectory: "/tmp/project-explicit",
-      },
-      status: "ready",
-      workingFolderSource: "default_project",
-    });
+  it("requires a matching current route when the dispatch provides a Default Project", async () => {
+    const routeConfig = createCurrentRoute();
 
     await expect(
       resolveDispatchWorkingFolderRuntimeContext({
-        ...createDispatchIdentityInput(),
-        defaultProjectId: "project-explicit",
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: "project-1",
         defaultProjectIdWasProvided: true,
-        routeConfig: null,
+        nowMs: 10_000,
+        routeConfig,
         targetProfileId: "agt-1",
       })
     ).resolves.toEqual({
-      providerRuntimeWorkingDirectory: "/tmp/project-explicit",
+      providerRuntimeWorkingDirectory: "/tmp/current-default-project",
     });
-    expect(resolveEffectiveProfileWorkingFolderRuntime).toHaveBeenCalledWith({
-      defaultProjectId: "project-explicit",
+    expect(resolveEffectiveProfileWorkingFolderRuntime).not.toHaveBeenCalled();
+    expect(
+      resolveCurrentEffectiveProfileWorkingFolderRuntime
+    ).toHaveBeenCalledWith({
+      defaultProjectId: "project-1",
       mode: "dispatch",
       openMeldProfileId: "agt-1",
     });
+  });
+
+  it("rejects a delivered Default Project that disagrees with the current route and requests a refresh", async () => {
+    const routeConfig = createCurrentRoute();
+    const onCurrentWorkingFolderFactRejected = vi.fn();
+
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: "project-other",
+        defaultProjectIdWasProvided: true,
+        nowMs: 10_000,
+        onCurrentWorkingFolderFactRejected,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).rejects.toMatchObject({
+      code: "profile.working_folder.current_fact_identity_mismatch",
+    });
+    expect(onCurrentWorkingFolderFactRejected).toHaveBeenCalledOnce();
+    expect(
+      resolveCurrentEffectiveProfileWorkingFolderRuntime
+    ).not.toHaveBeenCalled();
   });
 });
 

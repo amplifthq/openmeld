@@ -101,22 +101,28 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
   defaultProjectIdWasProvided: boolean;
   executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
   nowMs?: number;
+  onCurrentWorkingFolderFactRejected?: () => void;
   routeConfig: DaemonProfileRouteConfig | null;
   targetProfileId: string;
 }): Promise<ProviderDispatchRuntimeContext> {
-  if (input.defaultProjectIdWasProvided) {
-    return await resolveDispatchRuntimeContext({
-      defaultProjectId: input.defaultProjectId,
-      openMeldProfileId: input.targetProfileId,
-    });
-  }
-
   const route = input.routeConfig;
   const workingFolderRuntime = route?.workingFolderRuntime;
   if (!(route && workingFolderRuntime)) {
-    throwCurrentWorkingFolderFactError(
+    rejectCurrentWorkingFolderFact(
+      input,
       "missing",
       "the current route has no working-folder observation"
+    );
+  }
+  if (
+    input.defaultProjectIdWasProvided &&
+    input.defaultProjectId !==
+      workingFolderRuntime.workingFolderFact.defaultProjectId
+  ) {
+    rejectCurrentWorkingFolderFact(
+      input,
+      "identity_mismatch",
+      "the delivered Default Project does not match the current route observation"
     );
   }
   const identity = input.executionIdentity.core;
@@ -133,7 +139,8 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
     controllerSnapshot.agentControllerRef !== identity.agentControllerRef ||
     route.openMeldServiceRuntimeId !== identity.openMeldServiceRuntimeId.value
   ) {
-    throwCurrentWorkingFolderFactError(
+    rejectCurrentWorkingFolderFact(
+      input,
       "identity_mismatch",
       "the current route does not match the accepted dispatch identity"
     );
@@ -144,7 +151,8 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
     observedAtMs > nowMs ||
     nowMs - observedAtMs >= CURRENT_ROUTE_WORKING_FOLDER_FRESHNESS_MS
   ) {
-    throwCurrentWorkingFolderFactError(
+    rejectCurrentWorkingFolderFact(
+      input,
       "stale",
       "the current route working-folder observation has expired"
     );
@@ -166,12 +174,22 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
     currentWorkingFolder.runtimeContext.providerRuntimeWorkingDirectory !==
       workingFolderRuntime.runtimeContext.providerRuntimeWorkingDirectory
   ) {
-    throwCurrentWorkingFolderFactError(
+    rejectCurrentWorkingFolderFact(
+      input,
       "changed",
       "the effective working folder changed after this route was observed"
     );
   }
   return workingFolderRuntime.runtimeContext;
+}
+
+function rejectCurrentWorkingFolderFact(
+  input: { onCurrentWorkingFolderFactRejected?: () => void },
+  reason: "changed" | "identity_mismatch" | "missing" | "stale",
+  detail: string
+): never {
+  input.onCurrentWorkingFolderFactRejected?.();
+  throwCurrentWorkingFolderFactError(reason, detail);
 }
 
 function throwCurrentWorkingFolderFactError(

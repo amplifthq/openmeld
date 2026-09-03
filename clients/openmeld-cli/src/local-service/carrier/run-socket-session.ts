@@ -2379,6 +2379,12 @@ export async function runDaemonSocketSession(input: {
       parsedFrame,
       profileOwnerName: input.profileOwnerName,
       profileOwnerUserId: input.ownerUserId,
+      requestCurrentWorkingFolderFactRefresh: () => {
+        requestLocalExecutionEvidenceRefresh({
+          reason: "local_state_changed",
+          scheduleReason: "dispatch_working_folder_fact_rejected",
+        });
+      },
       presenter: input.presenter,
       routeByProfileId: input.routeCatalogState.routeByProfileId,
       socket: input.socket,

@@ -255,6 +255,7 @@ export function enqueueDispatchDeliverFrame(input: {
   payload: Record<string, unknown>;
   profileOwnerName: string | null;
   profileOwnerUserId: string;
+  requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
   socket: WsClient;
@@ -376,6 +377,8 @@ export function enqueueDispatchDeliverFrame(input: {
         localAdapterContainer: input.localAdapterContainer,
         profileOwnerName: input.profileOwnerName,
         profileOwnerUserId: input.profileOwnerUserId,
+        requestCurrentWorkingFolderFactRefresh:
+          input.requestCurrentWorkingFolderFactRefresh,
         presenter: input.presenter,
         routeByProfileId: input.routeByProfileId,
         socket: input.socket,
@@ -835,6 +838,7 @@ export async function handleDispatchDeliverFrame(input: {
   localAdapterContainer: LocalDaemonAdapterContainer;
   profileOwnerName: string | null;
   profileOwnerUserId: string;
+  requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
   socket: WsClient;
@@ -1007,6 +1011,8 @@ export async function handleDispatchDeliverFrame(input: {
         "defaultProjectId"
       ),
       executionIdentity: parsedTask.executionIdentity,
+      onCurrentWorkingFolderFactRejected:
+        input.requestCurrentWorkingFolderFactRefresh,
       routeConfig,
       targetProfileId: parsedTask.targetProfileId,
     });

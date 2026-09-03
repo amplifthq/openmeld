@@ -549,7 +549,7 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("launches a legacy dispatch in the exact Default Project folder stored on its current route", async () => {
+  it("launches a dispatch with an explicit Default Project only after its current route matches", async () => {
     await withTempHome(async (home) => {
       const ledgerPaths = createLedgerPaths();
       const presenter = createPresenter();
@@ -579,13 +579,15 @@ describe("dispatch result outbox around preview teardown", () => {
       });
       runRuntimeTaskMock.mockResolvedValue(createRuntimeSuccessResult());
 
+      const deliverRequest = createDeliverRequest();
+      deliverRequest.payload.defaultProjectId = "project-1";
       const result = await handleDispatchDeliverFrame({
         computerFileAccessStorePath:
           "/tmp/openmeld-test-missing-computer-file-access-policy.json",
         contextStore: new Map(),
         currentSocketRef: { connectionGeneration: 1, socket },
         daemonSessionId: "daemon-session-1",
-        deliverRequest: createDeliverRequest(),
+        deliverRequest,
         inflightDispatchMetaByTaskId: new Map(),
         inflightTaskControlRegistry: createInflightTaskControlRegistry(),
         pendingAgentInteractionRegistry:
@@ -616,7 +618,7 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("does not start the controller after the durable Default Project changes but before its route refresh finishes", async () => {
+  it("does not start an explicit Default Project dispatch after the durable folder changes but before its route refresh finishes", async () => {
     await withTempHome(async (home) => {
       const firstPath = join(home, "first-default-project");
       const secondPath = join(home, "second-default-project");
@@ -648,13 +650,16 @@ describe("dispatch result outbox around preview teardown", () => {
         presenter,
       }) as never;
 
+      const deliverRequest = createDeliverRequest();
+      deliverRequest.payload.defaultProjectId = "project-1";
+      const requestCurrentWorkingFolderFactRefresh = vi.fn();
       const result = await handleDispatchDeliverFrame({
         computerFileAccessStorePath:
           "/tmp/openmeld-test-missing-computer-file-access-policy.json",
         contextStore: new Map(),
         currentSocketRef: { connectionGeneration: 1, socket },
         daemonSessionId: "daemon-session-1",
-        deliverRequest: createDeliverRequest(),
+        deliverRequest,
         inflightDispatchMetaByTaskId: new Map(),
         inflightTaskControlRegistry: createInflightTaskControlRegistry(),
         pendingAgentInteractionRegistry:
@@ -666,6 +671,7 @@ describe("dispatch result outbox around preview teardown", () => {
         } as never,
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
+        requestCurrentWorkingFolderFactRefresh,
         presenter,
         routeByProfileId: createCurrentDefaultProjectRouteByProfileId(
           firstPath,
@@ -680,6 +686,7 @@ describe("dispatch result outbox around preview teardown", () => {
       });
       expect(prepareProviderRuntimeMock).not.toHaveBeenCalled();
       expect(runRuntimeTaskMock).not.toHaveBeenCalled();
+      expect(requestCurrentWorkingFolderFactRefresh).toHaveBeenCalledOnce();
     });
   });
 
