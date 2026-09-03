@@ -236,17 +236,6 @@ export function resolveListSignalsReadQuerySemantics(
     });
   }
 
-  if (
-    input.aroundSignalId &&
-    (input.beforeCount ?? 0) <= 0 &&
-    (input.afterCount ?? 0) <= 0
-  ) {
-    issues.push({
-      path: "aroundSignalId",
-      message: "aroundSignalId requires beforeCount > 0 or afterCount > 0.",
-    });
-  }
-
   if (issues.length > 0) {
     return {
       ok: false,

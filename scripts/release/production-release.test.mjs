@@ -29,6 +29,8 @@ const LOCAL_SERVICE_CORE_SCOPE_ERROR_RE =
   /requires the Core scope before publishing CLI\/Service/u;
 const CORE_GATEWAY_HTTP_SCOPE_ERROR_RE =
   /Wake Progress opt-in contract requires the Gateway and Core scopes before publishing its Core producer/u;
+const SPACE_HISTORY_QUERY_SCOPE_ERROR_RE =
+  /Space history query contract requires the Gateway and Core scopes before publishing its CLI caller/u;
 const CORE_GATEWAY_HTTP_CONNECT_COMBINATION_ERROR_RE =
   /Connect Computer and Wake Progress opt-in receiver-first contracts cannot ship in one release/u;
 const CORE_GATEWAY_HTTP_REMOTE_AGENT_COMBINATION_ERROR_RE =
@@ -310,6 +312,45 @@ test("includes Gateway and Core for the Wake Progress opt-in contract", () => {
       ],
     }),
     ["cli", "gateway", "core"]
+  );
+});
+
+test("includes every receiver before publishing the Space history query caller", () => {
+  assert.deepEqual(
+    resolveAutomaticReleaseScopes({
+      affectedPackages: [],
+      changedPaths: ["packages/schemas/src/schemas/http/list-signals-query.ts"],
+    }),
+    ["cli", "gateway", "core"]
+  );
+});
+
+test("deploys Space history query receivers before its CLI caller", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: ["packages/schemas/src/schemas/http/list-signals-query.ts"],
+    scope: "gateway,core,cli",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(plan.deployOrderProfile, "space-history-query-receivers-first");
+  assert.deepEqual(plan.deployScopeOrder, ["gateway", "core", "cli"]);
+});
+
+test("rejects a Space history query CLI release without its receivers", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        changedPaths: [
+          "packages/schemas/src/schemas/http/list-signals-query.ts",
+        ],
+        scope: "cli",
+        sourceSha: REMOTE_SOURCE_SHA,
+      }),
+    SPACE_HISTORY_QUERY_SCOPE_ERROR_RE
   );
 });
 
