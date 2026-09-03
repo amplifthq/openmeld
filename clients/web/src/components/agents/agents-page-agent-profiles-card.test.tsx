@@ -1442,9 +1442,43 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			"Core could not read Wake availability."
 		);
 		expect(screen.getByText("Couldn’t check availability.")).toBeTruthy();
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(
+			within(presence).queryByRole("link", {
+				name: WAKEABILITY_LINK_ACTION_PATTERN,
+			})
+		).toBeNull();
+		expect(
+			within(presence).queryByRole("button", {
+				name: REPAIR_OR_RECONNECT_ACTION_NAME_PATTERN,
+			})
+		).toBeNull();
 	});
 
-	it("prioritizes a readiness refresh failure over cached availability", async () => {
+	it("keeps cached Available on the card when its refresh fails", () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						createWakeAvailabilityReadiness("available_for_wake"),
+					],
+				]),
+				agentExecutionReadinessErrorByProfileId: new Map([
+					[AGENT_PROFILE_ID, "Core could not refresh Wake availability."],
+				]),
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "cards" }
+		);
+
+		const badge = screen.getByTestId("agent-profile-row-availability-badge");
+		expect(badge.getAttribute("data-availability-phase")).toBe("available");
+		expect(badge.textContent).toContain("Available");
+		expect(badge.textContent).toContain("Couldn’t refresh availability.");
+	});
+
+	it("keeps cached Available when its refresh fails", async () => {
 		renderAgentProfilesCard(
 			{
 				agentExecutionReadinessByProfileId: new Map([
@@ -1464,10 +1498,42 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect((await screen.findByRole("alert")).textContent).toContain(
 			"Core could not refresh Wake availability."
 		);
-		expect(screen.getByText("Couldn’t check availability.")).toBeTruthy();
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(presence.textContent).toContain("Available");
+		expect(presence.textContent).toContain("Couldn’t refresh availability.");
 		expect(
-			document.querySelector('[data-availability-phase="available"]')
+			within(presence).queryByRole("link", {
+				name: WAKEABILITY_LINK_ACTION_PATTERN,
+			})
 		).toBeNull();
+	});
+
+	it("keeps cached Unavailable when its refresh fails", async () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						createReadinessResponseWithPrimaryBinding(
+							binding
+						) as unknown as GetAgentExecutionReadinessResponse,
+					],
+				]),
+				agentExecutionReadinessErrorByProfileId: new Map([
+					[AGENT_PROFILE_ID, "Core could not refresh Wake availability."],
+				]),
+			},
+			binding,
+			{ presentation: "detail" }
+		);
+
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(presence.textContent).toContain("Unavailable");
+		expect(presence.textContent).toContain("Couldn’t refresh availability.");
+		expect((await within(presence).findByRole("alert")).textContent).toContain(
+			"Core could not refresh Wake availability."
+		);
 	});
 
 	it("keeps the Core recovery action in the selected Agent detail", async () => {
@@ -3470,6 +3536,7 @@ function renderAgentProfilesCard(
 						recovery={createRecovery(nextOverrides, nextPrimaryBinding)}
 						serviceUpdatePath="/app/connect"
 						setupPath="/app/connect"
+						wakeAvailabilityNowMs={Date.now()}
 						{...cardOverrides}
 					/>
 				</TooltipProvider>

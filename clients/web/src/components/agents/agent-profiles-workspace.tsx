@@ -80,6 +80,7 @@ export type AgentProfilesWorkspaceProps = {
 	readinessErrorByProfileId?: ReadonlyMap<string, string>;
 	readinessIsRefreshing?: boolean;
 	readinessPendingProfileIds?: ReadonlySet<string>;
+	wakeAvailabilityNowMs: number;
 	renderProfilesController: () => ReactNode;
 	renderProfileDetail: (profile: AuthProfileView) => ReactNode;
 	requestPanel: ReactNode;
@@ -214,6 +215,7 @@ function AgentProfilesWorkspaceSidebar(input: {
 						readinessPendingProfileIds={
 							input.input.readinessPendingProfileIds ?? new Set()
 						}
+						wakeAvailabilityNowMs={input.input.wakeAvailabilityNowMs}
 					/>
 				),
 				id: group.id,
@@ -423,6 +425,7 @@ function AgentProfileSidebarList(input: {
 	readinessErrorByProfileId: ReadonlyMap<string, string>;
 	readinessIsRefreshing: boolean;
 	readinessPendingProfileIds: ReadonlySet<string>;
+	wakeAvailabilityNowMs: number;
 }) {
 	return (
 		<FluidNavMenu
@@ -462,6 +465,7 @@ function AgentProfileSidebarList(input: {
 						profile.openMeldProfileId
 					)}
 					readinessIsRefreshing={input.readinessIsRefreshing}
+					wakeAvailabilityNowMs={input.wakeAvailabilityNowMs}
 				/>
 			))}
 		</FluidNavMenu>
@@ -481,6 +485,7 @@ function AgentProfileSidebarItem(input: {
 	readinessErrorMessage: string | null;
 	readinessIsPending: boolean;
 	readinessIsRefreshing: boolean;
+	wakeAvailabilityNowMs: number;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
 	const agentControllerRef = resolveAgentProfileControllerRef(
@@ -494,6 +499,7 @@ function AgentProfileSidebarItem(input: {
 		modelCatalog: input.modelCatalog,
 		readiness: input.readiness,
 		isRefreshing: input.readinessIsRefreshing,
+		nowMs: input.wakeAvailabilityNowMs,
 	});
 	const isOwner = input.profile.ownerUserId === input.currentUserId;
 	const operationalStatus = resolveAgentProfileOperationalStatus(
@@ -506,10 +512,7 @@ function AgentProfileSidebarItem(input: {
 		"min-w-0 truncate font-medium text-sm",
 		hasReducedProminence ? "text-muted-foreground" : null
 	);
-	const showAvailability =
-		(presentation.availabilityCategory !== "available" ||
-			presentation.availabilityIsRefreshing) &&
-		presentation.availabilityLabel.length > 0;
+	const showAvailability = presentation.availabilityLabel.length > 0;
 	return (
 		<FluidNavMenuItem
 			index={input.index}
@@ -582,6 +585,16 @@ function AgentProfileSidebarItem(input: {
 								{presentation.availabilityIsRefreshing ? (
 									<span className="text-muted-foreground"> · Refreshing…</span>
 								) : null}
+								{presentation.availabilityRefreshError ? (
+									<span className="text-muted-foreground" role="alert">
+										{" · "}
+										Couldn’t refresh availability.
+										<span className="sr-only">
+											{" "}
+											{input.readinessErrorMessage}
+										</span>
+									</span>
+								) : null}
 							</TooltipTrigger>
 							<TooltipContent side="top">
 								{presentation.availabilityTooltip}
@@ -600,6 +613,7 @@ function resolveAgentProfileSidebarPresentation(input: {
 	isRefreshing: boolean;
 	isPending: boolean;
 	modelCatalog: ModelCatalog | null;
+	nowMs: number;
 	readiness: GetAgentExecutionReadinessResponse | null;
 }): {
 	availabilityCategory: ReturnType<
@@ -608,6 +622,7 @@ function resolveAgentProfileSidebarPresentation(input: {
 	availabilityClassName: string;
 	availabilityLabel: string;
 	availabilityIsRefreshing: boolean;
+	availabilityRefreshError: boolean;
 	availabilityTooltip: string;
 	controllerModelSummary: string;
 } {
@@ -626,13 +641,14 @@ function resolveAgentProfileSidebarPresentation(input: {
 				null,
 		}) ?? controllerName;
 	const wakeAvailability = input.readiness?.agentWakeAvailability ?? null;
-	if (input.errorMessage || !wakeAvailability) {
+	if (!wakeAvailability) {
 		const availability = resolveMissingSidebarAvailability(input);
 		return {
 			availabilityCategory: availability.category,
 			availabilityClassName: availability.className,
 			availabilityLabel: availability.label,
 			availabilityIsRefreshing: false,
+			availabilityRefreshError: false,
 			availabilityTooltip: availability.tooltip,
 			controllerModelSummary,
 		};
@@ -645,13 +661,15 @@ function resolveAgentProfileSidebarPresentation(input: {
 		availabilityLabel: [
 			wakeAvailability.badgeLabel,
 			formatAgentWakeAvailabilityCheckedAt(
-				input.readiness?.generatedAt ?? null
+				input.readiness?.generatedAt ?? null,
+				input.nowMs
 			),
 		]
 			.filter(Boolean)
 			.join(" · "),
 		availabilityIsRefreshing:
 			input.isRefreshing || wakeAvailability.isRefreshing,
+		availabilityRefreshError: input.errorMessage !== null,
 		availabilityTooltip: wakeAvailability.tooltip,
 		controllerModelSummary,
 	};
@@ -675,9 +693,9 @@ function resolveMissingSidebarAvailability(input: {
 }) {
 	if (input.errorMessage) {
 		return {
-			category: "unavailable" as const,
+			category: null,
 			className: resolveStatusToneTextClassName("muted"),
-			label: "Unavailable",
+			label: "Couldn’t check availability.",
 			tooltip: input.errorMessage,
 		};
 	}

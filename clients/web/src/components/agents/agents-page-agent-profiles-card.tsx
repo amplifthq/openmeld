@@ -391,6 +391,7 @@ export type AgentProfilesCardProps = {
 	serviceUpdatePath: string;
 	showOwnerGroups?: boolean;
 	setupPath: string;
+	wakeAvailabilityNowMs: number;
 };
 
 export function AgentProfilesCard(input: AgentProfilesCardProps) {
@@ -1839,6 +1840,7 @@ function AgentProfileDirectoryRow(input: {
 					profile.openMeldProfileId
 				) ?? null
 			}
+			wakeAvailabilityNowMs={input.cardInput.wakeAvailabilityNowMs}
 		/>
 	);
 }
@@ -2235,6 +2237,7 @@ type AgentProfileExecutionReadinessRowProps = {
 	readiness: GetAgentExecutionReadinessResponse | null;
 	rowState: AgentProfileRowState;
 	wakeAvailabilityDisplayOverride: AgentWakeAvailability | null;
+	wakeAvailabilityNowMs: number;
 	repairActions: readonly AgentProfileRepairAction[];
 	rowRef?: Ref<HTMLElement>;
 	setupAction: AgentProfileSetupAction | null;
@@ -2323,7 +2326,7 @@ function AgentProfileExecutionReadinessRow(
 		/>
 	);
 	const readiness = input.readiness;
-	if (readiness === null || input.errorMessage) {
+	if (readiness === null) {
 		return renderUnavailableAgentProfilePresentation({
 			controllerPermissionModeDisplay,
 			input,
@@ -2454,6 +2457,7 @@ function AgentProfileExecutionReadinessRow(
 						availabilityReasonCode={displayedAgentWakeAvailability.reasonCode}
 						checkedAt={readiness.generatedAt}
 						className={statusTextClassName}
+						errorMessage={input.errorMessage}
 						isRefreshing={
 							input.rowState.isReadinessRefreshing ||
 							displayedAgentWakeAvailability.isRefreshing ||
@@ -2461,6 +2465,7 @@ function AgentProfileExecutionReadinessRow(
 								displayedAgentWakeAvailability.category === "checking")
 						}
 						label={statusLabel}
+						nowMs={input.wakeAvailabilityNowMs}
 						tooltip={statusTooltip}
 					/>
 				}
@@ -2516,6 +2521,7 @@ function renderUnavailableAgentProfilePresentation(input: {
 		repairActions: input.input.repairActions,
 		repairIsPending: input.input.pendingState.repair,
 		rowRef: input.input.rowRef,
+		wakeAvailabilityNowMs: input.input.wakeAvailabilityNowMs,
 	});
 }
 
@@ -2596,6 +2602,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			storageScope={input.row.storageScope}
 			supportingContent={input.supportingContent}
 			wakeAvailability={input.row.readiness?.agentWakeAvailability ?? null}
+			wakeAvailabilityNowMs={input.row.wakeAvailabilityNowMs}
 		/>
 	);
 }
@@ -2683,6 +2690,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 	repairActions: readonly AgentProfileRepairAction[];
 	repairIsPending: boolean;
 	rowRef?: Ref<HTMLElement>;
+	wakeAvailabilityNowMs: number;
 }): ReactNode {
 	const agentId = parseAgentControllerRef(input.agentControllerRef)?.id ?? null;
 	if (input.isPending && input.readiness === null) {
@@ -2702,6 +2710,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 					<AgentProfileFooterAvailabilityBadge
 						className="text-muted-foreground"
 						label="Loading"
+						nowMs={input.wakeAvailabilityNowMs}
 						tooltip="Loading Wake availability"
 					/>
 				}
@@ -2729,7 +2738,6 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 					"min-h-40",
 					resolveFocusedAgentProfileClassName(input.isFocusedProfile)
 				)}
-				dimTitle={true}
 				footerLeft={
 					<AgentProfileFooterDetail
 						primaryDetail={input.errorMessage}
@@ -2738,9 +2746,10 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 				}
 				footerRight={
 					<AgentProfileFooterAvailabilityBadge
-						className={resolveAgentProfileStatusTextClassName("unavailable")}
-						label="Unavailable"
-						tooltip="Status unavailable"
+						className="text-muted-foreground"
+						label="Couldn’t check availability."
+						nowMs={input.wakeAvailabilityNowMs}
+						tooltip={input.errorMessage}
 					/>
 				}
 				icon={<AgentProfileRowIcon agentId={agentId} tone="muted" />}
@@ -2753,7 +2762,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 						/>
 					) : null
 				}
-				subtitle="Status unavailable"
+				subtitle="Couldn’t check availability."
 				testId="agent-profile-execution-readiness"
 				title={input.profileName}
 			/>
@@ -2787,6 +2796,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 					<AgentProfileFooterAvailabilityBadge
 						className="text-muted-foreground"
 						label="Not checked"
+						nowMs={input.wakeAvailabilityNowMs}
 						tooltip="Not checked yet"
 					/>
 				}
@@ -2840,12 +2850,15 @@ function AgentProfileFooterAvailabilityBadge(input: {
 	availabilityReasonCode?: string | null;
 	checkedAt?: string | null;
 	className?: string;
+	errorMessage?: string | null;
 	isRefreshing?: boolean;
 	label: string;
+	nowMs: number;
 	tooltip: string;
 }) {
 	const checkedAt = formatAgentWakeAvailabilityCheckedAt(
-		input.checkedAt ?? null
+		input.checkedAt ?? null,
+		input.nowMs
 	);
 	const statusText = (
 		<span
@@ -2863,6 +2876,13 @@ function AgentProfileFooterAvailabilityBadge(input: {
 			{checkedAt ? ` · ${checkedAt}` : ""}
 			{input.isRefreshing ? (
 				<span className="text-muted-foreground"> · Refreshing…</span>
+			) : null}
+			{input.errorMessage ? (
+				<span className="text-muted-foreground" role="alert">
+					{" · "}
+					Couldn’t refresh availability.
+					<span className="sr-only"> {input.errorMessage}</span>
+				</span>
 			) : null}
 		</span>
 	);
@@ -3214,6 +3234,7 @@ type AgentProfileRowMoreMenuProps = {
 	readinessIsMissing: boolean;
 	readinessIsPending: boolean;
 	readinessIsRefreshing: boolean;
+	wakeAvailabilityNowMs: number;
 	repairActions: readonly AgentProfileRepairAction[];
 	primaryAgentControllerRef: string | null;
 	primaryNativeSessionId: string | null;
@@ -3742,15 +3763,17 @@ function AgentProfileWorkspacePresentation(input: {
 				: (input.input.publicProfileConfiguration?.modelSelection ?? null),
 		}) ?? "No Controller connected";
 	const controllerModelSummary = ownerControllerModelSummary;
-	const wakeAvailabilityRecoveryActions = (
-		<AgentProfileWakeAvailabilityRecoveryActions
-			isPending={input.input.pendingState.repair}
-			onRepairAction={input.input.onRepairAction}
-			readinessIsPending={input.input.readinessIsPending}
-			repairActions={input.input.repairActions}
-			setupAction={input.input.setupAction}
-		/>
-	);
+	const wakeAvailabilityRecoveryActions =
+		input.input.readinessIsMissing &&
+		input.input.readinessErrorMessage ? null : (
+			<AgentProfileWakeAvailabilityRecoveryActions
+				isPending={input.input.pendingState.repair}
+				onRepairAction={input.input.onRepairAction}
+				readinessIsPending={input.input.readinessIsPending}
+				repairActions={input.input.repairActions}
+				setupAction={input.input.setupAction}
+			/>
+		);
 	const overflowActions = (
 		<AgentProfileOptionsPopover
 			capabilities={{
@@ -3862,6 +3885,7 @@ function AgentProfileWorkspacePresentation(input: {
 					input.input.readinessIsRefreshing ||
 					input.input.wakeAvailability?.isRefreshing === true
 				}
+				wakeAvailabilityNowMs={input.input.wakeAvailabilityNowMs}
 			/>
 			<ProfileDetailsDialog
 				agentProfile={input.input.profile}

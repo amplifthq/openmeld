@@ -68,22 +68,18 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
 	wakeAvailabilityIsRefreshing: boolean;
+	wakeAvailabilityNowMs: number;
 	headerRecoveryActions?: ReactNode;
 }) {
-	const displayedWakeAvailability = input.wakeAvailabilityErrorMessage
-		? null
-		: input.wakeAvailability;
+	const displayedWakeAvailability = input.wakeAvailability;
 	const showOwnerOperationalContext =
 		input.details.viewerScope === "owner_self";
 	const projectedRecoveryAction = input.details.sections.find(
 		(section) => section.id === "activity"
 	)?.recoveryAction;
-	let availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
+	const availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
 		displayedWakeAvailability
 	);
-	if (!displayedWakeAvailability && input.wakeAvailabilityErrorMessage) {
-		availabilityCategory = "unavailable";
-	}
 	const hasReducedProminence =
 		availabilityCategory === "offline" ||
 		availabilityCategory === "unavailable";
@@ -140,6 +136,7 @@ export function AgentProfileWorkspaceDetail(input: {
 							wakeAvailabilityErrorMessage={input.wakeAvailabilityErrorMessage}
 							wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
 							wakeAvailabilityIsRefreshing={input.wakeAvailabilityIsRefreshing}
+							wakeAvailabilityNowMs={input.wakeAvailabilityNowMs}
 						/>
 					</div>
 				</div>
@@ -178,6 +175,7 @@ type AgentProfilePresenceStatus =
 	| "available"
 	| "checking"
 	| "offline"
+	| "unknown"
 	| "unavailable";
 
 function AgentProfilePresence(input: {
@@ -187,10 +185,14 @@ function AgentProfilePresence(input: {
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
 	wakeAvailabilityIsRefreshing: boolean;
+	wakeAvailabilityNowMs: number;
 }) {
 	const presentation = resolveAgentProfilePresence(input);
 	const checkedAt = input.wakeAvailability
-		? formatAgentWakeAvailabilityCheckedAt(input.wakeAvailabilityCheckedAt)
+		? formatAgentWakeAvailabilityCheckedAt(
+				input.wakeAvailabilityCheckedAt,
+				input.wakeAvailabilityNowMs
+			)
 		: null;
 	const presenceIcon = (
 		<span
@@ -220,8 +222,16 @@ function AgentProfilePresence(input: {
 				"font-medium text-sm leading-5",
 				presentation.textClassName
 			)}
+			role={
+				input.wakeAvailabilityErrorMessage && !input.wakeAvailability
+					? "alert"
+					: undefined
+			}
 		>
 			{presentation.label}
+			{input.wakeAvailabilityErrorMessage && !input.wakeAvailability ? (
+				<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
+			) : null}
 		</span>
 	);
 	return (
@@ -257,9 +267,9 @@ function AgentProfilePresence(input: {
 					{input.headerRecoveryActions}
 				</div>
 			) : null}
-			{input.wakeAvailabilityErrorMessage ? (
+			{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
 				<span className="text-muted-foreground text-xs" role="alert">
-					Couldn’t check availability.
+					Couldn’t refresh availability.
 					<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
 				</span>
 			) : null}
@@ -274,6 +284,7 @@ function resolveAgentProfilePresence(input: {
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
 	wakeAvailabilityIsRefreshing: boolean;
+	wakeAvailabilityNowMs: number;
 }): {
 	label: string;
 	reason: string | null;
@@ -282,12 +293,12 @@ function resolveAgentProfilePresence(input: {
 	textClassName: string;
 	tooltip: string;
 } {
-	if (input.wakeAvailabilityErrorMessage) {
+	if (input.wakeAvailabilityErrorMessage && !input.wakeAvailability) {
 		return {
-			label: "Unavailable",
+			label: "Couldn’t check availability.",
 			reason: null,
 			shimmer: false,
-			status: "unavailable",
+			status: "unknown",
 			textClassName: resolveStatusToneTextClassName("muted"),
 			tooltip: input.wakeAvailabilityErrorMessage,
 		};
