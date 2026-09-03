@@ -160,6 +160,12 @@ fingerprints returns the exact accepted-payload conflict. When legacy terminal
 authority has no fingerprint sidecar, Core reuses the already-terminal outcome,
 does not grant a new execution, and records a compatibility diagnostic without
 claiming that the Wake details changed.
+If a changed-payload redrive reaches no-execution settlement after the terminal
+head has already been retired, RuntimeCoordinator confirms that the matching
+terminal authority already owns closure. Queue acknowledges the redrive without
+executing, republishing, or rewriting that terminal outcome. If an active head
+already owns another no-execution publication intent, its original reason stays
+authoritative and must not be replaced by the later payload-conflict reason.
 Per-Wake no-execution publication does not itself change current Wakeability;
 payload conflicts do not write or overwrite a current readiness blocker.
 During a rolling Core deployment, a caller that omits the snapshot cannot

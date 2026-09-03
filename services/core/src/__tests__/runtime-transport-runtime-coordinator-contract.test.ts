@@ -8,6 +8,7 @@ import {
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
+  RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
@@ -4107,7 +4108,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("keeps authority v1 rollback-compatible and compares the fingerprint sidecar on terminal replay", async () => {
-    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const {
+      appliedFailurePublicationCommands,
+      hub,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    } = createHarness();
     configureCompatibleRoute({ socket, state });
     const originalSnapshot = buildAcceptedDispatchSnapshot({
       fingerprint: "a",
@@ -4213,6 +4221,52 @@ describe("runtime transport runtime coordinator transport contract", () => {
       status: "conflict",
     });
     expect(sentFrames).toEqual([]);
+
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    try {
+      const noExecutionResponse = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/no-execution",
+        buildRuntimeCoordinatorHeadNoExecutionRequest({
+          reasonCode:
+            RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
+          targetWakeLifecycleIdentity:
+            acceptRequest.targetWakeLifecycleIdentity,
+        })
+      );
+      expect(noExecutionResponse.status).toBe(200);
+      await expect(noExecutionResponse.json()).resolves.toMatchObject({
+        ok: true,
+        reasonCode:
+          RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
+        runtimeCoordinatorExecutionId: null,
+        status: "already_recorded",
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[core.runtime_transport.runtime_coordinator_retired_terminal_head_redrive_observed]",
+        expect.objectContaining({
+          dispatchId: "dispatch-1",
+          preservedReasonCode: "space.reply_published",
+          redriveReasonCode:
+            RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        })
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+    expect(appliedFailurePublicationCommands).toEqual([]);
+    expect(sentFrames).toEqual([]);
+    expect(
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+        ?.terminalOutcome
+    ).toMatchObject({
+      reasonCode: "space.reply_published",
+      replySignalId: "signal-terminal-replay-1",
+      status: "reply_published",
+    });
   });
 
   it("safely dedupes a legacy terminal replay without claiming the Wake details changed", async () => {

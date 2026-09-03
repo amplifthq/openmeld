@@ -13,6 +13,7 @@ import {
   AGENT_REPLY_PREVIEW_PURPOSE,
   agentInteractionResolutionSchema,
   agentTaskObservationRedriveQueueMessageSchema,
+  buildRuntimeCoordinatorExecutionId,
   buildRuntimeCoordinatorFinalizationCommandId,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
@@ -37,6 +38,7 @@ import {
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
+  RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeCoordinatorFailurePublicationOutcomeSchema,
@@ -10261,6 +10263,33 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
 
+  private async readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
+    request: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest
+  ): Promise<RuntimeCoordinatorExecutionTokenAuthorityRecord | null> {
+    const identity = request.targetWakeLifecycleIdentity;
+    const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
+      dispatchId: request.dispatchId,
+      spaceId: identity.spaceId,
+      targetProfileId: identity.targetProfileId,
+    });
+    const authority = await this.readRuntimeCoordinatorTokenAuthority(
+      runtimeCoordinatorExecutionId
+    );
+    if (
+      !authority?.terminalOutcome ||
+      authority.executionScope.dispatchId !== request.dispatchId ||
+      authority.executionScope.runtimeCoordinatorExecutionId !==
+        runtimeCoordinatorExecutionId ||
+      authority.executionScope.sourceClientMessageId !==
+        identity.clientMessageId ||
+      authority.executionScope.spaceId !== identity.spaceId ||
+      authority.executionScope.targetProfileId !== identity.targetProfileId
+    ) {
+      return null;
+    }
+    return authority;
+  }
+
   private async readRuntimeCoordinatorTokenAuthorityForDecision(
     runtimeCoordinatorExecutionId: string
   ): Promise<RuntimeCoordinatorDecisionAuthorityRead> {
@@ -10936,6 +10965,36 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
 
     if (!existing) {
+      const terminalAuthority =
+        await this.readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
+          request
+        );
+      const terminalReasonCode =
+        terminalAuthority?.terminalOutcome?.reasonCode ?? null;
+      if (terminalAuthority && terminalReasonCode) {
+        console.warn(
+          "[core.runtime_transport.runtime_coordinator_retired_terminal_head_redrive_observed]",
+          {
+            dispatchId: request.dispatchId,
+            preservedReasonCode: terminalReasonCode,
+            redriveReasonCode: request.reasonCode,
+            runtimeCoordinatorExecutionId:
+              terminalAuthority.runtimeCoordinatorExecutionId,
+            targetProfileId: identity.targetProfileId,
+            targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          }
+        );
+        return {
+          ok: true,
+          primaryDispatchId: request.dispatchId,
+          publicationIntentId,
+          reasonCode:
+            RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
+          runtimeCoordinatorExecutionId: null,
+          status: "already_recorded",
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        };
+      }
       return {
         ok: false,
         primaryDispatchId: null,

@@ -12,6 +12,7 @@ import {
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
+  RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
 } from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
@@ -8179,6 +8180,133 @@ describe("handleDispatchQueueBatch", () => {
     expect(markDispatchStatus).not.toHaveBeenCalledWith(
       expect.objectContaining({
         status: OPENMELD_DAEMON_DISPATCH_STATE.deduped,
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+  });
+
+  it("acks a changed-payload redrive after its terminal lifecycle head was retired", async () => {
+    const reasonCode =
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE;
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockImplementationOnce(async (input) => ({
+      ok: false,
+      primaryDispatchId: input.head.dispatchId,
+      reasonCode,
+      status: "conflict",
+      targetWakeLifecycleId:
+        input.head.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
+    vi.mocked(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).mockImplementationOnce(async (input) => ({
+      ok: true,
+      primaryDispatchId: input.noExecution.dispatchId,
+      publicationIntentId: `rcpi:no_execution:${input.noExecution.targetWakeLifecycleIdentity.targetWakeLifecycleId}`,
+      reasonCode: RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
+      runtimeCoordinatorExecutionId: null,
+      status: "already_recorded",
+      targetWakeLifecycleId:
+        input.noExecution.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
+    const message = createQueueMessage(
+      createDispatchBody({
+        dispatchId: "dispatch-retired-head-payload-conflict-1",
+        sourceEventId: "evt-retired-head-payload-conflict-1",
+        targetProfileId: "agt-retired-head-payload-conflict-1",
+        visitedProfileIdsHash: "stable32:retired-head-payload-conflict-1",
+      })
+    );
+
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(message.retry).not.toHaveBeenCalled();
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(markDispatchStatus).not.toHaveBeenCalled();
+    expect(writeOpenMeldDaemonOpsDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlationId: "dispatch-retired-head-payload-conflict-1",
+        decisionCode: "runtime_coordinator.retired_terminal_head_redrive_acked",
+        decisionPayload: expect.objectContaining({
+          reasonCode,
+          runtimeCoordinatorReasonCode:
+            RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
+        }),
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+  });
+
+  it("preserves an existing non-conflict publication when a changed payload is redriven", async () => {
+    const conflictReasonCode =
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE;
+    const existingReasonCode = "agent_profile_binding.missing";
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockImplementationOnce(async (input) => ({
+      ok: false,
+      primaryDispatchId: input.head.dispatchId,
+      reasonCode: conflictReasonCode,
+      status: "conflict",
+      targetWakeLifecycleId:
+        input.head.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
+    vi.mocked(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+    ).mockImplementationOnce(async (input) => ({
+      ok: true,
+      primaryDispatchId: input.noExecution.dispatchId,
+      publicationIntentId: `rcpi:no_execution:${input.noExecution.targetWakeLifecycleIdentity.targetWakeLifecycleId}`,
+      reasonCode: existingReasonCode,
+      runtimeCoordinatorExecutionId: null,
+      status: "already_recorded",
+      targetWakeLifecycleId:
+        input.noExecution.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
+    const message = createQueueMessage(
+      createDispatchBody({
+        dispatchId: "dispatch-existing-publication-payload-conflict-1",
+        sourceEventId: "evt-existing-publication-payload-conflict-1",
+        targetProfileId: "agt-existing-publication-payload-conflict-1",
+        visitedProfileIdsHash:
+          "stable32:existing-publication-payload-conflict-1",
+      })
+    );
+
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+
+    expect(message.retry).not.toHaveBeenCalled();
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: existingReasonCode,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      })
+    );
+    expect(markDispatchStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: conflictReasonCode,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      })
+    );
+    expect(writeOpenMeldDaemonOpsDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlationId: "dispatch-existing-publication-payload-conflict-1",
+        decisionCode: "runtime_coordinator.head_existing_publication_preserved",
+        decisionPayload: expect.objectContaining({
+          reasonCode: existingReasonCode,
+        }),
       })
     );
     expect(

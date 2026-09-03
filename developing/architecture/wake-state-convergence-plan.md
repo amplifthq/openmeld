@@ -202,8 +202,11 @@ Core retains the accepted-payload fingerprint in a rollback-safe sidecar after
 terminal head cleanup. Two known, different fingerprints conflict; a legacy
 terminal authority without the sidecar safely reuses its terminal outcome and
 records a compatibility diagnostic without claiming that details changed. This
-per-Wake conflict may publish its exact outcome but must not write a current
-Wakeability blocker.
+also closes a changed-payload redrive after terminal-head retirement without
+execution, duplicate publication, or ledger rewrite. An already-prepared
+non-conflict failure keeps its owning RuntimeCoordinator reason instead of being
+relabeled as a payload conflict. A per-Wake conflict may publish its exact
+outcome but must not write a current Wakeability blocker.
 Validation covers three consecutive Wakes to one Agent Profile plus controlled
 Service update and replacement-generation redelivery without crossed execution
 or reply identities.
