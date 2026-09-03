@@ -62,6 +62,11 @@ Start narrow:
 3. Read source code, schemas, and tests before trusting a document that might be
    stale.
 
+In an isolated worktree without a local CodeGraph index, use `rg` for bounded
+source discovery. Initialize CodeGraph only when deeper structural or call-path
+analysis justifies a separate worktree-local index; never link another
+worktree's index into the current checkout.
+
 Use these owner documents:
 
 | Scope | Read before changing |
