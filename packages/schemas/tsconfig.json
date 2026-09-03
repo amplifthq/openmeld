@@ -3,6 +3,9 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "noEmit": true,
+    "paths": {
+      "@openmeld/schemas": ["./src/index.ts"]
+    },
     "types": ["node"]
   },
   "include": ["src", "tests"]
