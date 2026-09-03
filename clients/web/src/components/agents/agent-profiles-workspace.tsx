@@ -56,6 +56,7 @@ const EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID: ReadonlyMap<
 
 export type AgentProfilesWorkspaceProps = {
 	activeView: "agents" | "create" | "requests";
+	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
 	createPanel?: ReactNode;
 	currentUserId: string;
 	filterControl?: ReactNode;
@@ -192,6 +193,9 @@ function AgentProfilesWorkspaceSidebar(input: {
 				content: (
 					<AgentProfileSidebarList
 						activeProfileId={input.activeProfileId}
+						agentControllerRefByProfileId={
+							input.input.agentControllerRefByProfileId ?? new Map()
+						}
 						currentUserId={input.input.currentUserId}
 						modelCatalog={input.input.modelCatalog ?? null}
 						onSelectProfile={input.input.onSelectProfile}
@@ -403,6 +407,7 @@ function AgentProfilesWorkspaceEmptyState(input: {
 
 function AgentProfileSidebarList(input: {
 	activeProfileId: string | null;
+	agentControllerRefByProfileId: ReadonlyMap<string, string | null>;
 	currentUserId: string;
 	modelCatalog: ModelCatalog | null;
 	onSelectProfile: (profileId: string) => void;
@@ -425,6 +430,11 @@ function AgentProfileSidebarList(input: {
 		>
 			{input.profiles.map((profile, index) => (
 				<AgentProfileSidebarItem
+					agentControllerRef={
+						input.agentControllerRefByProfileId.get(
+							profile.openMeldProfileId
+						) ?? null
+					}
 					currentUserId={input.currentUserId}
 					index={index}
 					isActive={profile.openMeldProfileId === input.activeProfileId}
@@ -454,6 +464,7 @@ function AgentProfileSidebarList(input: {
 }
 
 function AgentProfileSidebarItem(input: {
+	agentControllerRef: string | null;
 	currentUserId: string;
 	index: number;
 	isActive: boolean;
@@ -466,8 +477,12 @@ function AgentProfileSidebarItem(input: {
 	readinessIsPending: boolean;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
-	const agentControllerRef = resolveAgentProfileControllerRef(input.readiness);
+	const agentControllerRef = resolveAgentProfileControllerRef(
+		input.readiness,
+		input.agentControllerRef
+	);
 	const presentation = resolveAgentProfileSidebarPresentation({
+		agentControllerRef,
 		errorMessage: input.readinessErrorMessage,
 		isPending: input.readinessIsPending,
 		modelCatalog: input.modelCatalog,
@@ -569,6 +584,7 @@ function AgentProfileSidebarItem(input: {
 }
 
 function resolveAgentProfileSidebarPresentation(input: {
+	agentControllerRef: string | null;
 	errorMessage: string | null;
 	isPending: boolean;
 	modelCatalog: ModelCatalog | null;
@@ -582,14 +598,13 @@ function resolveAgentProfileSidebarPresentation(input: {
 	availabilityTooltip: string;
 	controllerModelSummary: string;
 } {
-	const agentControllerRef = resolveAgentProfileControllerRef(input.readiness);
-	const parsedControllerRef = parseAgentControllerRef(agentControllerRef);
+	const parsedControllerRef = parseAgentControllerRef(input.agentControllerRef);
 	const controllerName = parsedControllerRef
 		? formatLocalAgentDisplayName(parsedControllerRef.id)
 		: "No Controller connected";
 	const controllerModelSummary =
 		resolveAgentProfileControllerModelDetail({
-			agentControllerRef,
+			agentControllerRef: input.agentControllerRef,
 			controllerDisplayName: controllerName,
 			modelCatalog: input.modelCatalog,
 			modelSelection:
@@ -620,13 +635,14 @@ function resolveAgentProfileSidebarPresentation(input: {
 }
 
 function resolveAgentProfileControllerRef(
-	readiness: GetAgentExecutionReadinessResponse | null
+	readiness: GetAgentExecutionReadinessResponse | null,
+	fallbackAgentControllerRef: string | null = null
 ): string | null {
 	return (
 		readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
 		readiness?.publicProfileConfiguration?.agentControllerRef ??
 		readiness?.agentControllerRef ??
-		null
+		fallbackAgentControllerRef
 	);
 }
 

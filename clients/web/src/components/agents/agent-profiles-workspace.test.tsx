@@ -399,6 +399,21 @@ describe("AgentProfilesWorkspace", () => {
 		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
 	});
 
+	it("keeps Controller branding without repeating an initial runtime check", () => {
+		renderWorkspace({
+			agentControllerRefByProfileId: new Map([
+				["agent-current", "builtin:codex"],
+			]),
+			readinessByProfileId: new Map(),
+			readinessPendingProfileIds: new Set(),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(within(item).getByTestId("local-agent-logo-codex")).toBeTruthy();
+		expect(item.textContent).toContain("Codex");
+		expect(item.textContent).not.toContain("Checking");
+	});
+
 	it("uses the shared text shimmer on the Agent name while checking activity", () => {
 		renderWorkspace({
 			operationalContextByProfileId: new Map([

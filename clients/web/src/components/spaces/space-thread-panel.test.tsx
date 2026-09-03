@@ -1241,9 +1241,7 @@ describe("SpaceThreadPanel", () => {
 		);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(
-			dialog.getByRole("heading", { name: "How this Agent works" })
-		).toBeTruthy();
+		expect(dialog.queryByText("How this Agent works")).toBeNull();
 		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
 		expect(dialog.getByText("Available for Wake")).toBeTruthy();
 	});

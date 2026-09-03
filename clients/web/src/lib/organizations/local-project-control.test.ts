@@ -33,11 +33,11 @@ describe("resolveLocalProjectControlErrorMessage", () => {
 		],
 		[
 			"service_offline",
-			"This computer isn't reachable for OpenMeld right now. Make sure OpenMeld Service is running, then try again.",
+			"This computer isn't connected to OpenMeld right now. Reconnect it, then try again.",
 		],
 		[
 			"service_update_required",
-			"Update OpenMeld Service on this computer before connecting Project folders from the Web.",
+			"Update OpenMeld on this computer before connecting Project folders from the Web.",
 		],
 		["timeout", "This computer didn’t finish checking the folder. Try again."],
 	] as const)("maps %s to the approved Connect folder copy", (code, expected) => {
@@ -52,7 +52,7 @@ describe("resolveLocalProjectControlErrorMessage", () => {
 		expect(
 			resolveLocalProjectControlErrorMessage(failure("path_conflict", message))
 		).toBe(
-			"This folder is already connected to another Project on this computer. Update OpenMeld Service, then try again to review the impact and move it here."
+			"This folder is already connected to another Project on this computer. Update OpenMeld, then try again to review the impact and move it here."
 		);
 	});
 });

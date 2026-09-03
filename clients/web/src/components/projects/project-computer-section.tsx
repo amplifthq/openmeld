@@ -1026,10 +1026,10 @@ function resolveComputerStateSummary(input: {
 		const updateRequired = input.status === "update_required";
 		return {
 			description: updateRequired
-				? "Update OpenMeld Service to connect folders from the Web."
+				? "Update OpenMeld on this computer to connect folders from the Web."
 				: (input.errorMessage ?? LOCAL_PROJECT_CONTROL_UNREACHABLE_MESSAGE),
 			statusLabel: updateRequired ? "Update required" : "Unavailable",
-			title: "OpenMeld Service unavailable",
+			title: "Computer unavailable",
 			tone: "warning",
 		};
 	}
@@ -1098,26 +1098,26 @@ function resolveServiceStateSummary(input: {
 		| "update_required";
 }): { label: string | null } {
 	if (input.status === "service_unavailable") {
-		return { label: "OpenMeld Service unavailable" };
+		return { label: "Computer unavailable" };
 	}
 	if (
 		input.status === "update_required" ||
 		input.serviceState === "update_required"
 	) {
-		return { label: "OpenMeld Service needs an update" };
+		return { label: "Computer needs an OpenMeld update" };
 	}
 	if (input.serviceState === "connected") {
 		return {
 			label:
 				input.status === "ready" && input.projectStatus === "connected"
 					? null
-					: "OpenMeld Service connected",
+					: "Computer connected",
 		};
 	}
 	if (input.serviceState === "checking") {
-		return { label: "Checking OpenMeld Service" };
+		return { label: "Checking computer" };
 	}
-	return { label: "OpenMeld Service unavailable" };
+	return { label: "Computer unavailable" };
 }
 
 function isAbsoluteProjectPath(value: string): boolean {

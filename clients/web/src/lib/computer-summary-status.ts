@@ -61,7 +61,7 @@ const CHECKING_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const SERVICE_NOT_CONNECTED_STATUS = {
-	label: "OpenMeld Service is not connected",
+	label: "Computer not connected",
 	reason: "service_not_connected",
 	showLabel: true,
 	tone: "danger",

@@ -166,7 +166,7 @@ describe("useProjectDiscovery", () => {
 			expect(result.current.serviceState).toBe("service_unavailable")
 		);
 		expect(result.current.projectView("project-1").errorMessage).toBe(
-			"This computer isn't reachable for OpenMeld right now. Make sure OpenMeld Service is running, then try again."
+			"This computer isn't connected to OpenMeld right now. Reconnect it, then try again."
 		);
 	});
 

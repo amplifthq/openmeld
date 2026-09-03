@@ -1061,9 +1061,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 		render(createEmbeddedOnboardingComputerSetupElement());
 
-		expect(
-			await screen.findByText("OpenMeld Service is connected")
-		).toBeTruthy();
+		expect(await screen.findByText("Computer connected")).toBeTruthy();
 		expect(screen.getByText("This computer")).toBeTruthy();
 		expect(createPrepareSessionMock).not.toHaveBeenCalled();
 		expect(screen.queryByText(SETUP_COMMAND_COPY)).toBeNull();
@@ -1179,9 +1177,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		);
 		view.rerender(createEmbeddedOnboardingComputerSetupElement());
 
-		expect(
-			await screen.findByText("OpenMeld Service is connected")
-		).toBeTruthy();
+		expect(await screen.findByText("Computer connected")).toBeTruthy();
 		expect(createPrepareSessionMock).not.toHaveBeenCalled();
 	});
 

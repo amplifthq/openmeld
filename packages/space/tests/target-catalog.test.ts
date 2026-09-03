@@ -475,8 +475,7 @@ describe("space target catalog", () => {
     expect(target?.wakeAvailability).toEqual(
       expect.objectContaining({
         reasonCodes: ["service.not_running"],
-        reasonText:
-          "Connect OpenMeld Service on this computer before this agent can reply.",
+        reasonText: "Connect your computer before this Agent can reply.",
         status: "blocked",
       })
     );

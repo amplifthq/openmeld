@@ -233,7 +233,7 @@ describe("computer summary status", () => {
 				}),
 			})
 		).toMatchObject({
-			label: "OpenMeld Service is not connected",
+			label: "Computer not connected",
 			reason: "service_not_connected",
 			tone: "danger",
 		});

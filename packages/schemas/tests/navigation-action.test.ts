@@ -140,7 +140,7 @@ describe("buildOpenMeldNavigationAction", () => {
         },
       })
     ).toEqual({
-      label: "Update OpenMeld Service",
+      label: "Update OpenMeld on Computer",
       target: {
         connectedComputerId: "computer/1",
         kind: "computer_setup",
@@ -164,7 +164,7 @@ describe("buildOpenMeldNavigationAction", () => {
 
     expect(
       navigationActionSchema.safeParse({
-        label: "Update OpenMeld Service",
+        label: "Update OpenMeld on Computer",
         target: {
           kind: "computer_setup",
           mode: "update_service",

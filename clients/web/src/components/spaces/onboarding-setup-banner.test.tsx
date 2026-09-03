@@ -116,7 +116,7 @@ describe("OnboardingSetupBanner", () => {
 
 		expect(screen.getByText("Connect this computer")).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Connect OpenMeld Service" })
+			screen.getByRole("button", { name: "Connect Computer" })
 		).toBeTruthy();
 		// First-run guidance: no agent yet surfaces the create-first-agent row, not
 		// silence. It is the "create" action, not the "add an existing agent" row.
@@ -193,9 +193,7 @@ describe("OnboardingSetupBanner", () => {
 		// The raw command is no longer dumped into the conversation banner.
 		expect(screen.queryByRole("button", { name: "Copy command" })).toBeNull();
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "Connect OpenMeld Service" })
-		);
+		fireEvent.click(screen.getByRole("button", { name: "Connect Computer" }));
 		expect(props.onConnect).toHaveBeenCalledTimes(1);
 	});
 

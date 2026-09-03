@@ -372,7 +372,7 @@ describe("space-mesh", () => {
         variant: "delivery_expired",
       })
     ).toBe(
-      "Codex Agent did not receive this Wake before it expired. Wake the agent again when the local OpenMeld Service is online."
+      "Codex Agent did not receive this Wake before it expired. Wake the Agent again when its computer is connected."
     );
     expect(
       buildSystemNoticeText({
@@ -381,7 +381,7 @@ describe("space-mesh", () => {
         variant: "delivery_expired",
       })
     ).toBe(
-      "This agent did not receive this Wake before it expired. Wake the agent again when the local OpenMeld Service is online."
+      "This agent did not receive this Wake before it expired. Wake the Agent again when its computer is connected."
     );
 
     expect(
@@ -391,7 +391,7 @@ describe("space-mesh", () => {
         variant: "progress_stale",
       })
     ).toBe(
-      "Codex Agent stopped making progress on this Wake. Reconnect OpenMeld Service before trying again."
+      "Codex Agent stopped making progress on this Wake. Reconnect the computer before trying again."
     );
     expect(
       buildSystemNoticeText({
@@ -399,7 +399,7 @@ describe("space-mesh", () => {
         noticeType: "terminal_failure",
         variant: "local_runtime_lost",
       })
-    ).toBe("Codex Agent was interrupted when OpenMeld Service restarted.");
+    ).toBe("Codex Agent was interrupted when its computer reconnected.");
 
     expect(
       buildSystemNoticeText({
