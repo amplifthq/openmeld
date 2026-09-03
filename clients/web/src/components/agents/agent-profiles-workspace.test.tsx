@@ -356,7 +356,7 @@ describe("AgentProfilesWorkspace", () => {
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
 		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
-		expect(item.textContent).not.toContain("Available");
+		expect(item.textContent).toContain("Available");
 		expect(item.textContent).not.toContain("Idle");
 		expect(
 			within(item).queryByTestId("agent-profile-operational-status")
@@ -372,6 +372,25 @@ describe("AgentProfilesWorkspace", () => {
 		expect(avatar.className).toContain("rounded-lg");
 		expect(avatar.className).toContain("overflow-hidden");
 		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
+	});
+
+	it("retains a cached Available verdict and its age during background refresh", () => {
+		renderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...createReadiness(),
+						generatedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+					},
+				],
+			]),
+			readinessIsRefreshing: true,
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(item.textContent).toContain("Available · checked 3 minutes ago");
+		expect(item.textContent).toContain("Refreshing…");
 	});
 
 	it("shows the Controller default model when no model is explicitly selected", () => {
@@ -518,18 +537,42 @@ describe("AgentProfilesWorkspace", () => {
 		expect(ownerStatus.className).toContain("dark:text-amber-400");
 	});
 
-	it("shows a readiness refresh error before cached sidebar availability", () => {
+	it("keeps cached sidebar availability when its refresh fails", () => {
 		renderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...createReadiness(),
+						generatedAt: new Date().toISOString(),
+					},
+				],
+			]),
 			readinessErrorByProfileId: new Map([
 				["agent-current", "Core could not refresh Wake availability."],
 			]),
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(within(item).getByText("Unavailable").getAttribute("title")).toBe(
+		expect(item.textContent).toContain("Available");
+		expect(item.textContent).toContain("checked just now");
+		expect(item.textContent).toContain("Couldn’t refresh availability.");
+		expect(within(item).getByRole("alert").textContent).toContain(
 			"Core could not refresh Wake availability."
 		);
-		expect(within(item).queryByText("Available")).toBeNull();
+	});
+
+	it("shows a neutral sidebar result when the first availability check fails", () => {
+		renderWorkspace({
+			readinessByProfileId: new Map(),
+			readinessErrorByProfileId: new Map([
+				["agent-current", "Core could not read Wake availability."],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(item.textContent).toContain("Couldn’t check availability.");
+		expect(item.textContent).not.toContain("Unavailable");
 	});
 
 	it("keeps Offline and Unavailable rows static gray and less prominent for every viewer", () => {
@@ -691,6 +734,7 @@ describe("AgentProfilesWorkspace", () => {
 				renderProfilesController={() => null}
 				requestPanel={null}
 				selectedProfileId={null}
+				wakeAvailabilityNowMs={Date.now()}
 			/>
 		);
 		expect(screen.getByRole("alert").textContent).toContain(
@@ -712,6 +756,7 @@ describe("AgentProfilesWorkspace", () => {
 				renderProfilesController={() => null}
 				requestPanel={null}
 				selectedProfileId={null}
+				wakeAvailabilityNowMs={Date.now()}
 			/>
 		);
 		expect(screen.getByTestId("create-agent-empty-state")).toBeTruthy();
@@ -746,6 +791,7 @@ function renderWorkspace(
 			renderProfilesController={() => <div data-testid="profiles-controller" />}
 			requestPanel={<div data-testid="agent-requests-panel">Requests</div>}
 			selectedProfileId={null}
+			wakeAvailabilityNowMs={Date.now()}
 			{...nextOverrides}
 		/>
 	);
