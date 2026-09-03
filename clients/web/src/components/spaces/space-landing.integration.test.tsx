@@ -4802,12 +4802,14 @@ describe("SpaceLanding", () => {
 				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
 			})
 		);
-		const membersPanel = screen.getByRole("dialog", { name: "Members" });
+		const addMembersDialog = screen.getByRole("dialog", {
+			name: "Add members",
+		});
 		expect(
-			within(membersPanel).getByRole("heading", { name: "Add members" })
+			within(addMembersDialog).getByRole("heading", { name: "Add members" })
 		).toBeTruthy();
 		expect(
-			within(membersPanel).getByRole("button", { name: "Create Agent" })
+			within(addMembersDialog).getByRole("button", { name: "Create Agent" })
 		).toBeTruthy();
 	});
 

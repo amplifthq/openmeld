@@ -14,6 +14,13 @@ import {
 	type SpaceProfileAddProfile,
 } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
@@ -43,8 +50,15 @@ import {
 	MotionConfig,
 	m,
 } from "motion/react";
-import type { CSSProperties } from "react";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, RefObject } from "react";
+import {
+	useDeferredValue,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
@@ -81,9 +95,6 @@ import {
 
 export const SPACE_MEMBERS_SIDE_PANEL_QUERY = "(min-width: 1280px)";
 
-// The Add-members card flash runs ~1.6s; clear the flag a touch later so a
-// later normal panel open doesn't replay it.
-const ADD_MEMBERS_FLASH_MS = 1700;
 const EMPTY_ACTIVE_WAKE_DISPLAY_TARGET_PROFILE_IDS: ReadonlySet<string> =
 	new Set();
 
@@ -145,8 +156,8 @@ type SpaceMembersSurfaceProps = {
 	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRemoveMember?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	orgSlug: string;
-	/** Bumped by the Get-set-up banner's "Add agents" to open + flash the
-	 * Add-members card so a new user sees exactly where to act. */
+	/** Bumped by the Get-set-up banner's "Add agents" to open the shared
+	 * Add-members dialog from the currently visible Members surface. */
 	openAddMembersNonce?: number;
 	prepareSetupHref?: string;
 	spaceId?: string;
@@ -196,7 +207,7 @@ export function SpaceMembersSidePanel(
 		panelWidth: string;
 	}
 ) {
-	const model = useSpaceMembersModel(input);
+	const model = useSpaceMembersModel(input, input.open);
 	const widthMetrics = SPACE_PANEL_WIDTH_METRICS.members;
 
 	return (
@@ -223,9 +234,8 @@ export function SpaceMembersSidePanel(
 						/>
 						{input.onAddProfiles || input.onAddOrganizationDirectoryProfiles ? (
 							<SpaceAddMembersHeaderButton
-								onToggle={() =>
-									model.setIsAddMembersOpen(!model.isAddMembersOpen)
-								}
+								controlsId={model.addMembersDialogId}
+								onOpen={model.openAddMembers}
 								open={model.isAddMembersOpen}
 							/>
 						) : null}
@@ -250,6 +260,8 @@ export function SpaceMembersSidePanel(
 				activeWakeWaitingTargetProfileIds={
 					input.activeWakeWaitingTargetProfileIds
 				}
+				addMembersDialogId={model.addMembersDialogId}
+				addMembersTriggerRef={model.addMembersTriggerRef}
 				agentProfileEditContext={input.agentProfileEditContext}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 				autoRefreshExhaustedProfileIds={input.autoRefreshExhaustedProfileIds}
@@ -260,6 +272,7 @@ export function SpaceMembersSidePanel(
 				filteredDirectory={model.filteredDirectory}
 				membersError={input.membersError}
 				modelCatalog={input.modelCatalog ?? null}
+				onAddMembersOpen={model.openAddMembers}
 				onAddMembersOpenChange={model.setIsAddMembersOpen}
 				onAddOrganizationDirectoryProfiles={
 					input.onAddOrganizationDirectoryProfiles
@@ -278,7 +291,6 @@ export function SpaceMembersSidePanel(
 				spaceId={input.spaceId}
 				spaceName={input.spaceName}
 				viewState={{
-					isAddMembersFlashing: model.isAddMembersFlashing,
 					isAddMembersOpen: model.isAddMembersOpen,
 					isAgentRecoveryPending: input.isAgentRecoveryPending,
 					isLoading: input.isLoading,
@@ -294,7 +306,7 @@ export function SpaceMembersDrawer(
 		open: boolean;
 	}
 ) {
-	const model = useSpaceMembersModel(input);
+	const model = useSpaceMembersModel(input, input.open);
 
 	return (
 		<Drawer.Root
@@ -328,9 +340,8 @@ export function SpaceMembersDrawer(
 									{input.onAddProfiles ||
 									input.onAddOrganizationDirectoryProfiles ? (
 										<SpaceAddMembersHeaderButton
-											onToggle={() =>
-												model.setIsAddMembersOpen(!model.isAddMembersOpen)
-											}
+											controlsId={model.addMembersDialogId}
+											onOpen={model.openAddMembers}
 											open={model.isAddMembersOpen}
 										/>
 									) : null}
@@ -355,6 +366,8 @@ export function SpaceMembersDrawer(
 							activeWakeWaitingTargetProfileIds={
 								input.activeWakeWaitingTargetProfileIds
 							}
+							addMembersDialogId={model.addMembersDialogId}
+							addMembersTriggerRef={model.addMembersTriggerRef}
 							agentProfileEditContext={input.agentProfileEditContext}
 							agentRecoveryPlansByProfileId={
 								input.agentRecoveryPlansByProfileId
@@ -371,6 +384,7 @@ export function SpaceMembersDrawer(
 							filteredDirectory={model.filteredDirectory}
 							membersError={input.membersError}
 							modelCatalog={input.modelCatalog ?? null}
+							onAddMembersOpen={model.openAddMembers}
 							onAddMembersOpenChange={model.setIsAddMembersOpen}
 							onAddOrganizationDirectoryProfiles={
 								input.onAddOrganizationDirectoryProfiles
@@ -391,7 +405,6 @@ export function SpaceMembersDrawer(
 							spaceId={input.spaceId}
 							spaceName={input.spaceName}
 							viewState={{
-								isAddMembersFlashing: model.isAddMembersFlashing,
 								isAddMembersOpen: model.isAddMembersOpen,
 								isAgentRecoveryPending: input.isAgentRecoveryPending,
 								isLoading: input.isLoading,
@@ -433,7 +446,8 @@ function SpaceMembersSearchHeaderButton(input: {
 }
 
 function SpaceAddMembersHeaderButton(input: {
-	onToggle: () => void;
+	controlsId: string;
+	onOpen: (trigger: HTMLElement) => void;
 	open: boolean;
 }) {
 	return (
@@ -443,11 +457,11 @@ function SpaceAddMembersHeaderButton(input: {
 					<TooltipTrigger
 						render={
 							<Button
-								aria-controls={SPACE_ADD_MEMBERS_REGION_ID}
+								aria-controls={input.controlsId}
 								aria-expanded={input.open}
+								aria-haspopup="dialog"
 								aria-label="Add members"
-								id={SPACE_ADD_MEMBERS_TRIGGER_ID}
-								onClick={input.onToggle}
+								onClick={(event) => input.onOpen(event.currentTarget)}
 								size="icon-sm"
 								type="button"
 								variant="ghost"
@@ -530,9 +544,13 @@ function SpaceMembersCloseButton(input: { onClose: () => void }) {
 	);
 }
 
-function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
+function useSpaceMembersModel(
+	input: SpaceMembersSurfaceProps,
+	surfaceOpen: boolean
+) {
+	const addMembersDialogId = useId();
+	const addMembersTriggerRef = useRef<HTMLElement | null>(null);
 	const [isAddMembersOpen, setIsAddMembersOpen] = useState(false);
-	const [isAddMembersFlashing, setIsAddMembersFlashing] = useState(false);
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
 	const lastOpenNonceRef = useRef(input.openAddMembersNonce);
 	const [query, setQuery] = useState("");
@@ -543,25 +561,21 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 		}
 	};
 
-	// An external "Add agents" click (Get-set-up banner) opens the Add-members
-	// card and flashes it once. The flag lives here (this model stays mounted)
-	// rather than in the card, which unmounts with the closed panel — so the
-	// flash survives the panel opening, and self-clears so a later normal open
-	// doesn't replay it.
+	// Both desktop and mobile Members surfaces stay mounted. Consume every
+	// external request in both models, but open the dialog only from the surface
+	// that is currently visible so one click cannot create duplicate portals.
 	useEffect(() => {
 		const nonce = input.openAddMembersNonce;
 		if (nonce === undefined || nonce === lastOpenNonceRef.current) {
 			return;
 		}
 		lastOpenNonceRef.current = nonce;
+		if (!surfaceOpen) {
+			return;
+		}
+		addMembersTriggerRef.current = null;
 		setIsAddMembersOpen(true);
-		setIsAddMembersFlashing(true);
-		const timer = window.setTimeout(
-			() => setIsAddMembersFlashing(false),
-			ADD_MEMBERS_FLASH_MS
-		);
-		return () => window.clearTimeout(timer);
-	}, [input.openAddMembersNonce]);
+	}, [input.openAddMembersNonce, surfaceOpen]);
 	const deferredQuery = useDeferredValue(query);
 	const directory = useMemo(
 		() =>
@@ -590,11 +604,16 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 	});
 
 	return {
+		addMembersDialogId,
+		addMembersTriggerRef,
 		filteredDirectory,
-		isAddMembersFlashing,
 		isAddMembersOpen,
 		isSearchOpen,
 		membersCountDescription,
+		openAddMembers: (trigger: HTMLElement) => {
+			addMembersTriggerRef.current = trigger;
+			setIsAddMembersOpen(true);
+		},
 		query,
 		setIsAddMembersOpen,
 		setQuery,
@@ -603,6 +622,8 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 }
 
 type SpaceMembersBodyProps = {
+	addMembersDialogId: string;
+	addMembersTriggerRef: RefObject<HTMLElement | null>;
 	accountProfiles: readonly AuthProfileView[];
 	agentProfileEditContext?: AgentProfileEditDialogContext;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -619,6 +640,7 @@ type SpaceMembersBodyProps = {
 	filteredDirectory: ReturnType<typeof filterSpaceMemberDirectory> | null;
 	membersError: string | null;
 	modelCatalog: ModelCatalog | null;
+	onAddMembersOpen: (trigger: HTMLElement) => void;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
@@ -643,7 +665,6 @@ type SpaceMembersBodyProps = {
 	spaceName?: string | null;
 	snapshot: SpaceMembersSnapshot | null;
 	viewState: {
-		isAddMembersFlashing?: boolean;
 		isAddMembersOpen: boolean;
 		isAgentRecoveryPending: (profileId: string) => boolean;
 		isLoading: boolean;
@@ -653,7 +674,6 @@ type SpaceMembersBodyProps = {
 function SpaceMembersBody(input: SpaceMembersBodyProps) {
 	const shouldShowAddMembersEmptyCta =
 		Boolean(input.onAddProfiles || input.onAddOrganizationDirectoryProfiles) &&
-		!input.viewState.isAddMembersOpen &&
 		input.snapshot?.summary.totalCount === 1;
 	const [
 		checkingAgentWakeAvailabilityProfileId,
@@ -681,39 +701,36 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 			<MotionConfig reducedMotion="user">
 				<div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
 					<div className="flex flex-col gap-4">
-						<div
-							className={
-								input.viewState.isAddMembersFlashing
-									? "add-members-recall-flash"
-									: undefined
+						<SpaceAddProfilesSection
+							accountProfiles={input.accountProfiles}
+							currentOwnerUserId={input.currentOwnerUserId}
+							currentProfileId={input.currentProfileId}
+							dialogId={input.addMembersDialogId}
+							finalFocus={input.addMembersTriggerRef}
+							key={input.spaceId ?? "no-space"}
+							onAddOrganizationDirectoryProfiles={
+								input.onAddOrganizationDirectoryProfiles
 							}
-						>
-							<SpaceAddProfilesSection
-								accountProfiles={input.accountProfiles}
-								currentOwnerUserId={input.currentOwnerUserId}
-								currentProfileId={input.currentProfileId}
-								key={`${input.spaceId ?? "no-space"}:${input.viewState.isAddMembersOpen ? "open" : "closed"}`}
-								onAddOrganizationDirectoryProfiles={
-									input.onAddOrganizationDirectoryProfiles
-								}
-								onAddProfiles={input.onAddProfiles}
-								onConvertDirectMessageToSpace={
-									input.onConvertDirectMessageToSpace
-								}
-								onOpenChange={input.onAddMembersOpenChange}
-								onRefresh={input.onRefresh}
-								open={input.viewState.isAddMembersOpen}
-								orgSlug={input.orgSlug}
-								snapshot={input.snapshot}
-								spaceId={input.spaceId}
-								spaceName={input.spaceName}
-							/>
-						</div>
+							onAddProfiles={input.onAddProfiles}
+							onConvertDirectMessageToSpace={
+								input.onConvertDirectMessageToSpace
+							}
+							onOpenChange={input.onAddMembersOpenChange}
+							onRefresh={input.onRefresh}
+							open={input.viewState.isAddMembersOpen}
+							orgSlug={input.orgSlug}
+							snapshot={input.snapshot}
+							spaceId={input.spaceId}
+							spaceName={input.spaceName}
+						/>
 
 						{shouldShowAddMembersEmptyCta ? (
 							<button
+								aria-controls={input.addMembersDialogId}
+								aria-expanded={input.viewState.isAddMembersOpen}
+								aria-haspopup="dialog"
 								className="flex flex-col items-center gap-2 rounded-md border border-border border-dashed px-3 py-4 text-center transition-colors hover:bg-muted/40"
-								onClick={() => input.onAddMembersOpenChange(true)}
+								onClick={(event) => input.onAddMembersOpen(event.currentTarget)}
 								type="button"
 							>
 								<span className="text-muted-foreground text-xs">
@@ -812,13 +829,12 @@ function SpaceMembersSearchField(input: {
 	);
 }
 
-const SPACE_ADD_MEMBERS_REGION_ID = "space-add-members-region";
-const SPACE_ADD_MEMBERS_TRIGGER_ID = "space-add-members-trigger";
-
 type SpaceAddProfilesSectionProps = {
 	accountProfiles: readonly AuthProfileView[];
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
+	dialogId: string;
+	finalFocus: RefObject<HTMLElement | null>;
 	onAddOrganizationDirectoryProfiles?: (
 		input: SpaceAddOrganizationDirectoryProfilesInput
 	) => Promise<SpaceAddProfilesResult>;
@@ -859,7 +875,6 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		spaceId: string | null;
 	} | null>(null);
 	const [addQuery, setAddQuery] = useState("");
-	const regionRef = useRef<HTMLDivElement | null>(null);
 	const activeSpaceId = input.spaceId ?? null;
 	const organizationContext = useOptionalAppOrganization();
 	const organization = organizationContext?.currentOrganization ?? null;
@@ -875,42 +890,6 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		})
 	);
 
-	// On open: start from a clean message slate and move focus into the panel
-	// so keyboard users land on the search field or first selectable row.
-	useEffect(() => {
-		if (!input.open) {
-			return;
-		}
-		const region = regionRef.current;
-		const firstControl =
-			region?.querySelector<HTMLInputElement>("input[type='search']") ??
-			region?.querySelector<HTMLElement>('[role="checkbox"]');
-		firstControl?.focus();
-	}, [input.open]);
-
-	// Escape closes the panel while focus is inside it. Captured at the
-	// document so it runs before the drawer's own Escape handling, and kept
-	// off the panel element itself, which is non-interactive.
-	const onOpenChange = input.onOpenChange;
-	useEffect(() => {
-		if (!input.open) {
-			return;
-		}
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") {
-				return;
-			}
-			const region = regionRef.current;
-			if (!region?.contains(document.activeElement)) {
-				return;
-			}
-			event.stopPropagation();
-			onOpenChange(false);
-			document.getElementById(SPACE_ADD_MEMBERS_TRIGGER_ID)?.focus();
-		};
-		document.addEventListener("keydown", handleKeyDown, true);
-		return () => document.removeEventListener("keydown", handleKeyDown, true);
-	}, [input.open, onOpenChange]);
 	const personalProfilesPlan = useMemo(
 		() =>
 			buildSpaceProfileAddPlan({
@@ -1004,6 +983,16 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		input.snapshot !== null &&
 		selectedCount > 0 &&
 		!isSubmitting;
+	const handleOpenChange = (open: boolean) => {
+		if (!open) {
+			setSelectedProfileIds(new Set());
+			setErrorMessage(null);
+			setSuccessMessage(null);
+			setConversionRequest(null);
+			setAddQuery("");
+		}
+		input.onOpenChange(open);
+	};
 
 	const handleSubmit = () => {
 		if (!canSubmit) {
@@ -1049,7 +1038,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			.then((result) => {
 				setSuccessMessage(formatAddProfilesSuccess(result));
 				setSelectedProfileIds(new Set());
-				input.onOpenChange(false);
+				handleOpenChange(false);
 			})
 			.catch((error: unknown) => {
 				setErrorMessage(formatAddProfilesError(error));
@@ -1076,7 +1065,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			setSuccessMessage(formatAddProfilesSuccess(result));
 			setSelectedProfileIds(new Set());
 			setConversionRequest(null);
-			input.onOpenChange(false);
+			handleOpenChange(false);
 		} catch (error) {
 			setErrorMessage(formatAddProfilesError(error));
 			setConversionRequest(null);
@@ -1088,9 +1077,6 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	const clearMessages = () => {
 		setErrorMessage(null);
 		setSuccessMessage(null);
-	};
-	const setRegionNode = (node: HTMLDivElement | null) => {
-		regionRef.current = node;
 	};
 	const toggleProfile = (profileId: string) => {
 		if (isSubmitting) {
@@ -1124,6 +1110,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		directoryQuery,
 		errorMessage,
 		handleConfirmConversion,
+		handleOpenChange,
 		handleSubmit,
 		humanCandidates,
 		isSubmitting,
@@ -1134,7 +1121,6 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		setConversionRequest,
 		setErrorMessage,
 		setSelectedProfileIds,
-		setRegionNode,
 		successMessage,
 		toggleProfile,
 		usesOrganizationDirectory,
@@ -1150,10 +1136,11 @@ function SpaceAddProfilesSectionView({
 }) {
 	return (
 		<>
-			<SpaceAddProfilesPanel
+			<SpaceAddProfilesDialog
 				addQuery={model.addQuery}
 				agentCandidates={model.agentCandidates}
 				canSubmit={model.canSubmit}
+				dialogId={input.dialogId}
 				directoryHasData={Boolean(model.directoryQuery.data)}
 				directoryIsError={model.directoryQuery.isError}
 				directoryIsPending={model.directoryQuery.isPending}
@@ -1166,14 +1153,16 @@ function SpaceAddProfilesSectionView({
 					usesOrganizationDirectory: model.usesOrganizationDirectory,
 				})}
 				errorMessage={model.errorMessage}
+				finalFocus={input.finalFocus}
 				humanCandidates={model.humanCandidates}
 				isSubmitting={model.isSubmitting}
 				onAddQueryChange={model.setAddQuery}
-				onAddSuccess={() => input.onOpenChange(false)}
+				onAddSuccess={() => model.handleOpenChange(false)}
 				onClear={() => {
 					model.setSelectedProfileIds(new Set());
 					model.clearMessages();
 				}}
+				onOpenChange={model.handleOpenChange}
 				onRefresh={input.onRefresh}
 				onRetryDirectory={() => {
 					model.directoryQuery.refetch().catch((error) => {
@@ -1192,7 +1181,6 @@ function SpaceAddProfilesSectionView({
 				organizationName={model.organization?.name ?? "Organization"}
 				orgSlug={input.orgSlug}
 				selectedProfileIds={model.activeSelectedProfileIds}
-				setRegionNode={model.setRegionNode}
 				snapshot={input.snapshot}
 				spaceId={input.spaceId}
 				spaceName={input.spaceName}
@@ -1258,20 +1246,23 @@ async function executeSpaceAddProfilesMutation(input: {
 	});
 }
 
-type SpaceAddProfilesPanelProps = {
+type SpaceAddProfilesDialogProps = {
 	addQuery: string;
 	agentCandidates: readonly SpaceAddMembersCandidateSummary[];
 	canSubmit: boolean;
 	directoryHasData: boolean;
 	directoryIsError: boolean;
 	directoryIsPending: boolean;
+	dialogId: string;
 	emptyMessage: string;
 	errorMessage: string | null;
+	finalFocus: RefObject<HTMLElement | null>;
 	humanCandidates: readonly SpaceAddMembersCandidateSummary[];
 	isSubmitting: boolean;
 	onAddQueryChange: (query: string) => void;
 	onAddSuccess: () => void;
 	onClear: () => void;
+	onOpenChange: (open: boolean) => void;
 	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRetryDirectory: () => void;
 	onSubmit: () => Promise<void>;
@@ -1280,7 +1271,6 @@ type SpaceAddProfilesPanelProps = {
 	open: boolean;
 	organizationName: string;
 	orgSlug: string;
-	setRegionNode: (node: HTMLDivElement | null) => void;
 	selectedProfileIds: ReadonlySet<string>;
 	snapshot: SpaceMembersSnapshot | null;
 	spaceId?: string;
@@ -1289,46 +1279,24 @@ type SpaceAddProfilesPanelProps = {
 	usesOrganizationDirectory: boolean;
 };
 
-function SpaceAddProfilesPanel(input: SpaceAddProfilesPanelProps) {
-	const { setRegionNode } = input;
+function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 	return (
-		<AnimatePresence initial={false} mode="popLayout">
-			{input.open ? (
-				// The wrapper owns the collapse so the section's full layout
-				// footprint reaches exactly zero before unmount: the border lives
-				// on the inner section (clipped at height 0 instead of leaving a
-				// 2px sliver), the negative bottom margin cancels the parent's
-				// gap-4 inside the same spring, and the exit spring drops bounce
-				// so AnimatePresence unmounts the moment the value settles.
-				<m.div
-					animate={{ opacity: 1, transform: "scaleY(1)" }}
-					className="overflow-hidden"
-					exit={{
-						opacity: 0,
-						transform: "scaleY(0.98)",
-						transition: { ...springs.moderate, bounce: 0 },
-					}}
-					initial={{ opacity: 0, transform: "scaleY(0.98)" }}
-					style={{ transformOrigin: "top" }}
-					transition={springs.moderate}
-				>
-					<div
-						className="@container rounded-lg border border-border bg-card"
-						id={SPACE_ADD_MEMBERS_REGION_ID}
-						ref={setRegionNode}
-					>
-						<SpaceAddProfilesPanelContent input={input} />
-					</div>
-				</m.div>
-			) : null}
-		</AnimatePresence>
+		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
+			<DialogContent
+				className="@container sm:max-w-lg"
+				finalFocus={input.finalFocus}
+				id={input.dialogId}
+			>
+				<SpaceAddProfilesDialogContent input={input} />
+			</DialogContent>
+		</Dialog>
 	);
 }
 
-function SpaceAddProfilesPanelContent({
+function SpaceAddProfilesDialogContent({
 	input,
 }: {
-	input: SpaceAddProfilesPanelProps;
+	input: SpaceAddProfilesDialogProps;
 }) {
 	const searchLabel = input.usesOrganizationDirectory
 		? "Search members and agents"
@@ -1343,12 +1311,13 @@ function SpaceAddProfilesPanelContent({
 			(!input.usesOrganizationDirectory || input.directoryHasData)
 	);
 	return (
-		<div className="flex flex-col gap-3 p-3">
-			<SpaceAddProfilesPanelHeader input={input} />
-			<p className="w-full text-muted-foreground text-xs">{description}</p>
+		<div className="flex flex-col gap-3">
+			<SpaceAddProfilesDialogHeader input={input} />
+			<DialogDescription>{description}</DialogDescription>
 			<Input
 				aria-label={searchLabel}
 				autoComplete="off"
+				autoFocus
 				onChange={(event) => input.onAddQueryChange(event.target.value)}
 				placeholder={searchLabel}
 				type="search"
@@ -1378,14 +1347,16 @@ function SpaceAddProfilesPanelContent({
 	);
 }
 
-function SpaceAddProfilesPanelHeader({
+function SpaceAddProfilesDialogHeader({
 	input,
 }: {
-	input: SpaceAddProfilesPanelProps;
+	input: SpaceAddProfilesDialogProps;
 }) {
 	return (
 		<div className="flex @min-[20rem]:flex-row flex-col @min-[20rem]:items-start @min-[20rem]:justify-between gap-2">
-			<h3 className="font-medium text-sm">Add members</h3>
+			<DialogHeader>
+				<DialogTitle>Add members</DialogTitle>
+			</DialogHeader>
 			{input.spaceId ? (
 				<SpaceCreateProfileButton
 					className="@min-[20rem]:w-auto w-full"
@@ -1410,7 +1381,7 @@ function SpaceAddProfilesPanelHeader({
 function SpaceAddProfilesCandidateList({
 	input,
 }: {
-	input: SpaceAddProfilesPanelProps;
+	input: SpaceAddProfilesDialogProps;
 }) {
 	return (
 		<SpaceAddMembersCandidates

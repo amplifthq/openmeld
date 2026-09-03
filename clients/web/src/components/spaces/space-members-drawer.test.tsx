@@ -1763,14 +1763,10 @@ describe("SpaceMembersSidePanel", () => {
 		fireEvent.click(trigger);
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 
-		const region = document.getElementById("space-add-members-region");
-		expect(region).toBeTruthy();
-		expect(region?.className).toContain("rounded-lg");
-		expect(region?.className).toContain("bg-card");
-		expect(trigger.getAttribute("aria-controls")).toBe(
-			"space-add-members-region"
-		);
-		const scope = within(region as HTMLElement);
+		const dialog = screen.getByRole("dialog", { name: "Add members" });
+		expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+		expect(trigger.getAttribute("aria-controls")).toBe(dialog.id);
+		const scope = within(dialog);
 
 		const agentsGroup = scope.getByRole("group", { name: "Agents" });
 		const humansGroup = scope.getByRole("group", { name: "Humans" });
@@ -1843,34 +1839,31 @@ describe("SpaceMembersSidePanel", () => {
 		const emptyCta = screen.getByRole("button", {
 			name: EMPTY_SPACE_CTA_NAME,
 		});
+		expect(emptyCta.getAttribute("aria-haspopup")).toBe("dialog");
 		fireEvent.click(emptyCta);
 
-		expect(
-			screen
-				.getByRole("button", { name: "Add members" })
-				.getAttribute("aria-expanded")
-		).toBe("true");
 		expect(screen.getByRole("heading", { name: "Add members" })).toBeTruthy();
-		const addMembersHeading = screen.getByRole("heading", {
-			name: "Add members",
-		});
-		const addMembersDescription = screen.getByText(
-			"Choose profiles to add to this Space."
-		);
-		const createProfileButton = screen.getByRole("button", {
+		const dialog = screen.getByRole("dialog", { name: "Add members" });
+		expect(emptyCta.getAttribute("aria-controls")).toBe(dialog.id);
+		expect(emptyCta.getAttribute("aria-expanded")).toBe("true");
+		const dialogScope = within(dialog);
+		expect(
+			dialogScope.getByRole("heading", { name: "Add members" })
+		).toBeTruthy();
+		expect(
+			dialogScope.getByText("Choose profiles to add to this Space.")
+		).toBeTruthy();
+		const createProfileButton = dialogScope.getByRole("button", {
 			name: "Create Agent",
 		});
-		expect(addMembersDescription.parentElement).toBe(
-			addMembersHeading.parentElement?.parentElement
-		);
 		expect(createProfileButton.className).toContain("w-full");
 		expect(createProfileButton.className).toContain("@min-[20rem]:w-auto");
-		const footerLabel = screen.getByText("Select members to add");
+		const footerLabel = dialogScope.getByText("Select members to add");
 		const footer = footerLabel.parentElement;
 		expect(footer?.className).toContain("flex-col");
 		expect(footer?.className).toContain("@min-[20rem]:flex-row");
 		expect(
-			screen.getByRole("button", { name: "Add selected" }).className
+			dialogScope.getByRole("button", { name: "Add selected" }).className
 		).toContain("flex-1");
 		expect(
 			screen.getAllByRole("button", { name: "Create Agent" })
@@ -1880,7 +1873,7 @@ describe("SpaceMembersSidePanel", () => {
 		).toBeNull();
 	});
 
-	it("closes the Add members panel with Escape and returns focus to the trigger", () => {
+	it("closes the Add members dialog with Escape and returns focus to the trigger", async () => {
 		renderWithQueryClient(
 			<SpaceMembersSidePanel
 				accountProfiles={[
@@ -1932,13 +1925,15 @@ describe("SpaceMembersSidePanel", () => {
 		);
 
 		const trigger = screen.getByRole("button", { name: "Add members" });
+		trigger.focus();
 		fireEvent.click(trigger);
-		const region = document.getElementById("space-add-members-region");
-		expect(region).toBeTruthy();
+		const dialog = await screen.findByRole("dialog", { name: "Add members" });
 
-		fireEvent.keyDown(region as HTMLElement, { key: "Escape" });
-		expect(trigger.getAttribute("aria-expanded")).toBe("false");
-		expect(document.activeElement).toBe(trigger);
+		fireEvent.keyDown(dialog, { key: "Escape" });
+		await waitFor(() => {
+			expect(trigger.getAttribute("aria-expanded")).toBe("false");
+			expect(document.activeElement).toBe(trigger);
+		});
 	});
 });
 

@@ -2817,14 +2817,15 @@ composited presentation properties such as transform and opacity so labels and
 message content never pass through a compressed wrapping state. Reduced-motion
 users receive the final layout without spatial motion.
 
-Members header descriptions and Add-members guidance own full-width rows below
-their related title-and-action rows. Add-members controls respond to the panel's
-own width rather than the browser viewport: narrow panels stack heading actions
-and footer actions into full-width rows, while wider panels keep the compact
-side-by-side layout. After Core confirms an Agent or Human membership write,
-Web collapses Add members so the roster regains the available space. Agent and
-Human names use the same compact type scale as the app sidebars so the Members
-panel does not introduce a heavier navigation hierarchy.
+Members header descriptions own a full-width row below the title and actions.
+The header Add-members action and the one-member empty-state card both open the
+same Add members dialog. Its controls respond to the dialog's own width rather
+than the browser viewport: narrow dialogs stack heading actions and footer
+actions into full-width rows, while wider dialogs keep the compact side-by-side
+layout. After Core confirms an Agent or Human membership write, Web closes the
+dialog. Agent and Human names use the same compact type scale as the app
+sidebars so the Members panel does not introduce a heavier navigation
+hierarchy.
 
 The active Thread panel selection is a per-Space browser presentation
 preference. Web persists only the selected Thread id, resolves that id against
