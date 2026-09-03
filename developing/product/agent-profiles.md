@@ -750,6 +750,18 @@ may show that it is queued, but Web does not hide or stack the message above the
 Composer until execution starts. Different Agent Profiles remain independently
 admissible and may work in parallel.
 
+The first accepted Wake request remains frozen while it waits, moves to the
+front, or is redriven after transport recovery. Prompt, attachments, source
+message, reply destination, target Profile, Binding/configuration revision, and
+execution identity belong to that Wake. A refreshed queue timestamp, recovery
+reason, or later display-name snapshot does not create a different request. A
+real immutable-content mismatch fails that exact pre-execution Wake visibly, or
+stays retryable if RuntimeCoordinator cannot safely settle it; it is never
+treated as a duplicate, a Computer-offline verdict, or permission to execute
+the changed content. Its failure tells the user to send the request again and
+open Diagnostics if needed; it does not expose a Check status/Recovery action
+or change current Wakeability.
+
 `Queued` means another Wake owns this Profile's work slot. It is not the
 existing RuntimeCoordinator `waiting` state used after a Wake reaches the head
 but is waiting for an OpenMeld Service route. Normal queue time has no fixed

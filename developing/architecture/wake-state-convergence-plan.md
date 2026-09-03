@@ -191,6 +191,32 @@ ownership, reply attribution, deterministic redrive, and visible terminal
 outcomes. It must prove that requests, executions, and replies cannot be lost or
 crossed. It does not redesign Agent list loading or UI status presentation.
 
+The accepted identity includes the immutable request, target, Binding and
+configuration revision, execution authority, source message, and reply
+destination. Transport-attempt timestamps, recovery provenance, and
+display-name enrichment may change without changing that identity. A genuine
+accepted-payload conflict is neither a duplicate nor a connectivity verdict:
+RuntimeCoordinator settles the exact pre-execution Wake visibly when safe, and
+otherwise the dispatch remains retryable without executing changed content.
+Core retains the accepted-payload fingerprint in a rollback-safe sidecar after
+terminal head cleanup. Two known, different fingerprints conflict; a legacy
+terminal authority without the sidecar safely reuses its terminal outcome and
+records a compatibility diagnostic without claiming that details changed. This
+also closes a changed-payload redrive after terminal-head retirement without
+execution, duplicate publication, or ledger rewrite. An already-prepared
+non-conflict failure keeps its owning RuntimeCoordinator reason instead of being
+relabeled as a payload conflict. A per-Wake conflict may publish its exact
+outcome but must not write a current Wakeability blocker.
+During rolling deployment, a queued legacy head may atomically adopt the frozen
+snapshot before execution. If FIFO promotion has already changed that head to
+`accepted`, the upgrade additionally requires the exact pending-promotion
+record for the same dispatch, target profile, and Wake lifecycle; the record is
+cleared only when that identity reacceptance succeeds. An ordinary legacy
+`accepted` head without this evidence remains fail-closed.
+Validation covers three consecutive Wakes to one Agent Profile plus controlled
+Service update and replacement-generation redelivery without crossed execution
+or reply identities.
+
 The same pull request updates the relevant sections of
 `developing/architecture/agent-transport-contract.md` and
 `developing/product/agent-profiles.md` when behavior changes.

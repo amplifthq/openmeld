@@ -140,17 +140,45 @@ At first head acceptance, RuntimeCoordinator also freezes the secret-free
 execution-target identity (`bindingId`, `configurationRevision`, Agent
 Controller ref, OpenMeld Service Runtime id, and runtime kind) plus a SHA-256
 fingerprint of the Space-owned dispatch payload. It does not copy or become the
-owner of that payload. Promotion, alarm redrive, and reconnect reacceptance must
-return this accepted snapshot so Core can combine it with the same outbox
-payload. A different payload fingerprint for the same Wake lifecycle is an
-authority conflict, never permission to execute newer message content.
+owner of that payload. The fingerprint covers the immutable execution and reply
+content; transport-attempt timestamps, recovery provenance, and display-name
+enrichment are not Wake identity. Promotion, alarm redrive, and reconnect
+reacceptance must return the accepted snapshot so Core can combine it with the
+same outbox payload. A different immutable-payload fingerprint for the same Wake
+lifecycle is an accepted-payload authority conflict, never permission to
+execute newer message content and never evidence that the Wake is a duplicate.
+When the original head has not entered execution, RuntimeCoordinator freezes a
+visible no-execution failure for that exact Wake. If linked execution or a
+concurrent authority change makes that unsafe, Core retains the outbox item and
+retries the exact conflict; it does not execute the altered payload, mark the
+dispatch `deduped`, or reinterpret the conflict as Computer connectivity.
+After execution is linked, Core stores the accepted-payload fingerprint beside,
+not inside, the v1 execution-token authority. This keeps the v1 authority
+readable by an older Core during rollback while preserving the fingerprint
+after terminal head retirement. A terminal replay with two known, different
+fingerprints returns the exact accepted-payload conflict. When legacy terminal
+authority has no fingerprint sidecar, Core reuses the already-terminal outcome,
+does not grant a new execution, and records a compatibility diagnostic without
+claiming that the Wake details changed.
+If a changed-payload redrive reaches no-execution settlement after the terminal
+head has already been retired, RuntimeCoordinator confirms that the matching
+terminal authority already owns closure. Queue acknowledges the redrive without
+executing, republishing, or rewriting that terminal outcome. If an active head
+already owns another no-execution publication intent, its original reason stays
+authoritative and must not be replaced by the later payload-conflict reason.
+Per-Wake no-execution publication does not itself change current Wakeability;
+payload conflicts do not write or overwrite a current readiness blocker.
 During a rolling Core deployment, a caller that omits the snapshot cannot
 reaccept a head that already owns one; RuntimeCoordinator returns the legacy-
 parseable `retry_later` shape and never grants `create_execution`. A legacy
 head may gain a proposed snapshot only inside the admission transaction while
-it is still queued and has no linked execution or token authority. Any legacy
-head that may already be executing also returns `retry_later` instead of
-silently adopting or discarding the snapshot.
+it is still queued and has no linked execution or token authority. A legacy
+head promoted to `accepted` may gain that snapshot in the same transaction only
+while its exact dispatch, target profile, and Wake lifecycle still own the
+pending-promotion record and no execution authority exists. Promotion remains
+pending after the Space accepts redrive until this identity reacceptance
+finishes. Any other legacy head that may already be executing returns
+`retry_later` instead of silently adopting or discarding the snapshot.
 `profile_queue_waiting` is a D1 ledger projection, not scheduling authority.
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
@@ -333,6 +361,13 @@ Important execution rules:
   Reconciliation is idempotent. A Wake already in `cancellation_requested`
   settles as cancelled when the task is absent; it must never be converted into
   a recoverable execution failure or resumed after the user's Stop.
+- A replacement Service connection generation may redeliver a claimed but not
+  yet terminal execution exactly once with new transport provenance only. The
+  RuntimeCoordinator execution id, token run and scope, dispatch and Wake source
+  identities, reply destination, task content, and accepted-payload fingerprint
+  remain unchanged. If the replacement proves that a running local task was
+  lost, the same execution ends once as `runtime.local_runtime_lost`; it does not
+  become a generic offline failure or a second execution.
 - After RuntimeCoordinator accepts a Wake head, an actual route lookup may
   return `daemon.profile.pending_first_report` while the intended owner's
   OpenMeld Service is still heartbeat-fresh but has not reported that Agent

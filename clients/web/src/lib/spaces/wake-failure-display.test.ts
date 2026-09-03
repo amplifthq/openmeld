@@ -1,3 +1,4 @@
+import { RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { resolveWakeFailureDisplay } from "./wake-failure-display";
 
@@ -65,6 +66,19 @@ describe("resolveWakeFailureDisplay", () => {
 		).toEqual({
 			actionTarget: null,
 			body: "OpenMeld did not receive enough error details to explain why Runner could not reply. Open diagnostics for technical details.",
+		});
+	});
+
+	it("does not project a recovery action for an accepted Wake payload conflict", () => {
+		expect(
+			resolveWakeFailureDisplay({
+				failureReasonCode:
+					RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
+				targetLabel: "@runner",
+			})
+		).toEqual({
+			actionTarget: null,
+			body: "OpenMeld stopped this Wake for Runner because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics.",
 		});
 	});
 });
