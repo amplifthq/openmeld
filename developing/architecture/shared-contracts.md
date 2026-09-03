@@ -841,9 +841,7 @@ Core resolves its inputs in bounded owner batches: one route batch, one owner
 Service read, and one local-runtime display inventory per owner, with bounded
 per-Profile readiness work. Splitting transport does not split authority: Auth,
 Core Wakeability, Binding, and RuntimeCoordinator remain the same owners, and
-the browser never derives or writes either projection. Any approved future
-convergence is described as unimplemented work in
-`developing/architecture/wake-state-convergence-plan.md`.
+the browser never derives or writes either projection.
 
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member

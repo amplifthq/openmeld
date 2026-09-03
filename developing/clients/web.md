@@ -3996,8 +3996,7 @@ projection. Web must not reconstruct it from local browser state, Space
 membership, Binding existence, route-online evidence, service health, setup
 completion, Agent Activity, one Wake's Outcome, or capability inventory. The
 current compatibility APIs and types may still use readiness or execution-status
-names during the migration described in
-`developing/architecture/wake-state-convergence-plan.md`.
+names, but those names do not create another authority path.
 
 Web may briefly refresh local owner diagnostics when Core reports checking or
 self-healing evidence, but that refresh behavior must have an explicit
