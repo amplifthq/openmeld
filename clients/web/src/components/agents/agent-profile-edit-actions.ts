@@ -84,9 +84,7 @@ export async function changeAgentProfileController(input: {
 	const runtimeLane =
 		input.context.executionTarget?.runtimeLane ?? input.context.runtimeLane;
 	if (!(deviceId && runtimeLane)) {
-		throw new Error(
-			"Connect OpenMeld Service on this computer before changing the controller."
-		);
+		throw new Error("Connect your computer before changing the local agent.");
 	}
 	const bindingResult = await ensureWebAgentProfileRuntimeBinding({
 		actorProfileId: input.context.actorProfileId,
@@ -340,15 +338,7 @@ export async function invalidateAgentProfilePrimaryBindingEditQueries(input: {
 	queryKey: ReturnType<typeof agentProfilePrimaryBindingQueryKeys.profile>;
 	storageScope: string;
 }) {
-	await Promise.all([
-		input.queryClient.invalidateQueries({ queryKey: input.queryKey }),
-		input.queryClient.invalidateQueries({
-			queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
-		}),
-		input.queryClient.invalidateQueries({
-			queryKey: organizationQueryKeys.all,
-		}),
-	]);
+	await input.queryClient.invalidateQueries({ queryKey: input.queryKey });
 }
 
 async function runAgentProfileBindingUpdate(input: {

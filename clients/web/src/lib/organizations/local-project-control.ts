@@ -22,7 +22,7 @@ import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld
 export type LocalProjectControlFailure = StructuredApiClientFailure;
 
 export const LOCAL_PROJECT_CONTROL_UNREACHABLE_MESSAGE =
-	"This computer isn't reachable for OpenMeld right now. Make sure OpenMeld Service is running, then try again.";
+	"This computer isn't connected to OpenMeld right now. Reconnect it, then try again.";
 
 const LOCAL_PROJECT_CONTROL_ERROR_CODES = new Set<string>([
 	"binding_generation_stale",
@@ -153,7 +153,7 @@ export function resolveLocalProjectControlErrorMessage(error: unknown): string {
 		case "path_unreadable":
 			return "OpenMeld can’t read that folder. Check its permissions and try again.";
 		case "path_conflict":
-			return "This folder is already connected to another Project on this computer. Update OpenMeld Service, then try again to review the impact and move it here.";
+			return "This folder is already connected to another Project on this computer. Update OpenMeld, then try again to review the impact and move it here.";
 		case "fingerprint_mismatch":
 			return "This folder belongs to a different Git repository. Choose the folder that matches this Project.";
 		case "git_repository_required":
@@ -165,7 +165,7 @@ export function resolveLocalProjectControlErrorMessage(error: unknown): string {
 			return LOCAL_PROJECT_CONTROL_UNREACHABLE_MESSAGE;
 		case "service_update_required":
 		case "unsupported":
-			return "Update OpenMeld Service on this computer before connecting Project folders from the Web.";
+			return "Update OpenMeld on this computer before connecting Project folders from the Web.";
 		case "timeout":
 			return "This computer didn’t finish checking the folder. Try again.";
 		case "candidate_unavailable":

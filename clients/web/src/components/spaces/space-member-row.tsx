@@ -127,6 +127,7 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 	const actions = renderSpaceMemberActions({
 		onOpenProfileDetails: detailsDialog.openProfileDetails,
 		onRemoveFromSpace: input.onRemoveFromSpace,
+		profileKind: input.entry.profileKind,
 		profileId: input.entry.profileId,
 		profileName: input.entry.profileName,
 		variant: input.variant,
@@ -366,6 +367,7 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 	});
 	const actions = renderSpaceMemberActions({
 		onRemoveFromSpace: input.onRemoveFromSpace,
+		profileKind: input.entry.profileKind,
 		profileId: input.entry.profileId,
 		profileName: input.entry.profileName,
 		variant: input.variant,
@@ -493,6 +495,7 @@ function SpaceMemberBadges(input: {
 function renderSpaceMemberActions(input: {
 	onOpenProfileDetails?: () => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
+	profileKind: SpaceMemberDirectoryEntry["profileKind"];
 	profileId: string;
 	profileName: string;
 	variant: "compact" | "full";
@@ -508,6 +511,7 @@ function renderSpaceMemberActions(input: {
 			onOpenProfileDetails={input.onOpenProfileDetails}
 			onRemoveFromSpace={input.onRemoveFromSpace}
 			profileId={input.profileId}
+			profileKind={input.profileKind}
 			profileName={input.profileName}
 		/>
 	);
@@ -516,6 +520,7 @@ function renderSpaceMemberActions(input: {
 function SpaceMemberActionsMenu(input: {
 	onOpenProfileDetails?: () => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
+	profileKind: SpaceMemberDirectoryEntry["profileKind"];
 	profileId: string;
 	profileName: string;
 }) {
@@ -548,7 +553,9 @@ function SpaceMemberActionsMenu(input: {
 							onClick={input.onOpenProfileDetails}
 						>
 							<InfoIcon aria-hidden="true" />
-							Check this Profile
+							{input.profileKind === "agent"
+								? "Check this Agent"
+								: "Check this Profile"}
 						</DropdownMenuItem>
 					) : null}
 					{input.onRemoveFromSpace ? (
@@ -944,7 +951,7 @@ function resolveMemberTransientPrimaryDetail(
 		case "active_wake_in_progress":
 			return "This agent is working on a Wake in this Space.";
 		case "active_wake_waiting_for_service":
-			return "A Wake is waiting for OpenMeld Service to reconnect.";
+			return "A Wake is waiting for the computer to reconnect.";
 		case "checking":
 			return "OpenMeld is checking this agent's local connection.";
 		default:

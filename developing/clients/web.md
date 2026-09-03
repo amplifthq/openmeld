@@ -1842,18 +1842,29 @@ version 2; Core omits Skip from callers that do not advertise that receiver
 capability, including already-loaded older Web builds.
 Non-owners see the same neutral workload summary without the interrupted source
 or recovery action.
-**Direct Message** is a primary header action. An authorized owner may choose
+The **Current activity** section renders a bound Local Agent Session only while
+the Work Coordinator projects that Profile as working. Binding a controller
+conversation is Runtime configuration, not evidence of current work. When a
+working bound Session is shown, Web displays its provider-native title,
+Conversation ID, and Computer name. The configuration grid keeps **Runtime** as
+its final card and uses it to show the bound Computer and Conversation ID even
+when that Session is idle.
+**Chat with {Agent name}** is a primary header action. An authorized owner may choose
 **Edit Agent** to edit in place, then explicitly **Save changes** or **Cancel**;
 a failed save keeps the draft and its diagnostic visible. Dangerous or
 low-frequency actions remain in the overflow menu. This presentation does not
 create a second Agent Profile, Binding, readiness, request, or edit authority.
 Agent identity controls in messages, Threads, and other in-context collaboration
 surfaces open one compact Profile Details popover. The Members panel opens the
-same content in a larger **Check this Profile** dialog. Both presentations show
-the Agent identity, current Presence and Activity, a **Direct Message** action,
-the same configuration cards, and **More Details** navigation to the canonical
-Agent route. Owners edit supported settings from those cards; other viewers see
-the same cards read-only. The overflow contains only non-destructive actions.
+same content in a larger **Check this Agent** dialog. Both presentations show
+the Agent identity, current Presence and Activity, and a primary **Chat with
+{Agent name}** action. The compact popover omits configuration cards and gives
+the owner one persistent pencil action to open the canonical Agent route; it
+shows no edit affordance to other viewers. The larger dialog keeps the shared
+configuration cards and places **Check more or edit** in the header for the
+owner, or **Check more** for other viewers. Neither presentation adds an
+overflow menu. Owners edit supported settings from the canonical route or the
+dialog cards; other viewers see the same dialog cards read-only.
 Web must not maintain a separate About-versus-Edit presentation or mutation
 path. Disruptive Controller and working-folder changes keep the account-wide
 execution lock and Core writer guard described below.
@@ -3566,7 +3577,7 @@ deduplication for the new session. Choosing `Set up again` increments that fence
 before Web requests the replacement session, so the invalidation does not depend
 on a later React render or network response.
 
-When setup starts from `Reconnect OpenMeld Service` on an existing Computer,
+When setup starts from `Reconnect Computer` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local
 service reinstall may report a new `deviceId`; Web still follows the session and
 shows completion for the selected Computer instead of creating a browser-side
@@ -3763,13 +3774,14 @@ The public Skill should explain OpenMeld identity choices in setup language:
 - a wakeable local Agent Profile must be bound to local agent execution before
   the Space can wake it automatically
 
-Web setup, Computers, and Profiles surfaces should use the
-shared Local Components action vocabulary for local recovery CTAs. Service comes
-before local-agent binding: when OpenMeld Service is missing or disconnected, show
-`Connect OpenMeld Service` or `Reconnect OpenMeld Service`; when the service bundle or
-runtime contract is out of date, show `Update OpenMeld Service`; only after the
-service layer is usable should an Agent Profile binding problem show
-`Connect local agent`.
+Web setup, Computers, and Profiles surfaces use the shared Local Components
+action vocabulary for local recovery CTAs. User-facing entry points say
+`Connect Computer`, `Reconnect Computer`, or `Update OpenMeld on Computer`;
+they do not require a beginner to understand the OpenMeld Service process.
+Computer detail, version checks, diagnostics, and other component-specific
+surfaces may still name **OpenMeld Service**. The computer connection comes
+before local-agent binding; only after it is usable should an Agent Profile
+binding problem show `Connect local agent`.
 
 On the Computers local agents card, the `Connect local agent` notice
 is reserved for the zero-agent case: this computer reports no usable local
@@ -3998,11 +4010,11 @@ adapts browser-local and current-local-runtime evidence into that shared copy,
 then presents one clear next action. The copy explains known evidence and the
 next step. It does not decide execution truth.
 
-When a Wake failure maps to a local-service recovery action, Web may show a
-local repair entry only when the failed target is manageable by the current
-user. For another user's computer, Web should explain who needs to check OpenMeld
-Service and the local agent instead of linking the current user to a repair
-surface that cannot fix that target.
+When a Wake failure maps to a computer-connection recovery action, Web may show
+a local repair entry only when the failed target is manageable by the current
+user. For another user's computer, Web should explain who needs to reconnect
+the computer and check the local agent instead of linking the current user to a
+repair surface that cannot fix that target.
 
 When evidence is incomplete or degraded, Web should keep the user-facing message
 simple:

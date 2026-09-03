@@ -915,9 +915,8 @@ function createAgentWakeAvailabilityFromStatus(
         phase: "service_not_connected",
         reasonCode: "service.not_running",
         status,
-        summary:
-          "Connect OpenMeld Service on this computer before this agent can reply.",
-        tooltip: "OpenMeld Service is not connected on this computer.",
+        summary: "Connect your computer before this Agent can reply.",
+        tooltip: "Computer not connected",
       };
     case "unavailable_for_wake":
       return {

@@ -329,16 +329,14 @@ const checkingWakeAvailabilityFallbackCopy = {
 
 const reconnectingOpenMeldServiceAvailabilityFallbackCopy = {
   badgeLabel: "Reconnecting",
-  summary: "OpenMeld Service is reconnecting on this computer.",
-  tooltip: "Reconnecting OpenMeld Service",
+  summary: "Computer is reconnecting.",
+  tooltip: "Reconnecting Computer",
 } as const;
 
 const offlineWakeAvailabilityFallbackCopy = {
   badgeLabel: "Offline",
-  summary:
-    "This agent's connection is offline. Check OpenMeld Service on its computer.",
-  tooltip:
-    "Agent connection is offline. Check OpenMeld Service on its computer.",
+  summary: "This Agent's computer is offline.",
+  tooltip: "Agent computer is offline",
 } as const;
 
 const routeCheckingWakeAvailabilityFallbackCopy = {
@@ -349,9 +347,8 @@ const routeCheckingWakeAvailabilityFallbackCopy = {
 
 const routeUnavailableWakeAvailabilityFallbackCopy = {
   badgeLabel: "Unavailable",
-  summary:
-    "This agent's Wake route is unavailable right now. Check OpenMeld Service on its computer.",
-  tooltip: "Wake route unavailable. Check OpenMeld Service on its computer.",
+  summary: "This Agent's computer connection is unavailable right now.",
+  tooltip: "Computer connection unavailable",
 } as const;
 
 const connectLocalAgentAvailabilityFallbackCopy = {
@@ -393,7 +390,7 @@ export function resolveAgentWakeAvailability(input: {
       ...unavailableWakeAvailabilityFallbackCopy,
       category: "unavailable",
       isRefreshing: false,
-      label: "Update OpenMeld Service",
+      label: "Update OpenMeld on Computer",
       phase: "service_update_required",
       reasonCode: pickReasonCode(input.readiness, [
         "service.update_required",
@@ -772,7 +769,7 @@ function createReconnectingOpenMeldServiceAvailability(
     ...reconnectingOpenMeldServiceAvailabilityFallbackCopy,
     category: "checking",
     isRefreshing: true,
-    label: "Reconnecting OpenMeld Service",
+    label: "Reconnecting Computer",
     phase: "checking_route",
     reasonCode: "local_service.reconnecting",
     status: "checking_connection",

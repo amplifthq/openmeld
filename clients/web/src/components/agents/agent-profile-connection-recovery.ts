@@ -10,7 +10,6 @@ import {
 	formatWebAgentProfileRuntimeBindingFailure,
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readiness";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
 import type { AgentProfileRepairAction } from "./agents-page-agent-profile-helpers";
 
@@ -44,7 +43,6 @@ export async function refreshSavedAgentProfileConnections(input: {
 	profileIds: readonly string[];
 	organizationId: string;
 	queryClient: QueryClient;
-	refreshAll: () => Promise<unknown>;
 	storageScope: string;
 }): Promise<void> {
 	const primaryBindingResults = await Promise.allSettled(
@@ -79,16 +77,12 @@ export async function refreshSavedAgentProfileConnections(input: {
 	}
 
 	const refreshResults = await Promise.allSettled([
-		input.queryClient.invalidateQueries({
-			queryKey: organizationQueryKeys.all,
-		}),
 		refreshWebAgentReadinessFacts({
 			agentProfileIds: input.profileIds,
 			organizationId: input.organizationId,
 			queryClient: input.queryClient,
 			storageScope: input.storageScope,
 		}),
-		input.refreshAll(),
 	]);
 	const failureCount = [...primaryBindingResults, ...refreshResults].filter(
 		(result) => result.status === "rejected"

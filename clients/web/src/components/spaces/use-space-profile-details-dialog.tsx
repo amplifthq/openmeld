@@ -115,7 +115,6 @@ export function useSpaceProfileDetailsDialog(input: {
 			entry?.profileKind === "agent" && details
 				? (trigger: ReactElement) => (
 						<AgentProfileDetailsPopover
-							configurationContent={renderAgentConfiguration(entry, details)}
 							details={details}
 							entry={entry}
 							isCenterAgent={entry.profileId === input.centerAgentProfileId}
@@ -155,10 +154,6 @@ export function useSpaceProfileDetailsDialog(input: {
 			});
 			return (
 				<AgentProfileDetailsPopover
-					configurationContent={renderAgentConfiguration(
-						targetEntry,
-						targetDetails
-					)}
 					details={targetDetails}
 					entry={targetEntry}
 					isCenterAgent={targetEntry.profileId === input.centerAgentProfileId}

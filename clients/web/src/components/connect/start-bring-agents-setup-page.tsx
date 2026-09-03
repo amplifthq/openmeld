@@ -273,7 +273,7 @@ function ExistingComputerConnectionGate(input: {
 					weight="fill"
 				/>
 				<div className="min-w-0 flex-1">
-					<p className="font-medium text-sm">OpenMeld Service is connected</p>
+					<p className="font-medium text-sm">Computer connected</p>
 					<p className="mt-1 truncate text-muted-foreground text-xs">
 						{connectionState.readiness.runtime.deviceDisplayName ??
 							"This computer"}
