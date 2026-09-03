@@ -8912,16 +8912,18 @@ describe("SpaceLanding", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-		await waitFor(() => {
-			expect(
-				screen.getByText(
-					"OpenMeld couldn't confirm that this agent can reply right now. Try again."
-				)
-			).toBeTruthy();
-		});
+		const errorMessage = await screen.findByText(
+			"OpenMeld couldn't confirm that this agent can reply right now. Try again."
+		);
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		expect(readComposerValue(textarea)).toBe("@Runner keep this draft");
 		expect(textarea.getAttribute("contenteditable")).toBe("true");
+		const errorSurface = errorMessage.parentElement;
+		if (!errorSurface) {
+			throw new Error("Expected the Composer error surface.");
+		}
+		expect(within(errorSurface).queryByRole("button")).toBeNull();
+		expect(within(errorSurface).queryByRole("link")).toBeNull();
 	});
 
 	it("inserts a bare Wake mention when an agent is selected", async () => {
@@ -15765,11 +15767,26 @@ describe("SpaceLanding", () => {
 		const stageComposerUploadMock = vi.fn();
 		const currentMembersSnapshot = createMembersSnapshot({
 			defaultAgentExecutionReadiness:
-				createServiceNotConnectedAgentExecutionReadiness(
-					DEFAULT_AGENT_PROFILE_ID
-				),
+				createMissingBindingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
 		}) as SpaceMembersSnapshot;
 		if (failureKind === "blocked") {
+			useLocalAgentRecoveryControllerMock.mockReturnValue({
+				currentDeviceTargetQuery: {
+					data: {
+						availability: "resolved",
+						deviceId: "device-office",
+					},
+				},
+				selectedTargetDevice: {
+					deviceId: "device-office",
+					deviceDisplayName: "Office Mac mini",
+				},
+				refreshAll: vi.fn().mockResolvedValue(undefined),
+				runtimeLane: "dev-local",
+				startStateQuery: {
+					data: createStartStateWithCodexCatalog(),
+				},
+			});
 			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
 		} else {
 			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
@@ -15785,6 +15802,8 @@ describe("SpaceLanding", () => {
 		threadProgrammaticSendHarness.text =
 			"Keep this programmatic Agent DM thread message";
 		const sendButton = await openAgentDirectMessageThreadProgrammaticSend({
+			membersSnapshot:
+				failureKind === "blocked" ? currentMembersSnapshot : undefined,
 			postThreadSignalMock,
 			stageComposerUploadMock,
 		});
@@ -15805,6 +15824,24 @@ describe("SpaceLanding", () => {
 		expect(threadProgrammaticSendHarness.text).toBe(
 			"Keep this programmatic Agent DM thread message"
 		);
+		const threadComposer = screen
+			.getByRole("textbox", { name: "Reply in thread" })
+			.closest('[data-slot="thread-composer"]');
+		if (!threadComposer) {
+			throw new Error("Expected the Agent Direct Message thread Composer.");
+		}
+		expect(threadComposer.textContent).not.toContain(DEFAULT_AGENT_PROFILE_ID);
+		if (failureKind === "blocked") {
+			expect(
+				within(threadComposer as HTMLElement).getByRole("link", {
+					name: "Choose local agent",
+				})
+			).toBeTruthy();
+		} else {
+			expect(
+				within(threadComposer as HTMLElement).queryByRole("link")
+			).toBeNull();
+		}
 	});
 
 	it("retries a failed Wake inside its originating thread", async () => {
@@ -17163,6 +17200,7 @@ async function openFailedWakeRetry(input: {
 }
 
 async function openAgentDirectMessageThreadProgrammaticSend(input: {
+	membersSnapshot?: SpaceMembersSnapshot;
 	postThreadSignalMock: ReturnType<typeof vi.fn>;
 	stageComposerUploadMock: ReturnType<typeof vi.fn>;
 }) {
@@ -17194,7 +17232,7 @@ async function openAgentDirectMessageThreadProgrammaticSend(input: {
 		}),
 		members: createQueryResult({
 			isSuccess: true,
-			data: createMembersSnapshot(),
+			data: input.membersSnapshot ?? createMembersSnapshot(),
 		}),
 		history: createQueryResult({
 			isSuccess: true,

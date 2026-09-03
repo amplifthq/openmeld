@@ -44,7 +44,10 @@ describe("current Space Composer Wake admission", () => {
 				readCurrentMembers: async () =>
 					createMembersSnapshot("available_for_wake", true),
 			})
-		).rejects.toMatchObject({ code: "addressing.wake_blocked" });
+		).rejects.toMatchObject({
+			code: "addressing.wake_blocked",
+			targetProfileId: AGENT_PROFILE_ID,
+		});
 	});
 
 	it("uses the Core-owned blocked reason and fails closed when a verdict is absent", async () => {
@@ -57,6 +60,7 @@ describe("current Space Composer Wake admission", () => {
 		).rejects.toMatchObject({
 			code: "addressing.wake_blocked",
 			message: "Connect your computer before Runner can reply.",
+			targetProfileId: AGENT_PROFILE_ID,
 		});
 
 		await expect(
@@ -64,7 +68,10 @@ describe("current Space Composer Wake admission", () => {
 				agentProfileIds: [AGENT_PROFILE_ID],
 				readCurrentMembers: async () => createSpaceMembersSnapshot(),
 			})
-		).rejects.toMatchObject({ code: "addressing.wake_blocked" });
+		).rejects.toMatchObject({
+			code: "addressing.wake_blocked",
+			targetProfileId: null,
+		});
 
 		await expect(
 			requireCurrentSpaceComposerWakeAdmission({
@@ -76,6 +83,7 @@ describe("current Space Composer Wake admission", () => {
 			code: "addressing.wake_blocked",
 			message:
 				"OpenMeld couldn't confirm that this agent can reply right now. Try again.",
+			targetProfileId: null,
 		});
 	});
 });

@@ -38,7 +38,8 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 
 		throw createWakeBlockedError(
 			normalizeMessage(target.wakeAvailability.reasonText) ??
-				WAKEABILITY_CHECK_FAILED_MESSAGE
+				WAKEABILITY_CHECK_FAILED_MESSAGE,
+			agentProfileId
 		);
 	}
 }
@@ -59,9 +60,13 @@ function normalizeMessage(value: string | null | undefined): string | null {
 	return normalized.length > 0 ? normalized : null;
 }
 
-function createWakeBlockedError(message: string): SpaceComposerSubmissionError {
+function createWakeBlockedError(
+	message: string,
+	targetProfileId?: string
+): SpaceComposerSubmissionError {
 	return new SpaceComposerSubmissionError({
 		code: "addressing.wake_blocked",
 		message,
+		targetProfileId,
 	});
 }
