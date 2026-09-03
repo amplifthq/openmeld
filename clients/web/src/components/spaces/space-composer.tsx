@@ -120,10 +120,17 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		fileLimitReached: input.availability.fileLimitReached,
 		uploadInProgress,
 	});
-	const composerHint = fileHint ?? policy.wakeTextHint;
-	const composerHintClassName = policy.wakeTextHint
-		? "text-foreground"
-		: "text-muted-foreground";
+	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
+		input.content.addressingTargets
+	);
+	const composerHint = blockedWakeHint ?? fileHint ?? policy.wakeTextHint;
+	let composerHintClassName = "text-muted-foreground";
+	if (policy.wakeTextHint) {
+		composerHintClassName = "text-foreground";
+	}
+	if (blockedWakeHint) {
+		composerHintClassName = "text-destructive";
+	}
 	const primaryAction = input.slots?.primaryAction ?? (
 		<PromptInputAction
 			className="hidden sm:inline-flex"
@@ -134,6 +141,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				disabled={
 					input.availability.isSendingMessage ||
 					!input.availability.canSendMessage ||
+					blockedWakeHint !== null ||
 					input.availability.sendBlocked
 				}
 				onClick={input.actions.onSubmit}
@@ -233,6 +241,24 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				</div>
 			) : null}
 		</div>
+	);
+}
+
+function resolveSpaceComposerBlockedWakeHint(
+	targets: readonly SpaceComposerAddressingTarget[]
+): string | null {
+	const blockedWakeTarget = targets.find(
+		(target) =>
+			target.relation === "wake" && target.wakeAvailability.status !== "ready"
+	);
+	if (!blockedWakeTarget) {
+		return null;
+	}
+
+	const reason = blockedWakeTarget.wakeAvailability.reasonText?.trim();
+	return (
+		reason ||
+		`${blockedWakeTarget.profileName} can't reply right now. Change Wake to Reference or try again.`
 	);
 }
 

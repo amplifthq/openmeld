@@ -3231,11 +3231,13 @@ Agent DMs use `Tell Center Agent what you need…`, and Threads use
 `Reply in thread…`.
 
 The `@` picker optimizes for the common user action:
-selecting an Agent Profile authors Wake by default while keeping the visible
-composer text as a plain `@Name` mention. The same picker surface exposes the
-other allowed relation without a required second dialog: Wake uses `@`, and
-Reference uses a link-style symbol. Selecting a Human Profile creates a fixed
-Human Mention mark; people never receive an Agent relation selector.
+selecting an Agent Profile authors Wake by default only when the current
+Core-owned Wakeability projection is `ready`, while keeping the visible composer
+text as a plain `@Name` mention. An unavailable or checking Agent defaults to
+Reference. The same picker surface exposes the other allowed relation without a
+required second dialog: Wake uses `@`, and Reference uses a link-style symbol.
+Selecting a Human Profile creates a fixed Human Mention mark; people never
+receive an Agent relation selector.
 
 After selection, Web renders one persistent editable semantic control per
 structured target. An Agent control places `@`, the Agent Profile icon,
@@ -3250,6 +3252,14 @@ or keyboard focus and remains available on touch-only surfaces. Web submits all
 structured relations explicitly instead of relying on Core to infer Wake from
 arbitrary bare text. Changing a semantic control changes the authored structured
 relation; AI interpretation must never silently rewrite it.
+
+An existing or restored Wake draft remains a Wake while the user edits it; Web
+does not silently downgrade the authored relation. Before every send path that
+would create a new Wake, Web reads the current Core-owned Wakeability and blocks
+before publishing the message or any Composer Upload when the Agent is not
+currently ready or the read cannot be completed. The Composer stays editable,
+the draft stays intact, and Reference authoring and ordinary text input remain
+available.
 
 The Composer member picker reuses the shared Fluid layout indicator for its
 active row. Pointer hover and combobox keyboard navigation update that one

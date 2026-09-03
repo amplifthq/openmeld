@@ -87,6 +87,7 @@ import {
 	resolveSpaceComposerSendBlocked,
 	SpaceComposer,
 } from "./space-composer";
+import { SpaceComposerBlockedWakeRecoveryAction } from "./space-composer-blocked-wake-recovery-action";
 import {
 	resolveSpaceComposerConversationKind,
 	type SpaceAgentDirectConversationComposerHintKind,
@@ -781,6 +782,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 	return (
 		<ThreadComposer
 			agentDirectConversationKind={input.agentDirectConversationKind}
+			agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 			blockedWakeProfileId={input.composerBlockedWakeProfileId}
 			centerAgentProfileId={input.centerAgentProfileId ?? null}
 			composerAddressingTargets={input.composerAddressingTargets ?? []}
@@ -791,14 +793,18 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 			composerHasAuthoredMentions={input.composerHasAuthoredMentions}
 			composerMentionPickerItems={input.composerMentionPickerItems ?? []}
 			composerText={input.composerText}
+			isAgentRecoveryPending={input.isAgentRecoveryPending}
 			isCenterAgentDirectMessage={input.isCenterAgentDirectMessage === true}
 			isDirectMessage={input.isDirectMessage === true}
 			isSendingMessage={input.isSendingMessage}
 			onAddComposerFiles={input.onAddComposerFiles}
+			onAgentRecoveryAction={input.onAgentRecoveryAction}
 			onComposerEditorChange={input.onComposerEditorChange}
 			onMentionButtonClick={input.onMentionButtonClick}
 			onRemoveComposerFile={input.onRemoveComposerFile}
 			onSend={input.onSend}
+			orgSlug={input.orgSlug}
+			prepareSetupHref={input.prepareSetupHref}
 			profileControl={input.profileControl}
 			textareaRef={input.textareaRef}
 		/>
@@ -1653,6 +1659,10 @@ function resolveThreadMessageAvatarImageUrl(input: {
 
 function ThreadComposer(input: {
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
 	blockedWakeProfileId: string | null;
 	centerAgentProfileId: string | null;
 	composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
@@ -1665,13 +1675,19 @@ function ThreadComposer(input: {
 	composerFileLimitReached: boolean;
 	isCenterAgentDirectMessage: boolean;
 	isDirectMessage: boolean;
+	isAgentRecoveryPending: (profileId: string) => boolean;
 	profileControl?: ReactNode;
 	isSendingMessage: boolean;
+	onAgentRecoveryAction: (
+		plan: SpaceAgentProfileBindingRecoveryPlan
+	) => Promise<void>;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onRemoveComposerFile: (localId: string) => void;
 	onMentionButtonClick: () => void;
 	onSend: () => Promise<void>;
+	orgSlug?: string;
+	prepareSetupHref?: string;
 	textareaRef: SpaceComposerInputRef;
 }) {
 	const sendBlocked = resolveSpaceComposerSendBlocked({
@@ -1727,12 +1743,19 @@ function ThreadComposer(input: {
 			}}
 			slots={{
 				error: input.composerErrorMessage ? (
-					<p className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
-						{input.composerErrorMessage}
-						{input.blockedWakeProfileId
-							? ` Profile: ${input.blockedWakeProfileId}`
-							: ""}
-					</p>
+					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
+						<p>{input.composerErrorMessage}</p>
+						<SpaceComposerBlockedWakeRecoveryAction
+							agentRecoveryPlansByProfileId={
+								input.agentRecoveryPlansByProfileId
+							}
+							blockedWakeProfileId={input.blockedWakeProfileId}
+							isAgentRecoveryPending={input.isAgentRecoveryPending}
+							onAgentRecoveryAction={input.onAgentRecoveryAction}
+							orgSlug={input.orgSlug}
+							prepareSetupHref={input.prepareSetupHref}
+						/>
+					</div>
 				) : null,
 				profileControl: input.profileControl,
 			}}

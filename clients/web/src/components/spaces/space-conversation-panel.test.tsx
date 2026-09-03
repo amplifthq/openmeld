@@ -1976,6 +1976,43 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
+	it("shows the current recovery action beside a known blocked Wake", () => {
+		const blockedProfileId = "agt_22222222-2222-4222-8222-222222222222";
+		renderSpaceConversationPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					blockedProfileId,
+					{
+						body: "Review Runner's Agent Profile settings.",
+						kind: "review_agent_profile",
+						primaryActionId: "review_agent_settings",
+						primaryActionLabel: "Review agent settings",
+						profileId: blockedProfileId,
+						profileName: "Runner",
+						recoveryReasonCode: "agent_profile_binding.missing",
+						secondaryLabel: "Runner needs attention.",
+						title: "Runner needs attention",
+					},
+				],
+			]),
+			allowedActions: ["post_message"],
+			composerBlockedWakeProfileId: blockedProfileId,
+			composerErrorMessage: "Runner can't reply right now.",
+			readOnly: false,
+		});
+
+		const recoveryAction = screen.getByRole("link", {
+			name: "Review agent settings",
+		});
+		expect(recoveryAction.getAttribute("href")).toBe(
+			`/o/acme/agents?profileId=${blockedProfileId}`
+		);
+		expect(screen.getByText("Runner can't reply right now.")).toBeTruthy();
+		expect(document.body.textContent).not.toContain(
+			`Profile: ${blockedProfileId}`
+		);
+	});
+
 	it("lets a person send a ready file without adding filler text", async () => {
 		const onSend = vi.fn(async () => undefined);
 		renderSpaceConversationPanel({

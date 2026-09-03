@@ -199,6 +199,8 @@ const {
 	createAgentProfileCreationRequestMock,
 	createStartHumanProfileMock,
 	notifyAgentExecutionReadinessRefreshMock,
+	readSpaceMembersMock,
+	threadProgrammaticSendHarness,
 	toastMock,
 	useAccountAvatarMock,
 	clearSpaceConversationCacheMock,
@@ -219,6 +221,11 @@ const {
 	createAgentProfileCreationRequestMock: vi.fn(),
 	createStartHumanProfileMock: vi.fn(),
 	notifyAgentExecutionReadinessRefreshMock: vi.fn(),
+	readSpaceMembersMock: vi.fn(),
+	threadProgrammaticSendHarness: {
+		enabled: false,
+		text: "Programmatic thread message",
+	},
 	useAccountAvatarMock: vi.fn(),
 	clearSpaceConversationCacheMock: vi.fn(async () => undefined),
 	toastMock: Object.assign(vi.fn(), {
@@ -377,6 +384,16 @@ vi.mock("#/lib/agents/agent-execution-readiness", () => ({
 		notifyAgentExecutionReadinessRefreshMock,
 }));
 
+vi.mock("#/query/spaces/members", async () => {
+	const actual = await vi.importActual<typeof import("#/query/spaces/members")>(
+		"#/query/spaces/members"
+	);
+	return {
+		...actual,
+		readSpaceMembers: readSpaceMembersMock,
+	};
+});
+
 vi.mock("#/hooks/account.hooks", async () => {
 	const actual = await vi.importActual<typeof import("#/hooks/account.hooks")>(
 		"#/hooks/account.hooks"
@@ -390,6 +407,39 @@ vi.mock("#/hooks/account.hooks", async () => {
 vi.mock("sonner", () => ({
 	toast: toastMock,
 }));
+
+vi.mock("./space-thread-panel", async () => {
+	const actual = await vi.importActual<typeof import("./space-thread-panel")>(
+		"./space-thread-panel"
+	);
+	return {
+		...actual,
+		SpaceThreadPanel: (...args: Parameters<typeof actual.SpaceThreadPanel>) => {
+			const [props] = args;
+			const ActualSpaceThreadPanel = actual.SpaceThreadPanel;
+			return (
+				<>
+					<ActualSpaceThreadPanel {...props} />
+					{threadProgrammaticSendHarness.enabled &&
+					props.activeThread &&
+					props.onSendText ? (
+						<button
+							onClick={() => {
+								const sendPromise = props.onSendText?.(
+									threadProgrammaticSendHarness.text
+								);
+								sendPromise?.catch(() => undefined);
+							}}
+							type="button"
+						>
+							Send programmatic thread text
+						</button>
+					) : null}
+				</>
+			);
+		},
+	};
+});
 
 vi.mock("#/components/agents/use-local-agent-recovery-controller", () => ({
 	useLocalAgentRecoveryController: (...args: unknown[]) => ({
@@ -746,6 +796,11 @@ describe("SpaceLanding", () => {
 		notifyAgentExecutionReadinessRefreshMock
 			.mockReset()
 			.mockResolvedValue(undefined);
+		readSpaceMembersMock
+			.mockReset()
+			.mockResolvedValue(createMembersSnapshot() as SpaceMembersSnapshot);
+		threadProgrammaticSendHarness.enabled = false;
+		threadProgrammaticSendHarness.text = "Programmatic thread message";
 		toastMock.mockReset();
 		toastMock.error.mockReset();
 		toastMock.success.mockReset();
@@ -8803,12 +8858,149 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
-	it("sends a Wake mention for a not-ready agent instead of blocking before send", async () => {
+	it("keeps a stale-Available Wake draft editable and sends it after switching to Reference", async () => {
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			currentDeviceTargetQuery: {
+				data: {
+					availability: "resolved",
+					deviceId: "device-office",
+				},
+			},
+			selectedTargetDevice: {
+				deviceId: "device-office",
+				deviceDisplayName: "Office Mac mini",
+			},
+			refreshAll: vi.fn().mockResolvedValue(undefined),
+			runtimeLane: "dev-local",
+			startStateQuery: {
+				data: createStartStateWithCodexCatalog(),
+			},
+		});
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
-				id: "sig-runner-wake",
-				text: "@Runner(wake) please reply",
+				id: "sig-runner-reference",
+				text: "@Runner please review this context",
 			})
+		);
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createMissingBindingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
+		}) as SpaceMembersSnapshot;
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		});
+		const setQueryDataMock = vi.fn(
+			(queryKey: readonly unknown[], snapshot: unknown) => {
+				if (
+					JSON.stringify(queryKey) ===
+						JSON.stringify(
+							spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
+						) &&
+					typeof snapshot === "object" &&
+					snapshot !== null &&
+					"humans" in snapshot &&
+					"agents" in snapshot
+				) {
+					Object.assign(membersResult, { data: snapshot });
+				}
+			}
+		);
+		useQueryClientMock.mockReturnValue({
+			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			fetchQuery: vi.fn().mockResolvedValue(undefined),
+			getQueryData: vi.fn(() => undefined),
+			invalidateQueries: vi.fn().mockResolvedValue(undefined),
+			resetQueries: vi.fn().mockResolvedValue(undefined),
+			setQueriesData: vi.fn(),
+			setQueryData: setQueryDataMock,
+		});
+		const currentBlockedReason =
+			currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary;
+		if (!currentBlockedReason) {
+			throw new Error(
+				"Expected current Core Wakeability reason in the fixture."
+			);
+		}
+		readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: membersResult,
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [],
+					nextCursor: null,
+				},
+			}),
+		});
+
+		renderSpaceLanding();
+
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await insertComposerMember(RUNNER_OPTION_NAME);
+		await appendComposerText(textarea, "please reply", "@Runner please reply");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledWith({
+				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+				spaceId: "space-123",
+			});
+			expect(
+				screen.getAllByText(currentBlockedReason).length
+			).toBeGreaterThanOrEqual(2);
+		});
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(readComposerValue(textarea)).toBe("@Runner please reply");
+		expect(textarea.getAttribute("contenteditable")).toBe("true");
+		expect(setQueryDataMock).toHaveBeenCalledWith(
+			spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
+			currentMembersSnapshot
+		);
+		expect(
+			screen.getByRole("link", { name: "Choose local agent" })
+		).toBeTruthy();
+
+		const relationControl = screen.getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		fireEvent.change(relationControl, { target: { value: "reference" } });
+		const sendButton = screen.getByRole("button", { name: "Send message" });
+		await waitFor(() => {
+			expect((sendButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		fireEvent.click(sendButton);
+
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				messageEnvelope: {
+					activationTargets: [],
+					mentionTargets: [],
+					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
+					text: "@Runner please reply",
+				},
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "@Runner please reply",
+				timeoutMs: 30_000,
+			});
+		});
+		expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+	});
+
+	it("preserves a Wake draft when the current readiness check fails", async () => {
+		const postNormalMessageMock = vi.fn();
+		readSpaceMembersMock.mockRejectedValueOnce(
+			new Error("network unavailable")
 		);
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
@@ -8820,43 +9012,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentControllerRef: "builtin:codex",
-					defaultAgentExecutionReadiness:
-						createSpaceMemberAgentExecutionReadiness({
-							agentProfileId: DEFAULT_AGENT_PROFILE_ID,
-							displayState: "not_ready",
-							facts: {
-								binding: {
-									reasonCodes: [],
-									routable: true,
-									source: "binding_truth",
-								},
-								claim: {
-									executionBlocked: false,
-									grantsClaimSuccess: false,
-									reasonCodes: [],
-									source: "not_checked",
-								},
-								route: {
-									deviceId: "device-office",
-									observedAt: "2026-04-29T00:00:00.000Z",
-									online: true,
-									reasonCodes: [],
-									source: "daemon_route",
-								},
-								runtime: {
-									ready: false,
-									reasonCodes: ["runtime.projection_missing"],
-									source: "missing",
-								},
-							},
-							primaryAction: "run_prepare",
-							reasonCodes: ["runtime.projection_missing"],
-						}),
-					defaultAgentMentionAlias: "runner",
-					defaultAgentProfileName: "Runner",
-				}),
+				data: createMembersSnapshot(),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -8872,30 +9028,26 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		await setComposerValue(textarea, "@Runner(wake) please reply");
+		await insertComposerMember(RUNNER_OPTION_NAME);
+		await appendComposerText(
+			textarea,
+			"keep this draft",
+			"@Runner keep this draft"
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-		await waitFor(() => {
-			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				messageEnvelope: {
-					activationTargets: ["agt_22222222-2222-2222-2222-222222222222"],
-					mentionTargets: [],
-					referenceTargets: [],
-					text: "@Runner(wake) please reply",
-				},
-				meta: {
-					clientMessageId: expect.any(String),
-				},
-				spaceId: "space-123",
-				text: "@Runner(wake) please reply",
-				timeoutMs: 30_000,
-			});
-		});
-		expect(
-			screen.queryByText(
-				'"Runner" cannot reply yet: OpenMeld needs current local agent capability from this computer.'
-			)
-		).toBeNull();
+		const errorMessage = await screen.findByText(
+			"OpenMeld couldn't confirm that this agent can reply right now. Try again."
+		);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(readComposerValue(textarea)).toBe("@Runner keep this draft");
+		expect(textarea.getAttribute("contenteditable")).toBe("true");
+		const errorSurface = errorMessage.parentElement;
+		if (!errorSurface) {
+			throw new Error("Expected the Composer error surface.");
+		}
+		expect(within(errorSurface).queryByRole("button")).toBeNull();
+		expect(within(errorSurface).queryByRole("link")).toBeNull();
 	});
 
 	it("inserts a bare Wake mention when an agent is selected", async () => {
@@ -9120,6 +9272,15 @@ describe("SpaceLanding", () => {
 
 	it("keeps multiple structured targets self-explanatory without a duplicate summary", async () => {
 		const reviewerProfileId = "agt_33333333-3333-4333-8333-333333333333";
+		const membersSnapshot = createMembersSnapshot({
+			extraAgents: [
+				{
+					mentionAlias: "reviewer",
+					profileId: reviewerProfileId,
+					profileName: "Reviewer",
+				},
+			],
+		});
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				id: "sig-multi-wake",
@@ -9136,15 +9297,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "reviewer",
-							profileId: reviewerProfileId,
-							profileName: "Reviewer",
-						},
-					],
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -9154,6 +9307,7 @@ describe("SpaceLanding", () => {
 				},
 			}),
 		});
+		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 
 		renderSpaceLanding();
 
@@ -13071,6 +13225,83 @@ describe("SpaceLanding", () => {
 		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
 	});
 
+	it("checks current Wakeability before publishing selected files", async () => {
+		const postNormalMessageMock = vi.fn();
+		const publishComposerUploadMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		const currentBlockedReason =
+			currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary;
+		if (!currentBlockedReason) {
+			throw new Error(
+				"Expected current Core Wakeability reason in the fixture."
+			);
+		}
+		readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
+			},
+		});
+		await screen.findByText("Ready");
+
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await insertComposerMember(RUNNER_OPTION_NAME);
+		await appendComposerText(
+			textarea,
+			"review these notes",
+			"@Runner review these notes"
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(screen.getByText(currentBlockedReason)).toBeTruthy();
+		});
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(screen.getByText("Ready")).toBeTruthy();
+		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
+	});
+
 	it("keeps a file-only Composer open when its staged file cannot be published", async () => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
@@ -13554,6 +13785,57 @@ describe("SpaceLanding", () => {
 			);
 			await Promise.resolve();
 		});
+	});
+
+	it("keeps an Agent Direct Message draft when its automatic Wake is currently blocked", async () => {
+		const postNormalMessageMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		const currentBlockedReason =
+			currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary;
+		if (!currentBlockedReason) {
+			throw new Error(
+				"Expected current Core Wakeability reason in the fixture."
+			);
+		}
+		readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: {
+					...createSpaceStatus(),
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				},
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+
+		const composer = screen.getByRole("textbox", { name: "Message Runner" });
+		await setComposerValue(composer, "Keep this Direct Message draft");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(screen.getByText(currentBlockedReason)).toBeTruthy();
+		});
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(readComposerValue(composer)).toBe("Keep this Direct Message draft");
+		expect(composer.getAttribute("contenteditable")).toBe("true");
 	});
 
 	it("removes the outgoing normal message when the send fails", async () => {
@@ -14070,6 +14352,16 @@ describe("SpaceLanding", () => {
 	});
 
 	it("sends picker-authored bare mentions with a structured message envelope and reorders recent mentions after success", async () => {
+		const watcherProfileId = "agt_33333333-3333-3333-3333-333333333333";
+		const membersSnapshot = createMembersSnapshot({
+			extraAgents: [
+				{
+					mentionAlias: "watcher",
+					profileId: watcherProfileId,
+					profileName: "Watcher",
+				},
+			],
+		});
 		const postNormalMessageMock = vi.fn().mockImplementation((input) =>
 			Promise.resolve(
 				createTextSignal({
@@ -14090,15 +14382,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "watcher",
-							profileId: "agt_33333333-3333-3333-3333-333333333333",
-							profileName: "Watcher",
-						},
-					],
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -14117,13 +14401,14 @@ describe("SpaceLanding", () => {
 							createWakeTarget({
 								status: "running",
 								targetLabel: "@watcher",
-								targetProfileId: "agt_33333333-3333-3333-3333-333333333333",
+								targetProfileId: watcherProfileId,
 							}),
 						],
 					}),
 				}),
 			},
 		});
+		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 
 		renderSpaceLanding();
 
@@ -14140,7 +14425,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				messageEnvelope: {
-					activationTargets: ["agt_33333333-3333-3333-3333-333333333333"],
+					activationTargets: [watcherProfileId],
 					mentionTargets: [],
 					referenceTargets: [],
 					text: "@Watcher hello there",
@@ -15317,8 +15602,106 @@ describe("SpaceLanding", () => {
 		expect(executeExecutionRecovery).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		"blocked",
+		"network failure",
+	] as const)("blocks a main Wake Retry before publication when current Wakeability is %s", async (failureKind) => {
+		const postNormalMessageMock = vi.fn();
+		const stageComposerUploadMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		if (failureKind === "blocked") {
+			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		} else {
+			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
+		}
+		const messageDetailsDialog = await openFailedWakeRetry({
+			postNormalMessageMock,
+			stageComposerUploadMock,
+			thread: false,
+		});
+
+		fireEvent.click(
+			within(messageDetailsDialog).getByRole("button", {
+				name: "Retry as new execution",
+			})
+		);
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(
+				within(messageDetailsDialog).getByRole("button", {
+					name: "New execution failed. Try again",
+				})
+			).toBeTruthy();
+		});
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(stageComposerUploadMock).not.toHaveBeenCalled();
+		expect(screen.getByText("@Runner check the release build")).toBeTruthy();
+	});
+
+	it.each([
+		"blocked",
+		"network failure",
+	] as const)("blocks a thread Wake Retry before publication when current Wakeability is %s", async (failureKind) => {
+		const postThreadSignalMock = vi.fn();
+		const stageComposerUploadMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		if (failureKind === "blocked") {
+			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		} else {
+			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
+		}
+		const messageDetailsDialog = await openFailedWakeRetry({
+			postThreadSignalMock,
+			stageComposerUploadMock,
+			thread: true,
+		});
+
+		fireEvent.click(
+			within(messageDetailsDialog).getByRole("button", {
+				name: "Retry as new execution",
+			})
+		);
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(
+				within(messageDetailsDialog).getByRole("button", {
+					name: "New execution failed. Try again",
+				})
+			).toBeTruthy();
+		});
+		expect(postThreadSignalMock).not.toHaveBeenCalled();
+		expect(stageComposerUploadMock).not.toHaveBeenCalled();
+		expect(
+			screen
+				.getByLabelText("Thread")
+				.querySelector('[data-signal-id="sig-blocked-retry-source"]')
+		).not.toBeNull();
+	});
+
 	it("retries a single-target anchored execution failure as a new Wake", async () => {
 		const sourceText = "@Scout check the release build";
+		const membersSnapshot = createMembersSnapshot({
+			extraAgents: [
+				{
+					mentionAlias: "scout",
+					profileId: SECOND_AGENT_PROFILE_ID,
+					profileName: "Scout",
+				},
+			],
+		}) as SpaceMembersSnapshot;
+		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				id: "sig-retried-wake",
@@ -15348,15 +15731,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "scout",
-							profileId: SECOND_AGENT_PROFILE_ID,
-							profileName: "Scout",
-						},
-					],
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -15566,6 +15941,16 @@ describe("SpaceLanding", () => {
 
 	it("keeps an outcome-unknown Wake Retry under one client message identity", async () => {
 		const sourceText = "@Scout check the release build";
+		const membersSnapshot = createMembersSnapshot({
+			extraAgents: [
+				{
+					mentionAlias: "scout",
+					profileId: SECOND_AGENT_PROFILE_ID,
+					profileName: "Scout",
+				},
+			],
+		}) as SpaceMembersSnapshot;
+		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 		const hangingRequest = createHangingFetchRequest();
 		const postNormalMessageMock = vi.fn(
 			async (input: Parameters<SpaceApi["postNormalMessage"]>[0]) =>
@@ -15593,15 +15978,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "scout",
-							profileId: SECOND_AGENT_PROFILE_ID,
-							profileName: "Scout",
-						},
-					],
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -15711,6 +16088,127 @@ describe("SpaceLanding", () => {
 			hangingRequest.abortForTimeout();
 			await Promise.resolve();
 		});
+	});
+
+	it.each([
+		"blocked",
+		"network failure",
+	] as const)("blocks Agent Direct Message programmatic thread text before publication when current Wakeability is %s", async (failureKind) => {
+		const postThreadSignalMock = vi.fn();
+		const stageComposerUploadMock = vi.fn();
+		const initialMembersSnapshot =
+			createMembersSnapshot() as SpaceMembersSnapshot;
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: initialMembersSnapshot,
+		});
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createMissingBindingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
+		}) as SpaceMembersSnapshot;
+		const setQueryDataMock = vi.fn(
+			(queryKey: readonly unknown[], snapshot: unknown) => {
+				if (
+					JSON.stringify(queryKey) ===
+						JSON.stringify(
+							spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
+						) &&
+					typeof snapshot === "object" &&
+					snapshot !== null &&
+					"humans" in snapshot &&
+					"agents" in snapshot
+				) {
+					Object.assign(membersResult, { data: snapshot });
+				}
+			}
+		);
+		useQueryClientMock.mockReturnValue({
+			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			fetchQuery: vi.fn().mockResolvedValue(undefined),
+			getQueryData: vi.fn(() => undefined),
+			invalidateQueries: vi.fn().mockResolvedValue(undefined),
+			resetQueries: vi.fn().mockResolvedValue(undefined),
+			setQueriesData: vi.fn(),
+			setQueryData: setQueryDataMock,
+		});
+		if (failureKind === "blocked") {
+			useLocalAgentRecoveryControllerMock.mockReturnValue({
+				currentDeviceTargetQuery: {
+					data: {
+						availability: "resolved",
+						deviceId: "device-office",
+					},
+				},
+				selectedTargetDevice: {
+					deviceId: "device-office",
+					deviceDisplayName: "Office Mac mini",
+				},
+				refreshAll: vi.fn().mockResolvedValue(undefined),
+				runtimeLane: "dev-local",
+				startStateQuery: {
+					data: createStartStateWithCodexCatalog(),
+				},
+			});
+			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		} else {
+			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
+		}
+		const expectedErrorMessage =
+			failureKind === "blocked"
+				? currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary
+				: "OpenMeld couldn't confirm that this agent can reply right now. Try again.";
+		if (!expectedErrorMessage) {
+			throw new Error("Expected a current Wakeability failure message.");
+		}
+		threadProgrammaticSendHarness.enabled = true;
+		threadProgrammaticSendHarness.text =
+			"Keep this programmatic Agent DM thread message";
+		const sendButton = await openAgentDirectMessageThreadProgrammaticSend({
+			membersQueryResult: membersResult,
+			postThreadSignalMock,
+			stageComposerUploadMock,
+		});
+
+		fireEvent.click(sendButton);
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(screen.getByText(expectedErrorMessage)).toBeTruthy();
+		});
+		expect(postThreadSignalMock).not.toHaveBeenCalled();
+		expect(stageComposerUploadMock).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("button", {
+				name: "Send programmatic thread text",
+			})
+		).toBeTruthy();
+		expect(threadProgrammaticSendHarness.text).toBe(
+			"Keep this programmatic Agent DM thread message"
+		);
+		const threadComposer = screen
+			.getByRole("textbox", { name: "Reply in thread" })
+			.closest('[data-slot="thread-composer"]');
+		if (!threadComposer) {
+			throw new Error("Expected the Agent Direct Message thread Composer.");
+		}
+		expect(threadComposer.textContent).not.toContain(DEFAULT_AGENT_PROFILE_ID);
+		if (failureKind === "blocked") {
+			expect(membersResult.data).toBe(currentMembersSnapshot);
+			expect(setQueryDataMock).toHaveBeenCalledWith(
+				spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
+				currentMembersSnapshot
+			);
+			expect(
+				within(threadComposer as HTMLElement).getByRole("link", {
+					name: "Choose local agent",
+				})
+			).toBeTruthy();
+		} else {
+			expect(membersResult.data).toBe(initialMembersSnapshot);
+			expect(
+				within(threadComposer as HTMLElement).queryByRole("link")
+			).toBeNull();
+		}
 	});
 
 	it("retries a failed Wake inside its originating thread", async () => {
@@ -16942,6 +17440,212 @@ describe("SpaceLanding", () => {
 	});
 });
 
+async function openFailedWakeRetry(input: {
+	postNormalMessageMock?: ReturnType<typeof vi.fn>;
+	postThreadSignalMock?: ReturnType<typeof vi.fn>;
+	stageComposerUploadMock: ReturnType<typeof vi.fn>;
+	thread: boolean;
+}) {
+	const sourceText = "@Runner check the release build";
+	const sourceSignal = createTextSignal({
+		id: "sig-blocked-retry-source",
+		messageEnvelope: {
+			activationTargets: [DEFAULT_AGENT_PROFILE_ID],
+			referenceTargets: [],
+			text: sourceText,
+		},
+		meta: { clientMessageId: "client-message-original" },
+		text: sourceText,
+	});
+	const failureSignal = createTerminalFailureNoticeSignal({
+		actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+		dispatchId: null,
+		failureStage: "execution",
+		id: "sig-blocked-retry-failure",
+		replyToSignalId: sourceSignal.id,
+		text: "Runner could not complete this Wake.",
+	});
+	createWebSpaceApiMock.mockReturnValue({
+		getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		getWakeProgress: vi.fn().mockResolvedValue({
+			items: [],
+			query: {
+				clientMessageId: "client-message-original",
+				spaceId: "space-123",
+				targetProfileId: null,
+			},
+		}),
+		postNormalMessage: input.postNormalMessageMock ?? vi.fn(),
+		postThreadSignal: input.postThreadSignalMock ?? vi.fn(),
+		stageComposerUpload: input.stageComposerUploadMock,
+	});
+	mockSpaceQueries({
+		status: createQueryResult({
+			isSuccess: true,
+			data: createSpaceStatus(),
+		}),
+		members: createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		}),
+		history: createQueryResult({
+			isSuccess: true,
+			data: {
+				envelopes: input.thread
+					? [sourceSignal]
+					: [sourceSignal, failureSignal],
+				nextCursor: null,
+			},
+		}),
+		...(input.thread
+			? {
+					threadSignals: createQueryResult({
+						isSuccess: true,
+						data: { signals: [sourceSignal, failureSignal] },
+					}),
+					threads: createQueryResult({
+						isSuccess: true,
+						data: {
+							threads: [
+								{
+									createdAt: "2026-04-11T00:00:00.000Z",
+									createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+									rootSignalId: sourceSignal.id,
+									spaceId: "space-123",
+									threadId: "thread-1",
+									updatedAt: "2026-04-11T00:00:00.000Z",
+								},
+							],
+						},
+					}),
+				}
+			: {
+					messageDetailsBySignalId: {
+						[sourceSignal.id]: createMessageDetailsQueryResult({
+							signalId: sourceSignal.id,
+						}),
+					},
+				}),
+	});
+
+	renderSpaceLanding();
+
+	let sourceRow: Element | null;
+	if (input.thread) {
+		const rootMessage = document.querySelector(
+			`[data-signal-id="${sourceSignal.id}"]`
+		);
+		if (!rootMessage) {
+			throw new Error("Expected the failed Wake source message.");
+		}
+		fireEvent.mouseEnter(rootMessage as HTMLElement);
+		fireEvent.click(
+			within(rootMessage as HTMLElement).getAllByRole("button", {
+				name: "Open thread",
+			})[0] as HTMLElement
+		);
+		const threadPanel = screen.getByLabelText("Thread");
+		sourceRow =
+			threadPanel
+				.querySelector(`[data-signal-id="${sourceSignal.id}"]`)
+				?.closest("[data-message-row-id]") ?? null;
+	} else {
+		sourceRow =
+			document
+				.querySelector(`[data-signal-id="${sourceSignal.id}"]`)
+				?.closest("[data-message-row-id]") ?? null;
+	}
+	if (!sourceRow) {
+		throw new Error("Expected the failed Wake source message row.");
+	}
+	fireEvent.click(
+		within(sourceRow as HTMLElement).getByRole("button", {
+			name: "Message details",
+		})
+	);
+	return await screen.findByRole("dialog", { name: "Message details" });
+}
+
+async function openAgentDirectMessageThreadProgrammaticSend(input: {
+	membersQueryResult?: ReturnType<typeof createQueryResult>;
+	postThreadSignalMock: ReturnType<typeof vi.fn>;
+	stageComposerUploadMock: ReturnType<typeof vi.fn>;
+}) {
+	const rootSignal = createTextSignal({
+		id: "sig-agent-dm-thread-root",
+		text: "Start an Agent Direct Message thread",
+	});
+	createWebSpaceApiMock.mockReturnValue({
+		getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		getWakeProgress: vi.fn().mockResolvedValue({
+			items: [],
+			query: {
+				clientMessageId: "client-message-1",
+				spaceId: "space-123",
+				targetProfileId: null,
+			},
+		}),
+		postNormalMessage: vi.fn(),
+		postThreadSignal: input.postThreadSignalMock,
+		stageComposerUpload: input.stageComposerUploadMock,
+	});
+	mockSpaceQueries({
+		status: createQueryResult({
+			isSuccess: true,
+			data: {
+				...createSpaceStatus(),
+				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+			},
+		}),
+		members:
+			input.membersQueryResult ??
+			createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+		history: createQueryResult({
+			isSuccess: true,
+			data: { envelopes: [rootSignal], nextCursor: null },
+		}),
+		threadSignals: createQueryResult({
+			isSuccess: true,
+			data: { signals: [rootSignal] },
+		}),
+		threads: createQueryResult({
+			isSuccess: true,
+			data: {
+				threads: [
+					{
+						createdAt: "2026-04-11T00:00:00.000Z",
+						createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+						rootSignalId: rootSignal.id,
+						spaceId: "space-123",
+						threadId: "thread-1",
+						updatedAt: "2026-04-11T00:00:00.000Z",
+					},
+				],
+			},
+		}),
+	});
+
+	renderSpaceLanding();
+	const rootMessage = document.querySelector(
+		`[data-signal-id="${rootSignal.id}"]`
+	);
+	if (!rootMessage) {
+		throw new Error("Expected the Agent Direct Message thread root.");
+	}
+	fireEvent.mouseEnter(rootMessage as HTMLElement);
+	fireEvent.click(
+		within(rootMessage as HTMLElement).getAllByRole("button", {
+			name: "Open thread",
+		})[0] as HTMLElement
+	);
+	return await screen.findByRole("button", {
+		name: "Send programmatic thread text",
+	});
+}
+
 function expectSpaceAgentAvailabilityIndicator(
 	scope: HTMLElement,
 	input: { isRefreshing?: boolean; label: string; tooltip?: string }
@@ -17055,7 +17759,7 @@ function createTestAgentAgentWakeAvailability(
 			phase: "checking_status",
 			reasonCode: "agent_execution.check_status",
 			status,
-			summary: "Checking this agent's Wake availability.",
+			summary: "Checking whether this agent can reply.",
 			tooltip: "Checking Wake availability",
 		};
 	}

@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	buildSpaceComposerAddressingTargets,
 	buildSpaceMentionTargetItems,
+	resolveDefaultSpaceComposerMentionRelation,
 	resolveSpaceComposerAddressingMentions,
 	useSpaceMentionAuthoring,
 } from "./use-space-mention-authoring";
@@ -283,6 +284,37 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 });
 
 describe("buildSpaceMentionTargetItems", () => {
+	it("defaults a blocked Agent to Reference while keeping it in the picker", () => {
+		const [item] = buildSpaceMentionTargetItems({
+			query: "@runner",
+			snapshot: createSpaceMembersSnapshot({
+				agents: [
+					createSpaceMemberAgentSnapshot({
+						agentWakeAvailability: {
+							action: "connect_service",
+							badgeLabel: "Offline",
+							category: "offline",
+							isRefreshing: false,
+							label: "Offline for Wake",
+							phase: "service_not_connected",
+							reasonCode: "service.not_running",
+							status: "offline_for_wake",
+							summary: "Connect your computer before this agent can reply.",
+							tooltip: "Computer not connected",
+						},
+						profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+						profileName: "Runner",
+					}),
+				],
+			}),
+		});
+
+		expect(item).toBeDefined();
+		expect(
+			item ? resolveDefaultSpaceComposerMentionRelation(item.suggestion) : null
+		).toBe("reference");
+	});
+
 	it("orders non-recent mention targets by the same visible status order as the members panel", () => {
 		const items = buildSpaceMentionTargetItems({
 			query: "@",
