@@ -110,6 +110,7 @@ import {
 	DirectoryCardItem,
 	DirectoryOwnerGroup,
 } from "#/components/directory/directory-card-grid";
+import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import {
 	AgentConfigurationCard,
 	AgentConfigurationEditorCard,
@@ -875,7 +876,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			profileIds,
 			organizationId: currentOrganization.id,
 			queryClient: input.queryClient,
-			refreshAll: input.recovery.refreshAll,
 			storageScope: input.recovery.storageScope,
 		});
 
@@ -1034,7 +1034,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				context: createAgentProfileEditActionContext(profile),
 				update,
 			});
-			await input.recovery.refreshAll();
 			toast.success(
 				formatAgentProfileRuntimeSettingsSavedMessage(profile.profileName)
 			);
@@ -1180,17 +1179,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				context: createAgentProfileEditActionContext(profile),
 				profileName,
 			});
-			Promise.resolve()
-				.then(() => input.recovery.refreshAll())
-				.catch((refreshError: unknown) => {
-					console.error(
-						"Agent was renamed, but current views could not be refreshed.",
-						refreshError
-					);
-					toast.warning(
-						"The Agent was renamed, but OpenMeld could not refresh every view. Refresh the page to see the latest details."
-					);
-				});
 			toast.success(`Agent renamed to ${updatedProfile.profileName}.`);
 		} catch (error) {
 			updateError = error;
@@ -1216,7 +1204,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				queryClient: input.queryClient,
 				storageScope: input.recovery.storageScope,
 			});
-			await input.recovery.refreshAll();
 		} catch (error) {
 			toast.error(
 				formatMutationError(
@@ -1297,7 +1284,6 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 					queryClient: input.queryClient,
 					storageScope: input.recovery.storageScope,
 				}),
-				input.recovery.refreshAll(),
 			]);
 			toast.success(
 				`Controller unbound for ${profile.profileName}. It cannot run until you connect a local agent again.`
@@ -3362,6 +3348,7 @@ function resolveAgentProfileRowRuntime(input: {
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	organizationSlug: string;
 	primaryAgentControllerRef: string | null;
+	primaryNativeSessionId: string | null;
 	runtimeComputer: { deviceId: string; displayName: string } | null;
 }) {
 	const runtimeControllerLabel =
@@ -3369,10 +3356,14 @@ function resolveAgentProfileRowRuntime(input: {
 			(option) => option.agentControllerRef === input.primaryAgentControllerRef
 		)?.label ?? null;
 	const runtime =
-		input.canManage && input.runtimeComputer && runtimeControllerLabel
+		input.canManage && input.runtimeComputer
 			? {
 					computerName: input.runtimeComputer.displayName,
-					controllerName: runtimeControllerLabel,
+					controllerConversationId: input.primaryNativeSessionId,
+					controllerName:
+						runtimeControllerLabel ??
+						input.primaryAgentControllerRef ??
+						"Local agent",
 					managePath: buildOrganizationComputerPath({
 						deviceId: input.runtimeComputer.deviceId,
 						orgSlug: input.organizationSlug,
@@ -3402,6 +3393,7 @@ function AgentProfileRowMoreMenu(input: AgentProfileRowMoreMenuProps) {
 		controllerChangeOptions: input.controllerChangeOptions,
 		organizationSlug: currentOrganization.slug,
 		primaryAgentControllerRef: input.primaryAgentControllerRef,
+		primaryNativeSessionId: input.primaryNativeSessionId,
 		runtimeComputer: input.runtimeComputer,
 	});
 	if (input.presentation === "detail") {
@@ -3494,6 +3486,7 @@ function AgentProfileCardPresentation(input: {
 	};
 	runtime: {
 		computerName: string;
+		controllerConversationId?: string | null;
 		controllerName: string;
 		managePath: string;
 	} | null;
@@ -3696,6 +3689,7 @@ function AgentProfileWorkspacePresentation(input: {
 	ownerAvatarUrl: string | null | undefined;
 	runtime: {
 		computerName: string;
+		controllerConversationId: string | null;
 		controllerName: string;
 		managePath: string;
 	} | null;
@@ -3787,11 +3781,14 @@ function AgentProfileWorkspacePresentation(input: {
 								input.onOpenChange.projectSettings(true)
 							}
 							onRenameProfile={input.input.onRenameProfile}
+							onRepairAction={input.input.onRepairAction}
 							ownerAvatarUrl={input.ownerAvatarUrl}
 							ownerProfileId={
 								input.input.ownerProfile?.openMeldProfileId ??
 								input.input.ownerProfile?.ownerUserId
 							}
+							repairActions={input.input.repairActions}
+							repairIsPending={input.input.pendingState.repair}
 							runtime={input.runtime}
 						/>
 					) : (
@@ -3824,13 +3821,16 @@ function AgentProfileWorkspacePresentation(input: {
 				operationalContext={input.input.operationalContext}
 				overflowActions={overflowActions}
 				profile={input.input.profile}
-				supportingContent={input.input.supportingContent}
+				supportingContent={
+					input.input.repairActions.length > 0
+						? null
+						: input.input.supportingContent
+				}
 				wakeAvailability={input.input.wakeAvailability}
 				wakeAvailabilityErrorMessage={input.input.readinessErrorMessage}
 				wakeAvailabilityIsPending={input.input.readinessIsPending}
 				wakeAvailabilityRecoveryActions={
-					(input.input.readinessIsMissing ||
-						Boolean(input.input.readinessErrorMessage)) &&
+					input.input.capabilities.hasEnabledPrimaryBinding &&
 					!input.input.readinessIsPending &&
 					input.input.repairActions.length > 0 ? (
 						<AgentProfileRepairActions
@@ -3916,8 +3916,12 @@ type AgentProfileConfigurationOverviewProps = {
 	onRenameProfile: (profileName: string) => Promise<void>;
 	ownerAvatarUrl: string | null | undefined;
 	ownerProfileId?: string | null;
+	onRepairAction?: (action: AgentProfileRepairAction) => Promise<void>;
+	repairActions?: readonly AgentProfileRepairAction[];
+	repairIsPending?: boolean;
 	runtime: {
 		computerName: string;
+		controllerConversationId?: string | null;
 		controllerName: string;
 		managePath: string;
 	} | null;
@@ -4109,6 +4113,20 @@ export function AgentProfileConfigurationOverview(
 					onOpen={input.onOpenProjectSettings}
 					summary={workingFolder}
 				/>
+				{input.runtime ? (
+					<AgentConfigurationCard
+						description={
+							input.runtime.controllerConversationId
+								? `Conversation ID: ${input.runtime.controllerConversationId}`
+								: undefined
+						}
+						icon={<DesktopTowerIcon aria-hidden="true" />}
+						itemId="runtime"
+						label="Runtime"
+						readOnly
+						summary={input.runtime.computerName}
+					/>
+				) : null}
 				<AgentProfileModelConfigurationCard editor={editor} input={input} />
 				<AgentProfileCollaborationConfigurationCard
 					editor={editor}
@@ -4263,15 +4281,40 @@ function AgentProfileModelConfigurationCard(input: {
 	input: AgentProfileConfigurationOverviewProps;
 }) {
 	const { editor, input: props } = input;
+	const repairActions = props.repairActions ?? [];
+	const onRepairAction = props.onRepairAction;
+	const needsConnection =
+		repairActions.length > 0 &&
+		repairActions.every((action) => action.intent === "connect") &&
+		onRepairAction !== undefined;
 	return (
 		<AgentConfigurationCard
+			attention={needsConnection}
 			disabled={props.disabled}
 			icon={<BrainIcon aria-hidden="true" />}
+			inlineContent={
+				needsConnection && onRepairAction ? (
+					<div className="grid gap-2">
+						<TextShimmer
+							as="span"
+							className="font-medium text-primary text-xs"
+							duration={2.2}
+						>
+							Connect to a local agent
+						</TextShimmer>
+						<AgentProfileRepairActions
+							actions={repairActions}
+							isPending={props.repairIsPending ?? false}
+							onRepairAction={onRepairAction}
+						/>
+					</div>
+				) : undefined
+			}
 			itemId="model"
 			label="Model"
 			onOpenChange={(open) => editor.setEditorOpen("model", open)}
 			open={editor.activeEditor === "model"}
-			readOnly={!editor.modelSelection}
+			readOnly={!editor.modelSelection || needsConnection}
 			status={resolveAgentConfigurationCardStatus({
 				active: editor.activeEditor === "model",
 				disabled: props.disabled,

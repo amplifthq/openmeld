@@ -155,7 +155,7 @@ export function AgentProfileWorkspaceDetail(input: {
 						variant="default"
 					>
 						<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-						Direct Message
+						Chat with {input.profile.profileName}
 					</Button>
 					{input.overflowActions}
 				</div>
@@ -264,6 +264,11 @@ function AgentProfilePresence(input: {
 			title={presentation.tooltip}
 		>
 			{presenceStatus}
+			{presentation.reason ? (
+				<span className="text-muted-foreground text-xs leading-5">
+					{presentation.reason}
+				</span>
+			) : null}
 			{waitingWork ? (
 				<span
 					className={cn(
@@ -293,6 +298,7 @@ function resolveAgentProfilePresence(input: {
 	wakeAvailabilityIsPending: boolean;
 }): {
 	label: string;
+	reason: string | null;
 	shimmer: boolean;
 	status: AgentProfilePresenceStatus;
 	textClassName: string;
@@ -302,6 +308,7 @@ function resolveAgentProfilePresence(input: {
 	if (operationalContext?.status === "checking") {
 		return {
 			label: "Checking activity",
+			reason: null,
 			shimmer: true,
 			status: "checking",
 			textClassName: resolveStatusToneTextClassName("checking"),
@@ -314,6 +321,7 @@ function resolveAgentProfilePresence(input: {
 			label: currentWorkLocation
 				? `Working in ${currentWorkLocation}`
 				: "Working",
+			reason: null,
 			shimmer: true,
 			status: "working",
 			textClassName: "text-foreground",
@@ -328,6 +336,7 @@ function resolveAgentProfilePresence(input: {
 	) {
 		return {
 			label: "Needs attention",
+			reason: null,
 			shimmer: false,
 			status: "needs_attention",
 			textClassName: resolveStatusToneIconClassName("warning"),
@@ -337,6 +346,7 @@ function resolveAgentProfilePresence(input: {
 	if (operationalContext?.status === "paused") {
 		return {
 			label: "Waiting to continue",
+			reason: null,
 			shimmer: true,
 			status: "waiting",
 			textClassName: resolveStatusToneTextClassName("checking"),
@@ -346,6 +356,7 @@ function resolveAgentProfilePresence(input: {
 	if (input.wakeAvailabilityErrorMessage) {
 		return {
 			label: "Unavailable for Wake",
+			reason: null,
 			shimmer: false,
 			status: "unavailable",
 			textClassName: resolveStatusToneTextClassName("muted"),
@@ -355,6 +366,7 @@ function resolveAgentProfilePresence(input: {
 	if (input.wakeAvailabilityIsPending || !input.wakeAvailability) {
 		return {
 			label: "Checking availability",
+			reason: null,
 			shimmer: true,
 			status: "checking",
 			textClassName: resolveStatusToneTextClassName("checking"),
@@ -367,6 +379,7 @@ function resolveAgentProfilePresence(input: {
 	if (availabilityCategory === "checking") {
 		return {
 			label: input.wakeAvailability.label,
+			reason: null,
 			shimmer: true,
 			status: "checking",
 			textClassName: resolveStatusToneTextClassName("checking"),
@@ -376,6 +389,7 @@ function resolveAgentProfilePresence(input: {
 	if (availabilityCategory === "available") {
 		return {
 			label: "Available for Wake",
+			reason: null,
 			shimmer: false,
 			status: "available",
 			textClassName: resolveStatusToneTextClassName("ready"),
@@ -384,11 +398,26 @@ function resolveAgentProfilePresence(input: {
 	}
 	return {
 		label: "Unavailable for Wake",
+		reason: resolveUnavailableWakeReason(input.wakeAvailability),
 		shimmer: false,
 		status: "unavailable",
 		textClassName: resolveStatusToneTextClassName("muted"),
 		tooltip: input.wakeAvailability.tooltip,
 	};
+}
+
+function resolveUnavailableWakeReason(
+	wakeAvailability: AgentWakeAvailability
+): string | null {
+	const summary = wakeAvailability.summary.trim();
+	if (
+		summary.length === 0 ||
+		summary.toLowerCase() === "unavailable for wake" ||
+		summary.toLowerCase() === "this agent is unavailable for wake."
+	) {
+		return null;
+	}
+	return summary;
 }
 
 function AgentProfilePresenceIcon(input: {
@@ -536,7 +565,7 @@ function resolveNeutralActivitySummary(
 		return "Checking activity";
 	}
 	if (operationalContext.status === "idle") {
-		return "No current work";
+		return null;
 	}
 	const waitingSuffix =
 		operationalContext.waitingCount > 0

@@ -52,6 +52,7 @@ export function AgentConfigurationEditorCard(input: {
 }
 
 export function AgentConfigurationCard(input: {
+	attention?: boolean;
 	children?: ReactNode;
 	className?: string;
 	description?: string;
@@ -59,6 +60,7 @@ export function AgentConfigurationCard(input: {
 	icon: ReactNode;
 	itemId: string;
 	label: string;
+	inlineContent?: ReactNode;
 	onClick?: () => void;
 	onOpenChange?: (open: boolean) => void;
 	open?: boolean;
@@ -71,16 +73,17 @@ export function AgentConfigurationCard(input: {
 	const card = (
 		<div
 			className={cn(
-				"group flex min-h-28 w-full min-w-0 items-start gap-3 rounded-2xl border border-border/65 bg-transparent p-4 text-left shadow-[0_1px_0_rgb(255_255_255/0.025)_inset] transition-colors duration-150",
+				"group flex min-h-28 w-full min-w-0 items-start gap-3 rounded-2xl border border-border/65 bg-transparent p-4 text-left shadow-[0_1px_0_rgb(255_255_255/0.025)_inset] transition-colors duration-150 data-[attention=true]:border-primary/45 data-[attention=true]:bg-primary/[0.045]",
 				!(input.readOnly || input.disabled) && "hover:border-border",
 				input.disabled && "cursor-not-allowed opacity-55",
 				input.className
 			)}
+			data-attention={input.attention}
 		>
 			<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground shadow-sm [&_svg]:size-4.5">
 				{input.icon}
 			</span>
-			<span className="min-w-0 flex-1">
+			<div className="min-w-0 flex-1">
 				<span className="flex min-w-0 items-center justify-between gap-2">
 					<span className="font-medium text-muted-foreground text-xs">
 						{input.label}
@@ -101,7 +104,10 @@ export function AgentConfigurationCard(input: {
 						{input.description}
 					</span>
 				) : null}
-			</span>
+				<AgentConfigurationCardInlineContent>
+					{input.inlineContent}
+				</AgentConfigurationCardInlineContent>
+			</div>
 			{input.readOnly || input.disabled ? null : (
 				<PencilSimpleIcon
 					aria-hidden="true"
@@ -198,6 +204,13 @@ export function AgentConfigurationCard(input: {
 			</Popover.Portal>
 		</Popover.Root>
 	);
+}
+
+function AgentConfigurationCardInlineContent(input: { children?: ReactNode }) {
+	if (!input.children) {
+		return null;
+	}
+	return <div className="mt-3 min-w-0">{input.children}</div>;
 }
 
 function resolveConfigurationStatus(
