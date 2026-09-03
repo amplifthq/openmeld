@@ -68,7 +68,7 @@ export function readCurrentComputerToolbarAttention(
 	switch (attention.reason) {
 		case "agent_check_failed":
 			return {
-				label: "Couldn't check",
+				label: "Check delayed",
 				reason: attention.reason,
 				showLabel: true,
 				tone: attention.tone,

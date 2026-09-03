@@ -1504,6 +1504,22 @@ describe("OpenMeldServiceCard", () => {
 		).toBeNull();
 	});
 
+	it("describes an inconclusive Service observation as delayed instead of unavailable", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: null,
+			replyReadiness: {
+				detailReasonCode: null,
+				executionTargetStatus: "unknown",
+				reasonCode: "background_helper.unknown",
+				service: null,
+				status: "unknown",
+			},
+		});
+
+		expect(screen.getByText("Connection status delayed")).toBeTruthy();
+		expect(screen.queryByText("Status unavailable")).toBeNull();
+	});
+
 	it("uses the current Service observation when an older computer projection still says ready", () => {
 		const currentReadiness = buildCurrentLocalRuntimeReplyReadiness();
 		renderOpenMeldServiceCard({

@@ -8,6 +8,7 @@ import {
   upsertDaemonServiceContract,
 } from "../src/config/daemon-service-contract";
 import { daemonStatePath } from "../src/config/daemon-state";
+import { CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS } from "../src/local-service/core/constants";
 import { runDaemonServiceFullAlignment } from "../src/local-service/lifecycle/daemon-service-alignment-executor";
 import {
   type DaemonActiveBundleState,
@@ -570,7 +571,7 @@ describe("local service alignment executor", () => {
         gracePeriodMs: 2000,
         mode: "graceful",
       },
-      timeoutMs: 0,
+      timeoutMs: CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS,
     });
     expect(process.kill).not.toHaveBeenCalledWith(222, "SIGTERM");
     expect(process.kill).not.toHaveBeenCalledWith(333, "SIGTERM");
