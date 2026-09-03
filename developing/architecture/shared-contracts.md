@@ -1197,6 +1197,12 @@ conversation receives escaped text observations and immutable file metadata,
 never source or derivative image bytes. Clients must not derive image rendering
 from Markdown or relax the Markdown image policy.
 
+The shared Space signal history query treats `aroundSignalId` as an inclusive
+anchor. `beforeCount` and `afterCount` count only neighboring signals, so both
+may be zero when a caller needs exactly the anchored signal and no surrounding
+history. Gateway and Core must preserve that meaning instead of rejecting the
+zero-neighbor window as empty.
+
 Remote Agent browser screenshots reuse the same attachment contract in the
 opposite direction. The worker asks Core to create organization- and
 Space-scoped attachment metadata under the represented member context, writes

@@ -302,6 +302,20 @@ If only `main` changed, let merge queue validate the new merge group or sync and
 run one new current-base candidate. Do not rerun completed checks merely to
 produce ceremonial evidence.
 
+From an isolated worktree, merge the remote pull request without coupling that
+operation to local branch deletion:
+
+```sh
+gh pr merge <pr-number> --merge
+gh pr view <pr-number> --json state,mergedAt,mergeCommit
+```
+
+Do not pass `--delete-branch` to the merge command. GitHub can merge the pull
+request successfully and then report a local cleanup failure when `main` is
+checked out in another worktree, making a successful remote merge look failed.
+Treat worktree and branch cleanup as a separate, explicitly authorized step
+after the remote merged state and merge commit are proven.
+
 ## Release
 
 After merge, follow `developing/engineering/production-release.md`. Plan the

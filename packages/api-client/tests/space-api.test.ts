@@ -23,6 +23,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { createOpenMeldApiClient, createSpaceApi } from "../src";
+import { buildSpaceSignalsReadPath } from "../src/space";
 
 const REQUEST_CONTEXT = {
   actorContext: {
@@ -1575,6 +1576,19 @@ describe("api-client space api", () => {
       expect.objectContaining({
         url: "https://gateway.openmeld.invalid/v1/spaces/space-123/signals?afterTs=1786291200000&cursor=2026-08-10T08%3A00%3A00.000Z%3A%3Asignal-30&limit=30",
       })
+    );
+  });
+
+  it("serializes an exact anchored history read with zero surrounding messages", () => {
+    expect(
+      buildSpaceSignalsReadPath("space-123", {
+        aroundSignalId: "sig-anchor-exact",
+        beforeCount: 0,
+        afterCount: 0,
+        kinds: ["text"],
+      })
+    ).toBe(
+      "/v1/spaces/space-123/signals?aroundSignalId=sig-anchor-exact&beforeCount=0&afterCount=0&signalType=signal.text"
     );
   });
 
