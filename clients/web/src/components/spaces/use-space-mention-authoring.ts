@@ -89,7 +89,7 @@ type TrackedComposerAuthoredMention =
 		start: number;
 	};
 
-export function useSpaceMentionAuthoring(input: {
+export type UseSpaceMentionAuthoringInput = {
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	composerDraftScope: ComposerDraftScope | null;
 	openMeldProfileId: string;
@@ -98,7 +98,9 @@ export function useSpaceMentionAuthoring(input: {
 	membersErrorMessage: string | null;
 	spaceId: string;
 	snapshot: SpaceMembersSnapshot | null;
-}) {
+};
+
+export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 	const textareaRef: SpaceComposerInputRef = useRef(null);
 	const pendingSelectionRef = useRef<SpaceComposerSelection | null>(null);
 	const composerDraft = useComposerDraft({
