@@ -1134,6 +1134,7 @@ describe("shared db tooling", () => {
         ).toEqual([
           "idx_openMeldDaemon_dispatch_ledger_dispatch_id",
           "idx_openMeldDaemon_dispatch_ledger_space_client_message_target",
+          "idx_openMeldDaemon_dispatch_ledger_space_source_profile_target",
           "idx_openMeldDaemon_dispatch_ledger_space_source_target",
           "idx_openMeldDaemon_dispatch_ledger_status_last_attempt",
         ]);
@@ -1282,6 +1283,7 @@ describe("shared db tooling", () => {
         ).toEqual([
           "idx_openMeldDaemon_dispatch_ledger_dispatch_id",
           "idx_openMeldDaemon_dispatch_ledger_space_client_message_target",
+          "idx_openMeldDaemon_dispatch_ledger_space_source_profile_target",
           "idx_openMeldDaemon_dispatch_ledger_space_source_target",
           "idx_openMeldDaemon_dispatch_ledger_status_last_attempt",
         ]);
