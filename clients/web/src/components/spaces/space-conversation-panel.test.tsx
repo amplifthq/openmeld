@@ -3598,7 +3598,7 @@ describe("SpaceConversationPanel", () => {
 		expect(marker?.className).not.toContain("text-destructive");
 	});
 
-	it("moves an anchored failure into the source message footer and keeps full details behind Details", () => {
+	it("moves an anchored failure into the source message footer and keeps a past-tense outcome in Details", () => {
 		const detailedFailure =
 			"OpenMeld could not reach Codex 5.6 Sol on this computer for this Wake. Reconnect the computer, then try again.";
 		renderSpaceConversationPanel({
@@ -3650,7 +3650,10 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
-		expect(screen.getByText(detailedFailure)).toBeTruthy();
+		expect(
+			screen.getByText("Codex 5.6 Sol could not complete this Wake.")
+		).toBeTruthy();
+		expect(screen.queryByText(detailedFailure)).toBeNull();
 	});
 
 	it("does not execute a fresh Wake through Message details recovery", async () => {

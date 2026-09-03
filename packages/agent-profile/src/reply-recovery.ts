@@ -909,7 +909,7 @@ function planProviderAccountRecovery(input: {
     body: copy.body,
     kind: "review_provider_account",
     ...createPrimaryAction(
-      reasonCode === "cursor.plan_upgrade_required"
+      input.reasonCode === "cursor.plan_upgrade_required"
         ? "manage_cursor_plan"
         : "review_agent_settings"
     ),
@@ -1024,6 +1024,7 @@ function resolveMemberReadinessReasonCodes(
   }
 
   return [
+    ...readiness.reasonCodes,
     ...readiness.facts.profile.reasonCodes,
     ...readiness.facts.binding.reasonCodes,
     ...readiness.facts.claim.reasonCodes,
