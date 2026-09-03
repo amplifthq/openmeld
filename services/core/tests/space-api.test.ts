@@ -5711,6 +5711,19 @@ describe("OpenMeld Core", () => {
     ]);
     expect(body.signals?.[1]?.id).toBe(anchorSignalId);
     expect(body.nextCursor).toBeNull();
+
+    const exactResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?aroundSignalId=${encodeURIComponent(anchorSignalId ?? "")}&beforeCount=0&afterCount=0`
+    );
+    expect(exactResponse.status).toBe(200);
+    const exactBody = (await exactResponse.json()) as {
+      signals?: Array<{ id?: string; data?: { text?: string } }>;
+      nextCursor?: string | null;
+    };
+    expect(exactBody.signals).toEqual([
+      expect.objectContaining({ id: anchorSignalId }),
+    ]);
+    expect(exactBody.nextCursor).toBeNull();
   });
 
   it("lazy-loads earlier visible message history before an anchor after presence noise", async () => {
