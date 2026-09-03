@@ -537,7 +537,7 @@ describe("organization Core RPC", () => {
       contexts: [
         {
           operationalContext: {
-            status: "idle",
+            status: "working",
             waitingCount: 0,
           },
           targetProfileId: AGENT_PROFILE_ID,
@@ -563,6 +563,13 @@ describe("organization Core RPC", () => {
       AGENT_PROFILE_ID,
       SECOND_AGENT_PROFILE_ID,
     ]);
+    expect(response.agentProfiles[0]).toMatchObject({
+      operationalContext: { status: "working" },
+      readiness: {
+        agentExecutionReadiness: { displayState: "not_ready" },
+        agentWakeAvailability: { category: "unavailable" },
+      },
+    });
     expect(lookupRoutes).toHaveBeenCalledOnce();
     expect(lookupRoutes).toHaveBeenCalledWith({
       blockForgottenDevices: true,

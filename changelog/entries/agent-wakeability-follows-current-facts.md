@@ -8,4 +8,5 @@ audiences: ["members"]
 
 Agent availability now follows current Computer, local agent, Usage Limit, and
 working-folder conditions instead of an earlier Wake failure. Activity can load
-independently, and running a failed request again starts as a separate new Wake.
+independently. When Usage becomes available again, OpenMeld can continue one
+interrupted task as a separate Wake without exposing a manual retry action.

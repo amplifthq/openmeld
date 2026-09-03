@@ -179,6 +179,33 @@ describe("agent wake availability", () => {
     });
   });
 
+  it("requires the canonical ready verdict even when partial route facts look healthy", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      localService: {
+        reachable: true,
+        reasonCodes: [],
+        refreshable: true,
+        source: "runtime_transport",
+      },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "unknown",
+        ready: false,
+        reasonCodes: [],
+      },
+    });
+
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "agent_execution.readiness_unconfirmed"
+    );
+  });
+
   it.each([
     {
       evidence: {
@@ -959,7 +986,7 @@ describe("agent wake availability", () => {
     });
   });
 
-  it("keeps a registered Wake route available when local service diagnostics are stale", () => {
+  it("does not let a registered Wake route override current offline service facts", () => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,
       binding: createPrimaryBinding(),
@@ -987,16 +1014,16 @@ describe("agent wake availability", () => {
         readiness,
       })
     ).toEqual({
-      action: "none",
-      badgeLabel: "Available",
-      category: "available",
+      action: "check_status",
+      badgeLabel: "Offline",
+      category: "offline",
       isRefreshing: false,
-      label: "Available for Wake",
-      phase: "available",
-      reasonCode: "agent_execution.ready",
-      status: "available_for_wake",
-      summary: "Available for Wake",
-      tooltip: "Available for Wake",
+      label: "Offline for Wake",
+      phase: "service_not_connected",
+      reasonCode: "service.not_running",
+      status: "offline_for_wake",
+      summary: "Connect your computer before this Agent can reply.",
+      tooltip: "Computer not connected",
     });
   });
 
@@ -1159,7 +1186,7 @@ describe("agent wake availability", () => {
     ).toBeNull();
   });
 
-  it("keeps a registered Wake route available when local controller evidence is stale", () => {
+  it("does not let a registered Wake route override stale controller evidence", () => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,
       binding: createPrimaryBinding(),
@@ -1187,16 +1214,16 @@ describe("agent wake availability", () => {
         readiness,
       })
     ).toEqual({
-      action: "none",
-      badgeLabel: "Available",
-      category: "available",
-      isRefreshing: false,
-      label: "Available for Wake",
-      phase: "available",
-      reasonCode: "agent_execution.ready",
-      status: "available_for_wake",
-      summary: "Available for Wake",
-      tooltip: "Available for Wake",
+      action: "check_status",
+      badgeLabel: "Checking",
+      category: "checking",
+      isRefreshing: true,
+      label: "Checking connection",
+      phase: "checking_service",
+      reasonCode: "agent_profile_binding.enabled_primary",
+      status: "checking_connection",
+      summary: "Checking this agent's Wake availability.",
+      tooltip: "Checking Wake availability",
     });
   });
 

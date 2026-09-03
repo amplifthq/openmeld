@@ -679,6 +679,7 @@ describe("handleDispatchQueueBatch", () => {
   const createCanonicalWorkstationReadiness = (input: {
     agentControllerRef?: string;
     providerAccountReasonCode?: "usage_exhausted";
+    runtimeDisplayState?: "unknown";
     runtimeReasonCode?:
       | "controller.registry.disabled"
       | "service.update_required"
@@ -725,14 +726,19 @@ describe("handleDispatchQueueBatch", () => {
       },
       runtimeReadiness: input.runtimeReasonCode
         ? {
-            displayState: "needs_prepare",
+            displayState:
+              input.runtimeDisplayState === "unknown"
+                ? "unknown"
+                : "needs_prepare",
             ready: false,
             reasonCodes: [input.runtimeReasonCode],
           }
         : {
-            displayState: "ready",
-            ready: true,
-            reasonCodes: ["runtime.ready"],
+            displayState:
+              input.runtimeDisplayState === "unknown" ? "unknown" : "ready",
+            ready: input.runtimeDisplayState !== "unknown",
+            reasonCodes:
+              input.runtimeDisplayState === "unknown" ? [] : ["runtime.ready"],
           },
     });
 
@@ -9673,7 +9679,7 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
-  it("rejects fresh Wake admission from canonical accepted-Wake Usage exhaustion evidence", async () => {
+  it("does not let historical accepted-Wake Usage evidence block current ready facts", async () => {
     const message = createDispatchBody({
       dispatchId: "dispatch-canonical-usage-exhausted-1",
       sourceEventId: "evt-canonical-usage-exhausted-1",
@@ -9694,11 +9700,7 @@ describe("handleDispatchQueueBatch", () => {
         env: makeEnvWithBindings(),
         message,
       })
-    ).resolves.toMatchObject({
-      errorCode: "usage_exhausted",
-      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
-      ok: false,
-    });
+    ).resolves.toMatchObject({ ok: true });
     expect(
       agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
     ).toHaveBeenCalledOnce();
@@ -9824,36 +9826,60 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
-  it("accepts workstation Wake from a legacy native controller report without a Usage support contract", async () => {
+  it("keeps Wake admission closed when a parsed legacy Usage report is checking", async () => {
     const message = createDispatchBody({
       dispatchId: "dispatch-legacy-usage-contract-1",
       sourceEventId: "evt-legacy-usage-contract-1",
       targetProfileId: "agt-legacy-usage-contract-1",
       visitedProfileIdsHash: "stable32:legacy-usage-contract-1",
     });
-    const currentSnapshot = JSON.parse(
-      buildAvailableCodexInterfaceJson(Date.now())
-    ) as Record<string, unknown>;
-    const {
-      usageLimits: _usageLimits,
-      usageLimitsSupportMatrixVersion: _usageLimitsSupportMatrixVersion,
-      ...legacySnapshot
-    } = currentSnapshot;
-    const db = createOpenMeldDbWithProfileRow({
-      agentControllerRef: "builtin:codex",
-      controllerEnabled: 1,
-      openMeldServiceRuntimeId: "runtime-usage-wakeability",
-      profileKind: "agent",
-      profileStatus: "active",
-      runtimeAgentControllerInterfaceJson: JSON.stringify(legacySnapshot),
-    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeReasonCode: "usage_checking",
+        targetProfileId: message.targetProfileId,
+      })
+    );
 
     const preflight = await runDispatchExecutionPreflightGate({
-      env: makeEnvWithBindings(db),
+      env: makeEnvWithBindings(),
       message,
     });
 
-    expect(preflight).not.toMatchObject({ errorCode: "usage_checking" });
+    expect(preflight).toMatchObject({
+      errorCode: "usage_checking",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      ok: false,
+    });
+  });
+
+  it("does not authorize a workstation Wake from healthy partial facts without a canonical ready verdict", async () => {
+    const message = createDispatchBody({
+      dispatchId: "dispatch-readiness-unconfirmed-1",
+      sourceEventId: "evt-readiness-unconfirmed-1",
+      targetProfileId: "agt-readiness-unconfirmed-1",
+      visitedProfileIdsHash: "stable32:readiness-unconfirmed-1",
+    });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        runtimeDisplayState: "unknown",
+        targetProfileId: message.targetProfileId,
+      })
+    );
+
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(),
+        message,
+      })
+    ).resolves.toMatchObject({
+      errorCode: "agent_execution.readiness_unconfirmed",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      ok: false,
+    });
   });
 
   it("retries when Core primary binding storage is unavailable", async () => {

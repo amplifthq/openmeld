@@ -223,6 +223,13 @@ rejects the setting write before D1 mutation instead of accepting an unsafe
 half-rollout. Missing original accepted revision evidence remains inherently
 unsafe and moves to `continuation_needs_attention` rather than being treated as
 unchanged.
+The handoff uses a dedicated owner-only Usage-continuation command with the
+frozen interrupted dispatch/source identity and deterministic operation and
+client-message identities. Space posts through its exactly-once client-message
+writer, so repeated owner triggers resolve the same continuation instead of
+creating another handoff. It does not call the public Execution Recovery
+`retry_as_new_execution` action. That legacy action remains parseable but is
+never enabled or executed for a user.
 One idempotent Inbox item links the original Wake. The owner may skip the exact
 interrupted work to resolve the gate and promote the oldest queued Wake.
 The Usage report path sends candidate Profiles in stable, schema-bounded
@@ -855,18 +862,17 @@ resolved remains compatible and does not gain a guessed Usage admission
 condition. An ACI report
 declares the matrix it implements through
 `usageLimitsSupportMatrixVersion`. If that optional field is absent, Core
-treats the report as a legacy contract and does not make Usage an admission
-condition merely because Core's newer matrix now marks the controller native.
-Once a report declares the current matrix version, missing or unconfirmed Usage
-fails closed as `Checking`. A
+treats the report as a parseable legacy contract, but it cannot authorize new
+work for a controller whose reviewed matrix requires native Usage. Missing,
+mismatched, or unconfirmed Usage fails closed as bounded `Checking`. A
 percentage alone, low-capacity warning, generic quota wording, or ordinary
 transient `429` is never proof of exhaustion. Core derives all three outcomes
 from the already-held structured report and does not call the provider on the
 Wake hot path.
 
 The same exact-version rule gates Usage recovery after an accepted Wake. A
-legacy report may remain compatible for ordinary execution, but its Usage fields
-cannot trigger automatic continuation under a newer Core capability matrix.
+legacy report remains parseable, but it neither authorizes a new Wake nor
+triggers automatic continuation under a newer Core capability matrix.
 
 After a Wake is accepted, a provider failure changes later Wakeability only
 when the result carries fresh structured hard-blocker evidence for the exact
@@ -1230,6 +1236,11 @@ client-message and execution identity. The legacy
 `retry_as_new_execution` schema member remains parseable for mixed-version
 stored projections, but current Core never enables or executes it through the
 Recovery endpoint.
+
+The Work Coordinator's automatic `usage_exhausted` continuation is not an
+Execution Recovery action. It uses the owner-only continuation path described
+above, so closing the public action cannot disable deterministic Usage
+recovery.
 
 An explicit user Stop is not automatically recoverable. A process crash with
 no result must not fabricate completion. An external-side-effect outcome that

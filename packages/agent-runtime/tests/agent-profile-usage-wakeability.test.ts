@@ -147,7 +147,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
     }
   });
 
-  it("does not turn an old Service with no Usage report into permanent Checking", () => {
+  it("keeps a native Usage controller in bounded Checking until a current report arrives", () => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:codex",
@@ -155,16 +155,16 @@ describe("resolveAgentProfileUsageWakeability", () => {
         report: null,
       })
     ).toEqual({
-      blocksNewWork: false,
-      reasonCode: null,
-      status: "available",
+      blocksNewWork: true,
+      reasonCode: "usage_checking",
+      status: "checking",
     });
   });
 
   it.each([
     "builtin:codex",
     "builtin:grok-build",
-  ])("keeps Wake available for a legacy %s report without a Usage support contract", (agentControllerRef) => {
+  ])("parses a legacy %s report but keeps admission closed without the current Usage matrix", (agentControllerRef) => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef,
@@ -175,9 +175,9 @@ describe("resolveAgentProfileUsageWakeability", () => {
         },
       })
     ).toEqual({
-      blocksNewWork: false,
-      reasonCode: null,
-      status: "available",
+      blocksNewWork: true,
+      reasonCode: "usage_checking",
+      status: "checking",
     });
   });
 
@@ -186,7 +186,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
     ["exhausted", createUsageLimit("exhausted")],
     ["stale", createUsageLimit("stale")],
     ["unavailable", createUsageLimit("unavailable")],
-  ] as const)("keeps Wake available for legacy Usage evidence that reports %s without the current matrix", (_label, usageLimit) => {
+  ] as const)("does not authorize from legacy %s Usage evidence without the current matrix", (_label, usageLimit) => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:codex",
@@ -198,9 +198,9 @@ describe("resolveAgentProfileUsageWakeability", () => {
         },
       })
     ).toEqual({
-      blocksNewWork: false,
-      reasonCode: null,
-      status: "available",
+      blocksNewWork: true,
+      reasonCode: "usage_checking",
+      status: "checking",
     });
   });
 

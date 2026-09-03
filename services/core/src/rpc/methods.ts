@@ -906,10 +906,6 @@ import {
   resolveRuntimeTransportOwnerShard,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
 import {
-  buildExecutionRecoveryFreshClientMessageId,
-  buildExecutionRecoveryOperationKeys,
-} from "../execution-recovery/application/execution-recovery-operation-identity";
-import {
   rpcReadFeedbackReportingPolicy,
   rpcSetFeedbackReportingPolicy,
 } from "../feedback/transport/rpc/feedback-management-rpc";
@@ -1662,6 +1658,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcExecuteExecutionRecovery(
     input: ExecuteExecutionRecoveryInput
   ): Promise<ExecuteExecutionRecoveryResponse>;
+  rpcStartUsageExhaustedContinuation(
+    input: StartUsageExhaustedContinuationInput
+  ): Promise<StartUsageExhaustedContinuationResponse>;
   rpcPostTransientSignal(input: PostTransientSignalInput): Promise<void>;
   rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta>;
   rpcGetBoard(input: GetSpaceBoardInput): Promise<SpaceBoardRoomProjection>;
@@ -2080,6 +2079,24 @@ export type ExecuteExecutionRecoveryInput = {
   password?: string;
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
+};
+
+export type StartUsageExhaustedContinuationInput = {
+  continuationClientMessageId: string;
+  interruptedClientMessageId: string;
+  interruptedDispatchId: string;
+  interruptedSourceSignalId: string;
+  operationId: string;
+  spaceAccess: SpaceAccessContext;
+  spaceId: string;
+  targetProfileId: string;
+  context?: CoreRpcContextInput;
+};
+
+export type StartUsageExhaustedContinuationResponse = {
+  continuationClientMessageId: string;
+  operationId: string;
+  status: "started";
 };
 
 export type GetSpaceMetaInput = {
@@ -5000,6 +5017,7 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
 function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
   const definitiveCodes = new Set([
     "agent_profile_work_recovery.continuation_conflict",
+    "agent_profile_work_recovery.continuation_source_mismatch",
     "agent_profile_work_recovery.continuation_unavailable",
   ]);
   const visited = new Set<unknown>();
@@ -5011,6 +5029,12 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
     visited.add(current);
     const record = current as Record<string, unknown>;
     if (typeof record.code === "string" && definitiveCodes.has(record.code)) {
+      return true;
+    }
+    if (
+      typeof record.message === "string" &&
+      definitiveCodes.has(record.message)
+    ) {
       return true;
     }
     current = record.cause ?? null;
@@ -5037,6 +5061,15 @@ async function executeAgentProfileWorkContinuation(input: {
   ) {
     return "deferred";
   }
+  const deterministicIdentity = await buildAgentProfileWorkContinuationIdentity(
+    {
+      interruptedClientMessageId: input.recovery.interruptedClientMessageId,
+      targetProfileId: input.targetProfileId,
+    }
+  );
+  const continuationClientMessageId =
+    input.recovery.authorizedContinuationClientMessageId ??
+    deterministicIdentity.continuationClientMessageId;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
     input.env,
     input.recovery.spaceId
@@ -5048,49 +5081,6 @@ async function executeAgentProfileWorkContinuation(input: {
     spaceId,
     targetProfileId: input.targetProfileId,
   });
-  const inspected = await stub.rpcInspectExecutionRecovery({
-    context: input.context,
-    dispatchId: input.recovery.interruptedDispatchId,
-    spaceAccess,
-    spaceId,
-  });
-  const projection = inspected.recovery;
-  if (
-    projection.identity.dispatchId !== input.recovery.interruptedDispatchId ||
-    projection.identity.targetProfileId !== input.targetProfileId ||
-    projection.identity.spaceId !== spaceId ||
-    !projection.actions.retryAsNewExecution.enabled
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_unavailable",
-      reason:
-        "OpenMeld could not verify the interrupted task for a safe continuation.",
-      status: 409,
-    });
-  }
-  const command: ExecuteExecutionRecoveryBody = {
-    action: "retry_as_new_execution",
-    destination: projection.destination,
-    expectedIdentity: projection.identity,
-    operationId: await buildAgentProfileWorkRecoveryOperationId({
-      interruptedClientMessageId: input.recovery.interruptedClientMessageId,
-      targetProfileId: input.targetProfileId,
-    }),
-  };
-  const operationKeys = await buildExecutionRecoveryOperationKeys(command);
-  const continuationClientMessageId =
-    buildExecutionRecoveryFreshClientMessageId(operationKeys.claimStorageKey);
-  if (
-    input.recovery.authorizedContinuationClientMessageId !== null &&
-    input.recovery.authorizedContinuationClientMessageId !==
-      continuationClientMessageId
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_conflict",
-      reason: "This interrupted task already has a different continuation.",
-      status: 409,
-    });
-  }
   if (input.recovery.authorizedContinuationClientMessageId === null) {
     const currentBinding =
       await requireCurrentAgentProfileWorkContinuationBinding({
@@ -5114,23 +5104,17 @@ async function executeAgentProfileWorkContinuation(input: {
       throwAgentProfileWorkContinuationAuthorizationError(authorized.status);
     }
   }
-  const executed = await stub.rpcExecuteExecutionRecovery({
-    body: command,
+  await stub.rpcStartUsageExhaustedContinuation({
+    continuationClientMessageId,
     context: input.context,
+    interruptedClientMessageId: input.recovery.interruptedClientMessageId,
+    interruptedDispatchId: input.recovery.interruptedDispatchId,
+    interruptedSourceSignalId: input.recovery.interruptedSourceSignalId,
+    operationId: deterministicIdentity.operationId,
     spaceAccess,
     spaceId,
+    targetProfileId: input.targetProfileId,
   });
-  if (
-    executed.status !== "new_execution_requested" &&
-    executed.status !== "already_completed"
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_outcome_unknown",
-      reason:
-        "OpenMeld could not confirm that the continuation started. Check this Agent’s Activity before trying again.",
-      status: 503,
-    });
-  }
   return "started";
 }
 
@@ -5203,15 +5187,18 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
   };
 }
 
-async function buildAgentProfileWorkRecoveryOperationId(input: {
+async function buildAgentProfileWorkContinuationIdentity(input: {
   interruptedClientMessageId: string;
   targetProfileId: string;
-}): Promise<string> {
+}): Promise<{
+  continuationClientMessageId: string;
+  operationId: string;
+}> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(
       JSON.stringify([
-        "agent_profile_work_recovery_v1",
+        "agent_profile_work_usage_continuation_v1",
         input.targetProfileId,
         input.interruptedClientMessageId,
       ])
@@ -5220,7 +5207,10 @@ async function buildAgentProfileWorkRecoveryOperationId(input: {
   const hex = Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("");
-  return `agent-profile-work-recovery:${hex}`;
+  return {
+    continuationClientMessageId: `agent-profile-work-continuation-${hex}`,
+    operationId: `agent-profile-work-continuation:${hex}`,
+  };
 }
 
 export async function rpcGetAgentProfileControllerChangeEligibility(

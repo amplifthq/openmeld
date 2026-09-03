@@ -190,6 +190,7 @@ import {
   buildWakeProgressMessage,
   clearWakeProgressItemsForSignal,
   createAuthenticatedSpaceAccessContext,
+  createDispatchContinuationSpaceAccessContext,
   createWakeProgressItem,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
@@ -340,6 +341,8 @@ import type {
   SetSpaceAccessModeInput,
   SpaceAccessModeStateResult,
   SpacePasswordStateResult,
+  StartUsageExhaustedContinuationInput,
+  StartUsageExhaustedContinuationResponse,
   UpdateSpaceCursorInput,
   UpsertSpacePasswordInput,
 } from "../../../rpc/methods";
@@ -823,6 +826,51 @@ function requireRpcAuthorProfile(context?: CoreRpcContextInput): Profile {
   }
 
   return toProtocolProfile(context);
+}
+
+function buildVerifiedUsageContinuationSourceAuthorContext(input: {
+  continuationContext?: CoreRpcContextInput;
+  dispatchId: string;
+  sourceProfile: Profile;
+}): CoreRpcContextInput {
+  const sourceProfile = input.sourceProfile;
+  return {
+    ...(input.continuationContext?.activeOrganizationId
+      ? {
+          activeOrganizationId: input.continuationContext.activeOrganizationId,
+        }
+      : {}),
+    ...(sourceProfile.kind === "agent" &&
+    sourceProfile.agentControllerConversationId
+      ? {
+          agentControllerConversationId:
+            sourceProfile.agentControllerConversationId,
+        }
+      : {}),
+    actorContext: {
+      requestId: `usage-continuation:${input.dispatchId}`,
+      openMeldProfileId: sourceProfile.profileId,
+      profileKind: sourceProfile.kind,
+      ...(sourceProfile.profileHandle
+        ? { profileHandle: sourceProfile.profileHandle }
+        : {}),
+      ...(sourceProfile.profileName
+        ? { profileName: sourceProfile.profileName }
+        : {}),
+      ...(sourceProfile.avatarUrl
+        ? { avatarUrl: sourceProfile.avatarUrl }
+        : {}),
+      ...(sourceProfile.kind === "agent" && sourceProfile.owner
+        ? { ownerUserId: sourceProfile.owner }
+        : {}),
+      ...(sourceProfile.kind === "agent" && sourceProfile.ownerName
+        ? { ownerName: sourceProfile.ownerName }
+        : {}),
+      ...(sourceProfile.kind === "agent" && sourceProfile.agentControllerRef
+        ? { agentControllerRef: sourceProfile.agentControllerRef }
+        : {}),
+    },
+  };
 }
 
 function resolveRpcInputSpacePassword(input: {
@@ -4506,6 +4554,100 @@ export class Space extends DurableObject<CoreBindings> {
         ),
       storage: this.ctx.storage,
     });
+  }
+
+  async rpcStartUsageExhaustedContinuation(
+    input: StartUsageExhaustedContinuationInput
+  ): Promise<StartUsageExhaustedContinuationResponse> {
+    this.applySpaceRef(input.spaceId);
+    const operationId = normalizeOptionalText(input.operationId);
+    const continuationClientMessageId = parseOptionalClientMessageId(
+      input.continuationClientMessageId
+    );
+    if (!(operationId && continuationClientMessageId)) {
+      throw new Error(
+        "agent_profile_work_recovery.continuation_identity_invalid"
+      );
+    }
+
+    const traceResponse = await this.rpcGetDispatchTrace({
+      context: input.context,
+      dispatchId: input.interruptedDispatchId,
+      spaceAccess: input.spaceAccess,
+      spaceId: input.spaceId,
+    });
+    const trace = traceResponse.trace;
+    const sourceSignal = this.readSourceTextSignalById(
+      input.interruptedSourceSignalId
+    );
+    if (
+      !(trace && sourceSignal) ||
+      trace.dispatch.dispatchId !== input.interruptedDispatchId ||
+      trace.dispatch.sourceEventId !== input.interruptedSourceSignalId ||
+      trace.dispatch.targetProfileId !== input.targetProfileId ||
+      sourceSignal.spaceId !== this.spaceId ||
+      normalizeOptionalText(sourceSignal.data.meta?.clientMessageId) !==
+        input.interruptedClientMessageId ||
+      (sourceSignal.data.attachments?.length ?? 0) > 0 ||
+      !readWakeActivationTargetProfileIds(sourceSignal).includes(
+        input.targetProfileId
+      )
+    ) {
+      throw new Error(
+        "agent_profile_work_recovery.continuation_source_mismatch"
+      );
+    }
+
+    const placement = readSpaceThreadSignalPlacementBySignalId(
+      this.ctx.storage.sql,
+      sourceSignal.id
+    );
+    const thread = placement
+      ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+      : null;
+    const continuationContext =
+      getSpaceAccessRequestContext(input.spaceAccess) ?? input.context;
+    const verifiedReplayAccess = createDispatchContinuationSpaceAccessContext({
+      dispatchId: input.interruptedDispatchId,
+      password: getSpaceAccessPassword(input.spaceAccess),
+      requestContext: buildVerifiedUsageContinuationSourceAuthorContext({
+        continuationContext,
+        dispatchId: input.interruptedDispatchId,
+        sourceProfile: sourceSignal.profile,
+      }),
+      sourceSignalId: sourceSignal.id,
+      spaceId: this.spaceId,
+      targetProfileId: input.targetProfileId,
+    });
+    await this.rpcPostSignalOnceByClientMessageId({
+      authoringPolicy: "user_authored",
+      clientMessageId: continuationClientMessageId,
+      context: continuationContext,
+      messageEnvelope: {
+        activationTargets: [input.targetProfileId],
+        referenceTargets: [],
+        text: sourceSignal.data.text,
+      },
+      meta: { clientMessageId: continuationClientMessageId },
+      password: getSpaceAccessPassword(verifiedReplayAccess),
+      profile: sourceSignal.profile,
+      spaceAccess: verifiedReplayAccess,
+      spaceId: this.spaceId,
+      text: sourceSignal.data.text,
+      ...(thread
+        ? {
+            threadContext: {
+              rootSignalId: thread.rootSignalId,
+              threadId: thread.threadId,
+            },
+          }
+        : {}),
+    });
+    return {
+      continuationClientMessageId,
+      operationId,
+      status: "started",
+    };
   }
 
   private async inspectExecutionRecoveryForCommand(input: {

@@ -63,19 +63,18 @@ export function resolveAgentProfileUsageWakeability(input: {
   }
   const report = input.report;
   if (!report) {
-    return ALLOWS_NEW_WORK;
+    return CHECKING_USAGE;
   }
   if (
     report.usageLimitsSupportMatrixVersion !==
     AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION
   ) {
-    return ALLOWS_NEW_WORK;
+    return CHECKING_USAGE;
   }
   // Usage is one current owner fact, not the owner of the entire Wakeability
-  // answer. A legacy Service that cannot report it must remain compatible, and
-  // an inconclusive current report keeps admission closed until a new report
-  // replaces it. Base runtime readiness separately decides whether the route
-  // itself is current enough to authorize a Wake.
+  // answer. Controllers whose reviewed matrix requires native Usage must
+  // provide the exact current contract before Core can authorize new work.
+  // Legacy reports remain parseable, but they cannot prove current capacity.
   if (report.expiresAtMs <= input.nowMs) {
     return CHECKING_USAGE;
   }

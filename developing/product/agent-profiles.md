@@ -778,10 +778,11 @@ passive or not evaluated, does not use Usage as an admission condition. Once a
 Local Agent's versioned capability matrix declares native Usage support, a
 missing, stale, expired, or currently unavailable observation projects
 `Checking` and rejects a new Wake; OpenMeld must not promise acceptance while
-the required fact is unknown. During a mixed-version rollout, a legacy Local
-Agent that does not declare its Usage support-matrix version remains outside
-this admission condition; a newer Core must not reinterpret that omission as
-`Checking`. A
+the required fact is unknown. During a mixed-version rollout, Core continues
+to parse a legacy Local Agent report that omits the Usage support-matrix
+version, but that report cannot prove current capacity for a controller whose
+reviewed matrix requires native Usage. The public verdict remains bounded
+`Checking` and new Wake admission stays closed until a current report arrives. A
 fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
 admission. These decisions use the current report already held by Core and must
 not add a provider call to the Wake hot path. Core and the Local Service consume
@@ -804,6 +805,10 @@ deterministic, idempotent new execution. A legacy or mismatched Service report
 cannot authorize that retry. OpenMeld does not claim that the terminal provider
 turn reopened. After that continuation succeeds, the owner receives the
 separate urgent Inbox and email approval for the held queue.
+This automatic continuation is an internal Coordinator command authorized by
+the frozen interrupted Wake identity and owner-shard Binding/configuration
+fence. It does not inspect or execute the public Execution Recovery
+`retry_as_new_execution` action, which remains unavailable.
 If the user explicitly Stops the continuation, OpenMeld never starts it again;
 later queued work still requires the same owner approval, while an empty queue
 clears recovery immediately. Wakes submitted after recovery remain behind the

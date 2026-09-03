@@ -301,27 +301,23 @@ describe("Agent Profile work recovery Core RPC", () => {
         return Promise.resolve({ status: "authorized" as const });
       }
     );
-    const projection = buildExecutionRecoveryProjection();
-    const executedCommands: unknown[] = [];
+    const startedContinuations: unknown[] = [];
     const spaceStub = {
-      rpcExecuteExecutionRecovery: vi.fn(
-        (input: { body: Record<string, unknown> }) => {
-          callOrder.push("execute");
-          executedCommands.push(input.body);
+      rpcExecuteExecutionRecovery: vi.fn(),
+      rpcInspectExecutionRecovery: vi.fn(),
+      rpcStartUsageExhaustedContinuation: vi.fn(
+        (continuation: Record<string, unknown>) => {
+          callOrder.push("start");
+          startedContinuations.push(continuation);
           return Promise.resolve({
-            action: "retry_as_new_execution" as const,
-            newExecutionId: "new-execution-1",
-            operationId: String(input.body.operationId),
-            publicationId: null,
-            reasonCode: "execution_recovery.new_execution_requested",
-            recovery: projection,
-            status: "new_execution_requested" as const,
+            continuationClientMessageId: String(
+              continuation.continuationClientMessageId
+            ),
+            operationId: String(continuation.operationId),
+            status: "started" as const,
           });
         }
       ),
-      rpcInspectExecutionRecovery: vi.fn(async () => ({
-        recovery: projection,
-      })),
     };
     const env = createEnv({ db: harness.db, runtimeTransportStub, spaceStub });
     const input = {
@@ -343,32 +339,26 @@ describe("Agent Profile work recovery Core RPC", () => {
         status: "accepted",
       });
 
-      expect(callOrder).toEqual(["authorize", "execute", "execute"]);
+      expect(callOrder).toEqual(["authorize", "start", "start"]);
       expect(
         runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
       ).toHaveBeenCalledOnce();
-      expect(executedCommands).toHaveLength(2);
-      expect(executedCommands[0]).toEqual(executedCommands[1]);
-      expect(executedCommands[0]).toMatchObject({
-        action: "retry_as_new_execution",
-        destination: {
-          spaceId: SPACE_ID,
-          surface: "space",
-          threadId: "thread-1",
-        },
-        expectedIdentity: {
-          dispatchId: "dispatch-interrupted",
-          spaceId: SPACE_ID,
-          targetProfileId: AGENT_PROFILE_ID,
-        },
+      expect(startedContinuations).toHaveLength(2);
+      expect(startedContinuations[0]).toEqual(startedContinuations[1]);
+      expect(startedContinuations[0]).toMatchObject({
+        interruptedClientMessageId: "client-interrupted",
+        interruptedDispatchId: "dispatch-interrupted",
+        interruptedSourceSignalId: "signal-interrupted",
         operationId:
-          "agent-profile-work-recovery:1dcbcbab75bbfe2b76251862ae4f219ed0a1bd75624570685d3dc817b3f04251",
+          "agent-profile-work-continuation:5da1ee755432c68f046b7b774852d3f589118fa5c83839da03807fdde2423430",
+        spaceId: SPACE_ID,
+        targetProfileId: AGENT_PROFILE_ID,
       });
       expect(
         runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
       ).toHaveBeenCalledWith({
         continuationClientMessageId:
-          "execution-recovery-fd96a80aa0d843939d979142d0c5b177b3785c93ae19939e22b772dac929d3a4",
+          "agent-profile-work-continuation-5da1ee755432c68f046b7b774852d3f589118fa5c83839da03807fdde2423430",
         currentAgentControllerRef: "builtin:codex",
         currentBindingId: "binding-1",
         currentConfigurationRevision: 1,
@@ -377,24 +367,10 @@ describe("Agent Profile work recovery Core RPC", () => {
         requireAcceptedExecutionTargetRevision: true,
         targetProfileId: AGENT_PROFILE_ID,
       });
-      expect(spaceStub.rpcInspectExecutionRecovery).toHaveBeenCalledWith({
-        context: CONTEXT,
-        dispatchId: "dispatch-interrupted",
-        spaceAccess: {
-          actor: {
-            dispatchId: "dispatch-interrupted",
-            kind: "dispatch_continuation",
-            requestContext: CONTEXT,
-            sourceSignalId: "signal-interrupted",
-            targetProfileId: AGENT_PROFILE_ID,
-          },
-          proof: { kind: "none" },
-          spaceId: SPACE_ID,
-        },
-        spaceId: SPACE_ID,
-      });
-      expect(spaceStub.rpcExecuteExecutionRecovery).toHaveBeenCalledWith(
+      expect(spaceStub.rpcStartUsageExhaustedContinuation).toHaveBeenCalledWith(
         expect.objectContaining({
+          continuationClientMessageId:
+            "agent-profile-work-continuation-5da1ee755432c68f046b7b774852d3f589118fa5c83839da03807fdde2423430",
           spaceAccess: expect.objectContaining({
             actor: expect.objectContaining({
               dispatchId: "dispatch-interrupted",
@@ -405,6 +381,8 @@ describe("Agent Profile work recovery Core RPC", () => {
           }),
         })
       );
+      expect(spaceStub.rpcInspectExecutionRecovery).not.toHaveBeenCalled();
+      expect(spaceStub.rpcExecuteExecutionRecovery).not.toHaveBeenCalled();
     } finally {
       harness.close();
     }
@@ -630,60 +608,5 @@ function buildAvailableRecovery(input: {
     interruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
     spaceId: SPACE_ID,
     status: "available" as const,
-  };
-}
-
-function buildExecutionRecoveryProjection() {
-  const capability = (
-    action:
-      | "recover_result"
-      | "resume_controller_conversation"
-      | "retry_as_new_execution",
-    enabled: boolean,
-    label: "Recover reply" | "Continue conversation" | "Retry as new execution"
-  ) => ({
-    action,
-    enabled,
-    label,
-    reasonCode: enabled
-      ? "execution_recovery.fresh_execution_available"
-      : "execution_recovery.action_unavailable",
-    warning: enabled ? "This starts a new execution." : null,
-  });
-  return {
-    actions: {
-      recoverResult: capability("recover_result", false, "Recover reply"),
-      resumeControllerConversation: capability(
-        "resume_controller_conversation",
-        false,
-        "Continue conversation"
-      ),
-      retryAsNewExecution: capability(
-        "retry_as_new_execution",
-        true,
-        "Retry as new execution"
-      ),
-    },
-    destination: {
-      spaceId: SPACE_ID,
-      surface: "space" as const,
-      threadId: "thread-1",
-    },
-    identity: {
-      agentControllerConversationId: "conversation-1",
-      agentControllerRef: "builtin:codex",
-      attemptId: "attempt-1",
-      dispatchId: "dispatch-interrupted",
-      resultRef: null,
-      runtimeCoordinatorExecutionId: "runtime-execution-1",
-      spaceId: SPACE_ID,
-      targetProfileId: AGENT_PROFILE_ID,
-      taskId: "task-1",
-    },
-    recommendedAction: "retry_as_new_execution" as const,
-    recoveredPublicationId: null,
-    status: "available" as const,
-    tier: "fresh_execution" as const,
-    updatedAtMs: 1_777_000_000_000,
   };
 }

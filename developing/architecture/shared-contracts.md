@@ -5296,6 +5296,14 @@ marker; the owner shard compares it with the interrupted run command snapshot
 in the same transaction. Missing or mismatched accepted revision evidence is
 unsafe. An unsafe request or failed automatic continuation stays behind one
 current Needs-attention projection instead of entering another retry loop.
+The resulting Space handoff is a separate owner-only Usage-continuation
+command. It carries the frozen interrupted source identity plus deterministic
+operation and client-message identities. Repeated commands converge through
+Space's exactly-once client-message writer and cannot create a second handoff.
+The command never depends on the public Execution Recovery
+`retry_as_new_execution` capability. That legacy schema member remains accepted
+for mixed-version parsing while public inspection and execution keep it
+disabled.
 
 RuntimeCoordinator head admission keeps its existing version 1 wire shape so a
 new Core caller cannot stall ordinary Wake traffic on an older strict owner

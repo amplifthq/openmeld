@@ -241,6 +241,11 @@ export function resolveAgentWakeAdmissionTerminalDecision(
 export function resolveAgentWakeAdmissionBlockReasonCode(
   readiness: AgentExecutionStatusProjection
 ): string | null {
+  // Canonical readiness is the authorization boundary. Reason codes explain a
+  // closed gate; they never replace the positive, current `ready` verdict.
+  if (readiness.displayState === "ready") {
+    return null;
+  }
   const reasonCodes = collectCurrentDecisionReasonCodes(readiness);
   for (const reasonCode of [
     "controller.registry.disabled",
@@ -264,7 +269,7 @@ export function resolveAgentWakeAdmissionBlockReasonCode(
     reasonCodes.find((reasonCode) =>
       reasonCode.startsWith("working_folder.")
     ) ??
-    null
+    "agent_execution.readiness_unconfirmed"
   );
 }
 
@@ -1125,6 +1130,8 @@ function isCheckingAgentWakeAvailability(input: {
   }
 
   return (
+    (input.readiness.displayState === "unknown" &&
+      input.readiness.facts.localService.refreshable) ||
     isRefreshableAgentExecutionCheck(input) ||
     isRefreshableRouteGap(input) ||
     isReadyRouteMissingDispatchClaim(input)
@@ -1137,6 +1144,7 @@ function isAgentWakeAvailable(input: {
   readiness: AgentExecutionStatusProjection;
 }): boolean {
   return (
+    input.readiness.displayState === "ready" &&
     isWakeRouteReady(input.wakeRouteStatus) &&
     (input.agentWakeRouteRegistration?.status ?? "registered") ===
       "registered" &&
