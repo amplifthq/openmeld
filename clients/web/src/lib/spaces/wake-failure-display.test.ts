@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveWakeFailureDisplay } from "./wake-failure-display";
+import {
+	resolveHistoricalWakeFailureBody,
+	resolveWakeFailureDisplay,
+} from "./wake-failure-display";
 
 describe("resolveWakeFailureDisplay", () => {
 	it("explains a cross-workspace Agent Profile without offering a dead-end action", () => {
@@ -66,5 +69,27 @@ describe("resolveWakeFailureDisplay", () => {
 			actionTarget: null,
 			body: "OpenMeld did not receive enough error details to explain why Runner could not reply. Open diagnostics for technical details.",
 		});
+	});
+});
+
+describe("resolveHistoricalWakeFailureBody", () => {
+	it("does not infer a historical device identity from current state", () => {
+		const display = resolveHistoricalWakeFailureBody({
+			failureReasonCode: "service.not_running",
+			targetLabel: "@runner",
+		});
+
+		expect(display).toBe(
+			"Runner could not complete this Wake because its computer was not connected to OpenMeld at the time."
+		);
+	});
+
+	it("states only the historical outcome when local Agent evidence is incomplete", () => {
+		expect(
+			resolveHistoricalWakeFailureBody({
+				failureReasonCode: "agent_profile_binding.missing",
+				targetLabel: "@runner",
+			})
+		).toBe("Runner could not start this Wake.");
 	});
 });

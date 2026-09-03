@@ -158,6 +158,30 @@ function createUnavailableExecutionRecovery(input: {
 	};
 }
 
+function createLegacyFreshExecutionRecovery(input: {
+	dispatchId: string;
+	targetProfileId: string;
+}) {
+	const unavailable = createUnavailableExecutionRecovery(input);
+	return {
+		...unavailable,
+		actions: {
+			...unavailable.actions,
+			retryAsNewExecution: {
+				action: "retry_as_new_execution" as const,
+				enabled: true,
+				label: "Retry as new execution" as const,
+				reasonCode: "execution_recovery.available",
+				warning:
+					"This starts a new execution and may run the task and its side effects again.",
+			},
+		},
+		recommendedAction: "retry_as_new_execution" as const,
+		status: "available" as const,
+		tier: "fresh_execution" as const,
+	};
+}
+
 const {
 	createDirectMessageApiMock,
 	createWebSpaceApiMock,
@@ -15207,6 +15231,92 @@ describe("SpaceLanding", () => {
 		);
 	});
 
+	it("does not execute an older Core fresh Wake through execution recovery", async () => {
+		const inspectExecutionRecovery = vi.fn().mockResolvedValue({
+			recovery: createLegacyFreshExecutionRecovery({
+				dispatchId: "dispatch-legacy-fresh",
+				targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			}),
+		});
+		const executeExecutionRecovery = vi.fn();
+		createWebSpaceApiMock.mockReturnValue({
+			executeExecutionRecovery,
+			getActiveWakeProgress: vi.fn().mockResolvedValue({ items: [] }),
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [],
+				query: {
+					clientMessageId: "client-message-legacy-fresh",
+					spaceId: "space-123",
+					targetProfileId: null,
+				},
+			}),
+			inspectExecutionRecovery,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [
+						createTextSignal({
+							id: "sig-legacy-fresh-source",
+							messageEnvelope: {
+								activationTargets: [DEFAULT_AGENT_PROFILE_ID],
+								referenceTargets: [],
+								text: "@Runner finish the report",
+							},
+							text: "@Runner finish the report",
+						}),
+						createTerminalFailureNoticeSignal({
+							actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+							dispatchId: "dispatch-legacy-fresh",
+							id: "sig-legacy-fresh-failure",
+							replyToSignalId: "sig-legacy-fresh-source",
+							text: "Runner could not complete this Wake.",
+						}),
+					],
+					nextCursor: null,
+				},
+			}),
+			messageDetailsBySignalId: {
+				"sig-legacy-fresh-source": createMessageDetailsQueryResult({
+					signalId: "sig-legacy-fresh-source",
+				}),
+			},
+		});
+
+		renderSpaceLanding();
+
+		const sourceMessage = document.querySelector(
+			'[data-signal-id="sig-legacy-fresh-source"]'
+		);
+		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
+		if (!sourceRow) {
+			throw new Error("Expected the failed Wake source message row.");
+		}
+		fireEvent.click(
+			within(sourceRow as HTMLElement).getByRole("button", {
+				name: "Message details",
+			})
+		);
+		await screen.findByRole("dialog", { name: "Message details" });
+		await waitFor(() =>
+			expect(inspectExecutionRecovery).toHaveBeenCalledOnce()
+		);
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
+		expect(executeExecutionRecovery).not.toHaveBeenCalled();
+	});
+
 	it("retries a single-target anchored execution failure as a new Wake", async () => {
 		const sourceText = "@Scout check the release build";
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
@@ -15331,6 +15441,127 @@ describe("SpaceLanding", () => {
 				screen.queryByRole("heading", { name: "Message details" })
 			).toBeNull();
 		});
+	});
+
+	it("keeps an independent new Wake behind normal Core Wakeability admission", async () => {
+		const sourceText = "@Scout check the release build";
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const postNormalMessageMock = vi.fn().mockRejectedValue(
+			new OpenMeldApiClientHttpError({
+				code: "space.wake.target_invalid",
+				message: "Scout cannot be woken right now.",
+				rawBody: "",
+				requestId: "request-fresh-wake-blocked",
+				status: 409,
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [],
+				query: {
+					clientMessageId: "client-message-original",
+					spaceId: "space-123",
+					targetProfileId: null,
+				},
+			}),
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot({
+					extraAgents: [
+						{
+							mentionAlias: "scout",
+							profileId: SECOND_AGENT_PROFILE_ID,
+							profileName: "Scout",
+						},
+					],
+				}),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [
+						createTextSignal({
+							id: "sig-source-wake-blocked-retry",
+							messageEnvelope: {
+								activationTargets: [SECOND_AGENT_PROFILE_ID],
+								referenceTargets: [],
+								text: sourceText,
+							},
+							meta: { clientMessageId: "client-message-original" },
+							text: sourceText,
+						}),
+						createTerminalFailureNoticeSignal({
+							actorProfileId: SECOND_AGENT_PROFILE_ID,
+							dispatchId: null,
+							failureStage: "execution",
+							id: "sig-scout-failure-blocked-retry",
+							replyToSignalId: "sig-source-wake-blocked-retry",
+							text: "Scout could not complete this Wake.",
+						}),
+					],
+					nextCursor: null,
+				},
+			}),
+			messageDetailsBySignalId: {
+				"sig-source-wake-blocked-retry": createMessageDetailsQueryResult({
+					signalId: "sig-source-wake-blocked-retry",
+				}),
+			},
+		});
+
+		renderSpaceLanding();
+
+		const sourceMessage = document.querySelector(
+			'[data-signal-id="sig-source-wake-blocked-retry"]'
+		);
+		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
+		if (!sourceRow) {
+			throw new Error("Expected the failed Wake source message row.");
+		}
+		fireEvent.click(
+			within(sourceRow as HTMLElement).getByRole("button", {
+				name: "Message details",
+			})
+		);
+		const messageDetailsDialog = await screen.findByRole("dialog", {
+			name: "Message details",
+		});
+		fireEvent.click(
+			within(messageDetailsDialog).getByRole("button", {
+				name: "Retry as new execution",
+			})
+		);
+
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledOnce());
+		expect(postNormalMessageMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messageEnvelope: expect.objectContaining({
+					activationTargets: [SECOND_AGENT_PROFILE_ID],
+				}),
+			})
+		);
+		expect(
+			await within(messageDetailsDialog).findByRole("button", {
+				name: "New execution failed. Try again",
+			})
+		).toBeTruthy();
+		expect(toastMock.error).toHaveBeenCalledWith(
+			"Couldn't retry this Wake. Scout cannot be woken right now."
+		);
+		expect(consoleError).toHaveBeenCalledWith(
+			"Failed to retry the Wake.",
+			expect.any(OpenMeldApiClientHttpError)
+		);
 	});
 
 	it("keeps an outcome-unknown Wake Retry under one client message identity", async () => {

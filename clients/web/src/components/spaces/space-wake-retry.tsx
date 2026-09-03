@@ -392,6 +392,9 @@ export function SpaceExecutionRecoveryButton(input: {
 	if (resolution.action === null) {
 		return null;
 	}
+	if (resolution.action === "retry_as_new_execution") {
+		return null;
+	}
 	const recover = async () => {
 		if (
 			pendingRef.current ||
@@ -430,11 +433,7 @@ export function SpaceExecutionRecoveryButton(input: {
 	if (recoveryLabel === null) {
 		return null;
 	}
-	const recoveryWarning =
-		resolution?.action === "retry_as_new_execution"
-			? (resolution.warning ??
-				"This starts a new execution and may run the task and its side effects again.")
-			: (resolution?.warning ?? null);
+	const recoveryWarning = resolution.warning;
 	return (
 		<div
 			className={cn(
@@ -495,9 +494,7 @@ function resolveSpaceExecutionRecoveryButtonLabel(input: {
 		if (input.resolution?.action === "resume_controller_conversation") {
 			return "Recovering reply...";
 		}
-		return input.resolution?.action === "retry_as_new_execution"
-			? "Starting new execution..."
-			: "Recovering result...";
+		return "Recovering result...";
 	}
 	if (input.didFail) {
 		return "Recovery failed. Try again";

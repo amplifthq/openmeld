@@ -314,9 +314,6 @@ function resolveWakeIssueEntry(input: {
 
 	const historicalBody = resolveHistoricalWakeFailureBody({
 		failureReasonCode: item.failureReasonCode,
-		targetContext:
-			input.wakeFailureTargetContextsByProfileId?.get(item.targetProfileId) ??
-			null,
 		targetLabel: item.targetLabel,
 	});
 

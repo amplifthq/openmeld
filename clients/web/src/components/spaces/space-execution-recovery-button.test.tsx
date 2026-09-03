@@ -1,11 +1,4 @@
-import {
-	act,
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-} from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	SpaceExecutionRecoveryButton,
@@ -238,16 +231,15 @@ describe("SpaceExecutionRecoveryButton", () => {
 		expect(inspect).toHaveBeenCalledOnce();
 	});
 
-	it("executes Tier 3 through the Core recovery operation instead of a second Wake path", async () => {
-		const warning =
-			"This starts a new execution and may run the task and its side effects again.";
+	it("does not expose or execute an older Core fresh-Wake recovery action", async () => {
 		const recover = vi.fn<SpaceExecutionRecoveryHandler>(async (attempt) =>
 			attempt.action === null
 				? {
 						action: "retry_as_new_execution",
 						label: "Retry as new execution",
 						status: "available",
-						warning,
+						warning:
+							"This starts a new execution and may run the task and its side effects again.",
 					}
 				: {
 						action: null,
@@ -263,78 +255,14 @@ describe("SpaceExecutionRecoveryButton", () => {
 			/>
 		);
 
-		const button = await screen.findByRole("button", {
-			name: "Retry as new execution",
-		});
-		const warningElement = screen.getByText(warning);
-		expect(warningElement).toBeTruthy();
-		expect(button.getAttribute("aria-describedby")).toBe(warningElement.id);
-		fireEvent.click(button);
-
-		await waitFor(() => expect(recover).toHaveBeenCalledTimes(2));
-		expect(recover.mock.calls[1]?.[0]).toEqual({
+		await waitFor(() => expect(recover).toHaveBeenCalledOnce());
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
+		expect(recover).toHaveBeenCalledWith({
 			...recoveryRequest,
-			action: "retry_as_new_execution",
-			operationId: expect.any(String),
-		});
-	});
-
-	it.each([
-		{
-			activate: (button: HTMLElement) => {
-				fireEvent.pointerDown(button, { pointerType: "touch" });
-				fireEvent.pointerUp(button, { pointerType: "touch" });
-				fireEvent.click(button);
-			},
-			input: "touch",
-		},
-		{
-			activate: (button: HTMLElement) => {
-				button.focus();
-				fireEvent.keyDown(button, { key: "Enter" });
-				fireEvent.click(button, { detail: 0 });
-			},
-			input: "keyboard",
-		},
-	])("keeps the fresh-execution warning visible before $input activation", async ({
-		activate,
-	}) => {
-		const warning =
-			"This starts a new execution and may run the task and its side effects again.";
-		const recover = vi.fn<SpaceExecutionRecoveryHandler>(async (attempt) =>
-			attempt.action === null
-				? {
-						action: "retry_as_new_execution",
-						label: "Retry as new execution",
-						status: "available",
-						warning,
-					}
-				: {
-						action: null,
-						label: null,
-						status: "in_progress",
-						warning: null,
-					}
-		);
-		render(
-			<SpaceExecutionRecoveryButton
-				onRecoverExecution={recover}
-				request={recoveryRequest}
-			/>
-		);
-		const button = await screen.findByRole("button", {
-			name: "Retry as new execution",
-		});
-		const warningElement = screen.getByText(warning);
-		expect(warningElement).toBeTruthy();
-		expect(button.getAttribute("aria-describedby")).toBe(warningElement.id);
-
-		activate(button);
-
-		await waitFor(() => expect(recover).toHaveBeenCalledTimes(2));
-		expect(recover.mock.calls[1]?.[0]).toMatchObject({
-			action: "retry_as_new_execution",
-			operationId: expect.any(String),
+			action: null,
+			operationId: null,
 		});
 	});
 });

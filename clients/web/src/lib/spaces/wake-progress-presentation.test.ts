@@ -390,7 +390,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([]);
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: "Runner could not complete this Wake because OpenMeld was not connected on Mira's computer at the time.",
+				body: "Runner could not complete this Wake because its computer was not connected to OpenMeld at the time.",
 				message: "@runner couldn't reply.",
 				targetLabel: "@runner",
 			}),
@@ -401,34 +401,38 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		);
 	});
 
-	it("keeps another user's local-service Wake failure informative without local repair", () => {
-		const state = resolveSpaceMessageWakeProgressState({
-			item: createTimelineItem(),
-			items: [
-				createWakeProgressItem({
-					failureReasonCode: "daemon.delivery.execution_stalled",
-					message: "@runner couldn't reply.",
-					phase: "failed",
-					updatedAtMs: 3,
-				}),
-			],
-			wakeFailureTargetContextsByProfileId: new Map([
-				[
-					TARGET_PROFILE_ID,
-					createWakeFailureTargetContext({
-						controllerDisplayName: "Ming's MacBook Pro",
-						isCurrentUserManageable: false,
-						ownerDisplayName: "Ming Yoo",
+	it("keeps a historical local-service failure stable after its Binding moves", () => {
+		const createState = (controllerDisplayName: string) =>
+			resolveSpaceMessageWakeProgressState({
+				item: createTimelineItem(),
+				items: [
+					createWakeProgressItem({
+						failureReasonCode: "daemon.delivery.execution_stalled",
+						message: "@runner couldn't reply.",
+						phase: "failed",
+						updatedAtMs: 3,
 					}),
 				],
-			]),
-		});
+				wakeFailureTargetContextsByProfileId: new Map([
+					[
+						TARGET_PROFILE_ID,
+						createWakeFailureTargetContext({
+							controllerDisplayName,
+							isCurrentUserManageable: false,
+							ownerDisplayName: "Ming Yoo",
+						}),
+					],
+				]),
+			});
+		const state = createState("Ming's MacBook Pro");
+		const afterBindingMove = createState("Ming's Mac Studio");
 
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: "Runner could not complete this Wake because OpenMeld was not connected on Ming's MacBook Pro at the time.",
+				body: "Runner could not complete this Wake because its computer was not connected to OpenMeld at the time.",
 			}),
 		]);
+		expect(afterBindingMove.issueEntries).toEqual(state.issueEntries);
 		expect(state.issueEntries[0]?.action).toBeNull();
 	});
 

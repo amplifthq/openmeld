@@ -69,7 +69,6 @@ export function resolveWakeFailureDisplay(input: {
 
 export function resolveHistoricalWakeFailureBody(input: {
 	failureReasonCode: string | null | undefined;
-	targetContext?: WakeFailureTargetContext | null;
 	targetLabel: string;
 }): string | null {
 	const reasonCode = normalizeOptionalText(input.failureReasonCode);
@@ -110,12 +109,11 @@ export function resolveHistoricalWakeFailureBody(input: {
 	switch (recovery.kind) {
 		case "local_service":
 			return resolveHistoricalLocalServiceFailureBody({
-				targetContext: input.targetContext ?? null,
 				targetName,
 			});
 		case "local_agent_connection":
 		case "local_agent_prepare":
-			return `${targetName} could not start this Wake because its local Agent setup was not ready at the time.`;
+			return `${targetName} could not start this Wake.`;
 		case "account_access":
 			return `${targetName} could not complete this Wake because its provider account or Agent settings blocked the request.`;
 		case "system_retry":
@@ -170,17 +168,8 @@ function resolveNonCurrentOwnerLocalServiceFailureBody(input: {
 }
 
 function resolveHistoricalLocalServiceFailureBody(input: {
-	targetContext: WakeFailureTargetContext | null;
 	targetName: string;
 }): string {
-	const controllerDisplayName = input.targetContext?.controllerDisplayName;
-	if (controllerDisplayName) {
-		return `${input.targetName} could not complete this Wake because OpenMeld was not connected on ${controllerDisplayName} at the time.`;
-	}
-	const ownerDisplayName = input.targetContext?.ownerDisplayName;
-	if (ownerDisplayName) {
-		return `${input.targetName} could not complete this Wake because OpenMeld was not connected on ${formatPossessiveName(ownerDisplayName)} computer at the time.`;
-	}
 	return `${input.targetName} could not complete this Wake because its computer was not connected to OpenMeld at the time.`;
 }
 

@@ -1196,7 +1196,9 @@ function resolveRequestedExecutionRecoveryCapability(
 		case "resume_controller_conversation":
 			return recovery.actions.resumeControllerConversation;
 		case "retry_as_new_execution":
-			return recovery.actions.retryAsNewExecution;
+			throw new Error(
+				"Starting a new Wake is not an execution recovery action."
+			);
 		default: {
 			const unsupportedAction: never = action;
 			throw new Error(
@@ -1212,9 +1214,6 @@ function resolveSpaceExecutionRecoverySuccessMessage(input: {
 }): string {
 	if (input.status === "already_completed") {
 		return "Recovery already completed";
-	}
-	if (input.action === "retry_as_new_execution") {
-		return "New execution started";
 	}
 	if (input.action === "resume_controller_conversation") {
 		return "Conversation continued";

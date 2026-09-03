@@ -30,7 +30,7 @@ function resolveRecommendedExecutionRecoveryCapability(
 		case "resume_controller_conversation":
 			return recovery.actions.resumeControllerConversation;
 		case "retry_as_new_execution":
-			return recovery.actions.retryAsNewExecution;
+			return null;
 		default:
 			return null;
 	}

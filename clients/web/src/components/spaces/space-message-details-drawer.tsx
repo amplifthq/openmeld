@@ -960,10 +960,6 @@ function resolveNoticeRecoveryPresentation(input: {
 	)
 		? resolveHistoricalWakeFailureBody({
 				failureReasonCode: reasonCode,
-				targetContext: targetProfileId
-					? (input.wakeFailureTargetContextsByProfileId?.get(targetProfileId) ??
-						null)
-					: null,
 				targetLabel,
 			})
 		: null;

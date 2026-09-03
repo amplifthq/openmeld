@@ -787,7 +787,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeNull();
 	});
 
-	it("keeps the failed reason prominent with one recovery action", async () => {
+	it("keeps the failed reason prominent without treating a fresh Wake as recovery", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -824,16 +824,14 @@ describe("SpaceMessageDetailsDrawer", () => {
 			"OpenMeld ran into a system problem before Center Agent could reply. Try again. If it keeps happening, open diagnostics."
 		);
 		expect(failureReason.closest("p")?.className).toContain("text-destructive");
-		await within(reasonSection).findByRole("button", {
-			name: "Retry as new execution",
-		});
+		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
 			Array.from(
 				reasonSection.querySelectorAll<HTMLButtonElement | HTMLAnchorElement>(
 					"button, a"
 				)
 			).map((action) => action.textContent)
-		).toEqual(["Retry as new execution"]);
+		).toEqual([]);
 		expect(
 			screen.queryByRole("link", { name: "Review agent settings" })
 		).toBeNull();
@@ -1030,7 +1028,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeNull();
 	});
 
-	it("offers recovery-controlled Retry for an oversized Center Agent tool result", async () => {
+	it("does not treat a fresh oversized-result rerun as execution recovery", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -1063,16 +1061,14 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const reasonSection = getActivityRegion("Center Agent");
-		await within(reasonSection).findByRole("button", {
-			name: "Retry as new execution",
-		});
+		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
 			Array.from(
 				reasonSection.querySelectorAll<HTMLButtonElement | HTMLAnchorElement>(
 					"button, a"
 				)
 			).map((action) => action.textContent)
-		).toEqual(["Retry as new execution"]);
+		).toEqual([]);
 	});
 
 	it("shows one exact Recover result action for an independent late-result notice", async () => {
