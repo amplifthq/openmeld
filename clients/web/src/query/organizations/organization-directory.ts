@@ -153,22 +153,30 @@ type OrganizationDirectoryHumanProfile = NonNullable<
 >;
 
 export type OrganizationSpaceProfileCandidates = {
-	agentProfiles: readonly Pick<
+	agentProfiles: readonly (Pick<
 		OrganizationDirectoryAgentProfile,
+		| "avatarUrl"
+		| "createdAt"
 		| "isCenterAgent"
+		| "lastUsedAt"
+		| "operationalContext"
 		| "ownerName"
 		| "ownerUserId"
 		| "profileHandle"
 		| "profileId"
 		| "profileName"
+		| "readiness"
 		| "status"
-	>[];
+	> & { agentControllerRef: string | null })[];
 	members: readonly {
+		avatarImageUrl: string | null;
 		humanProfile: Pick<
 			OrganizationDirectoryHumanProfile,
 			"profileHandle" | "profileId" | "profileName" | "status"
 		> | null;
 		memberName: string;
+		lastActiveAt: string | null;
+		userId: string;
 	}[];
 	organizationId: string;
 };
@@ -294,22 +302,33 @@ export function organizationSpaceProfileCandidatesQueryOptions(input: {
 		refetchOnWindowFocus: false,
 		retry: baseQueryOptions.retry,
 		select: (directory) => ({
-			agentProfiles: directory.agentProfiles
-				.filter(
-					(profile) =>
-						profile.managedRole !== "center_agent" ||
-						profile.organizationId === directory.organizationId
-				)
-				.map((profile) => ({
-					isCenterAgent: profile.isCenterAgent,
-					ownerName: profile.ownerName,
-					ownerUserId: profile.ownerUserId,
-					profileHandle: profile.profileHandle,
-					profileId: profile.profileId,
-					profileName: profile.profileName,
-					status: profile.status,
-				})),
+			agentProfiles: directory.agentProfiles.flatMap((profile) => {
+				if (
+					profile.managedRole === "center_agent" &&
+					profile.organizationId !== directory.organizationId
+				) {
+					return [];
+				}
+				return [
+					{
+						agentControllerRef: profile.readiness.agentControllerRef,
+						avatarUrl: profile.avatarUrl,
+						createdAt: profile.createdAt,
+						isCenterAgent: profile.isCenterAgent,
+						lastUsedAt: profile.lastUsedAt,
+						operationalContext: profile.operationalContext,
+						ownerName: profile.ownerName,
+						ownerUserId: profile.ownerUserId,
+						profileHandle: profile.profileHandle,
+						profileId: profile.profileId,
+						profileName: profile.profileName,
+						readiness: profile.readiness,
+						status: profile.status,
+					},
+				];
+			}),
 			members: directory.members.map((member) => ({
+				avatarImageUrl: member.user.image,
 				humanProfile: member.humanProfile
 					? {
 							profileHandle: member.humanProfile.profileHandle,
@@ -318,7 +337,9 @@ export function organizationSpaceProfileCandidatesQueryOptions(input: {
 							status: member.humanProfile.status,
 						}
 					: null,
+				lastActiveAt: member.lastActiveAt ?? null,
 				memberName: member.user.name,
+				userId: member.userId,
 			})),
 			organizationId: directory.organizationId,
 		}),

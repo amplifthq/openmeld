@@ -18,6 +18,7 @@ export function SpaceCreateProfileButton(input: {
 	className?: string;
 	label?: string;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
+	primary?: boolean;
 	orgSlug: string;
 	spaceId: string;
 	spaceName: string | null;
@@ -33,7 +34,7 @@ export function SpaceCreateProfileButton(input: {
 				}}
 				size="xs"
 				type="button"
-				variant="outline"
+				variant={input.primary ? "default" : "outline"}
 			>
 				<PlusIcon aria-hidden="true" data-icon="inline-start" />
 				{input.label ?? "Create Agent"}
