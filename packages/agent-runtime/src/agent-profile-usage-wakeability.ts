@@ -63,12 +63,20 @@ export function resolveAgentProfileUsageWakeability(input: {
   }
   const report = input.report;
   if (!report) {
-    return CHECKING_USAGE;
+    return ALLOWS_NEW_WORK;
   }
   if (
     report.usageLimitsSupportMatrixVersion !==
     AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION
   ) {
+    return ALLOWS_NEW_WORK;
+  }
+  // Usage is one current owner fact, not the owner of the entire Wakeability
+  // answer. A legacy Service that cannot report it must remain compatible, and
+  // an inconclusive current report may only keep Checking until its own lease
+  // expires. Base runtime readiness separately decides whether the route itself
+  // is current enough to authorize a Wake.
+  if (report.expiresAtMs <= input.nowMs) {
     return ALLOWS_NEW_WORK;
   }
   const supportedUsageLimits = report.usageLimits?.filter(
@@ -88,7 +96,7 @@ export function resolveAgentProfileUsageWakeability(input: {
     return CHECKING_USAGE;
   }
 
-  if (report.status !== "ready" || report.expiresAtMs <= input.nowMs) {
+  if (report.status !== "ready") {
     return CHECKING_USAGE;
   }
 

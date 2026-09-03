@@ -25,7 +25,6 @@ type TransactionPort = {
 const actions = [
   "recover_result",
   "resume_controller_conversation",
-  "retry_as_new_execution",
 ] as const satisfies readonly ExecutionRecoveryAction[];
 const EFFECT_OPERATION_ID_PATTERN = /^execution-recovery-effect:[a-f0-9]{64}$/u;
 
@@ -89,10 +88,7 @@ describe("Space execution recovery fenced operation", () => {
     expect(recovered).toMatchObject({
       action,
       operationId: "caller-op-after-pre-effect-crash",
-      status:
-        action === "retry_as_new_execution"
-          ? "new_execution_requested"
-          : "completed",
+      status: "completed",
     });
     expect(effect).toHaveBeenCalledOnce();
   });
@@ -189,10 +185,7 @@ describe("Space execution recovery fenced operation", () => {
     expect(recovered).toMatchObject({
       action,
       operationId: "caller-op-2",
-      status:
-        action === "retry_as_new_execution"
-          ? "new_execution_requested"
-          : "completed",
+      status: "completed",
     });
     expect(beforeEffect).toHaveBeenCalledTimes(2);
     expect(effect).toHaveBeenCalledOnce();

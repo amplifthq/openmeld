@@ -5835,6 +5835,15 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
         eligibleAgentProfiles: input.eligibleAgentProfiles,
         env: input.env,
         viewerUserId: input.viewerUserId,
+      }).catch((error) => {
+        console.warn(
+          "[core.organization_agent_runtime_overview.activity_unavailable]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            organizationId: input.organizationId,
+          }
+        );
+        return new Map<string, DirectoryOperationalContextRead>();
       }),
     ]);
   const ownerWorkSpaceIds = [
@@ -5856,11 +5865,22 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
       ),
     ];
   });
-  const spaceNamesById = await readSpaceIndexNamesByIds({
-    db: requireSpaceIndexDb(input.env),
-    organizationId: input.organizationId,
-    spaceIds: ownerWorkSpaceIds,
-  });
+  let spaceNamesById = new Map<string, string>();
+  try {
+    spaceNamesById = await readSpaceIndexNamesByIds({
+      db: requireSpaceIndexDb(input.env),
+      organizationId: input.organizationId,
+      spaceIds: ownerWorkSpaceIds,
+    });
+  } catch (error) {
+    console.warn(
+      "[core.organization_agent_runtime_overview.space_names_unavailable]",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        organizationId: input.organizationId,
+      }
+    );
+  }
   const response = {
     agentProfiles: input.eligibleAgentProfiles.map((agent) => {
       const readiness = readinessByProfileId.get(agent.profileId);
@@ -20458,7 +20478,7 @@ async function requireAgentProfileWorkspaceScope(
     });
   }
 
-  if (!profileOrganization || profileOrganization.profileKind !== "agent") {
+  if (profileOrganization?.profileKind !== "agent") {
     throw createCoreRpcHttpError({
       code: "agent_profile.not_found",
       reason: "Agent Profile was not found.",

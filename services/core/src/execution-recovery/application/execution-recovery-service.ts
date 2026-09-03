@@ -73,8 +73,6 @@ const disabledCapability = (
 export function inspectExecutionRecovery(
   input: InspectExecutionRecoveryInput
 ): ExecutionRecoveryProjection {
-  const retryWarning =
-    "This creates a new execution and may run the task again, including external side effects.";
   const actions = {
     recoverResult: disabledCapability(
       "recover_result",
@@ -88,14 +86,10 @@ export function inspectExecutionRecovery(
     ),
     retryAsNewExecution: disabledCapability(
       "retry_as_new_execution",
-      "Retry as new execution",
-      "execution_recovery.higher_priority_action_available",
-      retryWarning
+      "Start a new Wake",
+      "execution_recovery.new_wake_required"
     ),
   };
-  const shouldRetryUsageWakeAsNewExecution =
-    input.terminalFailureCode === "usage_exhausted" &&
-    input.freshExecutionCapability.exactSourceWakeVerified;
 
   if (input.explicitUserStop) {
     return {
@@ -180,7 +174,7 @@ export function inspectExecutionRecovery(
     input.identity.agentControllerConversationId &&
     input.resumeCapability.exactAssociationVerified &&
     input.resumeCapability.serviceSupportsResume &&
-    !shouldRetryUsageWakeAsNewExecution
+    !input.terminalFailureCode
   ) {
     return {
       actions: {
@@ -204,42 +198,14 @@ export function inspectExecutionRecovery(
     };
   }
 
-  if (!input.freshExecutionCapability.exactSourceWakeVerified) {
-    return {
-      actions: {
-        ...actions,
-        retryAsNewExecution: {
-          ...actions.retryAsNewExecution,
-          reasonCode: "execution_recovery.exact_source_wake_unavailable",
-        },
-      },
-      destination: input.destination,
-      identity: input.identity,
-      recommendedAction: null,
-      recoveredPublicationId: null,
-      status: "unavailable",
-      tier: "none",
-      updatedAtMs: input.updatedAtMs,
-    };
-  }
-
   return {
-    actions: {
-      ...actions,
-      retryAsNewExecution: {
-        action: "retry_as_new_execution",
-        enabled: true,
-        label: "Retry as new execution",
-        reasonCode: "execution_recovery.fresh_execution_only",
-        warning: retryWarning,
-      },
-    },
+    actions,
     destination: input.destination,
     identity: input.identity,
-    recommendedAction: "retry_as_new_execution",
+    recommendedAction: null,
     recoveredPublicationId: null,
-    status: "available",
-    tier: "fresh_execution",
+    status: "unavailable",
+    tier: "none",
     updatedAtMs: input.updatedAtMs,
   };
 }
@@ -309,6 +275,11 @@ export function assertExecutionRecoveryCommandCanRun(input: {
   projection: ExecutionRecoveryProjection;
 }): void {
   assertExecutionRecoveryCommandMatchesProjection(input);
+  if (input.command.action === "retry_as_new_execution") {
+    throw new Error(
+      "execution_recovery.action_unavailable:execution_recovery.new_wake_required"
+    );
+  }
   const capability = resolveRequestedCapability(
     input.command.action,
     input.projection

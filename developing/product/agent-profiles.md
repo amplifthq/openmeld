@@ -921,6 +921,13 @@ Wakeability projection says the full reply path is aligned for the
 target profile, intended account, OpenMeld Service Runtime, Agent Controller, OpenMeld
 Service compatibility, and claim eligibility.
 
+A retained Wake failure, provider-access failure row, or persisted
+`readinessImpact` remains outcome and diagnostic history for that exact Wake.
+It does not block a later Wake or choose a later recovery action. A lasting
+problem changes current Wakeability only after its owning current fact is read
+again—for example, a current Usage report, current Service compatibility fact,
+or current path-free working-folder observation.
+
 Public Wakeability uses four verdicts only: `Available`, `Checking`,
 `Offline`, and `Unavailable`. Concrete repair actions such as `Update OpenMeld
 on Computer`, `Reconnect Computer`, or `Connect local agent` are owner guidance,

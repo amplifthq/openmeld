@@ -103,7 +103,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
     });
   });
 
-  it("keeps supported Usage in Checking for expired reports, stale observations, or elapsed resets", () => {
+  it("stops using an expired report while keeping a current inconclusive report bounded by its expiry", () => {
     const cases = [
       {
         expiresAtMs: NOW_MS - 1,
@@ -127,7 +127,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
       },
     ];
 
-    for (const value of cases) {
+    for (const [index, value] of cases.entries()) {
       expect(
         resolveAgentProfileUsageWakeability({
           agentControllerRef: "builtin:codex",
@@ -139,15 +139,23 @@ describe("resolveAgentProfileUsageWakeability", () => {
               AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
           },
         })
-      ).toEqual({
-        blocksNewWork: true,
-        reasonCode: "usage_checking",
-        status: "checking",
-      });
+      ).toEqual(
+        index === 0
+          ? {
+              blocksNewWork: false,
+              reasonCode: null,
+              status: "available",
+            }
+          : {
+              blocksNewWork: true,
+              reasonCode: "usage_checking",
+              status: "checking",
+            }
+      );
     }
   });
 
-  it("keeps a native Usage provider in Checking before its first reliable report", () => {
+  it("does not turn an old Service with no Usage report into permanent Checking", () => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:codex",
@@ -155,9 +163,9 @@ describe("resolveAgentProfileUsageWakeability", () => {
         report: null,
       })
     ).toEqual({
-      blocksNewWork: true,
-      reasonCode: "usage_checking",
-      status: "checking",
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
     });
   });
 

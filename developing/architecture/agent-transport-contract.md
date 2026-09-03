@@ -709,8 +709,9 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   the local Project `bindingGeneration` (as
   `localProjectBindingGeneration`) when applicable. The Core trust matcher
   accepts the set only while those current identities match and every
-  observation is fresh. This contract dependency does not yet connect that
-  matcher to the production Wakeability projection.
+  observation is fresh. The Core-owned Wakeability projection consumes that
+  matcher as its current working-folder gate; missing, legacy, partial, stale,
+  duplicated, or identity-mismatched evidence remains unknown and fails closed.
   `localProjectBindingGeneration` is an opaque Service-owned local connection
   identity. Core does not compare it with a cloud generation; a later accepted
   current-session report replaces the earlier generation and triggers
@@ -1222,9 +1223,13 @@ publication pipeline in this order:
    `agentControllerConversationId`, execution, owner, controller capability,
    and requested publication destination still match. The instruction is to
    republish the already-completed final result, never to redo the task.
-3. **Retry as new execution.** This is allowed only when neither earlier tier
-   is safe. It creates a new execution identity and explicitly warns that the
-   work will run again.
+
+A new attempt after a terminal outcome is a new Wake, not Execution Recovery.
+It must enter through normal current Wakeability and admission with a new
+client-message and execution identity. The legacy
+`retry_as_new_execution` schema member remains parseable for mixed-version
+stored projections, but current Core never enables or executes it through the
+Recovery endpoint.
 
 An explicit user Stop is not automatically recoverable. A process crash with
 no result must not fabricate completion. An external-side-effect outcome that
@@ -1245,8 +1250,8 @@ continuation. Cancellation, user Stop, any other terminal reason, token
 mismatch, and non-successful late results remain terminal rejections.
 
 `late_result_available` is durable recovery evidence, not a recovery command.
-Core's `inspectExecutionRecovery` projection orders the three capabilities
-above. The idempotent `recoverExecutionResult` command passes the retained
+Core's `inspectExecutionRecovery` projection orders the two outcome-scoped
+capabilities above. The idempotent `recoverExecutionResult` command passes the retained
 result through the existing result/publication pipeline and records the
 recovered outcome without replacing RuntimeCoordinator's terminal history.
 `resumeControllerConversation` is available only after the exact-conversation
@@ -1537,8 +1542,8 @@ Wake execution invariants:
 - `dispatchId` is the logical Wake identity.
 - RuntimeCoordinator execution state is the in-flight execution truth.
 - Transport retry or outcome-unknown redrive must not create a new logical
-  Wake. A user-selected **Retry as new execution** after a true terminal
-  failure is a new Wake with a new client-message identity.
+  Wake. A user-selected new attempt after a true terminal failure is a new Wake
+  with a new client-message identity and never an Execution Recovery action.
 - Structured Space Action repair is a bounded correction attempt for the same
   logical Wake. It may fix the public delivery action, but it must not redo the
   business work or create a second source of execution truth.
