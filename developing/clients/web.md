@@ -1669,13 +1669,16 @@ tie breakers.
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
 back, and forward navigation return to the same person. The persistent detail
-owns member account details, Organization role, join time, an ordinary Agent
-Profile count with up to three controller icons and an overflow count,
-Computers, Connected Channels, shared Profile details, and the permitted
-Profile Report, Learn about, Direct Message, inline edit, connect, or manage
-actions. The Agent Profile count links to Agents and focuses the first Agent
-Profile in that member's owner group. Member-account, Channel-account, Profile,
-and advanced-detail values are text-selectable. Editing remains available only
+hero presents the member email and join time as one muted metadata line, while
+the Organization role remains in the badge beside the member name. The detail
+owns an ordinary Agent Profile count with up to three controller icons and an
+overflow count, Computers, Connected Channels, shared Profile details, and the
+permitted Profile Report, Learn about, Direct Message, inline edit, connect, or
+manage actions. It does not repeat those account facts in a separate
+member-account section. The Agent Profile count links to Agents and focuses the
+first Agent Profile in that member's owner group. Header metadata,
+Channel-account, Profile, and advanced-detail values are text-selectable.
+Editing remains available only
 for the signed-in member's own active default Human Profile. The sidebar and
 detail omit the internal Handle, undefined recent activity, and the ubiquitous
 **Active** state; only an exceptional disabled state is visible. Web does not

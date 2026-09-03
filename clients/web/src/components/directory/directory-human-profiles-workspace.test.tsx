@@ -388,7 +388,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toBeNull();
 		expect(
 			within(screen.getByRole("main")).getAllByText("felix@example.com")
-		).toHaveLength(2);
+		).toHaveLength(1);
 		expect(screen.getByRole("main").dataset.showMainHeader).toBe("true");
 	});
 
@@ -496,6 +496,23 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			expect(action.classList.contains("bg-primary")).toBe(false);
 		}
 		expect(screen.queryByTestId("human-profile-primary-actions")).toBeNull();
+	});
+
+	it("keeps joined date beside email without a duplicate member account section", () => {
+		renderWorkspace();
+
+		const metadata = screen.getByTestId("human-profile-metadata");
+		expect(metadata.textContent).toBe("felix@example.comJoined Aug 1, 2026");
+		const separator = metadata.querySelector(
+			'[data-slot="human-profile-metadata-separator"]'
+		);
+		expect(separator).toBeTruthy();
+		expect(separator?.parentElement?.textContent).toBe("Joined Aug 1, 2026");
+		expect(
+			separator?.parentElement?.classList.contains("whitespace-nowrap")
+		).toBe(true);
+		expect(screen.queryByText("Member account")).toBeNull();
+		expect(screen.queryByText("Organization role")).toBeNull();
 	});
 
 	it("keeps Direct Message before Learn About in another member's hero", () => {

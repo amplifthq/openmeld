@@ -24,7 +24,6 @@ import {
 	resolveDirectoryEmailLabel,
 	resolveDirectoryHumanProfileActivityLabel,
 	resolveDirectoryHumanProfileActivityTooltipLabel,
-	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
 	DirectoryHumanProfileRow,
@@ -89,23 +88,6 @@ export function DirectoryHumanProfileDetails(
 					{input.member.notice}
 				</output>
 			) : null}
-
-			<DetailSection title="Member account">
-				<DetailRow
-					label="Email"
-					value={resolveDirectoryEmailLabel(input.member.email)}
-				/>
-				{input.member.role === null ? null : (
-					<DetailRow
-						label="Organization role"
-						value={resolveDirectoryRoleLabel(input.member.role)}
-					/>
-				)}
-				<DetailRow
-					label="Joined"
-					value={formatDirectoryDate(input.member.joinedAt)}
-				/>
-			</DetailSection>
 
 			<DetailSection title="Agent Profiles">
 				<DirectoryAgentProfilesSummary
@@ -259,8 +241,23 @@ function ProfileHero(input: {
 							</div>
 						</div>
 					)}
-					<p className="mt-1 select-text break-all text-muted-foreground text-sm">
-						{resolveDirectoryEmailLabel(input.member.email)}
+					<p
+						className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-sm"
+						data-testid="human-profile-metadata"
+					>
+						<span className="select-text break-all">
+							{resolveDirectoryEmailLabel(input.member.email)}
+						</span>
+						<span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+							<span
+								aria-hidden="true"
+								className="size-1 shrink-0 rounded-full bg-current opacity-60"
+								data-slot="human-profile-metadata-separator"
+							/>
+							<span className="select-text">
+								Joined {formatDirectoryDate(input.member.joinedAt)}
+							</span>
+						</span>
 					</p>
 					{activityLabel ? (
 						<p
@@ -448,15 +445,6 @@ function DetailSection(input: { children: React.ReactNode; title: string }) {
 				{input.children}
 			</div>
 		</section>
-	);
-}
-
-function DetailRow(input: { label: string; value: string }) {
-	return (
-		<div className="grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] gap-3 px-4 py-3 text-sm">
-			<p className="text-muted-foreground">{input.label}</p>
-			<p className="min-w-0 select-text break-words">{input.value}</p>
-		</div>
 	);
 }
 
