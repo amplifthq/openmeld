@@ -1237,6 +1237,7 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
   currentAgentControllerRef: string;
   currentBindingId: string;
   currentConfigurationRevision: number;
+  currentDefaultProjectId?: string | null;
   expectedInterruptedTargetWakeLifecycleId: string;
   nowMs: number;
   ownerUserId: string;
@@ -1290,6 +1291,7 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
         currentAgentControllerRef: input.currentAgentControllerRef,
         currentBindingId: input.currentBindingId,
         currentConfigurationRevision: input.currentConfigurationRevision,
+        currentDefaultProjectId: input.currentDefaultProjectId,
         ownerUserId: input.ownerUserId,
         storage: transaction,
       });
@@ -1348,6 +1350,7 @@ async function acceptedRecoveryExecutionTargetMatchesCurrent(input: {
   currentAgentControllerRef: string;
   currentBindingId: string;
   currentConfigurationRevision: number;
+  currentDefaultProjectId?: string | null;
   ownerUserId: string;
   storage: Pick<DurableObjectStorage, "get">;
 }): Promise<boolean> {
@@ -1391,6 +1394,8 @@ async function acceptedRecoveryExecutionTargetMatchesCurrent(input: {
   const acceptedExecutionIdentity = payload.executionIdentity.core;
   const acceptedControllerSnapshot = payload.controllerSnapshot;
   return (
+    input.currentDefaultProjectId !== undefined &&
+    (payload.defaultProjectId ?? null) === input.currentDefaultProjectId &&
     acceptedExecutionIdentity.bindingId === input.currentBindingId &&
     acceptedExecutionIdentity.agentControllerRef ===
       input.currentAgentControllerRef &&

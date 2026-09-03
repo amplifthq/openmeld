@@ -168,12 +168,21 @@ export function resolveAgentWakeAdmissionTerminalDecision(
   }
   if (
     isAgentProfileWorkspaceBlockerReasonCode(normalizedReasonCode) ||
-    normalizedReasonCode.startsWith("workspace.")
+    normalizedReasonCode.startsWith("workspace.") ||
+    normalizedReasonCode.startsWith("profile.workspace.") ||
+    normalizedReasonCode.startsWith("project.local_connection.")
   ) {
     return {
       publicationCategory: "workspace_unavailable",
       reasonCode: normalizedReasonCode,
       userRecoveryAction: "review_agent_settings",
+    };
+  }
+  if (normalizedReasonCode.startsWith("working_folder.")) {
+    return {
+      publicationCategory: "workspace_unavailable",
+      reasonCode: normalizedReasonCode,
+      userRecoveryAction: "check_status",
     };
   }
   if (normalizedReasonCode.startsWith("provider_account.")) {
@@ -232,7 +241,12 @@ export function resolveAgentWakeAdmissionTerminalDecision(
 export function resolveAgentWakeAdmissionBlockReasonCode(
   readiness: AgentExecutionStatusProjection
 ): string | null {
-  const reasonCodes = collectReasonCodes(readiness);
+  // Canonical readiness is the authorization boundary. Reason codes explain a
+  // closed gate; they never replace the positive, current `ready` verdict.
+  if (readiness.displayState === "ready") {
+    return null;
+  }
+  const reasonCodes = collectCurrentDecisionReasonCodes(readiness);
   for (const reasonCode of [
     "controller.registry.disabled",
     "usage_exhausted",
@@ -251,7 +265,11 @@ export function resolveAgentWakeAdmissionBlockReasonCode(
         classifyAgentWakeAvailabilityReason(reasonCode) ===
           "blocking_unavailable" &&
         resolveAgentWakeAdmissionTerminalDecision(reasonCode) !== null
-    ) ?? null
+    ) ??
+    reasonCodes.find((reasonCode) =>
+      reasonCode.startsWith("working_folder.")
+    ) ??
+    "agent_execution.readiness_unconfirmed"
   );
 }
 
@@ -456,7 +474,9 @@ export function resolveHostedAgentWakeAvailability(input: {
 }): AgentWakeAvailability {
   const { readiness } = input;
   if (
-    collectReasonCodes(readiness).some(isAgentProfileWorkspaceBlockerReasonCode)
+    collectCurrentDecisionReasonCodes(readiness).some(
+      isAgentProfileWorkspaceBlockerReasonCode
+    )
   ) {
     return createUnavailableWakeAvailability(readiness);
   }
@@ -699,6 +719,23 @@ function createCheckingWakeAvailability(input: {
     });
   }
 
+  const workingFolderReasonCode = collectCurrentDecisionReasonCodes(
+    input.readiness
+  ).find((reasonCode) => reasonCode.startsWith("working_folder."));
+  if (workingFolderReasonCode) {
+    return createAvailability(input.readiness, {
+      badgeLabel: "Checking",
+      category: "checking",
+      isRefreshing: true,
+      label: "Checking working folder",
+      phase: "checking_status",
+      reasonCode: workingFolderReasonCode,
+      status: "checking_connection",
+      summary: "Checking this agent's working folder.",
+      tooltip: "Checking working folder",
+    });
+  }
+
   if (hasReasonCode(input.readiness, "local_service.reconnecting")) {
     return createReconnectingOpenMeldServiceAvailability(input.readiness);
   }
@@ -857,8 +894,13 @@ function createUnavailableWakeAvailability(
   readiness: AgentExecutionStatusProjection,
   agentControllerRef?: string | null
 ): AgentWakeAvailability {
-  const workspaceUnavailableReasonCode = collectReasonCodes(readiness).find(
-    (reasonCode) => workspaceUnavailableReasonCodes.has(reasonCode)
+  const workspaceUnavailableReasonCode = collectCurrentDecisionReasonCodes(
+    readiness
+  ).find(
+    (reasonCode) =>
+      workspaceUnavailableReasonCodes.has(reasonCode) ||
+      reasonCode.startsWith("profile.workspace.") ||
+      reasonCode.startsWith("project.local_connection.")
   );
   if (workspaceUnavailableReasonCode) {
     return createAvailability(readiness, {
@@ -882,8 +924,10 @@ function createUnavailableWakeAvailability(
       status: "unavailable_for_wake",
     });
   }
-  const retiredAuthorizationReasonCode = collectReasonCodes(readiness).find(
-    (reasonCode) => reasonCode.startsWith("organization_binding_authorization.")
+  const retiredAuthorizationReasonCode = collectCurrentDecisionReasonCodes(
+    readiness
+  ).find((reasonCode) =>
+    reasonCode.startsWith("organization_binding_authorization.")
   );
   if (retiredAuthorizationReasonCode) {
     return createAvailability(readiness, {
@@ -895,6 +939,14 @@ function createUnavailableWakeAvailability(
       reasonCode: retiredAuthorizationReasonCode,
       status: "unavailable_for_wake",
     });
+  }
+
+  if (
+    readiness.facts.runtime.reasonCodes.includes(
+      "controller.auth.unauthenticated"
+    )
+  ) {
+    return createControllerSignInNeededAvailability(agentControllerRef);
   }
 
   if (readiness.primaryAction === "connect_service") {
@@ -911,13 +963,6 @@ function createUnavailableWakeAvailability(
     readiness.primaryAction === "reconnect_binding" ||
     readiness.primaryAction === "run_prepare"
   ) {
-    if (
-      readiness.primaryAction === "run_prepare" &&
-      hasReasonCode(readiness, "controller.auth.unauthenticated")
-    ) {
-      return createControllerSignInNeededAvailability(agentControllerRef);
-    }
-
     const controllerBlockerReasonCode = pickKnownReasonCode(readiness, [
       "controller.registry.disabled",
       "controller.bootstrap.failed",
@@ -1017,7 +1062,7 @@ function hasReasonCode(
   readiness: AgentExecutionStatusProjection,
   reasonCode: string
 ): boolean {
-  return collectReasonCodes(readiness).includes(reasonCode);
+  return collectCurrentDecisionReasonCodes(readiness).includes(reasonCode);
 }
 
 export function classifyAgentWakeAvailabilityReason(
@@ -1086,6 +1131,8 @@ function isCheckingAgentWakeAvailability(input: {
   }
 
   return (
+    (input.readiness.displayState === "unknown" &&
+      input.readiness.facts.localService.refreshable) ||
     isRefreshableAgentExecutionCheck(input) ||
     isRefreshableRouteGap(input) ||
     isReadyRouteMissingDispatchClaim(input)
@@ -1098,6 +1145,7 @@ function isAgentWakeAvailable(input: {
   readiness: AgentExecutionStatusProjection;
 }): boolean {
   return (
+    input.readiness.displayState === "ready" &&
     isWakeRouteReady(input.wakeRouteStatus) &&
     (input.agentWakeRouteRegistration?.status ?? "registered") ===
       "registered" &&
@@ -1109,7 +1157,7 @@ function isAgentWakeAvailable(input: {
 function hasTransientWakeAvailabilityBlocker(
   readiness: AgentExecutionStatusProjection
 ): boolean {
-  return collectReasonCodes(readiness).some(
+  return collectCurrentDecisionReasonCodes(readiness).some(
     (reasonCode) =>
       reasonCode === "controller.interface.check_failed" ||
       isTransientRouteReason(reasonCode)
@@ -1119,7 +1167,7 @@ function hasTransientWakeAvailabilityBlocker(
 function hasHardUnavailableReadinessForReadyRoute(
   readiness: AgentExecutionStatusProjection
 ): boolean {
-  const reasonCodes = new Set(collectReasonCodes(readiness));
+  const reasonCodes = new Set(collectCurrentDecisionReasonCodes(readiness));
   for (const reasonCode of reasonCodes) {
     if (isUnauthenticatedControllerCompanionReason(reasonCode, reasonCodes)) {
       continue;
@@ -1185,9 +1233,6 @@ function hasKnownPublicUnavailableReadiness(
     ...readiness.facts.profile.reasonCodes,
     ...readiness.facts.binding.reasonCodes,
     ...readiness.facts.claim.reasonCodes,
-    ...readiness.facts.providerAccount.reasonCodes,
-    ...readiness.facts.providerConversation.reasonCodes,
-    ...readiness.facts.readinessImpact.reasonCodes,
     ...readiness.facts.service.reasonCodes,
     ...readiness.facts.runtime.reasonCodes,
   ]);
@@ -1218,7 +1263,7 @@ function pickReasonCode(
   readiness: AgentExecutionStatusProjection,
   preferredReasonCodes: readonly string[]
 ): string | null {
-  const reasonCodes = collectReasonCodes(readiness);
+  const reasonCodes = collectCurrentDecisionReasonCodes(readiness);
 
   for (const preferredReasonCode of preferredReasonCodes) {
     if (reasonCodes.includes(preferredReasonCode)) {
@@ -1232,7 +1277,7 @@ function pickReasonCode(
 function pickHostedAgentReasonCode(
   readiness: AgentExecutionStatusProjection
 ): string | null {
-  const reasonCodes = collectReasonCodes(readiness);
+  const reasonCodes = collectCurrentDecisionReasonCodes(readiness);
   return (
     reasonCodes.find((reasonCode) => reasonCode.startsWith("remote_agent.")) ??
     null
@@ -1243,7 +1288,7 @@ function pickKnownReasonCode(
   readiness: AgentExecutionStatusProjection,
   preferredReasonCodes: readonly string[]
 ): string | null {
-  const reasonCodes = collectReasonCodes(readiness);
+  const reasonCodes = collectCurrentDecisionReasonCodes(readiness);
 
   for (const preferredReasonCode of preferredReasonCodes) {
     if (reasonCodes.includes(preferredReasonCode)) {
@@ -1257,7 +1302,7 @@ function pickKnownReasonCode(
 function pickRouteGapReasonCode(
   readiness: AgentExecutionStatusProjection
 ): string {
-  const reasonCodes = collectReasonCodes(readiness);
+  const reasonCodes = collectCurrentDecisionReasonCodes(readiness);
   for (const routeReasonCode of [
     "agent_execution.route_missing",
     "route.not_registered",
@@ -1269,7 +1314,7 @@ function pickRouteGapReasonCode(
   return "agent_execution.route_missing";
 }
 
-function collectReasonCodes(
+function collectCurrentDecisionReasonCodes(
   readiness: AgentExecutionStatusProjection
 ): readonly string[] {
   return [
@@ -1277,9 +1322,6 @@ function collectReasonCodes(
     ...readiness.facts.profile.reasonCodes,
     ...readiness.facts.binding.reasonCodes,
     ...readiness.facts.claim.reasonCodes,
-    ...readiness.facts.providerAccount.reasonCodes,
-    ...readiness.facts.providerConversation.reasonCodes,
-    ...readiness.facts.readinessImpact.reasonCodes,
     ...readiness.facts.localService.reasonCodes,
     ...readiness.facts.service.reasonCodes,
     ...readiness.facts.route.reasonCodes,
@@ -1359,7 +1401,9 @@ function isPublicUnavailableReasonCode(reasonCode: string): boolean {
     reasonCode.startsWith("controller.") ||
     reasonCode.startsWith("daemon.runtime_contract.") ||
     reasonCode.startsWith("provider_account.") ||
-    reasonCode.startsWith("workspace.")
+    reasonCode.startsWith("workspace.") ||
+    reasonCode.startsWith("profile.workspace.") ||
+    reasonCode.startsWith("project.local_connection.")
   );
 }
 
@@ -1409,6 +1453,7 @@ function isTransientRouteReason(reasonCode: string): boolean {
 function isTransientCheckingReasonCode(reasonCode: string): boolean {
   return (
     reasonCode === "usage_checking" ||
+    reasonCode.startsWith("working_folder.") ||
     reasonCode === "agent_execution.route_missing" ||
     reasonCode === "local_service.reconnecting" ||
     reasonCode === "route.not_registered"

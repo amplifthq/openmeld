@@ -30,6 +30,20 @@ describe("local runtime expected-routes contract", () => {
     });
   });
 
+  it("accepts explicit v4 negotiation for current working-folder facts", () => {
+    expect(
+      getLocalRuntimeExpectedRoutesQuerySchema.parse({
+        contractVersion: "v4",
+        deviceId: "device-1",
+        lane: "prod",
+      })
+    ).toEqual({
+      contractVersion: "v4",
+      deviceId: "device-1",
+      lane: "prod",
+    });
+  });
+
   it("keeps the legacy query valid and rejects unknown versions", () => {
     expect(
       getLocalRuntimeExpectedRoutesQuerySchema.safeParse({
@@ -39,7 +53,7 @@ describe("local runtime expected-routes contract", () => {
     ).toBe(true);
     expect(
       getLocalRuntimeExpectedRoutesQuerySchema.safeParse({
-        contractVersion: "v4",
+        contractVersion: "v5",
         deviceId: "device-1",
         lane: "prod",
       }).success

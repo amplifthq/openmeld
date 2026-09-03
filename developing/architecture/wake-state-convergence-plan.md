@@ -19,6 +19,17 @@ Status: APPROVED — Batch 0 freezes the contract; Batches 1 through 3 remain
 implementation work and must not be described as shipped until their own code,
 tests, owner-document updates, merge, release, and user-visible evidence exist.
 
+Batch 2A implementation note: Core no longer lets retained provider-access or
+`readinessImpact` failure evidence decide a later Wakeability verdict or
+recovery action. Those rows remain ledger/diagnostic evidence while current
+owner facts are re-read. Expected-routes v4 and path-free working-folder
+observations provide the negotiated current-fact seam for mixed Service
+versions; absence on an older Service remains unknown compatibility evidence.
+The Organization Agent runtime-overview endpoint remains a transport envelope:
+it returns Core-owned Wakeability beside RuntimeCoordinator-owned workload
+context, but neither result may derive from or overwrite the other. Activity or
+Space-name enrichment failure degrades only that optional workload context.
+
 Removal condition: Delete this plan when all three implementation batches have
 landed and every durable rule below is represented once in its routed owner
 document; git history is the archive.

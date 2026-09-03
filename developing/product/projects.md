@@ -520,7 +520,11 @@ Profiles do not use it for their own execution. A verified member may ask the
 Center Agent to set or clear Default Project on one of that member's local
 Agent Profiles through the represented-member Project tool contract. Choosing
 or changing a Default Project affects future Wakes and new sessions only; the
-current session is never moved.
+current session is never moved. Web and Center Agent writes use the same
+owner-shard future-work mutation admission, so a write that wins before an
+authorized Usage continuation moves that continuation to `Needs attention`,
+while a continuation that is already running keeps its accepted Project and the
+new preference applies only to later work.
 
 On the current computer, execution resolves:
 

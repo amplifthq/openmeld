@@ -234,12 +234,13 @@ converge on the same continuation operation. A transport failure or
 the pending or authorized identity so the next report can confirm or retry the
 same operation. A request that definitively cannot be replayed safely, has
 incomplete source context, no longer matches the same Profile, controller,
-Binding, or configuration, or whose one continuation execution fails moves to
-`continuation_needs_attention`; it cannot re-enter automatic continuation.
-Initial authorization compares the exact interrupted run command's accepted
-Binding, controller, and configuration revision with the current canonical Core
-Binding inside the owner-shard transaction. That authorization and every
-future-work settings write are ordered by the same owner shard. If a setting
+Binding, configuration, or Default Project, or whose one continuation execution
+fails moves to `continuation_needs_attention`; it cannot re-enter automatic
+continuation. Initial authorization compares the exact interrupted run
+command's accepted Binding, controller, configuration revision, and nullable
+Default Project with the current canonical Core and Auth facts inside the
+owner-shard transaction. That authorization and every future-work settings write
+are ordered by the same owner shard. If a setting
 write wins while the gate is pending or authorized, the same transaction moves
 the exact continuation to `continuation_needs_attention` and writes its Inbox
 intent before D1 settings may change. If head creation wins first, the gate is
@@ -251,6 +252,21 @@ rejects the setting write before D1 mutation instead of accepting an unsafe
 half-rollout. Missing original accepted revision evidence remains inherently
 unsafe and moves to `continuation_needs_attention` rather than being treated as
 unchanged.
+The handoff uses a dedicated owner-only Usage-continuation command with the
+frozen interrupted dispatch/source identity and deterministic operation and
+client-message identities. It preserves the source message's canonical Space
+File revision references and structured Agent References, then Space posts
+through its ordinary exactly-once client-message writer so current file and
+addressing validation still fails closed. If that writer proves the preserved
+Wake target, Agent Reference, Human Mention, or Space File revision is no longer
+valid, Space returns `continuation_source_mismatch`; the owner shard moves the
+gate to `continuation_needs_attention` and keeps later FIFO work held until the
+owner reviews or skips the interrupted work. Storage, transport, and unknown
+writer failures remain retryable against the same deterministic identity.
+Repeated owner triggers resolve the same continuation instead of creating
+another handoff. It does not call the public Execution Recovery
+`retry_as_new_execution` action. That legacy action remains parseable but is
+never enabled or executed for a user.
 One idempotent Inbox item links the original Wake. The owner may skip the exact
 interrupted work to resolve the gate and promote the oldest queued Wake.
 The Usage report path sends candidate Profiles in stable, schema-bounded
@@ -686,10 +702,11 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
 ```
 
 - The unversioned response and negotiated `v2` preserve their existing strict
-  shapes. A new local component requests `contractVersion=v3` to receive the
-  additive Binding `configurationRevision`; on `invalid_payload` it falls back
-  through `v2` and then the unversioned response. Network and server failures
-  are not compatibility fallbacks.
+  shapes. `contractVersion=v3` adds the Binding `configurationRevision`.
+  `contractVersion=v4` also adds the current Auth-owned `defaultProjectId`
+  (`null` means the Profile workspace applies). A new local component
+  negotiates newest first and falls back only on `invalid_payload`; network and
+  server failures are not compatibility fallbacks.
 - The owner comes from the verified auth principal; cross-owner reads are
   forbidden. Core resolves `deviceId` + `lane` through the runtime registry to
   the authoritative `openMeldServiceRuntimeId`.
@@ -736,6 +753,23 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   adapters, unsupported controller modes, and repair-only permission
   constraints keep the active task's starting mode without blocking catalog
   convergence or future work.
+- A v4-capable Service reports one path-free working-folder observation per
+  Profile in `LocalWakeRouteReport`. The observation echoes `profileId`,
+  `bindingId`, `configurationRevision`, and `defaultProjectId`, identifies
+  whether resolution used the Default Project or Profile workspace, and carries
+  the local Project `bindingGeneration` (as
+  `localProjectBindingGeneration`) when applicable. The Core trust matcher
+  accepts the set only while those current identities match and every
+  observation is fresh. The Core-owned Wakeability projection consumes that
+  matcher as its current working-folder gate; missing, legacy, partial, stale,
+  duplicated, or identity-mismatched evidence remains unknown and fails closed.
+  `localProjectBindingGeneration` is an opaque Service-owned local connection
+  identity. Core does not compare it with a cloud generation; a later accepted
+  current-session report replaces the earlier generation and triggers
+  re-evaluation.
+  Missing or invalid facts use the precise Project/workspace reason codes from
+  the shared schema; local folder paths never cross the Service boundary.
+  Historical Wake outcomes never substitute for this current observation.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions
@@ -872,18 +906,17 @@ resolved remains compatible and does not gain a guessed Usage admission
 condition. An ACI report
 declares the matrix it implements through
 `usageLimitsSupportMatrixVersion`. If that optional field is absent, Core
-treats the report as a legacy contract and does not make Usage an admission
-condition merely because Core's newer matrix now marks the controller native.
-Once a report declares the current matrix version, missing or unconfirmed Usage
-fails closed as `Checking`. A
+treats the report as a parseable legacy contract, but it cannot authorize new
+work for a controller whose reviewed matrix requires native Usage. Missing,
+mismatched, or unconfirmed Usage fails closed as bounded `Checking`. A
 percentage alone, low-capacity warning, generic quota wording, or ordinary
 transient `429` is never proof of exhaustion. Core derives all three outcomes
 from the already-held structured report and does not call the provider on the
 Wake hot path.
 
 The same exact-version rule gates Usage recovery after an accepted Wake. A
-legacy report may remain compatible for ordinary execution, but its Usage fields
-cannot trigger automatic continuation under a newer Core capability matrix.
+legacy report remains parseable, but it neither authorizes a new Wake nor
+triggers automatic continuation under a newer Core capability matrix.
 
 After a Wake is accepted, a provider failure changes later Wakeability only
 when the result carries fresh structured hard-blocker evidence for the exact
@@ -1240,9 +1273,18 @@ publication pipeline in this order:
    `agentControllerConversationId`, execution, owner, controller capability,
    and requested publication destination still match. The instruction is to
    republish the already-completed final result, never to redo the task.
-3. **Retry as new execution.** This is allowed only when neither earlier tier
-   is safe. It creates a new execution identity and explicitly warns that the
-   work will run again.
+
+A new attempt after a terminal outcome is a new Wake, not Execution Recovery.
+It must enter through normal current Wakeability and admission with a new
+client-message and execution identity. The legacy
+`retry_as_new_execution` schema member remains parseable for mixed-version
+stored projections, but current Core never enables or executes it through the
+Recovery endpoint.
+
+The Work Coordinator's automatic `usage_exhausted` continuation is not an
+Execution Recovery action. It uses the owner-only continuation path described
+above, so closing the public action cannot disable deterministic Usage
+recovery.
 
 An explicit user Stop is not automatically recoverable. A process crash with
 no result must not fabricate completion. An external-side-effect outcome that
@@ -1263,8 +1305,8 @@ continuation. Cancellation, user Stop, any other terminal reason, token
 mismatch, and non-successful late results remain terminal rejections.
 
 `late_result_available` is durable recovery evidence, not a recovery command.
-Core's `inspectExecutionRecovery` projection orders the three capabilities
-above. The idempotent `recoverExecutionResult` command passes the retained
+Core's `inspectExecutionRecovery` projection orders the two outcome-scoped
+capabilities above. The idempotent `recoverExecutionResult` command passes the retained
 result through the existing result/publication pipeline and records the
 recovered outcome without replacing RuntimeCoordinator's terminal history.
 `resumeControllerConversation` is available only after the exact-conversation
@@ -1555,8 +1597,8 @@ Wake execution invariants:
 - `dispatchId` is the logical Wake identity.
 - RuntimeCoordinator execution state is the in-flight execution truth.
 - Transport retry or outcome-unknown redrive must not create a new logical
-  Wake. A user-selected **Retry as new execution** after a true terminal
-  failure is a new Wake with a new client-message identity.
+  Wake. A user-selected new attempt after a true terminal failure is a new Wake
+  with a new client-message identity and never an Execution Recovery action.
 - Structured Space Action repair is a bounded correction attempt for the same
   logical Wake. It may fix the public delivery action, but it must not redo the
   business work or create a second source of execution truth.

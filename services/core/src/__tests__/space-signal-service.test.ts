@@ -1784,7 +1784,6 @@ describe("space signal service", () => {
     const projection: ExecutionRecoveryProjection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -1913,7 +1912,6 @@ describe("space signal service", () => {
     const projection: ExecutionRecoveryProjection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -2041,7 +2039,6 @@ describe("space signal service", () => {
     const projection: ExecutionRecoveryProjection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -2104,195 +2101,6 @@ describe("space signal service", () => {
     expect(records.size).toBe(0);
     expect(replayRetainedExecutionResult).not.toHaveBeenCalled();
     expect(resumeExactControllerConversation).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { label: "shared Space", spaceId: "space-1" },
-    { label: "Direct Message", spaceId: "space-dm-1" },
-  ])("replays a fresh execution in a $label with verified continuation authority and the original author", async ({
-    spaceId,
-  }) => {
-    const identity = {
-      agentControllerConversationId: null,
-      agentControllerRef: "builtin:codex",
-      attemptId: "attempt-1",
-      dispatchId: "dispatch-1",
-      resultRef: null,
-      runtimeCoordinatorExecutionId: "execution-1",
-      spaceId,
-      targetProfileId: "agent-1",
-      taskId: "task-1",
-    };
-    const destination = {
-      spaceId,
-      surface: "space" as const,
-      threadId: null,
-    };
-    const projection: ExecutionRecoveryProjection = inspectExecutionRecovery({
-      destination,
-      explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
-      identity,
-      outcomeUnknown: false,
-      retainedResult: {
-        available: false,
-        recoveredPublicationId: null,
-      },
-      resumeCapability: {
-        exactAssociationVerified: false,
-        serviceSupportsResume: false,
-      },
-      updatedAtMs: 1,
-    });
-    const sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> = {
-      ...createSignal(),
-      id: "source-signal-1",
-      spaceId,
-      data: {
-        text: "finish the research",
-        messageEnvelope: {
-          activationTargets: ["agent-1"],
-          referenceTargets: [],
-          text: "finish the research",
-        },
-        meta: {
-          clientMessageId: "original-client-message",
-        },
-      },
-    };
-    const trace = {
-      dispatch: {
-        dispatchId: identity.dispatchId,
-        sourceEventId: sourceSignal.id,
-        targetProfileId: identity.targetProfileId,
-      },
-    } as unknown as SpaceDispatchTraceSnapshot;
-    const records = new Map<string, unknown>();
-    let transactionTail = Promise.resolve();
-    const transaction = vi.fn(
-      <T>(
-        closure: (storage: {
-          get<V>(key: string): Promise<V | undefined>;
-          put<V>(key: string, value: V): Promise<void>;
-        }) => Promise<T>
-      ): Promise<T> => {
-        const run = transactionTail.then(() =>
-          closure({
-            get: async <V>(key: string) => records.get(key) as V | undefined,
-            put: <V>(key: string, value: V) => {
-              records.set(key, value);
-              return Promise.resolve();
-            },
-          })
-        );
-        transactionTail = run.then(
-          () => undefined,
-          () => undefined
-        );
-        return run;
-      }
-    );
-    const postFreshWake = vi.fn(
-      async (input: { clientMessageId: string }): Promise<SignalEnvelope> => ({
-        ...sourceSignal,
-        id: "fresh-source-signal-1",
-        data: {
-          ...sourceSignal.data,
-          meta: { clientMessageId: input.clientMessageId },
-        },
-      })
-    );
-    const space = Object.create(Space.prototype) as Space;
-    Object.defineProperties(space, {
-      applySpaceRef: { value: vi.fn() },
-      ctx: {
-        value: {
-          storage: {
-            sql: { exec: vi.fn(() => ({ toArray: () => [] })) },
-            transaction,
-          },
-        },
-      },
-      readSignalById: {
-        value: vi.fn((signalId: string) =>
-          signalId === sourceSignal.id ? sourceSignal : null
-        ),
-      },
-      rpcGetDispatchTrace: {
-        value: vi.fn(async () => ({ trace })),
-      },
-      rpcInspectExecutionRecovery: {
-        value: vi.fn(async () => ({ recovery: projection })),
-      },
-      rpcPostSignalOnceByClientMessageId: {
-        value: postFreshWake,
-      },
-      spaceId: { value: spaceId },
-    });
-    const command = {
-      action: "retry_as_new_execution" as const,
-      destination,
-      expectedIdentity: identity,
-      operationId: "operation-fresh-1",
-    };
-
-    const result = await space.rpcExecuteExecutionRecovery({
-      body: command,
-      context: {
-        actorContext: {
-          ownerUserId: "owner-1",
-          profileKind: "human",
-          requestId: "request-fresh-recovery-1",
-          openMeldProfileId: "human-owner-1",
-          profileName: "Agent Owner",
-        },
-      },
-      spaceId,
-    });
-
-    expect(result).toMatchObject({
-      action: "retry_as_new_execution",
-      newExecutionId: expect.any(String),
-      operationId: command.operationId,
-      status: "new_execution_requested",
-    });
-    expect(result.newExecutionId).not.toBe(
-      sourceSignal.data.meta?.clientMessageId
-    );
-    expect(postFreshWake).toHaveBeenCalledOnce();
-    expect(postFreshWake).toHaveBeenCalledWith(
-      expect.objectContaining({
-        authoringPolicy: "user_authored",
-        clientMessageId: result.newExecutionId,
-        messageEnvelope: {
-          activationTargets: [identity.targetProfileId],
-          referenceTargets: [],
-          text: sourceSignal.data.text,
-        },
-        meta: {
-          clientMessageId: result.newExecutionId,
-        },
-        profile: sourceSignal.profile,
-        spaceAccess: {
-          actor: expect.objectContaining({
-            dispatchId: identity.dispatchId,
-            kind: "dispatch_continuation",
-            requestContext: expect.objectContaining({
-              actorContext: expect.objectContaining({
-                openMeldProfileId: sourceSignal.profile.profileId,
-                profileKind: sourceSignal.profile.kind,
-                profileName: sourceSignal.profile.profileName,
-              }),
-            }),
-            sourceSignalId: sourceSignal.id,
-            targetProfileId: identity.targetProfileId,
-          }),
-          proof: { kind: "none" },
-          spaceId,
-        },
-        text: sourceSignal.data.text,
-      })
-    );
   });
 
   it("rejects an execution recovery publication when Space did not persist or find the notice", async () => {

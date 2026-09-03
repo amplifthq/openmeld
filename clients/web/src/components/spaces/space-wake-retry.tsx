@@ -39,6 +39,7 @@ export type SpaceExecutionRecoveryResolution = {
 		| "Continue conversation"
 		| "Recover reply"
 		| "Recover result"
+		| "Start a new Wake"
 		| "Retry as new execution"
 		| null;
 	status:

@@ -8,6 +8,7 @@ import { RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE } fr
 export const PROJECT_LOCAL_CONNECTION_FAILURE_REASON_CODES = [
   "project.local_connection.missing",
   "project.local_connection.folder_missing",
+  "project.local_connection.invalid",
 ] as const;
 
 export const projectLocalConnectionFailureReasonCodeSchema = z.enum(

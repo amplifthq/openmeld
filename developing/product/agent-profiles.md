@@ -790,10 +790,11 @@ passive or not evaluated, does not use Usage as an admission condition. Once a
 Local Agent's versioned capability matrix declares native Usage support, a
 missing, stale, expired, or currently unavailable observation projects
 `Checking` and rejects a new Wake; OpenMeld must not promise acceptance while
-the required fact is unknown. During a mixed-version rollout, a legacy Local
-Agent that does not declare its Usage support-matrix version remains outside
-this admission condition; a newer Core must not reinterpret that omission as
-`Checking`. A
+the required fact is unknown. During a mixed-version rollout, Core continues
+to parse a legacy Local Agent report that omits the Usage support-matrix
+version, but that report cannot prove current capacity for a controller whose
+reviewed matrix requires native Usage. The public verdict remains bounded
+`Checking` and new Wake admission stays closed until a current report arrives. A
 fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
 admission. These decisions use the current report already held by Core and must
 not add a provider call to the Wake hot path. Core and the Local Service consume
@@ -816,6 +817,10 @@ deterministic, idempotent new execution. A legacy or mismatched Service report
 cannot authorize that retry. OpenMeld does not claim that the terminal provider
 turn reopened. After that continuation succeeds, the owner receives the
 separate urgent Inbox and email approval for the held queue.
+This automatic continuation is an internal Coordinator command authorized by
+the frozen interrupted Wake identity and owner-shard Binding/configuration
+fence. It does not inspect or execute the public Execution Recovery
+`retry_as_new_execution` action, which remains unavailable.
 If the user explicitly Stops the continuation, OpenMeld never starts it again;
 later queued work still requires the same owner approval, while an empty queue
 clears recovery immediately. Wakes submitted after recovery remain behind the
@@ -837,7 +842,13 @@ failure-to-recovery smoke test.
 For Space and Direct Message Wakes, that automatic continuation uses the exact
 interrupted dispatch and source message as its internal continuation authority.
 The new Wake keeps the original source message's author; the Agent owner's Human
-Profile authorizes recovery but is not shown as the original sender.
+Profile authorizes recovery but is not shown as the original sender. Space File
+references keep their exact immutable revisions and Agent References keep their
+structured targets through the ordinary Space message writer. If that writer
+proves a preserved file revision, Wake, Reference, or Human Mention is no longer
+valid, the interrupted work moves to `Needs attention` once and keeps later work
+held for owner review. Temporary writer or storage failures retry the same
+continuation identity instead of producing a partial continuation.
 
 Owners may keep editing settings while work is queued or running under the
 existing capability rules. A running Wake keeps its accepted Binding and
@@ -845,17 +856,17 @@ configuration revision. Saved model, reasoning, controller, and launch-only
 permission changes apply to future work. A native live permission update is
 shown as applied only after the provider acknowledges it.
 
-An approved Usage continuation rechecks its exact Binding, controller, and
-configuration revision before it can continue, not only when Usage first
-recovers. Continuation authorization, head admission, and every cloud-owned
-future-work settings change share one owner-shard ordering boundary. If the
-continuation becomes running first, the current Wake keeps its accepted
-settings and the saved change applies to later work. If the setting change wins
-while the continuation is pending or authorized, the continuation moves to
-`Needs attention` without executing. During a rolling deployment, an older
-owner shard that cannot coordinate future-work settings rejects that settings
-save before changing the Binding; ordinary Wakes keep using the unchanged fast
-path.
+An approved Usage continuation rechecks its exact Binding, controller,
+configuration revision, and nullable Default Project before it can continue,
+not only when Usage first recovers. Continuation authorization, head admission,
+and every cloud-owned future-work settings change share one owner-shard ordering
+boundary. If the continuation becomes running first, the current Wake keeps its
+accepted settings and the saved change applies to later work. If the setting
+change wins while the continuation is pending or authorized, the continuation
+moves to `Needs attention` without executing. During a rolling deployment, an
+older owner shard that cannot coordinate future-work settings rejects that
+settings save before changing the preference; ordinary Wakes keep using the
+unchanged fast path.
 
 ## Agent Profile Operational Context
 
@@ -932,6 +943,13 @@ Agent Profile surfaces may display `Available` only when the Core-owned
 Wakeability projection says the full reply path is aligned for the
 target profile, intended account, OpenMeld Service Runtime, Agent Controller, OpenMeld
 Service compatibility, and claim eligibility.
+
+A retained Wake failure, provider-access failure row, or persisted
+`readinessImpact` remains outcome and diagnostic history for that exact Wake.
+It does not block a later Wake or choose a later recovery action. A lasting
+problem changes current Wakeability only after its owning current fact is read
+again—for example, a current Usage report, current Service compatibility fact,
+or current path-free working-folder observation.
 
 Public Wakeability uses four verdicts only: `Available`, `Checking`,
 `Offline`, and `Unavailable`. Concrete repair actions such as `Update OpenMeld

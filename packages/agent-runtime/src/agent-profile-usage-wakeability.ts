@@ -69,7 +69,14 @@ export function resolveAgentProfileUsageWakeability(input: {
     report.usageLimitsSupportMatrixVersion !==
     AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION
   ) {
-    return ALLOWS_NEW_WORK;
+    return CHECKING_USAGE;
+  }
+  // Usage is one current owner fact, not the owner of the entire Wakeability
+  // answer. Controllers whose reviewed matrix requires native Usage must
+  // provide the exact current contract before Core can authorize new work.
+  // Legacy reports remain parseable, but they cannot prove current capacity.
+  if (report.expiresAtMs <= input.nowMs) {
+    return CHECKING_USAGE;
   }
   const supportedUsageLimits = report.usageLimits?.filter(
     (usageLimit) =>
@@ -88,7 +95,7 @@ export function resolveAgentProfileUsageWakeability(input: {
     return CHECKING_USAGE;
   }
 
-  if (report.status !== "ready" || report.expiresAtMs <= input.nowMs) {
+  if (report.status !== "ready") {
     return CHECKING_USAGE;
   }
 

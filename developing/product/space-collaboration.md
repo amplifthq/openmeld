@@ -753,14 +753,12 @@ the outcome must name the Workspace mismatch and offer no authorization or
 reuse action. This is an identity boundary, not a configurable warning. The
 user creates or selects an Agent Profile that belongs to the current Workspace.
 
-One terminal execution failure may offer **Retry as new execution** beside its
-compact outcome only when Space can recover the exact source message text and
-the one exact target Agent Profile. It creates a fresh Wake with a new
-client-message identity; it never resumes or mutates the terminal execution.
-Grouped failures, stopped outcomes, publication failures, and outcomes without
-recoverable source or target identity do not show this inline action. Message
-details remains the full recovery and diagnostics surface for every terminal
-outcome.
+A terminal execution outcome never authorizes another execution. When the user
+wants the Agent to run the request again, they start a new Wake through the
+ordinary Space composer, where current Wakeability, message identity, target,
+and authorization are checked again. Message details remains the recovery and
+diagnostics surface for the terminal outcome; it does not turn retained source
+text into a retry capability.
 
 An exact retained local result changes that action state. Space keeps the
 original `terminal_failure` as execution truth and may receive a separate,
@@ -776,9 +774,8 @@ Controller conversation is safely resumable, the primary action is **Recover
 reply**. Its warning must say that OpenMeld asks the same Agent
 conversation to post the reply it already finished and does not run the task
 again. A reconnect/setup link must not be labeled as either recovery action.
-If neither recovery tier is available, a genuine terminal execution failure
-may offer **Retry as new execution**, and its copy must make clear that it runs
-the request again.
+If neither recovery tier is available, the outcome has no recovery action. A
+new Wake remains a separate user request through the normal composer.
 
 Each failed target presents one primary next step chosen from the specific
 cause and available recovery evidence. For example, a Cursor plan limit offers
@@ -794,10 +791,11 @@ Message details transfers the visible CTA from the outcome row to the drawer;
 closing it returns the CTA to the row. Both surfaces share the exact
 dispatch/target/result identity and the same idempotent operation fence.
 
-Once that Retry action creates its fresh client-message identity, every
-outcome-unknown transport redrive must keep the same identity until Space
-accepts or definitively rejects it. The UI must not call an outcome-unknown
-Retry failed or invite a second logical Wake under a new identity.
+Once the ordinary Composer creates a new Wake with a fresh client-message
+identity, every outcome-unknown transport redrive must keep that same identity
+until Space accepts or definitively rejects it. The UI must not call an
+outcome-unknown delivery failed or invite a second logical Wake under another
+identity.
 
 Live previews may help while work is happening, but they are transient
 projections, not Space messages, execution truth, or final history. The durable

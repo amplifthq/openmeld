@@ -3178,23 +3178,14 @@ payloads. OpenMeld-owned identity, security, routing, queue, and publication
 failures continue to use precise OpenMeld-authored copy and one practical next
 action.
 
-A single terminal execution failure with no recoverable result shows
-**Retry as new execution** inline when Web can
-recover the exact source text and exact target Agent Profile. That action
-is labeled **Retry as new execution**, creates a fresh Wake with a new
-client-message identity, and makes clear that the request will run again. Every
-transport retry
-for that one action reuses the same identity. If Web cannot confirm the outcome,
-it shows `New execution not confirmed. Try again`; selecting that action
-redrives the same identity instead of creating another logical Wake. Only a
-definite failure clears the identity before another Retry. Grouped failures,
-stopped outcomes, publication failures, and outcomes without an exact source
-and target omit inline Retry rather than guessing what to rerun. `Open
-diagnostics` expands and focuses the retained technical details, including the
-bounded reason code, while raw internal error text stays out of product copy.
-If the fresh Retry request definitively fails, the action must show that failure
-visibly and remain available for another attempt; console logging alone is not
-a user-facing outcome. Outcome unknown is not definite failure.
+A terminal execution outcome does not show an inline action that starts another
+execution. Web exposes only exact result replay or exact conversation reply
+recovery when Core authorizes those operations. To run the request again, the
+user starts a new Wake through the ordinary composer so current Wakeability,
+target, authorization, and client-message identity are evaluated afresh.
+`Open diagnostics` expands and focuses the retained technical details,
+including the bounded reason code, while raw internal error text stays out of
+product copy. Outcome unknown never authorizes a second logical execution.
 
 When a persisted Agent Profile reply carries server-authored reply staleness
 context, Web may show the quiet `written before N newer messages` marker next to
