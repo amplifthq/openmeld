@@ -2873,7 +2873,7 @@ runtime observation may retain only bounded numeric token counters, the reported
 model context window, and a compaction-observed flag. They must not retain prompt
 text, response text, summaries, cache keys, or provider payloads. Context
 telemetry may explain latency and context pressure, but it is not proof that an
-instruction was installed, not Wake availability, and not execution or
+instruction was installed, not Wakeability, and not execution or
 publication authority.
 
 Web Wake waterfall is a projection only. It reads existing Space signal,
@@ -2891,14 +2891,14 @@ but they must stay thin wrappers and must not become direct D1 readers or a
 second trace system.
 
 `EvidenceSyncHealth` is an owner-only diagnostic read model for explaining
-whether the evidence channels behind Wake availability were read, missing,
+whether the evidence channels behind Wakeability were read, missing,
 stale, degraded, or blocked. It may compose Agent Profile identity, Binding,
 Runtime registration, route catalog, service compatibility, execution authority,
 provider account, provider conversation, and recent Wake impact evidence.
 
-`EvidenceSyncHealth` is not public Wake availability, not final
-`AgentExecutionReadiness`, and not a Space Wake outcome. Public badges and Wake
-preflight must continue to use the Core-owned availability/readiness projection.
+`EvidenceSyncHealth` is not public Wakeability, not the final compatibility
+`AgentExecutionReadiness` projection, and not a Space Wake outcome. Public
+badges and Wake preflight continue to use the Core-owned Wakeability projection.
 Diagnostic surfaces such as CLI trace may show `EvidenceSyncHealth` to owners
 and operators so they can understand which evidence channel needs attention.
 

@@ -658,7 +658,7 @@ remain release-sensitive.
 for daemon lifecycle journal entries that the CLI may attach to a failed
 Prepare step. The CLI writes this diagnostic bundle and Core validates it only
 for bounded logging; rejection must not change Prepare completion, setup truth,
-Wake availability, or execution state.
+Wakeability, or execution state.
 
 Adding an event type is therefore backward-compatible for product behavior but
 not forward-compatible for diagnostic logging: an older Core rejects the whole
@@ -676,7 +676,7 @@ new type; removing that consumer first would recreate the diagnostic gap.
 versioned `LocalMachineIssue` contract and its CLI Agent View error event. The
 contract carries one stable code, the failed local operation, the recovery
 policy, a plain-language summary, one primary action, and bounded diagnostic
-detail. It does not carry Service readiness, Wake availability, execution
+detail. It does not carry Service readiness, Wakeability, execution
 state, or authority to mutate local state.
 
 The CLI is the classifier and writer. Prepare, Desktop, and Web are consumers:
@@ -840,8 +840,10 @@ contains readiness and Agent Profile Operational Context keyed by Profile id.
 Core resolves its inputs in bounded owner batches: one route batch, one owner
 Service read, and one local-runtime display inventory per owner, with bounded
 per-Profile readiness work. Splitting transport does not split authority: Auth,
-Core readiness, Binding, and RuntimeCoordinator remain the same owners, and the
-browser never derives or writes either projection.
+Core Wakeability, Binding, and RuntimeCoordinator remain the same owners, and
+the browser never derives or writes either projection. Any approved future
+convergence is described as unimplemented work in
+`developing/architecture/wake-state-convergence-plan.md`.
 
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member
@@ -1576,7 +1578,7 @@ Rules:
 - Clients may use the frame to trigger a targeted read-model refresh.
 - The authoritative facts remain the Space members snapshot, Space status
   snapshot, Core Wake/readiness projections, and their shared schemas.
-- Clients must not derive final membership, Wake availability, Agent Profile
+- Clients must not derive final membership, Wakeability, Agent Profile
   Binding, local service liveness, or execution outcome directly from an
   invalidation frame.
 - The frame version must be monotonic for a Space across Durable Object
@@ -2214,14 +2216,15 @@ Core may include a `primaryBinding` read projection on readiness responses so a
 client can render Binding diagnostics without issuing a separate Binding read
 per Agent Profile. That projection is copied from Binding-owned truth and is
 read-only. It must not become a second Binding writer, reservation, claim
-authority, or Wake availability owner.
+authority, or Wakeability owner.
 
 Rules:
 
 - Binding writes and command eligibility stay on the Agent Profile Binding
   contract.
-- Wake availability still comes from Core-owned `AgentExecutionReadiness`, not
-  from Binding existence or route/service evidence alone.
+- Wakeability still comes from the Core-owned projection. Its current
+  compatibility implementation is `AgentExecutionReadiness`; Binding existence
+  or route/service evidence alone does not provide the verdict.
 - Clients may use `primaryBinding` for display and local cache hydration only.
   They must refresh the owning Binding or readiness read model after a mutation
   instead of treating a stale projection as authority.
@@ -4619,7 +4622,7 @@ and projections for those facts. It remains optional so older Core producers
 and already-deployed strict consumers remain compatible during rollout.
 
 `packages/schemas/src/schemas/http/space-members.ts` owns the shared HTTP
-contracts for Space member snapshots, public Wake availability fields, owner
+contracts for Space member snapshots, public Wakeability fields, owner
 diagnostics, and Space member directory entries.
 
 Core's Organization-directory member-addition boundary expands every selected
@@ -4987,7 +4990,7 @@ fact authority. It may compose:
 
 - Agent or Human Profile identity from profile-owned read models.
 - Space membership context from Space-owned membership projections.
-- Wake availability from Core-owned readiness projections.
+- Wakeability from the Core-owned projection.
 - local connection and Binding diagnostics from Binding, Runtime, and local OpenMeld
   Service evidence.
 
@@ -5495,7 +5498,7 @@ field unchanged until the adapter serializes it into `OPENCODE_PERMISSION`.
 OpenMeld must not invent a controller-agnostic permission policy layer for this
 field.
 
-Binding existence does not equal `Available for Wake`.
+Binding existence does not make Wakeability `Available`.
 
 Binding command eligibility does not grant claim success.
 
@@ -5515,15 +5518,15 @@ Its current scope is Agent Profile Reply Recovery:
 - consume adapter-provided current-local-Runtime evidence
 - translate those facts into one user-visible next action and copy
 
-It does not own readiness truth.
+It does not own Wakeability truth.
 
 It also does not own Start or Prepare orchestration, OpenMeld Service lifecycle,
 Space rendering, RuntimeCoordinator execution truth, dispatch, claim, final Wake
 outcomes, or reply placement.
 
 Adapters must flatten source-specific evidence before calling this package. Do
-not import Start-owned setup, device projection, or profile readiness types into
-`packages/agent-profile`.
+not import Start-owned setup, device projection, or profile Wakeability types
+into `packages/agent-profile`.
 
 ## Cross-Client Reuse Policy
 

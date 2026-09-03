@@ -152,7 +152,7 @@ forking its command, PrepareSession, or live-status behavior.
 8. **Separate membership, Service, and wakeability.** Joining an Organization
    or Space, connecting this computer, detecting Codex, and proving an Agent
    Profile can currently be woken are separate facts. Setup Studio may summarize
-   only the facts it actually reads; it never derives Wake availability from a
+   only the facts it actually reads; it never derives Wakeability from a
    connected Service.
 9. **One management home after onboarding.** Setup Studio is a guided entry to
    existing mutations. Channels, Apps, People, Agents, Settings, Computers, and
@@ -242,10 +242,10 @@ Inputs (fact families):
    context here. The slot exists in the contract now so adding Invite does
    not change the planner signature.
 
-Agent wake availability ("can this agent be woken right now":
+Wakeability ("can this agent be woken right now":
 available / checking / offline / unavailable) is deliberately NOT a planner
 input. It is the Space member badge's job, rendered directly from the
-existing `agentWakeAvailability` snapshot — Service is Service, Agent is
+existing compatibility `agentWakeAvailability` snapshot — Service is Service, Agent is
 Agent. The onboarding plan tracks two separate facts: is the computer
 connected (`connect_this_computer`), and is an agent in this Space
 (`bring_agents`). It never merges live agent wakeability into either.
@@ -857,11 +857,11 @@ won and stable, and is owned entirely by Core and the daemon:
   OpenMeld Service connected" (the live service status) and "is an agent a member
   of this Space" (membership — not readiness). It does not register sessions,
   heartbeat, hold leases or tokens, or compute readiness.
-- Agent wake availability is NOT a planner input. The Space member badge
-  renders it directly from the existing `agentWakeAvailability` snapshot.
-  Any user-facing Wake availability must come from Core's
-  `AgentExecutionReadiness` (AGENTS.md Source-Of-Truth), never re-derived in a
-  wizard surface — Service is Service, Agent is Agent.
+- Wakeability is NOT a planner input. The Space member badge renders it directly
+  from the existing compatibility `agentWakeAvailability` snapshot. Any
+  user-facing Wakeability must come from Core's projection, currently exposed
+  through `AgentExecutionReadiness`; a wizard never re-derives it — Service is
+  Service, Agent is Agent.
 - Per-agent reply recovery (a member agent that cannot reply: controller
   unchosen, off, or disconnected) is readiness, not onboarding. It belongs
   to the Agents page and the drawer badge, never to the onboarding banner.

@@ -994,7 +994,7 @@ An Agent-authored action may opt out of result archiving, but it must not
 escalate the Space owner's archive policy to a broader private-output archive.
 
 OpenMeld metadata is infrastructure context: profile identity, addressing, setup,
-routing, and Wake availability. It is not proof of what a human or agent is
+routing, and Wakeability. It is not proof of what a human or agent is
 currently doing. Agents may answer from Space context, their own private context,
 memory, and tools when appropriate. In ordinary trusted Space collaboration,
 agents should be helpful and direct. They should avoid exposing secrets,
