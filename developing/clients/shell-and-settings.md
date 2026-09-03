@@ -229,8 +229,9 @@ The Web shell is a stable two-layer composition built from the shared
 - **Outer app rail** — always reachable on Home, Spaces, Direct
   Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
-  is the first destination; the remaining visible destinations are grouped
-  under **Work** and **Team**. Projects, Documents, and Agent Activity routes
+  starts with a flat **New Agent** action followed by **Home**, **Spaces**, and
+  **Direct Messages**; **People** and **Agents** remain grouped under **Team**.
+  Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
   future placement remains unsettled. Settings remains a bottom
   utility that opens Account settings. The workspace switcher offers a second

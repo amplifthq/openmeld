@@ -219,12 +219,15 @@ authorization.
 ### Fixed primary rail
 
 The rail places the current workspace switcher at the top and has no separate
-OpenMeld brand row or account entry. **Home** is the first destination. The
-remaining four visible product destinations are organized into two fixed,
-user-collapsible groups:
+OpenMeld brand row or account entry. Its first four entries are flat, fixed
+primary actions and destinations; the remaining two product destinations stay
+in one user-collapsible group:
 
+- **New Agent** — opens the current Organization's route-backed Agent creation
+  view.
 - **Home** — the current Organization's adaptive overview and product entry.
-- **Work** — **Spaces**, **Direct Messages**.
+- **Spaces** and **Direct Messages** — first-level destinations directly below
+  Home.
 - **Team** — **People**, **Agents**.
 
 **Projects**, **Documents**, and **Agent Activity** keep their canonical routes,
@@ -232,15 +235,17 @@ pages, and contextual entry points but are temporarily absent from the primary
 rail while their future placement is redesigned. This interim navigation
 change does not retire, redirect, combine, or relocate those products.
 
-In the full rail, each labeled group uses its heading as an accessible
+In the full rail, the **Team** group uses its heading as an accessible
 disclosure trigger and restores the browser's collapsed groups from the same
-browser-wide layout preference as the rail width and tier. **Home** and the
-bottom utility area never collapse. Compact and icon-only tiers keep every
+browser-wide layout preference as the rail width and tier. **New Agent**,
+**Home**, **Spaces**, **Direct Messages**, and the bottom utility area never
+collapse. Compact and icon-only tiers keep every
 destination visible because those tiers do not render group headings or a
 disclosure trigger; returning to the full tier restores the remembered group
 state.
 
-The visible destinations resolve in that group order:
+The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
+**Direct Messages**, **People**, **Agents**. The product destinations are:
 
 1. **Home** — the current Organization's concise overview. It leads with the
    designated Center Agent, then composes existing Agent Activity, Inbox, Tasks,
