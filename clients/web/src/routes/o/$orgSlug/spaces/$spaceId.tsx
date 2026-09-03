@@ -621,6 +621,7 @@ function ValidatedDirectMessageEntryContent(
 				initialFocusInteractionId={input.focusInteractionId}
 				initialFocusSignalId={input.focusSignalId}
 				initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
+				isDirectMessageConversation
 				isPersonalContext={input.isPersonalContext}
 				key={`${input.spaceId}:${input.profileId}`}
 				orgSlug={input.orgSlug}

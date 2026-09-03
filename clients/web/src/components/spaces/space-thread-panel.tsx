@@ -504,6 +504,7 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				prepareSetupHref={input.prepareSetupHref}
 				profilePresentationsById={profilePresentationsById}
 				readOnly={input.readOnly === true}
+				readScopeKey={activeThreadRootSignalId ?? ""}
 				registerMessageElement={registerMessageElement}
 				renderAgentProfileTrigger={
 					profileDetailsDialog.profileDetailsPopoverTriggerById
@@ -982,6 +983,7 @@ function ThreadTimeline(input: {
 	items: readonly SpaceTimelineItem[];
 	isLoading: boolean;
 	latestThreadOccurredAtMs: number;
+	readScopeKey: string;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenAgentProfile: (profileId: string) => void;
@@ -1050,6 +1052,7 @@ function ThreadTimeline(input: {
 		<MessageScrollerProvider autoScroll={true} defaultScrollPosition="end">
 			<MessageScroller className="min-h-0 flex-1">
 				<ThreadReadThroughObserver
+					key={input.readScopeKey}
 					latestThreadOccurredAtMs={input.latestThreadOccurredAtMs}
 					onViewedThroughTs={input.onViewedThroughTs}
 				/>
@@ -1178,6 +1181,7 @@ function ThreadReadThroughObserver(input: {
 			typeof document === "undefined" || document.visibilityState === "visible"
 	);
 	const [retryAttempt, setRetryAttempt] = useState(0);
+	const persistedThroughTsRef = useRef(0);
 	useEffect(() => {
 		const onVisibilityChange = () =>
 			setDocumentVisible(document.visibilityState === "visible");
@@ -1190,24 +1194,33 @@ function ThreadReadThroughObserver(input: {
 			canScrollToEnd ||
 			!documentVisible ||
 			!input.onViewedThroughTs ||
-			input.latestThreadOccurredAtMs <= 0
+			input.latestThreadOccurredAtMs <= 0 ||
+			input.latestThreadOccurredAtMs <= persistedThroughTsRef.current
 		) {
 			return;
 		}
 		let active = true;
 		const debounceMs = 800 + Math.min(retryAttempt, 4) * 200;
 		const timer = window.setTimeout(() => {
-			Promise.resolve(
-				input.onViewedThroughTs?.(input.latestThreadOccurredAtMs)
-			).catch((error: unknown) => {
-				console.warn(
-					"Failed to persist the Space thread Inbox read position.",
-					error
-				);
-				if (active) {
-					setRetryAttempt((current) => current + 1);
-				}
-			});
+			Promise.resolve(input.onViewedThroughTs?.(input.latestThreadOccurredAtMs))
+				.then(() => {
+					if (active) {
+						persistedThroughTsRef.current = Math.max(
+							persistedThroughTsRef.current,
+							input.latestThreadOccurredAtMs
+						);
+						setRetryAttempt(0);
+					}
+				})
+				.catch((error: unknown) => {
+					console.warn(
+						"Failed to persist the Space thread Inbox read position.",
+						error
+					);
+					if (active) {
+						setRetryAttempt((current) => current + 1);
+					}
+				});
 		}, debounceMs);
 		return () => {
 			active = false;
