@@ -66,7 +66,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
-	wakeAvailabilityRecoveryActions?: ReactNode;
+	headerRecoveryActions?: ReactNode;
 }) {
 	const displayedWakeAvailability = input.wakeAvailabilityErrorMessage
 		? null
@@ -140,26 +140,31 @@ export function AgentProfileWorkspaceDetail(input: {
 							wakeAvailability={displayedWakeAvailability}
 							wakeAvailabilityErrorMessage={input.wakeAvailabilityErrorMessage}
 							wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
-							wakeAvailabilityRecoveryActions={
-								showOwnerOperationalContext
-									? input.wakeAvailabilityRecoveryActions
-									: null
-							}
 						/>
 					</div>
 				</div>
-				<div className="flex max-w-full shrink-0 flex-wrap items-end gap-2 self-end">
-					<Button
-						disabled={input.isDirectMessagePending}
-						onClick={input.onOpenDirectMessage}
-						size="sm"
-						type="button"
-						variant="default"
-					>
-						<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-						Chat with {input.profile.profileName}
-					</Button>
-					{input.overflowActions}
+				<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
+					{showOwnerOperationalContext && input.headerRecoveryActions ? (
+						<div
+							className="flex max-w-full flex-wrap items-center justify-end gap-2"
+							data-testid="agent-profile-header-recovery-actions"
+						>
+							{input.headerRecoveryActions}
+						</div>
+					) : null}
+					<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
+						<Button
+							disabled={input.isDirectMessagePending}
+							onClick={input.onOpenDirectMessage}
+							size="sm"
+							type="button"
+							variant="default"
+						>
+							<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
+							Chat with {input.profile.profileName}
+						</Button>
+						{input.overflowActions}
+					</div>
 				</div>
 			</div>
 			<AgentProfileCurrentActivity
@@ -191,7 +196,6 @@ function AgentProfilePresence(input: {
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
-	wakeAvailabilityRecoveryActions?: ReactNode;
 }) {
 	const presentation = resolveAgentProfilePresence(input);
 	const waitingWork = formatWaitingWork({
@@ -266,7 +270,6 @@ function AgentProfilePresence(input: {
 			title={presentation.tooltip}
 		>
 			{presenceStatus}
-			{input.wakeAvailabilityRecoveryActions}
 			{presentation.reason ? (
 				<span className="text-muted-foreground text-xs leading-5">
 					{presentation.reason}

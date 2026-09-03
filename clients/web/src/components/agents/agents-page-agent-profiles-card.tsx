@@ -3828,6 +3828,7 @@ function AgentProfileWorkspacePresentation(input: {
 				controllerModelSummary={controllerModelSummary}
 				currentSession={input.currentSession}
 				details={input.input.details}
+				headerRecoveryActions={wakeAvailabilityRecoveryActions}
 				isDirectMessagePending={input.input.pendingState.directMessage}
 				isRecoveryActionPending={input.input.pendingState.recoveryAction}
 				onOpenDirectMessage={() => {
@@ -3848,7 +3849,6 @@ function AgentProfileWorkspacePresentation(input: {
 				wakeAvailability={input.input.wakeAvailability}
 				wakeAvailabilityErrorMessage={input.input.readinessErrorMessage}
 				wakeAvailabilityIsPending={input.input.readinessIsPending}
-				wakeAvailabilityRecoveryActions={wakeAvailabilityRecoveryActions}
 			/>
 			<ProfileDetailsDialog
 				agentProfile={input.input.profile}
