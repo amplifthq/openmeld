@@ -79,7 +79,7 @@ import { emitDaemonDispatchJournalEvent } from "../../local-service/dispatch/dae
 import {
   type DispatchRuntimePreparation,
   prepareDispatchRuntimeExecution,
-  resolveDispatchRuntimeContext,
+  resolveDispatchWorkingFolderRuntimeContext,
 } from "../../local-service/execution/dispatch-runtime-preparation";
 import { toTaskExecutionError as toTaskExecutionErrorInternal } from "../../local-service/execution/task-execution-error";
 import { resolveCurrentDaemonExpectedVersion } from "../../local-service/lifecycle/current-daemon-version";
@@ -999,9 +999,16 @@ export async function handleDispatchDeliverFrame(input: {
   let dispatchSpaceActionContext: DispatchSpaceActionContext | null = null;
 
   try {
-    dispatchRuntimeContext = await resolveDispatchRuntimeContext({
+    dispatchRuntimeContext = await resolveDispatchWorkingFolderRuntimeContext({
+      controllerSnapshot: input.deliverRequest.payload.controllerSnapshot,
       defaultProjectId: parsedTask.defaultProjectId,
-      openMeldProfileId: parsedTask.targetProfileId,
+      defaultProjectIdWasProvided: Object.hasOwn(
+        input.deliverRequest.payload,
+        "defaultProjectId"
+      ),
+      executionIdentity: parsedTask.executionIdentity,
+      routeConfig,
+      targetProfileId: parsedTask.targetProfileId,
     });
     const runtimePreparation = await prepareDispatchRuntimeExecution({
       agentControllerRef: parsedTask.agentControllerRef,

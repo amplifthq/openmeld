@@ -2316,8 +2316,13 @@ export async function runDaemonSocketSession(input: {
       handleLocalProjectControlSocketFrame({
         deviceId: input.deviceId,
         frame: parsedFrame,
-        onLocalProjectConnectionsChanged:
-          input.onLocalProjectConnectionsChanged,
+        onLocalProjectConnectionsChanged: () => {
+          requestLocalExecutionEvidenceRefresh({
+            reason: "local_state_changed",
+            scheduleReason: "local_project_connection_changed",
+          });
+          input.onLocalProjectConnectionsChanged?.();
+        },
         presenter: input.presenter,
         socket: input.socket,
       }) ||

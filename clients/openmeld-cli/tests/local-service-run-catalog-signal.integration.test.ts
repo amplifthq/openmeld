@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   loadDaemonRouteCatalogMock,
+  handleLocalProjectControlFrameMock,
   readDaemonCatalogSyncSignalMock,
   resolveLocalComponentsStatusMock,
   syncDaemonRouteCatalogStateMock,
@@ -14,6 +15,7 @@ const {
   setCustomProfileWorkspaceMock,
 } = vi.hoisted(() => ({
   loadDaemonRouteCatalogMock: vi.fn(),
+  handleLocalProjectControlFrameMock: vi.fn(),
   readDaemonCatalogSyncSignalMock: vi.fn(),
   resolveLocalComponentsStatusMock: vi.fn(),
   syncDaemonRouteCatalogStateMock: vi.fn(),
@@ -21,6 +23,11 @@ const {
   syncLocalServiceRuntimeAgentControllerReportsMock: vi.fn(),
   ensureOpenMeldManagedProfileWorkspaceMock: vi.fn(),
   setCustomProfileWorkspaceMock: vi.fn(),
+}));
+
+vi.mock("../src/local-service/projects/local-project-control-handler", () => ({
+  handleLocalProjectControlFrame: (...args: unknown[]) =>
+    handleLocalProjectControlFrameMock(...args),
 }));
 
 vi.mock("../src/local-service/routing/route-catalog", () => ({
@@ -119,6 +126,7 @@ const tempDirs: string[] = [];
 describe("local service run catalog signal", () => {
   beforeEach(() => {
     resolveLocalComponentsStatusMock.mockResolvedValue(null);
+    handleLocalProjectControlFrameMock.mockReset();
     syncLocalServiceRuntimeAgentControllerReportsMock.mockResolvedValue({
       failedCount: 0,
       reasonCodes: [],
@@ -1213,6 +1221,161 @@ describe("local service run catalog signal", () => {
     expect(
       syncLocalServiceRuntimeAgentControllerReportsMock
     ).toHaveBeenCalledTimes(2);
+
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+  });
+
+  it("re-registers current v4 working-folder facts immediately after a local Project connection changes", async () => {
+    vi.useFakeTimers();
+    const onLocalProjectConnectionsChanged = vi.fn();
+    handleLocalProjectControlFrameMock.mockResolvedValue({
+      code: "daemon.local_project_control.set_default_connection_result",
+      payload: {
+        requestId: "project-default-1",
+        result: { connections: [], status: "updated" },
+      },
+      v: 1,
+    });
+    loadDaemonRouteCatalogMock.mockResolvedValue({
+      expectedRoutesContractVersion: "v4",
+      profileIds: ["agt-1"],
+      routeByProfileId: new Map([
+        [
+          "agt-1",
+          {
+            agentControllerRef: "builtin:codex",
+            bindingId: "binding-1",
+            configurationRevision: 7,
+            contextIdMappingSpec: {
+              mappingVersion: 1,
+              sourceField: "OPENMELD_CLI_CONTEXT_ID",
+            },
+            openMeldServiceRuntimeId: "runtime-1",
+            profileId: "agt-1",
+            streamingMode: "final",
+            transportMode: "local-cli",
+            workingFolderRuntime: {
+              configPath: null,
+              configuredWorkspacePath: "/tmp/project-new-default",
+              defaultProjectBindingGeneration: "generation-new",
+              defaultProjectId: "project-new-default",
+              effectiveRuntimeWorkingDirectory: "/tmp/project-new-default",
+              runtimeContext: {
+                providerRuntimeWorkingDirectory: "/tmp/project-new-default",
+              },
+              status: "ready",
+              workingFolderFact: {
+                defaultProjectId: "project-new-default",
+                localProjectBindingGeneration: "generation-new",
+                observedAtMs: 2000,
+                reasonCode: null,
+                source: "default_project",
+                status: "ready",
+              },
+              workingFolderSource: "default_project",
+              workspaceMode: null,
+            },
+          },
+        ],
+      ]),
+      skippedProfiles: [],
+      workingFolderExpectedProfileIds: ["agt-1"],
+      workingFolderObservations: [
+        {
+          bindingId: "binding-1",
+          configurationRevision: 7,
+          defaultProjectId: "project-new-default",
+          localProjectBindingGeneration: "generation-new",
+          observedAtMs: 2000,
+          profileId: "agt-1",
+          reasonCode: null,
+          source: "default_project",
+          status: "ready",
+        },
+      ],
+    });
+    syncDaemonRouteCatalogStateMock.mockImplementation(
+      async (input: {
+        forceRegister?: boolean;
+        loadCatalog: () => Promise<{
+          profileIds: string[];
+          skippedProfiles: [];
+        }>;
+        registerCatalog: (catalog: unknown) => Promise<{
+          acceptedLeases: Array<{ leaseEpoch: number; profileId: string }>;
+          connectionGeneration: number;
+          ok: boolean;
+          rejectedProfiles: [];
+        }>;
+      }) => {
+        const catalog = await input.loadCatalog();
+        const registerResponse = await input.registerCatalog(catalog);
+        return {
+          registerResponse,
+          skippedProfiles: catalog.skippedProfiles,
+          status: "registered",
+        };
+      }
+    );
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+
+    const socket = createMockSocket();
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, []),
+      onLocalProjectConnectionsChanged,
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    socket.sentFrames.splice(0);
+
+    socket.emitServerFrame({
+      code: "daemon.local_project_control.set_default_connection",
+      payload: {
+        request: {
+          clientGeneration: 1,
+          expectedOrganizationId: "org-1",
+          idempotencyKey: "project-default-mutation-1",
+          projectId: "project-new-default",
+          targetBindingGeneration: "generation-new",
+        },
+        requestId: "project-default-1",
+      },
+      v: 1,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks(
+      () =>
+        socket.sentFrames.filter(
+          (frame) =>
+            typeof frame === "object" &&
+            frame !== null &&
+            "code" in frame &&
+            frame.code === "daemon.session.register"
+        ).length > 0
+    );
+
+    expect(onLocalProjectConnectionsChanged).toHaveBeenCalledOnce();
+    expect(syncDaemonRouteCatalogStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ forceRegister: true })
+    );
+    expect(socket.sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.session.register",
+        payload: expect.objectContaining({
+          localWakeRouteReport: expect.objectContaining({
+            expectedRoutesContractVersion: "v4",
+            workingFolderObservations: [
+              expect.objectContaining({
+                defaultProjectId: "project-new-default",
+                localProjectBindingGeneration: "generation-new",
+                source: "default_project",
+                status: "ready",
+              }),
+            ],
+          }),
+        }),
+      })
+    );
 
     socket.close(1000, "shutdown");
     await sessionPromise;

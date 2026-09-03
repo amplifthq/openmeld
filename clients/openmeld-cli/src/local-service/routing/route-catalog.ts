@@ -522,25 +522,17 @@ async function readPrimaryBindingForRouteCatalog(input: {
       status: "ready",
     };
   }
-  try {
-    const response = await input.bindingReads.readPrimaryBinding(input.profile);
-    if (response.status === "unavailable") {
-      throw new Error(
-        `Core primary binding read is unavailable for profile ${
-          input.profile.openMeldProfileId
-        }: ${response.binding.reasonCodes.join(", ")}`
-      );
-    }
-    return {
-      binding: response.binding,
-      status: "ready",
-    };
-  } catch {
+  const response = await input.bindingReads.readPrimaryBinding(input.profile);
+  if (response.status === "unavailable") {
     return {
       skipReason: "profile.binding.read_unavailable",
       status: "skipped",
     };
   }
+  return {
+    binding: response.binding,
+    status: "ready",
+  };
 }
 
 async function repairLocalReplyStateOrThrow(input: {
