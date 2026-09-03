@@ -21,6 +21,7 @@ import {
 
 export type SpaceMessageWakeThinkingEntry = {
 	elapsedStartedAtMs: number | null;
+	lastEvidenceAtMs: number | null;
 	key: string;
 	kind: "preview" | "progress" | "status";
 	phase: WakeProgressItem["phase"] | null;
@@ -162,6 +163,7 @@ export function resolveSpaceMessageWakeProgressFallbackEntries(input: {
 		return [
 			{
 				elapsedStartedAtMs: null,
+				lastEvidenceAtMs: null,
 				key: `wake-stop-fallback:${target.selectorKey ?? target.targetProfileId}`,
 				kind: "progress" as const,
 				phase: null,
@@ -221,6 +223,7 @@ function resolveWakeProgressThinkingEntry(input: {
 				input.showElapsedTime && item.phase === "running"
 					? (item.startedAtMs ?? null)
 					: null,
+			lastEvidenceAtMs: item.updatedAtMs,
 			key: resolveWakeProgressKey(item),
 			kind: item.phase === "writing" ? "preview" : "progress",
 			phase: item.phase,

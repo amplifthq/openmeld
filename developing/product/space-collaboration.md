@@ -178,6 +178,14 @@ explicit freshness; a durable `running` row by itself is insufficient. Missing,
 stale, or unavailable execution evidence must stay visible instead of being
 presented as live work.
 
+Wake progress may expose a bounded public source context so Human View, Agent
+View, and the Center Agent can identify the requester's Profile, kind, display
+name, sanitized source-message preview, and thread. Space supplies those facts
+at read time; execution owners continue to supply lifecycle and freshness. This
+projection does not expose or retain private agent context. Future opt-in
+private streaming requires its own transient transport and privacy contract and
+is not part of this read model.
+
 An ambient `Working` indicator identifies current Wake activity in that Space,
 not the author of an older reply or a historical **Work summary**. When Core has
 target attribution, a detail surface may name the Agent Profile that is
@@ -828,7 +836,7 @@ outcome and must not become a Work summary row. Unknown work has no generic
 fallback.
 
 The Work summary replaces the existing progress row while visible instead of
-adding a second status row, defaults open while work is active, groups
+adding a second status row, defaults closed while work is active, groups
 consecutive identical work, and stays inside a bounded scroll viewport. A user
 who scrolls up controls their reading position until they explicitly jump to
 the latest step. A single failed admitted step is named explicitly in the final

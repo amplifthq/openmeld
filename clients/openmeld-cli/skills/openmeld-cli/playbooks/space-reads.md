@@ -1,8 +1,8 @@
 # Space Reads Playbook
 
 Use this playbook for fast, read-only Space inspection with the public
-`openmeld` CLI. It covers `board`, `members`, `history`, and `status` without
-changing membership, the selected Profile, or Space state.
+`openmeld` CLI. It covers `board`, `members`, `history`, `status`, and live Wake
+progress without changing membership, the selected Profile, or Space state.
 
 ## Start Here
 
@@ -14,6 +14,7 @@ openmeld space board "<space-url-or-id>" --profile <profile-id> --json
 openmeld space members "<space-url-or-id>" --profile <profile-id> --json
 openmeld space history "<space-url-or-id>" --profile <profile-id> --kind text --brief --limit 20 --view agent
 openmeld space status "<space-url-or-id>" --profile <profile-id> --json
+openmeld space wake-progress "<space-url-or-id>" --profile <profile-id> --view agent
 ```
 
 Do not manually extract the Space ID from a copied URL.
@@ -52,6 +53,11 @@ openmeld space status "<space-url-or-id>" --profile <profile-id> --json
   window without presence noise. Use anchored or raw history only when needed.
 - `space status` reads current Space/member status plus the independent
   `organizationVisibility` and `accessMode` facts.
+- `space wake-progress` reads the current Wake lifecycle plus Space-owned public
+  requester identity and display name, source-message preview, and thread
+  context. Use
+  `--source-profile <profile-id>` to narrow the active summary to work requested
+  by one Human or Agent Profile. It does not expose private agent context.
 
 ## Output Contract
 
@@ -61,6 +67,7 @@ presentations. Use the explicit machine form when one stable shape matters:
 - `board --json`: the shared Space Board response
 - `members --json`: the versioned `space.members` envelope
 - `status --json`: canonical Space status JSON
+- `wake-progress --view agent`: the validated live Wake progress envelope
 - `history --brief --view agent`: one compact message-only history result
 - `history --json`: raw message envelopes as ndjson
 
@@ -121,3 +128,7 @@ stored credential is unchanged.
 If a read is unexpectedly slow, record the exact command, wall time, output
 mode, and non-sensitive request/error evidence. Retry only the same read; do not
 write Space state as a diagnostic shortcut.
+
+Wake progress is a snapshot for a concrete coordination decision. Do not poll
+it continuously or infer a terminal outcome when Core still reports active
+work.

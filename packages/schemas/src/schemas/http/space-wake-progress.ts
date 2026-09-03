@@ -2,6 +2,7 @@ import * as z from "zod/v4";
 import { runtimeCoordinatorExecutionRecordSchema } from "../daemon/runtime-coordinator-execution";
 import { agentInteractionPendingSummarySchema } from "../protocol/agent-interaction";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
+import { profileKindSchema } from "../protocol/profile";
 import {
   nonEmptyTrimmedStringFromUnknown,
   optionalBooleanQuerySchema,
@@ -72,6 +73,16 @@ export const wakeStopEligibilityReadModelSchema = z.union([
 export const wakeProgressItemSchema = z.strictObject({
   clientMessageId: clientMessageIdSchema.nullable(),
   sourceSignalId: z.string().trim().min(1).nullable(),
+  sourceContext: z
+    .strictObject({
+      messagePreview: z.string().trim().min(1).nullable(),
+      profileId: z.string().trim().min(1),
+      profileKind: profileKindSchema,
+      profileName: z.string().trim().min(1).nullable(),
+      threadId: z.string().trim().min(1).nullable(),
+    })
+    .nullable()
+    .optional(),
   dispatchId: z.string().trim().min(1).nullable(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId
@@ -96,6 +107,7 @@ export const getSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
   clientMessageId: clientMessageIdSchema,
   includeTiming: optionalBooleanQuerySchema,
+  includeSourceContext: optionalBooleanQuerySchema,
   includeWaitReason: optionalBooleanQuerySchema,
   includeWakeStopEligibility: optionalBooleanQuerySchema,
   targetProfileId: optionalSelectorSchema,
@@ -113,14 +125,17 @@ export const getSpaceWakeProgressResponseSchema = z.strictObject({
 export const getActiveSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
   includeTiming: optionalBooleanQuerySchema,
+  includeSourceContext: optionalBooleanQuerySchema,
   includeWaitReason: optionalBooleanQuerySchema,
   includeWakeStopEligibility: optionalBooleanQuerySchema,
+  sourceProfileId: optionalSelectorSchema,
   targetProfileId: optionalSelectorSchema,
 });
 
 export const getActiveSpaceWakeProgressResponseSchema = z.strictObject({
   query: z.strictObject({
     spaceId: z.string().trim().min(1),
+    sourceProfileId: z.string().trim().min(1).nullable().optional(),
     targetProfileId: z.string().trim().min(1).nullable(),
   }),
   items: z.array(wakeProgressItemSchema),

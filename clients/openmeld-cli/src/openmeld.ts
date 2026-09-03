@@ -2990,6 +2990,10 @@ withSpaceProfileOption(
       "--target-profile <profile-id>",
       "Narrow progress to one target Agent Profile"
     )
+    .option(
+      "--source-profile <profile-id>",
+      "Narrow the active summary to work requested by one profile"
+    )
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
@@ -3006,6 +3010,8 @@ withSpaceProfileOption(
         space: String(space),
         clientMessageId:
           normalizeOptionalString(opts.clientMessage) ?? undefined,
+        sourceProfileId:
+          normalizeOptionalString(opts.sourceProfile) ?? undefined,
         targetProfileId:
           normalizeOptionalString(opts.targetProfile) ?? undefined,
         password: cliOptions.password,

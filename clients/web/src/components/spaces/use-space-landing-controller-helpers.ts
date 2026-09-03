@@ -586,11 +586,19 @@ export function areWakeProgressItemsEqual(
 				item.failureReasonCode === other.failureReasonCode &&
 				item.message === other.message &&
 				item.phase === other.phase &&
+				item.runtimeCoordinatorExecutionId ===
+					other.runtimeCoordinatorExecutionId &&
+				areWakeProgressSourceContextsEqual(
+					item.sourceContext ?? null,
+					other.sourceContext ?? null
+				) &&
 				item.sourceSignalId === other.sourceSignalId &&
+				item.startedAtMs === other.startedAtMs &&
 				item.targetLabel === other.targetLabel &&
 				item.targetProfileId === other.targetProfileId &&
 				item.terminal === other.terminal &&
 				item.updatedAtMs === other.updatedAtMs &&
+				item.waitReasonCode === other.waitReasonCode &&
 				areAgentInteractionPendingSummariesEqual(
 					item.pendingInteraction ?? null,
 					other.pendingInteraction ?? null
@@ -601,6 +609,22 @@ export function areWakeProgressItemsEqual(
 				)
 			);
 		})
+	);
+}
+
+function areWakeProgressSourceContextsEqual(
+	left: NonNullable<WakeProgressItem["sourceContext"]> | null,
+	right: NonNullable<WakeProgressItem["sourceContext"]> | null
+): boolean {
+	if (left === null || right === null) {
+		return left === right;
+	}
+	return (
+		left.messagePreview === right.messagePreview &&
+		left.profileId === right.profileId &&
+		left.profileKind === right.profileKind &&
+		left.profileName === right.profileName &&
+		left.threadId === right.threadId
 	);
 }
 

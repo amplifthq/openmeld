@@ -534,6 +534,7 @@ import {
   type CenterAgentCreateConfiguredAgentProfileInput,
   type CenterAgentCreateSpaceInput,
   type CenterAgentEnableAgentProfileInput,
+  type CenterAgentListActiveSpaceWakesInput,
   type CenterAgentListAgentActivitySessionsInput,
   type CenterAgentListAgentProfileCreationDefaultsInput,
   type CenterAgentListAgentTasksInput,
@@ -560,6 +561,7 @@ import {
   type CenterAgentReadSlackWorkspaceDirectoryInput,
   type CenterAgentReadSpaceAuthoringContractInput,
   type CenterAgentReadSpaceContextInput,
+  type CenterAgentReadSpaceWakeProgressInput,
   type CenterAgentReadTurnDiagnosticsInput,
   type CenterAgentRecommendOpportunityInput,
   type CenterAgentRecordConnectorActionAuditInput,
@@ -738,6 +740,7 @@ import {
   rpcCenterAgentEnableAgentProfile,
   rpcCenterAgentGetOrganizationDirectory,
   rpcCenterAgentGetOrganizationSpaceDirectory,
+  rpcCenterAgentListActiveSpaceWakes,
   rpcCenterAgentListAgentActivitySessions,
   rpcCenterAgentListAgentProfileCreationDefaults,
   rpcCenterAgentListAgentTasks,
@@ -766,6 +769,7 @@ import {
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
   rpcCenterAgentReadSpaceFile,
+  rpcCenterAgentReadSpaceWakeProgress,
   rpcCenterAgentReadTurnDiagnostics,
   rpcCenterAgentRecommendOpportunity,
   rpcCenterAgentRecordConnectorActionAudit,
@@ -2986,6 +2990,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentGetOrganizationSpaceDirectory(this.env, input);
   }
 
+  centerAgentListActiveSpaceWakes(
+    input: CenterAgentListActiveSpaceWakesInput
+  ): Promise<AccountSpaceActiveWakeSummaryResponse> {
+    return rpcCenterAgentListActiveSpaceWakes(this.env, input);
+  }
+
+  centerAgentReadSpaceWakeProgress(
+    input: CenterAgentReadSpaceWakeProgressInput
+  ): Promise<GetActiveSpaceWakeProgressResponse> {
+    return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
+  }
+
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
@@ -4969,6 +4985,18 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentListAgentActivitySessionsInput
   ) {
     return rpcCenterAgentListAgentActivitySessions(this.env, input);
+  }
+
+  centerAgentListActiveSpaceWakes(
+    input: CenterAgentListActiveSpaceWakesInput
+  ): Promise<AccountSpaceActiveWakeSummaryResponse> {
+    return rpcCenterAgentListActiveSpaceWakes(this.env, input);
+  }
+
+  centerAgentReadSpaceWakeProgress(
+    input: CenterAgentReadSpaceWakeProgressInput
+  ): Promise<GetActiveSpaceWakeProgressResponse> {
+    return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
   }
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {

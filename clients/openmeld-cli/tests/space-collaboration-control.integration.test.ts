@@ -140,10 +140,19 @@ describe("Space collaboration control commands", () => {
     await withTempHome(async () => {
       await initializeProfile();
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify(ACTIVE_WAKE_PROGRESS_FIXTURE), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        })
+        new Response(
+          JSON.stringify({
+            ...ACTIVE_WAKE_PROGRESS_FIXTURE,
+            query: {
+              ...ACTIVE_WAKE_PROGRESS_FIXTURE.query,
+              sourceProfileId: COLLABORATION_CONTROL_HUMAN_PROFILE_ID,
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
       );
 
       const { plainStdout } = await withCapturedStdio(async () => {
@@ -152,6 +161,7 @@ describe("Space collaboration control commands", () => {
           profile: PROFILE.openMeldProfileId,
           baseUrl: "http://localhost",
           space: COLLABORATION_CONTROL_SPACE_ID,
+          sourceProfileId: COLLABORATION_CONTROL_HUMAN_PROFILE_ID,
           view: "agent",
         });
       });
@@ -164,7 +174,10 @@ describe("Space collaboration control commands", () => {
           pollState: "active",
           activeCount: 1,
           terminalCount: 0,
-          query: ACTIVE_WAKE_PROGRESS_FIXTURE.query,
+          query: {
+            ...ACTIVE_WAKE_PROGRESS_FIXTURE.query,
+            sourceProfileId: COLLABORATION_CONTROL_HUMAN_PROFILE_ID,
+          },
           items: ACTIVE_WAKE_PROGRESS_FIXTURE.items,
         },
       });
@@ -175,6 +188,40 @@ describe("Space collaboration control commands", () => {
         `/v1/spaces/${COLLABORATION_CONTROL_SPACE_ID}/active-wake-progress`
       );
       expect(requestUrl.searchParams.get("includeWaitReason")).toBe("true");
+      expect(requestUrl.searchParams.get("includeSourceContext")).toBe("true");
+      expect(requestUrl.searchParams.get("sourceProfileId")).toBe(
+        COLLABORATION_CONTROL_HUMAN_PROFILE_ID
+      );
+    });
+  });
+
+  it("rejects a requester filter on one client-message Wake read", async () => {
+    await withTempHome(async () => {
+      await initializeProfile();
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+      const { plainStdout } = await withCapturedStdio(async () => {
+        await runSpaceWakeProgress({
+          baseUrl: "http://localhost",
+          clientMessageId: "client-message-1",
+          entryChecksHandled: true,
+          profile: PROFILE.openMeldProfileId,
+          sourceProfileId: COLLABORATION_CONTROL_HUMAN_PROFILE_ID,
+          space: COLLABORATION_CONTROL_SPACE_ID,
+          view: "agent",
+        });
+      });
+
+      expect(JSON.parse(plainStdout.trim())).toMatchObject({
+        code: "space.wake_progress.source_profile_selector_invalid",
+        payload: {
+          status: "error",
+          operation: "space.wake_progress",
+        },
+        type: "result",
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
     });
   });
 
@@ -246,6 +293,7 @@ describe("Space collaboration control commands", () => {
         "client-message-terminal"
       );
       expect(url.searchParams.get("includeWaitReason")).toBe("true");
+      expect(url.searchParams.get("includeSourceContext")).toBe("true");
       expect(url.searchParams.get("targetProfileId")).toBe(
         COLLABORATION_CONTROL_AGENT_PROFILE_ID
       );

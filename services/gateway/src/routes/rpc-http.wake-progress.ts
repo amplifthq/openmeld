@@ -23,8 +23,10 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
     const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
       spaceId,
       includeTiming: c.req.query("includeTiming"),
+      includeSourceContext: c.req.query("includeSourceContext"),
       includeWaitReason: c.req.query("includeWaitReason"),
       includeWakeStopEligibility: c.req.query("includeWakeStopEligibility"),
+      sourceProfileId: c.req.query("sourceProfileId"),
       targetProfileId: c.req.query("targetProfileId"),
     });
     if (!parsed.success) {
@@ -52,6 +54,9 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
           ...(parsed.data.includeTiming === undefined
             ? {}
             : { includeTiming: parsed.data.includeTiming }),
+          ...(parsed.data.includeSourceContext === undefined
+            ? {}
+            : { includeSourceContext: parsed.data.includeSourceContext }),
           ...(parsed.data.includeWaitReason === undefined
             ? {}
             : { includeWaitReason: parsed.data.includeWaitReason }),
@@ -64,6 +69,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
           ...(parsed.data.targetProfileId
             ? { targetProfileId: parsed.data.targetProfileId }
             : {}),
+          sourceProfileId: parsed.data.sourceProfileId,
           ...(password === undefined ? {} : { password }),
           context: buildCoreRpcContext(c),
         });
@@ -77,6 +83,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
       spaceId,
       clientMessageId: c.req.query("clientMessageId"),
       includeTiming: c.req.query("includeTiming"),
+      includeSourceContext: c.req.query("includeSourceContext"),
       includeWaitReason: c.req.query("includeWaitReason"),
       includeWakeStopEligibility: c.req.query("includeWakeStopEligibility"),
       targetProfileId: c.req.query("targetProfileId"),
@@ -106,6 +113,9 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
           ...(parsed.data.includeTiming === undefined
             ? {}
             : { includeTiming: parsed.data.includeTiming }),
+          ...(parsed.data.includeSourceContext === undefined
+            ? {}
+            : { includeSourceContext: parsed.data.includeSourceContext }),
           ...(parsed.data.includeWaitReason === undefined
             ? {}
             : { includeWaitReason: parsed.data.includeWaitReason }),

@@ -125,6 +125,14 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
       await expect(
         listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
           db: harness.db,
+          sourceSignalIds: ["signal-other"],
+          spaceId: "space-1",
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+          db: harness.db,
+          sourceSignalIds: ["signal-1"],
           spaceId: "space-1",
           targetProfileId: "agt_target_native",
         })
@@ -262,6 +270,14 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
       await expect(
         listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
           db: harness.db,
+          sourceSignalIds: ["signal-other"],
+          spaceId: "space-1",
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+          db: harness.db,
+          sourceSignalIds: ["signal-native-delivery"],
           spaceId: "space-1",
         })
       ).resolves.toEqual([
