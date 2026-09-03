@@ -57,6 +57,24 @@ export async function resolveDispatchRuntimeContext(input: {
       message: `profile.workspace.missing: ${resolution.reasonText}`,
     });
   }
+  if (
+    "workingFolderSource" in resolution &&
+    resolution.workingFolderSource === "default_project" &&
+    resolution.defaultProjectId
+  ) {
+    throw new DaemonServiceRunError({
+      code: "project.local_connection.invalid",
+      message: "project.local_connection.invalid",
+      projectFailureContext: {
+        ...(resolution.defaultProjectBindingGeneration
+          ? {
+              bindingGeneration: resolution.defaultProjectBindingGeneration,
+            }
+          : {}),
+        projectId: resolution.defaultProjectId,
+      },
+    });
+  }
   throw new DaemonServiceRunError({
     code: "profile.workspace.invalid",
     message: `profile.workspace.invalid: ${resolution.reasonText}`,

@@ -3,8 +3,12 @@ import {
   createMutableRouteCatalogState,
   syncDaemonRouteCatalogState,
 } from "../src/local-service/carrier/service-runner";
+import type { RouteCatalog } from "../src/local-service/core/types";
 
-const createRouteCatalog = (profileIds: string[]) => {
+const createRouteCatalog = (
+  profileIds: string[],
+  projectConnectionGeneration?: string
+): RouteCatalog => {
   const routeByProfileId = new Map(
     profileIds.map((profileId) => [
       profileId,
@@ -17,6 +21,31 @@ const createRouteCatalog = (profileIds: string[]) => {
         profileId,
         streamingMode: "final" as const,
         transportMode: "local-cli" as const,
+        ...(projectConnectionGeneration
+          ? {
+              workingFolderRuntime: {
+                configPath: null,
+                configuredWorkspacePath: "/tmp/project",
+                defaultProjectBindingGeneration: projectConnectionGeneration,
+                defaultProjectId: "project-1",
+                effectiveRuntimeWorkingDirectory: "/tmp/project",
+                runtimeContext: {
+                  providerRuntimeWorkingDirectory: "/tmp/project",
+                },
+                status: "ready" as const,
+                workingFolderFact: {
+                  defaultProjectId: "project-1",
+                  localProjectBindingGeneration: projectConnectionGeneration,
+                  observedAtMs: 1,
+                  reasonCode: null,
+                  source: "default_project" as const,
+                  status: "ready" as const,
+                },
+                workingFolderSource: "default_project" as const,
+                workspaceMode: null,
+              },
+            }
+          : {}),
       },
     ])
   );
@@ -25,7 +54,66 @@ const createRouteCatalog = (profileIds: string[]) => {
     profileIds: [...profileIds],
     routeByProfileId,
     skippedProfiles: [],
+    workingFolderObservations: [],
   };
+};
+
+const createProfileWorkspaceRouteCatalog = (workspacePath: string) => {
+  const catalog = createRouteCatalog(["agt-a"]);
+  const route = catalog.routeByProfileId.get("agt-a");
+  if (!route) {
+    throw new Error("test route missing");
+  }
+  route.workingFolderRuntime = {
+    configPath: "/tmp/profile-workspace.json",
+    configuredWorkspacePath: workspacePath,
+    effectiveRuntimeWorkingDirectory: workspacePath,
+    runtimeContext: {
+      providerRuntimeWorkingDirectory: workspacePath,
+    },
+    status: "ready",
+    workingFolderFact: {
+      defaultProjectId: null,
+      localProjectBindingGeneration: null,
+      observedAtMs: 1,
+      reasonCode: null,
+      source: "profile_workspace",
+      status: "ready",
+    },
+    workingFolderSource: "profile_workspace",
+    workspaceMode: "custom",
+  };
+  catalog.workingFolderObservations = [
+    {
+      ...route.workingFolderRuntime.workingFolderFact,
+      bindingId: null,
+      configurationRevision: null,
+      profileId: "agt-a",
+    },
+  ];
+  return catalog;
+};
+
+const createV4ProfileWorkspaceRouteCatalog = (
+  workspacePath: string,
+  observedAtMs: number
+) => {
+  const catalog = createProfileWorkspaceRouteCatalog(workspacePath);
+  const route = catalog.routeByProfileId.get("agt-a");
+  if (!(route && catalog.workingFolderObservations?.[0])) {
+    throw new Error("test route observation missing");
+  }
+  route.bindingId = "binding-a";
+  route.configurationRevision = 7;
+  catalog.expectedRoutesContractVersion = "v4";
+  catalog.workingFolderExpectedProfileIds = ["agt-a"];
+  catalog.workingFolderObservations[0] = {
+    ...catalog.workingFolderObservations[0],
+    bindingId: "binding-a",
+    configurationRevision: 7,
+    observedAtMs,
+  };
+  return catalog;
 };
 
 describe("local service route catalog sync", () => {
@@ -134,6 +222,34 @@ describe("local service route catalog sync", () => {
     expect(leasesByProfileId.get("agt-a")).toBe(2);
   });
 
+  it("refreshes unchanged negotiated v4 facts before they can become stale", async () => {
+    const catalogState = createMutableRouteCatalogState(
+      createV4ProfileWorkspaceRouteCatalog("/tmp/workspace-a", 1000)
+    );
+    const leasesByProfileId = new Map<string, number>([["agt-a", 1]]);
+    const registerCatalog = vi.fn(async () => ({
+      ok: true,
+      connectionGeneration: 1,
+      acceptedLeases: [{ profileId: "agt-a", leaseEpoch: 2 }],
+      rejectedProfiles: [],
+    }));
+
+    const result = await syncDaemonRouteCatalogState({
+      catalogState,
+      leasesByProfileId,
+      loadCatalog: async () =>
+        createV4ProfileWorkspaceRouteCatalog("/tmp/workspace-a", 2000),
+      registerCatalog,
+    });
+
+    expect(result.status).toBe("registered");
+    expect(registerCatalog).toHaveBeenCalledOnce();
+    expect(catalogState.workingFolderObservations?.[0]?.observedAtMs).toBe(
+      2000
+    );
+    expect(leasesByProfileId.get("agt-a")).toBe(2);
+  });
+
   it("re-registers an unchanged catalog when the local lease was lost", async () => {
     const catalogState = createMutableRouteCatalogState(
       createRouteCatalog(["agt-a"])
@@ -164,6 +280,67 @@ describe("local service route catalog sync", () => {
     );
     expect(catalogState.profileIds).toEqual(["agt-a"]);
     expect(leasesByProfileId.get("agt-a")).toBe(3);
+  });
+
+  it("re-registers a route when its local Project connection generation changes", async () => {
+    const catalogState = createMutableRouteCatalogState(
+      createRouteCatalog(["agt-a"], "generation-1")
+    );
+    const leasesByProfileId = new Map<string, number>([["agt-a", 1]]);
+    const registerCatalog = vi.fn(async () => ({
+      ok: true,
+      connectionGeneration: 2,
+      acceptedLeases: [
+        {
+          profileId: "agt-a",
+          leaseEpoch: 2,
+        },
+      ],
+      rejectedProfiles: [],
+    }));
+
+    const result = await syncDaemonRouteCatalogState({
+      catalogState,
+      leasesByProfileId,
+      loadCatalog: async () => createRouteCatalog(["agt-a"], "generation-2"),
+      registerCatalog,
+    });
+
+    expect(result.status).toBe("changed");
+    expect(registerCatalog).toHaveBeenCalledOnce();
+    expect(
+      catalogState.routeByProfileId.get("agt-a")?.workingFolderRuntime
+        ?.workingFolderFact.localProjectBindingGeneration
+    ).toBe("generation-2");
+    expect(leasesByProfileId.get("agt-a")).toBe(2);
+  });
+
+  it("re-registers a route when its profile workspace path changes", async () => {
+    const catalogState = createMutableRouteCatalogState(
+      createProfileWorkspaceRouteCatalog("/tmp/workspace-a")
+    );
+    const leasesByProfileId = new Map<string, number>([["agt-a", 1]]);
+    const registerCatalog = vi.fn(async () => ({
+      ok: true,
+      connectionGeneration: 2,
+      acceptedLeases: [{ profileId: "agt-a", leaseEpoch: 2 }],
+      rejectedProfiles: [],
+    }));
+
+    const result = await syncDaemonRouteCatalogState({
+      catalogState,
+      leasesByProfileId,
+      loadCatalog: async () =>
+        createProfileWorkspaceRouteCatalog("/tmp/workspace-b"),
+      registerCatalog,
+    });
+
+    expect(result.status).toBe("changed");
+    expect(registerCatalog).toHaveBeenCalledOnce();
+    expect(
+      catalogState.routeByProfileId.get("agt-a")?.workingFolderRuntime
+        ?.effectiveRuntimeWorkingDirectory
+    ).toBe("/tmp/workspace-b");
   });
 
   it("registers removed profiles diff and prunes leases to accepted set", async () => {

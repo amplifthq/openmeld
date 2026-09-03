@@ -52,9 +52,45 @@ const createRouteCatalog = (profileIds: string[]): RouteCatalog => ({
 describe("daemon route catalog cache", () => {
   it("restores the last catalog only for the matching cache identity", async () => {
     await withTempHome(async () => {
+      const catalog = createRouteCatalog([AGENT_PROFILE_A]);
+      const route = catalog.routeByProfileId.get(AGENT_PROFILE_A);
+      if (!route) {
+        throw new Error("test route missing");
+      }
+      route.workingFolderRuntime = {
+        configPath: null,
+        configuredWorkspacePath: "/tmp/project",
+        defaultProjectBindingGeneration: "generation-1",
+        defaultProjectId: "project-1",
+        effectiveRuntimeWorkingDirectory: "/tmp/project",
+        runtimeContext: {
+          providerRuntimeWorkingDirectory: "/tmp/project",
+        },
+        status: "ready",
+        workingFolderFact: {
+          defaultProjectId: "project-1",
+          localProjectBindingGeneration: "generation-1",
+          observedAtMs: 1,
+          reasonCode: null,
+          source: "default_project",
+          status: "ready",
+        },
+        workingFolderSource: "default_project",
+        workspaceMode: null,
+      };
+      catalog.expectedRoutesContractVersion = "v4";
+      catalog.workingFolderExpectedProfileIds = [AGENT_PROFILE_A];
+      catalog.workingFolderObservations = [
+        {
+          ...route.workingFolderRuntime.workingFolderFact,
+          bindingId: `binding-${AGENT_PROFILE_A}`,
+          configurationRevision: 7,
+          profileId: AGENT_PROFILE_A,
+        },
+      ];
       await writeDaemonRouteCatalogCache({
         ...CACHE_IDENTITY,
-        routeCatalog: createRouteCatalog([AGENT_PROFILE_A]),
+        routeCatalog: catalog,
       });
 
       const restored = await readDaemonRouteCatalogCache({
@@ -77,6 +113,12 @@ describe("daemon route catalog cache", () => {
           skipReason: "projection.missing",
         },
       ]);
+      expect(
+        restored?.routeByProfileId.get(AGENT_PROFILE_A)?.workingFolderRuntime
+      ).toBeUndefined();
+      expect(restored?.expectedRoutesContractVersion).toBeUndefined();
+      expect(restored?.workingFolderExpectedProfileIds).toBeUndefined();
+      expect(restored?.workingFolderObservations).toEqual([]);
 
       await expect(
         readDaemonRouteCatalogCache({

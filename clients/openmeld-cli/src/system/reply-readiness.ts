@@ -30,8 +30,10 @@ import type { LocalServiceDemand } from "../local-service/lifecycle/local-servic
 import { resolveLocalServiceDemand } from "../local-service/lifecycle/local-service-demand";
 import type { DeviceRuntimeStateSyncResult } from "../local-service/reporting/device-runtime-state-sync";
 import { syncDeviceRuntimeStateProjection } from "../local-service/reporting/device-runtime-state-sync";
-import type { EffectiveProfileWorkingFolderRuntimeResolution } from "../profile-workspace/effective-runtime-resolution";
-import { resolveProfileWorkspaceRuntime } from "../profile-workspace/runtime-resolution";
+import {
+  type EffectiveProfileWorkingFolderRuntimeResolution,
+  resolveEffectiveProfileWorkingFolderRuntime,
+} from "../profile-workspace/effective-runtime-resolution";
 import {
   isOpenClawLocalDiagnosticsFailure,
   type OpenClawLocalDiagnostics,
@@ -182,7 +184,8 @@ export async function resolveDeviceReplyReadinessStatus(
   const profileWorkspaceRuntimeResolution =
     input.profileWorkspaceRuntimeResolution ??
     (input.profile?.profileKind === "agent"
-      ? await resolveProfileWorkspaceRuntime({
+      ? await resolveEffectiveProfileWorkingFolderRuntime({
+          defaultProjectId: input.profile.defaultProjectId,
           openMeldProfileId: input.profile.openMeldProfileId,
           mode: "inspect",
         })
@@ -286,7 +289,8 @@ export async function resolveAgentReplyReadinessStatus(
     }));
   const profileWorkspaceRuntimeResolution =
     input.profileWorkspaceRuntimeResolution ??
-    (await resolveProfileWorkspaceRuntime({
+    (await resolveEffectiveProfileWorkingFolderRuntime({
+      defaultProjectId: input.profile.defaultProjectId,
       openMeldProfileId: input.profile.openMeldProfileId,
       mode: "inspect",
     }));

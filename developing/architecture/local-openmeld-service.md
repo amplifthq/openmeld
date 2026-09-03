@@ -1059,6 +1059,31 @@ Connections map one Project to one or more repository roots inside one lane.
 Route Registry maps a repository path to one lane root for global hook
 disambiguation. It must not become a second Project binding truth.
 
+The Service has one effective working-folder resolver for local route planning,
+Wake launch, local Agent checks, and provider-conversation proof. A Profile's
+Default Project connection takes precedence over its fallback Profile workspace.
+The resolver produces a path-private current fact with the observation time,
+source, Default Project ID, local Project binding generation when applicable,
+and one precise missing or invalid reason. Route refresh treats a changed
+Binding configuration, Default Project, local binding generation, or effective
+folder fingerprint as a new fact. The route cache may preserve routing metadata
+for offline startup, but it never restores a cached working-folder observation
+as current; the new Service session must observe and report it again.
+
+Current working-folder facts are a negotiated transport capability. The Service
+requests expected routes in `v4`, then falls back through `v3`, `v2`, and the
+legacy query only when Core explicitly returns `invalid_payload`. A network,
+server, or malformed-success failure preserves the current catalog and never
+pretends to be an older compatible Core. Only a successful `v4` read authorizes
+the strict `v4` route report; every older response produces the unchanged
+legacy report shape and uses the transitional per-Profile resolver so Default
+Project behavior remains correct. While a `v4` session is live, the normal
+catalog cadence refreshes unchanged observations before their freshness window
+expires. A changed local Project binding generation or effective working folder
+still forces an immediate new report. Restart begins with legacy/unknown cached
+evidence, then automatically re-observes and reports the new session's current
+facts without asking the person to reconnect or rebuild the Profile.
+
 ## Local Folder Picker
 
 Local Folder Picker is a current-Computer, owner-self interaction capability.

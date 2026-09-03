@@ -1,4 +1,5 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import { buildRuntimeWorkspaceFingerprint } from "@openmeld/local-execution";
 import type { LocalDaemonAdapterContainer } from "@openmeld/local-service";
 import { applyAcceptedLeases } from "@openmeld/local-service";
 import type {
@@ -12,11 +13,12 @@ import { resolveCurrentOpenMeldAccountContext } from "../../config/account-conte
 import { listOpenMeldProfiles } from "../../config/openmeld-profiles-api";
 import type { OpenMeldAccountKey } from "../../config/paths";
 import { syncDeviceRuntimeStateProjection } from "../../local-service/reporting/device-runtime-state-sync";
-import { resolveProfileWorkspaceRuntime } from "../../profile-workspace/runtime-resolution";
+import { resolveCurrentEffectiveProfileWorkingFolderRuntime } from "../../profile-workspace/effective-runtime-resolution";
 import type { Presenter } from "../../runtime/presenter/types";
 import { ROUTE_CATALOG_LOAD_TIMEOUT_MS } from "../../strategy-constants";
 import {
   createExpectedRoutesReadSession,
+  type ExpectedRoutesReadResult,
   type ExpectedRoutesReadSession,
 } from "../../system/expected-routes-read-session";
 import {
@@ -156,23 +158,16 @@ export async function loadDaemonRouteCatalog(input: {
 
   const resolutions = await runMeasuredRouteCatalogLoadPhase({
     deadline,
-    operation: async () =>
-      expectedRoutesResult.status === "resolved"
-        ? await resolveExpectedRouteResolutions({
-            account,
-            excludedProfiles: expectedRoutesResult.response.excludedProfiles,
-            expectedRoutes: expectedRoutesResult.response.expectedRoutes,
-            localAdapterContainer: input.localAdapterContainer,
-            modelCatalog,
-          })
-        : await resolvePerProfileBindingResolutions({
-            account,
-            bindingReads,
-            localAdapterContainer: input.localAdapterContainer,
-            modelCatalog,
-            ownerUserId: input.ownerUserId,
-            phaseTimings: input.phaseTimings,
-          }),
+    operation: () =>
+      resolveCatalogRouteResolutions({
+        account,
+        bindingReads,
+        expectedRoutesResult,
+        localAdapterContainer: input.localAdapterContainer,
+        modelCatalog,
+        ownerUserId: input.ownerUserId,
+        phaseTimings: input.phaseTimings,
+      }),
     phase: "candidate_resolve",
     phaseTimings: input.phaseTimings,
     timingKey: "candidateResolveMs",
@@ -180,7 +175,15 @@ export async function loadDaemonRouteCatalog(input: {
 
   const routeByProfileId = new Map<string, DaemonProfileRouteConfig>();
   const skippedProfiles: SkippedDaemonProfile[] = [];
+  const workingFolderObservations: NonNullable<
+    RouteCatalog["workingFolderObservations"]
+  > = [];
   for (const { nextResolvedRoute, profileName } of resolutions) {
+    if (nextResolvedRoute.workingFolderObservation) {
+      workingFolderObservations.push(
+        nextResolvedRoute.workingFolderObservation
+      );
+    }
     if (nextResolvedRoute.status === "skipped") {
       if (nextResolvedRoute.profileId && nextResolvedRoute.skipReason) {
         skippedProfiles.push({
@@ -210,11 +213,15 @@ export async function loadDaemonRouteCatalog(input: {
   }
 
   const catalog: RouteCatalog = {
+    ...resolveV4RouteCatalogMetadata(expectedRoutesResult),
     profileIds: Array.from(routeByProfileId.keys()).sort((left, right) =>
       left.localeCompare(right)
     ),
     routeByProfileId,
     skippedProfiles: skippedProfiles.sort((left, right) =>
+      left.profileId.localeCompare(right.profileId)
+    ),
+    workingFolderObservations: workingFolderObservations.sort((left, right) =>
       left.profileId.localeCompare(right.profileId)
     ),
   };
@@ -226,6 +233,58 @@ export async function loadDaemonRouteCatalog(input: {
     });
   }
   return catalog;
+}
+
+async function resolveCatalogRouteResolutions(input: {
+  account: OpenMeldAccountKey;
+  bindingReads: PrimaryBindingReadSession;
+  expectedRoutesResult: ExpectedRoutesReadResult;
+  localAdapterContainer: LocalDaemonAdapterContainer;
+  modelCatalog: ModelCatalog;
+  ownerUserId: string;
+  phaseTimings?: RouteCatalogLoadPhaseTimings;
+}): Promise<CatalogRouteResolutionEntry[]> {
+  if (
+    input.expectedRoutesResult.status === "resolved" &&
+    input.expectedRoutesResult.contractVersion === "v4"
+  ) {
+    return await resolveExpectedRouteResolutions({
+      account: input.account,
+      excludedProfiles: input.expectedRoutesResult.response.excludedProfiles,
+      expectedRoutes: input.expectedRoutesResult.response.expectedRoutes,
+      localAdapterContainer: input.localAdapterContainer,
+      modelCatalog: input.modelCatalog,
+    });
+  }
+  return await resolvePerProfileBindingResolutions({
+    account: input.account,
+    bindingReads: input.bindingReads,
+    localAdapterContainer: input.localAdapterContainer,
+    modelCatalog: input.modelCatalog,
+    ownerUserId: input.ownerUserId,
+    phaseTimings: input.phaseTimings,
+  });
+}
+
+function resolveV4RouteCatalogMetadata(
+  expectedRoutesResult: ExpectedRoutesReadResult
+): Pick<
+  RouteCatalog,
+  "expectedRoutesContractVersion" | "workingFolderExpectedProfileIds"
+> {
+  if (
+    expectedRoutesResult.status !== "resolved" ||
+    expectedRoutesResult.contractVersion !== "v4"
+  ) {
+    return {};
+  }
+  return {
+    expectedRoutesContractVersion: "v4",
+    workingFolderExpectedProfileIds:
+      expectedRoutesResult.response.expectedRoutes
+        .map((route) => route.agentProfileId)
+        .sort((left, right) => left.localeCompare(right)),
+  };
 }
 
 async function runMeasuredRouteCatalogLoadPhase<T>(input: {
@@ -301,56 +360,56 @@ async function resolveExpectedRouteResolutions(input: {
   const localControllers = await readLocalEnabledControllers();
   const resolved = await Promise.all(
     input.expectedRoutes.map(async (expectedRoute) => {
+      if (
+        expectedRoute.configurationRevision === undefined ||
+        !Object.hasOwn(expectedRoute, "defaultProjectId")
+      ) {
+        throw new Error(
+          `expected-routes v4 response omitted current working-folder identity for ${expectedRoute.agentProfileId}`
+        );
+      }
       const parsedRef = parseAgentControllerRef(
         expectedRoute.executionTarget.agentControllerRef
       );
-      if (!parsedRef) {
-        return {
-          nextResolvedRoute: {
+      const localResolution = parsedRef
+        ? resolveLocalRouteCandidateFromBoundTarget({
+            boundTarget: {
+              agentControllerConversationId:
+                expectedRoute.executionTarget.agentControllerConversationId,
+              agentControllerRef: parsedRef.ref,
+              openMeldServiceRuntimeId:
+                expectedRoute.executionTarget.openMeldServiceRuntimeId,
+              bindingId: expectedRoute.bindingId,
+              configurationRevision: expectedRoute.configurationRevision,
+              agentControllerCollaborationMode:
+                expectedRoute.agentControllerCollaborationMode,
+              agentControllerPermissionMode:
+                expectedRoute.agentControllerPermissionMode,
+              ...(expectedRoute.modelSelection
+                ? { modelSelection: expectedRoute.modelSelection }
+                : {}),
+              ...(expectedRoute.openCodePermission
+                ? { openCodePermission: expectedRoute.openCodePermission }
+                : {}),
+              profileId: expectedRoute.agentProfileId,
+            },
+            localAdapterContainer: input.localAdapterContainer,
+            localControllers,
+            modelCatalog: input.modelCatalog,
+          })
+        : ({
             profileId: expectedRoute.agentProfileId,
             skipReason: "controller.binding.incomplete",
             status: "skipped",
-          } satisfies DaemonProfileRouteResolution,
-          profileName: expectedRoute.profileName,
-        };
-      }
-      const localResolution = resolveLocalRouteCandidateFromBoundTarget({
-        boundTarget: {
-          agentControllerConversationId:
-            expectedRoute.executionTarget.agentControllerConversationId,
-          agentControllerRef: parsedRef.ref,
-          openMeldServiceRuntimeId:
-            expectedRoute.executionTarget.openMeldServiceRuntimeId,
-          bindingId: expectedRoute.bindingId,
-          ...(expectedRoute.configurationRevision
-            ? {
-                configurationRevision: expectedRoute.configurationRevision,
-              }
-            : {}),
-          agentControllerCollaborationMode:
-            expectedRoute.agentControllerCollaborationMode,
-          agentControllerPermissionMode:
-            expectedRoute.agentControllerPermissionMode,
-          ...(expectedRoute.modelSelection
-            ? { modelSelection: expectedRoute.modelSelection }
-            : {}),
-          ...(expectedRoute.openCodePermission
-            ? { openCodePermission: expectedRoute.openCodePermission }
-            : {}),
-          profileId: expectedRoute.agentProfileId,
-        },
-        localAdapterContainer: input.localAdapterContainer,
-        localControllers,
-        modelCatalog: input.modelCatalog,
+          } satisfies DaemonProfileRouteResolution);
+      const nextResolvedRoute = await resolveCatalogRouteWorkspaceState({
+        account: input.account,
+        bindingId: expectedRoute.bindingId,
+        configurationRevision: expectedRoute.configurationRevision,
+        defaultProjectId: expectedRoute.defaultProjectId ?? null,
+        routeResolution: localResolution,
+        profileId: expectedRoute.agentProfileId,
       });
-      const nextResolvedRoute =
-        localResolution.status === "accepted"
-          ? await resolveCatalogRouteWorkspaceState({
-              account: input.account,
-              route: localResolution.route,
-              profileId: localResolution.profileId,
-            })
-          : localResolution;
       return {
         nextResolvedRoute,
         profileName: expectedRoute.profileName,
@@ -425,7 +484,11 @@ async function resolvePerProfileBindingResolutions(input: {
         resolvedRoute.status === "accepted"
           ? await resolveCatalogRouteWorkspaceState({
               account: input.account,
-              route: resolvedRoute.route,
+              bindingId: resolvedRoute.route.bindingId ?? null,
+              configurationRevision:
+                resolvedRoute.route.configurationRevision ?? null,
+              defaultProjectId: profile.defaultProjectId ?? null,
+              routeResolution: resolvedRoute,
               profileId: resolvedRoute.profileId,
             })
           : resolvedRoute;
@@ -571,10 +634,22 @@ export function createMutableRouteCatalogState(
   routeCatalog: RouteCatalog
 ): MutableRouteCatalogState {
   return {
+    ...(routeCatalog.expectedRoutesContractVersion
+      ? {
+          expectedRoutesContractVersion:
+            routeCatalog.expectedRoutesContractVersion,
+        }
+      : {}),
     fingerprint: buildRouteCatalogFingerprint(routeCatalog),
     profileIds: [...routeCatalog.profileIds],
     routeByProfileId: new Map(routeCatalog.routeByProfileId),
     skippedProfiles: [...routeCatalog.skippedProfiles],
+    workingFolderExpectedProfileIds: [
+      ...(routeCatalog.workingFolderExpectedProfileIds ?? []),
+    ],
+    workingFolderObservations: [
+      ...(routeCatalog.workingFolderObservations ?? []),
+    ],
   };
 }
 
@@ -582,9 +657,16 @@ export function createRouteCatalogFromMutableState(
   state: MutableRouteCatalogState
 ): RouteCatalog {
   return {
+    ...(state.expectedRoutesContractVersion
+      ? { expectedRoutesContractVersion: state.expectedRoutesContractVersion }
+      : {}),
     profileIds: [...state.profileIds],
     routeByProfileId: new Map(state.routeByProfileId),
     skippedProfiles: [...state.skippedProfiles],
+    workingFolderExpectedProfileIds: [
+      ...(state.workingFolderExpectedProfileIds ?? []),
+    ],
+    workingFolderObservations: [...(state.workingFolderObservations ?? [])],
   };
 }
 
@@ -612,6 +694,7 @@ export async function syncDaemonRouteCatalogState(input: {
   if (nextFingerprint === input.catalogState.fingerprint) {
     const shouldRefreshLeases =
       input.forceRegister ||
+      nextCatalog.expectedRoutesContractVersion === "v4" ||
       nextCatalog.profileIds.some(
         (profileId) => !input.leasesByProfileId.has(profileId)
       );
@@ -638,6 +721,14 @@ export async function syncDaemonRouteCatalogState(input: {
       input.catalogState.profileIds = [...nextCatalog.profileIds];
       input.catalogState.fingerprint = nextFingerprint;
       input.catalogState.skippedProfiles = [...nextCatalog.skippedProfiles];
+      input.catalogState.expectedRoutesContractVersion =
+        nextCatalog.expectedRoutesContractVersion;
+      input.catalogState.workingFolderExpectedProfileIds = [
+        ...(nextCatalog.workingFolderExpectedProfileIds ?? []),
+      ];
+      input.catalogState.workingFolderObservations = [
+        ...(nextCatalog.workingFolderObservations ?? []),
+      ];
       return {
         registerResponse,
         skippedProfiles: nextCatalog.skippedProfiles,
@@ -645,6 +736,14 @@ export async function syncDaemonRouteCatalogState(input: {
       };
     }
     input.catalogState.skippedProfiles = [...nextCatalog.skippedProfiles];
+    input.catalogState.expectedRoutesContractVersion =
+      nextCatalog.expectedRoutesContractVersion;
+    input.catalogState.workingFolderExpectedProfileIds = [
+      ...(nextCatalog.workingFolderExpectedProfileIds ?? []),
+    ];
+    input.catalogState.workingFolderObservations = [
+      ...(nextCatalog.workingFolderObservations ?? []),
+    ];
     return {
       skippedProfiles: nextCatalog.skippedProfiles,
       status: "unchanged",
@@ -678,6 +777,14 @@ export async function syncDaemonRouteCatalogState(input: {
   input.catalogState.profileIds = [...nextCatalog.profileIds];
   input.catalogState.fingerprint = nextFingerprint;
   input.catalogState.skippedProfiles = [...nextCatalog.skippedProfiles];
+  input.catalogState.expectedRoutesContractVersion =
+    nextCatalog.expectedRoutesContractVersion;
+  input.catalogState.workingFolderExpectedProfileIds = [
+    ...(nextCatalog.workingFolderExpectedProfileIds ?? []),
+  ];
+  input.catalogState.workingFolderObservations = [
+    ...(nextCatalog.workingFolderObservations ?? []),
+  ];
   return {
     status: "changed",
     diff,
@@ -710,21 +817,38 @@ export function summarizeSkippedDaemonProfiles(
 
 async function resolveCatalogRouteWorkspaceState(input: {
   account: OpenMeldAccountKey;
-  route: DaemonProfileRouteConfig;
+  bindingId: string | null;
+  configurationRevision: number | null;
+  defaultProjectId: string | null;
   profileId: string;
+  routeResolution: DaemonProfileRouteResolution;
 }): Promise<
   Extract<DaemonProfileRouteResolution, { status: "accepted" | "skipped" }>
 > {
-  const workspace = await resolveProfileWorkspaceRuntime({
+  const workspace = await resolveCurrentEffectiveProfileWorkingFolderRuntime({
     account: input.account,
+    defaultProjectId: input.defaultProjectId,
     openMeldProfileId: input.profileId,
     mode: "inspect",
   });
+  const workingFolderObservation = buildWorkingFolderObservation({
+    bindingId: input.bindingId,
+    configurationRevision: input.configurationRevision,
+    profileId: input.profileId,
+    workspace,
+  });
+  if (input.routeResolution.status === "skipped") {
+    return {
+      ...input.routeResolution,
+      workingFolderObservation,
+    };
+  }
   if (workspace.status === "missing") {
     return {
       profileId: input.profileId,
       skipReason: "workspace.missing",
       status: "skipped",
+      workingFolderObservation,
     };
   }
   if (workspace.status === "invalid") {
@@ -732,13 +856,34 @@ async function resolveCatalogRouteWorkspaceState(input: {
       profileId: input.profileId,
       skipReason: "workspace.invalid",
       status: "skipped",
+      workingFolderObservation,
     };
   }
 
   return {
     profileId: input.profileId,
-    route: input.route,
+    route: {
+      ...input.routeResolution.route,
+      workingFolderRuntime: workspace,
+    },
     status: "accepted",
+    workingFolderObservation,
+  };
+}
+
+function buildWorkingFolderObservation(input: {
+  bindingId: string | null;
+  configurationRevision: number | null;
+  profileId: string;
+  workspace: Awaited<
+    ReturnType<typeof resolveCurrentEffectiveProfileWorkingFolderRuntime>
+  >;
+}) {
+  return {
+    ...input.workspace.workingFolderFact,
+    bindingId: input.bindingId,
+    configurationRevision: input.configurationRevision,
+    profileId: input.profileId,
   };
 }
 
@@ -801,6 +946,23 @@ function buildRouteCatalogFingerprint(routeCatalog: RouteCatalog): string {
             mappingVersion: route.contextIdMappingSpec.mappingVersion,
           }
         : null,
+      workingFolderFact: route?.workingFolderRuntime?.workingFolderFact
+        ? {
+            defaultProjectId:
+              route.workingFolderRuntime.workingFolderFact.defaultProjectId,
+            localProjectBindingGeneration:
+              route.workingFolderRuntime.workingFolderFact
+                .localProjectBindingGeneration,
+            source: route.workingFolderRuntime.workingFolderFact.source,
+            status: route.workingFolderRuntime.workingFolderFact.status,
+          }
+        : null,
+      workingFolderPathFingerprint: route?.workingFolderRuntime
+        ?.effectiveRuntimeWorkingDirectory
+        ? buildRuntimeWorkspaceFingerprint(
+            route.workingFolderRuntime.effectiveRuntimeWorkingDirectory
+          )
+        : null,
     };
   });
   const skippedProfiles = routeCatalog.skippedProfiles.map((profile) => ({
@@ -808,5 +970,25 @@ function buildRouteCatalogFingerprint(routeCatalog: RouteCatalog): string {
     profileName: profile.profileName,
     skipReason: profile.skipReason,
   }));
-  return JSON.stringify({ entries, skippedProfiles });
+  const workingFolderObservations = (
+    routeCatalog.workingFolderObservations ?? []
+  ).map((observation) => ({
+    bindingId: observation.bindingId,
+    configurationRevision: observation.configurationRevision,
+    defaultProjectId: observation.defaultProjectId,
+    localProjectBindingGeneration: observation.localProjectBindingGeneration,
+    profileId: observation.profileId,
+    reasonCode: observation.reasonCode,
+    source: observation.source,
+    status: observation.status,
+  }));
+  return JSON.stringify({
+    entries,
+    expectedRoutesContractVersion:
+      routeCatalog.expectedRoutesContractVersion ?? null,
+    skippedProfiles,
+    workingFolderExpectedProfileIds:
+      routeCatalog.workingFolderExpectedProfileIds ?? [],
+    workingFolderObservations,
+  });
 }

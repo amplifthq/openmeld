@@ -113,6 +113,10 @@ import { handleOpenMeldToolsControlRequest } from "../maintenance/openmeld-tools
 import type { OpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { didLocalProjectConnectionsChange } from "../projects/local-project-activity-sync";
 import { handleLocalProjectControlFrame } from "../projects/local-project-control-handler";
+import {
+  createLocalWakeRouteReport,
+  hasCompleteProfileConfigurationRevisions,
+} from "../reporting/local-wake-route-report";
 import { syncLocalServiceProviderConversationProofs } from "../reporting/provider-conversation-proof-sync";
 import {
   type LocalServiceRuntimeAgentControllerReportSyncResult,
@@ -841,8 +845,7 @@ export async function runDaemonSocketSession(input: {
             localAdapterContainer: input.localAdapterContainer,
             localComponentsStatus,
             profileConfigurationRevision:
-              resolveProfileConfigurationRevisions(input.routeCatalogState) !==
-              null,
+              hasCompleteProfileConfigurationRevisions(input.routeCatalogState),
           }),
           sentAtMs: Date.now(),
         }
@@ -1071,50 +1074,6 @@ export async function runDaemonSocketSession(input: {
     input.routeCatalogState.profileIds.length === 0;
   const serviceVersion = resolveCurrentDaemonExpectedVersion();
 
-  const resolveProfileConfigurationRevisions = (routeCatalog: RouteCatalog) => {
-    if (routeCatalog.profileIds.length === 0) {
-      return null;
-    }
-    const revisions = routeCatalog.profileIds.map((profileId) => {
-      const configurationRevision =
-        routeCatalog.routeByProfileId.get(profileId)?.configurationRevision ??
-        null;
-      const bindingId =
-        routeCatalog.routeByProfileId.get(profileId)?.bindingId ?? null;
-      return configurationRevision === null || bindingId === null
-        ? null
-        : { bindingId, configurationRevision, profileId };
-    });
-    return revisions.every(
-      (
-        revision
-      ): revision is {
-        bindingId: string;
-        configurationRevision: number;
-        profileId: string;
-      } => revision !== null
-    )
-      ? revisions
-      : null;
-  };
-
-  const createLocalWakeRouteReport = (routeCatalog: RouteCatalog) => {
-    const profileConfigurationRevisions =
-      resolveProfileConfigurationRevisions(routeCatalog);
-    return {
-      reportedAtMs: Date.now(),
-      daemonSessionId: input.daemonSessionId,
-      deviceId: input.deviceId,
-      lane: input.lane,
-      serviceVersion,
-      includedProfileIds: [...routeCatalog.profileIds],
-      ...(profileConfigurationRevisions
-        ? { profileConfigurationRevisions }
-        : {}),
-      skippedProfiles: [...routeCatalog.skippedProfiles],
-    };
-  };
-
   const resolveSessionLocalComponentsStatus =
     async (): Promise<LocalComponentsStatus | null> => {
       try {
@@ -1144,12 +1103,19 @@ export async function runDaemonSocketSession(input: {
         serviceVersion,
         connectionGeneration,
         profileIds: routeCatalog.profileIds,
-        localWakeRouteReport: createLocalWakeRouteReport(routeCatalog),
+        localWakeRouteReport: createLocalWakeRouteReport({
+          daemonSessionId: input.daemonSessionId,
+          deviceId: input.deviceId,
+          lane: input.lane,
+          reportedAtMs: Date.now(),
+          routeCatalog,
+          serviceVersion,
+        }),
         capabilities: resolveDaemonCapabilities({
           localAdapterContainer: input.localAdapterContainer,
           localComponentsStatus,
           profileConfigurationRevision:
-            resolveProfileConfigurationRevisions(routeCatalog) !== null,
+            hasCompleteProfileConfigurationRevisions(routeCatalog),
         }),
         runtimeContract: {
           epoch: DAEMON_RUNTIME_CONTRACT_EPOCH,

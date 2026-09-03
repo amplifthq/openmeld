@@ -5,6 +5,7 @@ import { loadDaemonRouteCatalog } from "../src/local-service/routing/route-catal
 const getPrimaryBinding = vi.fn();
 const listOpenMeldProfiles = vi.fn();
 const resolveLocalDaemonRouteCandidate = vi.fn();
+const resolveCurrentEffectiveProfileWorkingFolderRuntime = vi.fn();
 
 vi.mock("@openmeld/api-client", () => ({
   createAgentProfileBindingApi: vi.fn(),
@@ -12,6 +13,12 @@ vi.mock("@openmeld/api-client", () => ({
 
 vi.mock("../src/config/openmeld-profiles-api", () => ({
   listOpenMeldProfiles: () => listOpenMeldProfiles(),
+}));
+
+vi.mock("../src/config/account-context", () => ({
+  resolveCurrentOpenMeldAccountContext: async () => ({
+    key: { hostKey: "gateway.test", userKey: "owner-1" },
+  }),
 }));
 
 vi.mock("../src/config/base-url", () => ({
@@ -25,18 +32,12 @@ vi.mock("../src/local-service/routing/resolve-controller-support", () => ({
   ) => resolveLocalDaemonRouteCandidate(input),
 }));
 
-vi.mock("../src/profile-workspace/runtime-resolution", () => ({
-  resolveProfileWorkspaceRuntime: async () => ({
-    fingerprint: "sha256:test",
-    path: "/tmp/openmeld-profile",
-    reasonCode: null,
-    reasonText: null,
-    runtimeContext: {
-      providerRuntimeWorkingDirectory: "/tmp/openmeld-profile",
-    },
-    status: "ready",
-    workspaceMode: "openmeld_managed",
-  }),
+vi.mock("../src/profile-workspace/effective-runtime-resolution", () => ({
+  resolveCurrentEffectiveProfileWorkingFolderRuntime: (
+    input: Parameters<
+      typeof resolveCurrentEffectiveProfileWorkingFolderRuntime
+    >[0]
+  ) => resolveCurrentEffectiveProfileWorkingFolderRuntime(input),
 }));
 
 vi.mock("../src/system/expected-routes-read-session", () => ({
@@ -60,11 +61,33 @@ describe("route catalog", () => {
     getPrimaryBinding.mockReset();
     listOpenMeldProfiles.mockReset();
     resolveLocalDaemonRouteCandidate.mockReset();
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockReset();
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockResolvedValue({
+      configPath: null,
+      configuredWorkspacePath: "/tmp/default-project",
+      defaultProjectBindingGeneration: "project-generation-1",
+      defaultProjectId: "project-1",
+      effectiveRuntimeWorkingDirectory: "/tmp/default-project",
+      runtimeContext: {
+        providerRuntimeWorkingDirectory: "/tmp/default-project",
+      },
+      status: "ready",
+      workingFolderFact: {
+        defaultProjectId: "project-1",
+        localProjectBindingGeneration: "project-generation-1",
+        observedAtMs: 1,
+        reasonCode: null,
+        source: "default_project",
+        status: "ready",
+      },
+      workingFolderSource: "default_project",
+      workspaceMode: null,
+    });
   });
 
   it("keeps routable profiles when one profile binding read is unavailable", async () => {
     listOpenMeldProfiles.mockResolvedValue([
-      createProfile("agt-ready", "Ready Codex"),
+      createProfile("agt-ready", "Ready Codex", "project-1"),
       createProfile("agt-binding-down", "Binding API Down"),
     ]);
     getPrimaryBinding.mockImplementation(({ agentProfileId }) => {
@@ -120,6 +143,18 @@ describe("route catalog", () => {
     expect(catalog.routeByProfileId.get("agt-ready")?.bindingId).toBe(
       "bind-ready"
     );
+    expect(
+      resolveCurrentEffectiveProfileWorkingFolderRuntime
+    ).toHaveBeenCalledWith({
+      account: { hostKey: "gateway.test", userKey: "owner-1" },
+      defaultProjectId: "project-1",
+      mode: "inspect",
+      openMeldProfileId: "agt-ready",
+    });
+    expect(
+      catalog.routeByProfileId.get("agt-ready")?.workingFolderRuntime
+        ?.effectiveRuntimeWorkingDirectory
+    ).toBe("/tmp/default-project");
     expect(catalog.skippedProfiles).toEqual([
       {
         profileId: "agt-binding-down",
@@ -127,11 +162,110 @@ describe("route catalog", () => {
         skipReason: "profile.binding.read_unavailable",
       },
     ]);
+    expect(catalog.workingFolderObservations).toEqual([
+      {
+        bindingId: "bind-ready",
+        configurationRevision: null,
+        defaultProjectId: "project-1",
+        localProjectBindingGeneration: "project-generation-1",
+        observedAtMs: 1,
+        profileId: "agt-ready",
+        reasonCode: null,
+        source: "default_project",
+        status: "ready",
+      },
+    ]);
+  });
+
+  it("keeps a precise current fact when a Default Project folder is missing", async () => {
+    listOpenMeldProfiles.mockResolvedValue([
+      createProfile("agt-missing-folder", "Missing Folder", "project-1"),
+    ]);
+    getPrimaryBinding.mockResolvedValue({
+      binding: {
+        bindingId: "bind-missing-folder",
+        configurationRevision: 3,
+      },
+      status: "found",
+    });
+    resolveLocalDaemonRouteCandidate.mockReturnValue({
+      profileId: "agt-missing-folder",
+      route: {
+        agentControllerConversationId: null,
+        agentControllerRef: "builtin:codex",
+        bindingId: "bind-missing-folder",
+        configurationRevision: 3,
+        contextIdMappingSpec: null,
+        profileId: "agt-missing-folder",
+        streamingMode: "final",
+        transportMode: "local-cli",
+      },
+      status: "accepted",
+    });
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockResolvedValueOnce({
+      configPath: null,
+      configuredWorkspacePath: "/tmp/missing-project",
+      defaultProjectBindingGeneration: "project-generation-2",
+      defaultProjectFailureReason: "folder_missing",
+      defaultProjectId: "project-1",
+      reasonCode: "workspace.missing",
+      reasonText: "missing",
+      status: "missing",
+      workingFolderFact: {
+        defaultProjectId: "project-1",
+        localProjectBindingGeneration: "project-generation-2",
+        observedAtMs: 2,
+        reasonCode: "project.local_connection.folder_missing",
+        source: "default_project",
+        status: "missing",
+      },
+      workingFolderSource: "default_project",
+      workspaceMode: null,
+    });
+
+    const catalog = await loadDaemonRouteCatalog({
+      localAdapterContainer: {} as never,
+      ownerUserId: "owner-1",
+      presenter: {
+        view: "agent",
+        data: vi.fn(),
+        event: vi.fn(),
+        line: vi.fn(),
+      },
+      quiet: true,
+    });
+
+    expect(catalog.profileIds).toEqual([]);
+    expect(catalog.skippedProfiles).toEqual([
+      {
+        profileId: "agt-missing-folder",
+        profileName: "Missing Folder",
+        skipReason: "workspace.missing",
+      },
+    ]);
+    expect(catalog.workingFolderObservations).toEqual([
+      {
+        bindingId: "bind-missing-folder",
+        configurationRevision: 3,
+        defaultProjectId: "project-1",
+        localProjectBindingGeneration: "project-generation-2",
+        observedAtMs: 2,
+        profileId: "agt-missing-folder",
+        reasonCode: "project.local_connection.folder_missing",
+        source: "default_project",
+        status: "missing",
+      },
+    ]);
   });
 });
 
-function createProfile(openMeldProfileId: string, profileName: string) {
+function createProfile(
+  openMeldProfileId: string,
+  profileName: string,
+  defaultProjectId: string | null = null
+) {
   return {
+    defaultProjectId,
     openMeldProfileId,
     ownerUserId: "owner-1",
     profileKind: "agent",
