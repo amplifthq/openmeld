@@ -133,6 +133,52 @@ describe("dispatch runtime working folder", () => {
     });
   });
 
+  it("fails closed after a Profile workspace changes but before the new route is registered", async () => {
+    const routeConfig = createCurrentProfileWorkspaceRoute();
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockResolvedValue(
+      createCurrentProfileWorkspace({
+        repositoryPath: "/tmp/new-profile-workspace",
+      })
+    );
+
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: null,
+        defaultProjectIdWasProvided: false,
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).rejects.toMatchObject({
+      code: "profile.working_folder.current_fact_changed",
+    });
+  });
+
+  it("automatically accepts the new Profile workspace after its route is registered", async () => {
+    const routeConfig = createCurrentProfileWorkspaceRoute({
+      repositoryPath: "/tmp/new-profile-workspace",
+    });
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockResolvedValue(
+      createCurrentProfileWorkspace({
+        repositoryPath: "/tmp/new-profile-workspace",
+      })
+    );
+
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: null,
+        defaultProjectIdWasProvided: false,
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).resolves.toEqual({
+      providerRuntimeWorkingDirectory: "/tmp/new-profile-workspace",
+    });
+  });
+
   it.each([
     ["missing", null, 10_000],
     [
@@ -296,6 +342,60 @@ function createCurrentWorkingFolder(
     },
     workingFolderSource: "default_project" as const,
     workspaceMode: null,
+  };
+}
+
+function createCurrentProfileWorkspaceRoute(
+  overrides: { repositoryPath?: string } = {}
+): DaemonProfileRouteConfig {
+  const repositoryPath =
+    overrides.repositoryPath ?? "/tmp/current-profile-workspace";
+  const route = createCurrentRoute();
+  route.workingFolderRuntime = {
+    configPath: "/tmp/profile-workspace.json",
+    configuredWorkspacePath: repositoryPath,
+    effectiveRuntimeWorkingDirectory: repositoryPath,
+    runtimeContext: {
+      providerRuntimeWorkingDirectory: repositoryPath,
+    },
+    status: "ready",
+    workingFolderFact: {
+      defaultProjectId: null,
+      localProjectBindingGeneration: null,
+      observedAtMs: 9000,
+      reasonCode: null,
+      source: "profile_workspace",
+      status: "ready",
+    },
+    workingFolderSource: "profile_workspace",
+    workspaceMode: "custom",
+  };
+  return route;
+}
+
+function createCurrentProfileWorkspace(
+  overrides: { repositoryPath?: string } = {}
+) {
+  const repositoryPath =
+    overrides.repositoryPath ?? "/tmp/current-profile-workspace";
+  return {
+    configPath: "/tmp/profile-workspace.json",
+    configuredWorkspacePath: repositoryPath,
+    effectiveRuntimeWorkingDirectory: repositoryPath,
+    runtimeContext: {
+      providerRuntimeWorkingDirectory: repositoryPath,
+    },
+    status: "ready" as const,
+    workingFolderFact: {
+      defaultProjectId: null,
+      localProjectBindingGeneration: null,
+      observedAtMs: 10_000,
+      reasonCode: null,
+      source: "profile_workspace" as const,
+      status: "ready" as const,
+    },
+    workingFolderSource: "profile_workspace" as const,
+    workspaceMode: "custom" as const,
   };
 }
 

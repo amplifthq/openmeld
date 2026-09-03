@@ -1069,10 +1069,11 @@ Binding configuration, Default Project, local binding generation, or effective
 folder fingerprint as a new fact. The route cache may preserve routing metadata
 for offline startup, but it never restores a cached working-folder observation
 as current; the new Service session must observe and report it again.
-For a Default Project route, dispatch admission compares the route's observed
-local binding generation with the current durable local connection. Once a
-connection mutation is durable, an older route cannot launch new work; catalog
-refresh only controls how quickly the new route becomes available again.
+Dispatch admission compares the route's observed source, Default Project and
+local binding generation when applicable, and effective directory with the
+current durable local configuration. Once a connection or Profile workspace
+mutation is durable, an older route cannot launch new work; catalog refresh
+only controls how quickly the new route becomes available again.
 Every durable local Project connection writer emits the same lane-local catalog
 refresh signal, while an idempotent no-op emits nothing.
 

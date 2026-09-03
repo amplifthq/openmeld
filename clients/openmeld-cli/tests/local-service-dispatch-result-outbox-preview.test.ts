@@ -683,6 +683,61 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
+  it("does not start the controller after a Profile workspace changes but before its route refresh finishes", async () => {
+    await withTempHome(async (home) => {
+      const firstPath = join(home, "first-profile-workspace");
+      const secondPath = join(home, "second-profile-workspace");
+      mkdirSync(firstPath, { recursive: true });
+      mkdirSync(secondPath, { recursive: true });
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        configPath: join(home, "profile-workspace.json"),
+        configuredWorkspacePath: secondPath,
+        effectiveRuntimeWorkingDirectory: secondPath,
+        runtimeContext: {
+          providerRuntimeWorkingDirectory: secondPath,
+        },
+        status: "ready",
+        workspaceMode: "custom",
+      });
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const socket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      }) as never;
+
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest: createDeliverRequest(),
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({ adapter: {} }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: createCurrentRouteByProfileId(firstPath),
+        socket,
+      });
+
+      expect(result).toMatchObject({
+        errorCode: "profile.working_folder.current_fact_changed",
+        result: "failed",
+      });
+      expect(prepareProviderRuntimeMock).not.toHaveBeenCalled();
+      expect(runRuntimeTaskMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("injects current Space meta into the runtime prompt", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();

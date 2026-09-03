@@ -149,30 +149,27 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
       "the current route working-folder observation has expired"
     );
   }
-  if (workingFolderRuntime.workingFolderFact.source === "default_project") {
-    const currentWorkingFolder =
-      await resolveCurrentEffectiveProfileWorkingFolderRuntime({
-        defaultProjectId:
-          workingFolderRuntime.workingFolderFact.defaultProjectId,
-        mode: "dispatch",
-        openMeldProfileId: input.targetProfileId,
-      });
-    const currentFact = currentWorkingFolder.workingFolderFact;
-    if (
-      currentWorkingFolder.status !== "ready" ||
-      currentFact.source !== "default_project" ||
-      currentFact.defaultProjectId !==
-        workingFolderRuntime.workingFolderFact.defaultProjectId ||
-      currentFact.localProjectBindingGeneration !==
-        workingFolderRuntime.workingFolderFact.localProjectBindingGeneration ||
-      currentWorkingFolder.runtimeContext.providerRuntimeWorkingDirectory !==
-        workingFolderRuntime.runtimeContext.providerRuntimeWorkingDirectory
-    ) {
-      throwCurrentWorkingFolderFactError(
-        "changed",
-        "the local Default Project connection changed after this route was observed"
-      );
-    }
+  const currentWorkingFolder =
+    await resolveCurrentEffectiveProfileWorkingFolderRuntime({
+      defaultProjectId: workingFolderRuntime.workingFolderFact.defaultProjectId,
+      mode: "dispatch",
+      openMeldProfileId: input.targetProfileId,
+    });
+  const currentFact = currentWorkingFolder.workingFolderFact;
+  if (
+    currentWorkingFolder.status !== "ready" ||
+    currentFact.source !== workingFolderRuntime.workingFolderFact.source ||
+    currentFact.defaultProjectId !==
+      workingFolderRuntime.workingFolderFact.defaultProjectId ||
+    currentFact.localProjectBindingGeneration !==
+      workingFolderRuntime.workingFolderFact.localProjectBindingGeneration ||
+    currentWorkingFolder.runtimeContext.providerRuntimeWorkingDirectory !==
+      workingFolderRuntime.runtimeContext.providerRuntimeWorkingDirectory
+  ) {
+    throwCurrentWorkingFolderFactError(
+      "changed",
+      "the effective working folder changed after this route was observed"
+    );
   }
   return workingFolderRuntime.runtimeContext;
 }
