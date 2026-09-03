@@ -790,7 +790,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 		<ThreadComposer
 			agentDirectConversationKind={input.agentDirectConversationKind}
 			blockedWakeProfileId={input.composerBlockedWakeProfileId}
-			centerAgentProfileId={input.centerAgentProfileId}
+			centerAgentProfileId={input.centerAgentProfileId ?? null}
 			composerAddressingTargets={input.composerAddressingTargets ?? []}
 			composerAuthoredMentions={input.composerAuthoredMentions ?? []}
 			composerErrorMessage={input.composerErrorMessage}
