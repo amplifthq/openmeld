@@ -5368,11 +5368,36 @@ controller.
 The existing strict expected-routes response remains the v1 mixed-version
 shape and never emits `agentControllerCollaborationMode`. `contractVersion=v2`
 adds collaboration mode. `contractVersion=v3` additionally carries the
-Binding's `configurationRevision`. A new local component negotiates newest
-first and falls back from `v3` to `v2` to the legacy query only when the server
+Binding's `configurationRevision`. `contractVersion=v4` additionally carries
+the current Auth-owned `defaultProjectId` as a nullable Project identity. A new
+local component negotiates newest first and falls back from `v4` through `v3`
+and `v2` to the legacy query only when the server
 returns `invalid_payload`, whether surfaced as the direct Gateway error code or
 its legacy upstream-code alias. It must not retry network or server failures as
 compatibility fallbacks.
+
+A Service that successfully negotiated v4 uses the strict v4
+`LocalWakeRouteReport` branch with `expectedRoutesContractVersion: "v4"` and a
+required `workingFolderObservations` array. A legacy report has neither field;
+there is no v3 report marker. Each observation is path-free and echoes the
+Profile, Binding, Binding configuration revision, nullable Default Project,
+observation time, resolution source, status, and nullable local Project
+`bindingGeneration` (named `localProjectBindingGeneration` across this mixed
+identity boundary). The seven legal fact shapes are Default Project ready,
+missing connection, missing folder, or invalid connection; and Profile
+workspace ready, missing, or invalid. Non-ready observations use only
+`project.local_connection.missing`,
+`project.local_connection.folder_missing`, `project.local_connection.invalid`,
+`profile.workspace.missing`, or `profile.workspace.invalid`. The Core trust
+matcher accepts a set only when its echoed current identities match and the
+report provides exactly one observation for every current expected Profile.
+Duplicate, missing, extra, stale, or mismatched facts make the observation set
+unknown. `localProjectBindingGeneration` remains an opaque Service-owned local
+connection identity: Core does not compare it with a cloud value, and a later
+accepted report replaces the earlier generation. The matcher establishes this
+fail-closed trust rule but is not yet a production Wakeability consumer. Absent
+v4 capability or fields is legacy/unknown
+evidence, never proof of Offline, damaged setup, or a required update.
 
 `openMeldDaemonDispatchControllerSnapshotSchema` carries optional `bindingId`
 and `configurationRevision` as frozen execution-consistency identity. The

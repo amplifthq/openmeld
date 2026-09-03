@@ -19067,6 +19067,11 @@ const collectLocalWakeRouteReportProfileIds = (
   return normalizeRuntimeTransportProfileIds([
     ...report.includedProfileIds,
     ...report.skippedProfiles.map((profile) => profile.profileId),
+    ...(report && "workingFolderObservations" in report
+      ? report.workingFolderObservations.map(
+          (observation) => observation.profileId
+        )
+      : []),
   ]);
 };
 

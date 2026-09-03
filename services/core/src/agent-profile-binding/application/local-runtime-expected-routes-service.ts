@@ -1,6 +1,7 @@
 import { createRuntimeLookupInput } from "@openmeld/agent-runtime";
 import type {
   DaemonServiceLane,
+  GetLocalRuntimeExpectedRoutesQuery,
   GetLocalRuntimeExpectedRoutesResponse,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
@@ -32,7 +33,7 @@ export type ReadLocalRuntimeExpectedRoutesResult =
 
 export async function readLocalRuntimeExpectedRoutes(input: {
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"] | undefined;
-  contractVersion?: "v2" | "v3";
+  contractVersion?: GetLocalRuntimeExpectedRoutesQuery["contractVersion"];
   db: D1Database;
   deviceId: string;
   generatedAt?: string;
@@ -112,8 +113,12 @@ export async function readLocalRuntimeExpectedRoutes(input: {
     openMeldServiceRuntimeId,
     bindings,
     includeAgentControllerCollaborationMode:
-      input.contractVersion === "v2" || input.contractVersion === "v3",
-    includeConfigurationRevision: input.contractVersion === "v3",
+      input.contractVersion === "v2" ||
+      input.contractVersion === "v3" ||
+      input.contractVersion === "v4",
+    includeConfigurationRevision:
+      input.contractVersion === "v3" || input.contractVersion === "v4",
+    includeDefaultProjectId: input.contractVersion === "v4",
     profileFactByProfileId,
   });
 
@@ -164,10 +169,18 @@ async function resolveExpectedRouteProfileFact(input: {
   }
   return {
     profile: {
+      defaultProjectId: normalizeOptionalText(result.profile.defaultProjectId),
       profileKind: result.profile.profileKind,
       profileName: result.profile.profileName?.trim() || null,
       status: result.profile.status,
     },
     status: "resolved",
   };
+}
+
+function normalizeOptionalText(
+  value: string | null | undefined
+): string | null {
+  const normalized = value?.trim() ?? "";
+  return normalized.length > 0 ? normalized : null;
 }

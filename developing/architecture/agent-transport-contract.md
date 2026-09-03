@@ -651,10 +651,11 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
 ```
 
 - The unversioned response and negotiated `v2` preserve their existing strict
-  shapes. A new local component requests `contractVersion=v3` to receive the
-  additive Binding `configurationRevision`; on `invalid_payload` it falls back
-  through `v2` and then the unversioned response. Network and server failures
-  are not compatibility fallbacks.
+  shapes. `contractVersion=v3` adds the Binding `configurationRevision`.
+  `contractVersion=v4` also adds the current Auth-owned `defaultProjectId`
+  (`null` means the Profile workspace applies). A new local component
+  negotiates newest first and falls back only on `invalid_payload`; network and
+  server failures are not compatibility fallbacks.
 - The owner comes from the verified auth principal; cross-owner reads are
   forbidden. Core resolves `deviceId` + `lane` through the runtime registry to
   the authoritative `openMeldServiceRuntimeId`.
@@ -701,6 +702,22 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   adapters, unsupported controller modes, and repair-only permission
   constraints keep the active task's starting mode without blocking catalog
   convergence or future work.
+- A v4-capable Service reports one path-free working-folder observation per
+  Profile in `LocalWakeRouteReport`. The observation echoes `profileId`,
+  `bindingId`, `configurationRevision`, and `defaultProjectId`, identifies
+  whether resolution used the Default Project or Profile workspace, and carries
+  the local Project `bindingGeneration` (as
+  `localProjectBindingGeneration`) when applicable. The Core trust matcher
+  accepts the set only while those current identities match and every
+  observation is fresh. This contract dependency does not yet connect that
+  matcher to the production Wakeability projection.
+  `localProjectBindingGeneration` is an opaque Service-owned local connection
+  identity. Core does not compare it with a cloud generation; a later accepted
+  current-session report replaces the earlier generation and triggers
+  re-evaluation.
+  Missing or invalid facts use the precise Project/workspace reason codes from
+  the shared schema; local folder paths never cross the Service boundary.
+  Historical Wake outcomes never substitute for this current observation.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions

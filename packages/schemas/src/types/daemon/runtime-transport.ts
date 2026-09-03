@@ -21,6 +21,12 @@ export type RuntimeTransportBaseCapabilities = import("zod/v4").infer<
 export type LocalWakeRouteReport = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-transport")["localWakeRouteReportSchema"]
 >;
+export type LocalWakeRouteWorkingFolderObservation = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/runtime-transport")["localWakeRouteWorkingFolderObservationSchema"]
+>;
+export type LocalWakeRouteWorkingFolderReasonCode = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/runtime-transport")["localWakeRouteWorkingFolderReasonCodeSchema"]
+>;
 
 export type RuntimeTransportRejectedProfileRegistration =
   import("zod/v4").infer<

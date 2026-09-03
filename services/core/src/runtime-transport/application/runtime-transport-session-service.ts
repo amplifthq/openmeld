@@ -218,6 +218,12 @@ const syncRejectedProfileRegistrations = (input: {
     ...(input.session.localWakeRouteReport?.skippedProfiles.map(
       (profile) => profile.profileId
     ) ?? []),
+    ...(input.session.localWakeRouteReport &&
+    "workingFolderObservations" in input.session.localWakeRouteReport
+      ? input.session.localWakeRouteReport.workingFolderObservations.map(
+          (observation) => observation.profileId
+        )
+      : []),
   ]);
   for (const profileId of mentionedProfileIds) {
     input.session.rejectedProfileRegistrationsByProfileId.delete(profileId);
@@ -909,6 +915,13 @@ const findProfileRouteRegistrationFacts = (input: {
         localWakeRouteReport?.skippedProfiles.some(
           (profile) => profile.profileId === input.profileId
         )
+      ) ||
+      Boolean(
+        localWakeRouteReport &&
+          "workingFolderObservations" in localWakeRouteReport &&
+          localWakeRouteReport.workingFolderObservations.some(
+            (observation) => observation.profileId === input.profileId
+          )
       );
 
     if (!(rejectedProfileRegistration || reportMentionsProfile)) {
@@ -1041,6 +1054,15 @@ const collectSessionReadinessProfileIds = (
   for (const skippedProfile of session.localWakeRouteReport?.skippedProfiles ??
     []) {
     profileIds.add(skippedProfile.profileId);
+  }
+  if (
+    session.localWakeRouteReport &&
+    "workingFolderObservations" in session.localWakeRouteReport
+  ) {
+    for (const observation of session.localWakeRouteReport
+      .workingFolderObservations) {
+      profileIds.add(observation.profileId);
+    }
   }
   for (const profileId of session.rejectedProfileRegistrationsByProfileId.keys()) {
     profileIds.add(profileId);

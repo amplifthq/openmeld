@@ -2489,7 +2489,7 @@ export type GetPrepareReadinessInput = GetPrepareReadinessQuery & {
 };
 
 export type GetLocalRuntimeExpectedRoutesInput = {
-  contractVersion?: "v2" | "v3";
+  contractVersion?: import("@openmeld/schemas/types").GetLocalRuntimeExpectedRoutesQuery["contractVersion"];
   deviceId: string;
   lane: string;
   context?: CoreRpcContextInput;

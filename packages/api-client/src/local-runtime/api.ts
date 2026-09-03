@@ -3,6 +3,7 @@ import {
   getLocalRuntimeExpectedRoutesResponseSchema,
 } from "@openmeld/schemas";
 import type {
+  GetLocalRuntimeExpectedRoutesQuery,
   GetLocalRuntimeExpectedRoutesResponse,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
@@ -10,7 +11,7 @@ import type { OpenMeldApiClientFoundation } from "../client";
 
 // Contract: developing/architecture/agent-transport-contract.md ("Expected Routes Projection")
 export type GetLocalRuntimeExpectedRoutesInput = {
-  contractVersion?: "v2" | "v3";
+  contractVersion?: GetLocalRuntimeExpectedRoutesQuery["contractVersion"];
   deviceId: string;
   lane: string;
   requestContext?: OpenMeldRequestContext;
