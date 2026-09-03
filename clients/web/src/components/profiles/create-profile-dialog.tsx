@@ -542,6 +542,7 @@ function useCreateProfileDialogController(
 		initialSessionPresetKey
 	);
 	const creationDefaultsEditedRef = useRef(Boolean(sessionPreset));
+	const journeyDraftRestorationDismissedRef = useRef(false);
 	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
 	const currentOrgSlug = useOptionalCurrentOrganizationSlug();
 	const orgSlug = input.orgSlug ?? currentOrgSlug;
@@ -640,7 +641,10 @@ function useCreateProfileDialogController(
 		});
 	const restoredJourneyDraft = useAgentProfileCreationJourneyDraft({
 		availableLocalAgentIds,
-		canRestore: !creationDefaultsEditedRef.current,
+		canRestore: !(
+			creationDefaultsEditedRef.current ||
+			journeyDraftRestorationDismissedRef.current
+		),
 		current: {
 			agentControllerCollaborationMode:
 				rawBoundAgentControllerCollaborationMode,
@@ -823,6 +827,7 @@ function useCreateProfileDialogController(
 		creationIntentRef.current = null;
 		appliedCreationDefaultsKeyRef.current = null;
 		creationDefaultsEditedRef.current = false;
+		journeyDraftRestorationDismissedRef.current = false;
 		dispatchForm({
 			state: {
 				...createInitialCreateProfileDialogFormState({
@@ -1102,6 +1107,7 @@ function useCreateProfileDialogController(
 		modelCatalog,
 		modelCompatibilityContext,
 		onChangeAgentBindingValue: (value: string) => {
+			journeyDraftRestorationDismissedRef.current = true;
 			setAgentBindingValue(value);
 			const nextAgentId = resolveOwnerBoundAgentId({
 				ownerMode,
@@ -1151,6 +1157,7 @@ function useCreateProfileDialogController(
 		onChangeBoundAgentControllerPermissionModeConfirmed:
 			setBoundAgentControllerPermissionModeConfirmed,
 		onChangeBoundAgentId: (nextAgentId: string) => {
+			journeyDraftRestorationDismissedRef.current = true;
 			appliedCreationDefaultsKeyRef.current = null;
 			creationDefaultsEditedRef.current = false;
 			setBoundAgentId(nextAgentId);

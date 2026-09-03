@@ -802,6 +802,38 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
+	it("lets a user change the selected local agent more than once", async () => {
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					displayName: "Codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+				buildCatalogEntry({
+					agentId: "claude-code",
+					displayName: "Claude Code",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+
+		const claudeCode = await screen.findByRole<HTMLInputElement>("radio", {
+			name: "Claude Code",
+		});
+		expect(claudeCode.disabled).toBe(false);
+		fireEvent.click(claudeCode);
+		await waitFor(() => expect(claudeCode.checked).toBe(true));
+		const codex = screen.getByRole<HTMLInputElement>("radio", {
+			name: "Codex",
+		});
+		expect(codex.disabled).toBe(false);
+		fireEvent.click(codex);
+		await waitFor(() => expect(codex.checked).toBe(true));
+	});
+
 	it("prefills a working Session Resume and gives only the lightweight Fork suggestion", async () => {
 		renderCreateProfileDialog({
 			agentActivitySessionPreset: {
