@@ -777,6 +777,9 @@ async function writeStore(
     });
     await rename(temporaryPath, path);
     await chmod(path, 0o600);
+    // This signal accelerates catalog refresh across CLI and Service writers.
+    // Dispatch safety does not depend on delivery: admission compares this
+    // durable store's current binding generation with the observed route.
     await touchDaemonCatalogSyncSignal({
       reason: "project_connections_changed",
       ...(input.rootDir ? { rootDir: input.rootDir } : {}),

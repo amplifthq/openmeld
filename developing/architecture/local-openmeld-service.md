@@ -1073,6 +1073,8 @@ For a Default Project route, dispatch admission compares the route's observed
 local binding generation with the current durable local connection. Once a
 connection mutation is durable, an older route cannot launch new work; catalog
 refresh only controls how quickly the new route becomes available again.
+Every durable local Project connection writer emits the same lane-local catalog
+refresh signal, while an idempotent no-op emits nothing.
 
 Current working-folder facts are a negotiated transport capability. The Service
 requests expected routes in `v4`, then falls back through `v3`, `v2`, and the
