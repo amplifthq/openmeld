@@ -853,13 +853,17 @@ export function resolveAgentProfileSetupAction(input: {
 	if (primaryAction === "update_service") {
 		return {
 			href: input.serviceUpdatePath,
-			label: formatLocalSetupActionLabel("update_service"),
+			label: "Update OpenMeld on Computer",
 		};
 	}
 	if (primaryAction === "connect_service") {
 		return {
 			href: input.setupPath,
-			label: resolveAgentExecutionServiceActionLabel(readiness),
+			label:
+				resolveAgentExecutionServiceActionLabel(readiness) ===
+				formatLocalSetupActionLabel("connect_service")
+					? "Connect Computer"
+					: "Reconnect Computer",
 		};
 	}
 	if (primaryAction === "run_prepare") {

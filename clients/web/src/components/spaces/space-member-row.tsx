@@ -951,7 +951,7 @@ function resolveMemberTransientPrimaryDetail(
 		case "active_wake_in_progress":
 			return "This agent is working on a Wake in this Space.";
 		case "active_wake_waiting_for_service":
-			return "A Wake is waiting for OpenMeld Service to reconnect.";
+			return "A Wake is waiting for the computer to reconnect.";
 		case "checking":
 			return "OpenMeld is checking this agent's local connection.";
 		default:

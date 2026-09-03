@@ -624,7 +624,7 @@ describe("ensureWebAgentProfileRuntimeBinding", () => {
 			throw new Error("expected missing report failure");
 		}
 		expect(formatWebAgentProfileRuntimeBindingFailure(result)).toBe(
-			"This computer hasn't reported that this local agent is ready yet. Make sure OpenMeld Service is running, then try again."
+			"This computer hasn't reported that this local agent is ready yet. Reconnect the computer, then try again."
 		);
 	});
 
@@ -693,7 +693,7 @@ describe("ensureWebAgentProfileRuntimeBinding", () => {
 	it.each([
 		"service.update_required",
 		"daemon.runtime_contract.mismatch",
-	])("uses OpenMeld Service update copy for %s failures", async (reasonCode) => {
+	])("uses Computer update copy for %s failures", async (reasonCode) => {
 		ensurePrimaryBindingMock.mockResolvedValueOnce({
 			grantsClaimSuccess: false,
 			reasonCodes: [reasonCode],
@@ -712,10 +712,10 @@ describe("ensureWebAgentProfileRuntimeBinding", () => {
 			throw new Error("expected service update failure");
 		}
 		expect(formatWebAgentProfileRuntimeBindingFailure(result)).toBe(
-			"Update OpenMeld Service before connecting that local agent."
+			"Update OpenMeld on your computer before connecting that local agent."
 		);
 		expect(formatWebAgentProfileRuntimeBindingFailureActionLabel(result)).toBe(
-			"Update OpenMeld Service"
+			"Update OpenMeld on Computer"
 		);
 	});
 });

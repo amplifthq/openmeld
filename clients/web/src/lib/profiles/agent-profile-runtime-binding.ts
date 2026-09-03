@@ -328,16 +328,16 @@ export function formatWebAgentProfileRuntimeBindingFailure(
 	>
 ): string {
 	if (result.reason === "device_unavailable") {
-		return "Connect OpenMeld Service before connecting that local agent.";
+		return "Connect your computer before connecting that local agent.";
 	}
 	if (hasServiceUpdateRequiredReason(result)) {
-		return "Update OpenMeld Service before connecting that local agent.";
+		return "Update OpenMeld on your computer before connecting that local agent.";
 	}
 	if (
 		result.reason === "binding_rejected" &&
 		hasAgentControllerReportBindingReason(result)
 	) {
-		return "This computer hasn't reported that this local agent is ready yet. Make sure OpenMeld Service is running, then try again.";
+		return "This computer hasn't reported that this local agent is ready yet. Reconnect the computer, then try again.";
 	}
 	if (hasLocalReadinessRefreshReason(result)) {
 		return "Connect local agent after OpenMeld refreshes this computer's local agent list.";

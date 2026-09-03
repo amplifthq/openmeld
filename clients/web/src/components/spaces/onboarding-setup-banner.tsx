@@ -277,7 +277,7 @@ function ConnectComputerAction(input: {
 					type="button"
 					variant="outline"
 				>
-					Connect OpenMeld Service
+					Connect Computer
 				</Button>
 			}
 			description="So your local agents can reply when you mention them."

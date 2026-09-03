@@ -3570,7 +3570,7 @@ deduplication for the new session. Choosing `Set up again` increments that fence
 before Web requests the replacement session, so the invalidation does not depend
 on a later React render or network response.
 
-When setup starts from `Reconnect OpenMeld Service` on an existing Computer,
+When setup starts from `Reconnect Computer` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local
 service reinstall may report a new `deviceId`; Web still follows the session and
 shows completion for the selected Computer instead of creating a browser-side
@@ -3767,13 +3767,14 @@ The public Skill should explain OpenMeld identity choices in setup language:
 - a wakeable local Agent Profile must be bound to local agent execution before
   the Space can wake it automatically
 
-Web setup, Computers, and Profiles surfaces should use the
-shared Local Components action vocabulary for local recovery CTAs. Service comes
-before local-agent binding: when OpenMeld Service is missing or disconnected, show
-`Connect OpenMeld Service` or `Reconnect OpenMeld Service`; when the service bundle or
-runtime contract is out of date, show `Update OpenMeld Service`; only after the
-service layer is usable should an Agent Profile binding problem show
-`Connect local agent`.
+Web setup, Computers, and Profiles surfaces use the shared Local Components
+action vocabulary for local recovery CTAs. User-facing entry points say
+`Connect Computer`, `Reconnect Computer`, or `Update OpenMeld on Computer`;
+they do not require a beginner to understand the OpenMeld Service process.
+Computer detail, version checks, diagnostics, and other component-specific
+surfaces may still name **OpenMeld Service**. The computer connection comes
+before local-agent binding; only after it is usable should an Agent Profile
+binding problem show `Connect local agent`.
 
 On the Computers local agents card, the `Connect local agent` notice
 is reserved for the zero-agent case: this computer reports no usable local
@@ -4002,11 +4003,11 @@ adapts browser-local and current-local-runtime evidence into that shared copy,
 then presents one clear next action. The copy explains known evidence and the
 next step. It does not decide execution truth.
 
-When a Wake failure maps to a local-service recovery action, Web may show a
-local repair entry only when the failed target is manageable by the current
-user. For another user's computer, Web should explain who needs to check OpenMeld
-Service and the local agent instead of linking the current user to a repair
-surface that cannot fix that target.
+When a Wake failure maps to a computer-connection recovery action, Web may show
+a local repair entry only when the failed target is manageable by the current
+user. For another user's computer, Web should explain who needs to reconnect
+the computer and check the local agent instead of linking the current user to a
+repair surface that cannot fix that target.
 
 When evidence is incomplete or degraded, Web should keep the user-facing message
 simple:

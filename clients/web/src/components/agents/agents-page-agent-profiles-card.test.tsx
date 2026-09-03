@@ -1364,13 +1364,19 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			{ presentation: "detail" }
 		);
 
-		const reconnectLink = await screen.findByRole("link", {
-			name: "Reconnect OpenMeld Service",
+		const presence = screen.getByTestId("agent-profile-presence");
+		const reconnectLink = await within(presence).findByRole("link", {
+			name: "Reconnect Computer",
 		});
 		expect(reconnectLink.getAttribute("href")).toBe("/app/connect");
 		expect(
-			screen.getByText("This agent cannot reply from this computer right now.")
+			within(presence).getByText(
+				"Connect your computer before this Agent can reply."
+			)
 		).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
+		).toBeNull();
 	});
 
 	it("edits the name in place and Cancel restores it without saving", async () => {
@@ -3759,7 +3765,7 @@ function createReadinessResponseWithPrimaryBinding(
 			phase: "service_not_connected",
 			reasonCode: "local_service.not_connected_for_account",
 			status: "unavailable_for_wake",
-			summary: "This agent cannot reply from this computer right now.",
+			summary: "Connect your computer before this Agent can reply.",
 			tooltip: "Unavailable for Wake",
 		},
 		agentWakeRouteRegistration: {

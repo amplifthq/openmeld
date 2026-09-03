@@ -42,13 +42,11 @@ describe("local components schema", () => {
       schemaVersion: 1,
       generatedAt: "2026-05-30T00:00:00.000Z",
       entrypoint: "setup",
-      summaryLabel: "Update OpenMeld Service",
-      summaryDescription:
-        "Update OpenMeld Service through setup on this computer.",
+      summaryLabel: "Update OpenMeld on Computer",
+      summaryDescription: "Update OpenMeld on this computer.",
       setupAction: "update_service",
-      setupActionLabel: "Update OpenMeld Service",
-      setupActionDescription:
-        "Update OpenMeld Service through setup on this computer.",
+      setupActionLabel: "Update OpenMeld on Computer",
+      setupActionDescription: "Update OpenMeld on this computer.",
       maintenance: {
         automaticUpdatesEnabled: true,
         status: "ready",
@@ -100,10 +98,10 @@ describe("local components schema", () => {
 
   it("owns the user-facing labels for setup actions", () => {
     expect(formatLocalSetupActionLabel("connect_service")).toBe(
-      "Connect OpenMeld Service"
+      "Connect Computer"
     );
     expect(formatLocalSetupActionLabel("reconnect_service")).toBe(
-      "Reconnect OpenMeld Service"
+      "Reconnect Computer"
     );
     expect(formatLocalSetupActionLabel("connect_local_agent")).toBe(
       "Connect local agent"
@@ -126,7 +124,7 @@ describe("local components schema", () => {
         cliStatus: "update_available",
         setupAction: "update_service",
       })
-    ).toBe("Update OpenMeld Service");
+    ).toBe("Update OpenMeld on Computer");
   });
 
   it("accepts the release-side update policy manifest", () => {
@@ -169,9 +167,8 @@ describe("local components schema", () => {
       schemaVersion: 1,
       generatedAt: "2026-06-03T00:00:00.000Z",
       setupAction: "update_service",
-      setupActionLabel: "Update OpenMeld Service",
-      setupActionDescription:
-        "Update OpenMeld Service through setup on this computer.",
+      setupActionLabel: "Update OpenMeld on Computer",
+      setupActionDescription: "Update OpenMeld on this computer.",
       humanSetupCommand: "npm install -g openmeld@latest && openmeld setup",
       agentSetupCommand:
         "npm install -g openmeld@latest && openmeld setup --view agent",

@@ -785,7 +785,7 @@ describe("SpaceMemberRow", () => {
 		// only asserts the transient-state messaging.
 		expect(screen.queryByText("Waiting for OpenMeld Service")).toBeNull();
 		expect(
-			screen.getByText("A Wake is waiting for OpenMeld Service to reconnect.")
+			screen.getByText("A Wake is waiting for the computer to reconnect.")
 		).toBeTruthy();
 	});
 
@@ -858,7 +858,7 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByText("Service not connected")).toBeNull();
 		expect(screen.queryByText("Reconnecting local reply route")).toBeNull();
 		expect(
-			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
+			screen.queryByRole("link", { name: "Reconnect Computer" })
 		).toBeNull();
 		expect(screen.queryByRole("link", { name: "Check status" })).toBeNull();
 	});
@@ -876,7 +876,7 @@ describe("SpaceMemberRow", () => {
 			"Available"
 		);
 		expect(screen.queryByText("Reconnecting")).toBeNull();
-		expect(screen.queryByText("Reconnect OpenMeld Service")).toBeNull();
+		expect(screen.queryByText("Reconnect Computer")).toBeNull();
 		expect(screen.queryByText("Reconnecting local reply route")).toBeNull();
 	});
 
@@ -898,7 +898,7 @@ describe("SpaceMemberRow", () => {
 		expect(
 			screen.queryByText("OpenMeld is checking this agent's local connection.")
 		).toBeNull();
-		expect(screen.queryByText("Reconnect OpenMeld Service")).toBeNull();
+		expect(screen.queryByText("Reconnect Computer")).toBeNull();
 	});
 
 	it("does not let owner checking diagnostics override shared AgentWakeAvailability", () => {
@@ -939,7 +939,7 @@ describe("SpaceMemberRow", () => {
 			"Available"
 		);
 		expect(
-			screen.getByText("A Wake is waiting for OpenMeld Service to reconnect.")
+			screen.getByText("A Wake is waiting for the computer to reconnect.")
 		).toBeTruthy();
 		expect(screen.queryByText("Connected to Office Mac")).toBeNull();
 	});
@@ -952,7 +952,7 @@ describe("SpaceMemberRow", () => {
 		});
 
 		expect(
-			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
+			screen.queryByRole("link", { name: "Reconnect Computer" })
 		).toBeNull();
 		expect(
 			screen
@@ -1056,7 +1056,7 @@ describe("SpaceMemberRow", () => {
 			"Checking"
 		);
 		expect(
-			screen.queryByText("A Wake is waiting for OpenMeld Service to reconnect.")
+			screen.queryByText("A Wake is waiting for the computer to reconnect.")
 		).toBeNull();
 	});
 

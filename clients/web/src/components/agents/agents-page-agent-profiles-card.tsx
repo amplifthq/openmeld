@@ -2587,6 +2587,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 						}
 					: null
 			}
+			setupAction={input.row.setupAction}
 			storageScope={input.row.storageScope}
 			supportingContent={input.supportingContent}
 			wakeAvailability={input.row.readiness?.agentWakeAvailability ?? null}
@@ -3208,6 +3209,7 @@ type AgentProfileRowMoreMenuProps = {
 	pendingState: AgentProfileActionPendingState;
 	presentation?: "cards" | "detail";
 	runtimeComputer: { deviceId: string; displayName: string } | null;
+	setupAction: AgentProfileSetupAction | null;
 	storageScope: string;
 	supportingContent?: ReactNode;
 	wakeAvailability: AgentWakeAvailability | null;
@@ -3726,6 +3728,18 @@ function AgentProfileWorkspacePresentation(input: {
 				: (input.input.publicProfileConfiguration?.modelSelection ?? null),
 		}) ?? "No Controller connected";
 	const controllerModelSummary = ownerControllerModelSummary;
+	const wakeAvailabilityRecoveryActions = (
+		<AgentProfileWakeAvailabilityRecoveryActions
+			hasEnabledPrimaryBinding={
+				input.input.capabilities.hasEnabledPrimaryBinding
+			}
+			isPending={input.input.pendingState.repair}
+			onRepairAction={input.input.onRepairAction}
+			readinessIsPending={input.input.readinessIsPending}
+			repairActions={input.input.repairActions}
+			setupAction={input.input.setupAction}
+		/>
+	);
 	const overflowActions = (
 		<AgentProfileOptionsPopover
 			capabilities={{
@@ -3827,24 +3841,14 @@ function AgentProfileWorkspacePresentation(input: {
 				overflowActions={overflowActions}
 				profile={input.input.profile}
 				supportingContent={
-					input.input.repairActions.length > 0
+					input.input.repairActions.length > 0 || input.input.setupAction
 						? null
 						: input.input.supportingContent
 				}
 				wakeAvailability={input.input.wakeAvailability}
 				wakeAvailabilityErrorMessage={input.input.readinessErrorMessage}
 				wakeAvailabilityIsPending={input.input.readinessIsPending}
-				wakeAvailabilityRecoveryActions={
-					input.input.capabilities.hasEnabledPrimaryBinding &&
-					!input.input.readinessIsPending &&
-					input.input.repairActions.length > 0 ? (
-						<AgentProfileRepairActions
-							actions={input.input.repairActions}
-							isPending={input.input.pendingState.repair}
-							onRepairAction={input.input.onRepairAction}
-						/>
-					) : null
-				}
+				wakeAvailabilityRecoveryActions={wakeAvailabilityRecoveryActions}
 			/>
 			<ProfileDetailsDialog
 				agentProfile={input.input.profile}
@@ -6158,4 +6162,30 @@ function AgentProfileSetupActionLink(input: {
 			</Link>
 		</div>
 	);
+}
+
+function AgentProfileWakeAvailabilityRecoveryActions(input: {
+	hasEnabledPrimaryBinding: boolean;
+	isPending: boolean;
+	onRepairAction: (action: AgentProfileRepairAction) => Promise<void>;
+	readinessIsPending: boolean;
+	repairActions: readonly AgentProfileRepairAction[];
+	setupAction: AgentProfileSetupAction | null;
+}) {
+	if (!input.hasEnabledPrimaryBinding || input.readinessIsPending) {
+		return null;
+	}
+	if (input.repairActions.length > 0) {
+		return (
+			<AgentProfileRepairActions
+				actions={input.repairActions}
+				isPending={input.isPending}
+				onRepairAction={input.onRepairAction}
+			/>
+		);
+	}
+	if (input.setupAction) {
+		return <AgentProfileSetupActionLink action={input.setupAction} />;
+	}
+	return null;
 }
