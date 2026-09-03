@@ -1368,12 +1368,15 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const reconnectLink = await within(presence).findByRole("link", {
 			name: "Reconnect Computer",
 		});
+		const reason = within(presence).getByText(
+			"Connect your computer before this Agent can reply."
+		);
 		expect(reconnectLink.getAttribute("href")).toBe("/app/connect");
-		expect(
-			within(presence).getByText(
-				"Connect your computer before this Agent can reply."
-			)
-		).toBeTruthy();
+		expect(reason).toBeTruthy();
+		const presenceText = presence.textContent ?? "";
+		expect(presenceText.indexOf("Reconnect Computer")).toBeLessThan(
+			presenceText.indexOf("Connect your computer before this Agent can reply.")
+		);
 		expect(
 			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
 		).toBeNull();

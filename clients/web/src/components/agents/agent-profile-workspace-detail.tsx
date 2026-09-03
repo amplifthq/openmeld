@@ -266,6 +266,7 @@ function AgentProfilePresence(input: {
 			title={presentation.tooltip}
 		>
 			{presenceStatus}
+			{input.wakeAvailabilityRecoveryActions}
 			{presentation.reason ? (
 				<span className="text-muted-foreground text-xs leading-5">
 					{presentation.reason}
@@ -287,7 +288,6 @@ function AgentProfilePresence(input: {
 					<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
 				</span>
 			) : null}
-			{input.wakeAvailabilityRecoveryActions}
 		</div>
 	);
 }
