@@ -461,7 +461,13 @@ function resolveHumanProfileSidebarGroups(input: {
 	if (
 		input.state.profiles === "loading" ||
 		input.errorMessage !== null ||
-		input.members.length === 0
+		input.members.length === 0 ||
+		input.members.some(
+			(member) =>
+				member.computer.count === 0 &&
+				(member.computer.state === "checking" ||
+					member.computer.state === "unknown")
+		)
 	) {
 		return [
 			{
