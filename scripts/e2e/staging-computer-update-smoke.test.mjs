@@ -199,6 +199,10 @@ test("reads setup credentials only from a private mode-600 file", async () => {
 test("keeps the isolated smoke credential readable by its source API helper", () => {
   const env = stagingCanaryEnv();
   assert.equal(env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN, "1");
+  assert.equal(
+    env.OPENMELD_CLI_BINARY_MANIFEST_URL,
+    "https://staging.openmeld.ai/cli/manifest.json"
+  );
   assert.equal(env.OPENMELD_ENV_PRESET, "canary");
   assert.equal(env.OPENMELD_HOME.endsWith("/.openmeld-canary"), true);
 });
