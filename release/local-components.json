@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-04T17:13:17.468Z",
+  "updatedAt": "2026-09-04T13:33:03.608Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.156",
+      "packageVersion": "0.3.155",
       "updatePolicy": "available",
-      "reason": "Existing setup, Space access, and Wake commands remain compatible; the CLI now distinguishes durable update handoff from verified completion."
+      "reason": "Managed production binaries now assess the R2 channel through the authoritative distribution marker; existing CLI commands and contracts remain compatible."
     },
     "service": {
-      "bundleHash": "6d4b5e25e8532230e7fce4b46594fc506ae98b6c791fda3694a22752a69f2848",
-      "bundleVersion": "0.3.156",
+      "bundleHash": "c6b97a6437a0b51ec707bda330c75f9c32620ef56570b2f92fe87619ee4c67bd",
+      "bundleVersion": "0.3.155",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Core and Runtime Transport schemas remain compatible; the Service now waits for full local lifecycle evidence before reporting startup success."
+      "reason": "The bundled Service now assesses the managed binary release channel even when its command uses an absolute path; existing Runtime Transport and update-control contracts remain compatible."
     },
     "skills": {
-      "bundleHash": "3325032d3751ec34a678182fd5a7d656d5269ab8a1db3f0345e65fc97559db61",
+      "bundleHash": "f6ab254fac5e6a81cd76373eda64989e1898002d5f6afc40c39dd5567d0cb7f7",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Existing OpenMeld CLI skills remain usable; the added Space access preflight and read guidance preserves existing tool contracts."
+      "reason": "Existing skills remain usable; the updated privacy guidance is backward-compatible and does not change tool contracts."
     }
   }
 }
