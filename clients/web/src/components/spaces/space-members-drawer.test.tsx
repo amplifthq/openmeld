@@ -111,6 +111,23 @@ const TEST_PANEL_WIDTH = "22rem";
 const noopPanelWidthChange = () => undefined;
 
 describe("SpaceMembersToggleButton", () => {
+	it("keeps the Members control available before the count is confirmed", () => {
+		const onOpenChange = vi.fn();
+		render(
+			<SpaceMembersToggleButton
+				controlsId="space-members-drawer"
+				memberCount={null}
+				onOpenChange={onOpenChange}
+				open={false}
+			/>
+		);
+
+		const button = screen.getByRole("button", { name: "Members" });
+		expect(button.textContent).toBe("");
+		fireEvent.click(button);
+		expect(onOpenChange).toHaveBeenCalledWith(true);
+	});
+
 	it("shows the total member count in the header control", () => {
 		const onOpenChange = vi.fn();
 		render(

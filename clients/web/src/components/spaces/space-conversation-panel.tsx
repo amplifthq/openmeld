@@ -1,4 +1,7 @@
-import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import type {
+	AgentProfileReplyRecoveryPlan,
+	ProfileDetailsSpaceMemberInput,
+} from "@openmeld/agent-profile";
 import type {
 	ModelCatalog,
 	SpaceInboxUnreadTarget,
@@ -2497,6 +2500,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
 		entriesByProfileId: input.profileEntriesById,
+		fallbackEntry: buildConversationSpeakerProfileDetailsEntry(input.run),
 		modelCatalog: input.modelCatalog,
 		orgSlug: input.orgSlug,
 	});
@@ -2711,6 +2715,33 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 		</>
 	);
 });
+
+function buildConversationSpeakerProfileDetailsEntry(
+	run: SpaceConversationBubbleRun
+): ProfileDetailsSpaceMemberInput | null {
+	if (run.speaker.profileKind === "system") {
+		return null;
+	}
+	return {
+		addedByDisplayName: null,
+		addedByProfileId: null,
+		agentControllerConversationId: null,
+		agentControllerRef: run.speaker.agentControllerRef,
+		availabilityPhase: null,
+		availabilityReasonCode: null,
+		availabilitySummary: null,
+		availabilityTooltip: null,
+		lastSeenLabel: null,
+		mentionLabel: null,
+		ownerDisplay: run.speaker.ownerDisplay,
+		ownerUserId: null,
+		profileId: run.speaker.profileId,
+		profileKind: run.speaker.profileKind,
+		profileName: run.speaker.profileName,
+		runtimeDeviceDisplayName: run.speaker.runtimeDeviceDisplayName,
+		workingDirectory: null,
+	};
+}
 
 function ConversationBubbleContent(input: {
 	agentInteractionItems: ReturnType<

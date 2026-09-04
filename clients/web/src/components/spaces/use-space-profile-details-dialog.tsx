@@ -1,4 +1,7 @@
-import { buildProfileDetailsSnapshotFromSpaceMember } from "@openmeld/agent-profile";
+import {
+	buildProfileDetailsSnapshotFromSpaceMember,
+	type ProfileDetailsSpaceMemberInput,
+} from "@openmeld/agent-profile";
 import type {
 	ModelCatalog,
 	ProfileDetailsViewerScope,
@@ -28,6 +31,7 @@ export function useSpaceProfileDetailsDialog(input: {
 	currentOwnerUserId: string | null;
 	entry: SpaceMemberDirectoryEntry | null;
 	entriesByProfileId?: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	fallbackEntry?: ProfileDetailsSpaceMemberInput | null;
 	modelCatalog: ModelCatalog | null;
 	orgSlug?: string;
 }) {
@@ -40,23 +44,42 @@ export function useSpaceProfileDetailsDialog(input: {
 		? (input.entriesByProfileId?.get(selectedProfileId) ??
 			(input.entry?.profileId === selectedProfileId ? input.entry : null))
 		: input.entry;
+	const fallbackEntry =
+		!entry &&
+		input.fallbackEntry &&
+		(selectedProfileId === null ||
+			input.fallbackEntry.profileId === selectedProfileId)
+			? input.fallbackEntry
+			: null;
 	const details = useMemo(() => {
-		if (!entry) {
+		if (entry) {
+			return buildSpaceProfileDetails({
+				currentOwnerUserId: input.currentOwnerUserId,
+				entry,
+				modelCatalog: input.modelCatalog,
+			});
+		}
+		if (!fallbackEntry) {
 			return null;
 		}
-		return buildSpaceProfileDetails({
-			currentOwnerUserId: input.currentOwnerUserId,
-			entry,
-			modelCatalog: input.modelCatalog,
+		return buildProfileDetailsSnapshotFromSpaceMember({
+			agentControllerPermissionModeDetail: null,
+			entry: fallbackEntry,
+			modelDetail: null,
+			viewerScope: resolveViewerScope({
+				currentOwnerUserId: input.currentOwnerUserId,
+				ownerUserId: fallbackEntry.ownerUserId,
+			}),
 		});
-	}, [entry, input.currentOwnerUserId, input.modelCatalog]);
+	}, [entry, fallbackEntry, input.currentOwnerUserId, input.modelCatalog]);
 	const openProfileDetails = useCallback(() => {
-		if (!input.entry) {
+		const profileId = input.entry?.profileId ?? input.fallbackEntry?.profileId;
+		if (!profileId) {
 			return;
 		}
-		setSelectedProfileId(input.entry.profileId);
+		setSelectedProfileId(profileId);
 		setIsOpen(true);
-	}, [input.entry]);
+	}, [input.entry, input.fallbackEntry]);
 	const openProfileDetailsById = useCallback(
 		(profileId: string) => {
 			const targetEntry =
@@ -108,7 +131,7 @@ export function useSpaceProfileDetailsDialog(input: {
 	);
 
 	return {
-		canOpenProfileDetails: input.entry !== null,
+		canOpenProfileDetails: Boolean(input.entry ?? input.fallbackEntry),
 		openProfileDetails,
 		openProfileDetailsById,
 		profileDetailsPopoverTrigger:
@@ -215,12 +238,10 @@ function buildSpaceProfileDetails(input: {
 	entry: SpaceMemberDirectoryEntry;
 	modelCatalog: ModelCatalog | null;
 }) {
-	const viewerScope: ProfileDetailsViewerScope = isSameOwnerUserId({
+	const viewerScope = resolveViewerScope({
 		currentOwnerUserId: input.currentOwnerUserId,
 		ownerUserId: input.entry.ownerUserId,
-	})
-		? "owner_self"
-		: "observer";
+	});
 	const modelDetail =
 		input.entry.profileKind === "agent"
 			? resolveAgentProfileControllerModelDetail({
@@ -244,4 +265,11 @@ function buildSpaceProfileDetails(input: {
 		modelDetail,
 		viewerScope,
 	});
+}
+
+function resolveViewerScope(input: {
+	currentOwnerUserId: string | null;
+	ownerUserId: string | null;
+}): ProfileDetailsViewerScope {
+	return isSameOwnerUserId(input) ? "owner_self" : "observer";
 }
