@@ -18,6 +18,7 @@ function makeEnv(input?: {
   env: CloudflareBindings;
   coreRpc: {
     getSpaceConversationState: ReturnType<typeof vi.fn>;
+    getSpaceEntryResolution: ReturnType<typeof vi.fn>;
     getSpaceStatus: ReturnType<typeof vi.fn>;
     getSpaceMembers: ReturnType<typeof vi.fn>;
     getSpaceMemberDirectory: ReturnType<typeof vi.fn>;
@@ -46,6 +47,13 @@ function makeEnv(input?: {
       v: 1 as const,
       spaceId: "demo",
       streams: [],
+    })),
+    getSpaceEntryResolution: vi.fn(async () => ({
+      target: { spaceId: "demo" },
+      view: { state: "allowed" as const, experience: "public" as const },
+      participation: { state: "self_join_available" as const },
+      safeContext: { spaceName: "Demo" },
+      recovery: null,
     })),
     getSpaceStatus: vi.fn(async () => ({
       spaceId: "demo",
@@ -203,6 +211,43 @@ async function readJsonBody(response: Response): Promise<unknown> {
 }
 
 describe("public space boundary", () => {
+  it("forwards the complete Space entry target through one resolver", async () => {
+    const spaceId =
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const getSpaceEntryResolution = vi.fn(async () => ({
+      target: {
+        spaceId,
+        signalId: "signal-1",
+        threadRootSignalId: "thread-1",
+      },
+      view: { state: "membership_required" as const },
+      participation: { state: "owner_add_required" as const },
+      safeContext: { spaceName: "Leadership" },
+      recovery: { kind: "contact_space_owner" as const },
+    }));
+    const { env } = makeEnv({
+      coreOverrides: { getSpaceEntryResolution },
+    });
+
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${spaceId}/entry-resolution?signalId=signal-1&threadRootSignalId=thread-1`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    expect(getSpaceEntryResolution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signalId: "signal-1",
+        spaceId,
+        threadRootSignalId: "thread-1",
+        spaceAccess: expect.objectContaining({ spaceId }),
+      })
+    );
+  });
+
   it("forwards bounded thread signal reads through Gateway to Core", async () => {
     const spaceId =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -590,6 +635,7 @@ describe("public space boundary", () => {
     expect(PUBLIC_SPACE_BOUNDARY_ROUTES).toEqual([
       { method: "GET", path: "/v1/spaces/:spaceId/conversation-state" },
       { method: "GET", path: "/v1/spaces/:spaceId/status" },
+      { method: "GET", path: "/v1/spaces/:spaceId/entry-resolution" },
       { method: "GET", path: "/v1/spaces/:spaceId/members" },
       { method: "GET", path: "/v1/spaces/:spaceId/identity-directory" },
       { method: "GET", path: "/v1/spaces/:spaceId/member-directory" },
@@ -634,6 +680,7 @@ describe("public space boundary", () => {
     const cases = [
       new Request("http://local/v1/spaces/%20%20%20/conversation-state"),
       new Request("http://local/v1/spaces/%20%20%20/status"),
+      new Request("http://local/v1/spaces/%20%20%20/entry-resolution"),
       new Request("http://local/v1/spaces/%20%20%20/members"),
       new Request("http://local/v1/spaces/%20%20%20/members", {
         method: "POST",

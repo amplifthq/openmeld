@@ -398,6 +398,7 @@ describe("api-client space api", () => {
       "postWakeStop",
       "publishComposerUpload",
       "removeMembers",
+      "resolveEntry",
       "respondToAgentInteraction",
       "restoreFileEntry",
       "restoreFileRevision",
@@ -881,6 +882,52 @@ describe("api-client space api", () => {
         init: expect.objectContaining({
           signal: controller.signal,
         }),
+      })
+    );
+  });
+
+  it("preserves message focus when resolving Space entry", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          target: {
+            spaceId: "space-123",
+            signalId: "signal-1",
+            threadRootSignalId: "thread-1",
+          },
+          view: { state: "allowed", experience: "member" },
+          participation: { state: "active_member" },
+          safeContext: {
+            organizationId: "org-1",
+            organizationSlug: "acme",
+            spaceName: "Launch planning",
+          },
+          recovery: null,
+        })
+      )
+    );
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.resolveEntry({
+        spaceId: "space-123",
+        signalId: "signal-1",
+        threadRootSignalId: "thread-1",
+        requestContext: REQUEST_CONTEXT,
+      })
+    ).resolves.toMatchObject({
+      target: { signalId: "signal-1", threadRootSignalId: "thread-1" },
+      view: { state: "allowed", experience: "member" },
+    });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "space.entry.resolve",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/entry-resolution?signalId=signal-1&threadRootSignalId=thread-1",
       })
     );
   });

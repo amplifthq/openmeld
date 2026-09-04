@@ -186,6 +186,8 @@ import {
   getSpaceConversationStateInputSchema,
   getSpaceDispatchLookupInputSchema,
   getSpaceDispatchResultInputSchema,
+  getSpaceEntryResolutionInputSchema,
+  getSpaceEntryResolutionResponseSchema,
   getSpaceMessageDetailsInputSchema,
   getSpaceStatusInputSchema,
   getSpaceUpdatesInputSchema,
@@ -502,6 +504,8 @@ import type {
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
   GetSpaceDispatchResultResponse,
+  GetSpaceEntryResolutionInput,
+  GetSpaceEntryResolutionResponse,
   GetSpaceMessageDetailsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
@@ -1126,6 +1130,11 @@ import {
   SpaceComposerUploadStorageError,
   stageSpaceComposerUpload,
 } from "../space/application/space-composer-upload-storage";
+import {
+  buildSpaceEntryResolution,
+  buildUnavailableSpaceEntryResolution,
+  type SpaceEntryAccessResult,
+} from "../space/application/space-entry-resolution-service";
 import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
@@ -2135,6 +2144,10 @@ export type GetSpaceStatusInput = {
   spaceId: string;
   password?: string;
   context?: CoreRpcContextInput;
+  spaceAccess?: SpaceAccessContext;
+};
+
+export type GetSpaceEntryResolutionRpcInput = GetSpaceEntryResolutionInput & {
   spaceAccess?: SpaceAccessContext;
 };
 
@@ -17414,6 +17427,167 @@ export async function rpcGetSpaceStatus(
       spaceAccess,
     })
   );
+}
+
+export async function rpcGetSpaceEntryResolution(
+  env: CoreBindings,
+  input: GetSpaceEntryResolutionRpcInput
+): Promise<GetSpaceEntryResolutionResponse> {
+  const parsed = getSpaceEntryResolutionInputSchema.safeParse({
+    spaceId: input.spaceId,
+    signalId: input.signalId,
+    threadRootSignalId: input.threadRootSignalId,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "Space entry resolution input is invalid",
+    });
+  }
+
+  const target = parsed.data;
+  const indexed = await readSpaceIndexOrganizationJoinTarget({
+    db: requireSpaceIndexDb(env),
+    spaceId: target.spaceId,
+  });
+  if (!indexed) {
+    return buildUnavailableSpaceEntryResolution(target);
+  }
+
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const context = getSpaceAccessRequestContext(spaceAccess) ?? undefined;
+  const { organizationMember, organizationSlug } =
+    await resolveSpaceEntryOrganizationAudience({
+      context,
+      env,
+      organizationId: indexed.organizationId,
+    });
+  const access = await resolveSpaceEntryAccess({
+    context,
+    env,
+    spaceAccess,
+    spaceId: target.spaceId,
+  });
+
+  if (
+    access.kind === "allowed" &&
+    access.status.accessMode === "members_only" &&
+    !organizationMember
+  ) {
+    throw createCoreRpcHttpError({
+      code: "organization.context_unavailable",
+      reason:
+        "Space membership could not be reconciled with Organization membership.",
+      status: 503,
+    });
+  }
+
+  const response = buildSpaceEntryResolution({
+    access,
+    authenticated: Boolean(context),
+    indexed: {
+      organizationId: indexed.organizationId,
+      ...(organizationSlug ? { organizationSlug } : {}),
+      ...(indexed.creatorProfileId
+        ? {
+            owner: {
+              profileId: indexed.creatorProfileId,
+              ...(indexed.creatorProfileName
+                ? { displayName: indexed.creatorProfileName }
+                : {}),
+            },
+          }
+        : {}),
+      ...(indexed.spaceName ? { spaceName: indexed.spaceName } : {}),
+      visibility: indexed.visibility,
+    },
+    organizationMember,
+    target,
+  });
+  return getSpaceEntryResolutionResponseSchema.parse(response);
+}
+
+async function resolveSpaceEntryOrganizationAudience(input: {
+  context?: CoreRpcContextInput;
+  env: CoreBindings;
+  organizationId: string;
+}): Promise<{
+  organizationMember: boolean;
+  organizationSlug: string | null;
+}> {
+  const callerPrincipalId = normalizeOptionalText(
+    input.context?.actorContext.callerPrincipalId
+  );
+  if (!callerPrincipalId) {
+    return { organizationMember: false, organizationSlug: null };
+  }
+  const membership = await resolveOrganizationMembershipById({
+    env: input.env,
+    organizationId: input.organizationId,
+    requestId: input.context?.actorContext.requestId,
+    userId: callerPrincipalId,
+  });
+  if (!membership.ok) {
+    if (membership.code === "organization.context_unavailable") {
+      throw createCoreRpcHttpError({
+        code: membership.code,
+        reason: membership.message,
+        status: membership.status,
+      });
+    }
+    return { organizationMember: false, organizationSlug: null };
+  }
+  const organizationSlug = await readOrganizationRouteSlug({
+    env: input.env,
+    organizationId: input.organizationId,
+    requestId: input.context?.actorContext.requestId,
+  });
+  if (!organizationSlug) {
+    throw createCoreRpcHttpError({
+      code: "organization.context_unavailable",
+      reason: "The Space Organization route could not be resolved.",
+      status: 503,
+    });
+  }
+  return { organizationMember: true, organizationSlug };
+}
+
+async function resolveSpaceEntryAccess(input: {
+  context?: CoreRpcContextInput;
+  env: CoreBindings;
+  spaceAccess: SpaceAccessContext;
+  spaceId: string;
+}): Promise<SpaceEntryAccessResult> {
+  let status: GetSpaceStatusResponse;
+  try {
+    status = await rpcGetSpaceStatus(input.env, {
+      spaceId: input.spaceId,
+      spaceAccess: input.spaceAccess,
+    });
+  } catch (error) {
+    const code = readCoreRpcErrorCode(error);
+    if (
+      code === "space.membership_required" ||
+      code === "space.password_invalid" ||
+      code === "space.password_required"
+    ) {
+      return { code, kind: "denied" };
+    }
+    throw error;
+  }
+  const activeMember = input.context
+    ? (
+        await rpcGetSpaceViewerMembership(input.env, {
+          context: input.context,
+          spaceId: input.spaceId,
+          spaceAccess: input.spaceAccess,
+        })
+      ).activeMemberProfiles.length > 0
+    : false;
+  return { activeMember, kind: "allowed", status };
 }
 
 export async function rpcGetSpaceConversationState(
