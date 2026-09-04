@@ -13,17 +13,13 @@ import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { AppInnerSidebarHeader } from "#/components/app/app-inner-sidebar";
 import {
 	APP_NAV_ITEM_TONE_CLASS_NAME,
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
-import {
-	type RouteIntentPrefetchController,
-	useRouteIntentPrefetch,
-} from "#/components/app/use-route-intent-prefetch";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
@@ -36,10 +32,6 @@ import {
 } from "./account-space-sections";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { useSpaceInboxUnreadById } from "./use-account-space-indicators";
-import {
-	type SpaceConversationIntentPrefetch,
-	useSpaceConversationIntentPrefetch,
-} from "./use-space-conversation-intent-prefetch";
 
 type DirectMessagePeer =
 	| SpaceMembersSnapshot["humans"][number]
@@ -56,9 +48,6 @@ export function AppDirectMessagesSidebar(input: {
 	currentProfileId: string;
 	currentSpaceId: string;
 }) {
-	const navigate = useNavigate();
-	const routeIntentPrefetch = useRouteIntentPrefetch();
-	const prefetchSpaceConversation = useSpaceConversationIntentPrefetch();
 	const { currentOrganization } = useAppOrganization();
 	const spacesQuery = useQuery(
 		accountSpaceItemsQueryOptions({
@@ -109,21 +98,12 @@ export function AppDirectMessagesSidebar(input: {
 					currentProfileId={input.currentProfileId}
 					currentSpaceId={input.currentSpaceId}
 					items={directMessageItems}
-					onOpen={(routePath) => {
-						navigate({
-							to: routePath,
-						}).catch((error: unknown) => {
-							console.error("Failed to open Direct Message.", error);
-						});
-					}}
 					onRetry={() => {
 						spacesQuery.refetch().catch((error: unknown) => {
 							console.error("Failed to refresh Direct Messages.", error);
 						});
 					}}
 					organizationSlug={currentOrganization.slug}
-					prefetchSpaceConversation={prefetchSpaceConversation}
-					routeIntentPrefetch={routeIntentPrefetch}
 					state={listState}
 					unreadBySpaceId={unreadBySpaceId}
 				/>
@@ -137,11 +117,8 @@ function DirectMessagesList(input: {
 	currentProfileId: string;
 	currentSpaceId: string;
 	items: readonly AccountSpaceItem[];
-	onOpen: (routePath: string) => void;
 	onRetry: () => void;
 	organizationSlug: string;
-	prefetchSpaceConversation: SpaceConversationIntentPrefetch;
-	routeIntentPrefetch: RouteIntentPrefetchController;
 	state: DirectMessagesListState;
 	unreadBySpaceId: ReadonlyMap<
 		string,
@@ -204,10 +181,7 @@ function DirectMessagesList(input: {
 						isActive={item.spaceId === input.currentSpaceId}
 						item={item}
 						key={item.spaceId}
-						onOpen={input.onOpen}
 						organizationSlug={input.organizationSlug}
-						prefetchSpaceConversation={input.prefetchSpaceConversation}
-						routeIntentPrefetch={input.routeIntentPrefetch}
 						unreadCount={
 							input.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0
 						}
@@ -249,10 +223,7 @@ function DirectMessageSidebarItem(input: {
 	index: number;
 	isActive: boolean;
 	item: AccountSpaceItem;
-	onOpen: (routePath: string) => void;
 	organizationSlug: string;
-	prefetchSpaceConversation: SpaceConversationIntentPrefetch;
-	routeIntentPrefetch: RouteIntentPrefetchController;
 	unreadCount: number;
 }) {
 	const viewerProfileId = resolveAccountSpaceViewerProfileId({
@@ -278,18 +249,12 @@ function DirectMessageSidebarItem(input: {
 		search: { profileId: viewerProfileId },
 		spaceId: input.item.spaceId,
 	});
-	const prefetchConversationData = () =>
-		input.prefetchSpaceConversation({
-			spaceId: input.item.spaceId,
-			openMeldProfileId: viewerProfileId,
-		});
-
 	return (
 		<FluidNavMenuItem index={input.index} value={input.item.spaceId}>
 			<Tooltip>
 				<TooltipTrigger
 					render={
-						<button
+						<Link
 							aria-current={input.isActive ? "page" : undefined}
 							aria-label={accessibleLabel}
 							className={cn(
@@ -301,40 +266,7 @@ function DirectMessageSidebarItem(input: {
 									: null,
 								hasUnread ? "font-semibold text-sidebar-foreground" : null
 							)}
-							onClick={() => input.onOpen(routePath)}
-							onFocus={
-								input.isActive
-									? undefined
-									: () =>
-											input.routeIntentPrefetch.prefetchNow(
-												routePath,
-												prefetchConversationData
-											)
-							}
-							onPointerDown={
-								input.isActive
-									? undefined
-									: () =>
-											input.routeIntentPrefetch.prefetchNow(
-												routePath,
-												prefetchConversationData
-											)
-							}
-							onPointerEnter={
-								input.isActive
-									? undefined
-									: () =>
-											input.routeIntentPrefetch.schedule(
-												routePath,
-												prefetchConversationData
-											)
-							}
-							onPointerLeave={
-								input.isActive
-									? undefined
-									: () => input.routeIntentPrefetch.cancel(routePath)
-							}
-							type="button"
+							to={routePath}
 						>
 							{peer ? (
 								<SpaceProfileIcon
@@ -365,7 +297,7 @@ function DirectMessageSidebarItem(input: {
 									data-direct-message-unread-indicator="true"
 								/>
 							) : null}
-						</button>
+						</Link>
 					}
 				/>
 				<TooltipContent align="start" side="right">

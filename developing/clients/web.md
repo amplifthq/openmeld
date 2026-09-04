@@ -2250,19 +2250,15 @@ that restore-and-history chain. Links from
 the Space Directory carry
 the already selected human profile so the Space bootstrap can start during
 intent preload instead of waiting for a second profile-resolution navigation.
-The button-based Space and Direct Message sidebar rows preload their exact target
-route and conversation data together: a 50 ms pointer dwell avoids warming rows
-that the member only passes over, while keyboard focus and pointer press start
-immediately. The mounted authorized App shell supplies its already resolved
-Organization, storage scope, and acting Human Profile to the conversation-data
-prefetch, so Dexie restoration and the current history request do not wait for the
-Router preload to resolve those same prerequisites again. The Router preload still
-runs in parallel, and every server read keeps the normal authenticated and
-authorized API boundary. Leaving before the dwell cancels the pending preload, and
-the current active conversation does not preload itself. The target remains bound
-to its Organization, Space, and acting Human Profile, so Query deduplication,
-browser history restoration, current history, status, and bootstrap all reuse the
-normal entry path instead of creating a second cache or source of state.
+Space and Direct Message sidebar rows are Router links. The Router's shared
+50 ms intent delay avoids warming rows that the member only passes over and
+invokes the target route loader for pointer or keyboard intent. The exact acting
+Human Profile stays in the target URL, so the loader restores and warms the same
+conversation Query keys used on navigation. Every server read keeps the normal
+authenticated and authorized API boundary, and leaving before the Router's
+intent delay cancels the pending preload. Web does not maintain a second timer,
+prefetch controller, or component-owned conversation-data path beside the route
+loader.
 TanStack Query is the sole freshness owner for loader-prefetched data. The
 Router's preload freshness window is zero, so every loader invocation reaches
 the exact Query key and lets that query's `staleTime`, in-flight deduplication,

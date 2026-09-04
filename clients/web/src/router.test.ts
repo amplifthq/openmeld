@@ -3,6 +3,7 @@ import { resetBrowserQueryClientForTests } from "./integrations/tanstack-query/q
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
+	APP_ROUTE_PRELOAD_DELAY_MS,
 } from "./lib/app-route-loading";
 import { resetAppQueryPersistenceControllerForTests } from "./query/persistence/app-query-persistence";
 import { getRouter } from "./router";
@@ -23,6 +24,7 @@ describe("router query integration", () => {
 		);
 		expect(router.options.defaultPendingMs).toBe(APP_ROUTE_PENDING_DELAY_MS);
 		expect(router.options.defaultPreloadStaleTime).toBe(0);
+		expect(router.options.defaultPreloadDelay).toBe(APP_ROUTE_PRELOAD_DELAY_MS);
 		expect(router.options.defaultPendingComponent).toBeUndefined();
 		expect(router.options.Wrap).toBeTypeOf("function");
 	});

@@ -4,6 +4,7 @@ import { resolveAppQueryClient } from "./integrations/tanstack-query/query-clien
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
+	APP_ROUTE_PRELOAD_DELAY_MS,
 } from "./lib/app-route-loading";
 import { resolveAppQueryPersistenceController } from "./query/persistence/app-query-persistence";
 import { routeTree } from "./routeTree.gen";
@@ -20,6 +21,7 @@ export function getRouter(options?: { isServer?: boolean }) {
 
 		scrollRestoration: true,
 		defaultPreload: "intent",
+		defaultPreloadDelay: APP_ROUTE_PRELOAD_DELAY_MS,
 		// TanStack Query owns freshness for loader-prefetched data. Keeping the
 		// Router cache at zero prevents a second, unrelated freshness clock from
 		// skipping the exact Query checks owned by each route.
