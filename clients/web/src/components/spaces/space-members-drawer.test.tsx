@@ -221,14 +221,15 @@ describe("SpaceMembersSidePanel", () => {
 			name: "Search members",
 		});
 		const heading = screen.getByRole("heading", { name: "Members" });
-		const headerMainRow = heading.parentElement;
+		const headingGroup = heading.parentElement;
+		const headerMainRow = headingGroup?.parentElement;
 		const header = headerMainRow?.parentElement;
+		const countLabel = screen.getByText("1");
 		const countDescription = screen.getByText("1 member in this space");
 		expect(header?.tagName).toBe("HEADER");
-		expect(header?.className).toContain("flex-col");
 		expect(headerMainRow?.className).toContain("justify-between");
-		expect(countDescription.parentElement).toBe(header);
-		expect(countDescription.className).toContain("w-full");
+		expect(countLabel.parentElement).toBe(headingGroup);
+		expect(countDescription.className).toContain("sr-only");
 		expect(searchTrigger.getAttribute("aria-expanded")).toBe("false");
 		expect(searchTrigger.getAttribute("aria-controls")).toBe(
 			"space-members-search-region"
@@ -857,7 +858,7 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		expect(screen.getByText("Loading members")).toBeTruthy();
+		expect(screen.getByText("Loading")).toBeTruthy();
 		expect(screen.queryByText("0 members in this space")).toBeNull();
 	});
 
@@ -1084,7 +1085,7 @@ describe("SpaceMembersSidePanel", () => {
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
 		expect(within(organization).getByText("Acme Center Agent")).toBeTruthy();
-		expect(within(people).getByText("Active here 12 minutes ago")).toBeTruthy();
+		expect(within(people).getByText("12 minutes ago")).toBeTruthy();
 		expect(within(people).getByText("Mira Research")).toBeTruthy();
 		expect(
 			within(people).getByRole("button", {

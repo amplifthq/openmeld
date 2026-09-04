@@ -66,6 +66,7 @@ type SpaceMemberRowProps = {
 	centerAgentProfileId?: string | null;
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
+	density?: "compact" | "default";
 	entry: SpaceMemberDirectoryEntry;
 	entriesByProfileId?: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 	isAgentWakeAvailabilityCheckPending: boolean;
@@ -99,6 +100,7 @@ const SPACE_MEMBER_NAME_CLASS_NAME = cn(
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 	"sm:text-[13px]"
 );
+const SPACE_MEMBER_ACTIVITY_PREFIX_PATTERN = /^Active here\s+/;
 const SPACE_MEMBER_ACTIVITY_TOOLTIP = "Last activity in this Space";
 
 export function SpaceMemberRow(input: SpaceMemberRowProps) {
@@ -155,7 +157,12 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 						variant={input.variant}
 					/>
 				}
-				className={cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)}
+				className={cn(
+					input.density === "compact"
+						? "px-1.5 py-2"
+						: cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)
+				)}
+				compact={input.density === "compact"}
 				dimName={shouldDimProfileName({
 					entry: input.entry,
 					memberTransientState:
@@ -173,7 +180,14 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 					/>
 				}
 				onProfileSummaryClick={detailsDialog.openProfileDetails}
-				primaryDetail={presentation.primaryDetail}
+				primaryDetail={
+					input.density === "compact" &&
+					shouldShowAgentRecoveryActionControl(
+						presentation.displayedAgentRecoveryPlan
+					)
+						? null
+						: presentation.primaryDetail
+				}
 				profileName={input.entry.profileName}
 				profileNameAdornment={
 					<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
@@ -319,14 +333,24 @@ function AgentSpaceMemberRecoveryAction(input: {
 	) {
 		return null;
 	}
-	return (
+	const action = (
 		<SpaceAgentRecoveryActionControl
+			className={input.input.density === "compact" ? "mt-0" : undefined}
 			isPending={input.input.isAgentRecoveryPending}
 			onAction={input.input.onAgentRecoveryAction}
 			orgSlug={input.input.orgSlug}
 			plan={input.presentation.displayedAgentRecoveryPlan}
 			prepareSetupHref={input.input.prepareSetupHref}
 		/>
+	);
+	if (input.input.density !== "compact") {
+		return action;
+	}
+	return (
+		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
+			<span>Needs connection</span>
+			{action}
+		</div>
 	);
 }
 
@@ -381,6 +405,14 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 				actions={actions}
 				badges={
 					<SpaceMemberBadges
+						activityLabel={
+							input.density === "compact" && spaceActivityLabel
+								? spaceActivityLabel.replace(
+										SPACE_MEMBER_ACTIVITY_PREFIX_PATTERN,
+										""
+									)
+								: null
+						}
 						canCheckAgentWakeAvailability={false}
 						entry={input.entry}
 						isAgentWakeAvailabilityCheckPending={false}
@@ -399,7 +431,12 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 						variant={input.variant}
 					/>
 				}
-				className={cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)}
+				className={cn(
+					input.density === "compact"
+						? "px-1.5 py-2"
+						: cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)
+				)}
+				compact={input.density === "compact"}
 				icon={
 					<SpaceProfileIcon
 						agentControllerRef={input.entry.agentControllerRef}
@@ -411,7 +448,7 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 					/>
 				}
 				onProfileSummaryClick={detailsDialog.openProfileDetails}
-				primaryDetail={primaryDetail}
+				primaryDetail={input.density === "compact" ? null : primaryDetail}
 				profileName={input.entry.profileName}
 				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
 				profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
@@ -448,6 +485,7 @@ function SpaceMemberActivityText(input: { label: string }) {
 }
 
 function SpaceMemberBadges(input: {
+	activityLabel?: string | null;
 	canCheckAgentWakeAvailability: boolean;
 	entry: SpaceMemberDirectoryEntry;
 	isAgentWakeAvailabilityCheckPending: boolean;
@@ -475,6 +513,14 @@ function SpaceMemberBadges(input: {
 					label={input.statusLabel}
 					testId="space-member-presence-status"
 					tooltip={input.statusTooltip}
+				/>
+			) : null}
+			{input.activityLabel ? (
+				<SpaceMemberInlineStatusText
+					className="shrink text-muted-foreground"
+					label={input.activityLabel}
+					testId="space-member-activity-status"
+					tooltip={SPACE_MEMBER_ACTIVITY_TOOLTIP}
 				/>
 			) : null}
 			{input.canCheckAgentWakeAvailability ? (

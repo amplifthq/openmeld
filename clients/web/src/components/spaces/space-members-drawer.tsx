@@ -230,11 +230,20 @@ export function SpaceMembersSidePanel(
 			resizeHandleLabel="Resize Members panel"
 			width={input.panelWidth}
 		>
-			<header className="flex shrink-0 flex-col gap-1 border-border border-b px-4 py-3.5">
-				<div className="flex items-start justify-between gap-2">
-					<h2 className="min-w-0 whitespace-nowrap font-medium text-base">
-						Members
-					</h2>
+			<header className="shrink-0 border-border border-b px-4 py-3">
+				<div className="flex items-center justify-between gap-2">
+					<div className="flex min-w-0 items-baseline gap-2">
+						<h2 className="min-w-0 whitespace-nowrap font-medium text-base">
+							Members
+						</h2>
+						<span
+							aria-hidden="true"
+							className="truncate text-muted-foreground text-xs tabular-nums"
+						>
+							{model.membersCountLabel}
+						</span>
+						<span className="sr-only">{model.membersCountDescription}</span>
+					</div>
 					<div className="flex shrink-0 items-center gap-1">
 						<SpaceMembersSearchHeaderButton
 							onToggle={() => model.setIsSearchOpen(!model.isSearchOpen)}
@@ -255,9 +264,6 @@ export function SpaceMembersSidePanel(
 						/>
 					</div>
 				</div>
-				<p className="w-full text-muted-foreground text-sm">
-					{model.membersCountDescription}
-				</p>
 			</header>
 
 			<SpaceMembersBody
@@ -335,11 +341,22 @@ export function SpaceMembersDrawer(
 					}
 				>
 					<div className="flex min-h-0 w-full flex-col">
-						<div className="flex shrink-0 flex-col gap-1 border-border border-b px-4 py-3.5">
-							<div className="flex items-start justify-between gap-2">
-								<Drawer.Title className="font-medium text-base">
-									Members
-								</Drawer.Title>
+						<div className="shrink-0 border-border border-b px-4 py-3">
+							<div className="flex items-center justify-between gap-2">
+								<div className="flex min-w-0 items-baseline gap-2">
+									<Drawer.Title className="font-medium text-base">
+										Members
+									</Drawer.Title>
+									<span
+										aria-hidden="true"
+										className="truncate text-muted-foreground text-xs tabular-nums"
+									>
+										{model.membersCountLabel}
+									</span>
+									<Drawer.Description className="sr-only">
+										{model.membersCountDescription}
+									</Drawer.Description>
+								</div>
 								<div className="flex shrink-0 items-center gap-1">
 									<SpaceMembersSearchHeaderButton
 										onToggle={() => model.setIsSearchOpen(!model.isSearchOpen)}
@@ -361,9 +378,6 @@ export function SpaceMembersDrawer(
 									/>
 								</div>
 							</div>
-							<Drawer.Description className="w-full text-muted-foreground text-sm">
-								{model.membersCountDescription}
-							</Drawer.Description>
 						</div>
 
 						<SpaceMembersBody
@@ -618,6 +632,11 @@ function useSpaceMembersModel(
 		isAddMembersOpen,
 		isSearchOpen,
 		membersCountDescription,
+		membersCountLabel: resolveMembersCountLabel({
+			hasLoadError: Boolean(input.membersError && !input.snapshot),
+			isLoading: input.isLoading,
+			totalMembersCount,
+		}),
 		openAddMembers: (trigger: HTMLElement) => {
 			addMembersTriggerRef.current = trigger;
 			setIsAddMembersOpen(true);
@@ -707,8 +726,8 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 	return (
 		<LazyMotion features={domAnimation} strict>
 			<MotionConfig reducedMotion="user">
-				<div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
-					<div className="flex flex-col gap-4">
+				<div className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-3">
+					<div className="flex flex-col gap-3">
 						<SpaceAddProfilesSection
 							accountProfiles={input.accountProfiles}
 							currentOwnerUserId={input.currentOwnerUserId}
@@ -2353,6 +2372,7 @@ function SpaceMembersList(input: {
 				centerAgentProfileId={input.centerAgentProfileId}
 				currentOwnerUserId={input.currentOwnerUserId}
 				currentProfileId={input.currentProfileId}
+				density="compact"
 				entriesByProfileId={entriesByProfileId}
 				entry={entry}
 				isAgentRecoveryPending={input.isAgentRecoveryPending(entry.profileId)}
@@ -2379,10 +2399,10 @@ function SpaceMembersList(input: {
 
 	if (input.isLoading && !input.snapshot) {
 		return (
-			<div className="flex flex-col gap-3">
+			<div className="flex flex-col gap-2">
 				{Array.from({ length: 5 }).map((_, index) => (
 					<Skeleton
-						className="h-14 w-full"
+						className="h-10 w-full"
 						key={`space-members-drawer-skeleton-${String(index)}`}
 					/>
 				))}
@@ -2432,7 +2452,7 @@ function SpaceMembersList(input: {
 		roster.ungroupedAgentEntries.length > 0
 	) {
 		return (
-			<div className="flex flex-col gap-5">
+			<div className="flex flex-col gap-3">
 				{shouldShowRefreshError ? (
 					<div
 						className={cn(
@@ -2444,7 +2464,7 @@ function SpaceMembersList(input: {
 					</div>
 				) : null}
 				{roster.organizationEntries.length > 0 ? (
-					<section className="flex flex-col gap-2">
+					<section className="flex flex-col gap-1">
 						<h2 className="font-medium text-muted-foreground text-xs">
 							Organization
 						</h2>
@@ -2456,7 +2476,7 @@ function SpaceMembersList(input: {
 					</section>
 				) : null}
 				{roster.personGroups.length > 0 ? (
-					<section className="flex flex-col gap-2">
+					<section className="flex flex-col gap-1">
 						<h2 className="font-medium text-muted-foreground text-xs">
 							People &amp; Agents
 						</h2>
@@ -2488,7 +2508,7 @@ function SpaceMembersList(input: {
 											});
 										}}
 										showToggle={group.agentEntries.length > 0}
-										toggleClassName="mt-2.5"
+										toggleClassName="mt-1.5"
 									>
 										<div className="ml-7 flex flex-col">
 											{group.agentEntries.map((entry) => (
@@ -2502,7 +2522,7 @@ function SpaceMembersList(input: {
 					</section>
 				) : null}
 				{roster.ungroupedAgentEntries.length > 0 ? (
-					<section className="flex flex-col gap-2">
+					<section className="flex flex-col gap-1">
 						<h2 className="font-medium text-muted-foreground text-xs">
 							Agents
 						</h2>
@@ -2756,4 +2776,15 @@ function resolveMembersCountDescription(input: {
 
 	const totalMembersCount = input.totalMembersCount;
 	return `${String(totalMembersCount)} member${totalMembersCount === 1 ? "" : "s"} in this space`;
+}
+
+function resolveMembersCountLabel(input: {
+	hasLoadError: boolean;
+	isLoading: boolean;
+	totalMembersCount: number | null;
+}): string {
+	if (input.totalMembersCount === null) {
+		return input.hasLoadError || !input.isLoading ? "Unavailable" : "Loading";
+	}
+	return String(input.totalMembersCount);
 }
