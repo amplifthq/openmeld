@@ -565,6 +565,7 @@ import {
   TARGET_BYTES,
 } from "../../infrastructure/sql/space-retention-repo";
 import {
+  clearSpaceAgentOwnerMembershipPolicyReconciled,
   ensureSpaceSqlSchema,
   hasReconciledSpaceAgentOwnerMembershipPolicy,
   isoToTimestampMs,
@@ -6946,6 +6947,7 @@ export class Space extends DurableObject<CoreBindings> {
         passwordProof: undefined,
         updatedAt: convertedAt,
       });
+      clearSpaceAgentOwnerMembershipPolicyReconciled(this.ctx.storage.sql);
       return addSpaceMembersUseCase({
         actorDisplayName:
           context.actorContext.profileName ?? context.actorContext.ownerName,
@@ -11453,7 +11455,6 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     if (metaRecord.directMessage && !metaRecord.directMessage.convertedAt) {
-      markSpaceAgentOwnerMembershipPolicyReconciled(sql);
       return;
     }
 
