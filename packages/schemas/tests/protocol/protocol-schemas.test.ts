@@ -1144,6 +1144,16 @@ describe("protocol schemas", () => {
         reason: "space.name.updated",
       }).success
     ).toBe(true);
+    expect(
+      incomingServerMessageSchema.safeParse({
+        type: "wake.progress.changed",
+        spaceId: "room-a",
+        version: 104,
+        agentProfileIds: [AGENT_PROFILE_ID],
+        clientMessageIds: ["client-message-1"],
+        reason: "runtime_coordinator.wake_progress_changed",
+      }).success
+    ).toBe(true);
   });
 
   it("rejects unsupported incoming type", () => {

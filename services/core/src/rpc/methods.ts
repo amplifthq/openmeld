@@ -1811,6 +1811,16 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     ok: true;
     spaceId: string;
   }>;
+  rpcBroadcastWakeProgressChanged(input: {
+    agentProfileIds: readonly string[];
+    clientMessageIds: readonly string[];
+    reason: string;
+    spaceId: string;
+  }): Promise<{
+    broadcast: boolean;
+    ok: true;
+    spaceId: string;
+  }>;
   rpcRemoveMembers(
     input: RemoveSpaceMembersInput
   ): Promise<RemoveSpaceMembersResponse>;

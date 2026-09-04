@@ -19,7 +19,7 @@ vi.mock("#/lib/spaces/api", () => ({
 }));
 
 describe("spaceActiveWakeProgressSummaryQueryOptions", () => {
-	it("keeps a cached summary for route returns and always revalidates without Stop enrichment", async () => {
+	it("keeps a cached summary for route returns and revalidates complete active controls", async () => {
 		getActiveWakeProgressMock.mockResolvedValue({
 			items: [],
 			query: {
@@ -53,7 +53,7 @@ describe("spaceActiveWakeProgressSummaryQueryOptions", () => {
 		expect(getActiveWakeProgressMock).toHaveBeenCalledWith({
 			includeTiming: true,
 			includeWaitReason: true,
-			includeWakeStopEligibility: false,
+			includeWakeStopEligibility: true,
 			spaceId: "space-123",
 			timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
 		});

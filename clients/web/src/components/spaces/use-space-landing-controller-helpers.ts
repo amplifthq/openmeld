@@ -509,15 +509,9 @@ export function resolveWakeProgressPollDelayMs(input: {
 }): number {
 	const nextAttemptCount = Math.min(...input.attemptCounts);
 	if (nextAttemptCount <= 0) {
-		return 1000;
+		return 15_000;
 	}
-	if (nextAttemptCount === 1) {
-		return 2000;
-	}
-	if (nextAttemptCount <= 3) {
-		return 5000;
-	}
-	return 10_000;
+	return 30_000;
 }
 
 export async function pollWakeProgress(input: {
@@ -585,6 +579,7 @@ export function areWakeProgressItemsEqual(
 				item.dispatchId === other.dispatchId &&
 				item.failureReasonCode === other.failureReasonCode &&
 				item.message === other.message &&
+				item.previewText === other.previewText &&
 				item.phase === other.phase &&
 				item.runtimeCoordinatorExecutionId ===
 					other.runtimeCoordinatorExecutionId &&

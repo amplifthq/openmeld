@@ -112,6 +112,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				createWakeProgressItem({
 					message: "I’m checking the release configuration now.",
 					phase: "writing",
+					previewText: "I’m checking the release configuration now.",
 					updatedAtMs: 1,
 				}),
 			],
@@ -122,6 +123,26 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				elapsedStartedAtMs: null,
 				kind: "preview",
 				text: "I’m checking the release configuration now.",
+			}),
+		]);
+	});
+
+	it("does not mistake a generic writing phase for reply text", () => {
+		const state = resolveSpaceMessageWakeProgressState({
+			item: createTimelineItem(),
+			items: [
+				createWakeProgressItem({
+					message: "runner started writing...",
+					phase: "writing",
+					updatedAtMs: 1,
+				}),
+			],
+		});
+
+		expect(state.thinkingEntries).toEqual([
+			expect.objectContaining({
+				kind: "progress",
+				text: "runner is replying",
 			}),
 		]);
 	});
@@ -609,6 +630,7 @@ function createWakeProgressItem(input: {
 	failureReasonCode?: string | null;
 	message: string;
 	phase: WakeProgressItem["phase"];
+	previewText?: string;
 	sourceSignalId?: string;
 	startedAtMs?: number;
 	targetLabel?: string;
@@ -624,6 +646,7 @@ function createWakeProgressItem(input: {
 		failureReasonCode: input.failureReasonCode ?? null,
 		message: input.message,
 		phase: input.phase,
+		...(input.previewText ? { previewText: input.previewText } : {}),
 		sourceSignalId: input.sourceSignalId ?? "sig-source",
 		startedAtMs: input.startedAtMs ?? input.updatedAtMs,
 		targetLabel: input.targetLabel ?? "@runner",

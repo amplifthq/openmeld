@@ -228,11 +228,11 @@ export function resolveWakeProgressThinkingEntry(input: {
 					: null,
 			lastEvidenceAtMs: item.updatedAtMs,
 			key: resolveWakeProgressKey(item),
-			kind: item.phase === "writing" ? "preview" : "progress",
+			kind: item.previewText ? "preview" : "progress",
 			phase: item.phase,
 			step,
 			targetProfileId: item.targetProfileId,
-			text: item.phase === "writing" ? item.message : step.label,
+			text: item.previewText ?? step.label,
 		},
 	];
 }

@@ -1566,13 +1566,14 @@ Contract Impact Audit:
 
 `packages/schemas/src/schemas/protocol/envelope.ts` owns Space live WebSocket
 frames that cross Core/Space and browser clients. Live invalidation frames such
-as `space.members.changed`, `space.meta.changed`, and
-`agent.readiness.invalidated` are transport signals, not durable state.
+as `space.members.changed`, `space.meta.changed`,
+`agent.readiness.invalidated`, and `wake.progress.changed` are transport
+signals, not durable state.
 
 Rules:
 
-- Core/Space may emit an invalidation frame after a membership, metadata, or
-  readiness owner changes facts.
+- Core/Space may emit an invalidation frame after a membership, metadata,
+  readiness, or RuntimeCoordinator Wake-progress owner changes facts.
 - Clients may use the frame to trigger a targeted read-model refresh.
 - The authoritative facts remain the Space members snapshot, Space status
   snapshot, Core Wake/readiness projections, and their shared schemas.
@@ -1585,6 +1586,10 @@ Rules:
 - A missed invalidation frame must be recoverable by the next snapshot read.
 - `space.meta.changed` triggers a Space status and Space Index refresh. It does
   not carry metadata state and does not imply that membership changed.
+- `wake.progress.changed` may carry only selectors such as Agent Profile IDs
+  and client message IDs. It never carries a phase, outcome, interaction,
+  eligibility decision, or user-facing status. Web uses it to refresh the
+  Core-owned active Wake progress projection.
 
 The Space-name request field and `space.meta.changed` topic are additive,
 cloud-only contracts. Deploy Core first, then Gateway, then Web: an older Core

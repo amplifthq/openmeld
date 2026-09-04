@@ -666,7 +666,7 @@ const SERVER_ROUTE_RECONCILIATION_REASON = "server_route_reconciliation";
 // profile in the owner's sessions, and several call sites fire within a few
 // ms, so hundreds of per-space broadcasts pile up. Buffering by reason for a
 // short window collapses each storm into one deduplicated publish per reason.
-const AGENT_READINESS_INVALIDATION_COALESCE_WINDOW_MS = 200;
+const LIVE_INVALIDATION_COALESCE_WINDOW_MS = 200;
 const AGENT_READINESS_INVALIDATION_DEFAULT_REASON =
   "agent.readiness.invalidated";
 const EXPECTED_ROUTE_RECONCILIATION_READ_CACHE_MAX_AGE_MS = 5 * 60_000;
@@ -1417,9 +1417,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     string,
     Set<string>
   >();
-  private agentReadinessInvalidationFlushTimer: ReturnType<
-    typeof setTimeout
-  > | null = null;
+  private liveInvalidationFlushTimer: ReturnType<typeof setTimeout> | null =
+    null;
+  private pendingWakeProgressInvalidationsBySpaceId = new Map<
+    string,
+    {
+      agentProfileIds: Set<string>;
+      clientMessageIds: Set<string>;
+    }
+  >();
   private readonly expectedRouteReconciliationReadCacheBySessionKey = new Map<
     string,
     ExpectedRouteReconciliationReadCacheState
@@ -10607,6 +10613,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.storage,
       state
     );
+    this.publishWakeProgressChanged({
+      agentProfileId: state.targetProfileId,
+      clientMessageId: state.sourceClientMessageId,
+      spaceId: state.sanitizedDeliveryRequest.payload.spaceId,
+    });
   }
 
   private async rollbackRuntimeCoordinatorUnsentDelivery(
@@ -11908,6 +11919,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.publishAgentReadinessInvalidated({
       profileIds: [record.targetWakeLifecycleIdentity.targetProfileId],
       reason: "agent_profile_work_coordinator.changed",
+    });
+    this.publishWakeProgressChanged({
+      agentProfileId: record.targetWakeLifecycleIdentity.targetProfileId,
+      clientMessageId: record.targetWakeLifecycleIdentity.clientMessageId,
+      spaceId: record.targetWakeLifecycleIdentity.spaceId,
     });
     if (pendingPromotion) {
       await this.requestSpaceDispatchOutboxRedriveForPromotion(
@@ -16381,11 +16397,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       pending.add(profileId);
     }
     this.pendingAgentReadinessInvalidationsByReason.set(reason, pending);
-    this.scheduleAgentReadinessInvalidationFlush();
+    this.scheduleLiveInvalidationFlush();
   }
 
-  private scheduleAgentReadinessInvalidationFlush(): void {
-    if (this.agentReadinessInvalidationFlushTimer) {
+  private scheduleLiveInvalidationFlush(): void {
+    if (this.liveInvalidationFlushTimer) {
       return;
     }
     // A single keepalive promise spans the whole window so the DO is not
@@ -16399,10 +16415,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       resolveFlush = resolve;
     });
     this.ctx.waitUntil(flushSettled);
-    this.agentReadinessInvalidationFlushTimer = setTimeout(() => {
-      this.agentReadinessInvalidationFlushTimer = null;
-      this.flushAgentReadinessInvalidations().finally(resolveFlush);
-    }, AGENT_READINESS_INVALIDATION_COALESCE_WINDOW_MS);
+    this.liveInvalidationFlushTimer = setTimeout(() => {
+      this.liveInvalidationFlushTimer = null;
+      Promise.all([
+        this.flushAgentReadinessInvalidations(),
+        this.flushWakeProgressInvalidations(),
+      ]).finally(resolveFlush);
+    }, LIVE_INVALIDATION_COALESCE_WINDOW_MS);
   }
 
   private async flushAgentReadinessInvalidations(): Promise<void> {
@@ -16473,6 +16492,62 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         },
       },
     });
+  }
+
+  private publishWakeProgressChanged(input: {
+    agentProfileId: string;
+    clientMessageId: string | null;
+    spaceId: string;
+  }): void {
+    const spaceId = input.spaceId.trim();
+    const agentProfileId = input.agentProfileId.trim();
+    const clientMessageId = input.clientMessageId?.trim() ?? "";
+    if (!(spaceId && (agentProfileId || clientMessageId))) {
+      return;
+    }
+    const pending = this.pendingWakeProgressInvalidationsBySpaceId.get(
+      spaceId
+    ) ?? {
+      agentProfileIds: new Set<string>(),
+      clientMessageIds: new Set<string>(),
+    };
+    if (agentProfileId) {
+      pending.agentProfileIds.add(agentProfileId);
+    }
+    if (clientMessageId) {
+      pending.clientMessageIds.add(clientMessageId);
+    }
+    this.pendingWakeProgressInvalidationsBySpaceId.set(spaceId, pending);
+    this.scheduleLiveInvalidationFlush();
+  }
+
+  private async flushWakeProgressInvalidations(): Promise<void> {
+    const pending = this.pendingWakeProgressInvalidationsBySpaceId;
+    this.pendingWakeProgressInvalidationsBySpaceId = new Map();
+    await Promise.all(
+      [...pending.entries()].map(async ([spaceId, targets]) => {
+        try {
+          const spaceStub = resolveSpaceStub(this.env.OPENMELD_SPACES, spaceId);
+          if (!spaceStub) {
+            throw new Error(
+              "Space stub unavailable for Wake progress invalidation"
+            );
+          }
+          await spaceStub.rpcBroadcastWakeProgressChanged({
+            agentProfileIds: [...targets.agentProfileIds],
+            clientMessageIds: [...targets.clientMessageIds],
+            reason: "runtime_coordinator.wake_progress_changed",
+            spaceId,
+          });
+        } catch (error) {
+          console.warn("[core.wake_progress.invalidation_failed]", {
+            error: error instanceof Error ? error.message : String(error),
+            reasonCode: "wake.progress.invalidation_failed",
+            spaceId,
+          });
+        }
+      })
+    );
   }
 
   private async processAgentProfileWorkPromotionAlarm(

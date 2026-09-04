@@ -7033,6 +7033,35 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
 
+  async rpcBroadcastWakeProgressChanged(input: {
+    agentProfileIds: readonly string[];
+    clientMessageIds: readonly string[];
+    reason: string;
+    spaceId: string;
+  }): Promise<{
+    broadcast: boolean;
+    ok: true;
+    spaceId: string;
+  }> {
+    this.applySpaceRef(input.spaceId);
+    const agentProfileIds = normalizeProfileIds(input.agentProfileIds);
+    const clientMessageIds = normalizeProfileIds(input.clientMessageIds);
+    if (agentProfileIds.length === 0 && clientMessageIds.length === 0) {
+      return { broadcast: false, ok: true, spaceId: this.spaceId };
+    }
+
+    const frame: SpaceLiveInvalidationFrame = {
+      type: "wake.progress.changed",
+      spaceId: this.spaceId,
+      version: await this.nextLiveInvalidationVersion(),
+      ...(agentProfileIds.length > 0 ? { agentProfileIds } : {}),
+      ...(clientMessageIds.length > 0 ? { clientMessageIds } : {}),
+      reason: normalizeOptionalText(input.reason) ?? "wake.progress.changed",
+    };
+    this.broadcast(frame);
+    return { broadcast: true, ok: true, spaceId: this.spaceId };
+  }
+
   async rpcReconcileDeletedAgentProfileMember(input: {
     ownerUserId?: string;
     spaceId: string;
@@ -17131,7 +17160,8 @@ function isSpaceLiveInvalidationFrame(
     (message.type === "space.members.changed" ||
       message.type === "space.meta.changed" ||
       message.type === "space.files.changed" ||
-      message.type === "agent.readiness.invalidated")
+      message.type === "agent.readiness.invalidated" ||
+      message.type === "wake.progress.changed")
   );
 }
 

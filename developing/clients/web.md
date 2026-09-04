@@ -3483,6 +3483,19 @@ resolver that independently combines dispatch, RuntimeCoordinator, native
 delivery, or reply state. The shared item may include opt-in Space-owned public
 source context for later presentation, but this contract change alone does not
 add a new visible UI surface.
+
+RuntimeCoordinator progress changes reach an open Space through the
+`wake.progress.changed` WebSocket invalidation. Web treats that frame only as a
+targeted prompt to refresh the active Wake progress query; the frame itself is
+never rendered and does not own state. Mount, browser focus, and reconnect also
+refresh the authoritative snapshot. A 15-second initial and 30-second ongoing
+detail refresh remains only as missed-frame recovery, not the normal live-update
+path, and must not trigger unrelated members or Space-status reads.
+
+The optional `previewText` field is the only Wake-progress evidence that Web may
+render as a live reply preview. A `writing` phase without `previewText` renders
+the ordinary concise `is replying` status instead of displaying the shared
+diagnostic `message` as if it were Agent output.
 Any UI that summarizes the active list requests `includePageInfo=true` and
 treats `hasMore=true` as incomplete coverage (for example, `25+` rather than an
 exact count). It must not imply that the bounded first page is the complete set.

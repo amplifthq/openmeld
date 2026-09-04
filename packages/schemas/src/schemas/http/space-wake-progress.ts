@@ -93,6 +93,7 @@ export const wakeProgressItemSchema = z.strictObject({
   phase: wakeProgressPhaseSchema,
   failureReasonCode: z.string().trim().min(1).nullable().optional(),
   message: z.string().trim().min(1),
+  previewText: z.string().trim().min(1).optional(),
   startedAtMs: z.int().min(0).optional(),
   updatedAtMs: z.int().min(0),
   terminal: z.boolean(),
