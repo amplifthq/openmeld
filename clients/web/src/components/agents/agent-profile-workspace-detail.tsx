@@ -37,7 +37,6 @@ import type {
 	AgentProfileActivityNavigation,
 } from "#/components/agents/agent-profile-activity-preview";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
-import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
@@ -204,19 +203,7 @@ function AgentProfilePresence(input: {
 			<AgentProfilePresenceIcon status={presentation.status} />
 		</span>
 	);
-	const presenceLabel = presentation.shimmer ? (
-		<TextShimmer
-			as="span"
-			className={cn(
-				"font-medium text-sm leading-5",
-				presentation.textClassName,
-				"[--base-color:var(--color-sky-700)] [--base-gradient-color:var(--color-sky-300)] dark:[--base-color:var(--color-sky-300)] dark:[--base-gradient-color:var(--color-sky-100)]"
-			)}
-			duration={1.8}
-		>
-			{presentation.label}
-		</TextShimmer>
-	) : (
+	const presenceLabel = (
 		<span
 			className={cn(
 				"font-medium text-sm leading-5",
@@ -288,7 +275,6 @@ function resolveAgentProfilePresence(input: {
 }): {
 	label: string;
 	reason: string | null;
-	shimmer: boolean;
 	status: AgentProfilePresenceStatus;
 	textClassName: string;
 	tooltip: string;
@@ -297,7 +283,6 @@ function resolveAgentProfilePresence(input: {
 		return {
 			label: "Couldn’t check availability.",
 			reason: null,
-			shimmer: false,
 			status: "unknown",
 			textClassName: resolveStatusToneTextClassName("muted"),
 			tooltip: input.wakeAvailabilityErrorMessage,
@@ -307,7 +292,6 @@ function resolveAgentProfilePresence(input: {
 		return {
 			label: "Checking…",
 			reason: null,
-			shimmer: true,
 			status: "checking",
 			textClassName: resolveStatusToneTextClassName("checking"),
 			tooltip: "Checking whether this Agent is available for Wake.",
@@ -320,7 +304,6 @@ function resolveAgentProfilePresence(input: {
 		return {
 			label: input.wakeAvailability.label,
 			reason: null,
-			shimmer: true,
 			status: "checking",
 			textClassName: resolveStatusToneTextClassName("checking"),
 			tooltip: input.wakeAvailability.summary,
@@ -330,7 +313,6 @@ function resolveAgentProfilePresence(input: {
 		return {
 			label: input.wakeAvailability.badgeLabel,
 			reason: null,
-			shimmer: false,
 			status: "available",
 			textClassName: resolveStatusToneTextClassName("ready"),
 			tooltip: input.wakeAvailability.tooltip,
@@ -339,7 +321,6 @@ function resolveAgentProfilePresence(input: {
 	return {
 		label: input.wakeAvailability.badgeLabel,
 		reason: resolveUnavailableWakeReason(input.wakeAvailability),
-		shimmer: false,
 		status: availabilityCategory,
 		textClassName: resolveStatusToneTextClassName("muted"),
 		tooltip: input.wakeAvailability.tooltip,

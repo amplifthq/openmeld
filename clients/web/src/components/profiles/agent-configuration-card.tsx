@@ -52,6 +52,7 @@ export function AgentConfigurationEditorCard(input: {
 }
 
 export function AgentConfigurationCard(input: {
+	actionLabel?: string;
 	attention?: boolean;
 	children?: ReactNode;
 	className?: string;
@@ -136,7 +137,7 @@ export function AgentConfigurationCard(input: {
 				itemId={input.itemId}
 			>
 				<button
-					aria-label={`Edit ${input.label}`}
+					aria-label={input.actionLabel ?? `Edit ${input.label}`}
 					className="h-full w-full min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 					disabled={input.disabled}
 					onClick={input.onClick}
@@ -159,7 +160,7 @@ export function AgentConfigurationCard(input: {
 					disabled={input.disabled}
 					render={
 						<button
-							aria-label={`Edit ${input.label}`}
+							aria-label={input.actionLabel ?? `Edit ${input.label}`}
 							className="h-full w-full min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 							type="button"
 						/>

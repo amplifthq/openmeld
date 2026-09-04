@@ -739,10 +739,6 @@ function AgentsWorkspaceHomeView(input: {
 			profilesStatus={input.profilesStatus}
 			readinessByProfileId={input.readinessByProfileId}
 			readinessErrorByProfileId={input.errorByProfileId}
-			readinessIsRefreshing={
-				workspace.runtimeOverviewQuery.isFetching === true &&
-				workspace.runtimeOverviewQuery.data !== undefined
-			}
 			readinessPendingProfileIds={input.pendingProfileIds}
 			renderProfileDetail={(profile) => (
 				<AgentProfilesCard
@@ -814,7 +810,6 @@ function AgentsWorkspaceHomeView(input: {
 			searchControl={workspace.searchControl}
 			selectedProfileId={input.sidebarSelectedProfileId}
 			showAgentRequests={workspace.isOrganizationContext}
-			wakeAvailabilityNowMs={wakeAvailabilityNowMs}
 		/>
 	);
 }

@@ -7,19 +7,30 @@ import {
 	refreshWebAgentReadinessSharedCaches,
 } from "./execution-readiness";
 
-const notifyAgentExecutionReadinessRefreshMock = vi.hoisted(() => vi.fn());
+const {
+	notifyAgentExecutionReadinessRefreshMock,
+	readAgentExecutionReadinessBatchMock,
+} = vi.hoisted(() => ({
+	notifyAgentExecutionReadinessRefreshMock: vi.fn(),
+	readAgentExecutionReadinessBatchMock: vi.fn(),
+}));
 
 vi.mock("#/lib/agents/agent-execution-readiness", () => ({
 	notifyAgentExecutionReadinessRefresh: (
 		...args: Parameters<typeof notifyAgentExecutionReadinessRefreshMock>
 	) => notifyAgentExecutionReadinessRefreshMock(...args),
-	readAgentExecutionReadinessBatch: vi.fn(),
+	readAgentExecutionReadinessBatch: (
+		...args: Parameters<typeof readAgentExecutionReadinessBatchMock>
+	) => readAgentExecutionReadinessBatchMock(...args),
 }));
 
 describe("refreshWebAgentReadinessFacts", () => {
 	beforeEach(() => {
 		notifyAgentExecutionReadinessRefreshMock.mockReset().mockResolvedValue({
 			ok: true,
+		});
+		readAgentExecutionReadinessBatchMock.mockReset().mockResolvedValue({
+			items: [],
 		});
 	});
 
@@ -107,7 +118,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 			storageScope: "scope-test",
 		});
 
-		expect(invalidateQueriesSpy).toHaveBeenCalledTimes(2);
+		expect(invalidateQueriesSpy).toHaveBeenCalledTimes(1);
 		const invalidateInput = invalidateQueriesSpy.mock.calls[0]?.[0] as
 			| {
 					predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
@@ -145,7 +156,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 		).toBe(false);
 	});
 
-	it("invalidates only the Agent runtime projection after Core readiness changes", async () => {
+	it("does not refetch the whole Agent runtime overview for one Profile change", async () => {
 		const queryClient = createTestQueryClient();
 		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
 
@@ -157,10 +168,74 @@ describe("refreshWebAgentReadinessFacts", () => {
 			storageScope: "scope-test",
 		});
 
-		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+		expect(invalidateQueriesSpy).not.toHaveBeenCalledWith({
 			queryKey: ["organizations", "org-123", "agent-runtime-overview"],
 			refetchType: "active",
 		});
+	});
+
+	it("patches only the changed Profile readiness in an active runtime overview", async () => {
+		const queryClient = createTestQueryClient();
+		const cancelQueriesSpy = vi.spyOn(queryClient, "cancelQueries");
+		const overviewQueryKey = [
+			"organizations",
+			"org-123",
+			"agent-runtime-overview",
+		] as const;
+		const targetBefore = {
+			agentProfileId: "agt_target",
+			generatedAt: "2026-09-04T10:00:00.000Z",
+		};
+		const otherBefore = {
+			agentProfileId: "agt_other",
+			generatedAt: "2026-09-04T10:00:00.000Z",
+		};
+		const targetAfter = {
+			agentProfileId: "agt_target",
+			generatedAt: "2026-09-04T10:01:00.000Z",
+		};
+		queryClient.setQueryData(overviewQueryKey, {
+			agentProfiles: [
+				{ profileId: "agt_target", readiness: targetBefore },
+				{ profileId: "agt_other", readiness: otherBefore },
+			],
+			generatedAt: "2026-09-04T10:00:00.000Z",
+			organizationId: "org-123",
+		});
+		const overviewQuery = queryClient
+			.getQueryCache()
+			.find({ exact: true, queryKey: overviewQueryKey });
+		if (!overviewQuery) {
+			throw new Error("Expected the runtime overview query to be cached.");
+		}
+		vi.spyOn(overviewQuery, "isActive").mockReturnValue(true);
+		readAgentExecutionReadinessBatchMock.mockResolvedValue({
+			items: [targetAfter],
+		});
+
+		await refreshWebAgentReadinessSharedCaches({
+			agentProfileIds: ["agt_target"],
+			includeLocalRuntimeCaches: false,
+			organizationId: "org-123",
+			queryClient,
+			storageScope: "scope-test",
+		});
+
+		expect(readAgentExecutionReadinessBatchMock).toHaveBeenCalledWith({
+			agentProfileIds: ["agt_target"],
+			organizationId: "org-123",
+		});
+		expect(cancelQueriesSpy).toHaveBeenCalledWith({
+			exact: true,
+			queryKey: overviewQueryKey,
+		});
+		const overview = queryClient.getQueryData<{
+			agentProfiles: { profileId: string; readiness: unknown }[];
+		}>(overviewQueryKey);
+		expect(overview?.agentProfiles).toEqual([
+			{ profileId: "agt_target", readiness: targetAfter },
+			{ profileId: "agt_other", readiness: otherBefore },
+		]);
 	});
 
 	it("refreshes Core-owned readiness facts without notifying route catalog sync", async () => {
