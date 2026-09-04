@@ -1453,6 +1453,10 @@ const createHarness = (input?: {
     configurable: true,
     value: new Map(),
   });
+  Object.defineProperty(hub, "automaticToolsUpdateUnavailableRetryByComputer", {
+    configurable: true,
+    value: new Map(),
+  });
   Object.defineProperty(hub, "runtimeCoordinatorFinalizationTails", {
     value: new Map(),
   });

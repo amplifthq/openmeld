@@ -136,13 +136,6 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
 
   it.each([
     {
-      name: "the release is unavailable",
-      result: {
-        operation: "request_update",
-        result: { status: "unavailable" },
-      } satisfies OpenMeldToolsControlResult,
-    },
-    {
       name: "automatic updates became disabled",
       result: {
         operation: "request_update",
@@ -167,6 +160,183 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
     await harness.queueAndSettle("heartbeat");
 
     expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(2);
+  });
+
+  it("backs off unavailable results with a bounded retry delay", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
+    const unavailable = {
+      operation: "request_update",
+      result: { status: "unavailable" },
+    } satisfies OpenMeldToolsControlResult;
+    const harness = createHarness([
+      unavailable,
+      unavailable,
+      unavailable,
+      unavailable,
+      currentResult("0.3.153"),
+    ]);
+
+    try {
+      await harness.queueAndSettle("register");
+      await harness.queueAndSettle("heartbeat");
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      await harness.queueAndSettle("heartbeat");
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(
+        2
+      );
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      await harness.queueAndSettle("heartbeat");
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(
+        2
+      );
+
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      await harness.queueAndSettle("heartbeat");
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(
+        3
+      );
+
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+      await harness.queueAndSettle("heartbeat");
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(
+        4
+      );
+
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+      await harness.queueAndSettle("heartbeat");
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(
+        5
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps unavailable backoff after the Durable Object is rebuilt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
+    const storageValues = new Map<string, unknown>();
+    const firstHub = createHarness(
+      [
+        {
+          operation: "request_update",
+          result: { status: "unavailable" },
+        },
+      ],
+      { storageValues }
+    );
+
+    try {
+      await firstHub.queueAndSettle("register");
+      expect(storageValues.size).toBe(1);
+
+      const rebuiltHub = createHarness([currentResult("0.3.153")], {
+        storageValues,
+      });
+      await rebuiltHub.restoreUnavailableRetries();
+      await rebuiltHub.queueAndSettle("heartbeat");
+      expect(
+        rebuiltHub.sendCurrentDeviceOperationAndWait
+      ).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      await rebuiltHub.queueAndSettle("heartbeat");
+      expect(
+        rebuiltHub.sendCurrentDeviceOperationAndWait
+      ).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries immediately when the Service registers a new session", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
+    const harness = createHarness([
+      {
+        operation: "request_update",
+        result: { status: "unavailable" },
+      },
+      currentResult("0.3.153"),
+    ]);
+
+    try {
+      await harness.queueAndSettle("register");
+      await harness.queueAndSettle("heartbeat");
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledOnce();
+
+      harness.setDaemonSessionId("daemon-session-2");
+      await harness.queueAndSettle("register");
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(
+        2
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a handled release when the Service session changes", async () => {
+    const harness = createHarness([
+      currentResult("0.3.153"),
+      currentResult("0.3.153"),
+    ]);
+
+    await harness.queueAndSettle("register");
+    harness.setDaemonSessionId("daemon-session-2");
+    await harness.queueAndSettle("register");
+
+    expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let an old session result clear the new session marker", async () => {
+    const oldSessionResult =
+      Promise.withResolvers<OpenMeldToolsControlResult>();
+    const harness = createHarness([
+      oldSessionResult.promise,
+      currentResult("0.3.153"),
+    ]);
+
+    const settleOldSession = harness.queue("register");
+    harness.setDaemonSessionId("daemon-session-2");
+    await harness.queueAndSettle("register");
+
+    oldSessionResult.resolve({
+      operation: "request_update",
+      result: { status: "unavailable" },
+    });
+    await settleOldSession;
+    await harness.queueAndSettle("register");
+
+    expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries immediately when a newer release becomes available", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
+    const harness = createHarness([
+      {
+        operation: "request_update",
+        result: { status: "unavailable" },
+      },
+      currentResult("0.3.154"),
+    ]);
+
+    try {
+      await harness.queueAndSettle("register");
+      await harness.queueAndSettle("heartbeat");
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledOnce();
+
+      await harness.queueAndSettle("heartbeat", { releaseVersion: "0.3.154" });
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(
+        2
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([
@@ -233,14 +403,18 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
 });
 
 function createHarness(
-  results: Array<Error | OpenMeldToolsControlResult>,
+  results: Array<
+    Error | OpenMeldToolsControlResult | Promise<OpenMeldToolsControlResult>
+  >,
   input: {
     onSend?: () => void;
     openMeldToolsControl?: RuntimeTransportSessionState["capabilities"]["openMeldToolsControl"];
+    storageValues?: Map<string, unknown>;
   } = {}
 ) {
   const socket = {} as WebSocket;
   const waitUntilTasks: Promise<unknown>[] = [];
+  const storageValues = input.storageValues ?? new Map<string, unknown>();
   const sendCurrentDeviceOperationAndWait = vi.fn(
     (): Promise<OpenMeldToolsControlResult> => {
       input.onSend?.();
@@ -254,10 +428,31 @@ function createHarness(
     RuntimeTransportHub.prototype
   ) as RuntimeTransportHub;
   Object.defineProperty(hub, "automaticToolsUpdateTargetByComputer", {
-    value: new Map<string, string>(),
+    value: new Map<string, unknown>(),
+  });
+  Object.defineProperty(hub, "automaticToolsUpdateUnavailableRetryByComputer", {
+    value: new Map(),
   });
   Object.defineProperty(hub, "ctx", {
     value: {
+      storage: {
+        delete: (key: string) => {
+          storageValues.delete(key);
+          return Promise.resolve();
+        },
+        list: (options: { prefix?: string } = {}) =>
+          Promise.resolve(
+            new Map(
+              [...storageValues].filter(([key]) =>
+                options.prefix ? key.startsWith(options.prefix) : true
+              )
+            )
+          ),
+        put: (key: string, value: unknown) => {
+          storageValues.set(key, value);
+          return Promise.resolve();
+        },
+      },
       waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
     },
   });
@@ -265,7 +460,7 @@ function createHarness(
     value: sendCurrentDeviceOperationAndWait,
   });
 
-  const session: RuntimeTransportSessionState = {
+  let session: RuntimeTransportSessionState = {
     acceptingDispatches: true,
     capabilities: {
       localComponents: createLocalComponentsStatus(),
@@ -295,43 +490,66 @@ function createHarness(
     socket,
   };
 
+  const queue = (
+    trigger: "heartbeat" | "register",
+    options: {
+      releaseVersion?: string;
+      sessionPresent?: boolean;
+      socketMatches?: boolean;
+    } = {}
+  ): Promise<unknown[]> => {
+    const firstNewTaskIndex = waitUntilTasks.length;
+    (
+      hub as unknown as {
+        queueReleaseTriggeredOpenMeldToolsUpdate: (input: {
+          connection: Pick<
+            RuntimeTransportSessionState,
+            "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
+          >;
+          releaseManifest: LocalComponentsReleaseManifest;
+          session: RuntimeTransportSessionState | null;
+          socket: WebSocket;
+          trigger: "heartbeat" | "register";
+        }) => void;
+      }
+    ).queueReleaseTriggeredOpenMeldToolsUpdate({
+      connection: {
+        daemonSessionId: session.daemonSessionId,
+        deviceId: session.deviceId,
+        lane: session.lane,
+        ownerUserId: session.ownerUserId,
+      },
+      releaseManifest: createReleaseManifest(options.releaseVersion),
+      session: options.sessionPresent === false ? null : session,
+      socket: options.socketMatches === false ? ({} as WebSocket) : socket,
+      trigger,
+    });
+    return Promise.all(waitUntilTasks.slice(firstNewTaskIndex));
+  };
+
   return {
+    queue,
     queueAndSettle: async (
       trigger: "heartbeat" | "register",
       options: {
+        releaseVersion?: string;
         sessionPresent?: boolean;
         socketMatches?: boolean;
       } = {}
     ) => {
-      const firstNewTaskIndex = waitUntilTasks.length;
-      (
+      await queue(trigger, options);
+    },
+    restoreUnavailableRetries: async () => {
+      await (
         hub as unknown as {
-          queueReleaseTriggeredOpenMeldToolsUpdate: (input: {
-            connection: Pick<
-              RuntimeTransportSessionState,
-              "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
-            >;
-            releaseManifest: LocalComponentsReleaseManifest;
-            session: RuntimeTransportSessionState | null;
-            socket: WebSocket;
-            trigger: "heartbeat" | "register";
-          }) => void;
+          restoreAutomaticToolsUpdateUnavailableRetries: () => Promise<void>;
         }
-      ).queueReleaseTriggeredOpenMeldToolsUpdate({
-        connection: {
-          daemonSessionId: session.daemonSessionId,
-          deviceId: session.deviceId,
-          lane: session.lane,
-          ownerUserId: session.ownerUserId,
-        },
-        releaseManifest: createReleaseManifest(),
-        session: options.sessionPresent === false ? null : session,
-        socket: options.socketMatches === false ? ({} as WebSocket) : socket,
-        trigger,
-      });
-      await Promise.all(waitUntilTasks.slice(firstNewTaskIndex));
+      ).restoreAutomaticToolsUpdateUnavailableRetries();
     },
     sendCurrentDeviceOperationAndWait,
+    setDaemonSessionId: (daemonSessionId: string) => {
+      session = { ...session, daemonSessionId };
+    },
   };
 }
 
@@ -363,18 +581,20 @@ function operationResult(
   };
 }
 
-function createReleaseManifest(): LocalComponentsReleaseManifest {
+function createReleaseManifest(
+  version = "0.3.153"
+): LocalComponentsReleaseManifest {
   return {
     components: {
       cli: {
         commandContractVersion: "cli-contract-v1",
-        packageVersion: "0.3.153",
+        packageVersion: version,
         reason: "Fixture.",
         updatePolicy: "available",
       },
       service: {
         bundleHash: "a".repeat(64),
-        bundleVersion: "0.3.153",
+        bundleVersion: version,
         reason: "Fixture.",
         runtimeContractEpoch: "runtime-contract-v1",
         serviceContractVersion: "service-contract-v1",

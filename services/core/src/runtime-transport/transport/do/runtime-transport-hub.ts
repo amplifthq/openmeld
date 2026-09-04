@@ -653,6 +653,13 @@ const LOCAL_AGENT_CONTROL_SET_ENABLED_RESPONSE_TIMEOUT_MS = 5000;
 const LOCAL_AGENT_CONTROL_MANAGE_INSTALLATION_RESPONSE_TIMEOUT_MS = 30_000;
 const LOCAL_AGENT_CONTROL_REFRESH_CATALOG_RESPONSE_TIMEOUT_MS = 15_000;
 const CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS = 30_000;
+const AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_DELAYS_MS = [
+  5 * 60_000,
+  15 * 60_000,
+  60 * 60_000,
+] as const;
+const AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_STORAGE_PREFIX =
+  "automatic_tools_update_unavailable_retry.v1.";
 const LOCAL_FOLDER_PICKER_RESPONSE_TIMEOUT_MS = 600_000;
 const SERVER_ROUTE_RECONCILIATION_REASON = "server_route_reconciliation";
 // Coalesce readiness-invalidation bursts: one binding change fans out to every
@@ -1321,6 +1328,70 @@ function resolveHandledOpenMeldToolsUpdateTargetVersion(
   return null;
 }
 
+type AutomaticToolsUpdateUnavailableRetry = {
+  attempts: number;
+  daemonSessionId: string;
+  retryAtMs: number;
+  targetVersion: string;
+};
+
+type StoredAutomaticToolsUpdateUnavailableRetry =
+  AutomaticToolsUpdateUnavailableRetry & {
+    computerKey: string;
+    v: 1;
+  };
+
+type AutomaticToolsUpdateCoalescingMarker = {
+  daemonSessionId: string;
+  requestId: string;
+  targetVersion: string;
+};
+
+function resolveAutomaticToolsUpdateUnavailableRetryDelayMs(
+  attempts: number
+): number {
+  const index = Math.min(
+    Math.max(attempts - 1, 0),
+    AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_DELAYS_MS.length - 1
+  );
+  return AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_DELAYS_MS[index] ?? 0;
+}
+
+function buildAutomaticToolsUpdateUnavailableRetryStorageKey(
+  computerKey: string,
+  retry: Pick<
+    AutomaticToolsUpdateUnavailableRetry,
+    "daemonSessionId" | "targetVersion"
+  >
+): string {
+  return `${AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_STORAGE_PREFIX}${encodeURIComponent(computerKey)}:${encodeURIComponent(retry.daemonSessionId)}:${encodeURIComponent(retry.targetVersion)}`;
+}
+
+function parseStoredAutomaticToolsUpdateUnavailableRetry(
+  value: unknown
+): StoredAutomaticToolsUpdateUnavailableRetry | null {
+  if (!(value && typeof value === "object")) {
+    return null;
+  }
+  const candidate =
+    value as Partial<StoredAutomaticToolsUpdateUnavailableRetry>;
+  if (
+    candidate.v !== 1 ||
+    typeof candidate.computerKey !== "string" ||
+    candidate.computerKey.length === 0 ||
+    typeof candidate.daemonSessionId !== "string" ||
+    candidate.daemonSessionId.length === 0 ||
+    typeof candidate.targetVersion !== "string" ||
+    candidate.targetVersion.length === 0 ||
+    !Number.isInteger(candidate.attempts) ||
+    Number(candidate.attempts) < 1 ||
+    !Number.isFinite(candidate.retryAtMs)
+  ) {
+    return null;
+  }
+  return candidate as StoredAutomaticToolsUpdateUnavailableRetry;
+}
+
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
   private readonly currentDeviceOperationWaiters = new Map<
@@ -1329,7 +1400,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   >();
   private readonly automaticToolsUpdateTargetByComputer = new Map<
     string,
-    string
+    AutomaticToolsUpdateCoalescingMarker
+  >();
+  // This is only a retry throttle, not update state. It is persisted so DO
+  // hibernation cannot restart a heartbeat storm; a new daemon session or
+  // release target still bypasses the prior failure immediately.
+  private readonly automaticToolsUpdateUnavailableRetryByComputer = new Map<
+    string,
+    AutomaticToolsUpdateUnavailableRetry
   >();
   private readonly routeCatalogReconciliationSignalsBySessionKey = new Map<
     string,
@@ -1364,6 +1442,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.ctx,
         this.state
       );
+      await this.restoreAutomaticToolsUpdateUnavailableRetries();
       const adoptedSockets = adoptHibernatedSockets(this.ctx, this.state, {
         closeSocket: safeCloseSocket,
       });
@@ -17869,6 +17948,69 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
   }
 
+  private async restoreAutomaticToolsUpdateUnavailableRetries(): Promise<void> {
+    const entries = await this.ctx.storage
+      .list<unknown>({
+        prefix: AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_STORAGE_PREFIX,
+      })
+      .catch((error: unknown) => {
+        console.warn(
+          "[core.openmeld_tools.automatic_update_retry_restore_failed]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+        return new Map<string, unknown>();
+      });
+    for (const [storageKey, value] of entries) {
+      const retry = parseStoredAutomaticToolsUpdateUnavailableRetry(value);
+      if (
+        !retry ||
+        storageKey !==
+          buildAutomaticToolsUpdateUnavailableRetryStorageKey(
+            retry.computerKey,
+            retry
+          )
+      ) {
+        this.ctx.storage.delete(storageKey).catch(() => undefined);
+        continue;
+      }
+      this.automaticToolsUpdateUnavailableRetryByComputer.set(
+        retry.computerKey,
+        retry
+      );
+    }
+  }
+
+  private async persistAutomaticToolsUpdateUnavailableRetry(input: {
+    computerKey: string;
+    retry: AutomaticToolsUpdateUnavailableRetry;
+  }): Promise<void> {
+    await this.ctx.storage.put(
+      buildAutomaticToolsUpdateUnavailableRetryStorageKey(
+        input.computerKey,
+        input.retry
+      ),
+      {
+        ...input.retry,
+        computerKey: input.computerKey,
+        v: 1,
+      } satisfies StoredAutomaticToolsUpdateUnavailableRetry
+    );
+  }
+
+  private async deleteAutomaticToolsUpdateUnavailableRetry(
+    computerKey: string,
+    retry: Pick<
+      AutomaticToolsUpdateUnavailableRetry,
+      "daemonSessionId" | "targetVersion"
+    >
+  ): Promise<void> {
+    await this.ctx.storage.delete(
+      buildAutomaticToolsUpdateUnavailableRetryStorageKey(computerKey, retry)
+    );
+  }
+
   private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
     connection: Pick<
       RuntimeTransportSessionState,
@@ -17909,9 +18051,44 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       session.deviceId,
       session.lane,
     ].join(":");
+    const unavailableRetry =
+      this.automaticToolsUpdateUnavailableRetryByComputer.get(computerKey);
+    const retryMatchesCurrentCondition =
+      unavailableRetry?.daemonSessionId === session.daemonSessionId &&
+      unavailableRetry.targetVersion === update.targetVersion;
     if (
-      this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
-      update.targetVersion
+      retryMatchesCurrentCondition &&
+      Date.now() < unavailableRetry.retryAtMs
+    ) {
+      this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
+        ...input,
+        reasonCode: "automatic_update.unavailable_retry_backoff",
+        targetVersion: update.targetVersion,
+      });
+      return;
+    }
+    if (unavailableRetry && !retryMatchesCurrentCondition) {
+      this.automaticToolsUpdateUnavailableRetryByComputer.delete(computerKey);
+      this.ctx.waitUntil(
+        this.deleteAutomaticToolsUpdateUnavailableRetry(
+          computerKey,
+          unavailableRetry
+        ).catch((error) => {
+          console.warn(
+            "[core.openmeld_tools.automatic_update_retry_delete_failed]",
+            {
+              error: error instanceof Error ? error.message : String(error),
+              targetVersion: update.targetVersion,
+            }
+          );
+        })
+      );
+    }
+    const existingMarker =
+      this.automaticToolsUpdateTargetByComputer.get(computerKey);
+    if (
+      existingMarker?.daemonSessionId === session.daemonSessionId &&
+      existingMarker.targetVersion === update.targetVersion
     ) {
       this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
         ...input,
@@ -17920,11 +18097,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
+    const requestId = crypto.randomUUID();
+    const coalescingMarker: AutomaticToolsUpdateCoalescingMarker = {
+      daemonSessionId: session.daemonSessionId,
+      requestId,
+      targetVersion: update.targetVersion,
+    };
     this.automaticToolsUpdateTargetByComputer.set(
       computerKey,
-      update.targetVersion
+      coalescingMarker
     );
-    const requestId = crypto.randomUUID();
     console.info("[core.openmeld_tools.automatic_update_queued]", {
       daemonSessionId: session.daemonSessionId,
       deviceId: session.deviceId,
@@ -17951,7 +18133,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         session,
         timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
       })
-        .then((result) => {
+        .then(async (result) => {
+          const operationStatus =
+            result.operation === "request_update"
+              ? result.result.status
+              : "invalid_response";
           const handledTargetVersion =
             resolveHandledOpenMeldToolsUpdateTargetVersion(result);
           const requestHandledTarget =
@@ -17960,22 +18146,67 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               handledTargetVersion,
               update.targetVersion
             );
-          if (
-            !requestHandledTarget &&
+          const requestStillOwnsMarker =
             this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
-              update.targetVersion
-          ) {
+            coalescingMarker;
+          if (!requestHandledTarget && requestStillOwnsMarker) {
             this.automaticToolsUpdateTargetByComputer.delete(computerKey);
+            if (operationStatus === "unavailable") {
+              const previousRetry =
+                this.automaticToolsUpdateUnavailableRetryByComputer.get(
+                  computerKey
+                );
+              const attempts =
+                previousRetry?.daemonSessionId === session.daemonSessionId &&
+                previousRetry.targetVersion === update.targetVersion
+                  ? previousRetry.attempts + 1
+                  : 1;
+              const retry: AutomaticToolsUpdateUnavailableRetry = {
+                attempts,
+                daemonSessionId: session.daemonSessionId,
+                retryAtMs:
+                  Date.now() +
+                  resolveAutomaticToolsUpdateUnavailableRetryDelayMs(attempts),
+                targetVersion: update.targetVersion,
+              };
+              this.automaticToolsUpdateUnavailableRetryByComputer.set(
+                computerKey,
+                retry
+              );
+              await this.persistAutomaticToolsUpdateUnavailableRetry({
+                computerKey,
+                retry,
+              });
+            } else {
+              this.automaticToolsUpdateUnavailableRetryByComputer.delete(
+                computerKey
+              );
+              await this.deleteAutomaticToolsUpdateUnavailableRetry(
+                computerKey,
+                unavailableRetry ?? {
+                  daemonSessionId: session.daemonSessionId,
+                  targetVersion: update.targetVersion,
+                }
+              );
+            }
+          } else if (requestHandledTarget && requestStillOwnsMarker) {
+            this.automaticToolsUpdateUnavailableRetryByComputer.delete(
+              computerKey
+            );
+            await this.deleteAutomaticToolsUpdateUnavailableRetry(
+              computerKey,
+              unavailableRetry ?? {
+                daemonSessionId: session.daemonSessionId,
+                targetVersion: update.targetVersion,
+              }
+            );
           }
           console.info("[core.openmeld_tools.automatic_update_requested]", {
             daemonSessionId: session.daemonSessionId,
             deviceId: session.deviceId,
             event: "core.openmeld_tools.automatic_update_requested",
             lane: session.lane,
-            operationStatus:
-              result.operation === "request_update"
-                ? result.result.status
-                : "invalid_response",
+            operationStatus,
             ownerUserId: session.ownerUserId,
             targetVersion: update.targetVersion,
             trigger: input.trigger,
@@ -17984,7 +18215,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         .catch((error) => {
           if (
             this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
-            update.targetVersion
+            coalescingMarker
           ) {
             this.automaticToolsUpdateTargetByComputer.delete(computerKey);
           }
@@ -18013,7 +18244,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           { status: "skipped" }
         >["reasonCode"]
       | "automatic_update.session_socket_mismatch"
-      | "automatic_update.target_already_coalesced";
+      | "automatic_update.target_already_coalesced"
+      | "automatic_update.unavailable_retry_backoff";
     releaseManifest: LocalComponentsReleaseManifest | null;
     session: RuntimeTransportSessionState | null;
     socket: WebSocket;
