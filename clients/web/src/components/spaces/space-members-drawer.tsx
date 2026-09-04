@@ -958,11 +958,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		[candidateGroups, normalizedAddQuery]
 	);
 	const selectableProfileIds = useMemo(() => {
-		return new Set(
-			allCandidates
-				.filter((candidate) => !candidate.alreadyMember)
-				.map((candidate) => candidate.profileId)
-		);
+		return buildSelectableAddMemberProfileIds(allCandidates);
 	}, [allCandidates]);
 	const activeSelectedProfileIds = useMemo(() => {
 		if (selectedProfileIds.size === 0) {
@@ -1990,6 +1986,18 @@ function normalizeAddMembersSearchText(
 		.filter((value): value is string => Boolean(value?.trim()))
 		.join(" ")
 		.toLocaleLowerCase();
+}
+
+function buildSelectableAddMemberProfileIds(
+	candidates: readonly SpaceAddMembersCandidateSummary[]
+): ReadonlySet<string> {
+	const profileIds = new Set<string>();
+	for (const candidate of candidates) {
+		if (!candidate.alreadyMember) {
+			profileIds.add(candidate.profileId);
+		}
+	}
+	return profileIds;
 }
 
 function compareAddMembersCandidates(
