@@ -4,6 +4,11 @@ const { requestJsonMock, openMeldAuthClientMock } = vi.hoisted(() => ({
 	requestJsonMock: vi.fn(),
 	openMeldAuthClientMock: {
 		getSession: vi.fn(),
+		multiSession: {
+			listDeviceSessions: vi.fn(),
+			revoke: vi.fn(),
+			setActive: vi.fn(),
+		},
 	},
 }));
 
@@ -22,7 +27,10 @@ import {
 	generateOneTimeToken,
 	getAccountAvatar,
 	getSession,
+	listDeviceSessions,
 	removeAccountAvatar,
+	revokeDeviceSession,
+	setActiveDeviceSession,
 	updateAccountAvatar,
 	updateUserName,
 } from "./auth-query";
@@ -30,6 +38,9 @@ import {
 describe("auth-query", () => {
 	beforeEach(() => {
 		openMeldAuthClientMock.getSession.mockReset();
+		openMeldAuthClientMock.multiSession.listDeviceSessions.mockReset();
+		openMeldAuthClientMock.multiSession.revoke.mockReset();
+		openMeldAuthClientMock.multiSession.setActive.mockReset();
 		requestJsonMock.mockReset();
 	});
 
@@ -68,6 +79,42 @@ describe("auth-query", () => {
 		});
 
 		await expect(getSession()).rejects.toThrow("Backend blew up");
+	});
+
+	it("lists, switches, and revokes browser account sessions", async () => {
+		const deviceSessions = [
+			{
+				session: { token: "session-a", userId: "user-a" },
+				user: {
+					email: "a@example.com",
+					id: "user-a",
+					name: "Account A",
+				},
+			},
+		];
+		openMeldAuthClientMock.multiSession.listDeviceSessions.mockResolvedValue({
+			data: deviceSessions,
+			error: null,
+		});
+		openMeldAuthClientMock.multiSession.setActive.mockResolvedValue({
+			data: {},
+			error: null,
+		});
+		openMeldAuthClientMock.multiSession.revoke.mockResolvedValue({
+			data: { status: true },
+			error: null,
+		});
+
+		await expect(listDeviceSessions()).resolves.toEqual(deviceSessions);
+		await expect(setActiveDeviceSession("session-a")).resolves.toBeUndefined();
+		await expect(revokeDeviceSession("session-a")).resolves.toBeUndefined();
+
+		expect(openMeldAuthClientMock.multiSession.setActive).toHaveBeenCalledWith({
+			sessionToken: "session-a",
+		});
+		expect(openMeldAuthClientMock.multiSession.revoke).toHaveBeenCalledWith({
+			sessionToken: "session-a",
+		});
 	});
 
 	it("updates the Account Display Name through the paired OpenMeld contract", async () => {

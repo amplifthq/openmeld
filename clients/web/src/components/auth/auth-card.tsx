@@ -22,6 +22,7 @@ import { ProviderButton } from "./provider-button";
 import { socialProviders } from "./social-providers";
 
 type AuthCardProps = {
+	addingAccount?: boolean;
 	view: AuthView;
 	hasToken?: boolean;
 	preferMagicLink?: boolean;
@@ -33,6 +34,7 @@ type AuthFooterProps = {
 };
 
 type AuthSocialSectionProps = {
+	addingAccount: boolean;
 	isSubmitting: boolean;
 	moreAuthOptions: boolean;
 	setIsSubmitting: (isSubmitting: boolean) => void;
@@ -115,6 +117,7 @@ function AuthFooter({ hasToken, view }: AuthFooterProps) {
 }
 
 function AuthSocialSection({
+	addingAccount,
 	isSubmitting,
 	moreAuthOptions,
 	setIsSubmitting,
@@ -144,7 +147,11 @@ function AuthSocialSection({
 						isSubmitting={isSubmitting}
 						setIsSubmitting={setIsSubmitting}
 					/>
-					<MagicLinkButton isSubmitting={isSubmitting} view={view} />
+					<MagicLinkButton
+						addingAccount={addingAccount}
+						isSubmitting={isSubmitting}
+						view={view}
+					/>
 				</>
 			) : (
 				<Button
@@ -197,6 +204,7 @@ function renderSeparator(label: string | null, show: boolean): ReactNode {
 }
 
 export function AuthCard({
+	addingAccount = false,
 	view,
 	hasToken = false,
 	preferMagicLink = false,
@@ -226,13 +234,15 @@ export function AuthCard({
 		AUTH_VIEWS_WITH_SOCIAL_SECTION.includes(view) &&
 		!(view === "magicLink" && hasToken);
 	const separatorLabel = resolveSeparatorLabel(view);
-	const { description, title } = resolveTitleAndDescription(
-		hasToken,
-		meta,
-		view
-	);
+	const { description, title } = addingAccount
+		? {
+				description:
+					"Your current accounts will stay signed in on this browser.",
+				title: "Add another account",
+			}
+		: resolveTitleAndDescription(hasToken, meta, view);
 	const footerContent =
-		view === "magicLink" && hasToken ? null : (
+		addingAccount || (view === "magicLink" && hasToken) ? null : (
 			<AuthFooter hasToken={hasToken} view={view} />
 		);
 
@@ -255,6 +265,7 @@ export function AuthCard({
 				<CardContent className="grid gap-6">
 					{showSocialSection ? (
 						<AuthSocialSection
+							addingAccount={addingAccount}
 							isSubmitting={isSubmitting}
 							moreAuthOptions={moreAuthOptions}
 							setIsSubmitting={setIsSubmitting}

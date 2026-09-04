@@ -123,4 +123,16 @@ describe("Auth card magic link default", () => {
 			getByRole("button", { name: PASSKEY_MAGIC_LINK_PATTERN })
 		).toBeTruthy();
 	});
+
+	it("explains that existing sessions stay signed in when adding an account", () => {
+		const { getByText, queryByText } = render(
+			<AuthCard addingAccount view="login" />
+		);
+
+		expect(getByText("Add another account")).toBeTruthy();
+		expect(
+			getByText("Your current accounts will stay signed in on this browser.")
+		).toBeTruthy();
+		expect(queryByText("Don't have an account?")).toBeNull();
+	});
 });

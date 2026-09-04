@@ -3,6 +3,7 @@ import {
 	getAccountAvatar,
 	getSession,
 	listAccounts,
+	listDeviceSessions,
 	listSessions,
 	listUserPasskeys,
 } from "#/query/auth-query";
@@ -27,6 +28,13 @@ export const listSessionsQueryOptionsClient = () =>
 	queryOptions({
 		queryKey: userQueryKeys.listSessions,
 		queryFn: listSessions,
+		...baseQueryOptions,
+	});
+
+export const listDeviceSessionsQueryOptionsClient = () =>
+	queryOptions({
+		queryKey: userQueryKeys.deviceSessions,
+		queryFn: listDeviceSessions,
 		...baseQueryOptions,
 	});
 

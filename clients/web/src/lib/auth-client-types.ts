@@ -34,6 +34,18 @@ export type AuthSession = {
 	user: AuthSessionUser;
 } | null;
 
+export type AuthDeviceSession = {
+	session: AuthSessionRecord & {
+		token: string;
+		userId: string;
+	};
+	user: AuthSessionUser & {
+		email: string;
+		id: string;
+		name: string;
+	};
+};
+
 export type AuthAccount = {
 	accountId?: string;
 	provider?: string;
