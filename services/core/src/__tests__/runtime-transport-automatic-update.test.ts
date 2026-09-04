@@ -10,6 +10,131 @@ import { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-t
 
 describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
   it.each([
+    { name: "the registered session is missing", sessionPresent: false },
+    {
+      name: "the registered session uses another socket",
+      sessionPresent: true,
+    },
+  ])("records when $name", async ({ sessionPresent }) => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const harness = createHarness([]);
+
+    try {
+      await harness.queueAndSettle("register", {
+        sessionPresent,
+        socketMatches: false,
+      });
+
+      expect(harness.sendCurrentDeviceOperationAndWait).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith(
+        "[core.openmeld_tools.automatic_update_skipped]",
+        expect.objectContaining({
+          reasonCode: "automatic_update.session_socket_mismatch",
+          sessionPresent,
+          sessionSocketMatches: false,
+          trigger: "register",
+        })
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("records why a production Service register cannot request the release", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const harness = createHarness([], {
+      openMeldToolsControl: { requestUpdate: true },
+    });
+
+    try {
+      await harness.queueAndSettle("register");
+
+      expect(harness.sendCurrentDeviceOperationAndWait).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith(
+        "[core.openmeld_tools.automatic_update_skipped]",
+        expect.objectContaining({
+          event: "core.openmeld_tools.automatic_update_skipped",
+          reasonCode: "automatic_update.capability_not_supported",
+          releaseServiceVersion: "0.3.153",
+          requestAutomaticUpdateSupported: false,
+          requestUpdateSupported: true,
+          serviceVersion: "0.3.152",
+          trigger: "register",
+        })
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("does not record a routine heartbeat skip", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const harness = createHarness([], {
+      openMeldToolsControl: { requestUpdate: true },
+    });
+
+    try {
+      await harness.queueAndSettle("heartbeat");
+
+      expect(harness.sendCurrentDeviceOperationAndWait).not.toHaveBeenCalled();
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("records the request before waiting for the Service response", async () => {
+    const callOrder: string[] = [];
+    const log = vi.spyOn(console, "info").mockImplementation((message) => {
+      if (message === "[core.openmeld_tools.automatic_update_queued]") {
+        callOrder.push("queued");
+      }
+    });
+    const harness = createHarness([currentResult("0.3.153")], {
+      onSend: () => callOrder.push("send"),
+    });
+
+    try {
+      await harness.queueAndSettle("register");
+
+      expect(log).toHaveBeenCalledWith(
+        "[core.openmeld_tools.automatic_update_queued]",
+        expect.objectContaining({
+          event: "core.openmeld_tools.automatic_update_queued",
+          targetVersion: "0.3.153",
+          trigger: "register",
+        })
+      );
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledOnce();
+      expect(callOrder.slice(0, 2)).toEqual(["queued", "send"]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("records when the same target is already coalesced", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const harness = createHarness([currentResult("0.3.153")]);
+
+    try {
+      await harness.queueAndSettle("register");
+      await harness.queueAndSettle("register");
+
+      expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledOnce();
+      expect(log).toHaveBeenCalledWith(
+        "[core.openmeld_tools.automatic_update_skipped]",
+        expect.objectContaining({
+          reasonCode: "automatic_update.target_already_coalesced",
+          targetVersion: "0.3.153",
+          trigger: "register",
+        })
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([
     {
       name: "the release is unavailable",
       result: {
@@ -107,11 +232,18 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
   });
 });
 
-function createHarness(results: Array<Error | OpenMeldToolsControlResult>) {
+function createHarness(
+  results: Array<Error | OpenMeldToolsControlResult>,
+  input: {
+    onSend?: () => void;
+    openMeldToolsControl?: RuntimeTransportSessionState["capabilities"]["openMeldToolsControl"];
+  } = {}
+) {
   const socket = {} as WebSocket;
   const waitUntilTasks: Promise<unknown>[] = [];
   const sendCurrentDeviceOperationAndWait = vi.fn(
     (): Promise<OpenMeldToolsControlResult> => {
+      input.onSend?.();
       const result = results.shift() ?? currentResult("0.3.153");
       return result instanceof Error
         ? Promise.reject(result)
@@ -137,7 +269,7 @@ function createHarness(results: Array<Error | OpenMeldToolsControlResult>) {
     acceptingDispatches: true,
     capabilities: {
       localComponents: createLocalComponentsStatus(),
-      openMeldToolsControl: {
+      openMeldToolsControl: input.openMeldToolsControl ?? {
         requestAutomaticUpdate: true,
         requestUpdate: true,
       },
@@ -164,21 +296,37 @@ function createHarness(results: Array<Error | OpenMeldToolsControlResult>) {
   };
 
   return {
-    queueAndSettle: async (trigger: "heartbeat" | "register") => {
+    queueAndSettle: async (
+      trigger: "heartbeat" | "register",
+      options: {
+        sessionPresent?: boolean;
+        socketMatches?: boolean;
+      } = {}
+    ) => {
       const firstNewTaskIndex = waitUntilTasks.length;
       (
         hub as unknown as {
           queueReleaseTriggeredOpenMeldToolsUpdate: (input: {
+            connection: Pick<
+              RuntimeTransportSessionState,
+              "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
+            >;
             releaseManifest: LocalComponentsReleaseManifest;
-            session: RuntimeTransportSessionState;
+            session: RuntimeTransportSessionState | null;
             socket: WebSocket;
             trigger: "heartbeat" | "register";
           }) => void;
         }
       ).queueReleaseTriggeredOpenMeldToolsUpdate({
+        connection: {
+          daemonSessionId: session.daemonSessionId,
+          deviceId: session.deviceId,
+          lane: session.lane,
+          ownerUserId: session.ownerUserId,
+        },
         releaseManifest: createReleaseManifest(),
-        session,
-        socket,
+        session: options.sessionPresent === false ? null : session,
+        socket: options.socketMatches === false ? ({} as WebSocket) : socket,
         trigger,
       });
       await Promise.all(waitUntilTasks.slice(firstNewTaskIndex));

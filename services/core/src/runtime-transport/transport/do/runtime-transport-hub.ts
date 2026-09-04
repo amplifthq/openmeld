@@ -291,7 +291,7 @@ import {
   projectionsDb,
   wakeEvidenceDb,
 } from "../../../lib/bindings";
-import { resolveReleaseTriggeredOpenMeldToolsUpdate } from "../../../local-components/automatic-update-trigger";
+import { resolveReleaseTriggeredOpenMeldToolsUpdateDecision } from "../../../local-components/automatic-update-trigger";
 import {
   isLocalComponentVersionAtLeast,
   resolveCoreLocalComponentsReleaseManifest,
@@ -3002,6 +3002,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.state.sessionsById.get(parsed.data.daemonSessionId) ?? null;
     if (response.ok) {
       this.queueReleaseTriggeredOpenMeldToolsUpdate({
+        connection: {
+          daemonSessionId: parsed.data.daemonSessionId,
+          deviceId: parsed.data.deviceId,
+          lane: parsed.data.lane,
+          ownerUserId: verifiedOwnerUserId,
+        },
         releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
         session: registeredSession,
         socket: webSocket,
@@ -3184,6 +3190,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       if (sessionAfterHeartbeat) {
         this.queueReleaseTriggeredOpenMeldToolsUpdate({
+          connection: {
+            daemonSessionId: parsed.data.daemonSessionId,
+            deviceId: parsed.data.deviceId,
+            lane: parsed.data.lane,
+            ownerUserId: verifiedOwnerUserId,
+          },
           releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
           session: sessionAfterHeartbeat,
           socket: webSocket,
@@ -17858,27 +17870,40 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
+    connection: Pick<
+      RuntimeTransportSessionState,
+      "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
+    >;
     releaseManifest: LocalComponentsReleaseManifest | null;
     session: RuntimeTransportSessionState | null;
     socket: WebSocket;
     trigger: "heartbeat" | "register";
   }): void {
     if (input.session?.socket !== input.socket) {
+      this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
+        ...input,
+        reasonCode: "automatic_update.session_socket_mismatch",
+      });
       return;
     }
     const session = input.session as RuntimeTransportSessionState & {
       socket: WebSocket;
     };
-    const update = resolveReleaseTriggeredOpenMeldToolsUpdate({
+    const decision = resolveReleaseTriggeredOpenMeldToolsUpdateDecision({
       capabilities: session.capabilities,
       generatedAt: new Date().toISOString(),
       lane: session.lane,
       releaseManifest: input.releaseManifest,
       serviceVersion: session.serviceVersion ?? null,
     });
-    if (!update) {
+    if (decision.status === "skipped") {
+      this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
+        ...input,
+        reasonCode: decision.reasonCode,
+      });
       return;
     }
+    const update = decision.update;
     const computerKey = [
       session.ownerUserId,
       session.deviceId,
@@ -17888,6 +17913,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
       update.targetVersion
     ) {
+      this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
+        ...input,
+        reasonCode: "automatic_update.target_already_coalesced",
+        targetVersion: update.targetVersion,
+      });
       return;
     }
     this.automaticToolsUpdateTargetByComputer.set(
@@ -17895,6 +17925,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       update.targetVersion
     );
     const requestId = crypto.randomUUID();
+    console.info("[core.openmeld_tools.automatic_update_queued]", {
+      daemonSessionId: session.daemonSessionId,
+      deviceId: session.deviceId,
+      event: "core.openmeld_tools.automatic_update_queued",
+      lane: session.lane,
+      ownerUserId: session.ownerUserId,
+      requestId,
+      targetVersion: update.targetVersion,
+      trigger: input.trigger,
+    });
     this.ctx.waitUntil(
       this.sendCurrentDeviceOperationAndWait<OpenMeldToolsControlResult>({
         code: "daemon.openmeld_tools_control.request",
@@ -17960,6 +18000,66 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           });
         })
     );
+  }
+
+  private recordReleaseTriggeredOpenMeldToolsUpdateSkip(input: {
+    connection: Pick<
+      RuntimeTransportSessionState,
+      "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
+    >;
+    reasonCode:
+      | Extract<
+          ReturnType<typeof resolveReleaseTriggeredOpenMeldToolsUpdateDecision>,
+          { status: "skipped" }
+        >["reasonCode"]
+      | "automatic_update.session_socket_mismatch"
+      | "automatic_update.target_already_coalesced";
+    releaseManifest: LocalComponentsReleaseManifest | null;
+    session: RuntimeTransportSessionState | null;
+    socket: WebSocket;
+    targetVersion?: string;
+    trigger: "heartbeat" | "register";
+  }): void {
+    // Register is the one-shot decision boundary. Heartbeats reuse the same
+    // decision and would turn a stable skip reason into recurring log noise.
+    if (input.trigger !== "register" || input.connection.lane !== "prod") {
+      return;
+    }
+    console.info("[core.openmeld_tools.automatic_update_skipped]", {
+      automaticUpdatesEnabled:
+        input.session?.capabilities.localComponents?.maintenance
+          ?.automaticUpdatesEnabled ?? null,
+      daemonSessionId: input.connection.daemonSessionId,
+      deviceId: input.connection.deviceId,
+      event: "core.openmeld_tools.automatic_update_skipped",
+      lane: input.connection.lane,
+      maintenanceStatus:
+        input.session?.capabilities.localComponents?.maintenance?.status ??
+        null,
+      operationPhase:
+        input.session?.capabilities.localComponents?.updateOperation?.phase ??
+        null,
+      operationTargetVersion:
+        input.session?.capabilities.localComponents?.updateOperation
+          ?.targetVersion ?? null,
+      ownerUserId: input.connection.ownerUserId,
+      reasonCode: input.reasonCode,
+      releaseCliVersion:
+        input.releaseManifest?.components.cli.packageVersion ?? null,
+      releaseServiceVersion:
+        input.releaseManifest?.components.service.bundleVersion ?? null,
+      requestAutomaticUpdateSupported:
+        input.session?.capabilities.openMeldToolsControl
+          ?.requestAutomaticUpdate === true,
+      requestUpdateSupported:
+        input.session?.capabilities.openMeldToolsControl?.requestUpdate ===
+        true,
+      serviceVersion: input.session?.serviceVersion ?? null,
+      sessionPresent: input.session !== null,
+      sessionSocketMatches: input.session?.socket === input.socket,
+      targetVersion: input.targetVersion ?? null,
+      trigger: input.trigger,
+    });
   }
 
   private resolveOpenMeldToolsControlSession(input: {
