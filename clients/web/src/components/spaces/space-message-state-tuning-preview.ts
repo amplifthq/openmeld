@@ -63,14 +63,6 @@ export function useSpaceMessageStateTuningPreviewItems(input: {
 		if (!(enabled && input.spaceId)) {
 			return null;
 		}
-		const previewAgent = input.centerAgentProfileId
-			? input.profileEntriesById.get(input.centerAgentProfileId)
-			: [...input.profileEntriesById.values()].find(
-					(entry) => entry.profileKind === "agent"
-				);
-		if (previewAgent?.profileKind !== "agent") {
-			return null;
-		}
 		const previewHuman =
 			input.profileEntriesById.get(input.selfProfileId) ??
 			[...input.profileEntriesById.values()].find(
@@ -79,6 +71,15 @@ export function useSpaceMessageStateTuningPreviewItems(input: {
 		if (previewHuman?.profileKind !== "human") {
 			return null;
 		}
+		const memberAgent = input.centerAgentProfileId
+			? input.profileEntriesById.get(input.centerAgentProfileId)
+			: [...input.profileEntriesById.values()].find(
+					(entry) => entry.profileKind === "agent"
+				);
+		const previewAgent =
+			memberAgent?.profileKind === "agent"
+				? memberAgent
+				: createStandalonePreviewAgent(previewHuman);
 		return buildSpaceMessageStateTuningPreviewItems({
 			agent: previewAgent,
 			human: previewHuman,
@@ -91,6 +92,41 @@ export function useSpaceMessageStateTuningPreviewItems(input: {
 		input.selfProfileId,
 		input.spaceId,
 	]);
+}
+
+function createStandalonePreviewAgent(
+	human: SpaceMemberDirectoryEntry
+): SpaceMemberDirectoryEntry {
+	return {
+		...human,
+		agentControllerConversationId: null,
+		agentControllerPermissionMode: null,
+		agentControllerRef: "codex",
+		availabilityAction: null,
+		availabilityBadgeLabel: null,
+		availabilityCategory: null,
+		availabilityIsRefreshing: false,
+		availabilityPhase: null,
+		availabilityReasonCode: null,
+		availabilitySummary: null,
+		availabilityTooltip: null,
+		controllerDisplayName: "Codex",
+		id: "agt_dev_wake_ui_preview",
+		liveNow: false,
+		manualParticipationOnly: false,
+		mentionLabel: "@Wake UI Review Agent(wake)",
+		modelSelection: null,
+		ownerDisplay: human.profileName,
+		ownerName: human.profileName,
+		presenceLabel: "Preview",
+		presenceStatus: "wakeable",
+		profileId: "agt_dev_wake_ui_preview",
+		profileKind: "agent",
+		profileName: "Wake UI Review Agent",
+		runtimeDeviceDisplayName: "Local preview",
+		searchText: "Wake UI Review Agent Codex",
+		workingDirectory: null,
+	};
 }
 
 export function resolveSpaceMessageStateTuningTimelineItems(input: {
