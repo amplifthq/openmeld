@@ -708,7 +708,7 @@ describe("SpaceMemberRow", () => {
 		expect(selfStatus.className).not.toContain("bg-");
 		const liveStatus = screen.getByTestId("space-member-presence-status");
 		expect(liveStatus.textContent).toBe("Live");
-		expect(liveStatus.getAttribute("title")).toBe("Live human");
+		expect(liveStatus.getAttribute("title")).toBe("Live person");
 		expect(liveStatus.className).toContain("before:content-['·']");
 		expect(liveStatus.className).toContain("text-emerald-");
 		expect(liveStatus.className).not.toContain("border");
@@ -804,6 +804,23 @@ describe("SpaceMemberRow", () => {
 		expect(
 			screen.getByText("A Wake is waiting for the computer to reconnect.")
 		).toBeTruthy();
+	});
+
+	it("keeps active Wake waiting in the compact status indicator", () => {
+		renderSpaceMemberRow({
+			density: "compact",
+			agentRecoveryPlan: buildServiceConnectionPlan(),
+			memberTransientState: "active_wake_waiting_for_service",
+		});
+
+		const indicator = getAgentAvailabilityIndicator();
+		expect(indicator.getAttribute("aria-label")).toBe("Waiting");
+		expect(indicator.getAttribute("title")).toBe(
+			"Wake waiting for this computer to reconnect"
+		);
+		expect(
+			screen.queryByText("A Wake is waiting for the computer to reconnect.")
+		).toBeNull();
 	});
 
 	it("shows transient readiness checks instead of hard service disconnect guidance", () => {

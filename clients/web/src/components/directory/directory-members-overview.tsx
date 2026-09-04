@@ -1008,7 +1008,7 @@ function resolveHumanProfilesError(input: {
 }): string | null {
 	if (input.isPersonalWorkspace) {
 		return input.personalProfilesFailed
-			? "OpenMeld could not load Human Profiles right now."
+			? "OpenMeld could not load people right now."
 			: null;
 	}
 	if (!input.directoryFailed) {
@@ -1016,6 +1016,6 @@ function resolveHumanProfilesError(input: {
 	}
 	return (
 		input.directoryErrorMessage ??
-		"OpenMeld could not load organization Human Profiles right now."
+		"OpenMeld could not load people in this organization right now."
 	);
 }

@@ -6,7 +6,7 @@ const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 export const ADDITIONAL_HUMAN_PROFILE_CREATION_DISABLED_CODE =
   "profile.additional_human_profile_creation_disabled";
 export const ADDITIONAL_HUMAN_PROFILE_CREATION_DISABLED_MESSAGE =
-  "Creating additional Human Profiles is currently unavailable. Use your default Human Profile, or create an Agent Profile.";
+  "Creating additional profiles for people is currently unavailable. Use your default profile, or create an Agent.";
 export const AGENT_PROFILE_CREATION_IDEMPOTENCY_CONFLICT_CODE =
   "profile.creation_idempotency_conflict";
 export const AGENT_PROFILE_CREATION_IDEMPOTENCY_CONFLICT_MESSAGE =

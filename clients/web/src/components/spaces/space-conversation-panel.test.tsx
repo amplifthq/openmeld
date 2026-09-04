@@ -4018,7 +4018,7 @@ describe("SpaceConversationPanel", () => {
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Check this Profile")).toBeTruthy();
 		expect(dialog.getAllByText("Felix").length).toBeGreaterThan(0);
-		expect(dialog.getAllByText("Human Profile").length).toBeGreaterThan(0);
+		expect(dialog.getAllByText("Person").length).toBeGreaterThan(0);
 		expect(dialog.getByText(profileId)).toBeTruthy();
 	});
 

@@ -250,7 +250,7 @@ export function buildProfileDetailsSnapshotFromSpaceMember(input: {
 }
 
 export function formatProfileKind(profileKind: "agent" | "human"): string {
-  return profileKind === "agent" ? "Agent Profile" : "Human Profile";
+  return profileKind === "agent" ? "Agent" : "Person";
 }
 
 export function formatSpaceMemberActivityLabel(

@@ -252,6 +252,9 @@ function resolveAgentSpaceMemberRowPresentation(input: {
 		entry: visualEntry,
 		memberTransientState: visualDisplayedMemberTransientState,
 	});
+	const isCompactWakeWaiting =
+		input.input.density === "compact" &&
+		visualDisplayedMemberTransientState === "active_wake_waiting_for_service";
 	const availabilityIndicatorIsRefreshing = resolvePresenceStatusIsRefreshing({
 		entry: visualEntry,
 		memberTransientState: visualDisplayedMemberTransientState,
@@ -283,13 +286,17 @@ function resolveAgentSpaceMemberRowPresentation(input: {
 	return {
 		availabilityIndicatorHref,
 		availabilityIndicatorIsRefreshing,
-		availabilityIndicatorLabel,
+		availabilityIndicatorLabel: isCompactWakeWaiting
+			? "Waiting"
+			: availabilityIndicatorLabel,
 		availabilityIndicatorTone: resolvePresenceIndicatorTone({
 			agentRecoveryPlan: displayedAgentRecoveryPlan,
 			entry: visualEntry,
 			memberTransientState: visualDisplayedMemberTransientState,
 		}),
-		availabilityIndicatorTooltip,
+		availabilityIndicatorTooltip: isCompactWakeWaiting
+			? "Wake waiting for this computer to reconnect"
+			: availabilityIndicatorTooltip,
 		canCheckAgentWakeAvailability,
 		displayedAgentRecoveryPlan,
 		primaryDetail,
@@ -911,7 +918,7 @@ function resolveCompactDetail(
 	if (isSelf) {
 		return entry.liveNow ? "You are live" : "You are here";
 	}
-	return entry.liveNow ? "Live human" : (entry.lastSeenLabel ?? "Human");
+	return entry.liveNow ? "Live" : (entry.lastSeenLabel ?? "Person");
 }
 
 function resolvePrimaryDetail(
@@ -938,7 +945,7 @@ function resolvePrimaryDetail(
 			: "You are in this space.";
 	}
 
-	return entry.liveNow ? "Live human" : (entry.lastSeenLabel ?? "Human");
+	return entry.liveNow ? "Live" : (entry.lastSeenLabel ?? "Person");
 }
 
 function resolveAgentPrimaryDetail(input: {

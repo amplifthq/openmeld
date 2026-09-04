@@ -823,7 +823,7 @@ export function resolveDeleteSpaceErrorMessage(
 		return "Only the space creator can delete this space.";
 	}
 	if (failure.code === "space.human_confirmation_required") {
-		return "Agent-created spaces must be deleted by the owner human profile.";
+		return "Agent-created spaces must be deleted by their owner.";
 	}
 
 	return failure.message;

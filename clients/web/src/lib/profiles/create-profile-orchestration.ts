@@ -38,7 +38,7 @@ export type CreatedProfileOutcome = {
 };
 
 export const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
-	"Add a human profile to this account before bringing profiles into this Space.";
+	"Add a personal profile to this account before bringing profiles into this Space.";
 
 // This is the single phase-order owner for interactive Profile creation. The
 // Auth create response is the commit point, so later follow-up errors cannot

@@ -53,7 +53,7 @@ describe("SpaceProfileRequiredState", () => {
 
 		expect(
 			screen.getByText(
-				"OpenMeld needs to know which Human Profile should speak for you in this Space. Continue as Felix, or choose another profile in Directory."
+				"Choose who you are in this Space. Continue as Felix, or choose another profile in People."
 			)
 		).toBeTruthy();
 		expect(

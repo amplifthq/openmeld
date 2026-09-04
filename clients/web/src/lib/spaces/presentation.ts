@@ -389,7 +389,7 @@ function resolveSpaceMemberStatusBadgeTooltip(
 
 	switch (entry.presenceStatus) {
 		case "live":
-			return entry.profileKind === "agent" ? "Live agent" : "Live human";
+			return entry.profileKind === "agent" ? "Live agent" : "Live person";
 		case "wakeable":
 			return "Available for Wake";
 		case "checking_connection":
@@ -471,7 +471,7 @@ function resolveLiveSummaryText(snapshot: SpaceMembersSnapshot): string {
 	}
 	if (liveHumanCount > 0) {
 		parts.push(
-			`${String(liveHumanCount)} live human${liveHumanCount === 1 ? "" : "s"}`
+			`${String(liveHumanCount)} ${liveHumanCount === 1 ? "person" : "people"} live`
 		);
 	}
 

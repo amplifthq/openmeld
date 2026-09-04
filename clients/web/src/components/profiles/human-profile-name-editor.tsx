@@ -33,7 +33,7 @@ export function HumanProfileNameEditor(input: {
 	if (!visibleError && updateName.error) {
 		visibleError = getAuthErrorMessage(
 			updateName.error,
-			"OpenMeld could not update this Human Profile."
+			"OpenMeld could not update this profile."
 		);
 	}
 	const normalizedCurrentName = input.profileName.trim();
@@ -53,7 +53,7 @@ export function HumanProfileNameEditor(input: {
 	};
 
 	return (
-		<form aria-label="Edit Human Profile" onSubmit={handleSubmit}>
+		<form aria-label="Edit profile" onSubmit={handleSubmit}>
 			<div className="flex items-center justify-between gap-3">
 				<Label htmlFor="human-profile-name">Name</Label>
 				<span className="text-muted-foreground text-xs tabular-nums">
@@ -80,7 +80,7 @@ export function HumanProfileNameEditor(input: {
 				id="human-profile-name-scope"
 			>
 				This updates your display name across OpenMeld, including your default
-				Human Profile.
+				profile.
 			</p>
 			{visibleError ? (
 				<p className="mt-2 text-destructive text-xs" role="alert">

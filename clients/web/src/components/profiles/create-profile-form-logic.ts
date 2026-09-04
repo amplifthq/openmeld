@@ -120,7 +120,7 @@ export function resolveCreateProfileSubmitBlockReason(input: {
 }): string | null {
 	if (input.profileKind === null) {
 		return input.additionalHumanProfileCreationEnabled
-			? "Choose an Agent Profile or Human Profile."
+			? "Choose a person or Agent Profile."
 			: "Choose an Agent Profile.";
 	}
 	if (input.profileName.trim().length === 0) {
