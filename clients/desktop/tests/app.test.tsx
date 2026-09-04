@@ -1505,7 +1505,7 @@ describe("App", () => {
       screen.getAllByRole("button", { name: "Open OpenMeld Web" })
     ).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "Human Profiles" }));
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
       await screen.findByText(
         "Create and manage teammate identities in OpenMeld Web."

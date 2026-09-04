@@ -690,6 +690,7 @@ describe("SpaceMemberRow", () => {
 
 	it("uses human initials before a human profile name", () => {
 		renderSpaceMemberRow({
+			density: "compact",
 			entry: buildHumanEntry(),
 		});
 
@@ -707,14 +708,16 @@ describe("SpaceMemberRow", () => {
 		expect(selfStatus.className).not.toContain("bg-");
 		const liveStatus = screen.getByTestId("space-member-presence-status");
 		expect(liveStatus.textContent).toBe("Live");
-		expect(liveStatus.getAttribute("title")).toBe("Live human");
+		expect(liveStatus.getAttribute("title")).toBe("Live person");
 		expect(liveStatus.className).toContain("before:content-['·']");
 		expect(liveStatus.className).toContain("text-emerald-");
 		expect(liveStatus.className).not.toContain("border");
 		expect(liveStatus.className).not.toContain("bg-");
+		expect(screen.queryByText("You are live in this space.")).toBeNull();
+		expect(screen.queryByText("You are in this space.")).toBeNull();
 	});
 
-	it("distinguishes Space activity from Organization activity for the same Human", () => {
+	it("keeps meaningful Space activity inline for a person", () => {
 		const organizationActivity = resolveDirectoryHumanProfileActivityLabel({
 			lastActiveAt: "2026-08-31T13:20:00.000Z",
 			nowMs: Date.parse("2026-08-31T14:00:00.000Z"),
@@ -723,6 +726,7 @@ describe("SpaceMemberRow", () => {
 
 		renderSpaceMemberRow({
 			currentProfileId: "human-current",
+			density: "compact",
 			entry: buildHumanEntry({
 				lastSeenLabel: "Seen 8h ago",
 				liveNow: false,
@@ -732,14 +736,27 @@ describe("SpaceMemberRow", () => {
 		});
 
 		expect(organizationActivity).toBe("40 minutes ago");
-		expect(screen.getByText("Active here 8h ago")).toBeTruthy();
-		const spaceActivity = screen.getByLabelText(
-			"Active here 8h ago. Last activity in this Space"
-		);
+		expect(screen.getByText("8h ago")).toBeTruthy();
+		const spaceActivity = screen.getByLabelText("8h ago");
 		expect(spaceActivity.getAttribute("title")).toBe(
 			"Last activity in this Space"
 		);
 		expect(screen.queryByText("Seen 8h ago")).toBeNull();
+	});
+
+	it("does not fill a compact person row with a generic Human label", () => {
+		renderSpaceMemberRow({
+			currentProfileId: "human-current",
+			density: "compact",
+			entry: buildHumanEntry({
+				lastSeenLabel: null,
+				liveNow: false,
+				presenceLabel: null,
+				presenceStatus: null,
+			}),
+		});
+
+		expect(screen.queryByText("Human")).toBeNull();
 	});
 
 	it("does not label an agent profile as you", () => {
@@ -787,6 +804,23 @@ describe("SpaceMemberRow", () => {
 		expect(
 			screen.getByText("A Wake is waiting for the computer to reconnect.")
 		).toBeTruthy();
+	});
+
+	it("keeps active Wake waiting in the compact status indicator", () => {
+		renderSpaceMemberRow({
+			density: "compact",
+			agentRecoveryPlan: buildServiceConnectionPlan(),
+			memberTransientState: "active_wake_waiting_for_service",
+		});
+
+		const indicator = getAgentAvailabilityIndicator();
+		expect(indicator.getAttribute("aria-label")).toBe("Waiting");
+		expect(indicator.getAttribute("title")).toBe(
+			"Wake waiting for this computer to reconnect"
+		);
+		expect(
+			screen.queryByText("A Wake is waiting for the computer to reconnect.")
+		).toBeNull();
 	});
 
 	it("shows transient readiness checks instead of hard service disconnect guidance", () => {
@@ -1178,6 +1212,7 @@ function renderSpaceMemberRow(input: {
 	centerAgentProfileId?: string | null;
 	currentOwnerUserId?: string | null;
 	currentProfileId?: string;
+	density?: "compact" | "default";
 	entry?: SpaceMemberDirectoryEntry;
 	isAgentWakeAvailabilityCheckPending?: boolean;
 	memberTransientState?: SpaceWakeStatusTransientState | null;
@@ -1195,6 +1230,7 @@ function renderSpaceMemberRow(input: {
 			centerAgentProfileId={input.centerAgentProfileId ?? null}
 			currentOwnerUserId={input.currentOwnerUserId ?? "user-1"}
 			currentProfileId={input.currentProfileId ?? "human-1"}
+			density={input.density}
 			entry={input.entry ?? buildAgentEntry()}
 			isAgentRecoveryPending={false}
 			isAgentWakeAvailabilityCheckPending={

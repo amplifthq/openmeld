@@ -80,7 +80,7 @@ export function buildSpaceMemberDirectory(
         catalog,
         members: snapshot.humans,
         sectionId: "humans",
-        title: "Humans",
+        title: "People",
       }),
     ].filter((section) => section.entries.length > 0),
   };

@@ -919,7 +919,7 @@ function PublicSpaceJoinAction(input: {
 				/>
 				<SelectContent className="max-h-72">
 					<SelectGroup>
-						<SelectLabel>Human Profiles</SelectLabel>
+						<SelectLabel>People</SelectLabel>
 						{humanProfiles.map((profile, index) => (
 							<SelectItem
 								icon={UserIcon}

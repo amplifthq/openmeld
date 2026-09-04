@@ -174,7 +174,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 					{input.sidebarLeadingContent}
 					{input.canCreateProfile ? (
 						<Button
-							aria-label="Create Human Profile"
+							aria-label="Create profile"
 							className="w-full min-w-0 justify-start overflow-hidden"
 							onClick={input.onCreateProfile}
 							size="sm"
@@ -190,7 +190,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 								aria-hidden="true"
 								className="@[12rem]/contextual-sidebar:inline hidden truncate"
 							>
-								Create Human Profile
+								Create profile
 							</span>
 							<span
 								aria-hidden="true"
@@ -818,7 +818,7 @@ function HumanProfileWorkspaceState(input: {
 	loading: boolean;
 }) {
 	const message = input.loading
-		? "Loading Human Profiles…"
+		? "Loading people…"
 		: (input.errorMessage ?? input.emptyMessage);
 	return (
 		<div className="grid min-h-full place-items-center px-6 py-12 text-center">

@@ -103,12 +103,12 @@ function requireExpectedDefaultHumanProfile(
 ): DefaultHumanProfileRecord {
   if (!profile) {
     throw new AccountDisplayNameInvariantError(
-      "default Human Profile is required before updating the Account Display Name"
+      "default profile is required before updating the Account Display Name"
     );
   }
   if (expectedProfileId && profile.profileId !== expectedProfileId) {
     throw new AccountDisplayNameInvariantError(
-      "default Human Profile identity changed during the display-name update"
+      "default profile identity changed during the display-name update"
     );
   }
   return profile;

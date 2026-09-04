@@ -585,7 +585,7 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 				>
 					<InlineComboboxEmpty>No matching members</InlineComboboxEmpty>
 					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
-					<SpaceComposerMentionGroup items={humanItems} title="Humans" />
+					<SpaceComposerMentionGroup items={humanItems} title="People" />
 				</InlineComboboxContent>
 			</InlineCombobox>
 			{props.children}

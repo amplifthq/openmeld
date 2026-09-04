@@ -96,7 +96,7 @@ describe("Profile capabilities contract", () => {
       "profile.additional_human_profile_creation_disabled"
     );
     expect(ADDITIONAL_HUMAN_PROFILE_CREATION_DISABLED_MESSAGE).toBe(
-      "Creating additional Human Profiles is currently unavailable. Use your default Human Profile, or create an Agent Profile."
+      "Creating additional profiles for people is currently unavailable. Use your default profile, or create an Agent."
     );
     expect(
       additionalHumanProfileCreationDisabledErrorResponseSchema.parse({

@@ -1984,7 +1984,7 @@ function SpaceLandingConversation({
 	if (agentOwnerDirectMessageObserver) {
 		readOnlyComposerPlaceholder = `You can view this Direct Message because you own ${agentOwnerDirectMessageObserver.agentProfileName}. Join to participate.`;
 	} else if (controller.isCurrentAccessConfirmed) {
-		readOnlyComposerPlaceholder = `Join as ${currentProfileName ?? "your Human Profile"} to participate in this Space.`;
+		readOnlyComposerPlaceholder = `Join as ${currentProfileName ?? "your profile"} to participate in this Space.`;
 	}
 	return (
 		<SpaceConversationPanel
@@ -2189,7 +2189,7 @@ function SpaceHumanJoinAction(input: {
 }) {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isPending, setIsPending] = useState(false);
-	const profileName = input.profileName.trim() || "your Human Profile";
+	const profileName = input.profileName.trim() || "your profile";
 
 	return (
 		<div className="flex min-w-0 flex-col items-end gap-1">
@@ -3200,9 +3200,7 @@ function useSpaceRemoveMemberHandler(input: {
 				(profile) => profile.openMeldProfileId === controller.profileId
 			);
 			if (actingProfile?.profileKind !== "human") {
-				throw new Error(
-					"OpenMeld could not confirm the current human profile."
-				);
+				throw new Error("OpenMeld could not confirm your current profile.");
 			}
 
 			const membersQueryKey = spaceQueryKeys.members(

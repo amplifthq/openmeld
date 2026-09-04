@@ -545,6 +545,8 @@ const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
 const ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN = /^Add people or agents/;
 const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
 const CAN_VIEW_TEXT_PATTERN = /can view$/;
+const OWNED_BY_MING_PATTERN = /Owned by Ming Yoo/;
+const CONTROLLED_BY_PATTERN = /Controlled by/;
 type TestAgentExecutionReadiness = ReturnType<
 	typeof createSpaceMemberAgentExecutionReadiness
 >;
@@ -5859,11 +5861,8 @@ describe("SpaceLanding", () => {
 			tooltip: "Available for Wake",
 		});
 		expect(within(panel).queryByText(LOCAL_SETUP_PREFERENCE_TEXT)).toBeNull();
-		expect(
-			within(panel).getByText(
-				"Controlled by Ming's MacBook Pro Codex · Owned by Ming Yoo"
-			)
-		).toBeTruthy();
+		expect(within(panel).queryByText(OWNED_BY_MING_PATTERN)).toBeNull();
+		expect(within(panel).queryByText(CONTROLLED_BY_PATTERN)).toBeNull();
 		expect(within(panel).queryByRole("link", { name: "Run setup" })).toBeNull();
 		expect(
 			within(panel).queryByRole("link", { name: "Check this computer again" })
@@ -5877,14 +5876,9 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByText("Controlled by Ming's MacBook Pro Codex")
 		).toBeTruthy();
-		expect(
-			screen.getAllByText(
-				"Controlled by Ming's MacBook Pro Codex · Owned by Ming Yoo"
-			).length
-		).toBe(1);
 	});
 
-	it("keeps owner attribution for a non-owned agent out of the member row", () => {
+	it("keeps a non-owned agent concise without repeating ownership", () => {
 		vi.stubGlobal(
 			"matchMedia",
 			createMatchMediaMock({ desktopMembersPanel: true })
@@ -5928,9 +5922,9 @@ describe("SpaceLanding", () => {
 		const panel = screen.getByRole("complementary", {
 			name: "Members",
 		});
-		expect(within(panel).getByText("Owned by Ming Yoo")).toBeTruthy();
+		expect(within(panel).getByText("Runner")).toBeTruthy();
+		expect(within(panel).queryByText("Owned by Ming Yoo")).toBeNull();
 		expect(within(panel).queryByText("managed by Ming Yoo")).toBeNull();
-		expect(screen.getAllByText("Owned by Ming Yoo").length).toBe(1);
 	});
 
 	it("does not show setup recovery when the space member is already wakeable", () => {
@@ -6095,10 +6089,7 @@ describe("SpaceLanding", () => {
 			within(dialog).getByRole("heading", { name: "Members" })
 		).toBeTruthy();
 		expect(
-			within(dialog).getByRole("heading", { name: "Agents" })
-		).toBeTruthy();
-		expect(
-			within(dialog).getByRole("heading", { name: "Humans" })
+			within(dialog).getByRole("heading", { name: "People & Agents" })
 		).toBeTruthy();
 		expect(within(dialog).getByText("@runner(wake)")).toBeTruthy();
 
@@ -6114,7 +6105,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(within(dialog).getByText("Runner")).toBeTruthy();
-			expect(within(dialog).queryByText("Mira")).toBeNull();
+			expect(within(dialog).getByText("Mira")).toBeTruthy();
 		});
 	});
 
@@ -6188,7 +6179,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(within(panel).getByText("Runner")).toBeTruthy();
-			expect(within(panel).queryByText("Mira")).toBeNull();
+			expect(within(panel).getByText("Mira")).toBeTruthy();
 		});
 
 		fireEvent.click(membersButton);
@@ -6666,11 +6657,7 @@ describe("SpaceLanding", () => {
 		expect(
 			within(panel).getAllByText("Connect local agent").length
 		).toBeGreaterThan(0);
-		expect(
-			within(panel).getByText(
-				"Connect a local agent before this profile can reply."
-			)
-		).toBeTruthy();
+		expect(within(panel).getByText("Needs connection")).toBeTruthy();
 		expect(
 			within(panel).queryByText("Local setup preference: Codex")
 		).toBeNull();
@@ -7649,9 +7636,10 @@ describe("SpaceLanding", () => {
 			within(panel).queryByText(WAITING_FOR_OPENMELD_SERVICE_PATTERN)
 		).toBeNull();
 		await waitFor(() => {
-			expect(
-				within(panel).getByText(ACTIVE_WAKE_SERVICE_WAITING_NOTE_PATTERN)
-			).toBeTruthy();
+			expectSpaceAgentAvailabilityIndicator(panel, {
+				label: "Waiting",
+				tooltip: "Wake waiting for this computer to reconnect",
+			});
 		});
 		await waitFor(() => {
 			expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
@@ -8728,7 +8716,7 @@ describe("SpaceLanding", () => {
 		expect(targetList.className).toContain("max-h-[288px]");
 		expect(targetList.className).toContain("overflow-y-auto");
 		expect(within(targetList).getByText("Agents")).toBeTruthy();
-		expect(within(targetList).getByText("Humans")).toBeTruthy();
+		expect(within(targetList).getByText("People")).toBeTruthy();
 		expect(within(targetList).getByText("Runner")).toBeTruthy();
 		expect(within(targetList).getByText("Watcher")).toBeTruthy();
 		expect(within(targetList).getByText("Manual Agent")).toBeTruthy();

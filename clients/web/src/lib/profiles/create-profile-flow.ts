@@ -125,7 +125,7 @@ function requireNewProfileKind(
 	profileKind: NewProfileKind | null
 ): NewProfileKind {
 	if (profileKind === null) {
-		throw new Error("Choose whether to create a human or agent profile.");
+		throw new Error("Choose whether to create a personal or Agent Profile.");
 	}
 
 	return profileKind;

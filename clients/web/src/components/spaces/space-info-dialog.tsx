@@ -309,8 +309,8 @@ function SpaceInfoDeleteSection(input: {
 				<div className="min-w-0">
 					<p className="font-medium text-sm">Delete space</p>
 					<p className="text-muted-foreground text-xs">
-						Permanently delete this space for everyone. Only the creator or
-						owning human profile can delete it.
+						Permanently delete this space for everyone. Only its owner can
+						delete it.
 					</p>
 				</div>
 				<Button

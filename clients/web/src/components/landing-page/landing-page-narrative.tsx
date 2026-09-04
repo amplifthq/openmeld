@@ -53,7 +53,7 @@ const CENTER_AGENT_FEATURES = [
 	{
 		name: "Builds the working team.",
 		description:
-			"It can create a Space, bring in the right Human and Agent Profiles, and give everyone the same brief.",
+			"It can create a Space, bring in the right people and agents, and give everyone the same brief.",
 	},
 	{
 		name: "Moves work across the system.",

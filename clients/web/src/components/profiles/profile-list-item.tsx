@@ -177,6 +177,7 @@ export function ProfileListItem(input: {
 	badges?: ReactNode;
 	children?: ReactNode;
 	className?: string;
+	compact?: boolean;
 	dimName?: boolean;
 	icon: ReactNode;
 	metadataDetail?: ReactNode;
@@ -191,14 +192,15 @@ export function ProfileListItem(input: {
 	testId?: string;
 }) {
 	const profileNameClassName = cn(
-		"min-w-0 break-words font-medium text-sm sm:text-[0.95rem]",
+		"min-w-0 font-medium text-sm sm:text-[0.95rem]",
+		input.compact ? "truncate" : "break-words",
 		input.dimName ? "text-muted-foreground" : "text-foreground",
 		input.profileNameClassName
 	);
 	const profileSummary = input.onProfileSummaryClick ? (
 		<button
 			aria-label={input.profileSummaryAriaLabel ?? `About ${input.profileName}`}
-			className="group inline-flex min-w-0 cursor-pointer items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			className="group inline-flex min-w-0 max-w-full cursor-pointer items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 			onClick={input.onProfileSummaryClick}
 			type="button"
 		>
@@ -218,8 +220,18 @@ export function ProfileListItem(input: {
 			data-testid={input.testId}
 			ref={input.rowRef}
 		>
-			<div className="min-w-0 flex-1 space-y-1.5">
-				<div className="flex min-w-0 flex-wrap items-center gap-2">
+			<div
+				className={cn(
+					"min-w-0 flex-1",
+					input.compact ? "space-y-1" : "space-y-1.5"
+				)}
+			>
+				<div
+					className={cn(
+						"flex min-w-0 items-center gap-2",
+						input.compact ? "flex-nowrap" : "flex-wrap"
+					)}
+				>
 					{input.profileNameAdornment ? (
 						<div className="inline-flex min-w-0 items-center gap-2">
 							{profileSummary}

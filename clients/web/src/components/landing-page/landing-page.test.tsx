@@ -297,7 +297,7 @@ describe("LandingPage", () => {
 		).toBeTruthy();
 		expect(
 			within(spacesSection as HTMLElement).getByText(
-				"Human request to five agents"
+				"One request to five agents"
 			)
 		).toBeTruthy();
 		expect(

@@ -961,7 +961,7 @@ function toLandingMember(
 				member
 			).detailLabel;
 	} else if (member.liveNow) {
-		detail = "Live human";
+		detail = "Live person";
 	}
 
 	return {

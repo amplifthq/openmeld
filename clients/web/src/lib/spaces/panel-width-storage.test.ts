@@ -15,9 +15,7 @@ afterEach(() => {
 describe("space panel width storage", () => {
 	it("uses the product-defined Members and Thread resize limits", () => {
 		expect(SPACE_PANEL_WIDTH_METRICS.members.minWidth).toBe("17rem");
-		expect(SPACE_PANEL_WIDTH_METRICS.members.defaultWidth).toBe(
-			SPACE_PANEL_WIDTH_METRICS.members.minWidth
-		);
+		expect(SPACE_PANEL_WIDTH_METRICS.members.defaultWidth).toBe("20rem");
 		expect(SPACE_PANEL_WIDTH_METRICS.thread.maxWidth).toBe("30rem");
 	});
 

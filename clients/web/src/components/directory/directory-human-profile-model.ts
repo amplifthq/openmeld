@@ -421,8 +421,8 @@ export function resolveMissingPersonalHumanProfileMessage(
 	canCreateHumanProfile: boolean
 ): string {
 	return canCreateHumanProfile
-		? "You don't have a Human Profile in this workspace yet. Create one to choose the name and identity you use in Spaces."
-		: "You don't have a Human Profile in this workspace yet.";
+		? "You aren't listed in this workspace yet. Create a profile to choose the name and identity you use in Spaces."
+		: "You aren't listed in this workspace yet.";
 }
 
 function resolveProfileReport(input: {
