@@ -10,6 +10,8 @@ import type {
 import {
 	buildSpaceMemberDirectory,
 	buildSpaceProfileAddPlan,
+	type SpaceMemberDirectory,
+	type SpaceMemberDirectoryEntry,
 	type SpaceProfileAddCandidate,
 	type SpaceProfileAddPlan,
 	type SpaceProfileAddProfile,
@@ -54,7 +56,7 @@ import {
 	MotionConfig,
 	m,
 } from "motion/react";
-import type { CSSProperties, RefObject } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 import {
 	useDeferredValue,
 	useEffect,
@@ -1581,7 +1583,6 @@ function SpaceAddMembersPersonGroupView(input: {
 	onToggle: (profileId: string) => void;
 	selectedProfileIds: ReadonlySet<string>;
 }) {
-	const agentsId = `space-add-members-person-${input.group.id}-agents`;
 	const selectedAgentCount = input.group.agentCandidates.filter(
 		(candidate) =>
 			candidate.ownerHumanProfileId === input.group.humanCandidate?.profileId &&
@@ -1594,8 +1595,10 @@ function SpaceAddMembersPersonGroupView(input: {
 		humanDescription = `Joins with ${selectedAgentCount === 1 ? "selected Agent" : `${String(selectedAgentCount)} selected Agents`}`;
 	}
 	return (
-		<div>
-			<div className="flex items-start gap-1">
+		<SpacePersonAgentGroup
+			agentsId={`space-add-members-person-${input.group.id}-agents`}
+			expanded={input.expanded}
+			header={
 				<div className="min-w-0 flex-1">
 					{input.group.humanCandidate ? (
 						<CheckboxGroup
@@ -1649,12 +1652,45 @@ function SpaceAddMembersPersonGroupView(input: {
 						</div>
 					)}
 				</div>
-				{input.group.agentCandidates.length > 0 ? (
+			}
+			name={input.group.name}
+			onExpandedChange={input.onExpandedChange}
+			showToggle={input.group.agentCandidates.length > 0}
+			toggleClassName="mt-1"
+		>
+			{input.group.agentCandidates.length > 0 ? (
+				<div className="ml-9">
+					<SpaceAddMembersCandidateGroup
+						candidates={input.group.agentCandidates}
+						onToggle={input.onToggle}
+						selectedProfileIds={input.selectedProfileIds}
+					/>
+				</div>
+			) : null}
+		</SpacePersonAgentGroup>
+	);
+}
+
+function SpacePersonAgentGroup(input: {
+	agentsId: string;
+	children: ReactNode;
+	expanded: boolean;
+	header: ReactNode;
+	name: string;
+	onExpandedChange: (expanded: boolean) => void;
+	showToggle: boolean;
+	toggleClassName?: string;
+}) {
+	return (
+		<div>
+			<div className="flex items-start gap-1">
+				{input.header}
+				{input.showToggle ? (
 					<Button
-						aria-controls={agentsId}
+						aria-controls={input.agentsId}
 						aria-expanded={input.expanded}
-						aria-label={`${input.expanded ? "Collapse" : "Expand"} ${input.group.name}`}
-						className="mt-1 shrink-0"
+						aria-label={`${input.expanded ? "Collapse" : "Expand"} ${input.name}`}
+						className={cn("shrink-0", input.toggleClassName)}
 						onClick={() => input.onExpandedChange(!input.expanded)}
 						size="icon-xs"
 						type="button"
@@ -1664,14 +1700,8 @@ function SpaceAddMembersPersonGroupView(input: {
 					</Button>
 				) : null}
 			</div>
-			{input.expanded && input.group.agentCandidates.length > 0 ? (
-				<div className="ml-9" id={agentsId}>
-					<SpaceAddMembersCandidateGroup
-						candidates={input.group.agentCandidates}
-						onToggle={input.onToggle}
-						selectedProfileIds={input.selectedProfileIds}
-					/>
-				</div>
+			{input.expanded && input.showToggle ? (
+				<div id={input.agentsId}>{input.children}</div>
 			) : null}
 		</div>
 	);
@@ -2237,9 +2267,36 @@ function SpaceMembersList(input: {
 	snapshot: SpaceMembersSnapshot | null;
 }) {
 	const [isRetryPending, setIsRetryPending] = useState(false);
+	const [collapsedPersonProfileIds, setCollapsedPersonProfileIds] = useState<
+		ReadonlySet<string>
+	>(() => new Set());
 	const entriesByProfileId = useMemo(
 		() => buildSpaceMemberDirectoryEntryByProfileId(input.snapshot),
 		[input.snapshot]
+	);
+	const directory = useMemo(
+		() =>
+			input.snapshot
+				? buildSpaceMemberDirectoryForStatusOrder(
+						buildSpaceMemberDirectory(input.snapshot)
+					)
+				: null,
+		[input.snapshot]
+	);
+	const roster = useMemo(
+		() =>
+			buildSpaceMembersRoster({
+				centerAgentProfileId: input.centerAgentProfileId,
+				directory,
+				filteredDirectory: input.filteredDirectory,
+				searchActive: input.query.trim().length > 0,
+			}),
+		[
+			input.centerAgentProfileId,
+			directory,
+			input.filteredDirectory,
+			input.query,
+		]
 	);
 	const activeWakeDisplayTargetProfileIds =
 		input.activeWakeDisplayTargetProfileIds ??
@@ -2260,6 +2317,57 @@ function SpaceMembersList(input: {
 			centerAgentProfileId: input.centerAgentProfileId,
 			snapshot: input.snapshot,
 		});
+	const renderMemberRow = (entry: SpaceMemberDirectoryEntry) => {
+		const recoveryPlan =
+			input.agentRecoveryPlansByProfileId.get(entry.profileId) ?? null;
+		// Display-only Wake smoothing. Skip it while a recovery plan is active so
+		// the real recovery state is never masked.
+		const wakeDisplayOverride =
+			recoveryPlan && recoveryPlan.kind !== "none"
+				? undefined
+				: input.displayWakeOverrideByProfileId?.get(entry.profileId);
+		const wakeDisplayEntry = wakeDisplayOverride
+			? applyWakeAvailabilityDisplayOverride(entry, wakeDisplayOverride)
+			: undefined;
+		const removeMemberAction =
+			input.onRemoveMember &&
+			canShowRemoveMemberAction({
+				creatorProfileIds,
+				currentProfileId: input.currentProfileId,
+				profileId: entry.profileId,
+				requiredAgentOwnerHumanProfileIds,
+			})
+				? input.onRemoveMember
+				: undefined;
+		return (
+			<SpaceMemberRow
+				agentRecoveryPlan={recoveryPlan}
+				centerAgentProfileId={input.centerAgentProfileId}
+				currentOwnerUserId={input.currentOwnerUserId}
+				currentProfileId={input.currentProfileId}
+				entriesByProfileId={entriesByProfileId}
+				entry={entry}
+				isAgentRecoveryPending={input.isAgentRecoveryPending(entry.profileId)}
+				isAgentWakeAvailabilityCheckPending={input.isAgentWakeAvailabilityCheckPending(
+					entry.profileId
+				)}
+				memberTransientState={resolveEntryMemberTransientState({
+					activeWakeDisplayTargetProfileIds,
+					entry,
+					memberTransientStatesByProfileId,
+				})}
+				modelCatalog={input.modelCatalog}
+				onAgentRecoveryAction={input.onAgentRecoveryAction}
+				onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
+				onRemoveFromSpace={removeMemberAction}
+				orgSlug={input.orgSlug}
+				prepareSetupHref={input.prepareSetupHref}
+				showAgentConnectionDetail={false}
+				variant="full"
+				wakeDisplayEntry={wakeDisplayEntry}
+			/>
+		);
+	};
 
 	if (input.isLoading && !input.snapshot) {
 		return (
@@ -2310,7 +2418,11 @@ function SpaceMembersList(input: {
 		);
 	}
 
-	if (input.filteredDirectory && input.filteredDirectory.sections.length > 0) {
+	if (
+		roster.organizationEntries.length > 0 ||
+		roster.personGroups.length > 0 ||
+		roster.ungroupedAgentEntries.length > 0
+	) {
 		return (
 			<div className="flex flex-col gap-5">
 				{shouldShowRefreshError ? (
@@ -2323,80 +2435,76 @@ function SpaceMembersList(input: {
 						{SPACE_MEMBERS_REFRESH_ERROR_MESSAGE}
 					</div>
 				) : null}
-				{input.filteredDirectory.sections.map((section) => (
-					<section className="flex flex-col gap-2" key={section.id}>
+				{roster.organizationEntries.length > 0 ? (
+					<section className="flex flex-col gap-2">
 						<h2 className="font-medium text-muted-foreground text-xs">
-							{section.title}
+							Organization
 						</h2>
 						<div className="flex flex-col">
-							{section.entries.map((entry) => {
-								const recoveryPlan =
-									input.agentRecoveryPlansByProfileId.get(entry.profileId) ??
-									null;
-								// Display-only Wake smoothing. Skip it while a recovery plan is
-								// active so the real recovery state is never masked; terminal
-								// offline/unavailable already bypass the debounce upstream.
-								const wakeDisplayOverride =
-									recoveryPlan && recoveryPlan.kind !== "none"
-										? undefined
-										: input.displayWakeOverrideByProfileId?.get(
-												entry.profileId
-											);
-								// Project only into the narrow display-only prop. entry stays
-								// raw so the details dialog / recovery / Check-again / sorting
-								// never see the replayed Available snapshot (Codex M1).
-								const wakeDisplayEntry = wakeDisplayOverride
-									? applyWakeAvailabilityDisplayOverride(
-											entry,
-											wakeDisplayOverride
-										)
-									: undefined;
-								const removeMemberAction =
-									input.onRemoveMember &&
-									canShowRemoveMemberAction({
-										creatorProfileIds,
-										currentProfileId: input.currentProfileId,
-										profileId: entry.profileId,
-										requiredAgentOwnerHumanProfileIds,
-									})
-										? input.onRemoveMember
-										: undefined;
+							{roster.organizationEntries.map((entry) => (
+								<div key={entry.id}>{renderMemberRow(entry)}</div>
+							))}
+						</div>
+					</section>
+				) : null}
+				{roster.personGroups.length > 0 ? (
+					<section className="flex flex-col gap-2">
+						<h2 className="font-medium text-muted-foreground text-xs">
+							People &amp; Agents
+						</h2>
+						<div className="flex flex-col gap-1">
+							{roster.personGroups.map((group) => {
+								const expanded =
+									input.query.trim().length > 0 ||
+									!collapsedPersonProfileIds.has(group.humanEntry.profileId);
 								return (
-									<SpaceMemberRow
-										agentRecoveryPlan={recoveryPlan}
-										centerAgentProfileId={input.centerAgentProfileId}
-										currentOwnerUserId={input.currentOwnerUserId}
-										currentProfileId={input.currentProfileId}
-										entriesByProfileId={entriesByProfileId}
-										entry={entry}
-										isAgentRecoveryPending={input.isAgentRecoveryPending(
-											entry.profileId
-										)}
-										isAgentWakeAvailabilityCheckPending={input.isAgentWakeAvailabilityCheckPending(
-											entry.profileId
-										)}
-										key={entry.id}
-										memberTransientState={resolveEntryMemberTransientState({
-											activeWakeDisplayTargetProfileIds,
-											entry,
-											memberTransientStatesByProfileId,
-										})}
-										modelCatalog={input.modelCatalog}
-										onAgentRecoveryAction={input.onAgentRecoveryAction}
-										onCheckAgentWakeAvailability={
-											input.onCheckAgentWakeAvailability
+									<SpacePersonAgentGroup
+										agentsId={`space-members-person-${group.humanEntry.profileId}-agents`}
+										expanded={expanded}
+										header={
+											<div className="min-w-0 flex-1">
+												{renderMemberRow(group.humanEntry)}
+											</div>
 										}
-										onRemoveFromSpace={removeMemberAction}
-										orgSlug={input.orgSlug}
-										prepareSetupHref={input.prepareSetupHref}
-										variant="full"
-										wakeDisplayEntry={wakeDisplayEntry}
-									/>
+										key={group.humanEntry.profileId}
+										name={group.humanEntry.profileName}
+										onExpandedChange={(nextExpanded) => {
+											setCollapsedPersonProfileIds((current) => {
+												const next = new Set(current);
+												if (nextExpanded) {
+													next.delete(group.humanEntry.profileId);
+												} else {
+													next.add(group.humanEntry.profileId);
+												}
+												return next;
+											});
+										}}
+										showToggle={group.agentEntries.length > 0}
+										toggleClassName="mt-2.5"
+									>
+										<div className="ml-7 flex flex-col">
+											{group.agentEntries.map((entry) => (
+												<div key={entry.id}>{renderMemberRow(entry)}</div>
+											))}
+										</div>
+									</SpacePersonAgentGroup>
 								);
 							})}
 						</div>
 					</section>
-				))}
+				) : null}
+				{roster.ungroupedAgentEntries.length > 0 ? (
+					<section className="flex flex-col gap-2">
+						<h2 className="font-medium text-muted-foreground text-xs">
+							Agents
+						</h2>
+						<div className="flex flex-col">
+							{roster.ungroupedAgentEntries.map((entry) => (
+								<div key={entry.id}>{renderMemberRow(entry)}</div>
+							))}
+						</div>
+					</section>
+				) : null}
 			</div>
 		);
 	}
@@ -2421,6 +2529,94 @@ function canShowRemoveMemberAction(input: {
 		!input.creatorProfileIds.has(input.profileId) &&
 		!input.requiredAgentOwnerHumanProfileIds.has(input.profileId)
 	);
+}
+
+type SpaceMembersPersonGroup = {
+	agentEntries: readonly SpaceMemberDirectoryEntry[];
+	humanEntry: SpaceMemberDirectoryEntry;
+};
+
+type SpaceMembersRoster = {
+	organizationEntries: readonly SpaceMemberDirectoryEntry[];
+	personGroups: readonly SpaceMembersPersonGroup[];
+	ungroupedAgentEntries: readonly SpaceMemberDirectoryEntry[];
+};
+
+function buildSpaceMembersRoster(input: {
+	centerAgentProfileId: string | null;
+	directory: SpaceMemberDirectory | null;
+	filteredDirectory: SpaceMemberDirectory | null;
+	searchActive: boolean;
+}): SpaceMembersRoster {
+	const emptyRoster: SpaceMembersRoster = {
+		organizationEntries: [],
+		personGroups: [],
+		ungroupedAgentEntries: [],
+	};
+	if (!(input.directory && input.filteredDirectory)) {
+		return emptyRoster;
+	}
+	const allHumanEntries =
+		input.directory.sections.find((section) => section.id === "humans")
+			?.entries ?? [];
+	const allAgentEntries =
+		input.directory.sections.find((section) => section.id === "agents")
+			?.entries ?? [];
+	const visibleProfileIds = new Set(
+		input.filteredDirectory.sections.flatMap((section) =>
+			section.entries.map((entry) => entry.profileId)
+		)
+	);
+	const regularAgentEntries = allAgentEntries.filter(
+		(entry) => entry.profileId !== input.centerAgentProfileId
+	);
+	const assignedAgentProfileIds = new Set<string>();
+	const personGroups = allHumanEntries.flatMap(
+		(humanEntry): readonly SpaceMembersPersonGroup[] => {
+			const ownedAgentEntries = regularAgentEntries.filter(
+				(agentEntry) =>
+					humanEntry.ownerUserId !== null &&
+					agentEntry.ownerUserId === humanEntry.ownerUserId
+			);
+			for (const agentEntry of ownedAgentEntries) {
+				assignedAgentProfileIds.add(agentEntry.profileId);
+			}
+			const humanMatches = visibleProfileIds.has(humanEntry.profileId);
+			const visibleAgentEntries = humanMatches
+				? ownedAgentEntries
+				: ownedAgentEntries.filter((entry) =>
+						visibleProfileIds.has(entry.profileId)
+					);
+			if (
+				input.searchActive &&
+				!humanMatches &&
+				visibleAgentEntries.length === 0
+			) {
+				return [];
+			}
+			return [
+				{
+					agentEntries: visibleAgentEntries,
+					humanEntry,
+				},
+			];
+		}
+	);
+	const organizationEntries = allAgentEntries.filter(
+		(entry) =>
+			entry.profileId === input.centerAgentProfileId &&
+			(!input.searchActive || visibleProfileIds.has(entry.profileId))
+	);
+	const ungroupedAgentEntries = regularAgentEntries.filter(
+		(entry) =>
+			!assignedAgentProfileIds.has(entry.profileId) &&
+			(!input.searchActive || visibleProfileIds.has(entry.profileId))
+	);
+	return {
+		organizationEntries,
+		personGroups,
+		ungroupedAgentEntries,
+	};
 }
 
 function buildRequiredAgentOwnerHumanProfileIds(input: {

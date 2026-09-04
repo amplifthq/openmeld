@@ -79,6 +79,7 @@ type SpaceMemberRowProps = {
 	orgSlug: string;
 	prepareSetupHref?: string;
 	memberTransientState: SpaceWakeStatusTransientState | null;
+	showAgentConnectionDetail?: boolean;
 	variant: "compact" | "full";
 	/** Display-only Wake projection (the last Available snapshot) used ONLY for
 	 * indicator + inline row visuals. Absent = no smoothing. Never read by the
@@ -262,7 +263,8 @@ function resolveAgentSpaceMemberRowPresentation(input: {
 					false,
 					displayedAgentRecoveryPlan,
 					visualDisplayedMemberTransientState,
-					input.canManageAgentProfile
+					input.canManageAgentProfile,
+					input.input.showAgentConnectionDetail !== false
 				);
 	return {
 		availabilityIndicatorHref,
@@ -871,14 +873,16 @@ function resolvePrimaryDetail(
 	isSelf: boolean,
 	agentRecoveryPlan?: AgentProfileReplyRecoveryPlan | null,
 	memberTransientState: SpaceWakeStatusTransientState | null = null,
-	canManageAgentProfile = false
-): string {
+	canManageAgentProfile = false,
+	showAgentConnectionDetail = true
+): string | null {
 	if (entry.profileKind === "agent") {
 		return resolveAgentPrimaryDetail({
 			agentRecoveryPlan,
 			canManageAgentProfile,
 			entry,
 			memberTransientState,
+			showAgentConnectionDetail,
 		});
 	}
 
@@ -896,7 +900,8 @@ function resolveAgentPrimaryDetail(input: {
 	canManageAgentProfile: boolean;
 	entry: SpaceMemberDirectoryEntry;
 	memberTransientState: SpaceWakeStatusTransientState | null;
-}): string {
+	showAgentConnectionDetail: boolean;
+}): string | null {
 	const transientDetail = resolveMemberTransientPrimaryDetail(
 		input.memberTransientState
 	);
@@ -909,6 +914,16 @@ function resolveAgentPrimaryDetail(input: {
 	) {
 		return "OpenMeld is checking this agent's local connection.";
 	}
+	if (
+		input.canManageAgentProfile &&
+		input.entry.presenceStatus !== "wakeable" &&
+		input.entry.availabilitySummary
+	) {
+		return input.entry.availabilitySummary;
+	}
+	if (!input.showAgentConnectionDetail) {
+		return null;
+	}
 
 	const controllerLocation = formatControllerLocation(input.entry);
 	if (!controllerLocation) {
@@ -918,12 +933,6 @@ function resolveAgentPrimaryDetail(input: {
 	}
 	if (!input.canManageAgentProfile) {
 		return formatPublicAgentControlDetail(input.entry, controllerLocation);
-	}
-	if (
-		input.entry.presenceStatus !== "wakeable" &&
-		input.entry.availabilitySummary
-	) {
-		return input.entry.availabilitySummary;
 	}
 	if (
 		!shouldShowAgentRecoveryAction(input.agentRecoveryPlan ?? null) &&

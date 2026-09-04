@@ -105,6 +105,8 @@ import type { WakeDisplayOverrideByProfileId } from "./use-wake-display-debounce
 const EMPTY_SPACE_CTA_NAME = /It is just you here so far/;
 const EXISTING_MESSAGES_AND_FILES_PATTERN = /existing messages and files/i;
 const CANNOT_BE_UNDONE_PATTERN = /cannot be undone/i;
+const CONNECTED_TO_PATTERN = /Connected to/;
+const OWNED_BY_MIRA_PATTERN = /Owned by Mira/;
 const TEST_PANEL_WIDTH = "22rem";
 const noopPanelWidthChange = () => undefined;
 
@@ -1021,9 +1023,90 @@ describe("SpaceMembersSidePanel", () => {
 			"A Away Human",
 			"C Away Human",
 		];
-		expect(readTextOrder(getMembersSection("Humans"), expectedOrder)).toEqual(
-			expectedOrder
+		expect(
+			readTextOrder(getMembersSection("People & Agents"), expectedOrder)
+		).toEqual(expectedOrder);
+	});
+
+	it("groups Space Agents under their people and keeps the Center Agent first", () => {
+		const centerAgentProfileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+		renderWithQueryClient(
+			<SpaceMembersSidePanel
+				activeWakeWaitingTargetProfileIds={new Set()}
+				agentRecoveryPlansByProfileId={new Map()}
+				autoRefreshExhaustedProfileIds={new Set()}
+				centerAgentProfileId={centerAgentProfileId}
+				currentOwnerUserId="user_felix"
+				currentProfileId="11111111-1111-4111-8111-111111111111"
+				isAgentRecoveryPending={() => false}
+				isLoading={false}
+				membersError={null}
+				onAgentRecoveryAction={async () => undefined}
+				onOpenChange={vi.fn()}
+				onRefresh={async () => undefined}
+				onRemoveMember={vi.fn(async () => ({
+					alreadyAbsentCount: 0,
+					removedCount: 1,
+				}))}
+				open={true}
+				orgSlug="acme"
+				snapshot={createSpaceMembersSnapshot({
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							lastSeenLabel: "12 minutes ago",
+							ownerUserId: "user_mira",
+							profileId: "22222222-2222-4222-8222-222222222222",
+							profileName: "Mira",
+						}),
+					],
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							agentWakeAvailability: { status: "available_for_wake" },
+							ownerName: "Mira",
+							ownerUserId: "user_mira",
+							profileId: "agt_22222222-2222-4222-8222-222222222222",
+							profileName: "Mira Research",
+						}),
+						createSpaceMemberAgentSnapshot({
+							agentControllerRef: "remote:center-agent",
+							agentWakeAvailability: { status: "available_for_wake" },
+							profileId: centerAgentProfileId,
+							profileName: "Acme Center Agent",
+						}),
+					],
+				})}
+			/>
 		);
+
+		const organization = getMembersSection("Organization");
+		const people = getMembersSection("People & Agents");
+		expect(organization.compareDocumentPosition(people)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(within(organization).getByText("Acme Center Agent")).toBeTruthy();
+		expect(within(people).getByText("Active here 12 minutes ago")).toBeTruthy();
+		expect(within(people).getByText("Mira Research")).toBeTruthy();
+		expect(
+			within(people).getByRole("button", {
+				name: "Member options for Mira Research",
+			})
+		).toBeTruthy();
+		const agentStatus = within(people).getByTestId(
+			"space-agent-availability-indicator"
+		);
+		expect(agentStatus.getAttribute("aria-label")).toBe("Available");
+		expect(agentStatus.getAttribute("title")).toBe("Available for Wake");
+		expect(screen.queryByText(CONNECTED_TO_PATTERN)).toBeNull();
+		expect(screen.queryByText(OWNED_BY_MIRA_PATTERN)).toBeNull();
+
+		fireEvent.click(
+			within(people).getByRole("button", { name: "Collapse Mira" })
+		);
+		expect(within(people).queryByText("Mira Research")).toBeNull();
+		fireEvent.click(
+			within(people).getByRole("button", { name: "Expand Mira" })
+		);
+		expect(within(people).getByText("Mira Research")).toBeTruthy();
 	});
 
 	it("adds selectable account Agent Profiles while keeping joined Agents visible", async () => {
