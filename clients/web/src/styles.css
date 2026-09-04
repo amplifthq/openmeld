@@ -2,17 +2,12 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "./styles/typeset.css";
+@import "./styles/content-typography.css";
 @import "streamdown/styles.css";
 @import "@openmeld/ui/globals.css";
 
 @source "../../../packages/ui/src";
 @source "../node_modules/streamdown/dist";
-
-.typeset-chat {
-  --typeset-size: 1em;
-  --typeset-leading: 1.71;
-  --typeset-flow: 0.875em;
-}
 
 @media (prefers-reduced-motion: reduce) {
   [data-sd-animate] {
