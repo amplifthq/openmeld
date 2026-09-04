@@ -11,6 +11,7 @@ export {
 } from "./attachments";
 export { buildSpaceBootstrapReadPath } from "./bootstrap";
 export { createSpaceDiagnosticReport } from "./diagnostic-report";
+export { resolveSpaceEntry } from "./entry-resolution";
 export {
   executeSpaceExecutionRecovery,
   inspectSpaceExecutionRecovery,
@@ -42,6 +43,7 @@ export type {
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceInput,
   RemoveSpaceMembersInput,
+  ResolveSpaceEntryInput,
   SetSpaceAccessModeInput,
   SpaceApi,
   SpaceHistorySignalKind,

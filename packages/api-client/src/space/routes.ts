@@ -10,6 +10,23 @@ export function buildSpaceStatusPath(spaceId: string): string {
   return buildSpaceRoutePath(spaceId, "status");
 }
 
+export function buildSpaceEntryResolutionPath(input: {
+  signalId?: string;
+  spaceId: string;
+  threadRootSignalId?: string;
+}): string {
+  const path = buildSpaceRoutePath(input.spaceId, "entry-resolution");
+  const searchParams = new URLSearchParams();
+  if (input.signalId !== undefined) {
+    searchParams.set("signalId", input.signalId);
+  }
+  if (input.threadRootSignalId !== undefined) {
+    searchParams.set("threadRootSignalId", input.threadRootSignalId);
+  }
+  const queryString = searchParams.toString();
+  return queryString ? `${path}?${queryString}` : path;
+}
+
 export function buildSpaceMetaPath(spaceId: string): string {
   return buildSpaceRoutePath(spaceId, "meta");
 }
@@ -279,6 +296,7 @@ function buildSpaceRoutePath(
   spaceId: string,
   segment:
     | "status"
+    | "entry-resolution"
     | "meta"
     | "access-mode"
     | "bootstrap"

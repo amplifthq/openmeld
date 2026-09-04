@@ -7,6 +7,7 @@ import { getSpaceBootstrap } from "./bootstrap";
 import { createSpace } from "./create";
 import { deleteSpace } from "./delete";
 import { createSpaceDiagnosticReport } from "./diagnostic-report";
+import { resolveSpaceEntry } from "./entry-resolution";
 import {
   executeSpaceExecutionRecovery,
   inspectSpaceExecutionRecovery,
@@ -102,6 +103,7 @@ export const createSpaceApi: CreateSpaceApi = (
     leaveSpace: async (input) => await leaveSpace(client, input),
     getBootstrap: async (input) => await getSpaceBootstrap(client, input),
     getStatus: async (input) => await getSpaceStatus(client, input),
+    resolveEntry: async (input) => await resolveSpaceEntry(client, input),
     getMembersSnapshot: async (input) =>
       await getSpaceMembersSnapshot(client, input),
     getMemberDirectory: async (input) =>

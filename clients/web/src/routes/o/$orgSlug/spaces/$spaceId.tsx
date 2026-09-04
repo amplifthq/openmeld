@@ -14,6 +14,7 @@ import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
+import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import { SpaceLandingLoadingShell } from "#/components/spaces/space-state-surfaces";
@@ -29,6 +30,7 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationDirectMessagePath,
 	buildOrganizationSpacePath,
+	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import { findActiveProfileById } from "#/lib/profiles/profiles";
 import {
@@ -380,7 +382,13 @@ function ValidatedAppSpaceEntryContent(
 	// human profile. If they are actually a member, the viewer reconciles and
 	// sends them back into the app with their own profile.
 	if (!selectedProfile) {
-		return <RedirectToPublicSpace spaceId={input.spaceId} />;
+		return (
+			<RedirectToPublicSpace
+				focusSignalId={input.focusSignalId}
+				focusThreadRootSignalId={input.focusThreadRootSignalId}
+				spaceId={input.spaceId}
+			/>
+		);
 	}
 	if (selectedProfile.profileKind !== "human") {
 		const rememberedHumanProfileId =
@@ -414,63 +422,157 @@ function ValidatedAppSpaceEntryContent(
 		);
 	}
 
-	if (input.navigationSurface === "directMessages") {
-		return (
-			<ValidatedDirectMessageEntryContent
-				accountProfiles={profilesQuery.data ?? []}
-				focusInteractionId={input.focusInteractionId}
-				focusSignalId={input.focusSignalId}
-				focusThreadRootSignalId={input.focusThreadRootSignalId}
-				initialSidebarStates={input.initialSidebarStates}
-				isPersonalContext={currentOrganization.isPersonal === true}
-				orgSlug={input.orgSlug}
-				profileId={selectedProfile.openMeldProfileId}
-				spaceId={input.spaceId}
-			/>
-		);
-	}
-
-	const currentSpaceIsCenterAgentDirectMessage =
-		centerAgentDirectMessageProjectionQuery.data?.projection?.spaceId ===
-		input.spaceId;
-	const conversation = (
-		<SpaceLanding
+	return (
+		<ResolvedAppSpaceEntryContent
 			accountProfiles={profilesQuery.data ?? []}
-			initialFocusInteractionId={input.focusInteractionId}
-			initialFocusSignalId={input.focusSignalId}
-			initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
+			centerAgentDirectMessageSpaceId={
+				centerAgentDirectMessageProjectionQuery.data?.projection?.spaceId ??
+				null
+			}
+			focusInteractionId={input.focusInteractionId}
+			focusSignalId={input.focusSignalId}
+			focusThreadRootSignalId={input.focusThreadRootSignalId}
+			initialSidebarStates={input.initialSidebarStates}
 			isPersonalContext={currentOrganization.isPersonal === true}
-			key={`${input.spaceId}:${selectedProfile.openMeldProfileId}`}
+			navigationSurface={input.navigationSurface}
 			orgSlug={input.orgSlug}
 			profileId={selectedProfile.openMeldProfileId}
 			spaceId={input.spaceId}
 		/>
 	);
+}
+
+function ResolvedAppSpaceEntryContent(
+	input: {
+		accountProfiles: ComponentProps<typeof SpaceLanding>["accountProfiles"];
+		centerAgentDirectMessageSpaceId: string | null;
+		initialSidebarStates?: AppSidebarPersistedStates;
+		isPersonalContext: boolean;
+		navigationSurface: AppSpaceNavigationSurface;
+		orgSlug: string;
+		profileId: string;
+		spaceId: string;
+	} & AppSpaceFocusSearch
+) {
+	const allowedContent =
+		input.navigationSurface === "directMessages" ? (
+			<ValidatedDirectMessageEntryContent
+				accountProfiles={input.accountProfiles}
+				focusInteractionId={input.focusInteractionId}
+				focusSignalId={input.focusSignalId}
+				focusThreadRootSignalId={input.focusThreadRootSignalId}
+				initialSidebarStates={input.initialSidebarStates}
+				isPersonalContext={input.isPersonalContext}
+				orgSlug={input.orgSlug}
+				profileId={input.profileId}
+				spaceId={input.spaceId}
+			/>
+		) : (
+			<ValidatedSpaceNavigationContent
+				focusInteractionId={input.focusInteractionId}
+				focusSignalId={input.focusSignalId}
+				focusThreadRootSignalId={input.focusThreadRootSignalId}
+				initialSidebarStates={input.initialSidebarStates}
+				orgSlug={input.orgSlug}
+				profileId={input.profileId}
+				spaceId={input.spaceId}
+			>
+				<AppSpaceShell
+					currentProfileId={input.profileId}
+					currentSpaceId={input.spaceId}
+					initialOuterSidebarState={
+						input.initialSidebarStates?.outer ??
+						APP_SIDEBAR_DEFAULT_STATES.outer
+					}
+					initialSidebarState={
+						input.initialSidebarStates?.inner ??
+						APP_SIDEBAR_DEFAULT_STATES.inner
+					}
+					showSpacesSidebar={
+						input.centerAgentDirectMessageSpaceId !== input.spaceId
+					}
+				>
+					<SpaceLanding
+						accountProfiles={input.accountProfiles}
+						initialFocusInteractionId={input.focusInteractionId}
+						initialFocusSignalId={input.focusSignalId}
+						initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
+						isPersonalContext={input.isPersonalContext}
+						key={`${input.spaceId}:${input.profileId}`}
+						orgSlug={input.orgSlug}
+						profileId={input.profileId}
+						spaceId={input.spaceId}
+					/>
+				</AppSpaceShell>
+			</ValidatedSpaceNavigationContent>
+		);
 
 	return (
-		<ValidatedSpaceNavigationContent
-			focusInteractionId={input.focusInteractionId}
+		<AppSpaceAccessGate
 			focusSignalId={input.focusSignalId}
 			focusThreadRootSignalId={input.focusThreadRootSignalId}
 			initialSidebarStates={input.initialSidebarStates}
+			navigationSurface={input.navigationSurface}
 			orgSlug={input.orgSlug}
-			profileId={selectedProfile.openMeldProfileId}
+			profileId={input.profileId}
 			spaceId={input.spaceId}
 		>
-			<AppSpaceShell
-				currentProfileId={selectedProfile.openMeldProfileId}
-				currentSpaceId={input.spaceId}
-				initialOuterSidebarState={
-					input.initialSidebarStates?.outer ?? APP_SIDEBAR_DEFAULT_STATES.outer
-				}
-				initialSidebarState={
-					input.initialSidebarStates?.inner ?? APP_SIDEBAR_DEFAULT_STATES.inner
-				}
-				showSpacesSidebar={!currentSpaceIsCenterAgentDirectMessage}
-			>
-				{conversation}
-			</AppSpaceShell>
-		</ValidatedSpaceNavigationContent>
+			{allowedContent}
+		</AppSpaceAccessGate>
+	);
+}
+
+function AppSpaceAccessGate(
+	input: {
+		children: ReactNode;
+		initialSidebarStates?: AppSidebarPersistedStates;
+		navigationSurface: AppSpaceNavigationSurface;
+		orgSlug: string;
+		profileId: string;
+		spaceId: string;
+	} & Pick<AppSpaceFocusSearch, "focusSignalId" | "focusThreadRootSignalId">
+) {
+	const appTarget = buildOrganizationSpacePath({
+		orgSlug: input.orgSlug,
+		search: buildAppSpaceRouteSearch({
+			focusSignalId: input.focusSignalId,
+			focusThreadRootSignalId: input.focusThreadRootSignalId,
+			profileId: input.profileId,
+		}),
+		spaceId: input.spaceId,
+	});
+	return (
+		<SpaceEntryGate
+			backHref={buildOrganizationSpacesPath(input.orgSlug)}
+			openMeldProfileId={input.profileId}
+			renderFrame={(content) => (
+				<AppSpaceEntryShell
+					initialSidebarStates={input.initialSidebarStates}
+					navigationSurface={input.navigationSurface}
+					spaceId={input.spaceId}
+					verifiedProfileId={input.profileId}
+				>
+					{content}
+				</AppSpaceEntryShell>
+			)}
+			signalId={input.focusSignalId}
+			signInHref={`/login?redirect=${encodeURIComponent(appTarget)}`}
+			spaceId={input.spaceId}
+			threadRootSignalId={input.focusThreadRootSignalId}
+		>
+			{(resolution) =>
+				resolution.view.state === "allowed" &&
+				resolution.view.experience === "public" ? (
+					<RedirectToPublicSpace
+						focusSignalId={input.focusSignalId}
+						focusThreadRootSignalId={input.focusThreadRootSignalId}
+						spaceId={input.spaceId}
+					/>
+				) : (
+					input.children
+				)
+			}
+		</SpaceEntryGate>
 	);
 }
 
@@ -770,18 +872,35 @@ function SpaceProfileLoadFailureState(input: {
 	);
 }
 
-function RedirectToPublicSpace(input: { spaceId: string }) {
+function RedirectToPublicSpace(input: {
+	focusSignalId?: string;
+	focusThreadRootSignalId?: string;
+	spaceId: string;
+}) {
 	const navigate = useNavigate();
 
 	useEffect(() => {
 		navigate({
 			params: { spaceId: input.spaceId },
 			replace: true,
+			...(input.focusSignalId || input.focusThreadRootSignalId
+				? {
+						search: {
+							signalId: input.focusSignalId,
+							threadRootSignalId: input.focusThreadRootSignalId,
+						},
+					}
+				: {}),
 			to: "/spaces/$spaceId",
 		}).catch((error: unknown) => {
 			console.error("OpenMeld could not open the public Space view.", error);
 		});
-	}, [navigate, input.spaceId]);
+	}, [
+		navigate,
+		input.focusSignalId,
+		input.focusThreadRootSignalId,
+		input.spaceId,
+	]);
 
 	return (
 		<AppSpaceEntryShell spaceId={input.spaceId}>

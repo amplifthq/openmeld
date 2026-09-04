@@ -14,6 +14,20 @@ openmeld <command> <subcommand> --help
 
 ## Top-Level Commands
 
+### Resolve Space access
+
+Use the Core-owned entry resolver before following a Space link when access is
+not already known. This read does not join the Space or change local Profile
+selection.
+
+```bash
+openmeld space access "<space-url-or-id>" --profile <profile-id> --view agent
+openmeld space access "<space-url-or-id>" --password <space-password> --json
+```
+
+Copied links preserve `focusSignalId` / `signalId` and
+`focusThreadRootSignalId` / `threadRootSignalId` in the resolved target.
+
 ## Current Local Session To Space Teammate
 
 When the user asks you to add this Codex or Claude Code session to a Space, use

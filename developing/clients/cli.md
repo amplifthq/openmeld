@@ -1334,7 +1334,8 @@ history is readable, members are wake-ready, or a Wake produced a visible reply.
 `space list` must read Account Space Index, the Core projection from Space
 truth, instead of rebuilding known Spaces from local profile history, cache
 maintenance, or deletion tombstones.
-`space board`, `space members`, `space history`, and `space status` accept a
+`space access`, `space board`, `space members`, `space history`, and
+`space status` accept a
 canonical Space ID or a copied Space Web URL. A copied URL may select a Gateway
 only through the shared trusted production, staging, fixture, or standard
 loopback Web-to-Gateway mapping. Custom local Web URLs require an explicit
@@ -1342,6 +1343,17 @@ loopback Web-to-Gateway mapping. Custom local Web URLs require an explicit
 from an arbitrary host. An explicit `--profile` and `--gateway-url` take
 precedence over values derived from the copied URL without changing persistent
 Profile selection.
+
+`space access` is the read-only, public-capable entry preflight shared with Web.
+It sends the target plus any copied message/thread focus to the Core-owned entry
+resolver and must not recreate visibility or membership policy in the CLI. It
+may run without authentication so Core can return a safe `sign_in_required`,
+public-read, membership-blocked, password-blocked, or unavailable outcome.
+Blocked outcomes are successful resolution results rather than process errors.
+Agent View returns the canonical resolution plus one structured `viewAction`;
+Human View states one cause and one practical next action. The command never
+joins a Space, changes selected Profile state, prompts for a password, or
+invents a join-request capability.
 `space history --kind text --brief` is the narrow check for readable recent
 conversation history without presence-event noise. Brief mode caps every
 message body at 1,200 Unicode code points, reports the original character count
