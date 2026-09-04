@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-04T13:33:03.608Z",
+  "updatedAt": "2026-09-04T18:41:48.452Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.155",
+      "packageVersion": "0.3.156",
       "updatePolicy": "available",
-      "reason": "Managed production binaries now assess the R2 channel through the authoritative distribution marker; existing CLI commands and contracts remain compatible."
+      "reason": "Existing setup, Space access, and Wake commands remain compatible; the CLI now distinguishes durable update handoff from verified completion."
     },
     "service": {
-      "bundleHash": "c6b97a6437a0b51ec707bda330c75f9c32620ef56570b2f92fe87619ee4c67bd",
-      "bundleVersion": "0.3.155",
+      "bundleHash": "0da8ca5987affb3d92f82882a8c2f4f083b4afb3257a62e04facbefe8783ebfc",
+      "bundleVersion": "0.3.156",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "The bundled Service now assesses the managed binary release channel even when its command uses an absolute path; existing Runtime Transport and update-control contracts remain compatible."
+      "reason": "Existing Core and Runtime Transport schemas remain compatible; the Service now requires a positive safe-switch fact and verifies the full lifecycle before reporting success."
     },
     "skills": {
-      "bundleHash": "f6ab254fac5e6a81cd76373eda64989e1898002d5f6afc40c39dd5567d0cb7f7",
+      "bundleHash": "3325032d3751ec34a678182fd5a7d656d5269ab8a1db3f0345e65fc97559db61",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Existing skills remain usable; the updated privacy guidance is backward-compatible and does not change tool contracts."
+      "reason": "Existing OpenMeld CLI skills remain usable; Space access preflight and read guidance preserve existing tool contracts."
     }
   }
 }
