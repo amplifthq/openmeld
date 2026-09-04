@@ -2954,7 +2954,7 @@ function resolveSpaceMessageBubbleVisibilityClassName(input: {
 }): string | undefined {
 	return input.showProgressInAnswerArea ||
 		input.item.text.trim().length > 0 ||
-		Boolean(input.item.agentStreamState?.thinking) ||
+		input.item.agentStreamState?.thinking ||
 		input.item.attachments.length > 0 ||
 		(input.item.files?.length ?? 0) > 0
 		? undefined
@@ -3517,7 +3517,6 @@ function SystemEventRow(input: {
 				tabIndex={-1}
 			>
 				<SpaceOutcomeRow
-					className="max-w-[min(92vw,44rem)]"
 					onOpenDetails={
 						input.readOnly ? null : () => input.onOpenMessageDetails(input.item)
 					}
