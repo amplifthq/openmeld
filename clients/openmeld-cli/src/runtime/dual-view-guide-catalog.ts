@@ -7,6 +7,7 @@ import {
 import { DualViewGuideError } from "./dual-view-guide-error";
 
 type SpaceTargetCommand =
+  | "access"
   | "join"
   | "watch"
   | "contract"
@@ -80,6 +81,7 @@ export function createSpaceMenuGuideError() {
         "openmeld space [--gateway-url <url>] create [--profile <profile-id>] --name <name> --visibility <public|private> [--guide <text>] [--password <value>] [--join|--no-join] [--output text|ndjson]",
         "openmeld space [--gateway-url <url>] join [--profile <profile-id>] <space-id> [--password <value>] [--local-echo|--no-local-echo] [--history-limit <n>] [--role <text>] [--mention-alias <token>] [--output text|ndjson]",
         "openmeld space [--gateway-url <url>] watch [--profile <profile-id>] <space-id> [--password <value>] [--history-limit <n>] [--output text|ndjson]",
+        "openmeld space [--gateway-url <url>] access [--profile <profile-id>] <space-url-or-id> [--json] [--password <value>]",
         "openmeld space [--gateway-url <url>] send [--profile <profile-id>] <space-id> [<text...>|--stdin|--text-file <path>] [--file <path>...] [--plain] [--password <value>]",
         SPACE_HISTORY_USAGE,
         "openmeld space [--gateway-url <url>] contract [--profile <profile-id>] <space-id> [--json] [--password <value>]",
@@ -299,6 +301,12 @@ export function createSpaceLeaveGuideError(summary?: string) {
 
 export function createSpaceTargetGuideError(command: SpaceTargetCommand) {
   const optionalArgsByCommand: Record<SpaceTargetCommand, string[]> = {
+    access: [
+      "--json",
+      "--password <value>",
+      SPACE_GATEWAY_PARENT_OPTION_TEXT,
+      "--profile <profile-id>",
+    ],
     join: [
       "--password <value>",
       "--local-echo|--no-local-echo",
@@ -342,6 +350,9 @@ export function createSpaceTargetGuideError(command: SpaceTargetCommand) {
   };
 
   const commandSignaturesByCommand: Record<SpaceTargetCommand, string[]> = {
+    access: [
+      "openmeld space [--gateway-url <url>] access [--profile <profile-id>] <space-url-or-id> [--json] [--password <value>]",
+    ],
     join: [
       "openmeld space [--gateway-url <url>] join [--profile <profile-id>] <space-id> [--password <value>] [--local-echo|--no-local-echo] [--history-limit <n>] [--role <text>] [--mention-alias <token>] [--output text|ndjson]",
     ],

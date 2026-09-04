@@ -11,6 +11,7 @@ import {
   listAccountSpaceIdsFromSpaceIndex,
   listAccountSpacesFromSpaceIndex,
   listOrganizationSpacesFromSpaceIndex,
+  readSpaceIndexOrganizationJoinTarget,
 } from "../src/space-index/space-index-repository";
 import {
   applyDrizzleMigrationsForTables,
@@ -18,6 +19,38 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("space index AccountSpaces read model", () => {
+  it("projects bounded Space entry guidance without reading Space content", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Leadership",
+          spaceId: "space-entry",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [],
+      });
+
+      await expect(
+        readSpaceIndexOrganizationJoinTarget({
+          db: harness.db,
+          spaceId: "space-entry",
+        })
+      ).resolves.toEqual({
+        creatorProfileId: "human-1",
+        creatorProfileName: "Mira",
+        organizationId: "org-1",
+        spaceId: "space-entry",
+        spaceName: "Leadership",
+        visibility: "private",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("reads SpaceIndex truth with account/profile scope, backend limit, dedupe, and history overlay", async () => {
     const harness = createSpaceIndexHarness();
     try {

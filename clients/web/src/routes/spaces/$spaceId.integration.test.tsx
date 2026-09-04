@@ -157,6 +157,7 @@ type PublicSpaceApiTestDouble = {
 	listSignalEnvelopes: ReturnType<typeof vi.fn>;
 	listThreadSignals: ReturnType<typeof vi.fn>;
 	listThreads: ReturnType<typeof vi.fn>;
+	resolveEntry: ReturnType<typeof vi.fn>;
 };
 
 describe("PublicSpacePage", () => {
@@ -264,6 +265,101 @@ describe("PublicSpacePage", () => {
 		).toBeNull();
 	});
 
+	it("uses the shared resolver and preserves a message target through sign-in", async () => {
+		const resolveEntry = vi.fn(async () => ({
+			participation: { state: "self_join_available" },
+			recovery: null,
+			safeContext: {
+				organizationId: "org-acme",
+				organizationSlug: "acme",
+				spaceName: "Shared Roadmap",
+			},
+			target: {
+				signalId: "signal-target",
+				spaceId: "space-123",
+				threadRootSignalId: "thread-root",
+			},
+			view: { experience: "public", state: "allowed" },
+		}));
+		createWebSpaceApiMock.mockReturnValue(
+			createPublicSpaceApi({ resolveEntry })
+		);
+
+		renderPublicSpace({
+			isAuthenticated: false,
+			signalId: "signal-target",
+			threadRootSignalId: "thread-root",
+		});
+
+		expect(await screen.findByText("Shared Roadmap")).not.toBeNull();
+		expect(resolveEntry).toHaveBeenCalledWith(
+			expect.objectContaining({
+				signalId: "signal-target",
+				spaceId: "space-123",
+				threadRootSignalId: "thread-root",
+			})
+		);
+		expect(
+			screen.getByRole("link", { name: SIGN_IN_LINK_NAME }).getAttribute("href")
+		).toBe(
+			"/login?redirect=%2Fspaces%2Fspace-123%3FsignalId%3Dsignal-target%26threadRootSignalId%3Dthread-root"
+		);
+	});
+
+	it("keeps private Space details hidden when the resolver cannot safely identify it", async () => {
+		createWebSpaceApiMock.mockReturnValue(
+			createPublicSpaceApi({
+				resolveEntry: vi.fn(async () => ({
+					participation: { state: "unavailable" },
+					recovery: null,
+					safeContext: {},
+					target: { spaceId: "space-123" },
+					view: { state: "unavailable" },
+				})),
+			})
+		);
+
+		renderPublicSpace({ isAuthenticated: false });
+
+		expect(
+			await screen.findByRole("heading", {
+				name: "This Space isn't available",
+			})
+		).not.toBeNull();
+		expect(screen.queryByText("Shared Roadmap")).toBeNull();
+		expect(screen.queryByText("Mira Chen")).toBeNull();
+	});
+
+	it("asks an anonymous viewer to sign in before disclosing private Space details", async () => {
+		createWebSpaceApiMock.mockReturnValue(
+			createPublicSpaceApi({
+				resolveEntry: vi.fn(async () => ({
+					participation: { state: "unavailable" },
+					recovery: { kind: "sign_in" },
+					safeContext: {},
+					target: {
+						signalId: "signal-target",
+						spaceId: "space-123",
+					},
+					view: { state: "sign_in_required" },
+				})),
+			})
+		);
+
+		renderPublicSpace({
+			isAuthenticated: false,
+			signalId: "signal-target",
+		});
+
+		expect(
+			await screen.findByRole("heading", { name: "Sign in to continue" })
+		).not.toBeNull();
+		expect(
+			screen.getByRole("link", { name: SIGN_IN_LINK_NAME }).getAttribute("href")
+		).toBe("/login?redirect=%2Fspaces%2Fspace-123%3FsignalId%3Dsignal-target");
+		expect(screen.queryByText("Shared Roadmap")).toBeNull();
+	});
+
 	it("renders the shared strong OpenMeld logo in the public Space header", async () => {
 		createWebSpaceApiMock.mockReturnValue(createPublicSpaceApi());
 
@@ -366,6 +462,58 @@ describe("PublicSpacePage", () => {
 		).not.toBeNull();
 	});
 
+	it("opens a linked Thread and focuses its linked reply", async () => {
+		const rootSignal = createCenterAgentSignalEnvelope({
+			id: "thread-root-signal",
+			text: "Public discussion root.",
+		});
+		const replySignal = createPublicAgentWakeReplyEnvelope({
+			id: "linked-thread-reply",
+			replyToSignalId: rootSignal.id,
+			text: "The linked public reply.",
+			ts: rootSignal.ts + 1000,
+		});
+		createWebSpaceApiMock.mockReturnValue(
+			createPublicSpaceApi({
+				listSignalEnvelopes: vi.fn(async () => ({
+					envelopes: [rootSignal],
+					nextCursor: null,
+				})),
+				listThreadSignals: vi.fn(async () => ({
+					placements: [],
+					signals: [replySignal],
+				})),
+				listThreads: vi.fn(async () => ({
+					previews: [],
+					threads: [
+						{
+							createdAt: "2026-05-13T00:00:00.000Z",
+							createdByProfileId: "human-1",
+							rootSignalId: rootSignal.id,
+							spaceId: "space-123",
+							threadId: "thread-linked",
+							updatedAt: "2026-05-13T00:00:01.000Z",
+						},
+					],
+				})),
+			})
+		);
+
+		renderPublicSpace({
+			isAuthenticated: false,
+			signalId: replySignal.id,
+			threadRootSignalId: rootSignal.id,
+		});
+
+		const threadPanel = await screen.findByLabelText("Thread");
+		const linkedReply = await within(threadPanel).findByText(
+			"The linked public reply."
+		);
+		expect(
+			linkedReply.closest('[data-signal-id="linked-thread-reply"]')
+		).not.toBeNull();
+	});
+
 	it("keeps completed root Wakes terminal in public threads when the thread query omits the top-level reply", async () => {
 		const rootText = "Review the public release notes.";
 		const rootSignal = createPublicWakeSignalEnvelope({
@@ -457,6 +605,54 @@ describe("PublicSpacePage", () => {
 		expect(screen.queryByText("Couldn't Load This Space")).toBeNull();
 	});
 
+	it("unlocks a password-protected Space through the shared entry gate", async () => {
+		const resolveEntry = vi
+			.fn()
+			.mockResolvedValueOnce({
+				participation: { state: "password_required" },
+				recovery: { kind: "provide_password" },
+				safeContext: {
+					organizationId: "org-acme",
+					spaceName: "Shared Roadmap",
+				},
+				target: { spaceId: "space-123" },
+				view: { state: "password_required" },
+			})
+			.mockResolvedValue({
+				participation: { state: "password_required" },
+				recovery: null,
+				safeContext: {
+					organizationId: "org-acme",
+					spaceName: "Shared Roadmap",
+				},
+				target: { spaceId: "space-123" },
+				view: { experience: "public", state: "allowed" },
+			});
+		createWebSpaceApiMock.mockReturnValue(
+			createPublicSpaceApi({ resolveEntry })
+		);
+
+		renderPublicSpace({ isAuthenticated: false });
+
+		expect(
+			await screen.findByRole("heading", {
+				name: "This Space requires a password",
+			})
+		).not.toBeNull();
+		fireEvent.change(screen.getByLabelText("Space password"), {
+			target: { value: "  shared-secret  " },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "View Space" }));
+
+		await waitFor(() => {
+			expect(rememberProtectedSpaceAccessMock).toHaveBeenCalledWith({
+				data: { password: "shared-secret", spaceId: "space-123" },
+			});
+		});
+		expect(await screen.findByText("Hello public viewer.")).not.toBeNull();
+		expect(resolveEntry).toHaveBeenCalledTimes(2);
+	});
+
 	it("shows the protected Space form and stores the normalized password text", async () => {
 		createWebSpaceApiMock.mockReturnValue(
 			createPublicSpaceApi({
@@ -540,12 +736,7 @@ describe("PublicSpacePage", () => {
 				to: "/o/acme/spaces/space-123",
 			});
 		});
-		expect(resolveActiveOrganizationSpacePathMock).toHaveBeenCalledWith({
-			data: {
-				routeFamily: "/spaces/space-123",
-				spaceId: "space-123",
-			},
-		});
+		expect(resolveActiveOrganizationSpacePathMock).not.toHaveBeenCalled();
 	});
 
 	it("opens an agent-only membership through the canonical Human viewer without joining the Human", async () => {
@@ -766,12 +957,18 @@ describe("PublicSpacePage", () => {
 	});
 });
 
-function renderPublicSpace(input: { isAuthenticated: boolean }) {
+function renderPublicSpace(input: {
+	isAuthenticated: boolean;
+	signalId?: string;
+	threadRootSignalId?: string;
+}) {
 	return render(
 		<TestQueryClientProvider>
 			<PublicSpacePage
 				isAuthenticated={input.isAuthenticated}
+				signalId={input.signalId}
 				spaceId="space-123"
+				threadRootSignalId={input.threadRootSignalId}
 			/>
 		</TestQueryClientProvider>
 	);
@@ -822,6 +1019,17 @@ function createPublicSpaceApi(
 			spaceId: "space-123",
 			activeMemberProfiles: [],
 			preferredOpenProfileId: null,
+		})),
+		resolveEntry: vi.fn(async () => ({
+			participation: { state: "self_join_available" },
+			recovery: null,
+			safeContext: {
+				organizationId: "org-acme",
+				organizationSlug: "acme",
+				spaceName: "Shared Roadmap",
+			},
+			target: { spaceId: "space-123" },
+			view: { experience: "public", state: "allowed" },
 		})),
 		...overrides,
 	};

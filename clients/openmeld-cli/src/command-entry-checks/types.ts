@@ -154,6 +154,7 @@ export type CommandEntryName =
   | "space.contract"
   | "space.contract.set"
   | "space.publication.set"
+  | "space.access"
   | "space.status"
   | "space.updates"
   | "space.result"

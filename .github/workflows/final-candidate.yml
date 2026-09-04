@@ -251,10 +251,21 @@ jobs:
           persist-credentials: false
           ref: ${{ env.CANDIDATE_HEAD_SHA }}
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.0
+          run_install: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: "24"
+          cache: pnpm
+          cache-dependency-path: trusted-control/pnpm-lock.yaml
+
+      - name: Install the shared evidence parser only
+        run: pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
 
       - name: Download candidate evidence
         continue-on-error: true
@@ -270,7 +281,7 @@ jobs:
         run: |
           set -euo pipefail
           target_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
-          node trusted-control/scripts/ci/final-candidate-publisher.bundle.mjs \
+          node trusted-control/scripts/ci/final-candidate-publisher.mjs \
             --repository "$CANDIDATE_REPOSITORY" \
             --pr "$CANDIDATE_PR_NUMBER" \
             --branch "$CANDIDATE_BRANCH" \

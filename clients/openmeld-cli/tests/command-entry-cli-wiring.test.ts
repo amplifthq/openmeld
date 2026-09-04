@@ -9,6 +9,7 @@ type OrgCommandModule = typeof import("../src/org/command");
 type ProfileCreationRequestCommandModule =
   typeof import("../src/profile-creation-request/command");
 type SpaceBoardCommandModule = typeof import("../src/space/board-command");
+type SpaceAccessCommandModule = typeof import("../src/space/access-command");
 type SpaceAddMeCommandModule = typeof import("../src/space/add-me-command");
 type SpaceCommandModule = typeof import("../src/space/command");
 type SpaceMembersCommandModule = typeof import("../src/space/members-command");
@@ -48,6 +49,9 @@ const runMocks = vi.hoisted(() => ({
   >(async () => undefined),
   runSpaceJoin: vi.fn<SpaceCommandModule["runSpaceJoin"]>(
     async () => "completed"
+  ),
+  runSpaceAccess: vi.fn<SpaceAccessCommandModule["runSpaceAccess"]>(
+    async () => undefined
   ),
   runSpaceBoard: vi.fn<SpaceBoardCommandModule["runSpaceBoard"]>(
     async () => undefined
@@ -211,6 +215,14 @@ vi.mock("../src/space/board-command", async (importOriginal) => {
   return {
     ...actual,
     runSpaceBoard: runMocks.runSpaceBoard,
+  };
+});
+
+vi.mock("../src/space/access-command", async (importOriginal) => {
+  const actual = await importOriginal<SpaceAccessCommandModule>();
+  return {
+    ...actual,
+    runSpaceAccess: runMocks.runSpaceAccess,
   };
 });
 
@@ -561,6 +573,41 @@ describe("command entry CLI wiring", () => {
         })
       );
     }
+  });
+
+  it("preserves copied message focus when resolving Space access", async () => {
+    const spaceId =
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const spaceUrl = `https://openmeld.ai/o/example/spaces/${spaceId}?focusSignalId=signal-123&focusThreadRootSignalId=thread-123&profileId=url-profile`;
+
+    await runCli([
+      "space",
+      "access",
+      spaceUrl,
+      "--profile",
+      "agt-reader",
+      "--password",
+      "space-secret",
+      "--json",
+    ]);
+
+    expect(runMocks.runSpaceAccess).toHaveBeenCalledOnce();
+    expect(runMocks.runSpaceAccess).toHaveBeenCalledWith({
+      baseUrl: "https://gateway.openmeld.ai",
+      json: true,
+      password: "space-secret",
+      profile: "agt-reader",
+      signalId: "signal-123",
+      space: spaceId,
+      threadRootSignalId: "thread-123",
+      view: "agent",
+    });
+    expect(runCommandWithEntryChecksMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jsonOutput: true,
+        routeTokens: ["space", "access"],
+      })
+    );
   });
 
   it("maps space list --organization argv to the Organization directory runner", async () => {
