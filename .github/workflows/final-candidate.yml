@@ -116,16 +116,21 @@ jobs:
           persist-credentials: false
           ref: ${{ env.CANDIDATE_HEAD_SHA }}
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Check release branch policy before dependency setup
+        working-directory: untrusted-candidate
+        shell: bash
+        run: node ../trusted-control/scripts/release/release-branch-policy.mjs "$CANDIDATE_BRANCH" "$CANDIDATE_BASE_SHA"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 10.30.0
           run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: "24"
 
       - name: Download prior trusted evidence when available
         env:

@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { isDeepStrictEqual, promisify } from "node:util";
+import { promisify } from "node:util";
 import { buildPackagedOpenMeldCli } from "./build-packaged-openmeld-cli.mjs";
 import {
   CHANNEL_SYNC_CHECK_ENV_VAR,
@@ -20,6 +20,7 @@ import {
   resolveEffectiveReleaseBase,
   resolveLatestReleaseTag,
 } from "./local-components.mjs";
+import { compareDeferredReleaseBranchFacts } from "./release-branch-policy.mjs";
 import { selectReleaseReadyPaths } from "./release-ready-paths.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -235,7 +236,13 @@ export function evaluateDeferredReleaseState(input) {
   const errors = [];
   const baseVersion = normalizeVersion(input.basePackageJson?.version);
   const currentVersion = normalizeVersion(input.currentPackageJson?.version);
-  if (!(baseVersion && currentVersion && baseVersion === currentVersion)) {
+  const comparison = compareDeferredReleaseBranchFacts({
+    baseManifest: input.baseManifest,
+    basePackageVersion: baseVersion,
+    currentManifest: input.currentManifest,
+    currentPackageVersion: currentVersion,
+  });
+  if (!(baseVersion && currentVersion && comparison.packageVersionMatches)) {
     errors.push(
       `CLI package version must match the PR base in deferred-release mode: base=${baseVersion ?? "missing"} current=${currentVersion ?? "missing"}.`
     );
@@ -249,7 +256,7 @@ export function evaluateDeferredReleaseState(input) {
     errors.push(
       "The current local-components manifest is missing or uses an unsupported schema version."
     );
-  } else if (!isDeepStrictEqual(input.currentManifest, input.baseManifest)) {
+  } else if (!comparison.manifestMatches) {
     errors.push(
       "release/local-components.json manifest must remain identical to the PR base in deferred-release mode."
     );

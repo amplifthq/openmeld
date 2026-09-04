@@ -199,6 +199,24 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(!finalizer.includes("pnpm"));
 });
 
+test("rejects premature release stamps before dependency setup", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const candidateJob = readJob(workflow, "candidate", "publish_final");
+  const preflight = candidateJob.indexOf(
+    "Check release branch policy before dependency setup"
+  );
+  const dependencySetup = candidateJob.indexOf("Setup pnpm");
+
+  assert.ok(preflight >= 0);
+  assert.ok(dependencySetup >= 0);
+  assert.ok(preflight < dependencySetup);
+  assert.ok(
+    candidateJob.includes(
+      'node ../trusted-control/scripts/release/release-branch-policy.mjs "$CANDIDATE_BRANCH" "$CANDIDATE_BASE_SHA"'
+    )
+  );
+});
+
 test("disables candidate install hooks before selected commands", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
   const candidateJob = readJob(workflow, "candidate", "publish_final");

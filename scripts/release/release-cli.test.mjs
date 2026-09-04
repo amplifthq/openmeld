@@ -27,6 +27,7 @@ import {
 import {
   probeCliReleaseStages,
   resolveCoreProjectionTag,
+  waitForNpmPropagation,
 } from "./release-cli-resume.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -1275,6 +1276,89 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
     reason: "the production CLI manifest is at 0.3.130, below target 0.3.131",
   });
   assert.deepEqual(artifactRequests, []);
+});
+
+test("waits for npm propagation only after this run published the package", async () => {
+  const waits = [];
+  const npmDecisions = [
+    {
+      action: "RUN",
+      reason: "npm does not publish openmeld@0.7.96",
+    },
+    {
+      action: "SKIP",
+      criterion: "npm-version-and-floor-exist",
+      reason: "npm already publishes openmeld@0.7.96",
+    },
+  ];
+  const final = {
+    alignment: { action: "RUN", reason: "npm is incomplete" },
+    binary: { action: "SKIP" },
+    core: { action: "SKIP" },
+    npm: {
+      action: "RUN",
+      reason: "npm does not publish openmeld@0.7.96",
+    },
+    tag: { action: "SKIP" },
+  };
+
+  const result = await waitForNpmPropagation({
+    delays: [10_000, 20_000],
+    final,
+    npmPublishedThisRun: true,
+    probeNpm: () => Promise.resolve(npmDecisions.shift()),
+    sleep: (delayMs) => {
+      waits.push(delayMs);
+      return Promise.resolve();
+    },
+    write: () => undefined,
+  });
+
+  assert.deepEqual(waits, [10_000, 20_000]);
+  assert.equal(result.npm.action, "SKIP");
+  assert.equal(result.alignment.action, "SKIP");
+});
+
+test("does not wait for npm on a resume or an inconclusive probe", async () => {
+  for (const releaseCase of [
+    {
+      npmPublishedThisRun: false,
+      npm: { action: "RUN", reason: "npm version is absent" },
+    },
+    {
+      npmPublishedThisRun: true,
+      npm: { action: "FAIL", probeFailure: true, reason: "npm timed out" },
+    },
+  ]) {
+    let probed = false;
+    let slept = false;
+    const final = {
+      alignment: { action: releaseCase.npm.action, reason: "not aligned" },
+      binary: { action: "SKIP" },
+      core: { action: "SKIP" },
+      npm: releaseCase.npm,
+      tag: { action: "SKIP" },
+    };
+
+    const result = await waitForNpmPropagation({
+      delays: [10_000],
+      final,
+      npmPublishedThisRun: releaseCase.npmPublishedThisRun,
+      probeNpm: () => {
+        probed = true;
+        return Promise.resolve({ action: "SKIP" });
+      },
+      sleep: () => {
+        slept = true;
+        return Promise.resolve();
+      },
+      write: () => undefined,
+    });
+
+    assert.equal(result, final);
+    assert.equal(probed, false);
+    assert.equal(slept, false);
+  }
 });
 
 test("stops before every release mutation when the manifest is not the exact canonical target", async () => {

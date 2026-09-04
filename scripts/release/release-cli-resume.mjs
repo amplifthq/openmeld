@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { setTimeout as sleep } from "node:timers/promises";
 import { gunzipSync } from "node:zlib";
 
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
@@ -19,6 +20,7 @@ import {
 const CLI_BINARY_PLATFORM = "darwin-arm64";
 const ARTIFACT_PROBE_TIMEOUT_MS = 60_000;
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
+const NPM_PROPAGATION_DELAYS_MS = [10_000, 20_000, 30_000, 60_000];
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const WHITESPACE_SPLIT_REGEX = /\s+/u;
 const RELEASE_RESUME_COMMAND = "pnpm run release:deploy:local -- --scope cli";
@@ -43,6 +45,7 @@ export async function runResumableCliRelease(input) {
       input.release.publishCliReleaseTag,
     readRemoteTagCommit:
       input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit,
+    sleep: input.adapters?.sleep ?? sleep,
   };
 
   input.release.assertCleanWorktree({ cwd });
@@ -165,15 +168,28 @@ async function executeIncompleteCliRelease(input) {
     step: productionQueueGate,
   });
   runBinaryReleaseStage({ ...input, preTagSteps });
-  runNpmReleaseStage({ ...input, preTagSteps });
+  const npmPublishedThisRun = runNpmReleaseStage({ ...input, preTagSteps });
   runReleaseTagStage(input);
   runCoreProjectionStage(input);
 
-  const final = await probeCliReleaseStages({
+  let final = await probeCliReleaseStages({
     adapters: input.adapters,
     cwd: input.cwd,
     env: input.env,
     target: input.target,
+  });
+  final = await waitForNpmPropagation({
+    final,
+    npmPublishedThisRun,
+    probeNpm: () =>
+      probeNpmPublishStage({
+        adapters: input.adapters,
+        cwd: input.cwd,
+        env: input.env,
+        target: input.target,
+      }),
+    sleep: input.adapters.sleep,
+    write: input.write,
   });
   printStageDecision(
     "Final R2/npm/Core alignment",
@@ -231,7 +247,43 @@ function runNpmReleaseStage(input) {
         "npm publish may be incomplete or may already have succeeded.",
       step: npmStep,
     });
+    return true;
   }
+  return false;
+}
+
+export async function waitForNpmPropagation(input) {
+  let final = input.final;
+  if (
+    !input.npmPublishedThisRun ||
+    final.npm.action !== "RUN" ||
+    final.binary.action !== "SKIP" ||
+    final.core.action !== "SKIP" ||
+    final.tag.action !== "SKIP"
+  ) {
+    return final;
+  }
+
+  for (const delayMs of input.delays ?? NPM_PROPAGATION_DELAYS_MS) {
+    input.write(
+      `\n[release:cli] npm registry propagation — WAIT ${delayMs / 1000}s: npm accepted the immutable publish but does not expose the exact version yet.\n`
+    );
+    await input.sleep(delayMs);
+    const npm = await input.probeNpm();
+    final = {
+      ...final,
+      alignment: decideChannelAlignmentStage({
+        binary: final.binary,
+        core: final.core,
+        npm,
+      }),
+      npm,
+    };
+    if (npm.action !== "RUN") {
+      break;
+    }
+  }
+  return final;
 }
 
 function runReleaseTagStage(input) {
