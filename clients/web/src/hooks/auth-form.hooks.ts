@@ -19,7 +19,7 @@ import {
 	resolvePostAuthRedirect,
 	sanitizeRedirectTarget,
 } from "#/lib/auth-redirect";
-import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
+import { completeAccountAuthChange } from "#/query/auth-boundary";
 import { userQueryKeys } from "#/query/query-keys";
 
 function deriveNameFromEmail(email: string): string {
@@ -98,7 +98,7 @@ export function useEmailSignIn() {
 			};
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-created");
 		},
 	});
 }
@@ -132,7 +132,7 @@ export function useEmailSignUp() {
 			};
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-created");
 		},
 	});
 }
@@ -211,7 +211,7 @@ export function useVerifyEmailToken() {
 			return { redirectTo: resolvePostAuthRedirect() };
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-created");
 		},
 	});
 }
@@ -229,7 +229,7 @@ export function useVerifyMagicLinkToken() {
 			return { redirectTo: resolvePostAuthRedirect() };
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-created");
 		},
 	});
 }
@@ -261,7 +261,7 @@ export function useLogoutAction() {
 			assertNoAuthError(result, "Failed to sign out.");
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "signed-out");
 		},
 	});
 }

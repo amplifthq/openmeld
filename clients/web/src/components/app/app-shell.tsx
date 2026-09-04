@@ -11,6 +11,10 @@ import { AppOrganizationProvider } from "#/lib/organizations/organization-contex
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import {
+	resetAccountScopedQueriesAfterAuthChange,
+	subscribeToAccountAuthChanges,
+} from "#/query/auth-boundary";
+import {
 	type AppShellAccount,
 	AppShellAccountContext,
 } from "./app-shell-account";
@@ -34,6 +38,7 @@ export function AppShell(input: {
 
 	return (
 		<AppShellAccountContext.Provider value={input.account}>
+			<AccountAuthChangeListener />
 			<AppOrganizationProvider scope={input.organizationScope}>
 				<WebMemberActivityReporter
 					currentUserId={input.organizationScope.currentUserId}
@@ -68,6 +73,25 @@ export function AppShell(input: {
 			</AppOrganizationProvider>
 		</AppShellAccountContext.Provider>
 	);
+}
+
+function AccountAuthChangeListener() {
+	const queryClient = useQueryClient();
+	const reloadingRef = useRef(false);
+
+	useEffect(() => {
+		return subscribeToAccountAuthChanges(() => {
+			if (reloadingRef.current) {
+				return;
+			}
+			reloadingRef.current = true;
+			resetAccountScopedQueriesAfterAuthChange(queryClient).finally(() => {
+				window.location.assign("/");
+			});
+		});
+	}, [queryClient]);
+
+	return null;
 }
 
 function AppReadinessInvalidationListener(input: {
