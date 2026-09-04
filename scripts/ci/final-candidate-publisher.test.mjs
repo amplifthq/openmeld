@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import { createFinalCandidatePlan } from "./final-candidate-policy.mjs";
-import { assertEvidenceMatchesExecution } from "./final-candidate-publisher.bundle.mjs";
+import { assertEvidenceMatchesExecution } from "./final-candidate-publisher.mjs";
 
 const BASE_SHA = "1".repeat(40);
 const HEAD_SHA = "2".repeat(40);

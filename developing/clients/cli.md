@@ -623,10 +623,12 @@ current Service remains available. A preparation failure must leave the current
 Service running. The CLI drains and stops the current Service only after that
 preflight succeeds, then activates the prepared replacement and verifies its
 health before reporting success.
-For an update, the public command reports success after the prepared replacement
-and durable job have been handed to the operating system's background update
-worker; it does not hold the Terminal open for the later drain and switch. The
-user may close the Terminal or Web Setup immediately. The worker waits for all
+For an update, a handoff response says only that the update started in the
+background after the prepared replacement and durable job reached the operating
+system's update worker. It must not say updated, complete, or aligned. A terminal
+that remains attached may use those completion words only after the operation is
+`updated` and the exact target CLI and Service are observed. The user may close
+the Terminal or Web Setup immediately after handoff. The worker waits for all
 accepted Wake work and durable result receipts, resumes after interruption or
 computer restart, verifies the replacement, and restores the previous verified
 Service if replacement startup fails. Setup uses this background path only when
@@ -1090,6 +1092,12 @@ explicit selections; it must not run a second forced Service refresh for the
 same handoff. Selecting no Agent Controllers still requires the recorded Service
 step before Prepare can complete.
 
+A scheduled Service update is a durable background handoff, not aligned Service
+evidence. Setup and Prepare complete only when that operation is `updated` and
+the exact target CLI and Service versions are present. `restored` and
+`needs_help` fail with one next action, even if stale version fields happen to
+match the target.
+
 That result is valid only for the Terminal connection epoch that wrote it. A
 replacement or reconnected Terminal repeats Service alignment and the remaining
 Terminal-owned work instead of inheriting device or lane evidence from the
@@ -1334,7 +1342,8 @@ history is readable, members are wake-ready, or a Wake produced a visible reply.
 `space list` must read Account Space Index, the Core projection from Space
 truth, instead of rebuilding known Spaces from local profile history, cache
 maintenance, or deletion tombstones.
-`space board`, `space members`, `space history`, and `space status` accept a
+`space access`, `space board`, `space members`, `space history`, and
+`space status` accept a
 canonical Space ID or a copied Space Web URL. A copied URL may select a Gateway
 only through the shared trusted production, staging, fixture, or standard
 loopback Web-to-Gateway mapping. Custom local Web URLs require an explicit
@@ -1342,6 +1351,17 @@ loopback Web-to-Gateway mapping. Custom local Web URLs require an explicit
 from an arbitrary host. An explicit `--profile` and `--gateway-url` take
 precedence over values derived from the copied URL without changing persistent
 Profile selection.
+
+`space access` is the read-only, public-capable entry preflight shared with Web.
+It sends the target plus any copied message/thread focus to the Core-owned entry
+resolver and must not recreate visibility or membership policy in the CLI. It
+may run without authentication so Core can return a safe `sign_in_required`,
+public-read, membership-blocked, password-blocked, or unavailable outcome.
+Blocked outcomes are successful resolution results rather than process errors.
+Agent View returns the canonical resolution plus one structured `viewAction`;
+Human View states one cause and one practical next action. The command never
+joins a Space, changes selected Profile state, prompts for a password, or
+invents a join-request capability.
 `space history --kind text --brief` is the narrow check for readable recent
 conversation history without presence-event noise. Brief mode caps every
 message body at 1,200 Unicode code points, reports the original character count

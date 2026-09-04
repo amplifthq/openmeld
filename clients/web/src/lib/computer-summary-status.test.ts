@@ -311,6 +311,35 @@ describe("computer summary status", () => {
 		).toBeNull();
 	});
 
+	it("prioritizes an available Tools update over a sign-in-only local agent", () => {
+		const readiness = buildReadiness({
+			canReplyFromThisComputer: false,
+			localComponents: buildLocalComponents({ cliStatus: "update_available" }),
+			nextAction: "run_setup",
+			primaryBlocker: "agent_controller_report_not_ready",
+			runtime: {
+				...buildReadiness().runtime,
+				reasonCodes: ["controller.auth.unauthenticated"],
+				signInOnlyBlockers: true,
+			},
+			status: "blocked",
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({ readiness })
+		).toMatchObject({
+			label: "Update available",
+			reason: "openmeld_tools_update",
+			tone: "warning",
+		});
+		expect(
+			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
+				localRuntimeCount: 1,
+				readiness,
+			})
+		).toBe("warning");
+	});
+
 	it("names and identifies one local agent that needs sign-in", () => {
 		const readiness = buildReadiness({
 			canReplyFromThisComputer: false,
@@ -520,7 +549,7 @@ describe("computer summary status", () => {
 		});
 	});
 
-	it("replaces cached attention with checking while all surfaces reconcile", () => {
+	it("retains a cached Tools update while background status reconciles", () => {
 		const readiness = buildReadiness({
 			localComponents: buildLocalComponents({
 				cliStatus: "update_available",
@@ -531,14 +560,18 @@ describe("computer summary status", () => {
 			readiness,
 		});
 
-		expect(status).toMatchObject({ reason: "checking", tone: "checking" });
+		expect(status).toMatchObject({
+			label: "Update available",
+			reason: "openmeld_tools_update",
+			tone: "warning",
+		});
 		expect(
 			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
 				isReconcilingStatus: true,
 				localRuntimeCount: 1,
 				readiness,
 			})
-		).toBeNull();
+		).toBe("warning");
 	});
 
 	it("uses checking when Core is actively refreshing stale agent evidence", () => {

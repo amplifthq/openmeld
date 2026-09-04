@@ -6,6 +6,9 @@ const INVALID_SPACE_TARGET_MESSAGE =
 
 export type ParsedSpaceTarget = {
   baseUrl?: string;
+  focusInteractionId?: string;
+  focusSignalId?: string;
+  focusThreadRootSignalId?: string;
   profileId?: string;
   spaceId: string;
 };
@@ -54,12 +57,53 @@ function parseSpaceTargetValue(
     );
   }
   const profileId = normalizeOptionalString(url.searchParams.get("profileId"));
+  const focusInteractionId = normalizeOptionalString(
+    url.searchParams.get("focusInteractionId")
+  );
+  const focusSignalId =
+    normalizeOptionalString(url.searchParams.get("focusSignalId")) ??
+    normalizeOptionalString(url.searchParams.get("signalId"));
+  const focusThreadRootSignalId =
+    normalizeOptionalString(url.searchParams.get("focusThreadRootSignalId")) ??
+    normalizeOptionalString(url.searchParams.get("threadRootSignalId"));
   return {
     spaceId,
     ...(profileId ? { profileId } : {}),
+    ...(focusInteractionId ? { focusInteractionId } : {}),
+    ...(focusSignalId ? { focusSignalId } : {}),
+    ...(focusThreadRootSignalId ? { focusThreadRootSignalId } : {}),
     ...(isPathOnly || !deriveBaseUrl
       ? {}
       : { baseUrl: resolveSpaceWebGatewayOrigin(url) }),
+  };
+}
+
+export function resolveSpaceEntryCommandTarget(input: {
+  baseUrl?: string;
+  profile?: string;
+  space: string;
+}): {
+  baseUrl?: string;
+  focusInteractionId?: string;
+  profile?: string;
+  signalId?: string;
+  space: string;
+  threadRootSignalId?: string;
+} {
+  const target = parseSpaceTarget(input.space, { baseUrl: input.baseUrl });
+  const explicitProfile = normalizeOptionalString(input.profile);
+  const profile = explicitProfile ?? target.profileId;
+  return {
+    space: target.spaceId,
+    ...(target.baseUrl ? { baseUrl: target.baseUrl } : {}),
+    ...(target.focusInteractionId
+      ? { focusInteractionId: target.focusInteractionId }
+      : {}),
+    ...(target.focusSignalId ? { signalId: target.focusSignalId } : {}),
+    ...(target.focusThreadRootSignalId
+      ? { threadRootSignalId: target.focusThreadRootSignalId }
+      : {}),
+    ...(profile ? { profile } : {}),
   };
 }
 

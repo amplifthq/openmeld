@@ -1222,13 +1222,12 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "🎉 Computer connected",
       "",
-      "Your computer is connected.",
+      "🎉 Your computer is connected.",
       "",
       "Local agents are syncing in the background.",
       "",
-      "Return to OpenMeld Web: https://gateway.openmeld.test/",
+      "Open OpenMeld Web: OpenMeld Web.",
     ]);
     expect(completionLines.join("\n")).not.toContain("None connected");
     expect(completionLines.join("\n")).not.toContain("Install guide");
@@ -1260,13 +1259,12 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "🎉 Computer connected",
       "",
-      "Your computer is connected.",
+      "🎉 Your computer is connected.",
       "",
       "Local agents connected: Codex.",
       "",
-      "Return to OpenMeld Web: https://gateway.openmeld.test/",
+      "Open OpenMeld Web: OpenMeld Web.",
     ]);
     const output = presenter.line.mock.calls
       .map(([line]) => (line as { text: string }).text)
@@ -1316,15 +1314,16 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "OpenMeld needs one more step",
+      "",
+      "⚠️ OpenMeld needs one more step.",
       "",
       "Your computer is connected, but OpenMeld could not finish preparing it.",
       "",
-      "Reason: Invalid visibility",
+      "Reason: Invalid visibility.",
       "",
-      "Next: Run openmeld setup",
+      "Next: Run openmeld setup.",
       "",
-      "Return to OpenMeld Web: https://gateway.openmeld.test/",
+      "Open OpenMeld Web: OpenMeld Web.",
     ]);
     expect(completionLines.join("\n")).not.toContain("🎉");
     expect(completionLines.join("\n")).not.toContain("complete");
@@ -1366,7 +1365,7 @@ describe("setup command", () => {
     );
     expect(output).not.toContain("Stop service: openmeld service stop");
     expect(output).not.toContain("✓ OpenMeld Skills");
-    expect(output).toContain("🎉 Computer connected");
+    expect(output).toContain("🎉 Your computer is connected.");
     expect(output).not.toContain("AI setup agents:");
     expect(output).not.toContain("-----BEGIN OpenMeld SETUP COMPLETE-----");
     expect(runDaemonServiceParticipationGateMock).toHaveBeenCalledWith(
@@ -1404,15 +1403,14 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "🎉 Computer connected",
       "",
-      "Your computer is connected.",
+      "🎉 Your computer is connected.",
       "",
       "OpenMeld did not find a supported local agent on this computer.",
       "",
       "Install a local agent: https://gateway.openmeld.test/guides/local-agents",
       "",
-      "Return to OpenMeld Web: https://gateway.openmeld.test/",
+      "Open OpenMeld Web: OpenMeld Web.",
     ]);
   });
 

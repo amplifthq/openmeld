@@ -11158,6 +11158,8 @@ describe("SpaceLanding", () => {
 			}
 		);
 		useQueryClientMock.mockReturnValue({
+			getQueryCache: vi.fn(() => ({ find: vi.fn(() => null) })),
+			getQueryData: vi.fn(),
 			invalidateQueries: invalidateQueriesMock,
 			setQueryData: vi.fn(),
 		});
@@ -11283,6 +11285,8 @@ describe("SpaceLanding", () => {
 			.fn()
 			.mockRejectedValue(new Error("members refresh failed"));
 		useQueryClientMock.mockReturnValue({
+			getQueryCache: vi.fn(() => ({ find: vi.fn(() => null) })),
+			getQueryData: vi.fn(),
 			invalidateQueries: invalidateQueriesMock,
 			setQueryData: vi.fn(),
 		});
@@ -11397,6 +11401,8 @@ describe("SpaceLanding", () => {
 		const statusRefetchMock = vi.fn().mockResolvedValue(undefined);
 		const membersRefetchMock = vi.fn().mockResolvedValue(undefined);
 		useQueryClientMock.mockReturnValue({
+			getQueryCache: vi.fn(() => ({ find: vi.fn(() => null) })),
+			getQueryData: vi.fn(),
 			invalidateQueries: invalidateQueriesMock,
 			setQueryData: vi.fn(),
 		});

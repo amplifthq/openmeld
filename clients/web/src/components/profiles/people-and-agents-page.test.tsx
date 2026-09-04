@@ -857,7 +857,7 @@ describe("PeopleAndAgentsPage", () => {
 		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([
 			"agt_11111111-1111-4111-8111-111111111111",
 		]);
-		expect(workspaceProps.readinessIsRefreshing).toBe(false);
+		expect(workspaceProps.readinessIsRefreshing).toBeUndefined();
 	});
 
 	it("keeps the cached Core overview visible while a background refresh runs", () => {
@@ -896,7 +896,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 
 		const workspaceProps = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
-		expect(workspaceProps.readinessIsRefreshing).toBe(true);
+		expect(workspaceProps.readinessIsRefreshing).toBeUndefined();
 		expect(agentProfilesCardSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				agentExecutionReadinessIsRefreshing: true,
@@ -964,28 +964,25 @@ describe("PeopleAndAgentsPage", () => {
 			/>
 		);
 
-		let workspaceNowMs =
-			agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
-		expect(
-			formatAgentWakeAvailabilityCheckedAt(checkedAt, workspaceNowMs)
-		).toBe("checked just now");
-		expect(
-			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs
-		).toBe(workspaceNowMs);
+		let detailNowMs =
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
+		expect(formatAgentWakeAvailabilityCheckedAt(checkedAt, detailNowMs)).toBe(
+			"checked just now"
+		);
 
 		act(() => vi.advanceTimersByTime(60_000));
-		workspaceNowMs =
-			agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
-		expect(
-			formatAgentWakeAvailabilityCheckedAt(checkedAt, workspaceNowMs)
-		).toBe("checked 1 minute ago");
+		detailNowMs =
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
+		expect(formatAgentWakeAvailabilityCheckedAt(checkedAt, detailNowMs)).toBe(
+			"checked 1 minute ago"
+		);
 
 		act(() => vi.advanceTimersByTime(120_000));
-		workspaceNowMs =
-			agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
-		expect(
-			formatAgentWakeAvailabilityCheckedAt(checkedAt, workspaceNowMs)
-		).toBe("checked 3 minutes ago");
+		detailNowMs =
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
+		expect(formatAgentWakeAvailabilityCheckedAt(checkedAt, detailNowMs)).toBe(
+			"checked 3 minutes ago"
+		);
 	});
 
 	it("counts only pending requests from the existing organization request query", () => {

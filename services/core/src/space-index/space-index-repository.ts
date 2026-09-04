@@ -73,8 +73,11 @@ export type SpaceIndexProjectionEvent = {
 };
 
 export type SpaceIndexOrganizationJoinTarget = {
+  creatorProfileId: string | null;
+  creatorProfileName: string | null;
   organizationId: string;
   spaceId: string;
+  spaceName: string | null;
   visibility: SpaceOrganizationVisibility;
 };
 
@@ -217,9 +220,12 @@ type SpaceIndexCenterAgentDirectMessageProjectionCandidateRow = {
 };
 
 type SpaceIndexOrganizationJoinTargetRow = {
+  creator_profile_id: string | null;
+  creator_profile_name: string | null;
   organization_id: string;
   organization_visibility: SpaceOrganizationVisibility;
   space_id: string;
+  space_name: string | null;
 };
 
 export type SpaceIndexDirectMessageCandidate = {
@@ -1159,9 +1165,12 @@ export async function readSpaceIndexOrganizationJoinTarget(input: {
     .prepare(
       `
         SELECT
+          creator_profile_id,
+          creator_profile_name,
           space_id,
           organization_id,
-          organization_visibility
+          organization_visibility,
+          space_name
         FROM space_index_spaces
         WHERE space_id = ?
           AND status = 'active'
@@ -1175,8 +1184,11 @@ export async function readSpaceIndexOrganizationJoinTarget(input: {
     return null;
   }
   return {
+    creatorProfileId: row.creator_profile_id,
+    creatorProfileName: row.creator_profile_name,
     organizationId: row.organization_id,
     spaceId: row.space_id,
+    spaceName: row.space_name,
     visibility: row.organization_visibility,
   };
 }

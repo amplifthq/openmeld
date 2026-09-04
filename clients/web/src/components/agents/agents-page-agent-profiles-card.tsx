@@ -3840,6 +3840,7 @@ function AgentProfileWorkspacePresentation(input: {
 								input.input.ownerProfile?.ownerUserId
 							}
 							runtime={input.runtime}
+							wakeAvailability={input.input.wakeAvailability}
 						/>
 					) : (
 						<AgentProfileReadOnlyConfigurationOverview
@@ -3970,6 +3971,7 @@ type AgentProfileConfigurationOverviewProps = {
 	} | null;
 	showHeading?: boolean;
 	compact?: boolean;
+	wakeAvailability?: AgentWakeAvailability | null;
 };
 
 type AgentProfileConfigurationEditorId =
@@ -4134,9 +4136,13 @@ export function AgentProfileConfigurationOverview(
 		: "Controller default";
 	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "You";
 	const ownerProfileId = input.ownerProfileId ?? owner;
-	const workingFolder =
-		resolveProfileDetailsValue(input.details, "workspace_directory") ??
-		"OpenMeld managed";
+	const workingFolderMissing = isWorkingFolderMissing(
+		input.wakeAvailability?.reasonCode
+	);
+	const workingFolder = workingFolderMissing
+		? "Working folder missing"
+		: (resolveProfileDetailsValue(input.details, "workspace_directory") ??
+			"OpenMeld managed");
 	return (
 		<section
 			className="grid min-w-0 gap-3"
@@ -4154,6 +4160,7 @@ export function AgentProfileConfigurationOverview(
 				<AgentProfileModelConfigurationCard editor={editor} input={input} />
 				<AgentProfileWorkingFolderConfigurationCard
 					disabled={input.disabled}
+					missing={workingFolderMissing}
 					onOpen={input.onOpenProjectSettings}
 					summary={workingFolder}
 				/>
@@ -4301,13 +4308,26 @@ function AgentProfileOwnerConfigurationCard(input: {
 
 function AgentProfileWorkingFolderConfigurationCard(input: {
 	disabled: boolean;
+	missing: boolean;
 	onOpen: (() => void) | undefined;
 	summary: string;
 }) {
 	return (
 		<AgentConfigurationCard
+			actionLabel={input.missing ? "Choose folder" : undefined}
+			attention={input.missing}
+			description={
+				input.missing ? "Choose a working folder for this Agent." : undefined
+			}
 			disabled={input.disabled || !input.onOpen}
 			icon={<FolderOpenIcon aria-hidden="true" />}
+			inlineContent={
+				input.missing ? (
+					<span className="font-medium text-primary text-xs">
+						Choose folder
+					</span>
+				) : undefined
+			}
 			itemId="working-folder"
 			label="Working folder"
 			onClick={input.onOpen}
@@ -4316,6 +4336,15 @@ function AgentProfileWorkingFolderConfigurationCard(input: {
 			summaryClassName="truncate"
 			summaryTitle={input.summary}
 		/>
+	);
+}
+
+function isWorkingFolderMissing(reasonCode: string | null | undefined) {
+	return (
+		reasonCode === "workspace.missing" ||
+		reasonCode === "profile.workspace.missing" ||
+		reasonCode === "project.local_connection.missing" ||
+		reasonCode === "project.local_connection.folder_missing"
 	);
 }
 

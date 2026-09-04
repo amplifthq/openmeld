@@ -16,7 +16,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveAgentProfileSidebarGroups } from "./agent-profile-sidebar-groups";
 import { AgentProfilesWorkspace } from "./agent-profiles-workspace";
 
-const appFullWidthLayoutSpy = vi.hoisted(() => vi.fn());
+const { appFullWidthLayoutSpy, appNavigationPresentationSpy } = vi.hoisted(
+	() => ({
+		appFullWidthLayoutSpy: vi.fn(),
+		appNavigationPresentationSpy: vi.fn(() => ({ dismiss: vi.fn() })),
+	})
+);
 
 vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
@@ -71,7 +76,7 @@ vi.mock("#/components/app/app-contextual-layout", () => ({
 }));
 
 vi.mock("#/components/app/app-navigation-presentation", () => ({
-	useAppNavigationPresentation: () => ({ dismiss: vi.fn() }),
+	useAppNavigationPresentation: () => appNavigationPresentationSpy(),
 }));
 
 const CURRENT_USER_ID = "user-current";
@@ -97,6 +102,7 @@ const TEST_MODEL_CATALOG: ModelCatalog = {
 afterEach(() => {
 	cleanup();
 	appFullWidthLayoutSpy.mockReset();
+	appNavigationPresentationSpy.mockClear();
 });
 
 describe("AgentProfilesWorkspace", () => {
@@ -374,23 +380,51 @@ describe("AgentProfilesWorkspace", () => {
 		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
 	});
 
-	it("retains a cached Available verdict and its age during background refresh", () => {
+	it("keeps only the stable Available verdict visible during background refresh", () => {
 		renderWorkspace({
 			readinessByProfileId: new Map([
 				[
 					"agent-current",
 					{
 						...createReadiness(),
+						agentWakeAvailability: {
+							...createReadiness().agentWakeAvailability,
+							isRefreshing: true,
+						},
 						generatedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
 					},
 				],
 			]),
-			readinessIsRefreshing: true,
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(item.textContent).toContain("Available · checked 3 minutes ago");
-		expect(item.textContent).toContain("Refreshing…");
+		expect(item.textContent).toContain("Available");
+		expect(item.textContent).not.toContain("checked 3 minutes ago");
+		expect(item.textContent).not.toContain("Refreshing…");
+	});
+
+	it("does not rerender an unrelated Agent row after targeted readiness changes", () => {
+		const onSelectProfile = vi.fn();
+		const initialReadiness = createReadiness();
+		const { rerenderWorkspace } = renderWorkspace({
+			onSelectProfile,
+			readinessByProfileId: new Map([["agent-current", initialReadiness]]),
+		});
+		appNavigationPresentationSpy.mockClear();
+
+		rerenderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...initialReadiness,
+						generatedAt: "2026-09-04T10:01:00.000Z",
+					},
+				],
+			]),
+		});
+
+		expect(appNavigationPresentationSpy).toHaveBeenCalledOnce();
 	});
 
 	it("shows the Controller default model when no model is explicitly selected", () => {
@@ -433,7 +467,7 @@ describe("AgentProfilesWorkspace", () => {
 		expect(item.textContent).not.toContain("Checking");
 	});
 
-	it("uses the shared text shimmer on the Agent name while checking activity", () => {
+	it("keeps the Agent identity static while activity is checking", () => {
 		renderWorkspace({
 			operationalContextByProfileId: new Map([
 				[
@@ -451,8 +485,8 @@ describe("AgentProfilesWorkspace", () => {
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
 		const name = within(item).getByText("Felix Agent");
-		expect(name.className).toContain("bg-clip-text");
-		expect(name.style.backgroundImage).toContain("var(--bg)");
+		expect(name.className).not.toContain("bg-clip-text");
+		expect(name.style.backgroundImage).toBe("");
 	});
 
 	it("shows owner and team-safe workload on their rows", () => {
@@ -537,7 +571,7 @@ describe("AgentProfilesWorkspace", () => {
 		expect(ownerStatus.className).toContain("dark:text-amber-400");
 	});
 
-	it("keeps cached sidebar availability when its refresh fails", () => {
+	it("keeps cached sidebar availability without exposing refresh detail", () => {
 		renderWorkspace({
 			readinessByProfileId: new Map([
 				[
@@ -555,11 +589,9 @@ describe("AgentProfilesWorkspace", () => {
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
 		expect(item.textContent).toContain("Available");
-		expect(item.textContent).toContain("checked just now");
-		expect(item.textContent).toContain("Couldn’t refresh availability.");
-		expect(within(item).getByRole("alert").textContent).toContain(
-			"Core could not refresh Wake availability."
-		);
+		expect(item.textContent).not.toContain("checked just now");
+		expect(item.textContent).not.toContain("Couldn’t refresh availability.");
+		expect(within(item).queryByRole("alert")).toBeNull();
 	});
 
 	it("shows a neutral sidebar result when the first availability check fails", () => {
@@ -734,7 +766,6 @@ describe("AgentProfilesWorkspace", () => {
 				renderProfilesController={() => null}
 				requestPanel={null}
 				selectedProfileId={null}
-				wakeAvailabilityNowMs={Date.now()}
 			/>
 		);
 		expect(screen.getByRole("alert").textContent).toContain(
@@ -756,7 +787,6 @@ describe("AgentProfilesWorkspace", () => {
 				renderProfilesController={() => null}
 				requestPanel={null}
 				selectedProfileId={null}
-				wakeAvailabilityNowMs={Date.now()}
 			/>
 		);
 		expect(screen.getByTestId("create-agent-empty-state")).toBeTruthy();
@@ -791,7 +821,6 @@ function renderWorkspace(
 			renderProfilesController={() => <div data-testid="profiles-controller" />}
 			requestPanel={<div data-testid="agent-requests-panel">Requests</div>}
 			selectedProfileId={null}
-			wakeAvailabilityNowMs={Date.now()}
 			{...nextOverrides}
 		/>
 	);

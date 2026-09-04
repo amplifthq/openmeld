@@ -5677,6 +5677,27 @@ being silently truncated — the visited list is the chain's loop telemetry
 (dispatch trace today, loop-awareness prompt injection next), so dropping
 entries is never a valid degradation.
 
+## Space Entry Resolution Contract
+
+`packages/schemas/src/schemas/http/space-entry.ts` owns the shared Space entry
+target and resolution read model. The target preserves the Space plus optional
+message and Thread-root focus so a client can continue to the original
+destination after a recoverable entry gate is cleared.
+
+Core is the only owner of the resolution. It combines canonical Space access,
+Space membership, Organization membership, and the bounded Space Index
+projection into separate `view` and `participation` outcomes. This separation
+is required because `public_view_join_password` permits reading while still
+requiring a password to join. Web, CLI, and Agent View consume the result; they
+must not rebuild the access table from HTTP status codes or client caches.
+
+The resolver is a read projection, not an authorization token. Every content
+or mutation endpoint still performs its own Core-owned authorization. Same-
+Organization nonmembers may receive the bounded Space name and creator contact
+needed for a useful blocked state. Anonymous visitors and authenticated
+outsiders receive no private Space or Organization context. A missing or
+inconsistent owner fact is omitted instead of being guessed.
+
 ## Protected Space Access Contract
 
 `packages/schemas/src/schemas/http/space-password.ts` owns canonical Space

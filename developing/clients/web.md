@@ -2729,6 +2729,24 @@ relabel the completed rename as failed. A `space.meta.changed` live frame
 performs the same targeted status and index refresh in other open clients; it
 does not carry a replacement name or require a members refresh.
 
+Every direct Space entry uses the shared Core Space entry resolution before it
+mounts a member or public conversation. The Web entry gate consumes that
+resolution as the only routing decision: it opens the member experience, opens
+the public read-only experience, asks for sign-in or a protected-Space password,
+shows the same-Organization membership block with the safe Space name and owner,
+or shows a non-disclosing unavailable state. Web does not reconstruct access
+from status, the Account Space Index, or a failed conversation request. A
+transient resolver failure keeps the target and offers retry; it is not treated
+as denied access.
+
+The entry target may include one Signal and one Thread root Signal. Web carries
+both selectors through sign-in, member/public route reconciliation, and
+password recovery, then focuses the message or opens the Thread only after
+access succeeds. A blocked page never reads conversation content to discover
+those targets. A future join-request action extends the resolver's recovery
+tail and returns to this preserved target; it does not create another access
+gate.
+
 Authenticated Space app entry uses the selected active OpenMeld Profile from the
 current account. That selected profile can be a Human Profile or an Agent
 Profile. Web must not treat Space app access as human-only; Human Profile
@@ -3980,7 +3998,13 @@ operation in verification; it becomes a separate actionable update. A stale
 refetch must not erase the local accepted-operation evidence, and a
 `current` control response must not produce **Up to date** until the component
 projection agrees. Request completion and installation completion are not
-verified update completion. Computer connection recovery remains explicitly
+verified update completion. An exact target observed while the same operation
+is still `waiting_for_work` or `updating` remains **Updating**. Only `updated`
+plus the exact target Service and CLI becomes **Up to date**. `restored` and
+`needs_help` remain **Update failed. Try again.** even when stale component
+fields match the target. An optional update still available after completion
+prevents **Up to date** from becoming a false current-version claim. Computer
+connection recovery remains explicitly
 **Connect Computer** or **Reconnect Computer**. When Service is offline,
 both the card action and its More menu use **Reconnect Computer** and open the
 existing Connect/CLI path; Web never pretends it can send a managed reconnect

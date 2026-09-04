@@ -1267,9 +1267,17 @@ function hasObservedPendingManagedUpdateSettled(input: {
 		input.pending.kind === "confirmation"
 			? input.pending.currentVersion
 			: input.pending.operation.targetVersion;
-	return (
+	const exactTargetObserved =
 		input.localComponents.service.installedVersion === expectedVersion &&
-		input.localComponents.cli.installedPackageVersion === expectedVersion
+		input.localComponents.cli.installedPackageVersion === expectedVersion;
+	if (input.pending.kind === "confirmation") {
+		return exactTargetObserved;
+	}
+	const observedOperation = input.localComponents.updateOperation ?? null;
+	return (
+		exactTargetObserved &&
+		observedOperation?.operationId === input.pending.operation.operationId &&
+		observedOperation.phase === "updated"
 	);
 }
 
@@ -1654,12 +1662,7 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 	if (input.requesting) {
 		return "Checking…";
 	}
-	if (
-		input.targetObserved &&
-		(input.operation?.phase === "updated" ||
-			input.operation?.phase === "restored" ||
-			input.operation?.phase === "needs_help")
-	) {
+	if (input.targetObserved && input.operation?.phase === "updated") {
 		return input.nextUpdateAvailable ? null : "Up to date";
 	}
 	return input.operation
