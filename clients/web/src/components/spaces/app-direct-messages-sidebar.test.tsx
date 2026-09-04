@@ -7,10 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { AppDirectMessagesSidebar } from "./app-direct-messages-sidebar";
 
-const { listAccountSpaceItemsMock, readSpaceMembersMock, spaceUnreadById } =
+const { listAccountSpaceItemsMock, readProfileDirectoryMock, spaceUnreadById } =
 	vi.hoisted(() => ({
 		listAccountSpaceItemsMock: vi.fn(),
-		readSpaceMembersMock: vi.fn(),
+		readProfileDirectoryMock: vi.fn(),
 		spaceUnreadById: new Map<
 			string,
 			{ latestUnreadOccurredAtMs: number; unreadCount: number }
@@ -59,23 +59,16 @@ vi.mock("#/lib/spaces/account-spaces", () => ({
 		listAccountSpaceItemsMock(...args),
 }));
 
-vi.mock("#/query/spaces/members", () => ({
-	spaceMembersQueryOptions: (input: {
-		enabled: boolean;
-		spaceId: string;
-		openMeldProfileId: string;
-	}) => ({
-		enabled: input.enabled,
-		queryFn: () => readSpaceMembersMock(input),
-		queryKey: ["spaces", "members", input.spaceId, input.openMeldProfileId],
-		retry: false,
-	}),
+vi.mock("#/lib/organizations/organization-directory", () => ({
+	readCurrentOrganizationProfileDirectory: (...args: unknown[]) =>
+		readProfileDirectoryMock(...args),
 }));
 
 describe("AppDirectMessagesSidebar", () => {
 	beforeEach(() => {
 		listAccountSpaceItemsMock.mockReset();
-		readSpaceMembersMock.mockReset();
+		readProfileDirectoryMock.mockReset();
+		readProfileDirectoryMock.mockResolvedValue(createProfileDirectory());
 		spaceUnreadById.clear();
 	});
 
@@ -112,17 +105,6 @@ describe("AppDirectMessagesSidebar", () => {
 				}),
 			],
 		});
-		readSpaceMembersMock.mockResolvedValue(
-			createMembersSnapshot({
-				peer: {
-					agentControllerRef: "codex",
-					profileId: "agt_peer",
-					profileKind: "agent",
-					profileName: "Build Agent",
-				},
-			})
-		);
-
 		const { container } = renderSidebar(
 			<AppDirectMessagesSidebar
 				currentProfileId="human-1"
@@ -161,6 +143,7 @@ describe("AppDirectMessagesSidebar", () => {
 		expect(peerButton.getAttribute("href")).toBe(
 			"/o/acme/direct-messages/space-dm?profileId=human-1"
 		);
+		expect(readProfileDirectoryMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("uses the Space-specific joined profile when the current profile is not a member", async () => {
@@ -184,26 +167,11 @@ describe("AppDirectMessagesSidebar", () => {
 				}),
 			],
 		});
-		readSpaceMembersMock.mockResolvedValue(
-			createMembersSnapshot({
-				peer: {
-					agentControllerRef: null,
-					profileId: "agt_peer",
-					profileKind: "agent",
-					profileName: "Build Agent",
-				},
-				viewerProfileId: "human-2",
-			})
-		);
-
 		renderSidebar(
 			<AppDirectMessagesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 		const link = await screen.findByRole("link", { name: "Build Agent" });
 
-		expect(readSpaceMembersMock).toHaveBeenCalledWith(
-			expect.objectContaining({ openMeldProfileId: "human-2" })
-		);
 		expect(link.getAttribute("href")).toBe(
 			"/o/acme/direct-messages/space-dm?profileId=human-2"
 		);
@@ -221,17 +189,6 @@ describe("AppDirectMessagesSidebar", () => {
 				}),
 			],
 		});
-		readSpaceMembersMock.mockResolvedValue(
-			createMembersSnapshot({
-				peer: {
-					agentControllerRef: "codex",
-					profileId: "agt_peer",
-					profileKind: "agent",
-					profileName: "Build Agent",
-				},
-			})
-		);
-
 		renderSidebar(
 			<AppDirectMessagesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
@@ -239,6 +196,44 @@ describe("AppDirectMessagesSidebar", () => {
 
 		expect(link.getAttribute("href")).toBe(
 			"/o/acme/direct-messages/space-dm?profileId=human-1"
+		);
+	});
+
+	it("reuses the Organization directory avatar for a human peer", async () => {
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					activeMemberCount: 2,
+					directMessageProfileIds: ["human-1", "human-peer"],
+					spaceId: "space-dm",
+					spaceName: "Felix and Monica",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				}),
+			],
+		});
+		readProfileDirectoryMock.mockResolvedValue({
+			...createProfileDirectory(),
+			agentProfiles: [],
+			members: [
+				{
+					humanProfile: {
+						profileId: "human-peer",
+						profileName: "Monica",
+						status: "active",
+					},
+					user: { image: "https://example.com/monica.png" },
+				},
+			],
+		});
+
+		renderSidebar(
+			<AppDirectMessagesSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+
+		const link = await screen.findByRole("link", { name: "Monica" });
+		expect(link.querySelector("img")?.getAttribute("src")).toBe(
+			"https://example.com/monica.png"
 		);
 	});
 
@@ -253,7 +248,6 @@ describe("AppDirectMessagesSidebar", () => {
 		);
 
 		expect(await screen.findByText("No Direct Messages yet.")).toBeTruthy();
-		expect(readSpaceMembersMock).not.toHaveBeenCalled();
 	});
 
 	it("keeps the last saved Direct Messages navigable when background refresh fails", async () => {
@@ -275,17 +269,6 @@ describe("AppDirectMessagesSidebar", () => {
 		listAccountSpaceItemsMock.mockRejectedValue(
 			new Error("Direct Messages refresh failed")
 		);
-		readSpaceMembersMock.mockResolvedValue(
-			createMembersSnapshot({
-				peer: {
-					agentControllerRef: "codex",
-					profileId: "agt_peer",
-					profileKind: "agent",
-					profileName: "Build Agent",
-				},
-			})
-		);
-
 		renderSidebar(
 			<AppDirectMessagesSidebar
 				currentProfileId="human-1"
@@ -333,6 +316,7 @@ function renderSidebar(
 
 function createAccountSpaceItem(input: {
 	activeMemberCount: number;
+	directMessageProfileIds?: [string, string];
 	joinedProfiles?: Array<{
 		lastJoinedAt: string;
 		pinnedAt: string | null;
@@ -349,6 +333,10 @@ function createAccountSpaceItem(input: {
 		activeAgentCount: 1,
 		activeHumanCount: 1,
 		activeMemberCount: input.activeMemberCount,
+		directMessageProfileIds: input.directMessageProfileIds ?? [
+			input.openProfileId ?? "human-1",
+			"agt_peer",
+		],
 		joinedProfiles: input.joinedProfiles ?? [
 			{
 				lastJoinedAt: "2026-08-05T00:00:00.000Z",
@@ -370,39 +358,19 @@ function createAccountSpaceItem(input: {
 	};
 }
 
-function createMembersSnapshot(input: {
-	peer: {
-		agentControllerRef: string | null;
-		profileId: string;
-		profileKind: "agent";
-		profileName: string;
-	};
-	viewerProfileId?: string;
-}) {
-	const viewerProfileId = input.viewerProfileId ?? "human-1";
+function createProfileDirectory() {
 	return {
-		agents: [
+		agentProfiles: [
 			{
-				...input.peer,
+				agentControllerRef: "codex",
+				profileId: "agt_peer",
+				profileKind: "agent",
+				profileName: "Build Agent",
 				status: "active",
 			},
 		],
 		generatedAt: "2026-08-05T00:00:00.000Z",
-		humans: [
-			{
-				avatarUrl: null,
-				profileId: viewerProfileId,
-				profileKind: "human",
-				profileName: "Felix",
-				status: "active",
-			},
-		],
-		spaceId: "space-dm",
-		summary: {
-			agentCount: 1,
-			humanCount: 1,
-			liveNowCount: 0,
-			totalCount: 2,
-		},
+		members: [],
+		organizationId: "org-acme",
 	};
 }

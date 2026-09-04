@@ -471,7 +471,14 @@ pin order or the normal unread-first and recency order. Web does not create a
 second local read-position, membership, or Inbox source for this presentation.
 The Direct Messages secondary sidebar consumes the same Core-owned grouped
 summary and shows the indicator on the exact unread conversation row. It does
-not derive unread state from route activity or a browser-only counter.
+not derive unread state from route activity or a browser-only counter. The
+Account Space Index may additionally return the two Direct Message Profile ids
+when Web explicitly opts in. The sidebar resolves those ids through the one
+shared Organization Profile Directory query used by People and Agents, so its
+rows reuse the same names, avatars, and Agent Controller icons. It must not fan
+out a full Space members query per conversation. The Profile id pair is
+presentation data only: it does not establish membership or authorize opening
+the conversation.
 The Spaces destination in the outer app rail consumes the Core summary's
 complete `ordinarySpaceUnreadCount` aggregate. It shows one static amber dot
 whenever at least one ordinary Space has unread messages, including while the
@@ -2271,9 +2278,11 @@ preload must not return a different loader result that navigation could render.
 The route disables loader preload and resolves canonical route data only on
 entry. The primary app rail and global launcher may nevertheless prefetch the
 read-only Center Agent DM projection on pointer intent or keyboard focus. When
-that projection identifies an existing DM, Web restores and warms the exact
-Space display snapshot, history, status, and bootstrap Query keys consumed by
-the activated conversation. A missing projection ends prefetch immediately: hover and focus
+that projection identifies an existing DM, Web restores the exact Space display
+snapshot and history, then performs one bootstrap read and seeds the status,
+members, history, and thread Query keys consumed by the activated conversation.
+It must not issue parallel status or recent-history reads for data already
+contained in that bootstrap. A missing projection ends prefetch immediately: hover and focus
 must never call the open endpoint, create a DM, or perform another mutation.
 The stable, read-only DM projection may persist in the approved Organization
 browser-read segment. The full route and compact launcher render that cached

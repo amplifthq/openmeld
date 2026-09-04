@@ -1,6 +1,6 @@
 "use client";
 
-import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
+import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { SidebarContent } from "@openmeld/ui/components/sidebar";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
@@ -24,8 +24,8 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
+import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
-import { spaceMembersQueryOptions } from "#/query/spaces/members";
 import {
 	resolveAccountSpaceViewerProfileId,
 	selectAccountSpaceSections,
@@ -33,9 +33,13 @@ import {
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { useSpaceInboxUnreadById } from "./use-account-space-indicators";
 
-type DirectMessagePeer =
-	| SpaceMembersSnapshot["humans"][number]
-	| SpaceMembersSnapshot["agents"][number];
+type DirectMessagePeer = {
+	agentControllerRef: string | null;
+	avatarUrl: string | null;
+	profileId: string;
+	profileKind: "agent" | "human";
+	profileName: string;
+};
 
 type DirectMessagesListState =
 	| "loading"
@@ -65,6 +69,12 @@ export function AppDirectMessagesSidebar(input: {
 	const centerAgentDesignationQuery = useQuery(
 		centerAgentDesignationQueryOptions({
 			enabled: true,
+			organizationId: currentOrganization.id,
+		})
+	);
+	const profileDirectoryQuery = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: input.currentProfileId.trim().length > 0,
 			organizationId: currentOrganization.id,
 		})
 	);
@@ -104,6 +114,7 @@ export function AppDirectMessagesSidebar(input: {
 						});
 					}}
 					organizationSlug={currentOrganization.slug}
+					profileDirectory={profileDirectoryQuery.data}
 					state={listState}
 					unreadBySpaceId={unreadBySpaceId}
 				/>
@@ -119,6 +130,7 @@ function DirectMessagesList(input: {
 	items: readonly AccountSpaceItem[];
 	onRetry: () => void;
 	organizationSlug: string;
+	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
 	state: DirectMessagesListState;
 	unreadBySpaceId: ReadonlyMap<
 		string,
@@ -182,6 +194,7 @@ function DirectMessagesList(input: {
 						item={item}
 						key={item.spaceId}
 						organizationSlug={input.organizationSlug}
+						profileDirectory={input.profileDirectory}
 						unreadCount={
 							input.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0
 						}
@@ -224,21 +237,16 @@ function DirectMessageSidebarItem(input: {
 	isActive: boolean;
 	item: AccountSpaceItem;
 	organizationSlug: string;
+	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
 	unreadCount: number;
 }) {
 	const viewerProfileId = resolveAccountSpaceViewerProfileId({
 		currentProfileId: input.currentProfileId,
 		item: input.item,
 	});
-	const membersQuery = useQuery(
-		spaceMembersQueryOptions({
-			enabled: true,
-			spaceId: input.item.spaceId,
-			openMeldProfileId: viewerProfileId,
-		})
-	);
 	const peer = resolveDirectMessagePeer({
-		members: membersQuery.data,
+		item: input.item,
+		profileDirectory: input.profileDirectory,
 		viewerProfileId,
 	});
 	const label = peer?.profileName ?? input.item.spaceName;
@@ -309,16 +317,45 @@ function DirectMessageSidebarItem(input: {
 }
 
 function resolveDirectMessagePeer(input: {
-	members: SpaceMembersSnapshot | undefined;
+	item: AccountSpaceItem;
+	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
 	viewerProfileId: string;
 }): DirectMessagePeer | null {
-	const activeMembers = [
-		...(input.members?.humans ?? []),
-		...(input.members?.agents ?? []),
-	].filter((member) => member.status === "active");
-	return (
-		activeMembers.find(
-			(member) => member.profileId !== input.viewerProfileId
-		) ?? null
+	const profileIds = input.item.directMessageProfileIds;
+	if (!profileIds?.includes(input.viewerProfileId)) {
+		return null;
+	}
+	const profileId = profileIds.find(
+		(candidate) => candidate !== input.viewerProfileId
 	);
+	if (!profileId) {
+		return null;
+	}
+	const agent = input.profileDirectory?.agentProfiles.find(
+		(profile) => profile.profileId === profileId && profile.status === "active"
+	);
+	if (agent) {
+		return {
+			agentControllerRef: agent.agentControllerRef,
+			avatarUrl: agent.avatarUrl ?? null,
+			profileId,
+			profileKind: "agent",
+			profileName: agent.profileName,
+		};
+	}
+	const member = input.profileDirectory?.members.find(
+		(candidate) =>
+			candidate.humanProfile?.profileId === profileId &&
+			candidate.humanProfile.status === "active"
+	);
+	if (!member?.humanProfile) {
+		return null;
+	}
+	return {
+		agentControllerRef: null,
+		avatarUrl: member.user.image,
+		profileId,
+		profileKind: "human",
+		profileName: member.humanProfile.profileName,
+	};
 }

@@ -1067,6 +1067,17 @@ Core. CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, Wake dispatch,
 Space actions, diagnostics, and local-component contract versions are
 unchanged.
 
+Account Space Index also supports the additive
+`includeDirectMessageProfileIds=true` opt-in. For an unconverted two-party
+Direct Message it returns the canonical two Profile ids already present in the
+Space Index pair key; other rows return `null`. This is a bounded presentation
+projection for resolving sidebar identity through the Organization Profile
+Directory, not membership or access authority. Strict older clients omit the
+flag and keep their prior response shape. Roll out schemas, Core, Gateway, and
+Web receiver-first; rollback removes the Web flag before the Gateway and Core
+field support. No D1, CLI, Service, daemon, runtime, or local-component contract
+change is required.
+
 ### Organization Logo Contracts
 
 `packages/schemas/src/schemas/http/organization-logo.ts` owns the Organization

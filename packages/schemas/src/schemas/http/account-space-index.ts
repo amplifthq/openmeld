@@ -60,8 +60,19 @@ export const accountSpaceIndexIncludePurposesSchema = z
   }, z.boolean())
   .optional();
 
+export const accountSpaceIndexIncludeDirectMessageProfileIdsSchema = z
+  .preprocess((value) => {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    return value === "true";
+  }, z.boolean())
+  .optional();
+
 export const accountSpaceIndexQuerySchema = z.strictObject({
   gatewayHost: profileSpaceHistoryGatewayHostSchema,
+  includeDirectMessageProfileIds:
+    accountSpaceIndexIncludeDirectMessageProfileIdsSchema,
   includeRecentlyDeletedItems:
     accountSpaceIndexIncludeRecentlyDeletedItemsSchema,
   includePurposes: accountSpaceIndexIncludePurposesSchema,
@@ -98,6 +109,12 @@ export const accountSpaceIndexItemSchema = z.strictObject({
   activeHumanCount: nullableNonNegativeIntSchema.optional(),
   activeMemberCount: nullableNonNegativeIntSchema.optional(),
   directMessageConvertedAt: nullableIsoDateTimeSchema.optional(),
+  directMessageProfileIds: z
+    .union([
+      z.tuple([trimmedNonEmptyStringSchema, trimmedNonEmptyStringSchema]),
+      z.null(),
+    ])
+    .optional(),
   spacePurpose: nullableTrimmedStringSchema.optional(),
   spaceUpdatedAt: nullableIsoDateTimeSchema,
   status: trimmedNonEmptyStringSchema,
