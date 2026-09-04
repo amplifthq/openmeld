@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -25,6 +26,11 @@ const MISSING_BOOTSTRAP_PATTERN =
 const QUIET_OBSERVER_CASE_PATTERN = /status \| wait/u;
 const QUIET_OBSERVER_PATH_PATTERN = /final-candidate-observer\.mjs/u;
 const LOCAL_READINESS_PATH_PATTERN = /local-final-candidate-readiness\.mjs/u;
+const EARLY_DISK_STOP_PATTERN =
+  /stopped before temporary files or network access/u;
+const AVAILABLE_DISK_PATTERN = /Available disk: 512 MiB/u;
+const REQUIRED_DISK_PATTERN = /Required disk: 1024 MiB/u;
+const NEXT_ACTION_PATTERN = /Next:/u;
 
 test("the trusted first hop exposes quiet status and resource-aware local fallback", () => {
   const entrypoint = readFileSync(
@@ -35,6 +41,49 @@ test("the trusted first hop exposes quiet status and resource-aware local fallba
   assert.match(entrypoint, QUIET_OBSERVER_CASE_PATTERN);
   assert.match(entrypoint, QUIET_OBSERVER_PATH_PATTERN);
   assert.match(entrypoint, LOCAL_READINESS_PATH_PATTERN);
+});
+
+test("low disk stops local Final Candidate before mktemp or Git network work", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-first-hop-disk-"));
+  const binaryDirectory = path.join(root, "bin");
+  const mktempLog = path.join(root, "mktemp.log");
+  const gitLog = path.join(root, "git.log");
+  try {
+    mkdirSync(binaryDirectory);
+    writeExecutable(
+      path.join(binaryDirectory, "node"),
+      "#!/bin/sh\nprintf '536870912'\n"
+    );
+    writeExecutable(
+      path.join(binaryDirectory, "mktemp"),
+      `#!/bin/sh\nprintf 'called\\n' > ${JSON.stringify(mktempLog)}\nexit 99\n`
+    );
+    writeExecutable(
+      path.join(binaryDirectory, "git"),
+      `#!/bin/sh\nprintf 'called\\n' > ${JSON.stringify(gitLog)}\nexit 99\n`
+    );
+
+    const result = spawnSync("bash", ["-s", "--", "local", "--pr", "1"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${binaryDirectory}:${process.env.PATH ?? ""}`,
+        TMPDIR: root,
+      },
+      input: readFileSync(path.join(REPO_ROOT, ENTRYPOINT_PATH), "utf8"),
+    });
+
+    assert.equal(result.status, 75, result.stderr);
+    assert.match(result.stderr, EARLY_DISK_STOP_PATTERN);
+    assert.match(result.stderr, AVAILABLE_DISK_PATTERN);
+    assert.match(result.stderr, REQUIRED_DISK_PATTERN);
+    assert.match(result.stderr, NEXT_ACTION_PATTERN);
+    assert.equal(existsSync(mktempLog), false);
+    assert.equal(existsSync(gitLog), false);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
 });
 
 test("the guarded local first hop comes from current main, not candidate package scripts", () => {
@@ -401,4 +450,9 @@ function runChildWithInput(command, args, input, environment, cwd) {
     });
     child.stdin.end(input);
   });
+}
+
+function writeExecutable(filePath, contents) {
+  writeFileSync(filePath, contents);
+  chmodSync(filePath, 0o755);
 }
