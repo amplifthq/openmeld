@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@openmeld/ui/lib/utils";
-import type { ReactNode, Ref } from "react";
+import type { ReactElement, ReactNode, Ref } from "react";
 
 function ProfileCardSummary(input: {
 	ariaLabel: string;
@@ -186,6 +186,7 @@ export function ProfileListItem(input: {
 	profileNameClassName?: string;
 	primaryDetail?: ReactNode;
 	profileSummaryAriaLabel?: string;
+	profileSummaryTrigger?: (trigger: ReactElement) => ReactNode;
 	profileName: string;
 	rowRef?: Ref<HTMLDivElement>;
 	secondaryDetail?: ReactNode;
@@ -197,16 +198,23 @@ export function ProfileListItem(input: {
 		input.dimName ? "text-muted-foreground" : "text-foreground",
 		input.profileNameClassName
 	);
-	const profileSummary = input.onProfileSummaryClick ? (
-		<button
-			aria-label={input.profileSummaryAriaLabel ?? `About ${input.profileName}`}
-			className="group inline-flex min-w-0 max-w-full cursor-pointer items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-			onClick={input.onProfileSummaryClick}
-			type="button"
-		>
-			{input.icon}
-			<span className={profileNameClassName}>{input.profileName}</span>
-		</button>
+	const profileSummaryButton =
+		input.onProfileSummaryClick || input.profileSummaryTrigger ? (
+			<button
+				aria-label={
+					input.profileSummaryAriaLabel ?? `About ${input.profileName}`
+				}
+				className="group inline-flex min-w-0 max-w-full cursor-pointer items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+				onClick={input.onProfileSummaryClick}
+				type="button"
+			>
+				{input.icon}
+				<span className={profileNameClassName}>{input.profileName}</span>
+			</button>
+		) : null;
+	const profileSummary = profileSummaryButton ? (
+		(input.profileSummaryTrigger?.(profileSummaryButton) ??
+		profileSummaryButton)
 	) : (
 		<>
 			{input.icon}

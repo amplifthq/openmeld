@@ -30,7 +30,6 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowsClockwiseIcon,
 	DotsThreeIcon,
-	InfoIcon,
 	TrashIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -59,7 +58,7 @@ import {
 import type { SpaceRemoveMemberResult } from "./space-members-drawer";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import type { SpaceWakeStatusTransientState } from "./space-wake-status-refresh";
-import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
+import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 
 type SpaceMemberRowProps = {
 	agentRecoveryPlan: AgentProfileReplyRecoveryPlan | null;
@@ -119,7 +118,7 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 		canManageAgentProfile,
 		input,
 	});
-	const detailsDialog = useSpaceProfileDetailsDialog({
+	const detailsDialog = useSpaceProfileDetailsPopover({
 		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.entry,
@@ -128,80 +127,76 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 		orgSlug: input.orgSlug,
 	});
 	const actions = renderSpaceMemberActions({
-		onOpenProfileDetails: detailsDialog.openProfileDetails,
 		onRemoveFromSpace: input.onRemoveFromSpace,
-		profileKind: input.entry.profileKind,
 		profileId: input.entry.profileId,
 		profileName: input.entry.profileName,
 		variant: input.variant,
 	});
 
 	return (
-		<>
-			<AgentProfileListItem
-				actions={actions}
-				badges={
-					<SpaceMemberBadges
-						canCheckAgentWakeAvailability={
-							presentation.canCheckAgentWakeAvailability
-						}
-						entry={presentation.visualEntry}
-						isAgentWakeAvailabilityCheckPending={
-							input.isAgentWakeAvailabilityCheckPending
-						}
-						isSelf={false}
-						onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
-						statusIsRefreshing={presentation.availabilityIndicatorIsRefreshing}
-						statusLabel={null}
-						statusTooltip={presentation.availabilityIndicatorTooltip}
-						variant={input.variant}
-					/>
-				}
-				className={cn(
-					input.density === "compact"
-						? "px-1.5 py-2"
-						: cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)
-				)}
-				compact={input.density === "compact"}
-				dimName={shouldDimProfileName({
-					entry: input.entry,
-					memberTransientState:
-						presentation.visualDisplayedMemberTransientState,
-				})}
-				icon={
-					<SpaceProfileIcon
-						agentControllerRef={input.entry.agentControllerRef}
-						avatarImageUrl={input.entry.avatarUrl}
-						className="mt-0.5"
-						isCenterAgent={input.entry.profileId === input.centerAgentProfileId}
-						profileId={input.entry.profileId}
-						profileKind={input.entry.profileKind}
-						profileName={input.entry.profileName}
-					/>
-				}
-				onProfileSummaryClick={detailsDialog.openProfileDetails}
-				primaryDetail={
-					input.density === "compact" &&
-					shouldShowAgentRecoveryActionControl(
-						presentation.displayedAgentRecoveryPlan
-					)
-						? null
-						: presentation.primaryDetail
-				}
-				profileName={input.entry.profileName}
-				profileNameAdornment={
-					<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
-				}
-				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
-				profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
-			>
-				<AgentSpaceMemberRecoveryAction
-					input={input}
-					presentation={presentation}
+		<AgentProfileListItem
+			actions={actions}
+			badges={
+				<SpaceMemberBadges
+					canCheckAgentWakeAvailability={
+						presentation.canCheckAgentWakeAvailability
+					}
+					entry={presentation.visualEntry}
+					isAgentWakeAvailabilityCheckPending={
+						input.isAgentWakeAvailabilityCheckPending
+					}
+					isSelf={false}
+					onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
+					statusIsRefreshing={presentation.availabilityIndicatorIsRefreshing}
+					statusLabel={null}
+					statusTooltip={presentation.availabilityIndicatorTooltip}
+					variant={input.variant}
 				/>
-			</AgentProfileListItem>
-			{detailsDialog.profileDetailsDialog}
-		</>
+			}
+			className={cn(
+				input.density === "compact"
+					? "px-1.5 py-2"
+					: cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)
+			)}
+			compact={input.density === "compact"}
+			dimName={shouldDimProfileName({
+				entry: input.entry,
+				memberTransientState: presentation.visualDisplayedMemberTransientState,
+			})}
+			icon={
+				<SpaceProfileIcon
+					agentControllerRef={input.entry.agentControllerRef}
+					avatarImageUrl={input.entry.avatarUrl}
+					className="mt-0.5"
+					isCenterAgent={input.entry.profileId === input.centerAgentProfileId}
+					profileId={input.entry.profileId}
+					profileKind={input.entry.profileKind}
+					profileName={input.entry.profileName}
+				/>
+			}
+			primaryDetail={
+				input.density === "compact" &&
+				shouldShowAgentRecoveryActionControl(
+					presentation.displayedAgentRecoveryPlan
+				)
+					? null
+					: presentation.primaryDetail
+			}
+			profileName={input.entry.profileName}
+			profileNameAdornment={
+				<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
+			}
+			profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
+			profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
+			profileSummaryTrigger={
+				detailsDialog.profileDetailsPopoverTrigger ?? undefined
+			}
+		>
+			<AgentSpaceMemberRecoveryAction
+				input={input}
+				presentation={presentation}
+			/>
+		</AgentProfileListItem>
 	);
 }
 
@@ -227,7 +222,7 @@ function resolveAgentSpaceMemberRowPresentation(input: {
 	);
 	// Display-only Wake override: indicator + inline row visuals replay the last
 	// Available snapshot (visualEntry), but every decision/diagnostic path keeps
-	// reading the raw entry (input.entry) -- notably useSpaceProfileDetailsDialog,
+	// reading the raw entry (input.entry) -- notably the profile details popover,
 	// the recovery plan, Check-again gating, controller/model detail, and sorting.
 	const visualEntry = input.input.wakeDisplayEntry ?? input.input.entry;
 	const visualDisplayedMemberTransientState = input.input.wakeDisplayEntry
@@ -390,7 +385,7 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 	) : (
 		resolvedPrimaryDetail
 	);
-	const detailsDialog = useSpaceProfileDetailsDialog({
+	const detailsDialog = useSpaceProfileDetailsPopover({
 		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.entry,
@@ -400,68 +395,66 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 	});
 	const actions = renderSpaceMemberActions({
 		onRemoveFromSpace: input.onRemoveFromSpace,
-		profileKind: input.entry.profileKind,
 		profileId: input.entry.profileId,
 		profileName: input.entry.profileName,
 		variant: input.variant,
 	});
 
 	return (
-		<>
-			<AgentProfileListItem
-				actions={actions}
-				badges={
-					<SpaceMemberBadges
-						activityLabel={
-							input.density === "compact" && spaceActivityLabel
-								? spaceActivityLabel.replace(
-										SPACE_MEMBER_ACTIVITY_PREFIX_PATTERN,
-										""
-									)
-								: null
-						}
-						canCheckAgentWakeAvailability={false}
-						entry={input.entry}
-						isAgentWakeAvailabilityCheckPending={false}
-						isSelf={isSelf}
-						onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
-						statusIsRefreshing={resolvePresenceStatusIsRefreshing({
-							entry: input.entry,
-							memberTransientState: displayedMemberTransientState,
-						})}
-						statusLabel={presenceStatusLabel}
-						statusTooltip={resolvePresenceStatusTooltip({
-							agentRecoveryPlan: null,
-							entry: input.entry,
-							memberTransientState: displayedMemberTransientState,
-						})}
-						variant={input.variant}
-					/>
-				}
-				className={cn(
-					input.density === "compact"
-						? "px-1.5 py-2"
-						: cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)
-				)}
-				compact={input.density === "compact"}
-				icon={
-					<SpaceProfileIcon
-						agentControllerRef={input.entry.agentControllerRef}
-						avatarImageUrl={input.entry.avatarUrl}
-						className="mt-0.5"
-						profileId={input.entry.profileId}
-						profileKind={input.entry.profileKind}
-						profileName={input.entry.profileName}
-					/>
-				}
-				onProfileSummaryClick={detailsDialog.openProfileDetails}
-				primaryDetail={input.density === "compact" ? null : primaryDetail}
-				profileName={input.entry.profileName}
-				profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
-				profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
-			/>
-			{detailsDialog.profileDetailsDialog}
-		</>
+		<AgentProfileListItem
+			actions={actions}
+			badges={
+				<SpaceMemberBadges
+					activityLabel={
+						input.density === "compact" && spaceActivityLabel
+							? spaceActivityLabel.replace(
+									SPACE_MEMBER_ACTIVITY_PREFIX_PATTERN,
+									""
+								)
+							: null
+					}
+					canCheckAgentWakeAvailability={false}
+					entry={input.entry}
+					isAgentWakeAvailabilityCheckPending={false}
+					isSelf={isSelf}
+					onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
+					statusIsRefreshing={resolvePresenceStatusIsRefreshing({
+						entry: input.entry,
+						memberTransientState: displayedMemberTransientState,
+					})}
+					statusLabel={presenceStatusLabel}
+					statusTooltip={resolvePresenceStatusTooltip({
+						agentRecoveryPlan: null,
+						entry: input.entry,
+						memberTransientState: displayedMemberTransientState,
+					})}
+					variant={input.variant}
+				/>
+			}
+			className={cn(
+				input.density === "compact"
+					? "px-1.5 py-2"
+					: cn("px-3 py-3", input.variant === "full" ? "sm:px-4" : null)
+			)}
+			compact={input.density === "compact"}
+			icon={
+				<SpaceProfileIcon
+					agentControllerRef={input.entry.agentControllerRef}
+					avatarImageUrl={input.entry.avatarUrl}
+					className="mt-0.5"
+					profileId={input.entry.profileId}
+					profileKind={input.entry.profileKind}
+					profileName={input.entry.profileName}
+				/>
+			}
+			primaryDetail={input.density === "compact" ? null : primaryDetail}
+			profileName={input.entry.profileName}
+			profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
+			profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
+			profileSummaryTrigger={
+				detailsDialog.profileDetailsPopoverTrigger ?? undefined
+			}
+		/>
 	);
 }
 
@@ -548,34 +541,25 @@ function SpaceMemberBadges(input: {
 }
 
 function renderSpaceMemberActions(input: {
-	onOpenProfileDetails?: () => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
-	profileKind: SpaceMemberDirectoryEntry["profileKind"];
 	profileId: string;
 	profileName: string;
 	variant: "compact" | "full";
 }) {
-	if (
-		input.variant !== "full" ||
-		!(input.onOpenProfileDetails || input.onRemoveFromSpace)
-	) {
+	if (input.variant !== "full" || !input.onRemoveFromSpace) {
 		return null;
 	}
 	return (
 		<SpaceMemberActionsMenu
-			onOpenProfileDetails={input.onOpenProfileDetails}
 			onRemoveFromSpace={input.onRemoveFromSpace}
 			profileId={input.profileId}
-			profileKind={input.profileKind}
 			profileName={input.profileName}
 		/>
 	);
 }
 
 function SpaceMemberActionsMenu(input: {
-	onOpenProfileDetails?: () => void;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
-	profileKind: SpaceMemberDirectoryEntry["profileKind"];
 	profileId: string;
 	profileName: string;
 }) {
@@ -602,17 +586,6 @@ function SpaceMemberActionsMenu(input: {
 					<DotsThreeIcon aria-hidden="true" />
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end" className="min-w-52" sideOffset={8}>
-					{input.onOpenProfileDetails ? (
-						<DropdownMenuItem
-							className="text-sm"
-							onClick={input.onOpenProfileDetails}
-						>
-							<InfoIcon aria-hidden="true" />
-							{input.profileKind === "agent"
-								? "Check this Agent"
-								: "Check this Profile"}
-						</DropdownMenuItem>
-					) : null}
 					{input.onRemoveFromSpace ? (
 						<DropdownMenuItem
 							className="text-sm"

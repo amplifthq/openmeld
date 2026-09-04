@@ -188,7 +188,7 @@ import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
-import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
+import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 
 type SpaceConversationPanelResolvedProps = {
 	activeSpaceView: SpaceView;
@@ -2492,7 +2492,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 		resolveSpaceMessageContentLayoutClassName({ isSelf: input.run.isSelf });
 	const messageContentPaddingClassName =
 		resolveSpaceMessageContentPaddingClassName({ isSelf: input.run.isSelf });
-	const detailsDialog = useSpaceProfileDetailsDialog({
+	const detailsDialog = useSpaceProfileDetailsPopover({
 		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
@@ -2632,23 +2632,18 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 								)}
 							>
 								{index === 0 ? (
-									<>
-										<MessageHeader className="px-0">
-											<ConversationSpeakerHeader
-												centerAgentProfileId={input.centerAgentProfileId}
-												detailsDialog={detailsDialog}
-												isCenterAgentDirectMessage={
-													input.isCenterAgentDirectMessage
-												}
-												run={input.run}
-												selfAvatarImageUrl={input.selfAvatarImageUrl}
-												selfProfileId={input.selfProfileId}
-											/>
-										</MessageHeader>
-										{detailsDialog.profileDetailsPopoverTrigger
-											? null
-											: detailsDialog.profileDetailsDialog}
-									</>
+									<MessageHeader className="px-0">
+										<ConversationSpeakerHeader
+											centerAgentProfileId={input.centerAgentProfileId}
+											detailsDialog={detailsDialog}
+											isCenterAgentDirectMessage={
+												input.isCenterAgentDirectMessage
+											}
+											run={input.run}
+											selfAvatarImageUrl={input.selfAvatarImageUrl}
+											selfProfileId={input.selfProfileId}
+										/>
+									</MessageHeader>
 								) : null}
 								<BubbleGroup className="w-full gap-0">
 									<div
@@ -2721,7 +2716,7 @@ function ConversationBubbleContent(input: {
 	bubblePresentationClass?: string;
 	canUseMessageActions: boolean;
 	computerSetupContext?: CenterAgentComputerSetupContext;
-	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsPopover>;
 	isHighlighted: boolean;
 	item: SpaceTimelineItem;
 	messageAlign: "start" | "end";
@@ -2759,7 +2754,6 @@ function ConversationBubbleContent(input: {
 				computerSetupSourceSignalId={input.item.id}
 				containerClassName={input.selfMessageContentLayoutClassName}
 				item={input.item}
-				onOpenAgentProfile={input.detailsDialog.openProfileDetailsById}
 				onOpenSpaceFile={parent.onOpenSpaceFile}
 				openMeldProfileId={parent.selfProfileId}
 				orgSlug={parent.orgSlug}
@@ -2829,7 +2823,7 @@ function ConversationBubbleContent(input: {
 
 function ConversationSpeakerHeader(input: {
 	centerAgentProfileId: string | null;
-	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsPopover>;
 	isCenterAgentDirectMessage: boolean;
 	run: SpaceConversationBubbleRun;
 	selfAvatarImageUrl: string | null;
@@ -2889,11 +2883,6 @@ function ConversationSpeakerHeader(input: {
 				APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
 				"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 			)}
-			onClick={
-				input.detailsDialog.profileDetailsPopoverTrigger
-					? undefined
-					: input.detailsDialog.openProfileDetails
-			}
 			type="button"
 		>
 			{content}

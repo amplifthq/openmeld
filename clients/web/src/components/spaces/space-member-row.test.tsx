@@ -201,25 +201,23 @@ describe("SpaceMemberRow", () => {
 		fireEvent.click(profileSummaryButton);
 
 		const dialog = screen.getByRole("dialog");
-		expect(dialog.className).toContain("max-h-[min(46rem,calc(100dvh-2rem))]");
-		expect(dialog.className).toContain("overflow-hidden");
+		expect(dialog.className).toContain("w-[min(24rem,calc(100vw-1.5rem))]");
 		expect(
-			screen.getByTestId("profile-details-dialog-scroll-area").className
+			screen.getByTestId("profile-details-popover-scroll-area").className
 		).toContain("overflow-y-auto");
-		expect(screen.getByText("Check this Agent")).toBeTruthy();
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("thread-codex-1")).toBeNull();
-		expect(screen.getByText("How this Agent works")).toBeTruthy();
 		const detailsLink = screen.getByRole("link", {
-			name: "Check more or edit",
+			name: "Edit Codex",
 		});
-		expect(detailsLink).toBeTruthy();
-		expect(detailsLink.parentElement?.className).toContain("items-start");
+		expect(detailsLink.getAttribute("href")).toBe(
+			"/o/acme/agents?profileId=agt-1"
+		);
 		expect(
 			screen.queryByRole("button", { name: "More options for Codex" })
 		).toBeNull();
-		expect(screen.getByText("Workspace directory")).toBeTruthy();
-		expect(screen.getByText("/Users/felix/project")).toBeTruthy();
+		expect(screen.queryByText("Workspace directory")).toBeNull();
+		expect(screen.queryByText("/Users/felix/project")).toBeNull();
 		expect(
 			screen.getAllByText("Codex · gpt-5.3-codex-spark · high").length
 		).toBeGreaterThan(0);
@@ -287,7 +285,7 @@ describe("SpaceMemberRow", () => {
 		);
 	});
 
-	it("keeps Agent Profile editing inside the shared profile surface", () => {
+	it("opens the canonical Agent editor from the profile popover", () => {
 		renderSpaceMemberRow({
 			entry: buildAgentEntry({
 				ownerUserId: "user-1",
@@ -298,13 +296,14 @@ describe("SpaceMemberRow", () => {
 		});
 
 		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Member options for Research Agent",
-			})
+			screen.getByRole("button", { name: "Check Research Agent Profile" })
 		);
-		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
-		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
-		expect(screen.getByRole("dialog")).toBeTruthy();
+		expect(screen.queryByRole("menu")).toBeNull();
+		expect(
+			screen
+				.getByRole("link", { name: "Edit Research Agent" })
+				.getAttribute("href")
+		).toBe("/o/acme/agents?profileId=agt-owned");
 	});
 
 	it("keeps profile details available without offering a separate edit action", () => {
@@ -317,26 +316,16 @@ describe("SpaceMemberRow", () => {
 		});
 
 		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Member options for Mira's Agent",
-			})
+			screen.getByRole("button", { name: "Check Mira's Agent Profile" })
 		);
-
-		expect(
-			screen.getByRole("menu", {
-				name: "Member options for Mira's Agent",
-			}).className
-		).toContain("rounded-md");
-		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
-		const aboutItem = screen.getByRole("menuitem", {
-			name: "Check this Agent",
-		});
-		expect(aboutItem.className).toContain("rounded-md");
-		fireEvent.click(aboutItem);
 		expect(screen.getByRole("dialog")).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Edit Mira's Agent" })
+		).toBeNull();
+		expect(screen.queryByRole("menu")).toBeNull();
 	});
 
-	it("keeps Agent Profile diagnostics in Check this Agent instead of the member row", () => {
+	it("keeps compact Agent details in the profile popover instead of the member row", () => {
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildServiceConnectionPlan(),
 			entry: buildAgentEntry({
@@ -369,7 +358,6 @@ describe("SpaceMemberRow", () => {
 		);
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Codex · gpt-5.3-codex-spark · high")).toBeTruthy();
-		expect(dialog.getByText("Felix")).toBeTruthy();
 		expect(dialog.queryByText("Last activity in this Space")).toBeNull();
 		expect(
 			dialog.getByText("Connect your computer before this Agent can reply.")
@@ -397,11 +385,10 @@ describe("SpaceMemberRow", () => {
 		);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.getByText("Mira")).toBeTruthy();
 		const availableForWake = dialog.getByText("Available for Wake");
 		expect(availableForWake).toBeTruthy();
 		expect(availableForWake.className).toContain("text-emerald-");
-		expect(dialog.getByText("How this Agent works")).toBeTruthy();
+		expect(dialog.queryByText("How this Agent works")).toBeNull();
 		expect(dialog.queryByText("Connection")).toBeNull();
 		expect(dialog.queryByText("Controller conversation ID")).toBeNull();
 		expect(dialog.queryByText("thread-codex-1")).toBeNull();
@@ -673,6 +660,30 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 
+	it("treats the Center Agent as the canonical Home chat, not an editable Agent Profile", () => {
+		renderSpaceMemberRow({
+			centerAgentProfileId: "agt-1",
+			entry: buildAgentEntry({ profileName: "Amplift Center Agent" }),
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Check Amplift Center Agent Profile",
+			})
+		);
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(
+			dialog
+				.getByRole("link", { name: "Chat with Amplift Center Agent" })
+				.getAttribute("href")
+		).toBe("/o/acme");
+		expect(
+			dialog.queryByRole("link", { name: "Edit Amplift Center Agent" })
+		).toBeNull();
+		expect(dialog.queryByText("Check more or edit")).toBeNull();
+	});
+
 	it("uses the generic agent icon without a bound controller", () => {
 		renderSpaceMemberRow({
 			entry: buildAgentEntry({
@@ -742,6 +753,27 @@ describe("SpaceMemberRow", () => {
 			"Last activity in this Space"
 		);
 		expect(screen.queryByText("Seen 8h ago")).toBeNull();
+	});
+
+	it("shows concise Space-specific recency in the Human profile popover", () => {
+		renderSpaceMemberRow({
+			entry: buildHumanEntry({
+				lastSeenLabel: "Seen 7 hours ago",
+				liveNow: false,
+				presenceLabel: "seen 7 hours ago",
+				presenceStatus: "offline",
+			}),
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Felix Profile" })
+		);
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.getByText("7h ago")).toBeTruthy();
+		expect(dialog.queryByText("Active in this Space")).toBeNull();
+		expect(
+			dialog.getByRole("link", { name: "Edit Felix" }).getAttribute("href")
+		).toBe("/o/acme/people?profileId=human-1");
 	});
 
 	it("does not fill a compact person row with a generic Human label", () => {

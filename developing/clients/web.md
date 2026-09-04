@@ -1881,17 +1881,14 @@ when that Session is idle.
 a failed save keeps the draft and its diagnostic visible. Dangerous or
 low-frequency actions remain in the overflow menu. This presentation does not
 create a second Agent Profile, Binding, readiness, request, or edit authority.
-Agent identity controls in messages, Threads, and other in-context collaboration
-surfaces open one compact Profile Details popover. The Members panel opens the
-same content in a larger **Check this Agent** dialog. Both presentations show
-the Agent identity, current Presence and Activity, and a primary **Chat with
-{Agent name}** action. The compact popover omits configuration cards and gives
-the owner one persistent pencil action to open the canonical Agent route; it
-shows no edit affordance to other viewers. The larger dialog keeps the shared
-configuration cards and places **Check more or edit** in the header for the
-owner, or **Check more** for other viewers. Neither presentation adds an
-overflow menu. Owners edit supported settings from the canonical route or the
-dialog cards; other viewers see the same dialog cards read-only.
+Agent identity controls in messages, Threads, and the Members panel open one
+compact Profile Details popover. It shows the Agent identity, current
+availability, and a primary **Chat with {Agent name}** action. The popover omits
+configuration cards and gives the owner one persistent pencil action to open
+the canonical Agent route; it shows no edit affordance to other viewers. It
+does not add a second details dialog or an overflow-menu details action. Owners
+edit supported settings from the canonical route; other viewers keep the
+popover read-only.
 Web must not maintain a separate About-versus-Edit presentation or mutation
 path. Disruptive Controller and working-folder changes keep the account-wide
 execution lock and Core writer guard described below.
@@ -3394,6 +3391,15 @@ in the Members surface. When dismissed contextual setup remains recallable,
 trailing edge of the second header row so the Space name remains identifiable;
 it stays visually separate from the **Messages** and **Graph** view control and
 returns to the primary action group at wider breakpoints.
+
+Selecting a Human or Agent identity in a Space opens one compact profile
+popover rather than a table-style details dialog. A Human popover shows the
+short Space-specific activity time from the Space member projection; it does
+not substitute Organization-wide last activity or generic presence copy. An
+ordinary Agent popover may link its owner to the canonical Agent editor. The
+Center Agent is not an ordinary editable Agent Profile: its Space popover has
+no edit action, and its Chat action opens canonical Home instead of creating or
+opening a Direct Message.
 
 The Space header, main conversation rail, contextual setup overlay, and primary
 composer share one responsive inline frame. Its leading inset is the leading
