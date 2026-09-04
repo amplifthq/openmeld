@@ -52,6 +52,9 @@ describe("command entry name", () => {
     expect(resolveCommandEntryNameFromTokens(["space", "board"])).toBe(
       "space.board"
     );
+    expect(resolveCommandEntryNameFromTokens(["space", "access"])).toBe(
+      "space.access"
+    );
     expect(resolveCommandEntryNameFromTokens(["spaces", "board"])).toBe(
       "space.board"
     );
