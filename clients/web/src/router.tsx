@@ -20,6 +20,10 @@ export function getRouter(options?: { isServer?: boolean }) {
 		context: { queryClient, queryPersistence },
 
 		scrollRestoration: true,
+		// A history-entry key treats every visit as a new scroll surface. The
+		// pathname is the stable browser identity for a Space, while search params
+		// remain free to focus a message without replacing its remembered position.
+		getScrollRestorationKey: (location) => location.pathname,
 		defaultPreload: "intent",
 		defaultPreloadDelay: APP_ROUTE_PRELOAD_DELAY_MS,
 		// TanStack Query owns freshness for loader-prefetched data. Keeping the

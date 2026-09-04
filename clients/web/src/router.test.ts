@@ -41,6 +41,34 @@ describe("router query integration", () => {
 		);
 	});
 
+	it("remembers nested scroll positions by page instead of navigation entry", () => {
+		const router = getRouter({ isServer: true });
+		const getScrollRestorationKey = router.options.getScrollRestorationKey;
+
+		expect(getScrollRestorationKey).toBeTypeOf("function");
+		expect(
+			getScrollRestorationKey?.({
+				pathname: "/o/acme/spaces/space-a",
+				searchStr: "?signalId=first",
+				state: { __TSR_key: "visit-a" },
+			} as never)
+		).toBe("/o/acme/spaces/space-a");
+		expect(
+			getScrollRestorationKey?.({
+				pathname: "/o/acme/spaces/space-a",
+				searchStr: "?signalId=second",
+				state: { __TSR_key: "visit-b" },
+			} as never)
+		).toBe("/o/acme/spaces/space-a");
+		expect(
+			getScrollRestorationKey?.({
+				pathname: "/o/acme/spaces/space-b",
+				searchStr: "",
+				state: { __TSR_key: "visit-c" },
+			} as never)
+		).toBe("/o/acme/spaces/space-b");
+	});
+
 	it("creates a fresh query client for each server-side router creation", () => {
 		const firstRouter = getRouter({ isServer: true });
 		const secondRouter = getRouter({ isServer: true });
