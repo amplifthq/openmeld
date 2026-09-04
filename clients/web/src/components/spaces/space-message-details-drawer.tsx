@@ -3,6 +3,7 @@ import type {
 	GetSpaceMessageDetailsResponse,
 	SpaceMessageDetailsStringFact,
 } from "@openmeld/schemas/types";
+import { buildPublicSpaceEntryUrl } from "@openmeld/space";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -141,6 +142,7 @@ export function SpaceMessageDetailsDrawer(input: {
 	spaceId: string;
 	spacePassword?: string;
 	spaceReferencesById?: SpaceMessageReferencesById;
+	threadRootSignalId?: string;
 	targetProfileDisplayNamesByProfileId?: ReadonlyMap<string, string>;
 	wakeFailureTargetContextsByProfileId?: ReadonlyMap<
 		string,
@@ -150,6 +152,19 @@ export function SpaceMessageDetailsDrawer(input: {
 	wakeProgressEntries?: readonly SpaceMessageWakeThinkingEntry[];
 	wakeStopTarget?: SpaceWakeStopTargetResolution | null;
 }) {
+	const [origin] = useState<string | null>(() =>
+		typeof window === "undefined" ? null : window.location.origin
+	);
+	const messageLink = buildPublicSpaceEntryUrl({
+		origin,
+		target: {
+			signalId: input.item.id,
+			spaceId: input.spaceId,
+			...(input.threadRootSignalId
+				? { threadRootSignalId: input.threadRootSignalId }
+				: {}),
+		},
+	});
 	const query = useQuery(
 		spaceMessageDetailsQueryOptions({
 			openMeldProfileId: input.openMeldProfileId,
@@ -244,6 +259,7 @@ export function SpaceMessageDetailsDrawer(input: {
 								isAgentRecoveryPending={input.isAgentRecoveryPending}
 								isPersonalContext={input.isPersonalContext}
 								item={input.item}
+								messageLink={messageLink}
 								onAgentRecoveryAction={input.onAgentRecoveryAction}
 								onJumpToMessage={(signalId) => {
 									input.onOpenChange(false);
@@ -305,6 +321,7 @@ function MessageDetailsBody(input: {
 	errorLogMessage: string;
 	isPersonalContext?: boolean;
 	item: SpaceTimelineItem;
+	messageLink: string;
 	isAgentRecoveryPending?: (profileId: string) => boolean;
 	onJumpToMessage: (signalId: string) => void;
 	onAgentRecoveryAction?: (
@@ -336,6 +353,7 @@ function MessageDetailsBody(input: {
 	if (input.detailsState.status === "loading") {
 		return (
 			<div className="flex flex-col gap-5">
+				<MessageLinkSection messageLink={input.messageLink} />
 				<p className="text-muted-foreground text-sm">
 					Loading message details...
 				</p>
@@ -346,8 +364,9 @@ function MessageDetailsBody(input: {
 	if (input.detailsState.status === "error") {
 		return (
 			<div className="flex flex-col gap-5">
+				<MessageLinkSection messageLink={input.messageLink} />
 				<p className="text-destructive text-sm">
-					Couldn't load message details.
+					Couldn't load the rest of the message details.
 				</p>
 			</div>
 		);
@@ -410,6 +429,7 @@ function MessageDetailsBody(input: {
 				}
 				wakeStopTarget={input.wakeStopTarget}
 			/>
+			<MessageLinkSection messageLink={input.messageLink} />
 			<SourceNotLoadedSection
 				canJumpToMessage={input.canJumpToMessage}
 				item={input.item}
@@ -426,6 +446,30 @@ function MessageDetailsBody(input: {
 				onReportMessage={input.onReportMessage}
 			/>
 		</div>
+	);
+}
+
+function MessageLinkSection(input: { messageLink: string }) {
+	return (
+		<DetailsSection title="Message link">
+			<p className="text-muted-foreground text-sm leading-6">
+				Anyone with access to this Space can open this message.
+			</p>
+			<div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 bg-muted/45 p-3">
+				<span className="min-w-0 select-text break-all font-mono text-xs leading-5 [overflow-wrap:anywhere]">
+					{input.messageLink}
+				</span>
+				<Button
+					onClick={() => copyDetailText(input.messageLink, "Link copied.")}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					<CopyIcon aria-hidden="true" />
+					Copy link
+				</Button>
+			</div>
+		</DetailsSection>
 	);
 }
 
@@ -1317,7 +1361,7 @@ function TechnicalDetailsSection(input: {
 				<div className="mt-2 flex justify-end">
 					<Button
 						onClick={() =>
-							copyTechnicalDetailText(allDetails, "Technical details copied.")
+							copyDetailText(allDetails, "Technical details copied.")
 						}
 						size="sm"
 						type="button"
@@ -1404,7 +1448,7 @@ function DetailLine(input: {
 								aria-label={`Copy ${input.label}`}
 								className="size-6 shrink-0"
 								onClick={() =>
-									copyTechnicalDetailText(input.value, `${input.label} copied.`)
+									copyDetailText(input.value, `${input.label} copied.`)
 								}
 								size="icon-sm"
 								type="button"
@@ -1429,7 +1473,7 @@ function DetailLine(input: {
 	);
 }
 
-async function copyTechnicalDetailText(
+async function copyDetailText(
 	value: string,
 	successMessage: string
 ): Promise<void> {
