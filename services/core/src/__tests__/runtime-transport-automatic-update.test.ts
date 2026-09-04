@@ -45,26 +45,48 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
   });
 
   it.each([
-    "started",
-    "already_running",
-  ] as const)("coalesces later heartbeats after the update is %s", async (status) => {
+    {
+      name: "started operation targets an older release",
+      status: "started",
+      targetVersion: "0.3.152",
+    },
+    {
+      name: "already-running operation targets an older release",
+      status: "already_running",
+      targetVersion: "0.3.152",
+    },
+    {
+      name: "started operation target is invalid",
+      status: "started",
+      targetVersion: "invalid",
+    },
+    {
+      name: "already-running operation target is invalid",
+      status: "already_running",
+      targetVersion: "invalid",
+    },
+  ] as const)("retries when the $name", async ({ status, targetVersion }) => {
     const harness = createHarness([
-      {
-        operation: "request_update",
-        result: {
-          operation: {
-            operationId: "operation-1",
-            phase: "updating",
-            requestSource: "automatic",
-            requestedAt: "2026-09-01T12:55:00.000Z",
-            targetVersion: "0.3.153",
-            updatedAt: "2026-09-01T12:55:00.000Z",
-            urgency: "required",
-          },
-          status,
-        },
-      },
+      operationResult(status, targetVersion),
+      currentResult("0.3.153"),
     ]);
+
+    await harness.queueAndSettle("register");
+    await harness.queueAndSettle("heartbeat");
+
+    expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { status: "started", targetVersion: "0.3.153" },
+    { status: "started", targetVersion: "0.3.154" },
+    { status: "already_running", targetVersion: "0.3.153" },
+    { status: "already_running", targetVersion: "0.3.154" },
+  ] as const)("coalesces later heartbeats after $status reaches $targetVersion", async ({
+    status,
+    targetVersion,
+  }) => {
+    const harness = createHarness([operationResult(status, targetVersion)]);
 
     await harness.queueAndSettle("register");
     await harness.queueAndSettle("heartbeat");
@@ -169,6 +191,27 @@ function currentResult(currentVersion: string): OpenMeldToolsControlResult {
   return {
     operation: "request_update",
     result: { currentVersion, status: "current" },
+  };
+}
+
+function operationResult(
+  status: "already_running" | "started",
+  targetVersion: string
+): OpenMeldToolsControlResult {
+  return {
+    operation: "request_update",
+    result: {
+      operation: {
+        operationId: "operation-1",
+        phase: "updating",
+        requestSource: "automatic",
+        requestedAt: "2026-09-01T12:55:00.000Z",
+        targetVersion,
+        updatedAt: "2026-09-01T12:55:00.000Z",
+        urgency: "required",
+      },
+      status,
+    },
   };
 }
 

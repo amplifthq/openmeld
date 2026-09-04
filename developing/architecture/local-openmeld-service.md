@@ -1857,10 +1857,12 @@ computer. Register and heartbeat triggers both pass that manifest explicitly;
 a missing manifest cannot infer an automatic target from local defaults. The
 request requires the Service's explicit `requestAutomaticUpdate` capability,
 obeys the Service-owned automatic update preference, and coalesces by computer
-and release target while the request is in flight or the Service has started,
-is already running, or has reached that target. `unavailable`, `disabled`, an
-invalid response, or a `currentVersion` below the target clears the marker so
-the next register or heartbeat can retry. A disconnected request is failed immediately so a
+and release target while the request is in flight. It retains that marker only
+when the Service reports `current` at or above the release, or reports a
+`started` or `already_running` operation targeting at least that release.
+`unavailable`, `disabled`, an invalid response, or a reported current or operation
+target below the release clears the marker so the next register or heartbeat can
+retry. A disconnected request is failed immediately so a
 replacement Service can retry instead of waiting for the control timeout. It
 never adds a second updater or a faster polling loop. The published Service
 still checks the release channel after startup and every hour as the

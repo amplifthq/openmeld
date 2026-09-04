@@ -1303,6 +1303,24 @@ function resolveExistingRuntimeCoordinatorHeadAdmissionResponse(input: {
   };
 }
 
+function resolveHandledOpenMeldToolsUpdateTargetVersion(
+  result: OpenMeldToolsControlResult
+): string | null {
+  if (result.operation !== "request_update") {
+    return null;
+  }
+  if (result.result.status === "current") {
+    return result.result.currentVersion;
+  }
+  if (
+    result.result.status === "started" ||
+    result.result.status === "already_running"
+  ) {
+    return result.result.operation.targetVersion;
+  }
+  return null;
+}
+
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
   private readonly currentDeviceOperationWaiters = new Map<
@@ -17894,15 +17912,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
       })
         .then((result) => {
+          const handledTargetVersion =
+            resolveHandledOpenMeldToolsUpdateTargetVersion(result);
           const requestHandledTarget =
-            result.operation === "request_update" &&
-            (result.result.status === "started" ||
-              result.result.status === "already_running" ||
-              (result.result.status === "current" &&
-                isLocalComponentVersionAtLeast(
-                  result.result.currentVersion,
-                  update.targetVersion
-                )));
+            handledTargetVersion !== null &&
+            isLocalComponentVersionAtLeast(
+              handledTargetVersion,
+              update.targetVersion
+            );
           if (
             !requestHandledTarget &&
             this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
