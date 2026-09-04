@@ -25,6 +25,7 @@ describe("setup progress reporter", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 4, 14, 15, 8));
     stdoutChunks = [];
     stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
       chunk: string | Uint8Array
@@ -69,7 +70,7 @@ describe("setup progress reporter", () => {
     });
     expect(presenter.line).toHaveBeenCalledWith({
       code: "setup.progress.service.starting.completed",
-      text: "✓ OpenMeld Service is running.",
+      text: "[14:15:08] ✓ OpenMeld Service is running. · 0.0s",
     });
   });
 
@@ -104,7 +105,7 @@ describe("setup progress reporter", () => {
     });
     expect(presenter.line).toHaveBeenCalledWith({
       code: "setup.progress.service.starting.completed",
-      text: "✓ OpenMeld Service is running.",
+      text: "[14:15:08] ✓ OpenMeld Service is running. · 0.0s",
     });
   });
 
@@ -132,7 +133,7 @@ describe("setup progress reporter", () => {
     }
     expect(presenter.line).toHaveBeenCalledWith({
       code: "setup.progress.connect_terminal.completed",
-      text: "✓ Terminal connected. Keep this window open. · 0.3s",
+      text: "[14:15:08] ✓ Terminal connected. Keep this window open. · 0.3s",
     });
   });
 
@@ -155,7 +156,7 @@ describe("setup progress reporter", () => {
     expect(stdoutWriteSpy).not.toHaveBeenCalled();
     expect(presenter.line).toHaveBeenCalledWith({
       code: "setup.progress.connect_terminal.completed",
-      text: "✓ Terminal connected. Keep this window open.",
+      text: "[14:15:08] ✓ Terminal connected. Keep this window open. · 0.0s",
     });
   });
 
@@ -219,7 +220,30 @@ describe("setup progress reporter", () => {
 
     expect(presenter.line).toHaveBeenLastCalledWith({
       code: "setup.progress.service.starting.completed",
-      text: "✓ OpenMeld Service is running. · 1.3s",
+      text: "[14:15:09] ✓ OpenMeld Service is running. · 1.3s",
+    });
+  });
+
+  it("uses an injected local clock for a stable human completion timestamp", () => {
+    setProcessStdoutProperty("isTTY", false);
+    const presenter = buildPresenter("human");
+    let nowMs = new Date(2026, 8, 4, 14, 15, 8).getTime();
+    const reporter = createSetupProgressReporter({
+      clock: { now: () => nowMs },
+      presenter,
+      runtime: buildRuntime({ interactive: false, resolvedView: "human" }),
+    });
+
+    const step = reporter.startStep({
+      code: "setup.progress.service.updating",
+      text: "Updating OpenMeld Service.",
+    });
+    nowMs += 3900;
+    step.complete("OpenMeld Service updated.");
+
+    expect(presenter.line).toHaveBeenLastCalledWith({
+      code: "setup.progress.service.updating.completed",
+      text: "[14:15:11] ✓ OpenMeld Service updated. · 3.9s",
     });
   });
 

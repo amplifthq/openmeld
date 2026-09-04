@@ -1222,9 +1222,9 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "🎉 Update complete",
+      "🎉 OpenMeld is ready",
       "",
-      "Your computer is connected and ready.",
+      "Your computer is connected.",
       "",
       "Local agents are syncing in the background.",
       "",
@@ -1260,9 +1260,9 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "🎉 Setup complete",
+      "🎉 OpenMeld is ready",
       "",
-      "Your computer is connected and ready.",
+      "Your computer is connected.",
       "",
       "Local agents connected: Codex.",
       "",
@@ -1316,9 +1316,9 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "Setup needs one more step",
+      "OpenMeld needs one more step",
       "",
-      "Your computer is connected, but OpenMeld could not finish setup.",
+      "Your computer is connected, but OpenMeld could not finish preparing it.",
       "",
       "Reason: Invalid visibility",
       "",
@@ -1366,7 +1366,7 @@ describe("setup command", () => {
     );
     expect(output).not.toContain("Stop service: openmeld service stop");
     expect(output).not.toContain("✓ OpenMeld Skills");
-    expect(output).toContain("🎉 Setup complete");
+    expect(output).toContain("🎉 OpenMeld is ready");
     expect(output).not.toContain("AI setup agents:");
     expect(output).not.toContain("-----BEGIN OpenMeld SETUP COMPLETE-----");
     expect(runDaemonServiceParticipationGateMock).toHaveBeenCalledWith(
@@ -1404,9 +1404,9 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "🎉 Setup complete",
+      "🎉 OpenMeld is ready",
       "",
-      "Your computer is connected and ready.",
+      "Your computer is connected.",
       "",
       "OpenMeld did not find a supported local agent on this computer.",
       "",

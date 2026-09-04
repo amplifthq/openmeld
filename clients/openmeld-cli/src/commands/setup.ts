@@ -70,7 +70,6 @@ type SetupServiceGuidance = {
   stoppedLocalAgentsDescription: string;
 };
 
-type SetupHumanCompletionKind = "setup" | "update";
 type SetupHumanLocalAgentState =
   | "background_syncing"
   | "reported"
@@ -341,7 +340,6 @@ async function runSetupUnlocked(input: {
 
   emitSetupComplete({
     bootstrap,
-    completionKind: "setup",
     gatewayUrl,
     humanLocalAgentState: resolveStandardSetupHumanLocalAgentState({
       localAgents: input.localAgents,
@@ -659,10 +657,6 @@ async function emitSetupCompleteForDelegatedPath(input: {
   });
   emitSetupComplete({
     bootstrap,
-    completionKind: resolveDelegatedSetupHumanCompletionKind({
-      path: input.path,
-      setupSessionSnapshot: input.setupResult.setupSessionSnapshot,
-    }),
     gatewayUrl,
     humanLocalAgentState: resolveDelegatedSetupHumanLocalAgentState({
       path: input.path,
@@ -862,16 +856,6 @@ function emitDefaultLocalAgentsNoticeIfNeeded(input: {
   });
 }
 
-function resolveDelegatedSetupHumanCompletionKind(input: {
-  path: "setup_session" | "profile_connection";
-  setupSessionSnapshot: PrepareSessionSnapshot | null;
-}): SetupHumanCompletionKind {
-  return input.path === "setup_session" &&
-    normalizeOptionalText(input.setupSessionSnapshot?.connectedComputerId)
-    ? "update"
-    : "setup";
-}
-
 function resolveStandardSetupHumanLocalAgentState(input: {
   localAgents?: string;
   selectedLocalAgentIds: readonly string[];
@@ -909,7 +893,6 @@ function resolveDelegatedSetupHumanLocalAgentState(input: {
 
 function emitSetupComplete(input: {
   bootstrap: SetupBootstrapResult;
-  completionKind: SetupHumanCompletionKind;
   gatewayUrl: string;
   humanLocalAgentState: SetupHumanLocalAgentState;
   localComponents: Awaited<ReturnType<typeof resolveLocalComponentsStatus>>;
@@ -998,7 +981,6 @@ function emitSetupComplete(input: {
 
 function emitSetupHumanCompletion(input: {
   bootstrap: SetupBootstrapResult;
-  completionKind: SetupHumanCompletionKind;
   gatewayUrl: string;
   humanLocalAgentState: SetupHumanLocalAgentState;
   presenter: ReturnType<typeof createPresenter>;
@@ -1012,18 +994,17 @@ function emitSetupHumanCompletion(input: {
     label: openMeldWebUrl,
     url: openMeldWebUrl,
   })}`;
-  const flowName = input.completionKind === "update" ? "Update" : "Setup";
   const sections =
     input.bootstrap.status === "completed"
       ? [
-          `🎉 ${flowName} complete`,
-          "Your computer is connected and ready.",
+          "🎉 OpenMeld is ready",
+          "Your computer is connected.",
           ...buildSetupHumanLocalAgentSections(input),
           returnLine,
         ]
       : [
-          `${flowName} needs one more step`,
-          `Your computer is connected, but OpenMeld could not finish ${input.completionKind}.`,
+          "OpenMeld needs one more step",
+          "Your computer is connected, but OpenMeld could not finish preparing it.",
           `Reason: ${formatSetupHumanLine(input.bootstrap.message)}`,
           `Next: Run ${formatOpenMeldCliCommand(input.bootstrap.retryCommand)}`,
           returnLine,
