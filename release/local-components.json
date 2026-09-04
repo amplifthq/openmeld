@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-04T09:07:39.384Z",
+  "updatedAt": "2026-09-04T13:33:03.608Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.154",
+      "packageVersion": "0.3.155",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup commands and Agent View contracts remain compatible; this release only improves Human View completion output."
+      "reason": "Managed production binaries now assess the R2 channel through the authoritative distribution marker; existing CLI commands and contracts remain compatible."
     },
     "service": {
-      "bundleHash": "4fbfd12978183688eaedfb011ba7aa9ceba11fc759700db20159820a808885db",
-      "bundleVersion": "0.3.154",
+      "bundleHash": "c6b97a6437a0b51ec707bda330c75f9c32620ef56570b2f92fe87619ee4c67bd",
+      "bundleVersion": "0.3.155",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing and new Services remain compatible with current cloud contracts; prompt and runtime changes do not alter transport, Wake, or lifecycle protocols."
+      "reason": "The bundled Service now assesses the managed binary release channel even when its command uses an absolute path; existing Runtime Transport and update-control contracts remain compatible."
     },
     "skills": {
       "bundleHash": "f6ab254fac5e6a81cd76373eda64989e1898002d5f6afc40c39dd5567d0cb7f7",
