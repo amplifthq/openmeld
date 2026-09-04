@@ -3,9 +3,101 @@ import type {
   LocalComponentsStatus,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { resolveReleaseTriggeredOpenMeldToolsUpdate } from "../local-components/automatic-update-trigger";
+import {
+  resolveReleaseTriggeredOpenMeldToolsUpdate,
+  resolveReleaseTriggeredOpenMeldToolsUpdateDecision,
+} from "../local-components/automatic-update-trigger";
+
+type DecisionInput = Parameters<
+  typeof resolveReleaseTriggeredOpenMeldToolsUpdateDecision
+>[0];
+type SkipReasonCode = Extract<
+  ReturnType<typeof resolveReleaseTriggeredOpenMeldToolsUpdateDecision>,
+  { status: "skipped" }
+>["reasonCode"];
 
 describe("release-triggered OpenMeld Tools updates", () => {
+  const skipDecisionInputs = {
+    "automatic_update.capability_not_supported": () => ({
+      ...createDecisionInput(),
+      capabilities: {
+        localComponents: createLocalComponentsStatus(),
+        openMeldToolsControl: { requestUpdate: true },
+      },
+    }),
+    "automatic_update.disabled": () => ({
+      ...createDecisionInput(),
+      capabilities: {
+        localComponents: createLocalComponentsStatus({
+          automaticUpdatesEnabled: false,
+        }),
+        openMeldToolsControl: {
+          requestAutomaticUpdate: true,
+          requestUpdate: true,
+        },
+      },
+    }),
+    "automatic_update.lane_not_supported": () => ({
+      ...createDecisionInput(),
+      lane: "canary" as const,
+    }),
+    "automatic_update.local_components_unavailable": () => ({
+      ...createDecisionInput(),
+      capabilities: {
+        openMeldToolsControl: {
+          requestAutomaticUpdate: true,
+          requestUpdate: true,
+        },
+      },
+    }),
+    "automatic_update.maintenance_not_ready": () => ({
+      ...createDecisionInput(),
+      capabilities: {
+        localComponents: createLocalComponentsStatus({
+          maintenanceStatus: "needs_help",
+        }),
+        openMeldToolsControl: {
+          requestAutomaticUpdate: true,
+          requestUpdate: true,
+        },
+      },
+    }),
+    "automatic_update.no_actionable_release": () => ({
+      ...createDecisionInput(),
+      releaseManifest: createCurrentReleaseManifest(),
+    }),
+    "automatic_update.operation_present": () => ({
+      ...createDecisionInput(),
+      capabilities: {
+        localComponents: createLocalComponentsStatus({
+          includeUpdateOperation: true,
+        }),
+        openMeldToolsControl: {
+          requestAutomaticUpdate: true,
+          requestUpdate: true,
+        },
+      },
+    }),
+    "automatic_update.release_manifest_unavailable": () => ({
+      ...createDecisionInput(),
+      releaseManifest: null,
+    }),
+  } satisfies Record<SkipReasonCode, () => DecisionInput>;
+
+  it.each(
+    Object.entries(skipDecisionInputs) as [
+      SkipReasonCode,
+      () => DecisionInput,
+    ][]
+  )("explains the %s decision", (reasonCode, createInput) => {
+    expect(
+      resolveReleaseTriggeredOpenMeldToolsUpdateDecision(createInput())
+    ).toEqual({
+      reasonCode,
+      status: "skipped",
+    });
+  });
+
   it("does not infer a release target when Core did not provide its published manifest", () => {
     expect(
       resolveReleaseTriggeredOpenMeldToolsUpdate({
@@ -124,6 +216,22 @@ describe("release-triggered OpenMeld Tools updates", () => {
   });
 });
 
+function createDecisionInput(): DecisionInput {
+  return {
+    capabilities: {
+      localComponents: createLocalComponentsStatus(),
+      openMeldToolsControl: {
+        requestAutomaticUpdate: true,
+        requestUpdate: true,
+      },
+    },
+    generatedAt: "2026-09-01T13:00:00.000Z",
+    lane: "prod",
+    releaseManifest: createReleaseManifest(),
+    serviceVersion: "0.3.139",
+  };
+}
+
 function createReleaseManifest(): LocalComponentsReleaseManifest {
   return {
     schemaVersion: 1,
@@ -154,10 +262,33 @@ function createReleaseManifest(): LocalComponentsReleaseManifest {
   };
 }
 
+function createCurrentReleaseManifest(): LocalComponentsReleaseManifest {
+  const manifest = createReleaseManifest();
+  return {
+    ...manifest,
+    components: {
+      cli: {
+        ...manifest.components.cli,
+        packageVersion: "0.3.139",
+      },
+      service: {
+        ...manifest.components.service,
+        bundleHash: "c".repeat(64),
+        bundleVersion: "0.3.139",
+      },
+      skills: {
+        ...manifest.components.skills,
+        bundleHash: "d".repeat(64),
+      },
+    },
+  };
+}
+
 function createLocalComponentsStatus(
   input: {
     automaticUpdatesEnabled?: boolean;
     includeUpdateOperation?: boolean;
+    maintenanceStatus?: "needs_help" | "ready";
   } = {}
 ): LocalComponentsStatus {
   return {
@@ -171,7 +302,7 @@ function createLocalComponentsStatus(
     setupActionDescription: "OpenMeld Tools are ready.",
     maintenance: {
       automaticUpdatesEnabled: input.automaticUpdatesEnabled ?? true,
-      status: "ready",
+      status: input.maintenanceStatus ?? "ready",
     },
     ...(input.includeUpdateOperation
       ? {
