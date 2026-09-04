@@ -212,7 +212,27 @@ test("rejects premature release stamps before dependency setup", () => {
   assert.ok(preflight < dependencySetup);
   assert.ok(
     candidateJob.includes(
-      'node ../trusted-control/scripts/release/release-branch-policy.mjs "$CANDIDATE_BRANCH" "$CANDIDATE_BASE_SHA"'
+      "node trusted-control/scripts/ci/final-candidate-release-policy.mjs"
+    )
+  );
+  assert.ok(candidateJob.includes('"$CANDIDATE_TREE_SHA"'));
+  assert.ok(
+    candidateJob.includes(
+      `CANDIDATE_TREE_SHA: ${GITHUB_EXPRESSION_PREFIX} needs.publish_pending.outputs.candidate_tree }}`
+    )
+  );
+  assert.ok(
+    candidateJob.includes(
+      '--evidence "$RUNNER_TEMP/final-candidate-control/final-candidate-evidence.json"'
+    )
+  );
+  assert.ok(
+    candidateJob.indexOf("Preserve exact candidate evidence and command logs") >
+      dependencySetup
+  );
+  assert.ok(
+    candidateJob.includes(
+      `path: ${GITHUB_EXPRESSION_PREFIX} runner.temp }}/final-candidate-control/`
     )
   );
 });

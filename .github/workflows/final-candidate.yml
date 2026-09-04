@@ -99,6 +99,8 @@ jobs:
       CANDIDATE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       CANDIDATE_PR_NUMBER: ${{ github.event.pull_request.number }}
       CANDIDATE_REPOSITORY: ${{ github.repository }}
+      CANDIDATE_SERVER_URL: ${{ github.server_url }}
+      CANDIDATE_TREE_SHA: ${{ needs.publish_pending.outputs.candidate_tree }}
     steps:
       - name: Checkout trusted runner from the exact current base
         uses: actions/checkout@v5
@@ -122,9 +124,19 @@ jobs:
           node-version: "24"
 
       - name: Check release branch policy before dependency setup
-        working-directory: untrusted-candidate
         shell: bash
-        run: node ../trusted-control/scripts/release/release-branch-policy.mjs "$CANDIDATE_BRANCH" "$CANDIDATE_BASE_SHA"
+        run: |
+          node trusted-control/scripts/ci/final-candidate-release-policy.mjs \
+            --candidate-root "$GITHUB_WORKSPACE/untrusted-candidate" \
+            --repository "$CANDIDATE_REPOSITORY" \
+            --pr "$CANDIDATE_PR_NUMBER" \
+            --branch "$CANDIDATE_BRANCH" \
+            --head "$CANDIDATE_HEAD_SHA" \
+            --base "$CANDIDATE_BASE_SHA" \
+            --tree "$CANDIDATE_TREE_SHA" \
+            --confidence "$CANDIDATE_CONFIDENCE" \
+            --server-url "$CANDIDATE_SERVER_URL" \
+            --evidence "$RUNNER_TEMP/final-candidate-control/final-candidate-evidence.json"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6

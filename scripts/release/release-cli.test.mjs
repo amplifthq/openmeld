@@ -29,6 +29,7 @@ import {
   resolveCoreProjectionTag,
   waitForNpmPropagation,
 } from "./release-cli-resume.mjs";
+import { decideNpmPublishStage } from "./release-stage-probes.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -48,6 +49,7 @@ const IMMUTABLE_R2_ARTIFACT_RE =
   /production CLI manifest already publishes 0\.3\.130.*raw artifact is not downloadable/u;
 const INCONCLUSIVE_R2_PROBE_RE =
   /could not prove whether 0\.3\.130 is already published.*refusing to rerun immutable binary publication/u;
+const INCONCLUSIVE_NPM_PROBE_RE = /npm completion probe failed.*ETIMEDOUT/u;
 const R2_STABLE_CHANNEL_AHEAD_RE =
   /production CLI manifest is already at 0\.3\.132, ahead of target 0\.3\.131.*stable channel backward/u;
 const UNSAFE_R2_VERSION_IDENTITY_RE =
@@ -775,6 +777,80 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
   }
 });
 
+test("an inconclusive initial npm probe cannot authorize publication", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  await mkdir(join(repoRoot, "release"), { recursive: true });
+  await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+  await git("add", "release/local-components.json");
+  await git("commit", "-m", "add release manifest");
+  await configureTestOrigin({ git, repoRoot });
+  const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
+  const sideEffects = [];
+
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          fetch: (url, options) => {
+            const manifest = buildTestCliManifest("0.7.96");
+            if (options?.method === "HEAD") {
+              return new Response(null, {
+                headers: {
+                  "content-length": String(TEST_CLI_BINARY.byteLength),
+                },
+                status: 200,
+              });
+            }
+            if (String(url).endsWith(".gz")) {
+              return new Response(TEST_CLI_ARCHIVE, { status: 200 });
+            }
+            return new Response(JSON.stringify(manifest), { status: 200 });
+          },
+          publishCliReleaseTag: () => sideEffects.push("tag"),
+          runCommand: ({ args, command }) => {
+            const key = [command, ...args].join(" ");
+            if (key.startsWith("npm view")) {
+              return {
+                status: 1,
+                stderr: "npm error code ETIMEDOUT",
+                stdout: "",
+              };
+            }
+            if (key.includes("wrangler deployments list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+              };
+            }
+            if (key.includes("wrangler versions list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(
+                  WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                    ...version,
+                    annotations: { "workers/tag": coreTag },
+                  }))
+                ),
+              };
+            }
+            throw new Error(`Unexpected read-only command: ${key}`);
+          },
+          runStep: (step) => sideEffects.push(step.label),
+        },
+        cwd: repoRoot,
+        env: {},
+        withBinary: true,
+      }),
+      INCONCLUSIVE_NPM_PROBE_RE
+    );
+    assert.deepEqual(sideEffects, []);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
 test("a fully completed CLI release rerun skips every stage without side effects", async () => {
   const { git, repoRoot } = await createReleaseRepo("0.7.96");
   const releaseManifest = {
@@ -1280,25 +1356,29 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
 
 test("waits for npm propagation only after this run published the package", async () => {
   const waits = [];
-  const npmDecisions = [
-    {
-      action: "RUN",
-      reason: "npm does not publish openmeld@0.7.96",
-    },
-    {
-      action: "SKIP",
-      criterion: "npm-version-and-floor-exist",
-      reason: "npm already publishes openmeld@0.7.96",
-    },
-  ];
+  const missingNpmVersion = decideNpmPublishStage({
+    status: 1,
+    stderr: "npm error code E404",
+    stdout: "",
+    targetMinRequiredCliVersion: "0.7.96",
+    targetVersion: "0.7.96",
+  });
+  const visibleNpmVersion = decideNpmPublishStage({
+    status: 0,
+    stderr: "",
+    stdout: buildCapturedNpmVersionFloorStdout({
+      minRequiredCliVersion: "0.7.96",
+      version: "0.7.96",
+    }),
+    targetMinRequiredCliVersion: "0.7.96",
+    targetVersion: "0.7.96",
+  });
+  const npmDecisions = [missingNpmVersion, visibleNpmVersion];
   const final = {
     alignment: { action: "RUN", reason: "npm is incomplete" },
     binary: { action: "SKIP" },
     core: { action: "SKIP" },
-    npm: {
-      action: "RUN",
-      reason: "npm does not publish openmeld@0.7.96",
-    },
+    npm: missingNpmVersion,
     tag: { action: "SKIP" },
   };
 
@@ -1320,14 +1400,30 @@ test("waits for npm propagation only after this run published the package", asyn
 });
 
 test("does not wait for npm on a resume or an inconclusive probe", async () => {
+  const inconclusiveNpmProbe = decideNpmPublishStage({
+    status: 1,
+    stderr: "npm error code ETIMEDOUT",
+    stdout: "",
+    targetVersion: "0.7.96",
+  });
+  assert.deepEqual(inconclusiveNpmProbe, {
+    action: "RUN",
+    probeFailure: true,
+    reason: "npm completion probe failed: npm error code ETIMEDOUT",
+  });
   for (const releaseCase of [
     {
       npmPublishedThisRun: false,
-      npm: { action: "RUN", reason: "npm version is absent" },
+      npm: decideNpmPublishStage({
+        status: 1,
+        stderr: "npm error code E404",
+        stdout: "",
+        targetVersion: "0.7.96",
+      }),
     },
     {
       npmPublishedThisRun: true,
-      npm: { action: "FAIL", probeFailure: true, reason: "npm timed out" },
+      npm: inconclusiveNpmProbe,
     },
   ]) {
     let probed = false;
@@ -1359,6 +1455,44 @@ test("does not wait for npm on a resume or an inconclusive probe", async () => {
     assert.equal(probed, false);
     assert.equal(slept, false);
   }
+});
+
+test("stops propagation waits when a follow-up npm probe is inconclusive", async () => {
+  const missingNpmVersion = decideNpmPublishStage({
+    status: 1,
+    stderr: "npm error code E404",
+    stdout: "",
+    targetVersion: "0.7.96",
+  });
+  const inconclusiveNpmProbe = decideNpmPublishStage({
+    status: 1,
+    stderr: "npm error code ETIMEDOUT",
+    stdout: "",
+    targetVersion: "0.7.96",
+  });
+  const waits = [];
+
+  const result = await waitForNpmPropagation({
+    delays: [10_000, 20_000],
+    final: {
+      alignment: { action: "RUN", reason: "npm is incomplete" },
+      binary: { action: "SKIP" },
+      core: { action: "SKIP" },
+      npm: missingNpmVersion,
+      tag: { action: "SKIP" },
+    },
+    npmPublishedThisRun: true,
+    probeNpm: () => Promise.resolve(inconclusiveNpmProbe),
+    sleep: (delayMs) => {
+      waits.push(delayMs);
+      return Promise.resolve();
+    },
+    write: () => undefined,
+  });
+
+  assert.deepEqual(waits, [10_000]);
+  assert.equal(result.npm.probeFailure, true);
+  assert.equal(result.alignment.action, "FAIL");
 });
 
 test("stops before every release mutation when the manifest is not the exact canonical target", async () => {

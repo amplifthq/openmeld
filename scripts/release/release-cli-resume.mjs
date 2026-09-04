@@ -62,6 +62,14 @@ export async function runResumableCliRelease(input) {
     tag,
     target,
   });
+  if (initial.npm.probeFailure) {
+    printStageDecision(
+      "npm publish",
+      { ...initial.npm, action: "FAIL" },
+      write
+    );
+    throw new Error(initial.npm.reason);
+  }
   if (initial.alignment.action === "FAIL") {
     printStageDecision("Final R2/npm/Core alignment", initial.alignment, write);
     throw new Error(initial.alignment.reason);
@@ -257,6 +265,7 @@ export async function waitForNpmPropagation(input) {
   if (
     !input.npmPublishedThisRun ||
     final.npm.action !== "RUN" ||
+    final.npm.criterion !== "npm-target-version-missing" ||
     final.binary.action !== "SKIP" ||
     final.core.action !== "SKIP" ||
     final.tag.action !== "SKIP"
@@ -272,14 +281,19 @@ export async function waitForNpmPropagation(input) {
     const npm = await input.probeNpm();
     final = {
       ...final,
-      alignment: decideChannelAlignmentStage({
-        binary: final.binary,
-        core: final.core,
-        npm,
-      }),
+      alignment: npm.probeFailure
+        ? { ...npm, action: "FAIL" }
+        : decideChannelAlignmentStage({
+            binary: final.binary,
+            core: final.core,
+            npm,
+          }),
       npm,
     };
-    if (npm.action !== "RUN") {
+    if (
+      npm.action !== "RUN" ||
+      npm.criterion !== "npm-target-version-missing"
+    ) {
       break;
     }
   }
