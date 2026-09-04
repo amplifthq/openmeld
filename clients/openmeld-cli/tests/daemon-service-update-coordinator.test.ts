@@ -107,6 +107,44 @@ describe("daemon service background update coordinator", () => {
     });
   });
 
+  it("keeps waiting when the readiness fact is unavailable", async () => {
+    const pending: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "update-after-readiness-error",
+      phase: "waiting_for_work",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-09-05T00:00:00.000Z",
+      requestSource: "automatic",
+      targetVersion: PREPARED_BUNDLE.daemonVersion,
+      updatedAt: "2026-09-05T00:00:00.000Z",
+      urgency: "available",
+    };
+    const readPendingJob = vi
+      .fn<() => Promise<DaemonServiceUpdateJob | null>>()
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(null);
+    const sleep = vi.fn(() => Promise.resolve());
+
+    await waitUntilDaemonServiceSafeSwitch(pending, {
+      readPendingJob,
+      requestReadiness: () =>
+        Promise.reject(
+          new LocalDaemonControlPlaneClientError(
+            "daemon.control.invalid_response",
+            "unexpected readiness response"
+          )
+        ),
+      sleep,
+    });
+
+    expect(readPendingJob).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledOnce();
+  });
+
   it("survives the initiating process and closes the persisted job after completion", async () => {
     const homeDir = await mkdtemp(join(tmpdir(), "openmeld-update-state-"));
     const pathInput = {

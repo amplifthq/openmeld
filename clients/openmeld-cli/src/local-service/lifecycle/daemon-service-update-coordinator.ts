@@ -472,15 +472,12 @@ export async function waitUntilDaemonServiceSafeSwitch(
   job: DaemonServiceUpdateJob,
   overrides: {
     readPendingJob?: () => Promise<DaemonServiceUpdateJob | null>;
-    readRuntimeStatus?: typeof readCurrentObservedDaemonRuntimeStatus;
     requestReadiness?: typeof requestLocalDaemonServiceUpdateReadiness;
     sleep?: typeof sleep;
   } = {}
 ): Promise<void> {
   const readPendingJob =
     overrides.readPendingJob ?? readPendingDaemonServiceUpdate;
-  const readRuntimeStatus =
-    overrides.readRuntimeStatus ?? readCurrentObservedDaemonRuntimeStatus;
   const requestReadiness =
     overrides.requestReadiness ?? requestLocalDaemonServiceUpdateReadiness;
   const wait = overrides.sleep ?? sleep;
@@ -509,10 +506,10 @@ export async function waitUntilDaemonServiceSafeSwitch(
         // result acknowledgement before allowing the switch.
         return;
       }
-      const runtime = await readRuntimeStatus().catch(() => null);
-      if (!runtime || runtime.status !== "running") {
-        return;
-      }
+      // A missing process or unreadable runtime projection does not prove that
+      // accepted work and its durable result acknowledgement are complete.
+      // Keep this available update pending until the Service supplies the
+      // positive readiness fact or the durable job changes.
     }
     await wait(2000);
   }
