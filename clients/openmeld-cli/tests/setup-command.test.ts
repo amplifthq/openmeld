@@ -1222,7 +1222,7 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "🎉 OpenMeld is ready",
+      "🎉 Computer connected",
       "",
       "Your computer is connected.",
       "",
@@ -1260,7 +1260,7 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "🎉 OpenMeld is ready",
+      "🎉 Computer connected",
       "",
       "Your computer is connected.",
       "",
@@ -1366,7 +1366,7 @@ describe("setup command", () => {
     );
     expect(output).not.toContain("Stop service: openmeld service stop");
     expect(output).not.toContain("✓ OpenMeld Skills");
-    expect(output).toContain("🎉 OpenMeld is ready");
+    expect(output).toContain("🎉 Computer connected");
     expect(output).not.toContain("AI setup agents:");
     expect(output).not.toContain("-----BEGIN OpenMeld SETUP COMPLETE-----");
     expect(runDaemonServiceParticipationGateMock).toHaveBeenCalledWith(
@@ -1404,7 +1404,7 @@ describe("setup command", () => {
       .filter((line) => line.code.startsWith("setup.complete.human"))
       .map((line) => line.text);
     expect(completionLines).toEqual([
-      "🎉 OpenMeld is ready",
+      "🎉 Computer connected",
       "",
       "Your computer is connected.",
       "",

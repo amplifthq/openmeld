@@ -697,7 +697,7 @@ machine-state verb (Invariant 7).
 
 Successful Human View completion stays focused on the user outcome: this
 computer is connected, the truthful local-agent result, and one link back to
-OpenMeld Web. Its mode-independent title is `OpenMeld is ready`; it does not
+OpenMeld Web. Its mode-independent title is `Computer connected`; it does not
 guess Setup versus Update from an existing Computer id, which can also represent
 a reconnect. The body says `Your computer is connected.`, not that the whole
 computer is ready, because local agents may still be syncing, absent, or need

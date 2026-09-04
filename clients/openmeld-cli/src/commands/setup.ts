@@ -997,7 +997,7 @@ function emitSetupHumanCompletion(input: {
   const sections =
     input.bootstrap.status === "completed"
       ? [
-          "🎉 OpenMeld is ready",
+          "🎉 Computer connected",
           "Your computer is connected.",
           ...buildSetupHumanLocalAgentSections(input),
           returnLine,
