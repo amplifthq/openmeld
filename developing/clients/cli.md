@@ -540,17 +540,18 @@ the login auto-start explanation, the exact lane-aware autostart disable
 command, the exact lane-aware stop command, and the user-visible consequence
 that local agents cannot be activated until OpenMeld Service starts again. GUI
 surfaces should consume this field instead of copying CLI Human View cards.
-CLI Human View may summarize that same truth in a compact completion card:
-service is running and starts at login, the stop command, the autostart-disable
-command, and the short consequence that stopped service means local agents are
-off. Detailed component and service facts stay in Agent View. Long-running setup
-work should show short progress lines when stdout is not a TTY, because Web
-setup pipes the CLI output through the bootstrap script and hidden spinners make
-the flow look stuck. Every completed setup/Prepare step that takes at least
-100 ms shows its elapsed time in Human View and includes exact `durationMs` in
-Agent View. Fast steps stay quiet, while a slow Service, local-agent, skill, or
-verification phase leaves one stable timing record instead of disappearing
-with the spinner.
+CLI Human View leaves Service versions, running state, autostart controls, and
+stop commands to `openmeld service status`; detailed component and Service facts
+stay in Agent View. Setup work should show short progress lines when stdout is
+not a TTY, because Web setup pipes the CLI output through the bootstrap script
+and hidden spinners make the flow look stuck. Every important completed
+setup/Prepare step leaves one stable Human View record in the form
+`[HH:mm:ss] ✓ Result · elapsed`, using the local time zone of the computer
+running the CLI and a zero-padded 24-hour clock. Active spinner and internal
+detail lines remain untimestamped. Agent View keeps its existing structured
+progress and includes exact `durationMs` for steps that take at least 100 ms.
+These presentation timestamps neither control execution nor change waiting,
+Service lifecycle, or readiness decisions.
 
 Direct `openmeld service start` reports the total time from command entry until
 the local service is ready. `openmeld upgrade` reports separate timings for the
@@ -1242,6 +1243,20 @@ milestone: authentication is reloadable and OpenMeld Service is aligned and
 connected for the intended account/device/lane. Agent Controller discovery,
 Skills, diagnostics, and Project discovery may still be converging in the
 background and are not implied by that result.
+
+Successful Human View completion uses the mode-independent title `OpenMeld is
+ready` and prints only the connected-computer outcome, the truthful local-agent
+state, and one OpenMeld Web return link. It says the computer is connected, not
+that the whole computer is ready. Each sentence occupies one line and sentences
+are separated by blank lines. The CLI does not infer Setup versus Update from an
+existing Computer id because reconnect can carry the same fact. An
+ordinary Web handoff with an empty Agent Controller selection means background
+catalog synchronization, not `None connected`; only standalone discovery that
+found no supported controller may show the installation guide. CLI and Service
+versions, running state, autostart controls, and stop commands remain available
+through `openmeld service status`. Agent View retains the complete structured
+`setup.complete` payload, and partial completion retains its reason and recovery
+command.
 
 A CLI repair flow must not claim success merely because a command ran, a
 process started, a controller was detected, a service snapshot streamed, or
