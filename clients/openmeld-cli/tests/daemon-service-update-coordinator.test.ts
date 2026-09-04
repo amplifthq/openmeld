@@ -11,9 +11,11 @@ vi.mock("../src/local-service/lifecycle/daemon-service-lifecycle", () => ({
   runDaemonServiceLifecycle: vi.fn(),
 }));
 
+import { LocalDaemonControlPlaneClientError } from "../src/local-service/control-plane/client";
 import {
   runPendingDaemonServiceUpdate,
   scheduleDaemonServiceUpdate,
+  waitUntilDaemonServiceSafeSwitch,
 } from "../src/local-service/lifecycle/daemon-service-update-coordinator";
 import {
   completePendingDaemonServiceUpdate,
@@ -41,6 +43,70 @@ const PREPARED_BUNDLE = {
 };
 
 describe("daemon service background update coordinator", () => {
+  it("upgrades an old 0.3.153 Service through the candidate CLI worker contract bridge", async () => {
+    const pending: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "update-from-0.3.153",
+      phase: "waiting_for_work",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-09-05T00:00:00.000Z",
+      requestSource: "cli",
+      targetVersion: PREPARED_BUNDLE.daemonVersion,
+      updatedAt: "2026-09-05T00:00:00.000Z",
+      urgency: "available",
+    };
+    let durableJob = pending;
+    const runLifecycle = vi.fn(async () => ({
+      errorMessage: null,
+      status: "aligned" as const,
+    }));
+    const requestReadiness = vi.fn(() =>
+      Promise.reject(
+        new LocalDaemonControlPlaneClientError(
+          "daemon.control.contract_mismatch",
+          "OpenMeld Service 0.3.153 predates service_update_readiness"
+        )
+      )
+    );
+
+    const result = await runPendingDaemonServiceUpdate({
+      completePendingJob: (job) => {
+        durableJob = job;
+        return Promise.resolve();
+      },
+      now: () => "2026-09-05T00:00:02.000Z",
+      persistPendingJob: (job) => {
+        durableJob = job;
+        return Promise.resolve();
+      },
+      readPendingJob: async () => durableJob,
+      runLifecycle,
+      waitUntilSafeToSwitch: async (job) =>
+        await waitUntilDaemonServiceSafeSwitch(job, {
+          readPendingJob: async () => durableJob,
+          requestReadiness,
+          sleep: vi.fn(),
+        }),
+      withReconcileLock: async (run) => await run(),
+    });
+
+    expect(requestReadiness).toHaveBeenCalledOnce();
+    expect(runLifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedVersion: PREPARED_BUNDLE.daemonVersion,
+        forceKillAfterDrainTimeout: false,
+      })
+    );
+    expect(result).toMatchObject({
+      phase: "updated",
+      targetVersion: PREPARED_BUNDLE.daemonVersion,
+    });
+  });
+
   it("survives the initiating process and closes the persisted job after completion", async () => {
     const homeDir = await mkdtemp(join(tmpdir(), "openmeld-update-state-"));
     const pathInput = {

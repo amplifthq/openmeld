@@ -468,11 +468,24 @@ async function runWithoutReconcileLock<T>(run: () => Promise<T>): Promise<T> {
   return await run();
 }
 
-async function waitUntilDaemonServiceSafeSwitch(
-  job: DaemonServiceUpdateJob
+export async function waitUntilDaemonServiceSafeSwitch(
+  job: DaemonServiceUpdateJob,
+  overrides: {
+    readPendingJob?: () => Promise<DaemonServiceUpdateJob | null>;
+    readRuntimeStatus?: typeof readCurrentObservedDaemonRuntimeStatus;
+    requestReadiness?: typeof requestLocalDaemonServiceUpdateReadiness;
+    sleep?: typeof sleep;
+  } = {}
 ): Promise<void> {
+  const readPendingJob =
+    overrides.readPendingJob ?? readPendingDaemonServiceUpdate;
+  const readRuntimeStatus =
+    overrides.readRuntimeStatus ?? readCurrentObservedDaemonRuntimeStatus;
+  const requestReadiness =
+    overrides.requestReadiness ?? requestLocalDaemonServiceUpdateReadiness;
+  const wait = overrides.sleep ?? sleep;
   while (true) {
-    const pending = await readPendingDaemonServiceUpdate();
+    const pending = await readPendingJob();
     if (
       pending === null ||
       pending.jobId !== job.jobId ||
@@ -481,7 +494,7 @@ async function waitUntilDaemonServiceSafeSwitch(
       return;
     }
     try {
-      const readiness = await requestLocalDaemonServiceUpdateReadiness();
+      const readiness = await requestReadiness();
       if (readiness.safeToSwitch) {
         return;
       }
@@ -496,14 +509,12 @@ async function waitUntilDaemonServiceSafeSwitch(
         // result acknowledgement before allowing the switch.
         return;
       }
-      const runtime = await readCurrentObservedDaemonRuntimeStatus().catch(
-        () => null
-      );
+      const runtime = await readRuntimeStatus().catch(() => null);
       if (!runtime || runtime.status !== "running") {
         return;
       }
     }
-    await sleep(2000);
+    await wait(2000);
   }
 }
 

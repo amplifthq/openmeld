@@ -894,6 +894,62 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(cardOrder).toEqual([0, 1, 2, 3, 4, 5]);
 	});
 
+	it("shows a missing working folder with one direct recovery action", () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const baseReadiness = createReadinessResponseWithPrimaryBinding(binding);
+		const readiness = {
+			...baseReadiness,
+			agentExecutionReadiness: {
+				...baseReadiness.agentExecutionReadiness,
+				facts: {
+					...baseReadiness.agentExecutionReadiness.facts,
+					runtime: {
+						ready: false,
+						reasonCodes: ["profile.workspace.missing", "profile.unbound"],
+						source: "prepare_readiness",
+					},
+				},
+				primaryAction: "run_prepare",
+				reasonCodes: ["profile.workspace.missing", "profile.unbound"],
+			},
+			agentWakeAvailability: {
+				...baseReadiness.agentWakeAvailability,
+				action: "run_prepare",
+				badgeLabel: "Working folder missing",
+				label: "Working folder missing",
+				phase: "unavailable",
+				reasonCode: "profile.workspace.missing",
+				summary: "Choose a working folder for this Agent.",
+				tooltip: "Working folder missing",
+			},
+			primaryActionPlan: {
+				action: "run_prepare",
+				target: { kind: "current_computer" },
+			},
+		} as unknown as GetAgentExecutionReadinessResponse;
+
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+			},
+			binding,
+			{ presentation: "detail" }
+		);
+
+		const overview = screen.getByTestId("agent-configuration-overview");
+		expect(within(overview).getByText("Working folder missing")).toBeTruthy();
+		expect(
+			within(overview).getByText("Choose a working folder for this Agent.")
+		).toBeTruthy();
+		expect(
+			within(overview).getByRole("button", { name: "Choose folder" })
+		).toBeTruthy();
+		expect(within(overview).getByText("Choose folder")).toBeTruthy();
+		expect(within(overview).queryByText("OpenMeld managed")).toBeNull();
+	});
+
 	it("keeps a checking Wake projection as checking in Profile Details", () => {
 		renderAgentProfilesCard(
 			{

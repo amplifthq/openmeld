@@ -2373,6 +2373,10 @@ describe("openmeld service run command", () => {
           })
         );
         expect(contractState).not.toHaveProperty("profileId");
+        expect(resolveOpenMeldProfileOrNullMock).not.toHaveBeenCalled();
+        expect(getAuthSessionStateMock).not.toHaveBeenCalledWith({
+          validateRemote: true,
+        });
         expect(inspectDaemonServiceInventoryMock).not.toHaveBeenCalled();
         expect(runDaemonServiceLoopMock).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -3453,7 +3457,7 @@ describe("openmeld service run command", () => {
     }
   });
 
-  it("treats a running local service runtime as started even if launchd status has not caught up yet", async () => {
+  it("does not report started while launchd status has not caught up", async () => {
     resolveDaemonServiceManagerMock.mockResolvedValue({
       controller: "launchd",
       install: vi.fn(async () => undefined),
@@ -3494,12 +3498,12 @@ describe("openmeld service run command", () => {
         );
       });
 
-      expect(result).toEqual({
-        ok: true,
-        reason: "started",
+      expect(result).toMatchObject({
+        ok: false,
+        reason: "start_failed",
       });
-      expect(stdout).toContain(getDaemonStartStartedTitle());
-      expect(stdout).not.toContain("OpenMeld Service Needs Attention");
+      expect(stdout).not.toContain(getDaemonStartStartedTitle());
+      expect(stdout).toContain("OpenMeld Service couldn't start");
     } finally {
       process.exitCode = previousExitCode;
     }

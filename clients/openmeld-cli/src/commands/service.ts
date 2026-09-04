@@ -134,6 +134,10 @@ import {
 } from "../local-service/lifecycle/daemon-service-runtime";
 import { startDaemonSystemServiceWithAutoRepair } from "../local-service/lifecycle/daemon-service-start-recovery";
 import { resolveDaemonServiceStartupRecoveryDecision } from "../local-service/lifecycle/daemon-service-startup-recovery";
+import {
+  isSystemServiceStartupTimeoutError,
+  resolveSystemServiceStartupWaitMs,
+} from "../local-service/lifecycle/daemon-service-startup-wait";
 import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
 import { uninstallDaemonServiceUpdateWorker } from "../local-service/lifecycle/daemon-service-update-worker-manager";
 import {
@@ -247,7 +251,6 @@ import {
   buildSystemServiceStartupFailureDiagnostics,
   buildSystemServiceStartupFailureMessage,
   buildSystemServiceStartupFailureReport,
-  isSystemServiceStartupTimeoutError,
   resolveSystemServiceStartupFailureVerdict,
   type SystemServiceStartupFailureVerdict,
   type SystemServiceStartupRecoveryOutcome,
@@ -309,11 +312,6 @@ const DAEMON_RUN_MODE_CHOICES = {
 
 const DEFAULT_DAEMON_RUN_MODE = DAEMON_RUN_MODE_CHOICES.background;
 const SERVICE_STARTUP_CHECK_MS = 5000;
-// Upper bound only: the daemon now reports running before the route-catalog
-// scan (the scan resolves asynchronously after the control plane is up), so
-// this poll normally exits within seconds. The wide window stays as headroom
-// for slow disks/node spawn, not because startup work is expected to be slow.
-const LAUNCHD_SERVICE_STARTUP_CHECK_MS = 90_000;
 const SERVICE_STARTUP_POLL_MS = 120;
 const REINSTALL_DRAIN_WAIT_MS = 20_000;
 const REINSTALL_VERIFY_WAIT_MS = 20_000;
@@ -458,7 +456,7 @@ type DaemonInteractiveCommandResult = "completed" | "cancelled";
 const isDetachedDaemonServiceRun = (): boolean =>
   process.env[DAEMON_SERVICE_RUNTIME_DETACHED_ENV] === "1";
 
-const isManagedSystemServiceBootstrapRun = (): boolean =>
+export const isManagedSystemServiceBootstrapRun = (): boolean =>
   isDetachedDaemonServiceRun() &&
   process.env[DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV] === "1";
 
@@ -4561,8 +4559,7 @@ async function resolveSystemBootstrapDaemonContract(input: {
   if (
     currentContract &&
     isDaemonServiceContractIdentityReusable(currentContract) &&
-    currentContractGatewayUrl &&
-    !currentContract.profileId
+    currentContractGatewayUrl
   ) {
     return currentContract;
   }
@@ -4595,18 +4592,6 @@ function resolvePersistedDaemonServiceContractGatewayUrl(
       )}`
     );
   }
-}
-
-function resolveSystemServiceStartupWaitMs(
-  controller: DaemonServiceManager["controller"]
-): number {
-  // launchd may revive a crashed job after a short backoff. Keep the first
-  // start flow open long enough to observe that recovery instead of failing
-  // early and showing a misleading "Needs Attention" card.
-  if (controller === "launchd") {
-    return LAUNCHD_SERVICE_STARTUP_CHECK_MS;
-  }
-  return SERVICE_STARTUP_CHECK_MS;
 }
 
 function emitSystemServiceBackgroundStarted(input: {

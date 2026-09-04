@@ -623,10 +623,12 @@ current Service remains available. A preparation failure must leave the current
 Service running. The CLI drains and stops the current Service only after that
 preflight succeeds, then activates the prepared replacement and verifies its
 health before reporting success.
-For an update, the public command reports success after the prepared replacement
-and durable job have been handed to the operating system's background update
-worker; it does not hold the Terminal open for the later drain and switch. The
-user may close the Terminal or Web Setup immediately. The worker waits for all
+For an update, a handoff response says only that the update started in the
+background after the prepared replacement and durable job reached the operating
+system's update worker. It must not say updated, complete, or aligned. A terminal
+that remains attached may use those completion words only after the operation is
+`updated` and the exact target CLI and Service are observed. The user may close
+the Terminal or Web Setup immediately after handoff. The worker waits for all
 accepted Wake work and durable result receipts, resumes after interruption or
 computer restart, verifies the replacement, and restores the previous verified
 Service if replacement startup fails. Setup uses this background path only when
@@ -1089,6 +1091,12 @@ or writes Agent Controller selection. It reuses that recorded result for
 explicit selections; it must not run a second forced Service refresh for the
 same handoff. Selecting no Agent Controllers still requires the recorded Service
 step before Prepare can complete.
+
+A scheduled Service update is a durable background handoff, not aligned Service
+evidence. Setup and Prepare complete only when that operation is `updated` and
+the exact target CLI and Service versions are present. `restored` and
+`needs_help` fail with one next action, even if stale version fields happen to
+match the target.
 
 That result is valid only for the Terminal connection epoch that wrote it. A
 replacement or reconnected Terminal repeats Service alignment and the remaining

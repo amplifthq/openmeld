@@ -24,6 +24,7 @@ const {
   runDaemonReinstallMock,
   runDaemonRunMock,
   runPrepareSessionExecutorMock,
+  assertSetupServiceUpdateCompleteMock,
 } = vi.hoisted(() => ({
   createAgentProfileBindingApiMock: vi.fn(),
   createCliApiClientFoundationMock: vi.fn(),
@@ -48,6 +49,11 @@ const {
   runDaemonReinstallMock: vi.fn(),
   runDaemonRunMock: vi.fn(),
   runPrepareSessionExecutorMock: vi.fn(),
+  assertSetupServiceUpdateCompleteMock: vi.fn(),
+}));
+
+vi.mock("../src/commands/setup-service-update-truth", () => ({
+  assertSetupServiceUpdateComplete: assertSetupServiceUpdateCompleteMock,
 }));
 
 vi.mock("@openmeld/api-client", () => ({
@@ -233,6 +239,9 @@ describe("local setup executor", () => {
       },
       status: "completed",
     });
+    assertSetupServiceUpdateCompleteMock
+      .mockReset()
+      .mockResolvedValue(undefined);
     runDaemonInstallMock.mockResolvedValue(undefined);
     runDaemonReinstallMock.mockResolvedValue({
       ok: true,
@@ -1563,7 +1572,7 @@ describe("local setup executor", () => {
     expect(runDaemonRunMock).not.toHaveBeenCalled();
   });
 
-  it("hands healthy version drift to the background service update worker", async () => {
+  it("hands healthy version drift to the background worker without reporting setup complete", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",
       viewMode: "human",
@@ -1603,14 +1612,24 @@ describe("local setup executor", () => {
         source: "stored_profile",
       },
     });
+    runDaemonReinstallMock.mockResolvedValueOnce({
+      ok: true,
+      result: "scheduled",
+      jobId: "update-1",
+      targetVersion: "1.0.0",
+    });
     const { runSetupLocalAgentConnection } = await import(
       "../src/commands/setup-local-agent-connection"
     );
 
-    await runSetupLocalAgentConnection({
-      profile: "agt-codex",
-      view: "human",
-    });
+    await expect(
+      runSetupLocalAgentConnection({
+        profile: "agt-codex",
+        view: "human",
+      })
+    ).rejects.toThrow(
+      "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes."
+    );
 
     expect(runDaemonReinstallMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1620,6 +1639,7 @@ describe("local setup executor", () => {
         skipConfirm: true,
       })
     );
+    expect(assertSetupServiceUpdateCompleteMock).not.toHaveBeenCalled();
   });
 
   it("continues the current prepare result after refreshing OpenMeld Service drift", async () => {

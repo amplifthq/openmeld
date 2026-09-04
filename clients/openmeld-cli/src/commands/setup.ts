@@ -990,23 +990,22 @@ function emitSetupHumanCompletion(input: {
   const openMeldWebUrl = new URL(
     resolveGatewayWebOrigin(input.gatewayUrl)
   ).toString();
-  const returnLine = `Return to OpenMeld Web: ${formatTerminalHyperlink({
-    label: openMeldWebUrl,
+  const returnLine = `Open OpenMeld Web: ${formatTerminalHyperlink({
+    label: "OpenMeld Web",
     url: openMeldWebUrl,
-  })}`;
+  })}.`;
   const sections =
     input.bootstrap.status === "completed"
       ? [
-          "🎉 Computer connected",
-          "Your computer is connected.",
+          "🎉 Your computer is connected.",
           ...buildSetupHumanLocalAgentSections(input),
           returnLine,
         ]
       : [
-          "OpenMeld needs one more step",
+          "⚠️ OpenMeld needs one more step.",
           "Your computer is connected, but OpenMeld could not finish preparing it.",
-          `Reason: ${formatSetupHumanLine(input.bootstrap.message)}`,
-          `Next: Run ${formatOpenMeldCliCommand(input.bootstrap.retryCommand)}`,
+          `Reason: ${formatSetupHumanLine(input.bootstrap.message)}.`,
+          `Next: Run ${formatOpenMeldCliCommand(input.bootstrap.retryCommand)}.`,
           returnLine,
         ];
 
@@ -1067,9 +1066,7 @@ function buildSetupHumanLocalAgentSections(input: {
 function joinSetupHumanCompletionSections(
   sections: readonly string[]
 ): string[] {
-  return sections.flatMap((section, index) =>
-    index === 0 ? [section] : ["", section]
-  );
+  return sections.flatMap((section) => ["", section]);
 }
 
 function formatSetupHumanLine(value: string): string {

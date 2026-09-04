@@ -3983,7 +3983,13 @@ operation in verification; it becomes a separate actionable update. A stale
 refetch must not erase the local accepted-operation evidence, and a
 `current` control response must not produce **Up to date** until the component
 projection agrees. Request completion and installation completion are not
-verified update completion. Computer connection recovery remains explicitly
+verified update completion. An exact target observed while the same operation
+is still `waiting_for_work` or `updating` remains **Updating**. Only `updated`
+plus the exact target Service and CLI becomes **Up to date**. `restored` and
+`needs_help` remain **Update failed. Try again.** even when stale component
+fields match the target. An optional update still available after completion
+prevents **Up to date** from becoming a false current-version claim. Computer
+connection recovery remains explicitly
 **Connect Computer** or **Reconnect Computer**. When Service is offline,
 both the card action and its More menu use **Reconnect Computer** and open the
 existing Connect/CLI path; Web never pretends it can send a managed reconnect

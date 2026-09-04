@@ -369,6 +369,42 @@ describe("agent wake availability", () => {
     );
   });
 
+  it("keeps a missing working folder more specific than a derived unbound reason", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      localService: {
+        reachable: true,
+        refreshable: true,
+        reasonCodes: [],
+        source: "runtime_transport",
+      },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "needs_prepare",
+        ready: false,
+        reasonCodes: ["profile.workspace.missing", "profile.unbound"],
+      },
+    });
+
+    expect(
+      resolveAgentWakeAvailability({
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+        readiness,
+      })
+    ).toMatchObject({
+      badgeLabel: "Working folder missing",
+      label: "Working folder missing",
+      reasonCode: "profile.workspace.missing",
+      summary: "Choose a working folder for this Agent.",
+      tooltip: "Working folder missing",
+    });
+  });
+
   it.each([
     {
       agentControllerRef: "builtin:claude-code",

@@ -903,11 +903,25 @@ function createUnavailableWakeAvailability(
       reasonCode.startsWith("project.local_connection.")
   );
   if (workspaceUnavailableReasonCode) {
+    const workingFolderMissing =
+      workspaceUnavailableReasonCode === "workspace.missing" ||
+      workspaceUnavailableReasonCode === "profile.workspace.missing" ||
+      workspaceUnavailableReasonCode === "project.local_connection.missing" ||
+      workspaceUnavailableReasonCode ===
+        "project.local_connection.folder_missing";
     return createAvailability(readiness, {
-      ...unavailableWakeAvailabilityFallbackCopy,
+      ...(workingFolderMissing
+        ? {
+            badgeLabel: "Working folder missing",
+            summary: "Choose a working folder for this Agent.",
+            tooltip: "Working folder missing",
+          }
+        : unavailableWakeAvailabilityFallbackCopy),
       category: "unavailable",
       isRefreshing: false,
-      label: "Workspace unavailable",
+      label: workingFolderMissing
+        ? "Working folder missing"
+        : "Workspace unavailable",
       phase: "unavailable",
       reasonCode: workspaceUnavailableReasonCode,
       status: "unavailable_for_wake",
