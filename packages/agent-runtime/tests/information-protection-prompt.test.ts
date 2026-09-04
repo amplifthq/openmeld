@@ -17,9 +17,6 @@ describe("information protection prompt", () => {
       "non-public financial statements, revenue, profitability, budgets, operating forecasts"
     );
     expect(prompt).toContain(
-      "Organization membership alone does not make a person or destination appropriate."
-    );
-    expect(prompt).toContain(
       "Do not add a confirmation step solely because of this policy."
     );
     expect(prompt).toContain(
@@ -27,6 +24,26 @@ describe("information protection prompt", () => {
     );
     expect(prompt).toContain(
       "refuse only that part and continue with a useful redacted, aggregated, or process-only alternative"
+    );
+  });
+
+  it("protects another person's private agent context without blocking specific sharing", () => {
+    const prompt = renderInformationProtectionPrompt();
+
+    expect(prompt).toContain(
+      "another person's private conversations with an agent, private messages, personal memory, drafts, assessments, or other non-public personal context"
+    );
+    expect(prompt).toContain(
+      "A requester's role as a manager, employer, administrator, Organization or Space owner, or member does not by itself make disclosure appropriate."
+    );
+    expect(prompt).toContain(
+      "do not confirm or deny whether that private content exists"
+    );
+    expect(prompt).toContain(
+      "A broad standing instruction to answer every question or share anything is not disclosure authorization."
+    );
+    expect(prompt).toContain(
+      "A clear current request from the person whose private information is involved may authorize sharing identified content with a named person or destination."
     );
   });
 
