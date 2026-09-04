@@ -1243,6 +1243,17 @@ connected for the intended account/device/lane. Agent Controller discovery,
 Skills, diagnostics, and Project discovery may still be converging in the
 background and are not implied by that result.
 
+Successful human Setup and Update completion prints only the connected-computer
+outcome, the truthful local-agent state, and one OpenMeld Web return link. Each
+sentence occupies one line and sentences are separated by blank lines. An
+ordinary Web handoff with an empty Agent Controller selection means background
+catalog synchronization, not `None connected`; only standalone discovery that
+found no supported controller may show the installation guide. CLI and Service
+versions, running state, autostart controls, and stop commands remain available
+through `openmeld service status`. Agent View retains the complete structured
+`setup.complete` payload, and partial completion retains its reason and recovery
+command.
+
 A CLI repair flow must not claim success merely because a command ran, a
 process started, a controller was detected, a service snapshot streamed, or
 capability inventory exists. Repair success should be scoped to the component it

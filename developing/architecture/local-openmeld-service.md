@@ -1780,6 +1780,13 @@ and lane. It does not wait for or imply Agent Controller readiness. Controller
 discovery and per-controller attention continue in the background and update
 the Computer projection independently.
 
+Human completion presents that background convergence as local agents syncing;
+an empty Web-handoff selection is not evidence that no supported controller is
+installed. The concise success summary links back to OpenMeld Web, while
+versions, process state, autostart, and stop controls remain on the read-only
+Service status surface. Agent View keeps the structured setup and Service
+evidence. Partial completion continues to expose its cause and recovery action.
+
 Repair succeeds only for the component it repairs. It must not claim success
 just because a process started, local files were rewritten, or inventory was
 detected, and it must not project service health as final Wakeability.

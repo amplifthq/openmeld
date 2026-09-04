@@ -1,6 +1,5 @@
 import { setupPlanAgentViewPayloadSchema } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveCurrentDaemonExpectedVersion } from "../src/local-service/lifecycle/current-daemon-version";
 
 const {
   collectStartLocalReadinessMock,
@@ -1194,7 +1193,7 @@ describe("setup command", () => {
     }
   });
 
-  it("shows a completed no-agent setup as a running auto-starting Service", async () => {
+  it("shows background local-agent syncing without claiming that no agent is installed", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",
       viewMode: "human",
@@ -1203,6 +1202,7 @@ describe("setup command", () => {
     runSetupLocalAgentConnectionMock.mockResolvedValue({
       status: "completed",
       setupSessionSnapshot: {
+        connectedComputerId: "computer-existing",
         deviceId: "device-session",
         prepareSessionId: "prepare-web",
         runtimeLane: "prod",
@@ -1217,18 +1217,24 @@ describe("setup command", () => {
       view: "human",
     });
 
-    const output = presenter.line.mock.calls
-      .map(([line]) => (line as { text: string }).text)
-      .join("\n");
-    expect(output).toContain("Computer connected");
-    expect(output).toContain("Local agents: None connected");
-    expect(output).toContain("Status: Running");
-    expect(output).toContain("Auto-start: On - starts when you log in");
-    expect(output).not.toContain("Status: Not connected");
-    expect(output).not.toContain("Auto-start: Off - service is not connected");
+    const completionLines = presenter.line.mock.calls
+      .map(([line]) => line as { code: string; text: string })
+      .filter((line) => line.code.startsWith("setup.complete.human"))
+      .map((line) => line.text);
+    expect(completionLines).toEqual([
+      "🎉 Update complete",
+      "",
+      "Your computer is connected and ready.",
+      "",
+      "Local agents are syncing in the background.",
+      "",
+      "Return to OpenMeld Web: https://gateway.openmeld.test/",
+    ]);
+    expect(completionLines.join("\n")).not.toContain("None connected");
+    expect(completionLines.join("\n")).not.toContain("Install guide");
   });
 
-  it("renders human setup completion as readable cards without dumping agent JSON", async () => {
+  it("renders a concise human setup completion with the connected agent and Web link", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",
       viewMode: "human",
@@ -1249,26 +1255,27 @@ describe("setup command", () => {
     });
 
     expect(presenter.data).not.toHaveBeenCalled();
-    const lines = presenter.line.mock.calls.map(
-      ([line]) => (line as { text: string }).text
-    );
-    const output = lines.join("\n");
-    expect(output).toContain("Computer connected");
-    expect(output).not.toContain("Status: Ready");
-    expect(output).toContain(
-      `CLI version: ${resolveCurrentDaemonExpectedVersion()}`
-    );
-    expect(output).toContain("Local agents: 1 connected: Codex");
-    expect(output).toContain("OpenMeld Service");
-    expect(output).toContain("Status: Running");
-    expect(output).toContain("Auto-start: On - starts when you log in");
-    expect(output).toContain("Stop service: openmeld service stop");
-    expect(output).toContain(
-      "Turn off auto-start: openmeld service autostart disable"
-    );
-    expect(output).toContain(
-      "Note: Local agents cannot be activated until OpenMeld Service starts again."
-    );
+    const completionLines = presenter.line.mock.calls
+      .map(([line]) => line as { code: string; text: string })
+      .filter((line) => line.code.startsWith("setup.complete.human"))
+      .map((line) => line.text);
+    expect(completionLines).toEqual([
+      "🎉 Setup complete",
+      "",
+      "Your computer is connected and ready.",
+      "",
+      "Local agents connected: Codex.",
+      "",
+      "Return to OpenMeld Web: https://gateway.openmeld.test/",
+    ]);
+    const output = presenter.line.mock.calls
+      .map(([line]) => (line as { text: string }).text)
+      .join("\n");
+    expect(output).not.toContain("CLI version:");
+    expect(output).not.toContain("Status: Running");
+    expect(output).not.toContain("Auto-start:");
+    expect(output).not.toContain("Stop service:");
+    expect(output).not.toContain("Turn off auto-start:");
     expect(output).toContain("Updating OpenMeld skills...");
     expect(output).toContain("Saving local component status...");
     expect(output).not.toContain("Open OpenMeld Welcoming Space");
@@ -1304,18 +1311,23 @@ describe("setup command", () => {
       view: "human",
     });
 
-    const output = presenter.line.mock.calls
-      .map(([line]) => (line as { text: string }).text)
-      .join("\n");
-    expect(output).toContain("OpenMeld Setup Partly Complete");
-    expect(output).toContain("Local setup: Completed on this computer.");
-    expect(output).toContain(
-      "Center Agent Home: Not created: Invalid visibility"
-    );
-    expect(output).toContain("Next: Run openmeld setup");
-    expect(output).not.toContain("OpenMeld Setup Complete");
-    expect(output).not.toContain("🎉");
-    expect(output).not.toContain("Open OpenMeld Welcoming Space");
+    const completionLines = presenter.line.mock.calls
+      .map(([line]) => line as { code: string; text: string })
+      .filter((line) => line.code.startsWith("setup.complete.human"))
+      .map((line) => line.text);
+    expect(completionLines).toEqual([
+      "Setup needs one more step",
+      "",
+      "Your computer is connected, but OpenMeld could not finish setup.",
+      "",
+      "Reason: Invalid visibility",
+      "",
+      "Next: Run openmeld setup",
+      "",
+      "Return to OpenMeld Web: https://gateway.openmeld.test/",
+    ]);
+    expect(completionLines.join("\n")).not.toContain("🎉");
+    expect(completionLines.join("\n")).not.toContain("complete");
   });
 
   it("renders the standard human setup path with the brand header and step cards", async () => {
@@ -1348,13 +1360,13 @@ describe("setup command", () => {
     );
     expect(output).toContain("Updating OpenMeld skills...");
     expect(output).toContain("Saving local component status...");
-    expect(output).toContain("Auto-start: On - starts when you log in");
-    expect(output).toContain(
+    expect(output).not.toContain("Auto-start: On - starts when you log in");
+    expect(output).not.toContain(
       "Turn off auto-start: openmeld service autostart disable"
     );
-    expect(output).toContain("Stop service: openmeld service stop");
+    expect(output).not.toContain("Stop service: openmeld service stop");
     expect(output).not.toContain("✓ OpenMeld Skills");
-    expect(output).toContain("OpenMeld Setup Complete 🎉");
+    expect(output).toContain("🎉 Setup complete");
     expect(output).not.toContain("AI setup agents:");
     expect(output).not.toContain("-----BEGIN OpenMeld SETUP COMPLETE-----");
     expect(runDaemonServiceParticipationGateMock).toHaveBeenCalledWith(
@@ -1387,14 +1399,49 @@ describe("setup command", () => {
       view: "human",
     });
 
-    const output = presenter.line.mock.calls
-      .map(([line]) => (line as { text: string }).text)
+    const completionLines = presenter.line.mock.calls
+      .map(([line]) => line as { code: string; text: string })
+      .filter((line) => line.code.startsWith("setup.complete.human"))
+      .map((line) => line.text);
+    expect(completionLines).toEqual([
+      "🎉 Setup complete",
+      "",
+      "Your computer is connected and ready.",
+      "",
+      "OpenMeld did not find a supported local agent on this computer.",
+      "",
+      "Install a local agent: https://gateway.openmeld.test/guides/local-agents",
+      "",
+      "Return to OpenMeld Web: https://gateway.openmeld.test/",
+    ]);
+  });
+
+  it("does not show the install guide when human setup explicitly skips local agents", async () => {
+    resolveRuntimeContextMock.mockResolvedValue({
+      resolvedView: "human",
+      viewMode: "human",
+      interactive: false,
+    });
+    collectStartLocalReadinessMock.mockResolvedValue({
+      agents: {
+        candidates: [],
+      },
+    });
+    submitSelectedAgentControllerReportsMock.mockResolvedValue([]);
+    const { runSetup } = await import("../src/commands/setup");
+
+    await runSetup({
+      localAgents: "none",
+      view: "human",
+    });
+
+    const completionOutput = presenter.line.mock.calls
+      .map(([line]) => line as { code: string; text: string })
+      .filter((line) => line.code.startsWith("setup.complete.human"))
+      .map((line) => line.text)
       .join("\n");
-    expect(output).toContain("Local agents: None connected.");
-    expect(output).toContain("Install guide:");
-    expect(output).toContain(
-      "https://gateway.openmeld.test/guides/local-agents"
-    );
-    expect(output).toContain("Open guide: Local agent install guide");
+    expect(completionOutput).toContain("Local agents were skipped.");
+    expect(completionOutput).not.toContain("Install a local agent");
+    expect(completionOutput).not.toContain("/guides/local-agents");
   });
 });
