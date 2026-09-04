@@ -46,14 +46,18 @@ export function useSpaceProfileDetailsPopover(input: {
 		if (entry.profileKind === "human") {
 			return (
 				<HumanProfileDetailsPopover
+					currentOwnerUserId={input.currentOwnerUserId}
 					entry={entry}
 					isDirectMessagePending={
 						profileContext?.pendingDirectMessageProfileId === entry.profileId
 					}
 					isSelf={isOwner}
+					modelCatalog={input.modelCatalog}
 					onOpenDirectMessage={
 						isOwner ? undefined : buildOpenDirectMessageAction(entry.profileId)
 					}
+					organizationId={profileContext?.organizationId ?? null}
+					orgSlug={input.orgSlug}
 					profileHref={
 						input.orgSlug
 							? buildHumanProfilePath({
