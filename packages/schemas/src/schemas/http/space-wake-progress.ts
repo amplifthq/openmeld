@@ -107,6 +107,7 @@ export const wakeProgressItemSchema = z.strictObject({
 export const getSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
   clientMessageId: clientMessageIdSchema,
+  includePreviewText: optionalBooleanQuerySchema,
   includeTiming: optionalBooleanQuerySchema,
   includeSourceContext: optionalBooleanQuerySchema,
   includeWaitReason: optionalBooleanQuerySchema,
@@ -126,6 +127,7 @@ export const getSpaceWakeProgressResponseSchema = z.strictObject({
 export const getActiveSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
   includePageInfo: optionalBooleanQuerySchema,
+  includePreviewText: optionalBooleanQuerySchema,
   includeTiming: optionalBooleanQuerySchema,
   includeSourceContext: optionalBooleanQuerySchema,
   includeWaitReason: optionalBooleanQuerySchema,

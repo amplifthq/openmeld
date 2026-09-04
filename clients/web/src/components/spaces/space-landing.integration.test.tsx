@@ -2963,7 +2963,7 @@ describe("SpaceLanding", () => {
 		const thinkingIndicator = within(
 			sourceMessageGroup as HTMLElement
 		).getByTestId("space-wake-thinking-indicator");
-		expect(thinkingIndicator.textContent).toContain("Sending to agent");
+		expect(thinkingIndicator.textContent).toContain("Wake sent to runner");
 		expect(thinkingIndicator.textContent).not.toContain("Wake is queued");
 		expect(screen.queryByText("Starting Wake for @runner...")).toBeNull();
 		expect(screen.queryByText("OpenMeld System")).toBeNull();
@@ -3036,6 +3036,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3057,7 +3058,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = within(
 				sourceMessageGroup as HTMLElement
 			).getByTestId("space-wake-thinking-indicator");
-			expect(thinkingIndicator.textContent).toContain("Agent is working");
+			expect(thinkingIndicator.textContent).toContain("runner is working");
 		});
 	});
 
@@ -3146,6 +3147,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getActiveWakeProgressMock).toHaveBeenCalledWith({
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3166,7 +3168,7 @@ describe("SpaceLanding", () => {
 		const thinkingIndicator = within(
 			sourceMessageGroup as HTMLElement
 		).getByTestId("space-wake-thinking-indicator");
-		expect(thinkingIndicator.textContent).toContain("Agent is working");
+		expect(thinkingIndicator.textContent).toContain("runner is working");
 
 		await act(async () => {
 			resolveDetailedWakeProgress({
@@ -3258,7 +3260,7 @@ describe("SpaceLanding", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("Sending to agent");
+		).toContain("Wake sent to runner");
 
 		await act(async () => {
 			resolveActiveWakeProgress({
@@ -3340,6 +3342,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3361,7 +3364,9 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = within(
 				sourceMessageGroup as HTMLElement
 			).getByTestId("space-wake-thinking-indicator");
-			expect(thinkingIndicator.textContent).toContain("Finalizing reply");
+			expect(thinkingIndicator.textContent).toContain(
+				"Posting reply from runner…"
+			);
 		});
 	});
 
@@ -3459,6 +3464,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3549,6 +3555,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3658,6 +3665,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3679,7 +3687,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = within(
 				sourceMessageGroup as HTMLElement
 			).getByTestId("space-wake-thinking-indicator");
-			expect(thinkingIndicator.textContent).toContain("Agent is working");
+			expect(thinkingIndicator.textContent).toContain("runner is working");
 		});
 	});
 
@@ -3978,6 +3986,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3988,7 +3997,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(
 				screen.getByTestId("space-wake-thinking-indicator").textContent
-			).toContain("Agent is working");
+			).toContain("runner is working");
 		});
 
 		view.rerender(
@@ -4017,7 +4026,7 @@ describe("SpaceLanding", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("Agent is working");
+		).toContain("runner is working");
 	});
 
 	it("does not show expired terminal Wake progress returned during history recovery", async () => {
@@ -4087,6 +4096,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -7764,6 +7774,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -13771,7 +13782,9 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = within(
 			sourceMessageGroup as HTMLElement
 		).getByTestId("space-wake-thinking-indicator");
-		expect(wakeThinkingIndicator.textContent).toContain("Starting Wake…");
+		expect(wakeThinkingIndicator.textContent).toContain(
+			"Starting Wake for runner…"
+		);
 
 		await act(async () => {
 			resolvePost?.(
@@ -14459,7 +14472,7 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = within(
 			sourceMessageGroup as HTMLElement
 		).getByTestId("space-wake-thinking-indicator");
-		expect(wakeThinkingIndicator.textContent).toContain("Sending to agent");
+		expect(wakeThinkingIndicator.textContent).toContain("Wake sent to watcher");
 		fireEvent.click(wakeThinkingIndicator);
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })

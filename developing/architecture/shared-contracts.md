@@ -3912,7 +3912,8 @@ mixed-version opt-in: clients request authoritative elapsed-time timing with
 `includeWaitReason=true`, and Stop eligibility with
 `includeWakeStopEligibility=true` on Wake progress and active Wake progress
 reads. Public source context is similarly requested with
-`includeSourceContext=true`. Core must omit each field when the corresponding
+`includeSourceContext=true`, and live reply preview text with
+`includePreviewText=true`. Core must omit each field when the corresponding
 request does not opt in, so new Core does not break older strict clients. `startedAtMs` is the
 authoritative execution start anchor while `updatedAtMs` remains freshness and
 ordering evidence. A new client must omit elapsed time when `startedAtMs` is

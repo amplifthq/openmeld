@@ -28,6 +28,7 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 				return await createUnscopedWebSpaceApi({
 					openMeldProfileId: input.openMeldProfileId,
 				}).getActiveWakeProgress({
+					includePreviewText: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeWakeStopEligibility: true,
