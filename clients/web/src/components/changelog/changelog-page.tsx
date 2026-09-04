@@ -209,6 +209,7 @@ function ChangelogEntryView({ entry }: { entry: ChangelogEntry }) {
 				<MessageResponse
 					className="mt-4 text-muted-foreground"
 					isStreaming={false}
+					variant="changelog"
 				>
 					{entry.body}
 				</MessageResponse>

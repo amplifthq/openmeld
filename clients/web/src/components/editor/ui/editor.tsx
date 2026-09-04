@@ -77,7 +77,7 @@ const editorVariants = cva(
 				default:
 					"size-full px-16 pt-4 pb-72 text-base sm:px-[max(64px,calc(50%-350px))]",
 				demo: "size-full px-16 pt-4 pb-72 text-base sm:px-[max(64px,calc(50%-350px))]",
-				document: "min-h-96 w-full px-5 py-4 text-sm",
+				document: "min-h-96 w-full px-5 py-4 content-markdown-document",
 				fullWidth: "size-full px-16 pt-4 pb-72 text-base sm:px-24",
 				none: "",
 				select: "px-3 py-2 text-base data-readonly:w-fit",

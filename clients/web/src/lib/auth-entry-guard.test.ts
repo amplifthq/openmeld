@@ -32,6 +32,7 @@ import {
 	guardAnonymousOnlyRoute,
 	resolveAuthenticatedRedirectTarget,
 } from "./auth-entry-guard";
+import { hasAddAccountAuthIntent } from "./auth-intent";
 
 describe("auth entry guard", () => {
 	beforeEach(() => {
@@ -104,6 +105,28 @@ describe("auth entry guard", () => {
 		expect(resolveActiveOrganizationEntryPathMock).toHaveBeenCalledWith({
 			data: { routeFamily: "/login" },
 		});
+	});
+
+	it("allows an authenticated user to add another account", async () => {
+		getSessionMock.mockResolvedValue({
+			user: {
+				id: "user-123",
+			},
+		});
+
+		await expect(
+			guardAnonymousOnlyRoute(
+				"http://localhost:3000/login?intent=add-account&redirect=%2F"
+			)
+		).resolves.toBeUndefined();
+		expect(redirectMock).not.toHaveBeenCalled();
+	});
+
+	it("requires the exact add-account intent", () => {
+		expect(hasAddAccountAuthIntent("/login?intent=add-account")).toBe(true);
+		expect(hasAddAccountAuthIntent("/login?intent=add-account-later")).toBe(
+			false
+		);
 	});
 
 	it("preserves an explicit safe deep link redirect for authenticated users", async () => {

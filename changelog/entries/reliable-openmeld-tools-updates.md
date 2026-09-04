@@ -19,3 +19,7 @@ it stops checking automatically and keeps a clear **Update manually** fallback;
 older Services that cannot manage their own update show only that manual path.
 An offline Service now uses **Reconnect manually** everywhere instead of
 suggesting that Web can control a disconnected process.
+
+Connected Production Computers with automatic updates enabled now receive the
+current release over their existing Service connection. The Computer page only
+offers an update action after that release is available to install.

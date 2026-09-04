@@ -16,7 +16,6 @@ import {
   resolveLocalComponentsStatus,
   writeInstalledLocalComponentsSnapshot,
 } from "../local-components/manifest";
-import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
 import {
   assertSelectedAgentControllerReportSubmissionsAccepted,
   type SelectedAgentControllerReportResult,
@@ -32,6 +31,7 @@ import {
 import { resolveRuntimeContext } from "../runtime/context";
 import { canUseInteractivePrompts } from "../runtime/interaction";
 import { createPresenter } from "../runtime/presenter/index";
+import { resolveGatewayWebOrigin } from "../space/web-url";
 import { runStartLocalAgentsEnable } from "../start-local/agents-local";
 import { collectStartLocalReadiness } from "../start-local/readiness";
 import {
@@ -47,6 +47,7 @@ import {
   runWithSetupProgress,
 } from "../ui/setup-human-view";
 import { formatTerminalHyperlink } from "../ui/terminal-hyperlink";
+import { sanitizeTerminalDisplayText } from "../ui/terminal-safe-text";
 import { runAuthLogin } from "./auth";
 import {
   runSetupFirstBootstrap,
@@ -68,6 +69,12 @@ type SetupServiceGuidance = {
   stopCommand: string;
   stoppedLocalAgentsDescription: string;
 };
+
+type SetupHumanLocalAgentState =
+  | "background_syncing"
+  | "reported"
+  | "none_found"
+  | "skipped";
 
 const NON_INTERACTIVE_DEFAULT_LOCAL_AGENTS_NOTICE =
   "Non-interactive: connecting all detected agents (use --local-agent to limit, or --local-agents none to skip).";
@@ -334,6 +341,10 @@ async function runSetupUnlocked(input: {
   emitSetupComplete({
     bootstrap,
     gatewayUrl,
+    humanLocalAgentState: resolveStandardSetupHumanLocalAgentState({
+      localAgents: input.localAgents,
+      selectedLocalAgentIds,
+    }),
     localComponents,
     path: "local_setup",
     presenter,
@@ -647,6 +658,11 @@ async function emitSetupCompleteForDelegatedPath(input: {
   emitSetupComplete({
     bootstrap,
     gatewayUrl,
+    humanLocalAgentState: resolveDelegatedSetupHumanLocalAgentState({
+      path: input.path,
+      selectedLocalAgentIds: completionFacts.selectedLocalAgentIds,
+      setupInput: input.setupInput,
+    }),
     localComponents,
     path: input.path,
     presenter,
@@ -840,9 +856,45 @@ function emitDefaultLocalAgentsNoticeIfNeeded(input: {
   });
 }
 
+function resolveStandardSetupHumanLocalAgentState(input: {
+  localAgents?: string;
+  selectedLocalAgentIds: readonly string[];
+}): SetupHumanLocalAgentState {
+  if (input.selectedLocalAgentIds.length > 0) {
+    return "reported";
+  }
+  return normalizeOptionalString(input.localAgents) === "none"
+    ? "skipped"
+    : "none_found";
+}
+
+function resolveDelegatedSetupHumanLocalAgentState(input: {
+  path: "setup_session" | "profile_connection";
+  selectedLocalAgentIds: readonly string[];
+  setupInput: {
+    localAgent?: string[];
+    localAgents?: string;
+  };
+}): SetupHumanLocalAgentState {
+  if (input.selectedLocalAgentIds.length > 0) {
+    return "reported";
+  }
+  if (normalizeOptionalString(input.setupInput.localAgents) === "none") {
+    return "skipped";
+  }
+  if (
+    input.path === "setup_session" &&
+    !hasExplicitLocalAgentSelection(input.setupInput)
+  ) {
+    return "background_syncing";
+  }
+  return "none_found";
+}
+
 function emitSetupComplete(input: {
   bootstrap: SetupBootstrapResult;
   gatewayUrl: string;
+  humanLocalAgentState: SetupHumanLocalAgentState;
   localComponents: Awaited<ReturnType<typeof resolveLocalComponentsStatus>>;
   path: "local_setup" | "setup_session" | "profile_connection";
   presenter: ReturnType<typeof createPresenter>;
@@ -917,72 +969,7 @@ function emitSetupComplete(input: {
   };
 
   if (input.view === "human") {
-    const setupCopy = getSetupFlowCopy("setup");
-    const serviceGuidance = buildSetupServiceGuidance({ cliCommandPrefix });
-    const localAgentsGuideUrl = buildLocalAgentsGuideUrl(input.gatewayUrl);
-    let completionTitle = "OpenMeld Setup Partly Complete";
-    if (input.bootstrap.status === "completed") {
-      completionTitle =
-        input.path === "setup_session"
-          ? `✓ ${setupCopy.readyTitle}`
-          : setupCopy.cliCompletionTitle;
-    }
-    renderInfoCard({
-      presenter: input.presenter,
-      title: completionTitle,
-      codePrefix: "setup.complete.card",
-      compact: true,
-      minContentWidth: 44,
-      sanitize: true,
-      rows: [
-        {
-          label: "CLI version",
-          value: resolveCurrentDaemonExpectedVersion(),
-        },
-        {
-          label: "Local agents",
-          value: formatSetupCompleteLocalAgents({
-            guideUrl: localAgentsGuideUrl,
-            selectedLocalAgentIds: input.selectedLocalAgentIds,
-          }),
-        },
-        ...(input.selectedLocalAgentIds.length === 0
-          ? [{ label: "Install guide", value: localAgentsGuideUrl }]
-          : []),
-        ...(input.bootstrap.status === "completed"
-          ? []
-          : [
-              {
-                label: "Local setup",
-                value: "Completed on this computer.",
-              },
-              {
-                label: "Center Agent Home",
-                value: formatSetupBootstrapHumanSummary(input.bootstrap),
-              },
-              {
-                label: "Next",
-                value: `Run ${formatOpenMeldCliCommand(
-                  input.bootstrap.retryCommand
-                )}`,
-              },
-            ]),
-      ],
-    });
-    if (input.selectedLocalAgentIds.length === 0) {
-      input.presenter.line({
-        code: "setup.complete.local_agents.guide",
-        text: `Open guide: ${formatTerminalHyperlink({
-          label: "Local agent install guide",
-          url: localAgentsGuideUrl,
-        })} (${localAgentsGuideUrl})`,
-      });
-    }
-    renderSetupServiceGuidanceCard({
-      openMeldServiceRuntimeIdentity: input.openMeldServiceRuntimeIdentity,
-      presenter: input.presenter,
-      serviceGuidance,
-    });
+    emitSetupHumanCompletion(input);
     return;
   }
 
@@ -992,50 +979,103 @@ function emitSetupComplete(input: {
   });
 }
 
-function renderSetupServiceGuidanceCard(input: {
-  openMeldServiceRuntimeIdentity: {
-    deviceId: string;
-    runtimeLane: string;
-  } | null;
+function emitSetupHumanCompletion(input: {
+  bootstrap: SetupBootstrapResult;
+  gatewayUrl: string;
+  humanLocalAgentState: SetupHumanLocalAgentState;
   presenter: ReturnType<typeof createPresenter>;
-  serviceGuidance: SetupServiceGuidance;
+  runtimeReports: readonly SelectedAgentControllerReportResult[];
+  selectedLocalAgentIds: readonly string[];
 }): void {
-  renderInfoCard({
-    presenter: input.presenter,
-    title: "OpenMeld Service",
-    codePrefix: "setup.complete.service",
-    compact: true,
-    minContentWidth: 50,
-    sanitize: true,
-    rows: [
-      {
-        label: "Status",
-        value: input.openMeldServiceRuntimeIdentity
-          ? "Running"
-          : "Not connected",
-      },
-      {
-        label: "Auto-start",
-        value: input.openMeldServiceRuntimeIdentity
-          ? "On - starts when you log in"
-          : "Off - service is not connected",
-      },
-      {
-        label: "Stop service",
-        value: formatOpenMeldCliCommand(input.serviceGuidance.stopCommand),
-      },
-      {
-        label: "Turn off auto-start",
-        value: formatOpenMeldCliCommand(
-          input.serviceGuidance.disableAutoStartCommand
-        ),
-      },
-      {
-        label: "Note",
-        value: input.serviceGuidance.stoppedLocalAgentsDescription,
-      },
-    ],
-  });
+  const openMeldWebUrl = new URL(
+    resolveGatewayWebOrigin(input.gatewayUrl)
+  ).toString();
+  const returnLine = `Return to OpenMeld Web: ${formatTerminalHyperlink({
+    label: openMeldWebUrl,
+    url: openMeldWebUrl,
+  })}`;
+  const sections =
+    input.bootstrap.status === "completed"
+      ? [
+          "🎉 Computer connected",
+          "Your computer is connected.",
+          ...buildSetupHumanLocalAgentSections(input),
+          returnLine,
+        ]
+      : [
+          "OpenMeld needs one more step",
+          "Your computer is connected, but OpenMeld could not finish preparing it.",
+          `Reason: ${formatSetupHumanLine(input.bootstrap.message)}`,
+          `Next: Run ${formatOpenMeldCliCommand(input.bootstrap.retryCommand)}`,
+          returnLine,
+        ];
+
+  for (const [index, text] of joinSetupHumanCompletionSections(
+    sections
+  ).entries()) {
+    input.presenter.line({
+      code: `setup.complete.human.${index + 1}`,
+      text,
+    });
+  }
+}
+
+function buildSetupHumanLocalAgentSections(input: {
+  gatewayUrl: string;
+  humanLocalAgentState: SetupHumanLocalAgentState;
+  runtimeReports: readonly SelectedAgentControllerReportResult[];
+  selectedLocalAgentIds: readonly string[];
+}): string[] {
+  if (input.humanLocalAgentState === "background_syncing") {
+    return ["Local agents are syncing in the background."];
+  }
+  if (input.humanLocalAgentState === "skipped") {
+    return ["Local agents were skipped."];
+  }
+  if (input.humanLocalAgentState === "none_found") {
+    const guideUrl = buildLocalAgentsGuideUrl(input.gatewayUrl);
+    return [
+      "OpenMeld did not find a supported local agent on this computer.",
+      `Install a local agent: ${formatTerminalHyperlink({
+        label: guideUrl,
+        url: guideUrl,
+      })}`,
+    ];
+  }
+
+  const readyAgentIds = new Set(
+    input.runtimeReports
+      .filter((report) => report.localParticipationState === "ready")
+      .map((report) => report.agentId)
+  );
+  const readyNames = input.selectedLocalAgentIds
+    .filter((agentId) => readyAgentIds.has(agentId))
+    .map(formatSetupLocalAgentDisplayName);
+  const attentionNames = input.selectedLocalAgentIds
+    .filter((agentId) => !readyAgentIds.has(agentId))
+    .map(formatSetupLocalAgentDisplayName);
+  return [
+    ...(readyNames.length > 0
+      ? [`Local agents connected: ${readyNames.join(", ")}.`]
+      : []),
+    ...(attentionNames.length > 0
+      ? [`Local agents need attention: ${attentionNames.join(", ")}.`]
+      : []),
+  ];
+}
+
+function joinSetupHumanCompletionSections(
+  sections: readonly string[]
+): string[] {
+  return sections.flatMap((section, index) =>
+    index === 0 ? [section] : ["", section]
+  );
+}
+
+function formatSetupHumanLine(value: string): string {
+  return sanitizeTerminalDisplayText(value, "single-line")
+    .replaceAll(/\s+/g, " ")
+    .trim();
 }
 
 async function emitSetupPlanForAgentView(input: {
@@ -1177,18 +1217,6 @@ async function finalizeLocalComponentsSetupSnapshot(): Promise<
   return await resolveLocalComponentsStatus();
 }
 
-function formatSetupCompleteLocalAgents(input: {
-  guideUrl: string;
-  selectedLocalAgentIds: readonly string[];
-}): string {
-  if (input.selectedLocalAgentIds.length === 0) {
-    return `None connected. Install one from the guide: ${input.guideUrl}`;
-  }
-  return `${input.selectedLocalAgentIds.length} connected: ${input.selectedLocalAgentIds
-    .map(formatSetupLocalAgentDisplayName)
-    .join(", ")}`;
-}
-
 function formatSetupLocalAgentDisplayName(agentId: string): string {
   const knownDisplayNames: Readonly<Record<string, string>> = {
     "claude-code": "Claude Code",
@@ -1238,15 +1266,6 @@ function formatSetupCompleteLegacySpaceSetupHint(
     return "Resolve local-agent blockers before adding one to a Space";
   }
   return "Choose a detected agent without blockers, or resolve blockers first";
-}
-
-function formatSetupBootstrapHumanSummary(
-  bootstrap: SetupBootstrapResult
-): string {
-  if (bootstrap.status === "completed") {
-    return "Center Agent Home will guide next steps";
-  }
-  return `Not created: ${bootstrap.message}`;
 }
 
 function normalizeOptionalText(value: unknown): string | null {

@@ -199,7 +199,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(
 	const text = useSpaceMessageTextPresentation(input);
 	const references = useSpaceMessageReferencePresentation(input);
 	const className = cn(
-		"break-words text-sm leading-6 [overflow-wrap:anywhere]",
+		"break-words content-space-message [overflow-wrap:anywhere]",
 		input.className
 	);
 	const shouldRenderMarkdown =
@@ -393,6 +393,7 @@ function renderSpaceMessageTextContent(input: {
 				className={input.className}
 				isStreaming={input.isStreaming}
 				renderInternalLink={input.renderInternalLink}
+				variant="space-message"
 			>
 				{input.renderedText}
 			</MessageResponse>

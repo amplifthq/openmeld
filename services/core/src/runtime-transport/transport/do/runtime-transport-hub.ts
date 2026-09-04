@@ -151,6 +151,7 @@ import type {
   ComputerFileAccessErrorResponse,
   DaemonServiceLane,
   DaemonStreamFrame,
+  LocalComponentsReleaseManifest,
   LocalWakeRouteReport,
   OpenMeldDaemonCancelPayload,
   OpenMeldDaemonInterruptPayload,
@@ -291,6 +292,10 @@ import {
   wakeEvidenceDb,
 } from "../../../lib/bindings";
 import { resolveReleaseTriggeredOpenMeldToolsUpdate } from "../../../local-components/automatic-update-trigger";
+import {
+  isLocalComponentVersionAtLeast,
+  resolveCoreLocalComponentsReleaseManifest,
+} from "../../../local-components/update-projection";
 import { resolveSpaceStub } from "../../../rpc/space-ref";
 import {
   emitSpaceExecutionRecoveryNoticeSignal,
@@ -1296,6 +1301,24 @@ function resolveExistingRuntimeCoordinatorHeadAdmissionResponse(input: {
         : "already_accepted",
     targetWakeLifecycleId: existing.targetWakeLifecycleId,
   };
+}
+
+function resolveHandledOpenMeldToolsUpdateTargetVersion(
+  result: OpenMeldToolsControlResult
+): string | null {
+  if (result.operation !== "request_update") {
+    return null;
+  }
+  if (result.result.status === "current") {
+    return result.result.currentVersion;
+  }
+  if (
+    result.result.status === "started" ||
+    result.result.status === "already_running"
+  ) {
+    return result.result.operation.targetVersion;
+  }
+  return null;
 }
 
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
@@ -2979,6 +3002,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.state.sessionsById.get(parsed.data.daemonSessionId) ?? null;
     if (response.ok) {
       this.queueReleaseTriggeredOpenMeldToolsUpdate({
+        releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
         session: registeredSession,
         socket: webSocket,
         trigger: "register",
@@ -3160,6 +3184,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       if (sessionAfterHeartbeat) {
         this.queueReleaseTriggeredOpenMeldToolsUpdate({
+          releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
           session: sessionAfterHeartbeat,
           socket: webSocket,
           trigger: "heartbeat",
@@ -17833,6 +17858,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
+    releaseManifest: LocalComponentsReleaseManifest | null;
     session: RuntimeTransportSessionState | null;
     socket: WebSocket;
     trigger: "heartbeat" | "register";
@@ -17847,6 +17873,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       capabilities: session.capabilities,
       generatedAt: new Date().toISOString(),
       lane: session.lane,
+      releaseManifest: input.releaseManifest,
       serviceVersion: session.serviceVersion ?? null,
     });
     if (!update) {
@@ -17885,6 +17912,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
       })
         .then((result) => {
+          const handledTargetVersion =
+            resolveHandledOpenMeldToolsUpdateTargetVersion(result);
+          const requestHandledTarget =
+            handledTargetVersion !== null &&
+            isLocalComponentVersionAtLeast(
+              handledTargetVersion,
+              update.targetVersion
+            );
+          if (
+            !requestHandledTarget &&
+            this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
+              update.targetVersion
+          ) {
+            this.automaticToolsUpdateTargetByComputer.delete(computerKey);
+          }
           console.info("[core.openmeld_tools.automatic_update_requested]", {
             daemonSessionId: session.daemonSessionId,
             deviceId: session.deviceId,

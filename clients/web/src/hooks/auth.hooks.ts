@@ -10,9 +10,14 @@ import {
 	resolvePostAuthRedirect,
 } from "#/lib/auth-redirect";
 import { generatePasskeyName } from "#/lib/passkey-utils";
-import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
+import { completeAccountAuthChange } from "#/query/auth-boundary";
+import {
+	revokeDeviceSession,
+	setActiveDeviceSession,
+} from "#/query/auth-query";
 import { userQueryKeys } from "#/query/query-keys";
 import {
+	listDeviceSessionsQueryOptionsClient,
 	listUserAccountsQueryOptionsClient,
 	sessionQueryOptionsClient,
 	userPasskeysQueryOptionsClient,
@@ -26,6 +31,12 @@ export const useAuthSession = () =>
 export const useListUserAccounts = () =>
 	useQuery({
 		...listUserAccountsQueryOptionsClient(),
+	});
+
+export const useDeviceSessions = (enabled = true) =>
+	useQuery({
+		...listDeviceSessionsQueryOptionsClient(),
+		enabled,
 	});
 
 export const useUserPasskeys = () =>
@@ -64,7 +75,7 @@ export function useSocialSignIn() {
 			}
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-created");
 		},
 	});
 }
@@ -88,7 +99,7 @@ export function usePasskeySignIn() {
 		},
 		onSuccess: async (result) => {
 			if (result.signedIn) {
-				await resetAccountScopedQueriesAfterAuthChange(queryClient);
+				await completeAccountAuthChange(queryClient, "session-created");
 			}
 		},
 	});
@@ -125,7 +136,29 @@ export function useSignOut() {
 			await openMeldAuthClient.signOut();
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "signed-out");
+		},
+	});
+}
+
+export function useSwitchAccount() {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: setActiveDeviceSession,
+		onSuccess: async () => {
+			await completeAccountAuthChange(queryClient, "account-switched");
+		},
+	});
+}
+
+export function useRevokeAccountSession() {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: revokeDeviceSession,
+		onSuccess: async () => {
+			await completeAccountAuthChange(queryClient, "session-revoked");
 		},
 	});
 }

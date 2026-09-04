@@ -222,6 +222,34 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.queryByText("Required: v0.3.126.")).toBeNull();
 	});
 
+	it("does not offer an update when Core has no actionable release", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.3.152",
+						latestVersion: null,
+						reasonCodes: ["local_components.release_manifest_invalid"],
+						requiredVersion: null,
+						status: "unknown",
+						updatePolicy: "required",
+						wakeBlocked: true,
+					},
+				}
+			),
+			replyReadiness: SERVICE_UPDATE_REQUIRED_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
+		expect(screen.queryByRole("link", { name: "Update manually" })).toBeNull();
+		expect(screen.queryByText("Required:", { exact: false })).toBeNull();
+	});
+
 	it("uses one OpenMeld Tools action for an available service update", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(

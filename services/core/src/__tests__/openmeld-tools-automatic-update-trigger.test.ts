@@ -6,6 +6,23 @@ import { describe, expect, it } from "vitest";
 import { resolveReleaseTriggeredOpenMeldToolsUpdate } from "../local-components/automatic-update-trigger";
 
 describe("release-triggered OpenMeld Tools updates", () => {
+  it("does not infer a release target when Core did not provide its published manifest", () => {
+    expect(
+      resolveReleaseTriggeredOpenMeldToolsUpdate({
+        capabilities: {
+          localComponents: createLocalComponentsStatus(),
+          openMeldToolsControl: {
+            requestAutomaticUpdate: true,
+            requestUpdate: true,
+          },
+        },
+        generatedAt: "2026-09-01T13:00:00.000Z",
+        lane: "prod",
+        serviceVersion: "0.3.139",
+      })
+    ).toBeNull();
+  });
+
   it("requests one automatic update when a capable Service reports an actionable release", () => {
     expect(
       resolveReleaseTriggeredOpenMeldToolsUpdate({

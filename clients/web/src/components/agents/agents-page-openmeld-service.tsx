@@ -80,6 +80,7 @@ import {
 	setCurrentOpenMeldToolsMaintenance,
 } from "#/lib/connect/local-runtimes";
 import {
+	hasOpenMeldToolsUpdate,
 	isOpenMeldToolsComponentUpdateActionable,
 	isOpenMeldToolsComponentUpdateRequired,
 } from "#/lib/openmeld-tools-update";
@@ -109,7 +110,6 @@ const UPDATE_MANUALLY_LABEL = "Update manually";
 const UPDATE_STATUS_REFRESH_INTERVAL_MS = 2000;
 const UPDATE_STATUS_MAX_REFRESH_ATTEMPTS = 60;
 const UPDATE_STATUS_MAX_CONSECUTIVE_REFRESH_FAILURES = 3;
-
 type PendingManagedUpdate =
 	| {
 			currentVersion: string;
@@ -882,7 +882,10 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		skillsUpdate,
 	});
 	const primaryAction = resolveCurrentOpenMeldToolsPrimaryAction({
-		displayAction: display.primaryAction,
+		displayAction: resolveCoreActionableOpenMeldToolsDisplayAction({
+			action: display.primaryAction,
+			localComponents,
+		}),
 		maintenanceAvailable: maintenance !== null,
 		onUpdateOpenMeldTools: input.onUpdateOpenMeldTools,
 		updateIsActive,
@@ -1155,6 +1158,19 @@ function buildOpenMeldToolsLinkAction(path: string): OpenMeldToolsAction {
 	};
 }
 
+function resolveCoreActionableOpenMeldToolsDisplayAction(input: {
+	action: OpenMeldToolsAction | null;
+	localComponents: OpenMeldToolsProjection | null;
+}): OpenMeldToolsAction | null {
+	if (
+		input.action?.kind !== "link" ||
+		input.action.label !== UPDATE_MANUALLY_LABEL
+	) {
+		return input.action;
+	}
+	return hasOpenMeldToolsUpdate(input.localComponents) ? input.action : null;
+}
+
 function resolveCurrentOpenMeldToolsPrimaryAction(input: {
 	displayAction: OpenMeldToolsAction | null;
 	maintenanceAvailable: boolean;
@@ -1391,7 +1407,6 @@ function formatOpenMeldServiceVersionDescription(input: {
 	].filter((value): value is string => Boolean(value));
 	return details.length > 0 ? details.join(" ") : undefined;
 }
-
 function resolveOpenMeldServiceActionLabel(input: {
 	replyReadiness: ComputerReplyReadiness;
 	serviceConnected: boolean;

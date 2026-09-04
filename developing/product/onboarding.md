@@ -695,10 +695,23 @@ prints the all-set line and exits 0. It remains the receiver of the Web
 Prepare handoff (`--start-session <token>`) and the only human-facing
 machine-state verb (Invariant 7).
 
-When setup starts or verifies OpenMeld Service, its human-facing completion copy must
-say that OpenMeld Service is running in the background, that it starts automatically
-when the user signs in, how to disable that autostart, and how to stop the
-service. Keep this copy concise and do not mention unreleased clients.
+Successful Human View completion stays focused on the user outcome: this
+computer is connected, the truthful local-agent result, and one link back to
+OpenMeld Web. Its mode-independent title is `Computer connected`; it does not
+guess Setup versus Update from an existing Computer id, which can also represent
+a reconnect. The body says `Your computer is connected.`, not that the whole
+computer is ready, because local agents may still be syncing, absent, or need
+attention. It uses one sentence per line with blank lines between sentences.
+CLI and Service versions, running state, autostart controls, and stop commands
+belong to `openmeld service status`, not the success summary. A failed or partial
+completion still names the reason and one recovery action.
+
+Important completed Human View setup steps retain the existing progress history
+and add one presentation-only timestamp and elapsed duration:
+`[HH:mm:ss] ✓ Result · elapsed`. `HH:mm:ss` is the zero-padded 24-hour local
+time of the computer running the CLI. Active spinner and internal detail lines
+remain untimestamped. Timing does not participate in setup decisions or change
+execution, waiting, or Service lifecycle ordering.
 
 When a healthy running Service only needs a newer version, Setup must hand the
 prepared update to the computer's background update worker and finish without
@@ -732,6 +745,13 @@ another setup command. A controller that is already registered keeps its
 existing enabled state, so setup and background refresh never reverse a user's
 explicit Computers setting. Explicit automation may still narrow one setup run
 via `--local-agent <id>` or `--local-agents all|none`.
+
+The ordinary Web handoff represents that background catalog refresh with an
+empty terminal selection. Human completion must present that state as local
+agents syncing in the background. It must not reinterpret the empty selection
+as proof that no supported local agent is installed or show the installation
+guide. Standalone Setup may show the guide only after its own discovery found
+no supported local agent.
 
 When more than one verified installation can provide the same controller,
 setup stays non-blocking. It first honors an existing saved choice; otherwise

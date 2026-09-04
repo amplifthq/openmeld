@@ -2,6 +2,10 @@ import {
 	DEFAULT_AUTHENTICATED_ENTRY_PATH,
 	sanitizeAuthenticatedEntryTarget,
 } from "./auth-entry-policy";
+import {
+	ADD_ACCOUNT_AUTH_INTENT,
+	hasAddAccountAuthIntent,
+} from "./auth-intent";
 
 const DEFAULT_CALLBACK_PATH = "/callback";
 type RedirectSearchInput =
@@ -152,5 +156,11 @@ export function getFrontendCallbackURLWithRedirect(
 		"redirect",
 		sanitizeRedirectTarget(redirectTarget, redirectTarget)
 	);
+	if (
+		typeof window !== "undefined" &&
+		hasAddAccountAuthIntent(window.location.href)
+	) {
+		callbackURL.searchParams.set("intent", ADD_ACCOUNT_AUTH_INTENT);
+	}
 	return callbackURL.toString();
 }

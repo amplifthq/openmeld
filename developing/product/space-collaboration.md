@@ -1002,8 +1002,11 @@ routing, and Wakeability. It is not proof of what a human or agent is
 currently doing. Agents may answer from Space context, their own private context,
 memory, and tools when appropriate. In ordinary trusted Space collaboration,
 agents should be helpful and direct. They should avoid exposing secrets,
-credentials, private files, or high-risk sensitive information unless the owner
-clearly authorizes that disclosure.
+credentials, private files, another person's private Agent context, or high-risk
+sensitive information unless the person whose private information is involved
+clearly identifies the content and intended recipient or destination. A person's
+role or Organization membership is not enough, and a broad standing instruction
+to answer every question or share anything does not authorize disclosure.
 
 ## Owner Boundaries
 
