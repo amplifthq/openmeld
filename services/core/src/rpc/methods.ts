@@ -16000,17 +16000,54 @@ export async function rpcConvertDirectMessageToSpace(
     })
   );
   const { stub } = resolveRpcSpaceStubOrThrow(env, spaceId);
+  const currentMembers = await stub.rpcGetIdentityDirectory({
+    context,
+    spaceId,
+  });
+  const currentMemberProfileIds = new Set(
+    currentMembers.entries.map((member) => member.profileId)
+  );
+  if (
+    !members.some((member) => !currentMemberProfileIds.has(member.profileId))
+  ) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Choose at least one new member.",
+      status: 400,
+    });
+  }
+  const currentAgentMembers = await Promise.all(
+    currentMembers.entries
+      .filter((member) => member.profileKind === "agent")
+      .map(async (member) => {
+        const resolved = await readResolvedOrganizationSpaceMember({
+          db,
+          organizationId: activeOrganization.organizationId,
+          profileId: member.profileId,
+        });
+        if (!resolved) {
+          throw createCoreRpcHttpError({
+            code: "agent_profile.not_found",
+            reason: "Agent Profile was not found.",
+            status: 404,
+          });
+        }
+        return resolved;
+      })
+  );
   const membersWithAgentOwners = await resolveSpaceMembersWithAgentOwners({
     context,
     env,
     expandAgentOwnersInDirectMessageConversion: true,
-    members,
+    members: [...members, ...currentAgentMembers],
     spaceId,
     stub,
   });
   const response = await stub.rpcConvertDirectMessageToSpace({
     context,
-    members: membersWithAgentOwners,
+    members: membersWithAgentOwners.filter(
+      (member) => !currentMemberProfileIds.has(member.profileId)
+    ),
     name: parsed.data.name,
     spaceId,
   });
