@@ -2308,14 +2308,19 @@ prerendered or placed in a shared server cache; intent prefetch, request-scoped
 SSR data, the account-scoped browser cache, and live invalidation are the
 allowed acceleration layers.
 
-TanStack Router owns browser scroll restoration. Its restoration key is the
-route pathname rather than the individual browser-history entry, and the Space
-message viewport has a stable id derived from the Space id. Returning to the
-same Space in a tab therefore restores that Space's last viewport position;
-different Spaces remain independent, and a message-focus search parameter may
-still move the viewport after restoration. The Router stores only scroll
-coordinates in session storage. This presentation state does not belong in the
-IndexedDB Query cache and is never message, read-cursor, or access authority.
+TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
+restoration key is the route pathname rather than the individual
+browser-history entry, and the Space message viewport has a stable id derived
+from the Space id. The conversation also records the first visible message and
+its viewport offset after scrolling settles. That account-and-Space-scoped
+semantic anchor is restored after cached history and layout have settled, so
+virtualized or deferred message layout cannot move a returning reader to a
+different message. Returning to the same Space in a tab therefore restores that
+Space's last reading position; different Spaces remain independent, and a
+message-focus search parameter may still move the viewport after restoration.
+Both layers use session storage. This view-local presentation state does not
+belong in the IndexedDB Query cache and is never message, read-cursor, or access
+authority.
 
 ### Browser read-cache persistence
 

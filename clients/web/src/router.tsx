@@ -6,6 +6,7 @@ import {
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 	APP_ROUTE_PRELOAD_DELAY_MS,
 } from "./lib/app-route-loading";
+import { getAppScrollRestorationKey } from "./lib/app-scroll-restoration";
 import { resolveAppQueryPersistenceController } from "./query/persistence/app-query-persistence";
 import { routeTree } from "./routeTree.gen";
 
@@ -23,7 +24,7 @@ export function getRouter(options?: { isServer?: boolean }) {
 		// A history-entry key treats every visit as a new scroll surface. The
 		// pathname is the stable browser identity for a Space, while search params
 		// remain free to focus a message without replacing its remembered position.
-		getScrollRestorationKey: (location) => location.pathname,
+		getScrollRestorationKey: getAppScrollRestorationKey,
 		defaultPreload: "intent",
 		defaultPreloadDelay: APP_ROUTE_PRELOAD_DELAY_MS,
 		// TanStack Query owns freshness for loader-prefetched data. Keeping the

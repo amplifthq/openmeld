@@ -90,6 +90,7 @@ vi.mock("@tanstack/react-router", () => ({
 			{children}
 		</a>
 	),
+	useElementScrollRestoration: () => undefined,
 }));
 
 vi.mock("./space-message-center-agent-task-references", () => ({
