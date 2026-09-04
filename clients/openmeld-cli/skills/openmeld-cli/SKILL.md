@@ -40,10 +40,10 @@ are missing.
 
 ## Common Space Reads
 
-Copied OpenMeld Space URLs work directly on the four frequent read commands.
-Keep a URL quoted so shell-sensitive query characters stay literal:
+Copied OpenMeld Space URLs work directly on common reads. Keep URLs quoted so shell-sensitive query characters stay literal:
 
 ```bash
+openmeld space access "<space-url-or-id>" --profile <profile-id> --view agent
 openmeld space board "<space-url-or-id>" --profile <profile-id> --json
 openmeld space members "<space-url-or-id>" --profile <profile-id> --json
 openmeld space history "<space-url-or-id>" --profile <profile-id> --kind text --brief --limit 20 --view agent

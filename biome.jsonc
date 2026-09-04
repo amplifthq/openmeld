@@ -6,11 +6,7 @@
     "ultracite/biome/next"
   ],
   "files": {
-    "includes": [
-      "!changelog/index.json",
-      "!scripts/ci/final-candidate-publisher.bundle.mjs",
-      "!!**/.claude/worktrees"
-    ]
+    "includes": ["!changelog/index.json", "!!**/.claude/worktrees"]
   },
   "linter": {
     "rules": {

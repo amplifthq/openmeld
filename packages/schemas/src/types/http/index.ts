@@ -1041,6 +1041,16 @@ export type {
   SpaceDispatchTraceSnapshotV2,
 } from "./space-dispatch-trace";
 export type {
+  GetSpaceEntryResolutionInput,
+  GetSpaceEntryResolutionResponse,
+  SpaceEntryOwner,
+  SpaceEntryParticipation,
+  SpaceEntryRecovery,
+  SpaceEntrySafeContext,
+  SpaceEntryTarget,
+  SpaceEntryView,
+} from "./space-entry";
+export type {
   CommitSpaceFileWriteInput,
   CreateSpaceFileUploadQuery,
   CreateSpaceFolderBody,

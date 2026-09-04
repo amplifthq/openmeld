@@ -3,6 +3,7 @@ import type { HonoBindings } from "../lib/bindings";
 import { registerConversationStateRoute } from "./rpc-http.conversation-state";
 import { registerMembersRoutes } from "./rpc-http.members";
 import { registerSignalsRoutes } from "./rpc-http.signals";
+import { registerSpaceEntryResolutionRoute } from "./rpc-http.space-entry";
 import { registerStatusRoutes } from "./rpc-http.status";
 import { registerThreadRoutes } from "./rpc-http.threads";
 import type { RpcHttpMethod } from "./rpc-http.types";
@@ -14,6 +15,7 @@ const PUBLIC_SPACE_BOUNDARY_ROUTE_DEFINITIONS = [
     "/v1/spaces/:spaceId/conversation-state",
   ],
   ["getSpaceStatus", "GET", "/v1/spaces/:spaceId/status"],
+  ["getSpaceEntryResolution", "GET", "/v1/spaces/:spaceId/entry-resolution"],
   ["getSpaceMembers", "GET", "/v1/spaces/:spaceId/members"],
   [
     "getSpaceIdentityDirectory",
@@ -67,5 +69,6 @@ export function registerPublicSpaceBoundaryRoutes(
   registerSignalsRoutes(app);
   registerMembersRoutes(app);
   registerStatusRoutes(app);
+  registerSpaceEntryResolutionRoute(app);
   registerThreadRoutes(app);
 }
