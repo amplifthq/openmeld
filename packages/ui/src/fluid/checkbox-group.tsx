@@ -152,7 +152,7 @@ const CheckboxGroup = forwardRef<HTMLDivElement, CheckboxGroupProps>(
             // matches twice per row and arrows skip onto the hidden control.
             const items = Array.from(
               containerRef.current?.querySelectorAll(
-                "[data-proximity-index]"
+                '[data-proximity-index]:not([aria-disabled="true"])'
               ) ?? []
             ) as HTMLElement[];
             const currentIdx = items.indexOf(e.target as HTMLElement);
@@ -261,6 +261,7 @@ interface CheckboxItemProps extends HTMLAttributes<HTMLDivElement> {
   checked: boolean;
   cornerAdornment?: ReactNode;
   description?: ReactNode;
+  disabled?: boolean;
   index: number;
   label: string;
   labelAdornment?: ReactNode;
@@ -276,6 +277,7 @@ const CheckboxItem = forwardRef<HTMLDivElement, CheckboxItemProps>(
       className,
       cornerAdornment,
       description,
+      disabled = false,
       index,
       label,
       labelAdornment,
@@ -314,15 +316,20 @@ const CheckboxItem = forwardRef<HTMLDivElement, CheckboxItemProps>(
       // biome-ignore lint/a11y/useSemanticElements: rich checkbox row uses role plus keyboard handling so the whole row is the target.
       <div
         aria-checked={checked}
+        aria-disabled={disabled || undefined}
         aria-label={label}
         className={cn(
-          `relative z-10 flex gap-2.5 ${shape.item} cursor-pointer px-3 py-1.5 outline-none`,
+          `relative z-10 flex gap-2.5 ${shape.item} px-3 py-1.5 outline-none`,
+          disabled ? "cursor-default" : "cursor-pointer",
           hasDescription ? "items-start" : "items-center",
           className
         )}
         data-proximity-index={index}
-        onClick={onToggle}
+        onClick={disabled ? undefined : onToggle}
         onKeyDown={(e) => {
+          if (disabled) {
+            return;
+          }
           if (e.key === " " || e.key === "Enter") {
             e.preventDefault();
             onToggle();
@@ -340,7 +347,7 @@ const CheckboxItem = forwardRef<HTMLDivElement, CheckboxItemProps>(
           }
         }}
         role="checkbox"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
         {...props}
       >
         <CheckboxItemCornerAdornment>
@@ -352,10 +359,16 @@ const CheckboxItem = forwardRef<HTMLDivElement, CheckboxItemProps>(
           aria-hidden
           checked={checked}
           className={cn(
-            "relative h-[15px] w-[15px] shrink-0 cursor-pointer appearance-none border-0 bg-transparent p-0 outline-none",
+            "relative h-[15px] w-[15px] shrink-0 appearance-none border-0 bg-transparent p-0 outline-none",
+            disabled ? "cursor-default" : "cursor-pointer",
             hasDescription && "mt-0.5"
           )}
-          onCheckedChange={() => onToggle()}
+          disabled={disabled}
+          onCheckedChange={() => {
+            if (!disabled) {
+              onToggle();
+            }
+          }}
           onClick={(e) => e.stopPropagation()}
           tabIndex={-1}
         >

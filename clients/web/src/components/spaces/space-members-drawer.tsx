@@ -66,7 +66,7 @@ import {
 import { toast } from "sonner";
 import { Drawer } from "vaul";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
-import { formatDirectoryActivity } from "#/components/directory/directory-human-profile-format";
+import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
 import { SpaceCreateProfileButton } from "#/components/profiles/space-create-profile-button";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
@@ -928,11 +928,14 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		() =>
 			usesOrganizationDirectory
 				? organizationDirectoryCandidates
-				: buildPersonalAddMemberGroups(
-						personalProfilesPlan.selectableCandidates
-					),
+				: buildPersonalAddMemberGroups({
+						alreadyJoinedCandidates:
+							personalProfilesPlan.alreadyJoinedCandidates,
+						selectableCandidates: personalProfilesPlan.selectableCandidates,
+					}),
 		[
 			organizationDirectoryCandidates,
+			personalProfilesPlan.alreadyJoinedCandidates,
 			personalProfilesPlan.selectableCandidates,
 			usesOrganizationDirectory,
 		]
@@ -953,7 +956,11 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		[candidateGroups, normalizedAddQuery]
 	);
 	const selectableProfileIds = useMemo(() => {
-		return new Set(allCandidates.map((candidate) => candidate.profileId));
+		return new Set(
+			allCandidates
+				.filter((candidate) => !candidate.alreadyMember)
+				.map((candidate) => candidate.profileId)
+		);
 	}, [allCandidates]);
 	const activeSelectedProfileIds = useMemo(() => {
 		if (selectedProfileIds.size === 0) {
@@ -1201,6 +1208,7 @@ function SpaceAddProfilesSectionView({
 }
 
 type SpaceAddMembersCandidateSummary = {
+	alreadyMember?: boolean;
 	agentControllerRef?: string | null;
 	availabilityCategory?: "available" | "checking" | "offline" | "unavailable";
 	availabilityLabel?: string | null;
@@ -1306,7 +1314,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
 			<DialogContent
-				className="@container sm:max-w-lg"
+				className="@container sm:max-w-2xl"
 				finalFocus={input.finalFocus}
 				id={input.dialogId}
 			>
@@ -1354,15 +1362,22 @@ function SpaceAddProfilesDialogContent({
 					/>
 				</div>
 			) : null}
-			<Input
-				aria-label={searchLabel}
-				autoComplete="off"
-				autoFocus
-				onChange={(event) => input.onAddQueryChange(event.target.value)}
-				placeholder={searchLabel}
-				type="search"
-				value={input.addQuery}
-			/>
+			<div className="relative">
+				<MagnifyingGlassIcon
+					aria-hidden="true"
+					className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+				/>
+				<Input
+					aria-label={searchLabel}
+					autoComplete="off"
+					autoFocus
+					className="pl-9"
+					onChange={(event) => input.onAddQueryChange(event.target.value)}
+					placeholder={searchLabel}
+					type="search"
+					value={input.addQuery}
+				/>
+			</div>
 			<SpaceAddProfilesStatus
 				errorMessage={input.errorMessage}
 				snapshot={input.snapshot}
@@ -1509,7 +1524,7 @@ function SpaceAddMembersCandidates(input: {
 	return (
 		<div
 			className={cn(
-				"-mx-1 flex max-h-80 flex-col gap-4 overflow-y-auto px-1",
+				"-mx-1 flex max-h-[min(32rem,calc(100dvh-18rem))] min-h-40 flex-col gap-4 overflow-y-auto px-1",
 				input.isSubmitting && "pointer-events-none opacity-70"
 			)}
 		>
@@ -1525,7 +1540,7 @@ function SpaceAddMembersCandidates(input: {
 						className="px-2 pb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wider"
 						id="space-add-members-people-heading"
 					>
-						People
+						People &amp; Agents
 					</h3>
 					<div className="flex flex-col gap-1">
 						{input.candidateGroups.personGroups.map((group) => {
@@ -1676,7 +1691,10 @@ function SpaceAddMembersCandidateGroup(input: {
 		: undefined;
 	const checkedIndices = new Set<number>();
 	for (const [index, candidate] of input.candidates.entries()) {
-		if (input.selectedProfileIds.has(candidate.profileId)) {
+		if (
+			candidate.alreadyMember ||
+			input.selectedProfileIds.has(candidate.profileId)
+		) {
 			checkedIndices.add(index);
 		}
 	}
@@ -1708,8 +1726,12 @@ function SpaceAddMembersCandidateGroup(input: {
 								profileName={candidate.profileName}
 							/>
 						}
-						checked={input.selectedProfileIds.has(candidate.profileId)}
+						checked={
+							candidate.alreadyMember ||
+							input.selectedProfileIds.has(candidate.profileId)
+						}
 						description={resolveAgentCandidateDescription(candidate)}
+						disabled={candidate.alreadyMember}
 						index={index}
 						key={candidate.profileId}
 						label={candidate.profileName}
@@ -1795,20 +1817,21 @@ function buildOrganizationDirectoryAddCandidates(input: {
 		...(input.snapshot?.agents.map((member) => member.profileId) ?? []),
 	]);
 	let alreadyJoinedCount = 0;
-	const addableAgents = (input.directory?.agentProfiles ?? []).flatMap(
+	const visibleAgents = (input.directory?.agentProfiles ?? []).flatMap(
 		(agent): readonly SpaceAddMembersCandidateSummary[] => {
 			if (agent.status !== "active") {
 				return [];
 			}
-			if (joinedProfileIds.has(agent.profileId)) {
+			const alreadyMember = joinedProfileIds.has(agent.profileId);
+			if (alreadyMember) {
 				alreadyJoinedCount += 1;
-				return [];
 			}
 			const availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
 				agent.readiness.agentWakeAvailability
 			);
 			return [
 				{
+					alreadyMember,
 					agentControllerRef: agent.agentControllerRef,
 					availabilityCategory,
 					availabilityLabel: agent.readiness.agentWakeAvailability.badgeLabel,
@@ -1834,14 +1857,14 @@ function buildOrganizationDirectoryAddCandidates(input: {
 			];
 		}
 	);
-	const organizationCandidates = addableAgents
+	const organizationCandidates = visibleAgents
 		.filter((agent) => agent.isCenterAgent)
 		.sort(compareAddMembersCandidates);
 	const agentsByOwnerUserId = new Map<
 		string,
 		SpaceAddMembersCandidateSummary[]
 	>();
-	for (const agent of addableAgents) {
+	for (const agent of visibleAgents) {
 		if (agent.isCenterAgent || !agent.ownerUserId) {
 			continue;
 		}
@@ -1943,6 +1966,9 @@ function compareAddMembersCandidates(
 	left: SpaceAddMembersCandidateSummary,
 	right: SpaceAddMembersCandidateSummary
 ): number {
+	if (left.alreadyMember !== right.alreadyMember) {
+		return left.alreadyMember ? -1 : 1;
+	}
 	if (left.isCenterAgent !== right.isCenterAgent) {
 		return left.isCenterAgent ? -1 : 1;
 	}
@@ -2001,12 +2027,25 @@ function compareOptionalDatesDescending(
 	return rightTime - leftTime;
 }
 
-function buildPersonalAddMemberGroups(
-	candidates: readonly SpaceProfileAddCandidate[]
-): SpaceAddMembersCandidateGroups {
+function buildPersonalAddMemberGroups(input: {
+	alreadyJoinedCandidates: readonly SpaceProfileAddCandidate[];
+	selectableCandidates: readonly SpaceProfileAddCandidate[];
+}): SpaceAddMembersCandidateGroups {
 	const groupsByOwner = new Map<string, SpaceAddMembersPersonGroup>();
-	for (const candidate of candidates) {
-		const summary = toAddMembersCandidateSummary(candidate);
+	for (const { alreadyMember, candidate } of [
+		...input.alreadyJoinedCandidates.map((candidate) => ({
+			alreadyMember: true,
+			candidate,
+		})),
+		...input.selectableCandidates.map((candidate) => ({
+			alreadyMember: false,
+			candidate,
+		})),
+	]) {
+		const summary = {
+			...toAddMembersCandidateSummary(candidate),
+			alreadyMember,
+		};
 		const ownerId = candidate.profile.ownerUserId ?? "personal";
 		const ownerName = candidate.profile.ownerName?.trim() || "You";
 		const current = groupsByOwner.get(ownerId) ?? {
@@ -2019,7 +2058,8 @@ function buildPersonalAddMemberGroups(
 			searchText: normalizeAddMembersSearchText([ownerName]),
 		};
 		if (summary.profileKind === "human") {
-			current.humanCandidate = summary;
+			current.humanAlreadyMember = alreadyMember;
+			current.humanCandidate = alreadyMember ? null : summary;
 			current.name = summary.profileName;
 			current.searchText = normalizeAddMembersSearchText([
 				summary.profileName,
@@ -2033,7 +2073,7 @@ function buildPersonalAddMemberGroups(
 		groupsByOwner.set(ownerId, current);
 	}
 	return {
-		alreadyJoinedCount: 0,
+		alreadyJoinedCount: input.alreadyJoinedCandidates.length,
 		organizationCandidates: [],
 		personGroups: [...groupsByOwner.values()].map((group) => ({
 			...group,
@@ -2088,14 +2128,23 @@ function resolveEffectiveAddMemberCount(input: {
 	return effectiveIds.size;
 }
 
-function resolvePersonActivityLabel(lastActiveAt: string | null): string {
-	const activity = formatDirectoryActivity(lastActiveAt);
-	return activity ? `Last active ${activity}` : "Available to add";
+function resolvePersonActivityLabel(
+	lastActiveAt: string | null
+): string | undefined {
+	return (
+		resolveDirectoryHumanProfileActivityLabel({
+			lastActiveAt,
+			profileStatus: "active",
+		}) ?? undefined
+	);
 }
 
 function resolveAgentCandidateDescription(
 	candidate: SpaceAddMembersCandidateSummary
 ): string | undefined {
+	if (candidate.alreadyMember) {
+		return "In this Space";
+	}
 	if (candidate.description) {
 		return candidate.description;
 	}

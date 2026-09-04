@@ -1026,7 +1026,7 @@ describe("SpaceMembersSidePanel", () => {
 		);
 	});
 
-	it("adds selectable account Agent Profiles without offering current or joined profiles", async () => {
+	it("adds selectable account Agent Profiles while keeping joined Agents visible", async () => {
 		const onAddProfiles = vi.fn(async () => ({
 			addedCount: 1,
 			alreadyMemberCount: 0,
@@ -1089,7 +1089,10 @@ describe("SpaceMembersSidePanel", () => {
 		);
 
 		expect(screen.queryByRole("checkbox", { name: "Felix" })).toBeNull();
-		expect(screen.queryByRole("checkbox", { name: "Joined Agent" })).toBeNull();
+		const joinedAgent = screen.getByRole("checkbox", { name: "Joined Agent" });
+		expect(joinedAgent.getAttribute("aria-checked")).toBe("true");
+		expect(joinedAgent.getAttribute("aria-disabled")).toBe("true");
+		expect(within(joinedAgent).getByText("In this Space")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("checkbox", { name: "Codex Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
@@ -1168,7 +1171,9 @@ describe("SpaceMembersSidePanel", () => {
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
 
-		expect(screen.getByRole("heading", { name: "People" })).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "People & Agents" })
+		).toBeTruthy();
 		fireEvent.click(screen.getByRole("checkbox", { name: "QA Human" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 
@@ -1246,6 +1251,11 @@ describe("SpaceMembersSidePanel", () => {
 		const searchInput = screen.getByRole("searchbox", {
 			name: "Search people and agents",
 		});
+		expect(searchInput.className).toContain("pl-9");
+		expect(searchInput.parentElement?.querySelector("svg")).not.toBeNull();
+		expect(
+			screen.getByRole("dialog", { name: "Add People or Agents" }).className
+		).toContain("sm:max-w-2xl");
 		expect(screen.queryByText("mira@example.com")).toBeNull();
 		fireEvent.change(searchInput, { target: { value: "mira@example.com" } });
 		expect(screen.queryByRole("checkbox", { name: "Mira" })).toBeNull();
@@ -1253,11 +1263,15 @@ describe("SpaceMembersSidePanel", () => {
 		expect(screen.getByRole("checkbox", { name: "Mira" })).toBeTruthy();
 		expect(screen.queryByRole("checkbox", { name: "Center Agent" })).toBeNull();
 		fireEvent.change(searchInput, { target: { value: "" } });
-		expect(screen.getByRole("heading", { name: "People" })).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "People & Agents" })
+		).toBeTruthy();
 		const organizationHeading = screen.getByRole("heading", {
 			name: "Organization",
 		});
-		const peopleHeading = screen.getByRole("heading", { name: "People" });
+		const peopleHeading = screen.getByRole("heading", {
+			name: "People & Agents",
+		});
 		expect(organizationHeading.compareDocumentPosition(peopleHeading)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
@@ -1266,6 +1280,8 @@ describe("SpaceMembersSidePanel", () => {
 				"Remote"
 			)
 		).toBeTruthy();
+		expect(screen.getByText("2 hours ago")).toBeTruthy();
+		expect(screen.queryByText("Available to add")).toBeNull();
 		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
 		expect(screen.getByText("Joins with selected Agent")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Add 2 members" })).toBeTruthy();
@@ -1300,6 +1316,89 @@ describe("SpaceMembersSidePanel", () => {
 		await waitFor(() => {
 			expect(screen.queryByText("Select members to add")).toBeNull();
 		});
+	});
+
+	it("pins joined Organization Agents under their person as checked context", () => {
+		const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
+		const humanProfileId = "22222222-2222-4222-8222-222222222222";
+		const joinedAgentProfileId = "agt_88888888-8888-4888-8888-888888888888";
+		const directory = buildOrganizationDirectory({
+			centerAgentProfileId,
+			humanProfileId,
+		});
+		const joinedAgent = directory.agentProfiles.find(
+			(profile) => profile.profileId === joinedAgentProfileId
+		);
+		if (!joinedAgent) {
+			throw new Error("Joined Agent fixture was not created.");
+		}
+		directory.agentProfiles = [
+			{
+				...joinedAgent,
+				profileHandle: "available-agent",
+				profileId: "agt_99999999-9999-4999-8999-999999999999",
+				profileName: "Available Agent",
+				readiness: buildRemoteCenterAgentReadiness("available", {
+					agentProfileId: "agt_99999999-9999-4999-8999-999999999999",
+				}),
+			},
+			...directory.agentProfiles,
+		];
+
+		renderWithOrganizationQueryClient(
+			<SpaceMembersSidePanel
+				activeWakeWaitingTargetProfileIds={new Set()}
+				agentRecoveryPlansByProfileId={new Map()}
+				autoRefreshExhaustedProfileIds={new Set()}
+				currentOwnerUserId="user_felix"
+				currentProfileId="11111111-1111-4111-8111-111111111111"
+				isAgentRecoveryPending={() => false}
+				isLoading={false}
+				membersError={null}
+				onAddOrganizationDirectoryProfiles={vi.fn(async () => ({
+					addedCount: 0,
+					alreadyMemberCount: 0,
+				}))}
+				onAgentRecoveryAction={async () => undefined}
+				onOpenChange={vi.fn()}
+				onRefresh={async () => undefined}
+				open={true}
+				orgSlug="acme"
+				snapshot={createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							ownerUserId: "user_mira",
+							profileId: joinedAgentProfileId,
+							profileName: "Research Agent",
+						}),
+					],
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							ownerUserId: "user_felix",
+							profileId: "11111111-1111-4111-8111-111111111111",
+							profileName: "Felix",
+						}),
+					],
+				})}
+			/>,
+			directory
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
+		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
+		const joinedCheckbox = within(dialog).getByRole("checkbox", {
+			name: "Research Agent",
+		});
+		expect(joinedCheckbox.getAttribute("aria-checked")).toBe("true");
+		expect(joinedCheckbox.getAttribute("aria-disabled")).toBe("true");
+		expect(within(joinedCheckbox).getByText("In this Space")).toBeTruthy();
+		expect(
+			readTextOrder(dialog, ["Research Agent", "Available Agent"])
+		).toEqual(["Research Agent", "Available Agent"]);
+		fireEvent.click(joinedCheckbox);
+		expect(within(dialog).getByText("Select members to add")).toBeTruthy();
 	});
 
 	it("closes Add People or Agents when the server confirms the selection is already present", async () => {
@@ -1695,7 +1794,9 @@ describe("SpaceMembersSidePanel", () => {
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
 		expect(
-			screen.getByText("All eligible profiles are already in this Space.")
+			within(screen.getByRole("checkbox", { name: "Joined Agent" })).getByText(
+				"In this Space"
+			)
 		).toBeTruthy();
 		unmount();
 
@@ -1793,7 +1894,9 @@ describe("SpaceMembersSidePanel", () => {
 		expect(trigger.getAttribute("aria-controls")).toBe(dialog.id);
 		const scope = within(dialog);
 
-		expect(scope.getByRole("heading", { name: "People" })).toBeTruthy();
+		expect(
+			scope.getByRole("heading", { name: "People & Agents" })
+		).toBeTruthy();
 		expect(scope.getByRole("checkbox", { name: "QA Human" })).toBeTruthy();
 		const collapseButton = scope.getByRole("button", {
 			name: "Collapse QA Human",
@@ -2228,6 +2331,7 @@ function buildOrganizationDirectory(input: {
 					image: null,
 					name: "Mira",
 				},
+				lastActiveAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
 				userId: "user_mira",
 			},
 		],
