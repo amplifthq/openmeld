@@ -1,12 +1,13 @@
 "use client";
 
 import type { SpaceApi } from "@openmeld/api-client";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { spaceFileContentQueryOptions } from "#/query/spaces/space-files";
 
-type SpaceFileImageSourceState = {
-	error: Error | null;
+type SpaceFileObjectUrl = {
 	key: string;
-	url: string | null;
+	url: string;
 };
 
 export function useSpaceFileImageSource(input: {
@@ -25,64 +26,33 @@ export function useSpaceFileImageSource(input: {
 		() => `${input.spaceId}:${input.fileId}:${String(input.revision)}`,
 		[input.fileId, input.revision, input.spaceId]
 	);
-	const [remoteSource, setRemoteSource] =
-		useState<SpaceFileImageSourceState | null>(null);
+	const contentQuery = useQuery(
+		spaceFileContentQueryOptions({
+			api: input.api,
+			enabled: !input.localPreviewUrl,
+			fileId: input.fileId,
+			revision: input.revision,
+			spaceId: input.spaceId,
+		})
+	);
+	const [objectUrl, setObjectUrl] = useState<SpaceFileObjectUrl | null>(null);
 
 	useEffect(() => {
-		if (input.localPreviewUrl) {
+		if (input.localPreviewUrl || !contentQuery.data) {
 			return;
 		}
 
-		const controller = new AbortController();
-		let objectUrl: string | null = null;
-
-		input.api
-			.downloadFileContent({
-				fileId: input.fileId,
-				revision: input.revision,
-				signal: controller.signal,
-				spaceId: input.spaceId,
+		const url = URL.createObjectURL(
+			new Blob([contentQuery.data.bytes], {
+				type: contentQuery.data.mimeType || input.mimeType,
 			})
-			.then((content) => {
-				if (controller.signal.aborted) {
-					return;
-				}
-				objectUrl = URL.createObjectURL(
-					new Blob([content.bytes], {
-						type: content.mimeType || input.mimeType,
-					})
-				);
-				setRemoteSource({ error: null, key: sourceKey, url: objectUrl });
-			})
-			.catch((error: unknown) => {
-				if (controller.signal.aborted) {
-					return;
-				}
-				setRemoteSource({
-					error:
-						error instanceof Error
-							? error
-							: new Error("The image preview could not be loaded."),
-					key: sourceKey,
-					url: null,
-				});
-			});
+		);
+		setObjectUrl({ key: sourceKey, url });
 
 		return () => {
-			controller.abort();
-			if (objectUrl) {
-				URL.revokeObjectURL(objectUrl);
-			}
+			URL.revokeObjectURL(url);
 		};
-	}, [
-		input.api,
-		input.fileId,
-		input.localPreviewUrl,
-		input.mimeType,
-		input.revision,
-		input.spaceId,
-		sourceKey,
-	]);
+	}, [contentQuery.data, input.localPreviewUrl, input.mimeType, sourceKey]);
 
 	if (input.localPreviewUrl) {
 		return {
@@ -91,12 +61,18 @@ export function useSpaceFileImageSource(input: {
 			sourceUrl: input.localPreviewUrl,
 		};
 	}
-	if (remoteSource?.key !== sourceKey) {
-		return { error: null, isLoading: true, sourceUrl: null };
+	let error: Error | null = null;
+	if (contentQuery.error instanceof Error) {
+		error = contentQuery.error;
+	} else if (contentQuery.error) {
+		error = new Error("The image preview could not be loaded.");
 	}
 	return {
-		error: remoteSource.error,
-		isLoading: remoteSource.url === null && remoteSource.error === null,
-		sourceUrl: remoteSource.url,
+		error,
+		isLoading: !(
+			error ||
+			(objectUrl?.key === sourceKey && objectUrl.url.length > 0)
+		),
+		sourceUrl: objectUrl?.key === sourceKey ? objectUrl.url : null,
 	};
 }
