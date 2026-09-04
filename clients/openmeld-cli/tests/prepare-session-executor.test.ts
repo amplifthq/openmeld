@@ -91,6 +91,10 @@ vi.mock("../src/commands/agents", () => ({
   runAgentsRepair: vi.fn(),
 }));
 
+vi.mock("../src/commands/setup-service-update-truth", () => ({
+  assertSetupServiceUpdateComplete: vi.fn(async () => undefined),
+}));
+
 vi.mock("../src/system/observed-device-metadata", () => ({
   collectObservedDeviceMetadata: vi.fn(),
 }));

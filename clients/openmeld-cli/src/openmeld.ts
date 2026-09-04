@@ -101,6 +101,7 @@ import { runPrompt } from "./commands/prompt";
 import { runRepairLocalState } from "./commands/repair";
 import { runReset } from "./commands/reset";
 import {
+  isManagedSystemServiceBootstrapRun,
   runDaemon,
   runDaemonAutostart,
   runDaemonCancel,
@@ -2561,38 +2562,45 @@ async function runServiceStartCliAction(
       command: "run",
     });
   }
+  const run = async (): Promise<void> => {
+    const result = await runDaemonRunAfterEntryChecks({
+      deviceId: opts.deviceId,
+      gatewayUrl: opts.gatewayUrl,
+      heartbeatMs: parseNonNegativeIntegerOption(
+        opts.heartbeatMs,
+        "--heartbeat-ms"
+      ),
+      profile: opts.profile,
+      mode: opts.mode,
+      view,
+      agentOverviewHandled: view === "agent",
+      outputMode: json ? "silent" : "normal",
+    });
+    if (json) {
+      emitCliJsonEnvelope({
+        schemaVersion: 1,
+        type: "daemon.run",
+        ok: result.ok,
+        reason: result.reason,
+      });
+    } else {
+      await maybeRunAgentViewRecoveryAfterSuccess({
+        view,
+      });
+    }
+  };
+
+  if (isManagedSystemServiceBootstrapRun()) {
+    await run();
+    return;
+  }
+
   await runCommandWithEntryChecks({
     routeTokens: ["service", "run"],
     view,
     profile: opts.profile,
     gatewayUrl: opts.gatewayUrl,
-    run: async () => {
-      const result = await runDaemonRunAfterEntryChecks({
-        deviceId: opts.deviceId,
-        gatewayUrl: opts.gatewayUrl,
-        heartbeatMs: parseNonNegativeIntegerOption(
-          opts.heartbeatMs,
-          "--heartbeat-ms"
-        ),
-        profile: opts.profile,
-        mode: opts.mode,
-        view,
-        agentOverviewHandled: view === "agent",
-        outputMode: json ? "silent" : "normal",
-      });
-      if (json) {
-        emitCliJsonEnvelope({
-          schemaVersion: 1,
-          type: "daemon.run",
-          ok: result.ok,
-          reason: result.reason,
-        });
-      } else {
-        await maybeRunAgentViewRecoveryAfterSuccess({
-          view,
-        });
-      }
-    },
+    run,
   });
 }
 

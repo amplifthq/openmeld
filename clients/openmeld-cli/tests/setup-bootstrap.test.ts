@@ -161,10 +161,11 @@ describe("setup account bootstrap", () => {
       selectedLocalAgentIds: [],
     });
 
-    expect(line).toHaveBeenCalledWith({
-      code: "setup.bootstrap.stage.center_agent",
-      text: "Center Agent will guide your next setup steps from OpenMeld Home.",
-    });
+    expect(line).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "setup.bootstrap.stage.center_agent",
+      })
+    );
     expect(
       line.mock.calls.some((call) =>
         String(call[0]?.text ?? "").includes("Welcoming Space")

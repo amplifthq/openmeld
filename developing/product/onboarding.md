@@ -714,11 +714,15 @@ remain untimestamped. Timing does not participate in setup decisions or change
 execution, waiting, or Service lifecycle ordering.
 
 When a healthy running Service only needs a newer version, Setup must hand the
-prepared update to the computer's background update worker and finish without
-waiting for current Agent work to end. The user may close Web Setup or the
-Terminal after that handoff. Setup must not use this path to hide a broken or
-ambiguous Service; those states remain explicit repair work. A background update
-does not make Setup the owner of Wake completion or final Agent readiness.
+prepared update to the computer's background update worker without waiting for
+current Agent work to end. That handoff says the update started in the
+background; it is not Setup completion. Setup or Prepare may report success only
+after the operation is `updated` and both the exact target CLI and Service are
+observed. `restored` and `needs_help` remain explicit failures with one next
+action. The user may close Web Setup or the Terminal after handoff and rerun
+Setup after the background operation finishes. Setup must not use this path to
+hide a broken or ambiguous Service. A background update does not make Setup the
+owner of Wake completion or final Agent readiness.
 
 A newly connected computer keeps OpenMeld Tools up to date by default. This is
 a saved computer preference, not a condition for completing Setup. Turning it

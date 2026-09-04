@@ -19,6 +19,7 @@ type SpaceWakeControlCommandModule =
   typeof import("../src/space/wake-control-command");
 type RunCommandWithEntryChecks =
   typeof import("../src/openmeld-cli-entry-checks").runCommandWithEntryChecks;
+type ServiceCommandModule = typeof import("../src/commands/service");
 
 const runMocks = vi.hoisted(() => ({
   runCenterAgentAsk: vi.fn<CenterAgentAskCommandModule["runCenterAgentAsk"]>(
@@ -81,6 +82,9 @@ const runMocks = vi.hoisted(() => ({
   runSpaceWakeStop: vi.fn<SpaceWakeControlCommandModule["runSpaceWakeStop"]>(
     async () => undefined
   ),
+  runDaemonRunAfterEntryChecks: vi.fn<
+    ServiceCommandModule["runDaemonRunAfterEntryChecks"]
+  >(async () => ({ ok: true, reason: "started" })),
 }));
 const runCommandWithEntryChecksMock = vi.hoisted(() =>
   vi.fn<RunCommandWithEntryChecks>(async (input) => {
@@ -120,6 +124,14 @@ vi.mock("../src/openmeld-cli-entry-checks", async (importOriginal) => {
   return {
     ...actual,
     runCommandWithEntryChecks: runCommandWithEntryChecksMock,
+  };
+});
+
+vi.mock("../src/commands/service", async (importOriginal) => {
+  const actual = await importOriginal<ServiceCommandModule>();
+  return {
+    ...actual,
+    runDaemonRunAfterEntryChecks: runMocks.runDaemonRunAfterEntryChecks,
   };
 });
 
@@ -252,6 +264,8 @@ const originalArgv = process.argv;
 
 afterEach(() => {
   process.argv = originalArgv;
+  process.env.OPENMELD_DAEMON_RUNTIME_DETACHED = undefined;
+  process.env.OPENMELD_DAEMON_RUNTIME_SYSTEM_SERVICE = undefined;
 });
 
 describe("command entry CLI wiring", () => {
@@ -277,6 +291,52 @@ describe("command entry CLI wiring", () => {
   it("keeps startup agent overviews out of normal success output", () => {
     expect(openMeldSource).toContain('argv.includes("--details")');
     expect(openMeldSource).toContain("handleExplicitHelpCommand(argv)");
+  });
+
+  it("keeps interactive service start on the shared command-entry policy", async () => {
+    await runCli(["service", "start", "--mode", "background"]);
+
+    expect(runCommandWithEntryChecksMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        routeTokens: ["service", "run"],
+      })
+    );
+    expect(runMocks.runDaemonRunAfterEntryChecks).toHaveBeenCalledOnce();
+  });
+
+  it("enters managed system-service bootstrap before command-entry remote checks", async () => {
+    process.env.OPENMELD_DAEMON_RUNTIME_DETACHED = "1";
+    process.env.OPENMELD_DAEMON_RUNTIME_SYSTEM_SERVICE = "1";
+    const entryCallCount = runCommandWithEntryChecksMock.mock.calls.length;
+    const runCallCount =
+      runMocks.runDaemonRunAfterEntryChecks.mock.calls.length;
+    vi.resetModules();
+    process.argv = [
+      "node",
+      "openmeld-command-entry-test",
+      "--view",
+      "agent",
+      "service",
+      "run",
+      "--mode",
+      "background",
+    ];
+
+    await import("../src/openmeld");
+    await vi.waitUntil(
+      () =>
+        runMocks.runDaemonRunAfterEntryChecks.mock.calls.length ===
+        runCallCount + 1,
+      { interval: 10, timeout: 1000 }
+    );
+
+    expect(runCommandWithEntryChecksMock).toHaveBeenCalledTimes(entryCallCount);
+    expect(runMocks.runDaemonRunAfterEntryChecks).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: "background",
+        view: "agent",
+      })
+    );
   });
 
   it("maps Center Agent ask Organization targeting to the command runner", async () => {

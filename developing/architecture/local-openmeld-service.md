@@ -1177,7 +1177,11 @@ evidence only. After a startup wait fails it may drive failure cards, the
 lifecycle journal, and Agent View diagnostics — for example distinguishing a
 job macOS never spawned (Login Items blocked) from a crash loop with a nonzero
 exit code. It must never feed service health, Wakeability, readiness, or
-lifecycle decisions.
+lifecycle decisions. A service-manager `running` state corroborates lifecycle
+success only when the same full inventory also proves the exact active bundle,
+install state, runtime contract, live managed background runtime lease, and no
+blocking ownership anomaly. Gateway connection and controller catalog loading
+may converge later and do not gate that local lifecycle result.
 
 ## RuntimeTransportHub Fast Paths
 
@@ -1819,6 +1823,14 @@ treated as `not_running` or as permission to uninstall, replace, prune, or
 register a carrier. Lifecycle mutation stops with the preserved diagnostic
 error; read-only product surfaces may present the state as unknown.
 
+An operating-system-managed hidden `service run` is supervisor bootstrap, not
+an interactive CLI entry. It resolves and validates the lane-local Service
+contract before human entry policy, does not fetch remote profile lists, and
+uses local validation and repair (`validateRemote: false`) so a launchd or
+systemd restart cannot depend on a user prompt or network profile lookup.
+Interactive `service run` keeps the ordinary authenticated command-entry
+policy.
+
 Before a controlled lifecycle stops or drains the current Service, it must
 fully prepare and validate the replacement bundle without changing the active
 bundle pointer. A preparation failure leaves the current Service, its
@@ -1827,13 +1839,22 @@ may enter the destructive lifecycle. Activation happens after the old Service
 is confirmed absent; an abandoned prepared bundle is removed unless it became
 the active bundle.
 
-An OpenMeld Service update request is complete only after a lane-scoped,
-strictly validated update job and prepared replacement have been handed to an
-operating-system-owned update worker. Web Setup, Center Agent actions, the
-ordinary Service command, and top-level CLI upgrade must all converge on this
-one coordinator. The initiating browser or Terminal is not a lifecycle owner:
-it may close immediately after the durable handoff, and the OS worker must
-resume the same job after its own crash, sign-in, or computer restart.
+Stopping and starting use separate evidence budgets. Teardown keeps its bounded
+15-second absence check. Replacement startup uses the platform startup budget
+(90 seconds for launchd) and polls the full lifecycle inventory for its entire
+budget; an alive manager without a fresh runtime lease is still pending, not a
+reason to restart after 15 seconds. At the deadline, lifecycle records the exact
+final inventory and job diagnostics, then performs at most one bounded verified
+rollback. It must not insert an unverified stop/start retry before that rollback.
+
+An OpenMeld Service update request has been accepted and started in the
+background only after a lane-scoped, strictly validated update job and prepared
+replacement have been handed to an operating-system-owned update worker. That
+handoff is not update completion. Web Setup, Center Agent actions, the ordinary
+Service command, and top-level CLI upgrade must all converge on this one
+coordinator. The initiating browser or Terminal is not a lifecycle owner: it
+may close immediately after the durable handoff, and the OS worker must resume
+the same job after its own crash, sign-in, or computer restart.
 
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
@@ -1846,11 +1867,13 @@ Completed operation phases remain visible for at most 24 hours. Core must omit
 an older `updated` phase when current component evidence already shows another
 actionable update. A completed historical operation must never contradict the
 current update action.
-`updated` proves that the worker finished installation; it does not prove that
-Core has observed the target CLI and Service versions. Clients must retain the
-operation and verify both component projections before presenting **Up to
-date**. Same-operation observations are ordered by `updatedAt` and phase, so a
-stale projection cannot move visible progress backward.
+`waiting_for_work` and `updating` are in progress. `restored` and `needs_help`
+are failed outcomes even if stale component fields happen to show the target
+version. `updated` proves that the worker finished installation; clients still
+retain that exact operation and verify both CLI and Service at its target before
+presenting **Up to date** or allowing Setup or Prepare to report completion.
+Same-operation observations are ordered by `updatedAt` and phase, so a stale
+projection cannot move visible progress backward.
 Because runtime capability payloads are strict, rollout deploys the accepting
 Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local

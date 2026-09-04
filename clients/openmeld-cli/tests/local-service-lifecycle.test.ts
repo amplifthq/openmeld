@@ -683,7 +683,8 @@ describe("local service lifecycle", () => {
     expect(installDaemonMock).not.toHaveBeenCalled();
   });
 
-  it("restores the verified previous binary when the replacement cannot start", async () => {
+  it("restores the verified previous binary once when the replacement never publishes a runtime lease", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const previousBinaryPath = "/tmp/versions/0.3.3/openmeld";
     const previousInventory = {
       ...buildInitialInventory(serviceManager, {
@@ -719,10 +720,6 @@ describe("local service lifecycle", () => {
       expectedVersion: PREVIOUS_VERSION,
       anomalies: [],
     } satisfies DaemonServiceInventory;
-    serviceManager.waitUntilRunning = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("replacement service did not start"))
-      .mockResolvedValueOnce(undefined);
     inspectDaemonServiceInventoryMock.mockReset().mockImplementation(() => {
       if (inspectDaemonServiceInventoryMock.mock.calls.length === 1) {
         return Promise.resolve(previousInventory);
@@ -734,17 +731,19 @@ describe("local service lifecycle", () => {
       );
     });
 
-    const result = await runDaemonServiceLifecycle({
-      expectedVersion: EXPECTED_VERSION,
-      operation: "upgrade_reconcile",
-      installSource: "daemon.command.install",
-      desiredState: "background",
-      shouldStartAfterLifecycle: true,
-      forceReinstall: true,
-    });
+    const result = await settleLifecyclePromiseWithFakeTimers(
+      runDaemonServiceLifecycle({
+        expectedVersion: EXPECTED_VERSION,
+        operation: "upgrade_reconcile",
+        installSource: "daemon.command.install",
+        desiredState: "background",
+        shouldStartAfterLifecycle: true,
+        forceReinstall: true,
+      })
+    );
 
     expect(result).toMatchObject({
-      failureStage: "wait_running",
+      failureStage: "verify_final_inventory",
       recoveryStatus: "restored_verified_previous_state",
       status: "failed",
     });
@@ -760,7 +759,9 @@ describe("local service lifecycle", () => {
     );
     expect(serviceManager.uninstall).toHaveBeenCalledTimes(2);
     expect(serviceManager.install).toHaveBeenCalledTimes(2);
-    expect(serviceManager.waitUntilRunning).toHaveBeenCalledTimes(2);
+    expect(serviceManager.waitUntilRunning).not.toHaveBeenCalled();
+    expect(restoreDaemonInstallStateSnapshotMock).toHaveBeenCalledTimes(1);
+    expect(restoreDaemonActiveBundleStateSnapshotMock).toHaveBeenCalledTimes(1);
     expect(ensureDaemonSystemServiceCommandFilesMock).toHaveBeenCalledTimes(2);
     expect(ensureDaemonSystemServiceCommandFilesMock).toHaveBeenNthCalledWith(
       2,
@@ -772,6 +773,7 @@ describe("local service lifecycle", () => {
   });
 
   it("does not roll back below the cached Core required version floor", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const previousInventory = buildInitialInventory(serviceManager, {
       installedVersion: PREVIOUS_VERSION,
     });
@@ -782,22 +784,21 @@ describe("local service lifecycle", () => {
       required_floor: EXPECTED_VERSION,
       updated_at: "2026-08-27T00:00:00.000Z",
     });
-    serviceManager.waitUntilRunning = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("replacement service did not start"));
     inspectDaemonServiceInventoryMock
       .mockReset()
       .mockResolvedValueOnce(previousInventory)
       .mockResolvedValue(buildFinalInventory(serviceManager));
 
-    const result = await runDaemonServiceLifecycle({
-      expectedVersion: EXPECTED_VERSION,
-      operation: "upgrade_reconcile",
-      installSource: "daemon.command.install",
-      desiredState: "background",
-      shouldStartAfterLifecycle: true,
-      forceReinstall: true,
-    });
+    const result = await settleLifecyclePromiseWithFakeTimers(
+      runDaemonServiceLifecycle({
+        expectedVersion: EXPECTED_VERSION,
+        operation: "upgrade_reconcile",
+        installSource: "daemon.command.install",
+        desiredState: "background",
+        shouldStartAfterLifecycle: true,
+        forceReinstall: true,
+      })
+    );
 
     expect(result).toMatchObject({
       recoveryStatus: "stopped_safe_current_version",
@@ -1347,7 +1348,7 @@ describe("local service lifecycle", () => {
           serviceContract: buildServiceContract({
             bundleId: "bundle-new",
             desiredState: "stopped",
-            gatewayUrl: "http://localhost:8080",
+            gatewayUrl: "https://gateway.staging.openmeld.ai",
             lane: "canary",
             profileId: "agt_canary",
           }),
@@ -1369,7 +1370,7 @@ describe("local service lifecycle", () => {
         bundleId: "bundle-new",
         desiredState: "stopped",
         deviceId: "device-123",
-        gatewayUrl: "http://localhost:8080",
+        gatewayUrl: "https://gateway.staging.openmeld.ai",
         lane: "canary",
         profileId: "agt_canary",
         serviceController: "launchd",
@@ -1384,7 +1385,7 @@ describe("local service lifecycle", () => {
         env: expect.objectContaining({
           OPENMELD_AUTH_URL: "http://localhost:8788",
           OPENMELD_ENV_PRESET: "canary",
-          OPENMELD_GATEWAY_URL: "http://localhost:8080",
+          OPENMELD_GATEWAY_URL: "https://gateway.staging.openmeld.ai",
         }),
       })
     );
@@ -1493,23 +1494,17 @@ describe("local service lifecycle", () => {
     );
   });
 
-  it("recovers a background upgrade when launchd is running but runtime state stays stale during final verification", async () => {
+  it("keeps waiting after launchd starts until the target runtime lease is published", async () => {
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     try {
-      let stoppedForRecovery = false;
-      let startedAfterRecoveryStop = false;
-      serviceManager.stop = vi.fn().mockResolvedValue(undefined);
+      const startedAtMs = Date.now();
+      let managerRunning = false;
       serviceManager.start = vi.fn().mockImplementation(() => {
-        if (stoppedForRecovery) {
-          startedAfterRecoveryStop = true;
-        }
+        setTimeout(() => {
+          managerRunning = true;
+        }, 51);
         return Promise.resolve();
       });
-      serviceManager.waitUntilStopped = vi.fn().mockImplementation(() => {
-        stoppedForRecovery = true;
-        return Promise.resolve();
-      });
-      serviceManager.waitUntilRunning = vi.fn().mockResolvedValue(undefined);
       readCurrentObservedDaemonRuntimeStatusMock.mockResolvedValue(
         buildRuntimeStatus("stale")
       );
@@ -1517,11 +1512,15 @@ describe("local service lifecycle", () => {
         if (inspectDaemonServiceInventoryMock.mock.calls.length === 1) {
           return Promise.resolve(buildInitialInventory(serviceManager));
         }
-        return Promise.resolve(
-          startedAfterRecoveryStop
-            ? buildHealthyBackgroundInventory(serviceManager)
-            : buildRecoverableStartupDriftInventory(serviceManager)
-        );
+        if (Date.now() - startedAtMs < 27_000) {
+          const inventory =
+            buildRecoverableStartupDriftInventory(serviceManager);
+          if (inventory.serviceManagerStatus) {
+            inventory.serviceManagerStatus.running = managerRunning;
+          }
+          return Promise.resolve(inventory);
+        }
+        return Promise.resolve(buildHealthyBackgroundInventory(serviceManager));
       });
 
       const resultPromise = runDaemonServiceLifecycle({
@@ -1535,8 +1534,13 @@ describe("local service lifecycle", () => {
       const result = await settleLifecyclePromiseWithFakeTimers(resultPromise);
 
       expect(result.status).toBe("aligned");
-      expect(serviceManager.stop).toHaveBeenCalled();
-      expect(startedAfterRecoveryStop).toBe(true);
+      expect(Date.now() - startedAtMs).toBeGreaterThanOrEqual(27_000);
+      expect(Date.now() - startedAtMs).toBeLessThan(90_000);
+      expect(serviceManager.stop).toHaveBeenCalledTimes(1);
+      expect(serviceManager.start).toHaveBeenCalledTimes(1);
+      expect(serviceManager.waitUntilRunning).not.toHaveBeenCalled();
+      expect(restoreDaemonInstallStateSnapshotMock).not.toHaveBeenCalled();
+      expect(restoreDaemonActiveBundleStateSnapshotMock).not.toHaveBeenCalled();
       expect(result.reasonCodes).toEqual([]);
       if (result.status === "aligned") {
         expect(result.inventoryAfter.anomalies).toEqual([]);

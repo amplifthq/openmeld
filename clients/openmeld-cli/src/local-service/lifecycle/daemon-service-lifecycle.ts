@@ -90,7 +90,6 @@ import { cleanupLegacySharedDaemonServiceState } from "./daemon-service-legacy-s
 import {
   type DaemonServiceManager,
   disableDaemonServiceAutostartIfConfigured,
-  isDaemonServiceWaitTimeoutError,
   resolveDaemonServiceManager,
 } from "./daemon-service-manager";
 import { listDaemonOwnedProcesses } from "./daemon-service-process-inventory";
@@ -101,6 +100,10 @@ import {
   waitForDaemonSystemServiceToStop,
 } from "./daemon-service-runtime";
 import { forceKillStalledDaemonAfterStopTimeout } from "./daemon-service-stalled-force-kill";
+import {
+  isSystemServiceStartupTimeoutError,
+  waitForSystemServiceStartup,
+} from "./daemon-service-startup-wait";
 import { resolveVersionChangeDirection } from "./version-change-direction";
 
 const STRICT_TEARDOWN_VERIFY_WAIT_MS = 15_000;
@@ -699,32 +702,33 @@ async function executeDaemonServiceLifecycle(input: {
 
       input.state.failureStage = "wait_running";
       await input.emitPhase("wait_running");
-      // Journal the wait with the launchd job-state verdict (never-spawned vs
-      // crash-loop) so lifecycle diagnostics match the `openmeld service run` startup
-      // path. Diagnostic evidence only — it never changes the wait outcome.
-      await runDaemonServiceManagerAction({
-        action: "wait_running",
-        controller: input.context.serviceManager.controller,
-        intent: toLifecycleIntent(input.operation),
-        resolveErrorMetadata: (error) =>
-          isDaemonServiceWaitTimeoutError(error) && error.jobDiagnostics
-            ? { jobDiagnostics: error.jobDiagnostics }
-            : null,
-        run: async () => {
-          await input.context.serviceManager.waitUntilRunning();
-        },
-      });
     }
 
     input.state.failureStage = "verify_final_inventory";
     await input.emitPhase("verify_final_inventory");
-    const inventoryAfter = await waitForVerifiedLifecycleInventory({
-      desiredState: input.context.desiredState,
-      expectedVersion: input.expectedVersion,
-      operation: input.operation,
-      shouldStartAfterLifecycle: input.context.shouldStartAfterLifecycle,
-      target: input.target,
-    });
+    const verifyFinalInventory = async (): Promise<DaemonServiceInventory> =>
+      await waitForVerifiedLifecycleInventory({
+        desiredState: input.context.desiredState,
+        expectedVersion: input.expectedVersion,
+        operation: input.operation,
+        serviceManager: input.context.serviceManager,
+        shouldStartAfterLifecycle: input.context.shouldStartAfterLifecycle,
+        target: input.target,
+      });
+    const inventoryAfter = input.context.shouldStartAfterLifecycle
+      ? await runDaemonServiceManagerAction({
+          action: "wait_running",
+          controller: input.context.serviceManager.controller,
+          intent: toLifecycleIntent(input.operation),
+          resolveErrorMetadata: (error) => {
+            const startupError = readLifecycleStartupTimeoutError(error);
+            return startupError?.jobDiagnostics
+              ? { jobDiagnostics: startupError.jobDiagnostics }
+              : null;
+          },
+          run: verifyFinalInventory,
+        })
+      : await verifyFinalInventory();
     await cleanupStaleDaemonRuntimeDataBackupsAfterHealthyLifecycle(
       input.operation
     );
@@ -794,32 +798,6 @@ async function recoverLifecycleFailure(input: {
     input.state.failureStage
   );
   const originalReasonCodes = resolveLifecycleFailureReasonCodes(input.error);
-
-  const restartedCurrentVersion =
-    await recoverBackgroundLifecycleVerificationFailure({
-      commandOptions: input.commandOptions,
-      error: input.error,
-      expectedVersion: input.expectedVersion,
-      failureStage: originalFailureStage,
-      operation: input.operation,
-      restorePoint: input.restorePoint,
-      serviceManager: input.serviceManager,
-      target: input.target,
-    }).catch(() => null);
-  if (restartedCurrentVersion) {
-    return {
-      status: "aligned",
-      targetVersion: input.expectedVersion,
-      inventoryBefore: input.inventoryBefore,
-      inventoryAfter: restartedCurrentVersion,
-      reasonCodes: [],
-      completedPhases: input.state.completedPhases,
-      desiredState: input.restorePoint.desiredState,
-      shouldStartAfterLifecycle: input.restorePoint.shouldStartAfterLifecycle,
-      backupDataPath: null,
-      errorMessage: null,
-    };
-  }
 
   let verifiedRollbackError: unknown = null;
   if (
@@ -991,7 +969,6 @@ async function restoreVerifiedPreviousState(input: {
   });
   if (input.restorePoint.shouldStartAfterLifecycle) {
     await input.serviceManager.start();
-    await input.serviceManager.waitUntilRunning();
   } else {
     await input.serviceManager.waitUntilStopped();
   }
@@ -999,6 +976,7 @@ async function restoreVerifiedPreviousState(input: {
     desiredState: input.restorePoint.desiredState,
     expectedVersion: previousVersion,
     operation: "upgrade_reconcile",
+    serviceManager: input.serviceManager,
     shouldStartAfterLifecycle: input.restorePoint.shouldStartAfterLifecycle,
     target: buildDaemonServiceTargetSpec({
       daemonVersion: previousVersion,
@@ -1062,6 +1040,7 @@ async function transitionLifecycleToStoppedSafeCurrentVersion(input: {
     desiredState: "stopped",
     expectedVersion: input.expectedVersion,
     operation: input.operation,
+    serviceManager: input.serviceManager,
     shouldStartAfterLifecycle: false,
     target: buildDaemonServiceTargetSpec({
       daemonVersion: input.expectedVersion,
@@ -1069,95 +1048,17 @@ async function transitionLifecycleToStoppedSafeCurrentVersion(input: {
   });
 }
 
-async function recoverBackgroundLifecycleVerificationFailure(input: {
-  commandOptions: DaemonServiceLifecycleCommandOptions;
-  error: unknown;
-  expectedVersion: string;
-  failureStage: DaemonServiceFailureStage | null;
-  operation: DaemonServiceLifecycleOperation;
-  restorePoint: DaemonServiceLifecycleRestorePoint;
-  serviceManager: DaemonServiceManager;
-  target: ReturnType<typeof buildDaemonServiceTargetSpec>;
-}): Promise<DaemonServiceInventory | null> {
-  const failureInventory = readLifecycleFailureInventory(input.error);
+function readLifecycleStartupTimeoutError(error: unknown) {
+  if (isSystemServiceStartupTimeoutError(error)) {
+    return error;
+  }
   if (
-    !shouldRecoverBackgroundLifecycleVerificationFailure({
-      failureInventory,
-      failureStage: input.failureStage,
-      restorePoint: input.restorePoint,
-    })
+    error instanceof DaemonServiceLifecycleStageError &&
+    isSystemServiceStartupTimeoutError(error.cause)
   ) {
-    return null;
+    return error.cause;
   }
-
-  await input.serviceManager.stop();
-  await input.serviceManager.waitUntilStopped();
-  await ensureNoOwnedProcessesRemain();
-  const serviceCommandSpec = buildDaemonSystemServiceCommandSpec({
-    controller: input.serviceManager.controller,
-    distribution: input.target.bundleFormat === "binary_v1" ? "binary" : "npm",
-    environmentTarget: input.commandOptions.environmentTarget,
-  });
-  await startLifecycleServiceWithRetry({
-    distribution: input.target.bundleFormat === "binary_v1" ? "binary" : "npm",
-    serviceCommandSpec,
-    serviceManager: input.serviceManager,
-  });
-  await input.serviceManager.waitUntilRunning();
-
-  return await waitForVerifiedLifecycleInventory({
-    desiredState: "background",
-    expectedVersion: input.expectedVersion,
-    operation: input.operation,
-    shouldStartAfterLifecycle: true,
-    target: input.target,
-  });
-}
-
-function shouldRecoverBackgroundLifecycleVerificationFailure(input: {
-  failureInventory: DaemonServiceInventory | null;
-  failureStage: DaemonServiceFailureStage | null;
-  restorePoint: DaemonServiceLifecycleRestorePoint;
-}): boolean {
-  if (
-    input.failureStage !== "verify_final_inventory" ||
-    input.restorePoint.desiredState !== "background" ||
-    input.restorePoint.shouldStartAfterLifecycle !== true ||
-    !input.failureInventory
-  ) {
-    return false;
-  }
-
-  const anomalyCodes = input.failureInventory.anomalies.map(
-    (anomaly) => anomaly.code
-  );
-  if (anomalyCodes.length === 0) {
-    return false;
-  }
-  const recoverableCodes = new Set<DaemonServiceAnomalyCode>([
-    "manager_running_without_runtime",
-    "runtime_stale",
-  ]);
-  return anomalyCodes.every((code) => recoverableCodes.has(code));
-}
-
-function readLifecycleFailureInventory(
-  error: unknown
-): DaemonServiceInventory | null {
-  if (!(error instanceof DaemonServiceLifecycleStageError)) {
-    return null;
-  }
-  return isDaemonServiceInventory(error.cause) ? error.cause : null;
-}
-
-function isDaemonServiceInventory(
-  value: unknown
-): value is DaemonServiceInventory {
-  if (!(value && typeof value === "object")) {
-    return false;
-  }
-  const candidate = value as Partial<DaemonServiceInventory>;
-  return Array.isArray(candidate.anomalies) && !!candidate.runtimeStatus;
+  return null;
 }
 
 async function createLifecycleRestorePoint(input: {
@@ -1681,8 +1582,6 @@ async function waitForLegacySharedServiceCleanup(input: {
   while (Date.now() < deadline) {
     const inventory = await inspectDaemonServiceInventory({
       expectedVersion: input.expectedVersion,
-      intendedMode:
-        input.shouldStartAfterLifecycle === true ? "background" : undefined,
       intent: toLifecycleIntent(input.operation),
     });
     lastInventory = inventory;
@@ -2103,21 +2002,70 @@ async function restoreLifecycleServiceContractSnapshot(
   });
 }
 
-async function waitForVerifiedLifecycleInventory(input: {
+type VerifiedLifecycleInventoryInput = {
   desiredState: "background" | "stopped";
   expectedVersion: string;
   operation: DaemonServiceLifecycleOperation;
+  serviceManager: DaemonServiceManager;
   shouldStartAfterLifecycle: boolean;
   target: ReturnType<typeof buildDaemonServiceTargetSpec>;
-}): Promise<DaemonServiceInventory> {
+};
+
+async function waitForStartedLifecycleInventory(
+  input: VerifiedLifecycleInventoryInput
+): Promise<DaemonServiceInventory> {
+  try {
+    const result = await waitForSystemServiceStartup({
+      expectedVersion: input.expectedVersion,
+      manager: input.serviceManager,
+      pollMs: STRICT_TEARDOWN_VERIFY_POLL_MS,
+      intent: toLifecycleIntent(input.operation),
+      isReady: (inventory) =>
+        verifyLifecycleInventory({
+          desiredState: input.desiredState,
+          inventory,
+          shouldStartAfterLifecycle: true,
+          target: input.target,
+        }) === null,
+    });
+    return result.inventory;
+  } catch (error) {
+    if (!isSystemServiceStartupTimeoutError(error)) {
+      throw error;
+    }
+    const inventory = error.inventory;
+    const verificationError = inventory
+      ? verifyLifecycleInventory({
+          desiredState: input.desiredState,
+          inventory,
+          shouldStartAfterLifecycle: true,
+          target: input.target,
+        })
+      : null;
+    throw new DaemonServiceLifecycleStageError({
+      cause: error,
+      message: verificationError ?? error.message,
+      reasonCodes: inventory
+        ? readDaemonServiceInventoryAnomalyCodes(inventory)
+        : [],
+      stage: "verify_final_inventory",
+    });
+  }
+}
+
+async function waitForVerifiedLifecycleInventory(
+  input: VerifiedLifecycleInventoryInput
+): Promise<DaemonServiceInventory> {
+  if (input.shouldStartAfterLifecycle) {
+    return await waitForStartedLifecycleInventory(input);
+  }
+
   const deadline = Date.now() + STRICT_TEARDOWN_VERIFY_WAIT_MS;
   let lastInventory: DaemonServiceInventory | null = null;
   let lastError: string | null = null;
   while (Date.now() < deadline) {
     const inventory = await inspectDaemonServiceInventory({
       expectedVersion: input.expectedVersion,
-      intendedMode:
-        input.shouldStartAfterLifecycle === true ? "background" : undefined,
       intent: toLifecycleIntent(input.operation),
     });
     const verificationError = verifyLifecycleInventory({
