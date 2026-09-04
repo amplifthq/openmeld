@@ -58,6 +58,7 @@ export function useSpaceProfileDetailsPopover(input: {
 					isDirectMessagePending={
 						profileContext?.pendingDirectMessageProfileId === entry.profileId
 					}
+					isSelf={isOwner}
 					onOpenDirectMessage={
 						isOwner ? undefined : buildOpenDirectMessageAction(entry.profileId)
 					}

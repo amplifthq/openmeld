@@ -294,6 +294,7 @@ export function AgentProfileDetailsPopover(input: {
 export function HumanProfileDetailsPopover(input: {
 	editHref?: string;
 	entry: SpaceMemberDirectoryEntry;
+	isSelf?: boolean;
 	isDirectMessagePending?: boolean;
 	onOpenDirectMessage?: () => void;
 	trigger: ReactElement;
@@ -332,9 +333,16 @@ export function HumanProfileDetailsPopover(input: {
 								size="lg"
 							/>
 							<div className="min-w-0 flex-1 pt-0.5">
-								<p className="break-words font-semibold text-base text-foreground">
-									{input.entry.profileName}
-								</p>
+								<div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+									<p className="break-words font-semibold text-base text-foreground">
+										{input.entry.profileName}
+									</p>
+									{input.isSelf ? (
+										<span className="text-muted-foreground text-sm before:mr-1.5 before:content-['·']">
+											You
+										</span>
+									) : null}
+								</div>
 								{activityTime ? (
 									<p className="mt-2 text-muted-foreground text-xs">
 										{activityTime}

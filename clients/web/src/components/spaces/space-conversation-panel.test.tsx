@@ -4017,6 +4017,7 @@ describe("SpaceConversationPanel", () => {
 
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Felix")).toBeTruthy();
+		expect(dialog.getByText("You")).toBeTruthy();
 		expect(dialog.getByText("Now")).toBeTruthy();
 		expect(
 			dialog.getByRole("link", { name: "Edit Felix" }).getAttribute("href")

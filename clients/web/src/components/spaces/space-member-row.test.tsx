@@ -770,6 +770,7 @@ describe("SpaceMemberRow", () => {
 		);
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("7h ago")).toBeTruthy();
+		expect(dialog.getByText("You")).toBeTruthy();
 		expect(dialog.queryByText("Active in this Space")).toBeNull();
 		expect(
 			dialog.getByRole("link", { name: "Edit Felix" }).getAttribute("href")
