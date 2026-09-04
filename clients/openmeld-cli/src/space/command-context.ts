@@ -133,7 +133,12 @@ export function assertValidSpaceIdTarget(input: {
 // must not be passed through this guard.
 export function assertFullSignalIdArgument(input: {
   value: string | undefined;
-  flag: "--after-signal" | "--around-signal" | "--reply-to";
+  flag:
+    | "--after-signal"
+    | "--around-signal"
+    | "--reply-to"
+    | "--signal"
+    | "--thread-root-signal";
   resolvedView: "human" | "agent";
 }): void {
   const normalized = String(input.value ?? "").trim();

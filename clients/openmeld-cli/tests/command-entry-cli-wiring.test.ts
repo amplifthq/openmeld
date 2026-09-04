@@ -12,6 +12,7 @@ type SpaceBoardCommandModule = typeof import("../src/space/board-command");
 type SpaceAccessCommandModule = typeof import("../src/space/access-command");
 type SpaceAddMeCommandModule = typeof import("../src/space/add-me-command");
 type SpaceCommandModule = typeof import("../src/space/command");
+type SpaceLinkCommandModule = typeof import("../src/space/link-command");
 type SpaceMembersCommandModule = typeof import("../src/space/members-command");
 type SpaceOrganizationCommandModule =
   typeof import("../src/space/organization-space-command");
@@ -63,6 +64,9 @@ const runMocks = vi.hoisted(() => ({
     async () => undefined
   ),
   runSpaceList: vi.fn<SpaceCommandModule["runSpaceList"]>(
+    async () => undefined
+  ),
+  runSpaceLink: vi.fn<SpaceLinkCommandModule["runSpaceLink"]>(
     async () => undefined
   ),
   runSpaceMembers: vi.fn<SpaceMembersCommandModule["runSpaceMembers"]>(
@@ -215,6 +219,14 @@ vi.mock("../src/space/board-command", async (importOriginal) => {
   return {
     ...actual,
     runSpaceBoard: runMocks.runSpaceBoard,
+  };
+});
+
+vi.mock("../src/space/link-command", async (importOriginal) => {
+  const actual = await importOriginal<SpaceLinkCommandModule>();
+  return {
+    ...actual,
+    runSpaceLink: runMocks.runSpaceLink,
   };
 });
 
@@ -610,6 +622,38 @@ describe("command entry CLI wiring", () => {
     );
   });
 
+  it("maps a passive Space message link without running entry checks", async () => {
+    const spaceId =
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const signalId = "11111111-1111-4111-8111-111111111111";
+    const threadRootSignalId = "22222222-2222-4222-8222-222222222222";
+    const entryCheckCount = runCommandWithEntryChecksMock.mock.calls.length;
+
+    await runPassiveCli([
+      "space",
+      "--gateway-url",
+      "https://gateway.example.test",
+      "link",
+      spaceId,
+      "--signal",
+      signalId,
+      "--thread-root-signal",
+      threadRootSignalId,
+    ]);
+
+    expect(runMocks.runSpaceLink).toHaveBeenCalledOnce();
+    expect(runMocks.runSpaceLink).toHaveBeenCalledWith({
+      baseUrl: "https://gateway.example.test",
+      signalId,
+      space: spaceId,
+      threadRootSignalId,
+      view: "agent",
+    });
+    expect(runCommandWithEntryChecksMock).toHaveBeenCalledTimes(
+      entryCheckCount
+    );
+  });
+
   it("maps space list --organization argv to the Organization directory runner", async () => {
     await runCli([
       "space",
@@ -975,6 +1019,30 @@ async function runCli(
     { interval: 10, timeout: 1000 }
   );
   await runCommandWithEntryChecksMock.mock.results[callIndex]?.value;
+  if (process.exitCode) {
+    throw new Error(`CLI parsing failed with exit code ${process.exitCode}.`);
+  }
+}
+
+async function runPassiveCli(
+  argv: string[],
+  view: "agent" | "human" = "agent"
+): Promise<void> {
+  vi.resetModules();
+  process.argv = [
+    "node",
+    "openmeld-command-entry-test",
+    "--view",
+    view,
+    ...argv,
+  ];
+  const callIndex = runMocks.runSpaceLink.mock.calls.length;
+  await import("../src/openmeld");
+  await vi.waitUntil(
+    () => runMocks.runSpaceLink.mock.calls.length === callIndex + 1,
+    { interval: 10, timeout: 1000 }
+  );
+  await runMocks.runSpaceLink.mock.results[callIndex]?.value;
   if (process.exitCode) {
     throw new Error(`CLI parsing failed with exit code ${process.exitCode}.`);
   }

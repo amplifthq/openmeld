@@ -53,7 +53,7 @@ function parseSpaceTargetValue(
   const spaceId = spacesIndex >= 0 ? segments[spacesIndex + 1] : undefined;
   if (!(spaceId && SPACE_ID_HEX_REGEX.test(spaceId))) {
     throw new Error(
-      "Space URL must include /o/<org-slug>/spaces/<space-id> with a full 64-character Space ID. Legacy /spaces/<space-id> and /app/spaces/<space-id> inputs are still accepted."
+      "Space URL must include /spaces/<space-id> with a full 64-character Space ID. Organization-scoped /o/<org-slug>/spaces/<space-id> and legacy /app/spaces/<space-id> inputs are also accepted."
     );
   }
   const profileId = normalizeOptionalString(url.searchParams.get("profileId"));
