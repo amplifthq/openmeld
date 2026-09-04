@@ -158,7 +158,10 @@ test("keeps status credentials out of candidate commands", () => {
     "the hosted artifact must preserve both canonical evidence and complete command logs"
   );
   assert.ok(candidateJob.includes('--plan-source "$CANDIDATE_BASE_SHA"'));
-  assert.ok(finalJob.includes("final-candidate-publisher.mjs"));
+  assert.ok(finalJob.includes("final-candidate-publisher.bundle.mjs"));
+  assert.ok(!finalJob.includes("Install the shared evidence parser only"));
+  assert.ok(!finalJob.includes("pnpm/action-setup"));
+  assert.ok(!finalJob.includes("pnpm --dir trusted-control install"));
   assert.ok(
     finalJob.includes("Checkout trusted publisher from the exact current base")
   );
