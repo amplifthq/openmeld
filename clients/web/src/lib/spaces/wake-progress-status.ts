@@ -57,9 +57,10 @@ export function resolveWakeProgressStatus(
 		WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
 	) {
 		return {
-			description: "This Wake will start when the current Codex task finishes.",
+			description:
+				"This Wake will start when the Agent’s current task finishes.",
 			kind: "waiting_for_controller",
-			label: `Waiting for ${targetName}’s Codex task`,
+			label: `Waiting for ${targetName}’s current task`,
 			status: "active",
 		};
 	}
