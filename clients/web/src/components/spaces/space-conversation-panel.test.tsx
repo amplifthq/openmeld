@@ -3272,7 +3272,9 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		const progressRow = screen.getByTestId("space-message-progress-row");
+		const progressRow = screen.getByRole("status", {
+			name: "Agent is working",
+		});
 		const progressInset = progressRow.closest(
 			'[data-slot="space-message-row-progress-inset"]'
 		);
@@ -3357,7 +3359,9 @@ describe("SpaceConversationPanel", () => {
 		const messageBubble = document.querySelector(
 			'[data-signal-id="stream:submission-1"]'
 		);
-		const progressRow = screen.getByTestId("space-message-progress-row");
+		const progressRow = screen.getByRole("status", {
+			name: "Agent is working",
+		});
 		const progressInset = progressRow.closest(
 			'[data-slot="space-message-row-progress-inset"]'
 		);
