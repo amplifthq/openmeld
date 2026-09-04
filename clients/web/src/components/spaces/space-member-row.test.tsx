@@ -201,7 +201,7 @@ describe("SpaceMemberRow", () => {
 		fireEvent.click(profileSummaryButton);
 
 		const dialog = screen.getByRole("dialog");
-		expect(dialog.className).toContain("w-[min(24rem,calc(100vw-1.5rem))]");
+		expect(dialog.className).toContain("w-[min(22rem,calc(100vw-1.5rem))]");
 		expect(
 			screen.getByTestId("profile-details-popover-scroll-area").className
 		).toContain("overflow-y-auto");
