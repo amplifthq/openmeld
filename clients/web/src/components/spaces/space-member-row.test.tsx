@@ -773,8 +773,36 @@ describe("SpaceMemberRow", () => {
 		expect(dialog.getByText("You")).toBeTruthy();
 		expect(dialog.queryByText("Active in this Space")).toBeNull();
 		expect(
-			dialog.getByRole("link", { name: "Edit Felix" }).getAttribute("href")
+			dialog
+				.getByRole("link", { name: "View Felix profile" })
+				.getAttribute("href")
 		).toBe("/o/acme/people?profileId=human-1");
+	});
+
+	it("links another person to their People detail page", () => {
+		renderSpaceMemberRow({
+			currentProfileId: "human-current",
+			entry: buildHumanEntry({
+				lastSeenLabel: "Seen 7 hours ago",
+				liveNow: false,
+				ownerDisplay: "Monica Cheng",
+				ownerName: "Monica Cheng",
+				ownerUserId: "user-monica",
+				profileId: "human-monica",
+				profileName: "Monica Cheng",
+			}),
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Monica Cheng Profile" })
+		);
+		const dialog = within(screen.getByRole("dialog"));
+		expect(
+			dialog
+				.getByRole("link", { name: "View Monica Cheng profile" })
+				.getAttribute("href")
+		).toBe("/o/acme/people?profileId=human-monica");
+		expect(dialog.queryByText("You")).toBeNull();
 	});
 
 	it("does not fill a compact person row with a generic Human label", () => {

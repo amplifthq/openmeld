@@ -4020,7 +4020,9 @@ describe("SpaceConversationPanel", () => {
 		expect(dialog.getByText("You")).toBeTruthy();
 		expect(dialog.getByText("Now")).toBeTruthy();
 		expect(
-			dialog.getByRole("link", { name: "Edit Felix" }).getAttribute("href")
+			dialog
+				.getByRole("link", { name: "View Felix profile" })
+				.getAttribute("href")
 		).toBe(`/o/acme/people?profileId=${profileId}`);
 		expect(dialog.queryByText("Check this Profile")).toBeNull();
 		expect(dialog.queryByText("Person")).toBeNull();

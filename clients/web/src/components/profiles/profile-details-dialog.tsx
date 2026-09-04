@@ -24,6 +24,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
+	ArrowRightIcon,
 	CaretDownIcon,
 	ChatCircleTextIcon,
 	CopyIcon,
@@ -292,11 +293,11 @@ export function AgentProfileDetailsPopover(input: {
 }
 
 export function HumanProfileDetailsPopover(input: {
-	editHref?: string;
 	entry: SpaceMemberDirectoryEntry;
 	isSelf?: boolean;
 	isDirectMessagePending?: boolean;
 	onOpenDirectMessage?: () => void;
+	profileHref?: string;
 	trigger: ReactElement;
 }) {
 	const activityTime = input.entry.liveNow
@@ -349,16 +350,17 @@ export function HumanProfileDetailsPopover(input: {
 									</p>
 								) : null}
 							</div>
-							{input.editHref ? (
+							{input.profileHref ? (
 								<a
-									aria-label={`Edit ${input.entry.profileName}`}
+									aria-label={`View ${input.entry.profileName} profile`}
 									className={cn(
 										buttonVariants({ size: "icon-sm", variant: "ghost" }),
 										"shrink-0"
 									)}
-									href={input.editHref}
+									href={input.profileHref}
+									title="View profile"
 								>
-									<PencilSimpleIcon aria-hidden="true" />
+									<ArrowRightIcon aria-hidden="true" />
 								</a>
 							) : null}
 						</div>

@@ -46,14 +46,6 @@ export function useSpaceProfileDetailsPopover(input: {
 		if (entry.profileKind === "human") {
 			return (
 				<HumanProfileDetailsPopover
-					editHref={
-						isOwner && input.orgSlug
-							? buildHumanProfilePath({
-									orgSlug: input.orgSlug,
-									profileId: entry.profileId,
-								})
-							: undefined
-					}
 					entry={entry}
 					isDirectMessagePending={
 						profileContext?.pendingDirectMessageProfileId === entry.profileId
@@ -61,6 +53,14 @@ export function useSpaceProfileDetailsPopover(input: {
 					isSelf={isOwner}
 					onOpenDirectMessage={
 						isOwner ? undefined : buildOpenDirectMessageAction(entry.profileId)
+					}
+					profileHref={
+						input.orgSlug
+							? buildHumanProfilePath({
+									orgSlug: input.orgSlug,
+									profileId: entry.profileId,
+								})
+							: undefined
 					}
 					trigger={trigger}
 				/>
