@@ -1,4 +1,5 @@
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
+import { createWakeProgressItem } from "@openmeld/space";
 import { useEffect, useMemo, useState } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 
@@ -196,12 +197,18 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 		{
 			...agentItem(8, "dev:message-state-preview:sending", ""),
 			deliveryState: "pending",
-			optimisticAgentReplyState: "sending",
+			optimisticAgentReplyProgress: createPreviewWakeProgressItem(
+				input.agent,
+				"sending"
+			),
 		},
 		{
 			...agentItem(9, "dev:message-state-preview:working", ""),
 			deliveryState: "pending",
-			optimisticAgentReplyState: "working",
+			optimisticAgentReplyProgress: createPreviewWakeProgressItem(
+				input.agent,
+				"running"
+			),
 		},
 		{
 			...agentItem(
@@ -304,6 +311,21 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 			`${Array.from({ length: 32 }, () => PREVIEW_LONG_REPLY_PARAGRAPH).join(" ")}\n\n[Response truncated by OpenMeld]`
 		),
 	];
+}
+
+function createPreviewWakeProgressItem(
+	agent: SpaceMemberDirectoryEntry,
+	phase: "running" | "sending"
+) {
+	return createWakeProgressItem({
+		clientMessageId: "dev-message-state-preview",
+		dispatchId: "dev-message-state-preview",
+		phase,
+		sourceSignalId: "dev:message-state-preview:user-message",
+		targetLabel: agent.profileName,
+		targetProfileId: agent.profileId,
+		updatedAtMs: Date.now(),
+	});
 }
 
 function buildPreviewTimelineItem(input: {

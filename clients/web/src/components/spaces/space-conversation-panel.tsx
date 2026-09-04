@@ -2981,7 +2981,7 @@ function resolveSpaceMessageWakeThinkingEntries(input: {
 	wakeProgressState: ReturnType<typeof resolveSpaceMessageWakeProgressState>;
 	wakeStopTargets: ReturnType<typeof resolveSpaceMessageWakeStopTargets>;
 }) {
-	if (input.item.optimisticAgentReplyState !== undefined) {
+	if (input.item.optimisticAgentReplyProgress !== undefined) {
 		return [];
 	}
 	if (input.wakeProgressState.thinkingEntries.length > 0) {
@@ -3044,7 +3044,7 @@ function resolveIsCenterAgentConversationRun(input: {
 	return (
 		input.isCenterAgentDirectMessage ||
 		input.run.items.some(
-			(item) => item.optimisticAgentReplyState !== undefined
+			(item) => item.optimisticAgentReplyProgress !== undefined
 		) ||
 		input.run.speaker.profileId === input.centerAgentProfileId
 	);

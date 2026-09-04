@@ -3,14 +3,14 @@ import type { WakeProgressItem } from "@openmeld/schemas/types";
 import type { SpaceEphemeralActivityItem } from "./dispatch-activity";
 import type { SpaceTimelineItem } from "./timeline";
 import {
-	resolveWakeProgressThinkingStep,
-	type WakeFlowStep,
-} from "./wake-details-view";
-import {
 	resolveHistoricalWakeFailureBody,
 	type WakeFailureDisplay,
 	type WakeFailureTargetContext,
 } from "./wake-failure-display";
+import {
+	resolveWakeProgressStatus,
+	type WakeProgressStatusPresentation,
+} from "./wake-progress-status";
 import {
 	matchesSpaceMessageWakeProgressItem,
 	resolveSpaceMessageWakeTargetProfileIds,
@@ -25,7 +25,7 @@ export type SpaceMessageWakeThinkingEntry = {
 	key: string;
 	kind: "preview" | "progress" | "status";
 	phase: WakeProgressItem["phase"] | null;
-	step: WakeFlowStep;
+	step: WakeProgressStatusPresentation;
 	targetProfileId: string;
 	text: string;
 };
@@ -182,18 +182,20 @@ const EMPTY_MESSAGE_WAKE_PROGRESS_STATE: SpaceMessageWakeProgressState = {
 
 function resolveWakeStopFallbackStep(
 	target: SpaceWakeStopTargetResolution
-): WakeFlowStep | null {
+): WakeProgressStatusPresentation | null {
 	switch (target.status) {
 		case "active":
 		case "retry_later":
 			return {
 				description: "OpenMeld has accepted the Wake.",
+				kind: "starting",
 				label: "Starting Wake",
 				status: "active",
 			};
 		case "stopping":
 			return {
 				description: "OpenMeld is requesting Stop for this Wake.",
+				kind: "retrying",
 				label: "Stopping Wake",
 				status: "active",
 			};
@@ -202,7 +204,7 @@ function resolveWakeStopFallbackStep(
 	}
 }
 
-function resolveWakeProgressThinkingEntry(input: {
+export function resolveWakeProgressThinkingEntry(input: {
 	item: WakeProgressItem;
 	showElapsedTime: boolean;
 }): SpaceMessageWakeThinkingEntry[] {
@@ -211,7 +213,7 @@ function resolveWakeProgressThinkingEntry(input: {
 		return [];
 	}
 
-	const step = resolveWakeProgressThinkingStep(item);
+	const step = resolveWakeProgressStatus(item);
 	if (!step) {
 		return [];
 	}
@@ -219,7 +221,9 @@ function resolveWakeProgressThinkingEntry(input: {
 	return [
 		{
 			elapsedStartedAtMs:
-				input.showElapsedTime && item.phase === "running"
+				input.showElapsedTime &&
+				item.phase === "running" &&
+				!item.pendingInteraction
 					? (item.startedAtMs ?? null)
 					: null,
 			lastEvidenceAtMs: item.updatedAtMs,

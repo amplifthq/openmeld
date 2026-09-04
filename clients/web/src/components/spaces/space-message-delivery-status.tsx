@@ -51,8 +51,7 @@ export function SpaceMessageDeliveryStatus(input: {
 	if (!statusText) {
 		return null;
 	}
-	const animateAgentStatus =
-		presentation === "agent_sending" || presentation === "agent_starting";
+	const animateAgentStatus = presentation === "agent_sending";
 
 	return (
 		<Marker
@@ -112,7 +111,6 @@ function renderDeliveryStatusIcon(
 ) {
 	switch (presentation) {
 		case "agent_sending":
-		case "agent_starting":
 			return <AnimatedMobiusIcon />;
 		case "agent_streaming":
 			return <SpaceAgentOrb data-testid="agent-working-orb" />;

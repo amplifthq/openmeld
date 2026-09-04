@@ -8,48 +8,7 @@ afterEach(() => {
 });
 
 describe("SpaceMessageDeliveryStatus", () => {
-	it("swaps optimistic agent status copy in one stable status", () => {
-		const view = render(
-			<SpaceMessageDeliveryStatus presentation="agent_sending" />
-		);
-		const status = screen.getByRole("status", { name: "Sending to Agent…" });
-
-		view.rerender(<SpaceMessageDeliveryStatus presentation="agent_starting" />);
-
-		expect(screen.getByRole("status", { name: "Agent is working" })).toBe(
-			status
-		);
-		expect(
-			status
-				.querySelector('[data-slot="animated-mobius-icon"] path')
-				?.getAttribute("d")
-		).toBe(
-			"M 12 8 C 14.21 8 16 9.79 16 12 C 16 14.21 14.21 16 12 16 C 9.79 16 8 14.21 8 12 C 8 9.79 9.79 8 12 8 Z"
-		);
-
-		const visualLayers = Array.from(
-			status.querySelectorAll(
-				'[data-slot="space-message-delivery-status-text"]'
-			)
-		);
-		expect(visualLayers.map((layer) => layer.textContent)).toEqual([
-			"Sending to Agent…",
-			"Agent is working",
-		]);
-		expect(
-			status.querySelector('[data-slot="agent-thinking-elapsed"]')
-		).toBeNull();
-		const enteringLayer = visualLayers.at(-1) as HTMLElement;
-		expect(enteringLayer.style.filter).toBe("blur(8px)");
-		expect(enteringLayer.style.transform).toContain("translateY(80%)");
-		for (const layer of visualLayers) {
-			expect(layer.getAttribute("aria-hidden")).toBe("true");
-			expect(layer.className).toContain("col-start-1");
-			expect(layer.className).toContain("row-start-1");
-		}
-	});
-
-	it("never writes an invalid path while the working icon starts animating", async () => {
+	it("never writes an invalid path while the sending icon starts animating", async () => {
 		const animationPathWrites: string[] = [];
 		const originalSetAttribute = SVGElement.prototype.setAttribute;
 		vi.spyOn(SVGElement.prototype, "setAttribute").mockImplementation(
@@ -61,7 +20,7 @@ describe("SpaceMessageDeliveryStatus", () => {
 			}
 		);
 
-		render(<SpaceMessageDeliveryStatus presentation="agent_starting" />);
+		render(<SpaceMessageDeliveryStatus presentation="agent_sending" />);
 		animationPathWrites.length = 0;
 
 		await waitFor(() => {

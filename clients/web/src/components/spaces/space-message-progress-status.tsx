@@ -5,7 +5,10 @@ import {
 } from "#/lib/spaces/message-state";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
-import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
+import {
+	resolveWakeProgressThinkingEntry,
+	type SpaceMessageWakeThinkingEntry,
+} from "#/lib/spaces/wake-progress-presentation";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
@@ -26,6 +29,25 @@ export function SpaceMessageProgressStatus(input: {
 		item: input.item,
 		nowMs,
 	});
+	const optimisticEntries = input.item.optimisticAgentReplyProgress
+		? resolveWakeProgressThinkingEntry({
+				item: input.item.optimisticAgentReplyProgress,
+				showElapsedTime: true,
+			})
+		: [];
+	const presentedEntries =
+		optimisticEntries.length > 0 ? optimisticEntries : input.entries;
+	if (presentedEntries.some((entry) => entry.step.status === "pending")) {
+		return wrapProgressStatus(
+			<SpaceMessageWakeThinkingIndicator
+				align={input.align}
+				control={input.control}
+				entries={presentedEntries}
+				onOpenMessageDetails={input.onOpenMessageDetails}
+			/>,
+			input.containerClassName
+		);
+	}
 	if (hasLiveSpaceAgentToolActivity(input.item)) {
 		return wrapProgressStatus(
 			<SpaceAgentToolActivity
@@ -37,19 +59,14 @@ export function SpaceMessageProgressStatus(input: {
 			input.containerClassName
 		);
 	}
-	if (input.item.optimisticAgentReplyState) {
+	if (optimisticEntries.length > 0) {
 		return wrapProgressStatus(
-			<SpaceMessageProgressRow
+			<SpaceMessageWakeThinkingIndicator
 				align={input.align}
 				control={input.control}
-				slot="space-message-progress-row"
-				testId="space-message-progress-row"
-			>
-				<SpaceMessageDeliveryStatus
-					align={input.align}
-					presentation={deliveryPresentation}
-				/>
-			</SpaceMessageProgressRow>,
+				entries={optimisticEntries}
+				onOpenMessageDetails={input.onOpenMessageDetails}
+			/>,
 			input.containerClassName
 		);
 	}

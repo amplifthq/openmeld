@@ -31,7 +31,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		});
 
 		expect(state.thinkingEntries).toEqual([
-			expect.objectContaining({ text: "Wake is queued" }),
+			expect.objectContaining({ text: "runner is queued" }),
 		]);
 	});
 
@@ -52,13 +52,13 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				elapsedStartedAtMs: 1,
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
 	});
 
-	it("uses finalizing copy when a Wake is publishing a completed reply", () => {
+	it("uses natural posting copy when a Wake is publishing a completed reply", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			item: createTimelineItem(),
 			items: [
@@ -73,10 +73,10 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
-				text: "Finalizing reply",
+				text: "Posting reply from runner…",
 			}),
 		]);
-		expect(state.thinkingEntries[0]?.text).not.toBe("Agent is working");
+		expect(state.thinkingEntries[0]?.text).not.toBe("runner is working");
 	});
 
 	it("shows an outcome-unknown publication as a problem without a retry spinner", () => {
@@ -175,12 +175,12 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
 				targetProfileId: SECOND_TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "codex is working",
 			}),
 		]);
 	});
@@ -204,7 +204,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.hasProblem).toBe(false);
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
@@ -234,7 +234,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			expect.objectContaining({
 				elapsedStartedAtMs: 1,
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
@@ -358,7 +358,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries[0]).toEqual(
 			expect.objectContaining({
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "runner is working",
 			})
 		);
 		expect(state.issueEntries).toEqual([]);
