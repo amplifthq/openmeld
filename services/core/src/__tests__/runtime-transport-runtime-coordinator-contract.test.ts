@@ -16,13 +16,16 @@ import {
 import type {
   AgentControllerInterfaceSnapshot,
   DaemonRuntimeAdapterCapabilitySnapshot,
+  LocalComponentsStatus,
   OpenMeldDaemonAcceptedDispatchSnapshot,
+  OpenMeldToolsControlResult,
   RuntimeCoordinatorExecutionTokenAuthorityRecord,
   RuntimeCoordinatorExecutionTokenEnvelope,
   RuntimeCoordinatorFailurePublicationCommand,
   RuntimeCoordinatorFailurePublicationOutcome,
   RuntimeCoordinatorFinalizationCommand,
   RuntimeCoordinatorFinalizationOutcome,
+  RuntimeTransportCapabilities,
   RuntimeTransportDispatchInteractionDeliveredRequest,
   RuntimeTransportDispatchInteractionRequest,
   RuntimeTransportDispatchLifecycleRequest,
@@ -125,6 +128,59 @@ const codexRuntimeAdapterCapability: DaemonRuntimeAdapterCapabilitySnapshot = {
   },
   transportModes: ["local-cli"],
 };
+
+const createAutomaticUpdateCapabilities = (
+  controlEnabled = true
+): RuntimeTransportCapabilities => ({
+  localComponents: {
+    cli: {
+      commandContractVersion: "cli-contract-v1",
+      latestPackageVersion: "0.3.152",
+      packageVersion: "0.3.152",
+      reasonCodes: [],
+      requiredCommandContractVersion: null,
+      status: "ok",
+    },
+    entrypoint: "setup",
+    generatedAt: "2026-09-01T12:54:00.000Z",
+    maintenance: {
+      automaticUpdatesEnabled: true,
+      status: "ready",
+    },
+    schemaVersion: 1,
+    service: {
+      expectedBundleHash: "c".repeat(64),
+      expectedBundleVersion: "0.3.152",
+      installedBundleHash: "c".repeat(64),
+      installedBundleVersion: "0.3.152",
+      reasonCodes: [],
+      runtimeContractEpoch: "runtime-contract-v1",
+      serviceContractVersion: "service-contract-v1",
+      status: "ok",
+    },
+    setupAction: "none",
+    setupActionDescription: "OpenMeld Tools are ready.",
+    setupActionLabel: "Everything is up to date",
+    skills: {
+      expectedBundleHash: "b".repeat(64),
+      installedBundleHash: "b".repeat(64),
+      reasonCodes: [],
+      skillContractVersion: "skills-contract-v1",
+      status: "ok",
+      targetCount: 1,
+    },
+    summaryDescription: "OpenMeld Tools are ready.",
+    summaryLabel: "Everything is up to date",
+  } satisfies LocalComponentsStatus,
+  ...(controlEnabled
+    ? {
+        openMeldToolsControl: {
+          requestAutomaticUpdate: true as const,
+          requestUpdate: true as const,
+        },
+      }
+    : {}),
+});
 
 type RecordingD1Call = {
   params: unknown[];
@@ -1381,6 +1437,14 @@ const createHarness = (input?: {
     }
   );
   Object.defineProperty(hub, "orderedDispatchFrameTails", {
+    value: new Map(),
+  });
+  Object.defineProperty(hub, "currentDeviceOperationWaiters", {
+    configurable: true,
+    value: new Map(),
+  });
+  Object.defineProperty(hub, "automaticToolsUpdateTargetByComputer", {
+    configurable: true,
     value: new Map(),
   });
   Object.defineProperty(hub, "runtimeCoordinatorFinalizationTails", {
@@ -2846,7 +2910,178 @@ const findRuntimeCoordinatorWakeStoppedNoticePublicationRecord = (
         "openmeld.runtime_coordinator.wake_stopped_notice_publication.v1"
   );
 
+type RuntimeTransportTestHarness = ReturnType<typeof createHarness>;
+
+const sendAutomaticUpdateRegisterFrame = (
+  harness: RuntimeTransportTestHarness,
+  controlEnabled = true
+): void => {
+  harness.state.pendingDispatches.clear();
+  RuntimeTransportHub.prototype.webSocketMessage.call(
+    harness.hub,
+    harness.socket,
+    JSON.stringify({
+      code: "daemon.session.register",
+      payload: {
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        capabilities: createAutomaticUpdateCapabilities(controlEnabled),
+        connectedAtMs: 1_700_000_000_000,
+        connectionGeneration: 1,
+        daemonSessionId: "daemon-session-1",
+        deviceId: "device-1",
+        lane: "prod",
+        ownerUserId: "owner-1",
+        profileIds: [],
+        runtimeContract: {
+          epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+        },
+        serviceVersion: "0.3.152",
+      },
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+    })
+  );
+};
+
+const sendAutomaticUpdateHeartbeatFrame = (
+  harness: RuntimeTransportTestHarness
+): void => {
+  RuntimeTransportHub.prototype.webSocketMessage.call(
+    harness.hub,
+    harness.socket,
+    JSON.stringify({
+      code: "daemon.session.heartbeat",
+      payload: {
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        acceptingDispatches: true,
+        capabilities: createAutomaticUpdateCapabilities(),
+        daemonSessionId: "daemon-session-1",
+        deviceId: "device-1",
+        lane: "prod",
+        leases: [],
+        ownerUserId: "owner-1",
+        runtimeContract: {
+          epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+        },
+        sentAtMs: 1_700_000_001_000,
+        serviceVersion: "0.3.152",
+      },
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+    })
+  );
+};
+
+const getAutomaticUpdateRequestFrames = (sentFrames: unknown[]) =>
+  sentFrames.filter(
+    (
+      frame
+    ): frame is {
+      code: "daemon.openmeld_tools_control.request";
+      payload: { requestId: string };
+    } =>
+      typeof frame === "object" &&
+      frame !== null &&
+      (frame as { code?: unknown }).code ===
+        "daemon.openmeld_tools_control.request"
+  );
+
+const completeLatestAutomaticUpdateRequest = async (input: {
+  firstWaitUntilTaskIndex: number;
+  harness: RuntimeTransportTestHarness;
+  result?: OpenMeldToolsControlResult;
+}): Promise<void> => {
+  const request = getAutomaticUpdateRequestFrames(input.harness.sentFrames).at(
+    -1
+  );
+  if (!request) {
+    throw new Error("Expected an automatic OpenMeld Tools control request.");
+  }
+  RuntimeTransportHub.prototype.webSocketMessage.call(
+    input.harness.hub,
+    input.harness.socket,
+    JSON.stringify({
+      code: "daemon.openmeld_tools_control.result",
+      payload: {
+        requestId: request.payload.requestId,
+        result:
+          input.result ??
+          ({
+            operation: "request_update",
+            result: { currentVersion: "0.3.153", status: "current" },
+          } satisfies OpenMeldToolsControlResult),
+      },
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+    })
+  );
+  await Promise.all(
+    input.harness.waitUntilTasks.slice(input.firstWaitUntilTaskIndex)
+  );
+};
+
 describe("runtime transport runtime coordinator transport contract", () => {
+  it("requests the published release through a real register frame", async () => {
+    const harness = createHarness();
+    const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
+
+    sendAutomaticUpdateRegisterFrame(harness);
+
+    expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          request: {
+            operation: "request_update",
+            requestSource: "automatic",
+          },
+        }),
+      }),
+    ]);
+    await completeLatestAutomaticUpdateRequest({
+      firstWaitUntilTaskIndex,
+      harness,
+    });
+  });
+
+  it("requests the published release through a real heartbeat frame", async () => {
+    const harness = createHarness();
+    sendAutomaticUpdateRegisterFrame(harness, false);
+    await Promise.all(harness.waitUntilTasks);
+    const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
+
+    sendAutomaticUpdateHeartbeatFrame(harness);
+
+    expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          request: {
+            operation: "request_update",
+            requestSource: "automatic",
+          },
+        }),
+      }),
+    ]);
+    await completeLatestAutomaticUpdateRequest({
+      firstWaitUntilTaskIndex,
+      harness,
+    });
+  });
+
+  it("coalesces the heartbeat after register reaches the published release", async () => {
+    const harness = createHarness();
+    const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
+    sendAutomaticUpdateRegisterFrame(harness);
+    await completeLatestAutomaticUpdateRequest({
+      firstWaitUntilTaskIndex,
+      harness,
+    });
+    const heartbeatWaitUntilTaskIndex = harness.waitUntilTasks.length;
+
+    sendAutomaticUpdateHeartbeatFrame(harness);
+    await Promise.all(
+      harness.waitUntilTasks.slice(heartbeatWaitUntilTaskIndex)
+    );
+
+    expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toHaveLength(1);
+  });
+
   it("atomically persists an Agent Task observation delivery with its redrive index", async () => {
     const records = new Map<string, unknown>();
     const outerGet = vi.fn(() =>

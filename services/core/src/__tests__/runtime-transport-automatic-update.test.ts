@@ -10,49 +10,91 @@ import { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-t
 
 describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
   it.each([
-    "register",
-    "heartbeat",
-  ] as const)("queues the published release from a connected %s trigger", async (trigger) => {
-    const harness = createHarness();
+    {
+      name: "the release is unavailable",
+      result: {
+        operation: "request_update",
+        result: { status: "unavailable" },
+      } satisfies OpenMeldToolsControlResult,
+    },
+    {
+      name: "automatic updates became disabled",
+      result: {
+        operation: "request_update",
+        result: { status: "disabled" },
+      } satisfies OpenMeldToolsControlResult,
+    },
+    {
+      name: "the control response is invalid",
+      result: new Error("invalid control response"),
+    },
+    {
+      name: "the Service still reports a lower current version",
+      result: {
+        operation: "request_update",
+        result: { currentVersion: "0.3.152", status: "current" },
+      } satisfies OpenMeldToolsControlResult,
+    },
+  ])("retries on the next heartbeat when $name", async ({ result }) => {
+    const harness = createHarness([result, currentResult("0.3.153")]);
 
-    harness.queue(trigger);
-    await Promise.all(harness.waitUntilTasks);
+    await harness.queueAndSettle("register");
+    await harness.queueAndSettle("heartbeat");
 
-    expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledWith(
-      expect.objectContaining({
-        code: "daemon.openmeld_tools_control.request",
-        payload: expect.objectContaining({
-          request: {
-            operation: "request_update",
-            requestSource: "automatic",
-          },
-        }),
-      })
-    );
+    expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(2);
   });
 
-  it("coalesces repeated connected triggers for the same computer and release target", async () => {
-    const harness = createHarness();
+  it.each([
+    "started",
+    "already_running",
+  ] as const)("coalesces later heartbeats after the update is %s", async (status) => {
+    const harness = createHarness([
+      {
+        operation: "request_update",
+        result: {
+          operation: {
+            operationId: "operation-1",
+            phase: "updating",
+            requestSource: "automatic",
+            requestedAt: "2026-09-01T12:55:00.000Z",
+            targetVersion: "0.3.153",
+            updatedAt: "2026-09-01T12:55:00.000Z",
+            urgency: "required",
+          },
+          status,
+        },
+      },
+    ]);
 
-    harness.queue("register");
-    harness.queue("heartbeat");
-    await Promise.all(harness.waitUntilTasks);
+    await harness.queueAndSettle("register");
+    await harness.queueAndSettle("heartbeat");
+
+    expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "0.3.153",
+    "0.3.154",
+  ])("coalesces later heartbeats after the Service reaches %s", async (currentVersion) => {
+    const harness = createHarness([currentResult(currentVersion)]);
+
+    await harness.queueAndSettle("register");
+    await harness.queueAndSettle("heartbeat");
 
     expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(1);
   });
 });
 
-function createHarness() {
+function createHarness(results: Array<Error | OpenMeldToolsControlResult>) {
   const socket = {} as WebSocket;
   const waitUntilTasks: Promise<unknown>[] = [];
   const sendCurrentDeviceOperationAndWait = vi.fn(
-    async (): Promise<OpenMeldToolsControlResult> => ({
-      operation: "request_update",
-      result: {
-        currentVersion: "0.3.153",
-        status: "current",
-      },
-    })
+    (): Promise<OpenMeldToolsControlResult> => {
+      const result = results.shift() ?? currentResult("0.3.153");
+      return result instanceof Error
+        ? Promise.reject(result)
+        : Promise.resolve(result);
+    }
   );
   const hub = Object.create(
     RuntimeTransportHub.prototype
@@ -100,7 +142,8 @@ function createHarness() {
   };
 
   return {
-    queue: (trigger: "heartbeat" | "register") =>
+    queueAndSettle: async (trigger: "heartbeat" | "register") => {
+      const firstNewTaskIndex = waitUntilTasks.length;
       (
         hub as unknown as {
           queueReleaseTriggeredOpenMeldToolsUpdate: (input: {
@@ -115,9 +158,17 @@ function createHarness() {
         session,
         socket,
         trigger,
-      }),
+      });
+      await Promise.all(waitUntilTasks.slice(firstNewTaskIndex));
+    },
     sendCurrentDeviceOperationAndWait,
-    waitUntilTasks,
+  };
+}
+
+function currentResult(currentVersion: string): OpenMeldToolsControlResult {
+  return {
+    operation: "request_update",
+    result: { currentVersion, status: "current" },
   };
 }
 

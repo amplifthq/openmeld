@@ -222,7 +222,7 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.queryByText("Required: v0.3.126.")).toBeNull();
 	});
 
-	it("does not offer an update before the required Service release is installable", () => {
+	it("does not offer an update when Core has no actionable release", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
 				{
@@ -232,10 +232,10 @@ describe("OpenMeldServiceCard", () => {
 					},
 					service: {
 						installedVersion: "0.3.152",
-						latestVersion: "0.3.152",
-						reasonCodes: ["service.version_outdated"],
-						requiredVersion: "0.3.153",
-						status: "update_required",
+						latestVersion: null,
+						reasonCodes: ["local_components.release_manifest_invalid"],
+						requiredVersion: null,
+						status: "unknown",
 						updatePolicy: "required",
 						wakeBlocked: true,
 					},
@@ -247,37 +247,7 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
 		expect(screen.queryByRole("link", { name: "Update manually" })).toBeNull();
-		expect(screen.queryByText("Required: v0.3.153.")).toBeNull();
-		expect(screen.queryByText("Latest available: v0.3.152.")).toBeNull();
-	});
-
-	it("offers the concrete update when latest is newer than the required floor", () => {
-		renderOpenMeldServiceCard({
-			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
-				{
-					maintenance: {
-						automaticUpdatesEnabled: true,
-						status: "ready",
-					},
-					service: {
-						installedVersion: "0.3.152",
-						latestVersion: "0.3.154",
-						reasonCodes: ["service.version_outdated"],
-						requiredVersion: "0.3.153",
-						status: "update_required",
-						updatePolicy: "required",
-						wakeBlocked: true,
-					},
-				}
-			),
-			replyReadiness: SERVICE_UPDATE_REQUIRED_REPLY_READINESS,
-		});
-
-		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
-		expect(
-			screen.getByText("Required: v0.3.153. Latest available: v0.3.154.")
-		).toBeTruthy();
+		expect(screen.queryByText("Required:", { exact: false })).toBeNull();
 	});
 
 	it("uses one OpenMeld Tools action for an available service update", () => {

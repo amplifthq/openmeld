@@ -28,13 +28,13 @@ describe("OpenMeld tools update helpers", () => {
 		).toBe(false);
 	});
 
-	it("treats wake-blocking component drift as required", () => {
+	it("keeps Wake blocking separate from an actionable update", () => {
 		const update = {
-			status: "current",
+			status: "unknown",
 			wakeBlocked: true,
 		} as ComponentUpdateInput;
 
 		expect(isOpenMeldToolsComponentUpdateRequired(update)).toBe(true);
-		expect(isOpenMeldToolsComponentUpdateActionable(update)).toBe(true);
+		expect(isOpenMeldToolsComponentUpdateActionable(update)).toBe(false);
 	});
 });

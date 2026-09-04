@@ -609,6 +609,14 @@ function compareSemver(left: string, right: string): number | null {
   );
 }
 
+export function isLocalComponentVersionAtLeast(
+  currentVersion: string,
+  targetVersion: string
+): boolean {
+  const comparison = compareSemver(currentVersion, targetVersion);
+  return comparison !== null && comparison >= 0;
+}
+
 function maxServiceVersion(
   left: string | null,
   right: string | null

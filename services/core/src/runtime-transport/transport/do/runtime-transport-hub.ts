@@ -292,7 +292,10 @@ import {
   wakeEvidenceDb,
 } from "../../../lib/bindings";
 import { resolveReleaseTriggeredOpenMeldToolsUpdate } from "../../../local-components/automatic-update-trigger";
-import { resolveCoreLocalComponentsReleaseManifest } from "../../../local-components/update-projection";
+import {
+  isLocalComponentVersionAtLeast,
+  resolveCoreLocalComponentsReleaseManifest,
+} from "../../../local-components/update-projection";
 import { resolveSpaceStub } from "../../../rpc/space-ref";
 import {
   emitSpaceExecutionRecoveryNoticeSignal,
@@ -17891,6 +17894,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
       })
         .then((result) => {
+          const requestHandledTarget =
+            result.operation === "request_update" &&
+            (result.result.status === "started" ||
+              result.result.status === "already_running" ||
+              (result.result.status === "current" &&
+                isLocalComponentVersionAtLeast(
+                  result.result.currentVersion,
+                  update.targetVersion
+                )));
+          if (
+            !requestHandledTarget &&
+            this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
+              update.targetVersion
+          ) {
+            this.automaticToolsUpdateTargetByComputer.delete(computerKey);
+          }
           console.info("[core.openmeld_tools.automatic_update_requested]", {
             daemonSessionId: session.daemonSessionId,
             deviceId: session.deviceId,
