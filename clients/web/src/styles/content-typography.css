@@ -13,8 +13,17 @@
 	--content-font-heading: var(--font-heading);
 	--content-font-mono: var(--font-mono);
 	--content-space-message-size: calc(0.875rem * var(--content-text-scale));
-	--content-space-message-leading: 1.7142857143;
-	--content-space-message-flow: 0.875em;
+	--content-space-message-leading: 1.625;
+	--content-space-message-flow: 1em;
+	--content-space-message-space: calc(var(--content-space-message-size) / 4);
+	--content-space-message-paragraph-gap: calc(
+		var(--content-space-message-size) *
+		1.4285714286
+	);
+	--content-space-message-code-size: calc(
+		var(--content-space-message-size) *
+		0.9285714286
+	);
 	--content-markdown-document-size: calc(0.875rem * var(--content-text-scale));
 	--content-markdown-document-leading: 1.4285714286;
 	--content-markdown-code-size: calc(0.875rem * var(--content-text-scale));
@@ -74,6 +83,117 @@
  * scale without changing the editor's other presentation variants.
  */
 @layer utilities {
+	/*
+	 * Codex chat rhythm, measured from the current Electron client. Streamdown
+	 * supplies utility classes for its elements, so this preset owns the final
+	 * Space-specific heading, paragraph, list, quote, and code metrics.
+	 */
+	.typeset-space-message > div > * {
+		margin-block: 0;
+	}
+
+	.typeset-space-message > div > p + p {
+		margin-block-start: var(--content-space-message-paragraph-gap);
+	}
+
+	.typeset-space-message :is(h1, h2, h3, h4, h5, h6) {
+		color: inherit;
+		font-family: var(--content-font-heading);
+		font-weight: 600;
+		letter-spacing: normal;
+		text-transform: none;
+	}
+
+	.typeset-space-message h1 {
+		font-size: 1.5em;
+		line-height: 1.3333333333;
+		margin-block-end: calc(var(--content-space-message-space) * 2);
+	}
+
+	.typeset-space-message :is(h2, h3, h4) {
+		margin-block-start: calc(var(--content-space-message-space) * 4);
+	}
+
+	.typeset-space-message :is(h2, h3) {
+		line-height: 1.4;
+		margin-block-end: var(--content-space-message-space);
+	}
+
+	.typeset-space-message h2 {
+		font-size: 1.25em;
+	}
+
+	.typeset-space-message h3 {
+		font-size: 1.125em;
+		line-height: 1.5555555556;
+	}
+
+	.typeset-space-message h4 {
+		font-size: 1em;
+		line-height: 1.5;
+	}
+
+	.typeset-space-message :is(h5, h6) {
+		font-size: 1em;
+		line-height: var(--content-space-message-leading);
+	}
+
+	.typeset-space-message :is(ul, ol) {
+		list-style-position: outside;
+		margin-block: 0;
+		padding-inline-start: calc(
+			var(--content-space-message-size) *
+			var(--content-space-message-leading)
+		);
+	}
+
+	.typeset-space-message li {
+		margin-block: 0;
+		padding-block: 0;
+		padding-inline-start: calc(var(--content-space-message-space) * 1.5);
+	}
+
+	.typeset-space-message li > :is(p, ul, ol) {
+		margin-block: 0;
+	}
+
+	.typeset-space-message > div > :is(ul, ol) + :is(h1, h2, h3, h4) {
+		margin-block-start: calc(var(--content-space-message-space) * 4);
+	}
+
+	.typeset-space-message blockquote {
+		position: relative;
+		border-inline-start: 0;
+		margin-block-end: calc(var(--content-space-message-space) * 2);
+		padding-block: calc(var(--content-space-message-space) * 2);
+		padding-inline-start: calc(var(--content-space-message-space) * 6);
+		line-height: 1.5;
+	}
+
+	.typeset-space-message blockquote::after {
+		position: absolute;
+		inset-block: calc(var(--content-space-message-space) * 2);
+		inset-inline-start: 0;
+		width: var(--content-space-message-space);
+		border-radius: calc(var(--content-space-message-space) / 2);
+		background: var(--typeset-rule);
+		content: "";
+	}
+
+	.typeset-space-message :not(pre) > code {
+		font-size: 0.92em;
+		padding: 1px 6px;
+	}
+
+	.typeset-space-message pre {
+		font-size: var(--content-space-message-code-size);
+		line-height: 1.3461538462;
+	}
+
+	.typeset-space-message > div > [data-streamdown="code-block"] {
+		margin-block: calc(var(--content-space-message-space) * 5);
+	}
+
 	.content-markdown-document h1 {
 		font-size: var(--content-markdown-h1-size);
 	}
