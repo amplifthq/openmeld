@@ -1,3 +1,7 @@
+import type {
+	WakeProgressItem,
+	WakeProgressPhase,
+} from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { createWakeProgressItem } from "@openmeld/space";
 import { useEffect, useMemo, useState } from "react";
@@ -64,7 +68,7 @@ export function useSpaceMessageStateTuningPreviewItems(input: {
 			: [...input.profileEntriesById.values()].find(
 					(entry) => entry.profileKind === "agent"
 				);
-		if (!previewAgent || previewAgent.profileKind !== "agent") {
+		if (previewAgent?.profileKind !== "agent") {
 			return null;
 		}
 		const previewHuman =
@@ -72,7 +76,7 @@ export function useSpaceMessageStateTuningPreviewItems(input: {
 			[...input.profileEntriesById.values()].find(
 				(entry) => entry.profileKind === "human"
 			);
-		if (!previewHuman || previewHuman.profileKind !== "human") {
+		if (previewHuman?.profileKind !== "human") {
 			return null;
 		}
 		return buildSpaceMessageStateTuningPreviewItems({
@@ -143,6 +147,73 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 			text,
 		});
 	const richAnswerId = "dev:message-state-preview:agent-rich-answer";
+	const wakeProgressPreviews: readonly {
+		key: string;
+		overrides?: Partial<
+			Pick<
+				WakeProgressItem,
+				"pendingInteraction" | "previewText" | "waitReasonCode"
+			>
+		>;
+		phase: WakeProgressPhase;
+	}[] = [
+		{ key: "starting", phase: "sending" },
+		{ key: "sent", phase: "request_sent" },
+		{ key: "queued", phase: "queued" },
+		{
+			key: "waiting-for-controller",
+			overrides: {
+				waitReasonCode: "runtime.agent_controller_conversation.occupied",
+			},
+			phase: "queued",
+		},
+		{ key: "connecting", phase: "connecting" },
+		{ key: "working", phase: "running" },
+		{
+			key: "replying",
+			overrides: {
+				previewText:
+					"I’ve checked the workspace and I’m writing the final launch recommendation now.",
+			},
+			phase: "writing",
+		},
+		{ key: "posting", phase: "publishing" },
+		{ key: "retrying", phase: "retrying" },
+		{
+			key: "needs-input",
+			overrides: {
+				pendingInteraction: createPreviewPendingInteraction({
+					canRespond: true,
+					key: "owner",
+				}),
+			},
+			phase: "running",
+		},
+		{
+			key: "waiting-for-owner",
+			overrides: {
+				pendingInteraction: createPreviewPendingInteraction({
+					canRespond: false,
+					key: "observer",
+				}),
+			},
+			phase: "running",
+		},
+	];
+	const wakeProgressItems = wakeProgressPreviews.map((preview, index) => ({
+		...agentItem(
+			8 + index,
+			`dev:message-state-preview:wake-${preview.key}`,
+			""
+		),
+		deliveryState: "pending" as const,
+		optimisticAgentReplyProgress: createPreviewWakeProgressItem(
+			input.agent,
+			preview.phase,
+			preview.key,
+			preview.overrides
+		),
+	}));
 
 	return [
 		humanItem(
@@ -194,25 +265,10 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 			createdAtMs: atRun(5) + PREVIEW_GROUP_GAP_MS,
 		},
 		agentItem(7, "dev:message-state-preview:blank", ""),
-		{
-			...agentItem(8, "dev:message-state-preview:sending", ""),
-			deliveryState: "pending",
-			optimisticAgentReplyProgress: createPreviewWakeProgressItem(
-				input.agent,
-				"sending"
-			),
-		},
-		{
-			...agentItem(9, "dev:message-state-preview:working", ""),
-			deliveryState: "pending",
-			optimisticAgentReplyProgress: createPreviewWakeProgressItem(
-				input.agent,
-				"running"
-			),
-		},
+		...wakeProgressItems,
 		{
 			...agentItem(
-				10,
+				20,
 				"dev:message-state-preview:streaming",
 				"This answer is appearing progressively while the Agent is still writing."
 			),
@@ -226,7 +282,7 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 		},
 		{
 			...agentItem(
-				11,
+				21,
 				"dev:message-state-preview:thinking",
 				"I’m turning the request into a clear sequence and checking that each step has an observable result."
 			),
@@ -241,7 +297,7 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 			},
 		},
 		{
-			...agentItem(12, "dev:message-state-preview:tool-activity", ""),
+			...agentItem(22, "dev:message-state-preview:tool-activity", ""),
 			agentStreamState: {
 				reasonCode: null,
 				sequence: 3,
@@ -260,7 +316,7 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 		},
 		{
 			...humanItem(
-				13,
+				23,
 				"dev:message-state-preview:user-delayed",
 				"This message is intentionally delayed so the sending status stays visible for spacing adjustments."
 			),
@@ -268,7 +324,7 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 		},
 		{
 			...agentItem(
-				14,
+				24,
 				"dev:message-state-preview:failed",
 				"I couldn’t finish this reply because the Agent connection ended unexpectedly."
 			),
@@ -281,7 +337,7 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 		},
 		{
 			...agentItem(
-				15,
+				25,
 				"dev:message-state-preview:stopped",
 				"The reply stopped before the remaining steps were completed."
 			),
@@ -294,7 +350,7 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 		},
 		{
 			...agentItem(
-				16,
+				26,
 				"dev:message-state-preview:publish-failed",
 				"The Agent completed the answer, but OpenMeld could not post it to the conversation."
 			),
@@ -306,7 +362,7 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 			},
 		},
 		agentItem(
-			17,
+			27,
 			"dev:message-state-preview:long-answer",
 			`${Array.from({ length: 32 }, () => PREVIEW_LONG_REPLY_PARAGRAPH).join(" ")}\n\n[Response truncated by OpenMeld]`
 		),
@@ -315,17 +371,58 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 
 function createPreviewWakeProgressItem(
 	agent: SpaceMemberDirectoryEntry,
-	phase: "running" | "sending"
+	phase: WakeProgressPhase,
+	key: string,
+	overrides?: Partial<
+		Pick<
+			WakeProgressItem,
+			"pendingInteraction" | "previewText" | "waitReasonCode"
+		>
+	>
 ) {
 	return createWakeProgressItem({
-		clientMessageId: "dev-message-state-preview",
-		dispatchId: "dev-message-state-preview",
+		clientMessageId: `dev-message-state-preview-${key}`,
+		dispatchId: `dev-message-state-preview-${key}`,
+		...overrides,
 		phase,
-		sourceSignalId: "dev:message-state-preview:user-message",
+		sourceSignalId: `dev:message-state-preview:wake-${key}`,
 		targetLabel: agent.profileName,
 		targetProfileId: agent.profileId,
 		updatedAtMs: Date.now(),
 	});
+}
+
+function createPreviewPendingInteraction(input: {
+	canRespond: boolean;
+	key: string;
+}): NonNullable<WakeProgressItem["pendingInteraction"]> {
+	const requestedAtMs = Date.now() - 30_000;
+	return {
+		canRespond: input.canRespond,
+		expiresAtMs: requestedAtMs + 15 * 60 * 1000,
+		interactionId: `dev-message-state-preview-interaction-${input.key}`,
+		kind: "permission",
+		request: {
+			expiresAtMs: requestedAtMs + 15 * 60 * 1000,
+			interactionId: `dev-message-state-preview-interaction-${input.key}`,
+			kind: "permission",
+			options: [
+				{
+					intent: "allow_once",
+					label: "Allow once",
+					optionId: `dev-message-state-preview-allow-${input.key}`,
+				},
+			],
+			requestedAtMs,
+			subject: {
+				command: "pnpm check",
+				type: "command",
+			},
+			title: "Allow this command?",
+			v: 1,
+		},
+		requestedAtMs,
+	};
 }
 
 function buildPreviewTimelineItem(input: {
