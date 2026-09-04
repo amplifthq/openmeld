@@ -33,9 +33,10 @@ export const useListUserAccounts = () =>
 		...listUserAccountsQueryOptionsClient(),
 	});
 
-export const useDeviceSessions = () =>
+export const useDeviceSessions = (enabled = true) =>
 	useQuery({
 		...listDeviceSessionsQueryOptionsClient(),
+		enabled,
 	});
 
 export const useUserPasskeys = () =>
