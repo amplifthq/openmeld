@@ -10015,6 +10015,86 @@ describe("organization Core RPC", () => {
     });
   });
 
+  it("adds an existing Agent's owner when another member converts the Direct Message", async () => {
+    const spaceId =
+      "7878787878787878787878787878787878787878787878787878787878787878";
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "existing-agent",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Existing Agent",
+          status: "active",
+        },
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "new-agent",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "New Agent",
+          status: "active",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "member"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+      spaces: [
+        spaceRow({
+          activeAgentCount: 1,
+          activeHumanCount: 1,
+          activeMemberCount: 2,
+          directMessagePairKey: `${HUMAN_PROFILE_ID}:${AGENT_PROFILE_ID}`,
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Ava and Existing Agent",
+          spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({
+      initialActiveMemberProfileIdsBySpace: {
+        [spaceId]: [HUMAN_PROFILE_ID, AGENT_PROFILE_ID],
+      },
+      spaces: db.spaces,
+    });
+    const env = buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+
+    await expect(
+      rpcConvertDirectMessageToSpace(env, {
+        context,
+        name: "Ava and the Agents",
+        profileIds: [SECOND_AGENT_PROFILE_ID],
+        spaceId,
+      })
+    ).resolves.toMatchObject({
+      addedMemberIds: [SECOND_AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+    });
+    expect(spaceStub.rpcConvertDirectMessageToSpace).toHaveBeenCalledWith({
+      context,
+      members: [
+        expect.objectContaining({
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileKind: "agent",
+        }),
+        expect.objectContaining({
+          ownerUserId: "user-b",
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          profileKind: "human",
+        }),
+      ],
+      name: "Ava and the Agents",
+      spaceId,
+    });
+  });
+
   it("repairs incomplete Direct Message membership without rewriting its origin", async () => {
     const pairKey = `${HUMAN_PROFILE_ID}:${AGENT_PROFILE_ID}`;
     const spaceId = resolveTestNamedSpaceId(`dm-v1:org-a:${pairKey}:0`);
@@ -14160,6 +14240,24 @@ function createSpaceStub(
         ...(space.spacePurpose ? { purpose: space.spacePurpose } : {}),
         spaceId: space.spaceId,
         visibility: space.visibility,
+      });
+    }),
+    rpcGetIdentityDirectory: vi.fn((request: { spaceId: string }) => {
+      const profileIds = [
+        ...(memberProfileIdsBySpace.get(request.spaceId) ?? []),
+      ];
+      return Promise.resolve({
+        entries: profileIds.map((profileId) => ({
+          agentControllerRef: null,
+          mentionAlias: null,
+          ownerName: null,
+          ownerUserId: null,
+          profileId,
+          profileKind: profileId.startsWith("agt_") ? "agent" : "human",
+          profileName: profileId,
+        })),
+        generatedAt: new Date(TEST_NOW_MS).toISOString(),
+        spaceId: request.spaceId,
       });
     }),
     rpcInitializeDirectMessageMeta: initializeDirectMessageMeta,

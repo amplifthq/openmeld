@@ -2146,6 +2146,111 @@ describe("OpenMeld Core", () => {
     ).resolves.toMatchObject({ leftProfileId: ownerHumanProfileId });
   });
 
+  it("reconciles an existing Agent owner after another member converts the Direct Message", async () => {
+    const organizationId = "org-agent-owner-member-conversion";
+    const participantProfileId = SECOND_HUMAN_PROFILE_ID;
+    const agentProfileId = "agt_58585858-5858-4585-8585-585858585858";
+    const ownerHumanProfileId = THIRD_HUMAN_PROFILE_ID;
+    const addedHumanProfileId = FOURTH_HUMAN_PROFILE_ID;
+    const participantContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId: "owner-member-conversion-participant",
+      profileId: participantProfileId,
+      profileKind: "human",
+      profileName: "Participant",
+      requestId: "req-agent-owner-member-conversion",
+    });
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: "owner-member-conversion-agent",
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId: "owner-member-conversion-agent",
+      profileId: ownerHumanProfileId,
+    });
+    await insertTestOrganizationAgentProfile({
+      agentProfileId,
+      organizationId,
+      ownerUserId: "owner-member-conversion-agent",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const spaceId = namespace.newUniqueId().toString();
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await stub.rpcInitializeDirectMessageMeta({
+      creator: {
+        kind: "human",
+        ownerName: "Participant",
+        ownerUserId: "owner-member-conversion-participant",
+        profileId: participantProfileId,
+        profileName: "Participant",
+      },
+      guide: "",
+      name: "Participant and Research Agent",
+      organizationId,
+      pairKey: `${participantProfileId}:${agentProfileId}`,
+      purpose: "openmeld_dm_space",
+      spaceId,
+      visibility: "private",
+    });
+    await stub.rpcPostMembers({
+      context: participantContext,
+      members: [
+        {
+          agentControllerRef: null,
+          ownerName: "Participant",
+          ownerUserId: "owner-member-conversion-participant",
+          profileId: participantProfileId,
+          profileKind: "human",
+          profileName: "Participant",
+        },
+        {
+          agentControllerRef: "builtin:codex",
+          ownerName: "Agent Owner",
+          ownerUserId: "owner-member-conversion-agent",
+          profileId: agentProfileId,
+          profileKind: "agent",
+          profileName: "Research Agent",
+        },
+      ],
+      spaceId,
+    });
+
+    await stub.rpcGetStatus({ context: participantContext, spaceId });
+    await stub.rpcConvertDirectMessageToSpace({
+      context: participantContext,
+      members: [
+        {
+          agentControllerRef: null,
+          ownerName: "Added Member",
+          ownerUserId: "owner-member-conversion-added",
+          profileId: addedHumanProfileId,
+          profileKind: "human",
+          profileName: "Added Member",
+        },
+      ],
+      name: "Participant, Research Agent, and Added Member",
+      spaceId,
+    });
+
+    const members = await stub.rpcGetMembers({
+      context: participantContext,
+      spaceId,
+    });
+    expect(members.humans).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          profileId: ownerHumanProfileId,
+          status: "active",
+        }),
+      ])
+    );
+    expect(members.summary).toMatchObject({
+      agentCount: 1,
+      humanCount: 3,
+      totalCount: 4,
+    });
+  });
+
   it("reconciles ordinary Agent owners into existing Spaces without adding managed Agent owners", async () => {
     const organizationId = "org-agent-owner-reconciliation";
     const participantOwnerUserId = "owner-reconciliation-participant";
