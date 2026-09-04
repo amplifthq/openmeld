@@ -5,7 +5,7 @@ import { getRequiredServerEnv } from "#/env";
 export const deleteStartAgentProfile = createServerFn({
 	method: "POST",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = agentProfileIdSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(

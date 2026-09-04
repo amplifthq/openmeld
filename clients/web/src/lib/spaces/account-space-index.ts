@@ -36,7 +36,7 @@ async function listAccountSpaceIndexServer(input: {
 export const listAccountSpaceIndex = createServerFn({
 	method: "GET",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = listAccountSpaceIndexInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(
