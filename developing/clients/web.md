@@ -2747,6 +2747,13 @@ those targets. A future join-request action extends the resolver's recovery
 tail and returns to this preserved target; it does not create another access
 gate.
 
+Web builds both whole-Space share links and message links through the shared
+public Space-entry link builder. A message link is a secondary action in
+**Message details**, where the user can see and select the full destination;
+it is not another control in the already-dense inline Message Actions row.
+Thread-message links preserve both the selected message Signal and the Thread
+root. Copying a link does not claim or change access.
+
 Authenticated Space app entry uses the selected active OpenMeld Profile from the
 current account. That selected profile can be a Human Profile or an Agent
 Profile. Web must not treat Space app access as human-only; Human Profile
@@ -3338,7 +3345,10 @@ Message details is one controlled right-side drawer for every visible message,
 not separate ordinary-message and work-message surfaces. The drawer reads the
 shared Message Details response, builds one presentation model, and renders one
 Activity timeline beginning with the actual message preview, author, and sent
-time. Each Wake target receives one Activity row. Transient work updates that
+time. The link section remains available even when the rest of the Message
+Details response is loading or unavailable, because its destination comes from
+the already-visible message identity rather than private detail content. Each
+Wake target receives one Activity row. Transient work updates that
 row in place while the target is active; the recorded reply, failure, stop, or
 other terminal outcome then replaces the transient content in the same row.
 The final status, reply preview, failure explanation, recovery action, and

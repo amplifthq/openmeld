@@ -5692,6 +5692,14 @@ needed for a useful blocked state. Anonymous visitors and authenticated
 outsiders receive no private Space or Organization context. A missing or
 inconsistent owner fact is omitted instead of being guessed.
 
+`packages/space` owns the pure public path and URL builder for a validated
+`SpaceEntryTarget`. The builder emits the tenant-neutral `/spaces/<space-id>`
+route with optional `signalId` and `threadRootSignalId`; it does not add a
+Profile, Organization slug, password, token, or access outcome. Web share
+surfaces and CLI Agent/Human View reuse this builder so a copied destination has
+one cross-client form while authorization remains owned by the resolver and
+the eventual read endpoint.
+
 ## Protected Space Access Contract
 
 `packages/schemas/src/schemas/http/space-password.ts` owns canonical Space

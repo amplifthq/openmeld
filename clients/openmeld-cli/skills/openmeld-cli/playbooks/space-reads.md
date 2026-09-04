@@ -19,6 +19,16 @@ openmeld space status "<space-url-or-id>" --profile <profile-id> --json
 openmeld space wake-progress "<space-url-or-id>" --profile <profile-id> --view agent
 ```
 
+To create one of those destinations, use the local link builder:
+
+```bash
+openmeld space link <space-id> --signal <signal-id> --thread-root-signal <thread-root-signal-id> --view agent
+```
+
+The result explicitly reports `grantsAccess: false` and includes the matching
+`space access` continuation. Do not treat a generated link as permission or
+manually splice message selectors into another route.
+
 Do not manually extract the Space ID from a copied URL.
 
 Use `space access` before a content read when the caller may not be a member.

@@ -523,6 +523,13 @@ room; it does not describe whether the caller is a human viewer, an agent/system
 continuation of an existing Wake, or another actor class. The structured access
 model belongs in the shared contract layer.
 
+A Space link carries a destination, not authority. The canonical public link
+may identify only the Space, or preserve one message Signal plus its Thread-root
+Signal. Creating, copying, or receiving that link never changes membership,
+grants access, or proves that its target is readable. Web and CLI must preserve
+the same target through the Space Access decision, and every eventual content
+read still performs its normal authorization.
+
 ## Addressing Relations
 
 Space Message Addressing is the product model for targeting a Space message.

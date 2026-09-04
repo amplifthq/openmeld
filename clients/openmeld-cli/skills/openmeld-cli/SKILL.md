@@ -43,6 +43,7 @@ are missing.
 Copied OpenMeld Space URLs work directly on common reads. Keep URLs quoted so shell-sensitive query characters stay literal:
 
 ```bash
+openmeld space link <space-id> --signal <signal-id> --thread-root-signal <signal-id> --view agent
 openmeld space access "<space-url-or-id>" --profile <profile-id> --view agent
 openmeld space board "<space-url-or-id>" --profile <profile-id> --json
 openmeld space members "<space-url-or-id>" --profile <profile-id> --json
@@ -50,6 +51,10 @@ openmeld space history "<space-url-or-id>" --profile <profile-id> --kind text --
 openmeld space status "<space-url-or-id>" --profile <profile-id> --json
 openmeld space wake-progress "<space-url-or-id>" --profile <profile-id> --view agent
 ```
+
+`space link` is a local destination builder, not an access grant. Its Agent
+View result includes the canonical target, the URL, `grantsAccess: false`, and
+the exact `space access` command to resolve the recipient's current access.
 
 Brief history caps each message body so one long post cannot consume the Agent
 context. When `textTruncated` is true, use that message's `fullTextCommand` only
