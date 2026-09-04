@@ -7,6 +7,7 @@ import {
   getOrgAdapter,
   lastLoginMethod,
   magicLink,
+  multiSession,
   type OrganizationOptions,
   oneTimeToken,
   organization,
@@ -947,6 +948,9 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     plugins: [
       bearer(),
       username(),
+      multiSession({
+        maximumSessions: 5,
+      }),
       organization({
         ...organizationOptions,
       }),
