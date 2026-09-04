@@ -146,11 +146,25 @@ and actions are fixed:
 3. **Create organization**, which opens a one-field name form; Auth returns the
    generated Organization URL
 4. **Manage organizations**, which opens the full-page Organization manager
-5. a separated **Settings** utility, which opens **Settings → Personal →
+5. the current account, which opens a nested **Accounts** view for switching,
+   adding, or signing out browser-saved accounts
+6. a separated **Settings** utility, which opens **Settings → Personal →
    Account** for the current workspace
 
 No page-level Organization picker or second context switcher may compete with
 this control.
+
+Account switching is browser-wide because Better Auth changes the active
+Session cookie. The nested view lists only Sessions saved by Better Auth's
+multi-session plugin, marks the current account, allows up to five saved
+accounts, and reloads through the account-neutral root after a switch. Adding
+an account enters the normal login flow with explicit add-account intent so the
+existing Sessions remain saved. Logging out of the current account revokes only
+that account's saved Session when available; **Log out of all accounts** keeps
+the existing full-sign-out behavior. Every successful account identity change
+clears account-private client caches and notifies other tabs before navigation.
+Organization selection remains URL-owned per tab after the newly active account
+loads; account switching must not add Better Auth active-Organization state.
 
 For `/o/{orgSlug}` routes, the URL selects the current tab's Organization after
 the route loader freshly confirms that the signed-in account is a member. The
@@ -219,7 +233,8 @@ authorization.
 ### Fixed primary rail
 
 The rail places the current workspace switcher at the top and has no separate
-OpenMeld brand row or account entry. Its first four entries are flat, fixed
+OpenMeld brand row or outer-rail account entry. Account management stays nested
+inside the workspace switcher. Its first four entries are flat, fixed
 primary actions and destinations; the remaining two product destinations stay
 in one user-collapsible group:
 

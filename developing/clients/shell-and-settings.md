@@ -239,8 +239,10 @@ The Web shell is a stable two-layer composition built from the shared
   Organization actions; it does not create a second Settings surface. Send
   feedback lives in the Personal Settings group rather than as a second
   outer-rail utility. The rail has no
-  separate OpenMeld brand row or account entry, and it continues to support
-  resize + collapse.
+  separate OpenMeld brand row or outer-rail account entry. A nested account row
+  in the workspace switcher owns browser-saved account switching, adding, and
+  sign-out without becoming another navigation destination. The rail continues
+  to support resize + collapse.
   Collapsed state preserves recognizable icons for every fixed destination;
   expanded state shows the workspace identity, group labels, and destination
   labels.
