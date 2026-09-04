@@ -5,6 +5,7 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
+	GetSpaceEntryResolutionResponse,
 	GetSpaceStatusResponse,
 	SignalEnvelope,
 	SpaceAccessMode,
@@ -29,6 +30,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { z } from "zod/v4";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
 import {
 	APP_PAGE_FRAME_CLASS_NAME,
@@ -36,6 +38,7 @@ import {
 } from "#/components/app/shell-layout";
 import type { SpaceComposerInputRef } from "#/components/spaces/space-composer-editor";
 import { SpaceConversationPanel } from "#/components/spaces/space-conversation-panel";
+import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceFilesPanel } from "#/components/spaces/space-files-panel";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpaceThreadPanel } from "#/components/spaces/space-thread-panel";
@@ -44,6 +47,7 @@ import { SpaceViewTabs } from "#/components/spaces/space-view-tabs";
 import { useSpaceMessageReferences } from "#/components/spaces/use-space-message-references";
 import { getSession } from "#/lib/auth-session";
 import { recordProfileSpaceHistory } from "#/lib/onboarding/record-profile-space-history";
+import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import {
 	resolveActiveOrganizationHumanProfilesPath,
 	resolveActiveOrganizationSpacePath,
@@ -66,8 +70,34 @@ const EMPTY_AGENT_RECOVERY_PLANS = new Map<string, never>();
 const EMPTY_EPHEMERAL_ACTIVITY_ITEMS: readonly never[] = [];
 const EMPTY_WAKE_FAILURE_TARGET_CONTEXTS = new Map<string, never>();
 
-function buildPublicSpacePostSignInRedirect(spaceId: string): string {
-	return `/spaces/${encodeURIComponent(spaceId)}`;
+const publicSpaceRouteSearchSchema = z.object({
+	focusInteractionId: z.string().trim().min(1).optional(),
+	focusSignalId: z.string().trim().min(1).optional(),
+	focusThreadRootSignalId: z.string().trim().min(1).optional(),
+	signalId: z.string().trim().min(1).optional(),
+	threadRootSignalId: z.string().trim().min(1).optional(),
+});
+
+type PublicSpaceFocus = {
+	signalId?: string;
+	threadRootSignalId?: string;
+};
+
+function buildPublicSpacePath(
+	spaceId: string,
+	focus: PublicSpaceFocus
+): string {
+	const url = new URL(
+		`/spaces/${encodeURIComponent(spaceId)}`,
+		"http://localhost"
+	);
+	if (focus.signalId) {
+		url.searchParams.set("signalId", focus.signalId);
+	}
+	if (focus.threadRootSignalId) {
+		url.searchParams.set("threadRootSignalId", focus.threadRootSignalId);
+	}
+	return `${url.pathname}${url.search}`;
 }
 
 async function navigateToActiveOrganizationSpace(input: {
@@ -85,7 +115,30 @@ async function navigateToActiveOrganizationSpace(input: {
 	await input.navigate({ replace: true, to: target });
 }
 
+async function navigateToOrganizationSpace(input: {
+	focus: PublicSpaceFocus;
+	navigate: ReturnType<typeof useNavigate>;
+	organizationSlug: string;
+	profileId?: string;
+	spaceId: string;
+}) {
+	const target = buildOrganizationSpacePath({
+		orgSlug: input.organizationSlug,
+		search: {
+			...(input.profileId ? { profileId: input.profileId } : {}),
+			focusSignalId: input.focus.signalId,
+			focusThreadRootSignalId: input.focus.threadRootSignalId,
+		},
+		spaceId: input.spaceId,
+	});
+	await input.navigate({ replace: true, to: target });
+}
+
 export const Route = createFileRoute("/spaces/$spaceId")({
+	validateSearch: (search) => {
+		const parsed = publicSpaceRouteSearchSchema.safeParse(search);
+		return parsed.success ? parsed.data : {};
+	},
 	loader: async ({ location }) => {
 		const session = await getSession({
 			data: {
@@ -102,15 +155,64 @@ export const Route = createFileRoute("/spaces/$spaceId")({
 function PublicSpaceRoute() {
 	const { spaceId } = Route.useParams();
 	const { isAuthenticated } = Route.useLoaderData();
+	const search = Route.useSearch();
 
 	return (
-		<PublicSpacePage isAuthenticated={isAuthenticated} spaceId={spaceId} />
+		<PublicSpacePage
+			isAuthenticated={isAuthenticated}
+			signalId={search.focusSignalId ?? search.signalId}
+			spaceId={spaceId}
+			threadRootSignalId={
+				search.focusThreadRootSignalId ?? search.threadRootSignalId
+			}
+		/>
 	);
 }
 
 export function PublicSpacePage(input: {
 	isAuthenticated: boolean;
+	signalId?: string;
 	spaceId: string;
+	threadRootSignalId?: string;
+}) {
+	const focus = {
+		...(input.signalId ? { signalId: input.signalId } : {}),
+		...(input.threadRootSignalId
+			? { threadRootSignalId: input.threadRootSignalId }
+			: {}),
+	};
+	return (
+		<SpaceEntryGate
+			backHref="/"
+			renderFrame={(content) => (
+				<PublicSpaceEntryFrame>{content}</PublicSpaceEntryFrame>
+			)}
+			signalId={input.signalId}
+			signInHref={`/login?redirect=${encodeURIComponent(
+				buildPublicSpacePath(input.spaceId, focus)
+			)}`}
+			spaceId={input.spaceId}
+			threadRootSignalId={input.threadRootSignalId}
+		>
+			{(resolution) => (
+				<PublicSpaceResolvedPage
+					entryResolution={resolution}
+					isAuthenticated={input.isAuthenticated}
+					signalId={input.signalId}
+					spaceId={input.spaceId}
+					threadRootSignalId={input.threadRootSignalId}
+				/>
+			)}
+		</SpaceEntryGate>
+	);
+}
+
+function PublicSpaceResolvedPage(input: {
+	entryResolution: GetSpaceEntryResolutionResponse;
+	isAuthenticated: boolean;
+	signalId?: string;
+	spaceId: string;
+	threadRootSignalId?: string;
 }) {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
@@ -122,7 +224,9 @@ export function PublicSpacePage(input: {
 		requestId: string;
 		revision: number;
 	} | null>(null);
-	const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+	const [selectedThreadId, setSelectedThreadId] = useState<
+		string | null | undefined
+	>(undefined);
 	const textareaRef: SpaceComposerInputRef = useRef(null);
 	const threadTextareaRef: SpaceComposerInputRef = useRef(null);
 	const openSpaceFile = (fileId: string, revision: number) => {
@@ -136,22 +240,23 @@ export function PublicSpacePage(input: {
 	};
 
 	const {
-		protectedFailure,
+		protectedFailure: spaceProtectedFailure,
 		signalsQuery,
 		statusQuery,
-		threadSignalsQuery,
 		threadsQuery,
 		viewerMembershipQuery,
 	} = usePublicSpaceQueries({
 		isAuthenticated: input.isAuthenticated,
-		selectedThreadId,
 		spaceId: input.spaceId,
 	});
 	useOpenAuthenticatedMemberSpace({
 		activeMemberCount:
 			viewerMembershipQuery.data?.activeMemberProfiles.length ?? 0,
 		navigate,
+		organizationSlug: input.entryResolution.safeContext.organizationSlug,
+		signalId: input.signalId,
 		spaceId: input.spaceId,
+		threadRootSignalId: input.threadRootSignalId,
 	});
 
 	const refetchSpace = async () => {
@@ -185,6 +290,22 @@ export function PublicSpacePage(input: {
 	const signalEnvelopes = signalsQuery.data?.envelopes ?? EMPTY_SIGNALS;
 	const threads = threadsQuery.data?.threads ?? EMPTY_THREADS;
 	const threadPreviews = threadsQuery.data?.previews ?? EMPTY_THREAD_PREVIEWS;
+	const initialThreadId = input.threadRootSignalId
+		? (threads.find(
+				(thread) => thread.rootSignalId === input.threadRootSignalId
+			)?.threadId ?? null)
+		: null;
+	const effectiveSelectedThreadId =
+		selectedThreadId === undefined ? initialThreadId : selectedThreadId;
+	const threadSignalsQuery = usePublicThreadSignalsQuery({
+		selectedThreadId: effectiveSelectedThreadId,
+		spaceId: input.spaceId,
+		statusIsSuccess: statusQuery.isSuccess,
+	});
+	const protectedFailure = findProtectedFailure([
+		spaceProtectedFailure,
+		threadSignalsQuery.error,
+	]);
 	const threadSignals = threadSignalsQuery.data?.signals ?? EMPTY_SIGNALS;
 	const timelineItems = useMemo(
 		() =>
@@ -212,16 +333,21 @@ export function PublicSpacePage(input: {
 	});
 	const activeThread = useMemo(
 		() =>
-			selectedThreadId === null
+			effectiveSelectedThreadId === null
 				? null
-				: (threads.find((thread) => thread.threadId === selectedThreadId) ??
-					null),
-		[selectedThreadId, threads]
+				: (threads.find(
+						(thread) => thread.threadId === effectiveSelectedThreadId
+					) ?? null),
+		[effectiveSelectedThreadId, threads]
 	);
 
 	if (protectedFailure) {
 		return (
 			<PublicSpaceChrome
+				focus={{
+					signalId: input.signalId,
+					threadRootSignalId: input.threadRootSignalId,
+				}}
 				isAuthenticated={input.isAuthenticated}
 				membership={membership}
 				passwordProtectedOverride={true}
@@ -253,6 +379,8 @@ export function PublicSpacePage(input: {
 		<PublicSpaceOpenView
 			activeThread={activeThread}
 			historyIsPending={statusQuery.isPending || signalsQuery.isPending}
+			initialFocusSignalId={input.signalId}
+			initialFocusThreadRootSignalId={input.threadRootSignalId}
 			isAuthenticated={input.isAuthenticated}
 			membership={membership}
 			onOpenSpaceFile={openSpaceFile}
@@ -281,7 +409,6 @@ export function PublicSpacePage(input: {
 
 function usePublicSpaceQueries(input: {
 	isAuthenticated: boolean;
-	selectedThreadId: string | null;
 	spaceId: string;
 }) {
 	const browserQueriesEnabled = typeof window !== "undefined";
@@ -331,11 +458,31 @@ function usePublicSpaceQueries(input: {
 		staleTime: baseQueryOptions.staleTime,
 		refetchOnWindowFocus: false,
 	});
-	const threadSignalsQuery = useQuery({
+	return {
+		protectedFailure: findProtectedFailure([
+			statusQuery.error,
+			signalsQuery.error,
+			threadsQuery.error,
+			viewerMembershipQuery.error,
+		]),
+		signalsQuery,
+		statusQuery,
+		threadsQuery,
+		viewerMembershipQuery,
+	};
+}
+
+function usePublicThreadSignalsQuery(input: {
+	selectedThreadId: string | null;
+	spaceId: string;
+	statusIsSuccess: boolean;
+}) {
+	const browserQueriesEnabled = typeof window !== "undefined";
+	return useQuery({
 		enabled:
 			browserQueriesEnabled &&
 			input.selectedThreadId !== null &&
-			statusQuery.isSuccess,
+			input.statusIsSuccess,
 		queryKey: [
 			...publicSpaceQueryKey(input.spaceId, "thread-signals"),
 			input.selectedThreadId,
@@ -350,41 +497,42 @@ function usePublicSpaceQueries(input: {
 		staleTime: baseQueryOptions.staleTime,
 		refetchOnWindowFocus: false,
 	});
-	return {
-		protectedFailure: findProtectedFailure([
-			statusQuery.error,
-			signalsQuery.error,
-			threadsQuery.error,
-			viewerMembershipQuery.error,
-			threadSignalsQuery.error,
-		]),
-		signalsQuery,
-		statusQuery,
-		threadSignalsQuery,
-		threadsQuery,
-		viewerMembershipQuery,
-	};
 }
 
 function useOpenAuthenticatedMemberSpace(input: {
 	activeMemberCount: number;
 	navigate: ReturnType<typeof useNavigate>;
+	organizationSlug?: string;
+	signalId?: string;
 	spaceId: string;
+	threadRootSignalId?: string;
 }) {
 	useEffect(() => {
-		if (input.activeMemberCount === 0) {
+		if (input.activeMemberCount === 0 || !input.organizationSlug) {
 			return;
 		}
 		// Membership proves same-account access, not the browser's acting identity.
 		// Omit profileId so the app route resolves the account's current Human
 		// Profile instead of treating an Agent member as a Web viewer.
-		navigateToActiveOrganizationSpace({
+		navigateToOrganizationSpace({
+			focus: {
+				signalId: input.signalId,
+				threadRootSignalId: input.threadRootSignalId,
+			},
 			navigate: input.navigate,
+			organizationSlug: input.organizationSlug,
 			spaceId: input.spaceId,
 		}).catch((error) => {
 			console.error("Failed to open the member Space view.", error);
 		});
-	}, [input.activeMemberCount, input.navigate, input.spaceId]);
+	}, [
+		input.activeMemberCount,
+		input.navigate,
+		input.organizationSlug,
+		input.signalId,
+		input.spaceId,
+		input.threadRootSignalId,
+	]);
 }
 
 function useProtectedSpacePassword(input: {
@@ -437,6 +585,8 @@ type PublicSpaceFileSelection = {
 type PublicSpaceOpenViewProps = {
 	activeThread: SpaceThread | null;
 	historyIsPending: boolean;
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
@@ -464,6 +614,10 @@ type PublicSpaceOpenViewProps = {
 function PublicSpaceOpenView(input: PublicSpaceOpenViewProps) {
 	return (
 		<PublicSpaceChrome
+			focus={{
+				signalId: input.initialFocusSignalId,
+				threadRootSignalId: input.initialFocusThreadRootSignalId,
+			}}
 			isAuthenticated={input.isAuthenticated}
 			membership={input.membership}
 			spaceId={input.spaceId}
@@ -525,6 +679,7 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				firstUnreadSignalId={null}
 				historyActionErrorMessage={null}
 				historyErrorMessage={null}
+				initialFocusSignalId={input.initialFocusSignalId}
 				isAgentRecoveryPending={() => false}
 				isDiagnosticReportPending={() => false}
 				isDiagnosticReportSent={() => false}
@@ -586,6 +741,7 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				composerText=""
 				currentOwnerUserId={null}
 				ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
+				initialFocusSignalId={input.initialFocusSignalId}
 				isAgentRecoveryPending={() => false}
 				isDiagnosticReportPending={() => false}
 				isDiagnosticReportSent={() => false}
@@ -617,8 +773,25 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 	);
 }
 
+function PublicSpaceEntryFrame(input: { children: ReactNode }) {
+	return (
+		<div className="flex min-h-dvh flex-col bg-background text-foreground">
+			<CrossPageHeader
+				brandStatusLabel={null}
+				currentSection="space"
+				frameSection="start"
+				includeSpaces={true}
+			/>
+			<main className="flex flex-1 items-center justify-center px-6 py-10">
+				{input.children}
+			</main>
+		</div>
+	);
+}
+
 function PublicSpaceChrome(input: {
 	children: ReactNode;
+	focus?: PublicSpaceFocus;
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	passwordProtectedOverride?: boolean;
@@ -642,6 +815,7 @@ function PublicSpaceChrome(input: {
 			<main className="flex min-h-0 flex-1 overflow-hidden">
 				<PublicSpaceMainFrame
 					accessMode={accessMode}
+					focus={input.focus}
 					isAuthenticated={input.isAuthenticated}
 					membership={input.membership}
 					spaceId={input.spaceId}
@@ -658,6 +832,7 @@ function PublicSpaceChrome(input: {
 function PublicSpaceMainFrame(input: {
 	accessMode: SpaceAccessMode;
 	children: ReactNode;
+	focus?: PublicSpaceFocus;
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	spaceId: string;
@@ -671,6 +846,7 @@ function PublicSpaceMainFrame(input: {
 			>
 				<PublicSpaceContextHeader
 					accessMode={input.accessMode}
+					focus={input.focus}
 					isAuthenticated={input.isAuthenticated}
 					membership={input.membership}
 					spaceId={input.spaceId}
@@ -687,6 +863,7 @@ function PublicSpaceMainFrame(input: {
 
 function PublicSpaceContextHeader(input: {
 	accessMode: SpaceAccessMode;
+	focus?: PublicSpaceFocus;
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	spaceId: string;
@@ -698,6 +875,7 @@ function PublicSpaceContextHeader(input: {
 			actions={
 				<PublicSpaceViewerAction
 					accessMode={input.accessMode}
+					focus={input.focus}
 					isAuthenticated={input.isAuthenticated}
 					membership={input.membership}
 					spaceId={input.spaceId}
@@ -727,6 +905,7 @@ function PublicSpaceContextHeader(input: {
 
 function PublicSpaceViewerAction(input: {
 	accessMode: SpaceAccessMode;
+	focus?: PublicSpaceFocus;
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	spaceId: string;
@@ -737,7 +916,7 @@ function PublicSpaceViewerAction(input: {
 			<Link
 				className={buttonVariants({ size: "sm", variant: "outline" })}
 				search={{
-					redirect: buildPublicSpacePostSignInRedirect(input.spaceId),
+					redirect: buildPublicSpacePath(input.spaceId, input.focus ?? {}),
 				}}
 				to="/login"
 			>
