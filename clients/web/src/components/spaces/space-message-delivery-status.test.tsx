@@ -51,4 +51,19 @@ describe("SpaceMessageDeliveryStatus", () => {
 		expect(orb?.dataset.spaceAgentOrbState).toBe("solving");
 		expect(status.querySelector("svg.animate-spin")).toBeNull();
 	});
+
+	it.each([
+		["send_failed", "Message not sent"],
+		["agent_stream_failed", "Reply failed"],
+		["agent_stream_stopped", "Stopped"],
+		["agent_stream_publish_failed", "Reply could not be posted"],
+	] as const)("renders %s as a full-width system outcome", (presentation, label) => {
+		render(<SpaceMessageDeliveryStatus presentation={presentation} />);
+
+		const status = screen.getByRole("status", { name: label });
+		expect(status.getAttribute("data-variant")).toBe("separator");
+		expect(status.className).toContain("before:content-['']");
+		expect(status.className).toContain("after:content-['']");
+		expect(status.className).toContain("w-full");
+	});
 });
