@@ -218,22 +218,47 @@ describe("local component update projection", () => {
     });
   });
 
-  it("enforces the Core floor when an advisory manifest version is older", () => {
+  it("does not activate the Core floor before its matching Service release is installable", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
-        serviceBundleVersion: "0.3.125",
+        serviceBundleVersion: "0.3.152",
         serviceUpdatePolicy: "available",
       }),
       serviceConnected: true,
-      serviceVersion: "0.3.125",
+      serviceVersion: "0.3.152",
+    });
+
+    expect(projection).toMatchObject({
+      setupAction: "none",
+      service: {
+        installedVersion: "0.3.152",
+        latestVersion: "0.3.152",
+        reasonCodes: ["service.bundle_hash_not_reported"],
+        requiredVersion: null,
+        status: "current",
+        updatePolicy: "available",
+        wakeBlocked: false,
+      },
+    });
+  });
+
+  it("activates the Core floor when the matching Service release is installable", () => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-06-04T00:00:00.000Z",
+      releaseManifest: createReleaseManifest({
+        serviceBundleVersion: "0.3.153",
+        serviceUpdatePolicy: "available",
+      }),
+      serviceConnected: true,
+      serviceVersion: "0.3.152",
     });
 
     expect(projection).toMatchObject({
       setupAction: "update_service",
       service: {
-        installedVersion: "0.3.125",
-        latestVersion: "0.3.125",
+        installedVersion: "0.3.152",
+        latestVersion: "0.3.153",
         reasonCodes: ["service.version_outdated"],
         requiredVersion: "0.3.153",
         status: "update_required",

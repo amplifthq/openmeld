@@ -33,10 +33,13 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdate(input: {
     return null;
   }
 
+  // A release-triggered request must be rooted in the manifest supplied by
+  // Core's release projection. Unlike read projections, this path must not
+  // infer a target from a build-time default when its owner omitted the fact.
   const projection = resolveLocalComponentUpdateProjection({
     generatedAt: input.generatedAt,
     localComponentsStatus,
-    releaseManifest: input.releaseManifest,
+    releaseManifest: input.releaseManifest ?? null,
     serviceConnected: true,
     serviceVersion: input.serviceVersion,
   });
