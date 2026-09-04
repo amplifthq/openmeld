@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-03T11:54:02.871Z",
+  "updatedAt": "2026-09-04T02:50:09.872Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.152",
+      "packageVersion": "0.3.153",
       "updatePolicy": "available",
-      "reason": "Copy-only Agent availability and recovery labels remain compatible with old and new cloud responses."
+      "reason": "Existing CLI commands and self-rescue flows remain compatible with both cloud contract versions."
     },
     "service": {
-      "bundleHash": "ceb4708b4890b1e24e9e1cffbcce504bcc645446796f09804c0bc3043ac6ac85",
-      "bundleVersion": "0.3.152",
+      "bundleHash": "6805edd5a516480ea36dd76735211b08ebaac730a4bb63402e47638a6ccab7d9",
+      "bundleVersion": "0.3.153",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
-      "updatePolicy": "available",
-      "reason": "Copy-only shared recovery labels do not change Service transport, readiness, or execution contracts."
+      "updatePolicy": "required",
+      "reason": "Older Services lack the current working-folder facts and dispatch-owned reply handling required for safe new Wakes; accepted work and update self-rescue remain preserved."
     },
     "skills": {
       "bundleHash": "40b26531a2a2ea3a800df3cb40bc801eac2a7ebfc0407ca7907d2bd121112c30",
