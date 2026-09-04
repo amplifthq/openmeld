@@ -1651,23 +1651,28 @@ Release policy decides whether that update action is advisory or blocking.
 `available` means a newer Service is available and current Wake work can
 continue. `required` means the Service must be updated before the affected
 capability can receive new Wake work. Independently, Core keeps a monotonic
-minimum supported Service version for versions already proven unsafe. A Service
-below that floor always receives an effective `required` projection and cannot
-receive new Wake work, even when the latest release itself is advisory. This
-keeps healthy supported Services eligible without allowing a later optional
-release to re-enable a known-broken Service.
+minimum supported Service version for versions already proven unsafe. That
+floor becomes active only when Core's stable-channel release manifest proves
+the matching or a newer Service release is installable. A Service below the
+active floor receives an effective `required` projection and cannot receive new
+Wake work, even when the latest release itself is advisory. This keeps healthy
+supported Services eligible without allowing a later optional release to
+re-enable a known-broken Service or announcing an unavailable recovery target.
 
 The current monotonic floor is OpenMeld Service `0.3.153`. It is the first
 supported baseline that reports current working-folder facts and keeps reply
 observation owned by the accepted Wake, in addition to the existing startup
-recovery, managed-update, and active Permission/Wake behavior. Core projects
-every connected older Service as `update_required` and blocks new Wake
-admission without terminating work already accepted by RuntimeCoordinator. The
-user-visible `requiredVersion` is the newer of this compatibility floor and the
-current installable Service release, so the action always names a version the
-user can actually install. A later advisory release may raise that remediation
-target, but it must not lower or bypass the compatibility floor. A Service already at
-`0.3.153` remains supported and receives only the advisory update policy of a
+recovery, managed-update, and active Permission/Wake behavior. Once the stable
+release manifest activates that floor, Core projects every connected older
+Service as `update_required` and blocks new Wake admission without terminating
+work already accepted by RuntimeCoordinator. The user-visible `requiredVersion`
+is the newer of this compatibility floor and the current installable Service
+release, so the action always names a version the user can actually install.
+Before the stable release manifest reaches the source floor, Core leaves that
+newer floor inactive rather than projecting `requiredVersion` above
+`latestVersion`. A later advisory release may raise that remediation target,
+but it must not lower or bypass an active compatibility floor. A Service already
+at `0.3.153` remains supported and receives only the advisory update policy of a
 newer release.
 
 Wake Stop local control is an affected Service capability. A Core/Web deployment
@@ -1847,7 +1852,9 @@ fails closed and reports maintenance attention. Automatic requests obey that
 preference, while an explicit user request still runs when automation is off.
 For a Service that supports release-triggered maintenance, Core uses the
 existing Runtime Transport connection to request one automatic recheck when
-the current release manifest first becomes actionable for that computer. The
+Core's stable-channel release manifest first becomes actionable for that
+computer. Register and heartbeat triggers both pass that manifest explicitly;
+a missing manifest cannot infer an automatic target from local defaults. The
 request requires the Service's explicit `requestAutomaticUpdate` capability,
 obeys the Service-owned automatic update preference, and coalesces by computer
 and release target. A disconnected request is failed immediately so a

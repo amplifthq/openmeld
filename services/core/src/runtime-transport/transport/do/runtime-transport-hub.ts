@@ -151,6 +151,7 @@ import type {
   ComputerFileAccessErrorResponse,
   DaemonServiceLane,
   DaemonStreamFrame,
+  LocalComponentsReleaseManifest,
   LocalWakeRouteReport,
   OpenMeldDaemonCancelPayload,
   OpenMeldDaemonInterruptPayload,
@@ -291,6 +292,7 @@ import {
   wakeEvidenceDb,
 } from "../../../lib/bindings";
 import { resolveReleaseTriggeredOpenMeldToolsUpdate } from "../../../local-components/automatic-update-trigger";
+import { resolveCoreLocalComponentsReleaseManifest } from "../../../local-components/update-projection";
 import { resolveSpaceStub } from "../../../rpc/space-ref";
 import {
   emitSpaceExecutionRecoveryNoticeSignal,
@@ -2979,6 +2981,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.state.sessionsById.get(parsed.data.daemonSessionId) ?? null;
     if (response.ok) {
       this.queueReleaseTriggeredOpenMeldToolsUpdate({
+        releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
         session: registeredSession,
         socket: webSocket,
         trigger: "register",
@@ -3160,6 +3163,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       if (sessionAfterHeartbeat) {
         this.queueReleaseTriggeredOpenMeldToolsUpdate({
+          releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
           session: sessionAfterHeartbeat,
           socket: webSocket,
           trigger: "heartbeat",
@@ -17833,6 +17837,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
+    releaseManifest: LocalComponentsReleaseManifest | null;
     session: RuntimeTransportSessionState | null;
     socket: WebSocket;
     trigger: "heartbeat" | "register";
@@ -17847,6 +17852,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       capabilities: session.capabilities,
       generatedAt: new Date().toISOString(),
       lane: session.lane,
+      releaseManifest: input.releaseManifest,
       serviceVersion: session.serviceVersion ?? null,
     });
     if (!update) {

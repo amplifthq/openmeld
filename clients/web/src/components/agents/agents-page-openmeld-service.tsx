@@ -109,6 +109,7 @@ const UPDATE_MANUALLY_LABEL = "Update manually";
 const UPDATE_STATUS_REFRESH_INTERVAL_MS = 2000;
 const UPDATE_STATUS_MAX_REFRESH_ATTEMPTS = 60;
 const UPDATE_STATUS_MAX_CONSECUTIVE_REFRESH_FAILURES = 3;
+const STABLE_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 
 type PendingManagedUpdate =
 	| {
@@ -882,7 +883,10 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		skillsUpdate,
 	});
 	const primaryAction = resolveCurrentOpenMeldToolsPrimaryAction({
-		displayAction: display.primaryAction,
+		displayAction: resolveInstallableOpenMeldToolsDisplayAction({
+			action: display.primaryAction,
+			serviceUpdate,
+		}),
 		maintenanceAvailable: maintenance !== null,
 		onUpdateOpenMeldTools: input.onUpdateOpenMeldTools,
 		updateIsActive,
@@ -1155,6 +1159,21 @@ function buildOpenMeldToolsLinkAction(path: string): OpenMeldToolsAction {
 	};
 }
 
+function resolveInstallableOpenMeldToolsDisplayAction(input: {
+	action: OpenMeldToolsAction | null;
+	serviceUpdate: OpenMeldToolsServiceUpdate | null;
+}): OpenMeldToolsAction | null {
+	if (
+		input.action?.kind !== "link" ||
+		input.action.label !== UPDATE_MANUALLY_LABEL
+	) {
+		return input.action;
+	}
+	return hasInstallableOpenMeldServiceUpdateTarget(input.serviceUpdate)
+		? input.action
+		: null;
+}
+
 function resolveCurrentOpenMeldToolsPrimaryAction(input: {
 	displayAction: OpenMeldToolsAction | null;
 	maintenanceAvailable: boolean;
@@ -1375,6 +1394,9 @@ function formatOpenMeldServiceVersionDescription(input: {
 			? `Latest available: v${input.expectedServiceVersion}.`
 			: undefined;
 	}
+	if (!hasInstallableOpenMeldServiceUpdateTarget(serviceUpdate)) {
+		return undefined;
+	}
 	if (
 		serviceUpdate.requiredVersion &&
 		serviceUpdate.requiredVersion === serviceUpdate.latestVersion
@@ -1390,6 +1412,32 @@ function formatOpenMeldServiceVersionDescription(input: {
 			: null,
 	].filter((value): value is string => Boolean(value));
 	return details.length > 0 ? details.join(" ") : undefined;
+}
+
+function hasInstallableOpenMeldServiceUpdateTarget(
+	serviceUpdate: OpenMeldToolsServiceUpdate | null
+): boolean {
+	if (!serviceUpdate?.requiredVersion) {
+		return true;
+	}
+	const latest = parseStableVersion(serviceUpdate.latestVersion);
+	const required = parseStableVersion(serviceUpdate.requiredVersion);
+	if (!(latest && required)) {
+		return false;
+	}
+	for (let index = 0; index < latest.length; index += 1) {
+		if (latest[index] !== required[index]) {
+			return latest[index] > required[index];
+		}
+	}
+	return true;
+}
+
+function parseStableVersion(
+	version: string | null
+): readonly [number, number, number] | null {
+	const match = version?.match(STABLE_VERSION_PATTERN);
+	return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
 }
 
 function resolveOpenMeldServiceActionLabel(input: {
