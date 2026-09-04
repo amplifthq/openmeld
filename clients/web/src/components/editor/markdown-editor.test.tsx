@@ -16,6 +16,7 @@ describe("MarkdownEditor", () => {
 
 		const editor = screen.getByLabelText("Document content");
 		expect(editor.getAttribute("contenteditable")).toBe("true");
+		expect(editor.classList.contains("content-markdown-document")).toBe(true);
 		const toolbar = screen.getByRole("toolbar");
 		expect(toolbar).toBeTruthy();
 		for (const control of toolbar.querySelectorAll("button, [role=radio]")) {

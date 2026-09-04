@@ -2917,6 +2917,18 @@ durable Agent work details. Human-authored message bodies remain plain text.
 The shared safe Markdown renderer strips raw HTML, does not render Markdown
 images, and applies the existing link and internal Space-reference policy.
 
+Web owns content typography separately from rendering semantics. The local
+shadcn Typeset stylesheet supplies element rhythm for rendered HTML, while
+`clients/web/src/styles/content-typography.css` owns semantic presets and the
+unexposed content scale. Human Space messages remain plain text but consume the
+same Space message size, line-height, and body-font tokens as Agent Markdown.
+The shared Plate Markdown editor used by Organization Documents, Organization
+Skills, and Space Markdown Files consumes the document preset. Every
+`MessageResponse` call must select an explicit presentation preset so a new
+surface cannot inherit chat styling accidentally. The public Changelog selects
+its own fixed preset and does not consume the app content scale; changing Space
+or document typography must not change Changelog presentation.
+
 For an authenticated Organization view, a resolved reference navigates to the
 app route `/o/{orgSlug}/spaces/{spaceId}?profileId={activeProfileId}`. The
 canonical message token remains `/spaces/{spaceId}`; message authors and the
