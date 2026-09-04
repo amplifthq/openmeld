@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-04T02:50:09.872Z",
+  "updatedAt": "2026-09-04T07:33:01.508Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.153",
+      "packageVersion": "0.3.154",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and self-rescue flows remain compatible with both cloud contract versions."
+      "reason": "Existing CLI setup commands and Agent View contracts remain compatible; this release only improves Human View completion output."
     },
     "service": {
-      "bundleHash": "6805edd5a516480ea36dd76735211b08ebaac730a4bb63402e47638a6ccab7d9",
-      "bundleVersion": "0.3.153",
+      "bundleHash": "bc394b9ed94927b4fbbf61c7b0bca550dda9511234cbfac91e5e3491c505df5c",
+      "bundleVersion": "0.3.154",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
-      "updatePolicy": "required",
-      "reason": "Older Services lack the current working-folder facts and dispatch-owned reply handling required for safe new Wakes; accepted work and update self-rescue remain preserved."
+      "updatePolicy": "available",
+      "reason": "Existing and new Services remain compatible with current cloud contracts; prompt and runtime changes do not alter transport, Wake, or lifecycle protocols."
     },
     "skills": {
-      "bundleHash": "40b26531a2a2ea3a800df3cb40bc801eac2a7ebfc0407ca7907d2bd121112c30",
+      "bundleHash": "f6ab254fac5e6a81cd76373eda64989e1898002d5f6afc40c39dd5567d0cb7f7",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The bundled skill only documents the additive wake-progress read; older skills and supported operations remain compatible."
+      "reason": "Existing skills remain usable; the updated privacy guidance is backward-compatible and does not change tool contracts."
     }
   }
 }
