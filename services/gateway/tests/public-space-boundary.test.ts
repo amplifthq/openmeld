@@ -307,6 +307,7 @@ describe("public space boundary", () => {
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const allowed = [
       `/v1/spaces/${spaceId}/conversation-state`,
+      `/v1/spaces/${spaceId}/entry-resolution`,
       `/v1/spaces/${spaceId}/status`,
       `/v1/spaces/${spaceId}/signals`,
       `/v1/spaces/${spaceId}/threads`,
@@ -368,6 +369,23 @@ describe("public space boundary", () => {
     );
     expect(statusResponse.status).toBe(200);
     expect(coreRpc.getSpaceStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId,
+        spaceAccess: expect.objectContaining({
+          actor: expect.objectContaining({ kind: "anonymous_viewer" }),
+          proof: expect.objectContaining({ kind: "none" }),
+        }),
+      })
+    );
+    const entryResolutionResponse = await app.fetch(
+      new Request(`http://local/v1/spaces/${spaceId}/entry-resolution`, {
+        headers: { "x-openmeld-request-id": "req-anon" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(entryResolutionResponse.status).toBe(200);
+    expect(coreRpc.getSpaceEntryResolution).toHaveBeenCalledWith(
       expect.objectContaining({
         spaceId,
         spaceAccess: expect.objectContaining({

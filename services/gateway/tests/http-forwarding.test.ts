@@ -1206,6 +1206,9 @@ describe("gateway http forwarding", () => {
     expect(payload.endpoints?.getSpaceMemberDirectory).toBe(
       "GET /v1/spaces/:spaceId/member-directory"
     );
+    expect(payload.endpoints?.getSpaceEntryResolution).toBe(
+      "GET /v1/spaces/:spaceId/entry-resolution"
+    );
     expect(payload.endpoints?.addSpaceMembers).toBe(
       "POST /v1/spaces/:spaceId/members"
     );
@@ -1234,6 +1237,7 @@ describe("gateway http forwarding", () => {
       "addSpaceMembers",
       "createSpaceThread",
       "getSpaceConversationState",
+      "getSpaceEntryResolution",
       "getSpaceIdentityDirectory",
       "getSpaceMemberDirectory",
       "getSpaceMembers",
