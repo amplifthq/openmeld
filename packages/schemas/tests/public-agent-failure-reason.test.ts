@@ -4,6 +4,7 @@ import {
   isAgentExecutionReadinessImpactReasonCode,
   isProjectLocalConnectionFailureReasonCode,
   projectLocalConnectionFailureReasonCodeSchema,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   resolveCenterAgentCallbackFailureMessage,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,
@@ -682,6 +683,25 @@ describe("public agent failure reason mapping", () => {
       )
     ).toBe(
       "This Wake expired before it reached this agent. Reconnect the computer, then wake the Agent again."
+    );
+  });
+
+  it("keeps an accepted Wake payload conflict separate from computer connectivity", () => {
+    const reasonCode =
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE;
+
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: reasonCode,
+        targetLabel: "Runner",
+      })
+    ).toEqual({
+      body: "OpenMeld stopped this Wake for Runner because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics.",
+      kind: "system_retry",
+      recoveryTarget: null,
+    });
+    expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
+      "OpenMeld stopped this Wake for this agent because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics."
     );
   });
 

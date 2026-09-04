@@ -714,7 +714,7 @@ describe("SpaceThreadPanel", () => {
 		).toBeTruthy();
 	});
 
-	it("offers thread recovery only inside Message details", async () => {
+	it("does not execute a fresh thread Wake through Message details recovery", async () => {
 		const onRecoverExecution = createFreshExecutionRecoveryHandler();
 		renderThreadPanel({
 			onRecoverExecution,
@@ -737,19 +737,11 @@ describe("SpaceThreadPanel", () => {
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
-		const retry = await screen.findByRole("button", {
-			name: "Retry as new execution",
-		});
-		fireEvent.click(retry);
-		await waitFor(() => {
-			expect(onRecoverExecution).toHaveBeenCalledWith({
-				action: "retry_as_new_execution",
-				dispatchId: "dispatch-1",
-				operationId: expect.any(String),
-				resultRef: null,
-				targetProfileId: TARGET_PROFILE_ID,
-			});
-		});
+		await screen.findByRole("dialog", { name: "Message details" });
+		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
 	});
 
 	it("keeps thread footer recovery fenced to one operation", async () => {

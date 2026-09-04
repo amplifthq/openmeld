@@ -71,7 +71,6 @@ Use these owner documents:
 
 | Scope | Read before changing |
 | --- | --- |
-| Active Wake-state convergence: current-versus-target boundaries, unique owner answers, batch order, freshness, and recovery copy | `developing/architecture/wake-state-convergence-plan.md`, then the scoped owner documents below |
 | Product promise, core vocabulary, setup/readiness/diagnostics product meaning | `developing/product/product-model.md` |
 | Experience judgment: status honesty, banner precision, guidance flow, copy tone | `developing/product/experience-principles.md` |
 | Settled decisions that must not be relitigated or "optimized" away | `developing/decisions.md` |

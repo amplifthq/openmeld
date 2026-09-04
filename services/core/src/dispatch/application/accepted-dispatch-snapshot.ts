@@ -67,6 +67,10 @@ async function fingerprintAcceptedDispatchPayload(
   const {
     controllerSnapshot: _controllerSnapshot,
     deliveryRecoveryReason: _deliveryRecoveryReason,
+    enqueuedAtMs: _enqueuedAtMs,
+    sourceProfileNameSnapshot: _sourceProfileNameSnapshot,
+    spaceNameSnapshot: _spaceNameSnapshot,
+    targetProfileNameSnapshot: _targetProfileNameSnapshot,
     dispatchSnapshot,
     ...immutableMessage
   } = message;

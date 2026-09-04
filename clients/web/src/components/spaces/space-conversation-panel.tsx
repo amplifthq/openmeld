@@ -101,10 +101,7 @@ import {
 	resolveSpaceAgentInteractionPlacement,
 	type SpaceAgentInteractionPlacement,
 } from "./space-agent-interaction-placement";
-import {
-	type SpaceAgentProfileBindingRecoveryPlan,
-	SpaceAgentRecoveryActionControl,
-} from "./space-agent-recovery-action";
+import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import {
 	buildSpaceCollaborationProfilePresentations,
@@ -116,6 +113,7 @@ import {
 	resolveSpaceComposerSendBlocked,
 	SpaceComposer,
 } from "./space-composer";
+import { SpaceComposerBlockedWakeRecoveryAction } from "./space-composer-blocked-wake-recovery-action";
 import {
 	resolveSpaceComposerConversationKind,
 	type SpaceAgentDirectConversationComposerHintKind,
@@ -684,6 +682,7 @@ export function SpaceConversationPanel(
 			) : null}
 			{messageDetailsItem && input.spaceId ? (
 				<SpaceMessageDetailsDrawer
+					agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 					canJumpToMessage={(signalId) =>
 						loadedMainTimelineSignalIds.has(signalId)
 					}
@@ -1981,14 +1980,14 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 	return (
 		<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
 			<p>{panel.composerErrorMessage}</p>
-			{renderComposerBlockedWakeRecoveryAction({
-				agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
-				blockedWakeProfileId: panel.composerBlockedWakeProfileId,
-				isAgentRecoveryPending: panel.isAgentRecoveryPending,
-				onAgentRecoveryAction: panel.onAgentRecoveryAction,
-				orgSlug: panel.orgSlug,
-				prepareSetupHref: panel.prepareSetupHref,
-			})}
+			<SpaceComposerBlockedWakeRecoveryAction
+				agentRecoveryPlansByProfileId={panel.agentRecoveryPlansByProfileId}
+				blockedWakeProfileId={panel.composerBlockedWakeProfileId}
+				isAgentRecoveryPending={panel.isAgentRecoveryPending}
+				onAgentRecoveryAction={panel.onAgentRecoveryAction}
+				orgSlug={panel.orgSlug}
+				prepareSetupHref={panel.prepareSetupHref}
+			/>
 		</div>
 	);
 }
@@ -3686,45 +3685,6 @@ function renderAnchoredSpaceOutcomeRows(input: {
 				);
 			})}
 		</>
-	);
-}
-
-function renderComposerBlockedWakeRecoveryAction(input: {
-	agentRecoveryPlansByProfileId: ReadonlyMap<
-		string,
-		AgentProfileReplyRecoveryPlan
-	>;
-	blockedWakeProfileId: string | null;
-	isAgentRecoveryPending: (profileId: string) => boolean;
-	onAgentRecoveryAction: (
-		plan: SpaceAgentProfileBindingRecoveryPlan
-	) => Promise<void>;
-	orgSlug?: string;
-	prepareSetupHref?: string;
-}) {
-	if (!input.blockedWakeProfileId) {
-		return null;
-	}
-
-	if (!input.orgSlug) {
-		return null;
-	}
-
-	const plan =
-		input.agentRecoveryPlansByProfileId.get(input.blockedWakeProfileId) ?? null;
-	if (!plan || plan.kind === "none") {
-		return null;
-	}
-
-	return (
-		<SpaceAgentRecoveryActionControl
-			className="mt-0 border-destructive/50 text-destructive hover:text-destructive"
-			isPending={input.isAgentRecoveryPending(plan.profileId)}
-			onAction={input.onAgentRecoveryAction}
-			orgSlug={input.orgSlug}
-			plan={plan}
-			prepareSetupHref={input.prepareSetupHref}
-		/>
 	);
 }
 

@@ -27,6 +27,13 @@ describe("dispatch Agent reply observation", () => {
       replyToSignalId: "signal-other-source",
       text: "Output for another Wake",
     });
+    const newerHumanWake = textSignal({
+      activationTargets: [AGENT_PROFILE_ID],
+      id: "signal-newer-human-wake",
+      kind: "human",
+      profileId: "prf_human_felix",
+      text: "Start a separate task.",
+    });
     const observation = resolveDispatchAgentReplyObservation({
       candidates: [
         systemNotice({ id: "signal-working" }),
@@ -40,13 +47,14 @@ describe("dispatch Agent reply observation", () => {
         failed,
         relevant,
         sameAgentOtherWake,
+        newerHumanWake,
       ],
       currentWakeTargetProfileIds: [AGENT_PROFILE_ID, FAILED_AGENT_PROFILE_ID],
       sourceSignalId: "signal-source",
     });
 
     expect(observation).toEqual({
-      observedThroughSignalId: sameAgentOtherWake.id,
+      observedThroughSignalId: newerHumanWake.id,
       relevantSignals: [humanUpdate, failed, relevant],
       status: "changed",
     });
@@ -371,6 +379,7 @@ function postMessageAction(text: string) {
 }
 
 function textSignal(input: {
+  activationTargets?: string[];
   final?: boolean;
   id: string;
   kind?: "agent" | "human";
@@ -392,6 +401,15 @@ function textSignal(input: {
     type: "signal.text",
     data: {
       text: input.text,
+      ...(input.activationTargets
+        ? {
+            messageEnvelope: {
+              activationTargets: input.activationTargets,
+              referenceTargets: [],
+              text: input.text,
+            },
+          }
+        : {}),
       ...(input.kind === "human"
         ? {}
         : {

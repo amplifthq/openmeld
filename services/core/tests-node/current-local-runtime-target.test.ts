@@ -30,6 +30,88 @@ describe("current local runtime target", () => {
     });
   });
 
+  it("uses one live replacement identity for the same connected Computer", () => {
+    const connectedComputerInventory = {
+      currentConnectedComputerId: "computer-current",
+      currentDeviceId: "device-binding",
+      currentRuntimeLane: "prod",
+      localRuntimes: [
+        {
+          connectedComputerId: "computer-current",
+          connectionStatus: "connected",
+          deviceId: "device-binding",
+          executionTargets: [executionTarget("device-reconnected")],
+          legacyDeviceIds: ["device-binding", "device-reconnected"],
+        } as LocalRuntimeComputer,
+      ],
+    } as LocalRuntimesResponse;
+    const input = {
+      bindingTarget: {
+        availability: "resolved" as const,
+        deviceId: "device-binding",
+        runtimeLane: "prod" as const,
+      },
+      inventory: connectedComputerInventory,
+      ownerService: onlineService([session("device-reconnected", "prod", 200)]),
+    };
+
+    expect(resolveCurrentLocalRuntimeTarget(input)).toEqual({
+      availability: "resolved",
+      deviceId: "device-reconnected",
+      runtimeLane: "prod",
+    });
+    expect(
+      requireCurrentLocalRuntimeExecutionTarget({
+        ...input,
+        offlineError: offlineError(),
+      })
+    ).toMatchObject({
+      deviceId: "device-reconnected",
+      runtimeLane: "prod",
+    });
+  });
+
+  it("does not guess between two live replacement identities for one Computer", () => {
+    expect(
+      resolveCurrentLocalRuntimeTarget({
+        bindingTarget: {
+          availability: "resolved",
+          deviceId: "device-binding",
+          runtimeLane: "prod",
+        },
+        inventory: {
+          currentConnectedComputerId: "computer-current",
+          currentDeviceId: "device-binding",
+          currentRuntimeLane: "prod",
+          localRuntimes: [
+            {
+              connectedComputerId: "computer-current",
+              connectionStatus: "connected",
+              deviceId: "device-binding",
+              executionTargets: [
+                executionTarget("device-reconnected"),
+                executionTarget("device-second-replacement"),
+              ],
+              legacyDeviceIds: [
+                "device-binding",
+                "device-reconnected",
+                "device-second-replacement",
+              ],
+            } as LocalRuntimeComputer,
+          ],
+        } as LocalRuntimesResponse,
+        ownerService: onlineService([
+          session("device-reconnected", "prod", 200),
+          session("device-second-replacement", "prod", 300),
+        ]),
+      })
+    ).toEqual({
+      availability: "resolved",
+      deviceId: "device-binding",
+      runtimeLane: "prod",
+    });
+  });
+
   it("fails closed instead of choosing the freshest of multiple unbound ServiceRuntime targets", () => {
     expect(() =>
       requireCurrentLocalRuntimeExecutionTarget({

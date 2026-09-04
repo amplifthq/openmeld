@@ -1,6 +1,7 @@
 import type { CoreBindings } from "../../lib/bindings";
 
 export type AgentProfileWorkRecoveryAuthScope = {
+  defaultProjectId: string | null;
   organizationId: string;
   ownerUserId: string;
   profileId: string;
@@ -97,6 +98,7 @@ export async function resolveAgentProfileWorkRecoveryAuthScope(input: {
   return {
     status: "valid",
     scope: {
+      defaultProjectId: normalizeOptionalText(profile.defaultProjectId),
       organizationId,
       ownerUserId,
       profileId,

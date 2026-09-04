@@ -122,10 +122,6 @@ This directory is the durable context layer. Use these entrypoints:
 - `developing/decisions.md`: settled-decision index — check before proposing
   renames, swaps, or cleanups that feel obvious
 - `developing/architecture/agent-transport-contract.md`: current Agent Transport contract and main-chain ownership
-- `developing/architecture/wake-state-convergence-plan.md`: temporary approved
-  current-versus-target boundary and batch order for separating Profile
-  Directory, Wakeability, Activity, Wake Progress, Wake Outcome, and Recovery;
-  remove it when the migration is absorbed into the routed owners
 - `developing/product/`: product model, Agent Profile, Agent Profile model
   selection, Space collaboration, Organizations/Center Agent, Projects, Agent
   Activity, Center Agent Tasks, Center Agent Routines, Organization Skills,

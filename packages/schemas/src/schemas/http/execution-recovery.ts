@@ -55,6 +55,9 @@ export const executionRecoveryActionCapabilitySchema = z.strictObject({
     // Mixed-version compatibility for projections created before the user-facing
     // action was renamed. Current producers emit "Recover reply".
     "Continue conversation",
+    "Start a new Wake",
+    // Mixed-version compatibility for older stored projections. Current Core
+    // never enables a new Wake as outcome recovery.
     "Retry as new execution",
   ]),
   reasonCode: requiredIdentifierSchema,

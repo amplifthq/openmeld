@@ -906,10 +906,6 @@ import {
   resolveRuntimeTransportOwnerShard,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
 import {
-  buildExecutionRecoveryFreshClientMessageId,
-  buildExecutionRecoveryOperationKeys,
-} from "../execution-recovery/application/execution-recovery-operation-identity";
-import {
   rpcReadFeedbackReportingPolicy,
   rpcSetFeedbackReportingPolicy,
 } from "../feedback/transport/rpc/feedback-management-rpc";
@@ -1323,10 +1319,11 @@ const computerFileAccessRpc = createComputerFileAccessRpc({
   readPolicy: readRuntimeTransportComputerFileAccessPolicy,
   requireOwnerUserId: requireAuthenticatedOwnerUserId,
   resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, ownerService } =
+    const { bindingTarget, localRuntimes, ownerService } =
       await resolveCurrentLocalServiceContext({ env, userId });
     return requireCurrentLocalRuntimeServiceTarget({
       bindingTarget,
+      inventory: localRuntimes,
       ownerService,
       offlineError: {
         code: "computer.file_access.service_offline",
@@ -1341,10 +1338,11 @@ const computerFileAccessRpc = createComputerFileAccessRpc({
 const localFolderPickerRpc = createLocalFolderPickerRpc({
   requireOwnerUserId: requireAuthenticatedOwnerUserId,
   resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, ownerService } =
+    const { bindingTarget, localRuntimes, ownerService } =
       await resolveCurrentLocalServiceContext({ env, userId });
     return requireCurrentLocalRuntimeServiceTarget({
       bindingTarget,
+      inventory: localRuntimes,
       ownerService,
       offlineError: {
         code: "local.folder_picker.service_offline",
@@ -1662,6 +1660,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcExecuteExecutionRecovery(
     input: ExecuteExecutionRecoveryInput
   ): Promise<ExecuteExecutionRecoveryResponse>;
+  rpcStartUsageExhaustedContinuation(
+    input: StartUsageExhaustedContinuationInput
+  ): Promise<StartUsageExhaustedContinuationResponse>;
   rpcPostTransientSignal(input: PostTransientSignalInput): Promise<void>;
   rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta>;
   rpcGetBoard(input: GetSpaceBoardInput): Promise<SpaceBoardRoomProjection>;
@@ -2082,6 +2083,24 @@ export type ExecuteExecutionRecoveryInput = {
   spaceAccess?: SpaceAccessContext;
 };
 
+export type StartUsageExhaustedContinuationInput = {
+  continuationClientMessageId: string;
+  interruptedClientMessageId: string;
+  interruptedDispatchId: string;
+  interruptedSourceSignalId: string;
+  operationId: string;
+  spaceAccess: SpaceAccessContext;
+  spaceId: string;
+  targetProfileId: string;
+  context?: CoreRpcContextInput;
+};
+
+export type StartUsageExhaustedContinuationResponse = {
+  continuationClientMessageId: string;
+  operationId: string;
+  status: "started";
+};
+
 export type GetSpaceMetaInput = {
   spaceId: string;
   password?: string;
@@ -2489,7 +2508,7 @@ export type GetPrepareReadinessInput = GetPrepareReadinessQuery & {
 };
 
 export type GetLocalRuntimeExpectedRoutesInput = {
-  contractVersion?: "v2" | "v3";
+  contractVersion?: import("@openmeld/schemas/types").GetLocalRuntimeExpectedRoutesQuery["contractVersion"];
   deviceId: string;
   lane: string;
   context?: CoreRpcContextInput;
@@ -3343,6 +3362,7 @@ async function readOwnerCurrentComputerFileAccessSummary(input: {
         deviceId: input.localRuntimes.currentDeviceId,
         runtimeLane: input.localRuntimes.currentRuntimeLane,
       },
+      inventory: input.localRuntimes,
       offlineError: {
         code: "computer.file_access.service_offline",
         reason: "This computer isn't reachable for OpenMeld right now.",
@@ -3490,17 +3510,19 @@ async function resolveCurrentOpenMeldToolsControlTarget(input: {
   capability: "requestUpdate" | "setAutomaticUpdates";
   env: CoreBindings;
   userId: string;
-}): Promise<CurrentLocalControlTarget> {
-  const { currentTarget, ownerService } =
-    await resolveCurrentLocalControlTarget({
-      env: input.env,
-      offlineError: {
-        code: "service_offline",
-        reason: "OpenMeld Service is offline.",
-        status: 503,
-      },
-      userId: input.userId,
-    });
+}): Promise<{ deviceId: string; runtimeLane: DaemonServiceLane }> {
+  const { bindingTarget, localRuntimes, ownerService } =
+    await resolveCurrentLocalServiceContext(input);
+  const currentTarget = requireCurrentLocalRuntimeServiceTarget({
+    bindingTarget,
+    inventory: localRuntimes,
+    offlineError: {
+      code: "service_offline",
+      reason: "OpenMeld Service is offline.",
+      status: 503,
+    },
+    ownerService,
+  });
   const supportsControl =
     ownerService.online &&
     ownerService.sessions.some(
@@ -5000,6 +5022,7 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
 function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
   const definitiveCodes = new Set([
     "agent_profile_work_recovery.continuation_conflict",
+    "agent_profile_work_recovery.continuation_source_mismatch",
     "agent_profile_work_recovery.continuation_unavailable",
   ]);
   const visited = new Set<unknown>();
@@ -5011,6 +5034,12 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
     visited.add(current);
     const record = current as Record<string, unknown>;
     if (typeof record.code === "string" && definitiveCodes.has(record.code)) {
+      return true;
+    }
+    if (
+      typeof record.message === "string" &&
+      definitiveCodes.has(record.message)
+    ) {
       return true;
     }
     current = record.cause ?? null;
@@ -5037,6 +5066,15 @@ async function executeAgentProfileWorkContinuation(input: {
   ) {
     return "deferred";
   }
+  const deterministicIdentity = await buildAgentProfileWorkContinuationIdentity(
+    {
+      interruptedClientMessageId: input.recovery.interruptedClientMessageId,
+      targetProfileId: input.targetProfileId,
+    }
+  );
+  const continuationClientMessageId =
+    input.recovery.authorizedContinuationClientMessageId ??
+    deterministicIdentity.continuationClientMessageId;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
     input.env,
     input.recovery.spaceId
@@ -5048,52 +5086,9 @@ async function executeAgentProfileWorkContinuation(input: {
     spaceId,
     targetProfileId: input.targetProfileId,
   });
-  const inspected = await stub.rpcInspectExecutionRecovery({
-    context: input.context,
-    dispatchId: input.recovery.interruptedDispatchId,
-    spaceAccess,
-    spaceId,
-  });
-  const projection = inspected.recovery;
-  if (
-    projection.identity.dispatchId !== input.recovery.interruptedDispatchId ||
-    projection.identity.targetProfileId !== input.targetProfileId ||
-    projection.identity.spaceId !== spaceId ||
-    !projection.actions.retryAsNewExecution.enabled
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_unavailable",
-      reason:
-        "OpenMeld could not verify the interrupted task for a safe continuation.",
-      status: 409,
-    });
-  }
-  const command: ExecuteExecutionRecoveryBody = {
-    action: "retry_as_new_execution",
-    destination: projection.destination,
-    expectedIdentity: projection.identity,
-    operationId: await buildAgentProfileWorkRecoveryOperationId({
-      interruptedClientMessageId: input.recovery.interruptedClientMessageId,
-      targetProfileId: input.targetProfileId,
-    }),
-  };
-  const operationKeys = await buildExecutionRecoveryOperationKeys(command);
-  const continuationClientMessageId =
-    buildExecutionRecoveryFreshClientMessageId(operationKeys.claimStorageKey);
-  if (
-    input.recovery.authorizedContinuationClientMessageId !== null &&
-    input.recovery.authorizedContinuationClientMessageId !==
-      continuationClientMessageId
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_conflict",
-      reason: "This interrupted task already has a different continuation.",
-      status: 409,
-    });
-  }
   if (input.recovery.authorizedContinuationClientMessageId === null) {
-    const currentBinding =
-      await requireCurrentAgentProfileWorkContinuationBinding({
+    const currentTarget =
+      await requireCurrentAgentProfileWorkContinuationTarget({
         env: input.env,
         ownerUserId: input.ownerUserId,
         targetProfileId: input.targetProfileId,
@@ -5101,9 +5096,10 @@ async function executeAgentProfileWorkContinuation(input: {
     const authorized =
       await input.ownerShard.rpcAuthorizeAgentProfileWorkContinuation({
         continuationClientMessageId,
-        currentAgentControllerRef: currentBinding.agentControllerRef,
-        currentBindingId: currentBinding.bindingId,
-        currentConfigurationRevision: currentBinding.configurationRevision,
+        currentAgentControllerRef: currentTarget.agentControllerRef,
+        currentBindingId: currentTarget.bindingId,
+        currentConfigurationRevision: currentTarget.configurationRevision,
+        currentDefaultProjectId: currentTarget.defaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           input.recovery.interruptedTargetWakeLifecycleId,
         ownerUserId: input.ownerUserId,
@@ -5114,23 +5110,17 @@ async function executeAgentProfileWorkContinuation(input: {
       throwAgentProfileWorkContinuationAuthorizationError(authorized.status);
     }
   }
-  const executed = await stub.rpcExecuteExecutionRecovery({
-    body: command,
+  await stub.rpcStartUsageExhaustedContinuation({
+    continuationClientMessageId,
     context: input.context,
+    interruptedClientMessageId: input.recovery.interruptedClientMessageId,
+    interruptedDispatchId: input.recovery.interruptedDispatchId,
+    interruptedSourceSignalId: input.recovery.interruptedSourceSignalId,
+    operationId: deterministicIdentity.operationId,
     spaceAccess,
     spaceId,
+    targetProfileId: input.targetProfileId,
   });
-  if (
-    executed.status !== "new_execution_requested" &&
-    executed.status !== "already_completed"
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_outcome_unknown",
-      reason:
-        "OpenMeld could not confirm that the continuation started. Check this Agent’s Activity before trying again.",
-      status: 503,
-    });
-  }
   return "started";
 }
 
@@ -5159,7 +5149,7 @@ function throwAgentProfileWorkContinuationAuthorizationError(
   });
 }
 
-async function requireCurrentAgentProfileWorkContinuationBinding(input: {
+async function requireCurrentAgentProfileWorkContinuationTarget(input: {
   env: CoreBindings;
   ownerUserId: string;
   targetProfileId: string;
@@ -5167,6 +5157,7 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
   agentControllerRef: string;
   bindingId: string;
   configurationRevision: number;
+  defaultProjectId: string | null;
 }> {
   const bindingDb = localStateDb(input.env);
   if (!bindingDb) {
@@ -5176,18 +5167,27 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
       status: 503,
     });
   }
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.targetProfileId,
-    db: bindingDb,
-    owner: { id: input.ownerUserId, kind: "owner_account" },
-  });
+  const [binding, authScope] = await Promise.all([
+    readPrimaryAgentProfileBindingRecord({
+      agentProfileId: input.targetProfileId,
+      db: bindingDb,
+      owner: { id: input.ownerUserId, kind: "owner_account" },
+    }),
+    resolveAgentProfileWorkRecoveryAuthScope({
+      agentProfileId: input.targetProfileId,
+      authWorker: input.env.OPENMELD_AUTH_WORKER,
+    }),
+  ]);
   const agentControllerRef = binding
     ? parseAgentControllerRef(binding.agentControllerRef)
     : null;
   if (
     binding?.bindingState !== "enabled_primary" ||
     binding.runtimeKind !== "openmeld_service" ||
-    !agentControllerRef
+    !agentControllerRef ||
+    authScope.status === "invalid" ||
+    (authScope.status === "valid" &&
+      authScope.scope.ownerUserId !== input.ownerUserId)
   ) {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.continuation_unavailable",
@@ -5196,22 +5196,33 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
       status: 409,
     });
   }
+  if (authScope.status !== "valid") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld could not verify this Agent’s current setup yet.",
+      status: 503,
+    });
+  }
   return {
     agentControllerRef: agentControllerRef.ref,
     bindingId: binding.bindingId,
     configurationRevision: binding.configurationRevision,
+    defaultProjectId: authScope.scope.defaultProjectId,
   };
 }
 
-async function buildAgentProfileWorkRecoveryOperationId(input: {
+async function buildAgentProfileWorkContinuationIdentity(input: {
   interruptedClientMessageId: string;
   targetProfileId: string;
-}): Promise<string> {
+}): Promise<{
+  continuationClientMessageId: string;
+  operationId: string;
+}> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(
       JSON.stringify([
-        "agent_profile_work_recovery_v1",
+        "agent_profile_work_usage_continuation_v1",
         input.targetProfileId,
         input.interruptedClientMessageId,
       ])
@@ -5220,7 +5231,10 @@ async function buildAgentProfileWorkRecoveryOperationId(input: {
   const hex = Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("");
-  return `agent-profile-work-recovery:${hex}`;
+  return {
+    continuationClientMessageId: `agent-profile-work-continuation-${hex}`,
+    operationId: `agent-profile-work-continuation:${hex}`,
+  };
 }
 
 export async function rpcGetAgentProfileControllerChangeEligibility(
@@ -5835,6 +5849,15 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
         eligibleAgentProfiles: input.eligibleAgentProfiles,
         env: input.env,
         viewerUserId: input.viewerUserId,
+      }).catch((error) => {
+        console.warn(
+          "[core.organization_agent_runtime_overview.activity_unavailable]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            organizationId: input.organizationId,
+          }
+        );
+        return new Map<string, DirectoryOperationalContextRead>();
       }),
     ]);
   const ownerWorkSpaceIds = [
@@ -5856,11 +5879,22 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
       ),
     ];
   });
-  const spaceNamesById = await readSpaceIndexNamesByIds({
-    db: requireSpaceIndexDb(input.env),
-    organizationId: input.organizationId,
-    spaceIds: ownerWorkSpaceIds,
-  });
+  let spaceNamesById = new Map<string, string>();
+  try {
+    spaceNamesById = await readSpaceIndexNamesByIds({
+      db: requireSpaceIndexDb(input.env),
+      organizationId: input.organizationId,
+      spaceIds: ownerWorkSpaceIds,
+    });
+  } catch (error) {
+    console.warn(
+      "[core.organization_agent_runtime_overview.space_names_unavailable]",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        organizationId: input.organizationId,
+      }
+    );
+  }
   const response = {
     agentProfiles: input.eligibleAgentProfiles.map((agent) => {
       const readiness = readinessByProfileId.get(agent.profileId);
@@ -5950,6 +5984,33 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             targets: onlineTargets,
           })
         : null;
+      const workingFolderExpectedRoutesByTarget = new Map<
+        string,
+        Awaited<ReturnType<typeof readLocalRuntimeExpectedRoutes>> | null
+      >();
+      const stateDb = localStateDb(input.env);
+      if (preloadedRoutes && stateDb) {
+        const uniqueOnlineTargets = new Map(
+          onlineTargets.map((target) => [
+            `${target.deviceId}\u0000${target.runtimeLane}`,
+            target,
+          ])
+        );
+        await Promise.all(
+          [...uniqueOnlineTargets].map(async ([key, target]) => {
+            const result = await readLocalRuntimeExpectedRoutes({
+              authWorker: input.env.OPENMELD_AUTH_WORKER,
+              contractVersion: "v4",
+              db: stateDb,
+              deviceId: target.deviceId,
+              generatedAt: input.generatedAt,
+              lane: target.runtimeLane,
+              ownerUserId,
+            }).catch(() => null);
+            workingFolderExpectedRoutesByTarget.set(key, result);
+          })
+        );
+      }
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
@@ -5967,6 +6028,10 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             ...(preloadedOwnerService === null
               ? {}
               : { preloadedOwnerService }),
+            ...buildPreloadedWorkingFolderExpectedRoutesInput({
+              preloadedRoute,
+              workingFolderExpectedRoutesByTarget,
+            }),
             preloadedProfileIdentity: {
               ownerUserId: agent.ownerUserId,
               profileKind: "agent",
@@ -5999,6 +6064,31 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     }
   );
   return new Map(ownerResults.flat());
+}
+
+function buildPreloadedWorkingFolderExpectedRoutesInput(input: {
+  preloadedRoute:
+    | import("@openmeld/schemas/types").RuntimeTransportLookupRouteResponse
+    | null
+    | undefined;
+  workingFolderExpectedRoutesByTarget: ReadonlyMap<
+    string,
+    Awaited<ReturnType<typeof readLocalRuntimeExpectedRoutes>> | null
+  >;
+}): {
+  preloadedWorkingFolderExpectedRoutes?: Awaited<
+    ReturnType<typeof readLocalRuntimeExpectedRoutes>
+  > | null;
+} {
+  if (!input.preloadedRoute?.online) {
+    return {};
+  }
+  return {
+    preloadedWorkingFolderExpectedRoutes:
+      input.workingFolderExpectedRoutesByTarget.get(
+        `${input.preloadedRoute.deviceId}\u0000${input.preloadedRoute.lane}`
+      ) ?? null,
+  };
 }
 
 async function mapWithConcurrency<Input, Output>(
@@ -20458,7 +20548,7 @@ async function requireAgentProfileWorkspaceScope(
     });
   }
 
-  if (!profileOrganization || profileOrganization.profileKind !== "agent") {
+  if (profileOrganization?.profileKind !== "agent") {
     throw createCoreRpcHttpError({
       code: "agent_profile.not_found",
       reason: "Agent Profile was not found.",

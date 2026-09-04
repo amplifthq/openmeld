@@ -67,6 +67,58 @@ export function resolveWakeFailureDisplay(input: {
 	};
 }
 
+export function resolveHistoricalWakeFailureBody(input: {
+	failureReasonCode: string | null | undefined;
+	targetLabel: string;
+}): string {
+	const reasonCode = normalizeOptionalText(
+		input.failureReasonCode
+	)?.toLowerCase();
+	const targetName = formatTargetName(input.targetLabel);
+
+	if (reasonCode === "cursor.plan_upgrade_required") {
+		return `${targetName} stopped this Wake because the Cursor plan had reached its usage limit.`;
+	}
+	if (reasonCode === "usage_exhausted") {
+		return `${targetName} could not start this Wake because its Usage Limit had been reached.`;
+	}
+	if (
+		reasonCode === "service.update_required" ||
+		reasonCode === "service.drifted" ||
+		reasonCode?.startsWith("background_helper.update_required") ||
+		reasonCode?.startsWith("background_helper.installed_outdated")
+	) {
+		return `${targetName} could not complete this Wake because OpenMeld on its computer needed an update at the time.`;
+	}
+	if (reasonCode === "permission.denied.runtime") {
+		return `${targetName} could not complete this Wake because the Agent Profile's permission settings blocked the requested action.`;
+	}
+	if (reasonCode === "agent_profile.organization_mismatch") {
+		return `${targetName} could not start this Wake because its Agent Profile belonged to a different workspace.`;
+	}
+	if (
+		reasonCode?.endsWith("provider.unavailable") ||
+		reasonCode?.endsWith("provider.bad_gateway") ||
+		reasonCode?.endsWith("model.provider_unavailable")
+	) {
+		return `${targetName} could not complete this Wake because its selected model was unavailable.`;
+	}
+	if (reasonCode === "openmeld.space_action.repair_failed") {
+		return `${targetName} answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.`;
+	}
+	if (reasonCode === "service.not_running") {
+		return `${targetName} could not complete this Wake because its computer was not connected to OpenMeld at the time.`;
+	}
+	if (
+		reasonCode === "agent_profile_binding.missing" ||
+		reasonCode === "controller.runtime.missing"
+	) {
+		return `${targetName} could not start this Wake.`;
+	}
+
+	return `${targetName} could not complete this Wake.`;
+}
+
 export function resolveWakeFailureTargetContext(input: {
 	controllerDisplayName?: string | null;
 	currentOwnerUserId: string | null | undefined;

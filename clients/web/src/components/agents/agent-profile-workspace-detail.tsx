@@ -39,7 +39,7 @@ import type {
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
-import { SpaceAgentOrb } from "#/components/spaces/space-agent-orb";
+import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
 export function AgentProfileWorkspaceDetail(input: {
 	activityNavigation: AgentProfileActivityNavigation | null;
@@ -64,35 +64,28 @@ export function AgentProfileWorkspaceDetail(input: {
 	profile: AuthProfileView;
 	supportingContent?: ReactNode;
 	wakeAvailability: AgentWakeAvailability | null;
+	wakeAvailabilityCheckedAt: string | null;
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
+	wakeAvailabilityIsRefreshing: boolean;
+	wakeAvailabilityNowMs: number;
 	headerRecoveryActions?: ReactNode;
 }) {
-	const displayedWakeAvailability = input.wakeAvailabilityErrorMessage
-		? null
-		: input.wakeAvailability;
+	const displayedWakeAvailability = input.wakeAvailability;
 	const showOwnerOperationalContext =
 		input.details.viewerScope === "owner_self";
 	const projectedRecoveryAction = input.details.sections.find(
 		(section) => section.id === "activity"
 	)?.recoveryAction;
-	let availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
+	const availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
 		displayedWakeAvailability
 	);
-	if (!displayedWakeAvailability && input.wakeAvailabilityErrorMessage) {
-		availabilityCategory = "unavailable";
-	}
 	const hasReducedProminence =
 		availabilityCategory === "offline" ||
 		availabilityCategory === "unavailable";
 	const visibleActivityNavigation = showOwnerOperationalContext
 		? input.activityNavigation
 		: null;
-	const currentActivityDestination = resolveCurrentActivityDestination({
-		activityNavigation: visibleActivityNavigation,
-		currentSession: input.currentSession,
-		operationalContext: input.operationalContext,
-	});
 	let operationalRecoveryAction: ReactNode = null;
 	if (
 		showOwnerOperationalContext &&
@@ -135,23 +128,19 @@ export function AgentProfileWorkspaceDetail(input: {
 							{input.controllerModelSummary}
 						</p>
 						<AgentProfilePresence
-							currentDestination={currentActivityDestination}
-							operationalContext={input.operationalContext}
+							headerRecoveryActions={
+								showOwnerOperationalContext ? input.headerRecoveryActions : null
+							}
 							wakeAvailability={displayedWakeAvailability}
+							wakeAvailabilityCheckedAt={input.wakeAvailabilityCheckedAt}
 							wakeAvailabilityErrorMessage={input.wakeAvailabilityErrorMessage}
 							wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
+							wakeAvailabilityIsRefreshing={input.wakeAvailabilityIsRefreshing}
+							wakeAvailabilityNowMs={input.wakeAvailabilityNowMs}
 						/>
 					</div>
 				</div>
 				<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
-					{showOwnerOperationalContext && input.headerRecoveryActions ? (
-						<div
-							className="flex max-w-full flex-wrap items-center justify-end gap-2"
-							data-testid="agent-profile-header-recovery-actions"
-						>
-							{input.headerRecoveryActions}
-						</div>
-					) : null}
 					<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
 						<Button
 							disabled={input.isDirectMessagePending}
@@ -185,30 +174,25 @@ export function AgentProfileWorkspaceDetail(input: {
 type AgentProfilePresenceStatus =
 	| "available"
 	| "checking"
-	| "needs_attention"
-	| "unavailable"
-	| "waiting"
-	| "working";
+	| "offline"
+	| "unknown"
+	| "unavailable";
 
 function AgentProfilePresence(input: {
-	currentDestination: AgentProfileActivityDestination | null;
-	operationalContext: AgentProfileOperationalContextInput | null;
+	headerRecoveryActions: ReactNode;
 	wakeAvailability: AgentWakeAvailability | null;
+	wakeAvailabilityCheckedAt: string | null;
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
+	wakeAvailabilityIsRefreshing: boolean;
+	wakeAvailabilityNowMs: number;
 }) {
 	const presentation = resolveAgentProfilePresence(input);
-	const waitingWork = formatWaitingWork({
-		operationalContext: input.operationalContext,
-	});
-	const linkableDestination =
-		presentation.status === "working" ||
-		presentation.status === "needs_attention" ||
-		presentation.status === "waiting"
-			? input.currentDestination
-			: null;
-	const interactiveLabelClassName = linkableDestination
-		? "underline-offset-4 group-hover/presence:underline group-focus-visible/presence:underline"
+	const checkedAt = input.wakeAvailability
+		? formatAgentWakeAvailabilityCheckedAt(
+				input.wakeAvailabilityCheckedAt,
+				input.wakeAvailabilityNowMs
+			)
 		: null;
 	const presenceIcon = (
 		<span
@@ -226,10 +210,7 @@ function AgentProfilePresence(input: {
 			className={cn(
 				"font-medium text-sm leading-5",
 				presentation.textClassName,
-				presentation.status === "working"
-					? null
-					: "[--base-color:var(--color-sky-700)] [--base-gradient-color:var(--color-sky-300)] dark:[--base-color:var(--color-sky-300)] dark:[--base-gradient-color:var(--color-sky-100)]",
-				interactiveLabelClassName
+				"[--base-color:var(--color-sky-700)] [--base-gradient-color:var(--color-sky-300)] dark:[--base-color:var(--color-sky-300)] dark:[--base-gradient-color:var(--color-sky-100)]"
 			)}
 			duration={1.8}
 		>
@@ -239,27 +220,19 @@ function AgentProfilePresence(input: {
 		<span
 			className={cn(
 				"font-medium text-sm leading-5",
-				presentation.textClassName,
-				interactiveLabelClassName
+				presentation.textClassName
 			)}
+			role={
+				input.wakeAvailabilityErrorMessage && !input.wakeAvailability
+					? "alert"
+					: undefined
+			}
 		>
 			{presentation.label}
+			{input.wakeAvailabilityErrorMessage && !input.wakeAvailability ? (
+				<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
+			) : null}
 		</span>
-	);
-	const presenceStatus = linkableDestination ? (
-		<a
-			aria-label={resolveActivityDestinationAriaLabel(linkableDestination)}
-			className="group/presence inline-flex min-w-0 items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-			href={linkableDestination.href}
-		>
-			{presenceIcon}
-			{presenceLabel}
-		</a>
-	) : (
-		<>
-			{presenceIcon}
-			{presenceLabel}
-		</>
 	);
 	return (
 		<div
@@ -269,25 +242,34 @@ function AgentProfilePresence(input: {
 			data-testid="agent-profile-presence"
 			title={presentation.tooltip}
 		>
-			{presenceStatus}
+			{presenceIcon}
+			{presenceLabel}
+			{checkedAt ? (
+				<span className="text-muted-foreground text-xs leading-5">
+					· {checkedAt}
+				</span>
+			) : null}
+			{input.wakeAvailability && input.wakeAvailabilityIsRefreshing ? (
+				<span className="text-muted-foreground text-xs leading-5">
+					Refreshing…
+				</span>
+			) : null}
 			{presentation.reason ? (
 				<span className="text-muted-foreground text-xs leading-5">
 					{presentation.reason}
 				</span>
 			) : null}
-			{waitingWork ? (
-				<span
-					className={cn(
-						"rounded-full border px-2 py-0.5 font-medium text-xs",
-						resolveStatusToneBadgeClassName("muted")
-					)}
+			{input.headerRecoveryActions ? (
+				<div
+					className="flex max-w-full flex-wrap items-center gap-2"
+					data-testid="agent-profile-header-recovery-actions"
 				>
-					{waitingWork.countLabel}
-				</span>
+					{input.headerRecoveryActions}
+				</div>
 			) : null}
-			{input.wakeAvailabilityErrorMessage ? (
+			{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
 				<span className="text-muted-foreground text-xs" role="alert">
-					Couldn’t check availability.
+					Couldn’t refresh availability.
 					<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
 				</span>
 			) : null}
@@ -296,11 +278,13 @@ function AgentProfilePresence(input: {
 }
 
 function resolveAgentProfilePresence(input: {
-	currentDestination: AgentProfileActivityDestination | null;
-	operationalContext: AgentProfileOperationalContextInput | null;
+	headerRecoveryActions: ReactNode;
 	wakeAvailability: AgentWakeAvailability | null;
+	wakeAvailabilityCheckedAt: string | null;
 	wakeAvailabilityErrorMessage: string | null;
 	wakeAvailabilityIsPending: boolean;
+	wakeAvailabilityIsRefreshing: boolean;
+	wakeAvailabilityNowMs: number;
 }): {
 	label: string;
 	reason: string | null;
@@ -309,68 +293,19 @@ function resolveAgentProfilePresence(input: {
 	textClassName: string;
 	tooltip: string;
 } {
-	const operationalContext = input.operationalContext;
-	if (operationalContext?.status === "checking") {
+	if (input.wakeAvailabilityErrorMessage && !input.wakeAvailability) {
 		return {
-			label: "Checking activity",
-			reason: null,
-			shimmer: true,
-			status: "checking",
-			textClassName: resolveStatusToneTextClassName("checking"),
-			tooltip: "Checking this Agent’s latest activity and Wake availability.",
-		};
-	}
-	if (operationalContext?.status === "working") {
-		const currentWorkLocation = input.currentDestination?.title ?? null;
-		return {
-			label: currentWorkLocation
-				? `Working in ${currentWorkLocation}`
-				: "Working",
-			reason: null,
-			shimmer: true,
-			status: "working",
-			textClassName: "text-foreground",
-			tooltip: currentWorkLocation
-				? `Working in ${currentWorkLocation}`
-				: "This Agent is working now.",
-		};
-	}
-	if (
-		operationalContext?.status === "paused" &&
-		operationalContext.recoveryAction
-	) {
-		return {
-			label: "Needs attention",
+			label: "Couldn’t check availability.",
 			reason: null,
 			shimmer: false,
-			status: "needs_attention",
-			textClassName: resolveStatusToneIconClassName("warning"),
-			tooltip: "Work is paused and needs your attention.",
-		};
-	}
-	if (operationalContext?.status === "paused") {
-		return {
-			label: "Waiting to continue",
-			reason: null,
-			shimmer: true,
-			status: "waiting",
-			textClassName: resolveStatusToneTextClassName("checking"),
-			tooltip: "The current work will continue when this Agent is ready.",
-		};
-	}
-	if (input.wakeAvailabilityErrorMessage) {
-		return {
-			label: "Unavailable for Wake",
-			reason: null,
-			shimmer: false,
-			status: "unavailable",
+			status: "unknown",
 			textClassName: resolveStatusToneTextClassName("muted"),
 			tooltip: input.wakeAvailabilityErrorMessage,
 		};
 	}
 	if (input.wakeAvailabilityIsPending || !input.wakeAvailability) {
 		return {
-			label: "Checking availability",
+			label: "Checking…",
 			reason: null,
 			shimmer: true,
 			status: "checking",
@@ -393,7 +328,7 @@ function resolveAgentProfilePresence(input: {
 	}
 	if (availabilityCategory === "available") {
 		return {
-			label: "Available for Wake",
+			label: input.wakeAvailability.badgeLabel,
 			reason: null,
 			shimmer: false,
 			status: "available",
@@ -402,10 +337,10 @@ function resolveAgentProfilePresence(input: {
 		};
 	}
 	return {
-		label: "Unavailable for Wake",
+		label: input.wakeAvailability.badgeLabel,
 		reason: resolveUnavailableWakeReason(input.wakeAvailability),
 		shimmer: false,
-		status: "unavailable",
+		status: availabilityCategory,
 		textClassName: resolveStatusToneTextClassName("muted"),
 		tooltip: input.wakeAvailability.tooltip,
 	};
@@ -428,20 +363,12 @@ function resolveUnavailableWakeReason(
 function AgentProfilePresenceIcon(input: {
 	status: AgentProfilePresenceStatus;
 }) {
-	if (input.status === "working") {
-		return <SpaceAgentOrb data-testid="agent-profile-presence-orb" />;
-	}
 	if (input.status === "available") {
 		return (
 			<CheckCircleIcon aria-hidden="true" className="size-5" weight="fill" />
 		);
 	}
-	if (input.status === "needs_attention") {
-		return (
-			<WarningCircleIcon aria-hidden="true" className="size-5" weight="fill" />
-		);
-	}
-	if (input.status === "unavailable") {
+	if (input.status === "unavailable" || input.status === "offline") {
 		return <ProhibitIcon aria-hidden="true" className="size-5" />;
 	}
 	return <ClockCountdownIcon aria-hidden="true" className="size-5" />;
@@ -849,16 +776,6 @@ function resolveActivitySourceLabel(
 		return "Direct Message";
 	}
 	return "Computer";
-}
-
-function formatWaitingWork(input: {
-	operationalContext: AgentProfileOperationalContextInput | null;
-}): { countLabel: string } | null {
-	const waitingCount = input.operationalContext?.waitingCount ?? 0;
-	if (waitingCount < 1) {
-		return null;
-	}
-	return { countLabel: `${waitingCount} queued` };
 }
 
 function AgentProfileNameEditor(input: {

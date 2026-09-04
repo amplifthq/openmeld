@@ -165,7 +165,7 @@ export function resolveAgentProfileWorkPromotionGate():
   return "open";
 }
 
-function parsePendingAgentProfileWorkPromotion(
+export function parsePendingAgentProfileWorkPromotion(
   value: unknown
 ): PendingAgentProfileWorkPromotion | null {
   if (!value || typeof value !== "object") {

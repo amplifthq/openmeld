@@ -286,32 +286,59 @@ describe("Core Projects", () => {
       }),
       { name: "OpenMeld" }
     );
+    const mutationOrder: string[] = [];
+    const acquireFutureWorkSettingsMutation = vi.fn(
+      (input: { operationId: string }) => {
+        mutationOrder.push("acquire");
+        return Promise.resolve({
+          expiresAtMs: Date.now() + 30_000,
+          operationId: input.operationId,
+          status: "acquired" as const,
+        });
+      }
+    );
+    const releaseExecutionTargetMutation = vi.fn(() => {
+      mutationOrder.push("release");
+      return Promise.resolve({ status: "released" as const });
+    });
     const updateDefaultProject = vi.fn(
-      async (input: { defaultProjectId: string | null }) => ({
-        ok: true as const,
-        profile: {
-          openMeldProfileId: agentProfileId,
-          profileName: "Project Agent",
-          profileHandle: "project-agent",
-          profileKind: "agent" as const,
-          isDefault: false,
-          status: "active" as const,
-          ownerUserId: actor.userId,
-          source: "cli_create",
-          managedRole: null,
-          defaultProjectId: input.defaultProjectId,
-          createdByUserId: actor.userId,
-          creatorProfileId: actor.profileId,
-          lastUsedAt: null,
-          createdAt: "2026-07-14T00:00:00.000Z",
-          updatedAt: "2026-07-14T00:00:00.000Z",
-        },
-      })
+      (input: { defaultProjectId: string | null }) => {
+        mutationOrder.push("update");
+        return Promise.resolve({
+          ok: true as const,
+          profile: {
+            openMeldProfileId: agentProfileId,
+            profileName: "Project Agent",
+            profileHandle: "project-agent",
+            profileKind: "agent" as const,
+            isDefault: false,
+            status: "active" as const,
+            ownerUserId: actor.userId,
+            source: "cli_create",
+            managedRole: null,
+            defaultProjectId: input.defaultProjectId,
+            createdByUserId: actor.userId,
+            creatorProfileId: actor.profileId,
+            lastUsedAt: null,
+            createdAt: "2026-07-14T00:00:00.000Z",
+            updatedAt: "2026-07-14T00:00:00.000Z",
+          },
+        });
+      }
     );
     const coreEnv = {
       ...env,
       OPENMELD_AUTH_WORKER: {
         updateAgentProfileDefaultProjectInOrganization: updateDefaultProject,
+      },
+      OPENMELD_RUNTIME_TRANSPORT: {
+        get: vi.fn(() => ({
+          rpcAcquireAgentProfileFutureWorkSettingsMutation:
+            acquireFutureWorkSettingsMutation,
+          rpcReleaseAgentProfileControllerMutation:
+            releaseExecutionTargetMutation,
+        })),
+        idFromName: vi.fn((value: string) => value),
       },
     } as unknown as CoreBindings;
     const context = {
@@ -352,6 +379,16 @@ describe("Core Projects", () => {
       })
     ).rejects.toThrow("project.not_found");
     expect(updateDefaultProject).toHaveBeenCalledTimes(2);
+    expect(acquireFutureWorkSettingsMutation).toHaveBeenCalledTimes(2);
+    expect(releaseExecutionTargetMutation).toHaveBeenCalledTimes(2);
+    expect(mutationOrder).toEqual([
+      "acquire",
+      "update",
+      "release",
+      "acquire",
+      "update",
+      "release",
+    ]);
   });
 
   it("atomically caps active Projects before the list contract can overflow", async () => {

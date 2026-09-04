@@ -1976,6 +1976,43 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
+	it("shows the current recovery action beside a known blocked Wake", () => {
+		const blockedProfileId = "agt_22222222-2222-4222-8222-222222222222";
+		renderSpaceConversationPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					blockedProfileId,
+					{
+						body: "Review Runner's Agent Profile settings.",
+						kind: "review_agent_profile",
+						primaryActionId: "review_agent_settings",
+						primaryActionLabel: "Review agent settings",
+						profileId: blockedProfileId,
+						profileName: "Runner",
+						recoveryReasonCode: "agent_profile_binding.missing",
+						secondaryLabel: "Runner needs attention.",
+						title: "Runner needs attention",
+					},
+				],
+			]),
+			allowedActions: ["post_message"],
+			composerBlockedWakeProfileId: blockedProfileId,
+			composerErrorMessage: "Runner can't reply right now.",
+			readOnly: false,
+		});
+
+		const recoveryAction = screen.getByRole("link", {
+			name: "Review agent settings",
+		});
+		expect(recoveryAction.getAttribute("href")).toBe(
+			`/o/acme/agents?profileId=${blockedProfileId}`
+		);
+		expect(screen.getByText("Runner can't reply right now.")).toBeTruthy();
+		expect(document.body.textContent).not.toContain(
+			`Profile: ${blockedProfileId}`
+		);
+	});
+
 	it("lets a person send a ready file without adding filler text", async () => {
 		const onSend = vi.fn(async () => undefined);
 		renderSpaceConversationPanel({
@@ -3561,7 +3598,7 @@ describe("SpaceConversationPanel", () => {
 		expect(marker?.className).not.toContain("text-destructive");
 	});
 
-	it("moves an anchored failure into the source message footer and keeps full details behind Details", () => {
+	it("moves an anchored failure into the source message footer and keeps a past-tense outcome in Details", () => {
 		const detailedFailure =
 			"OpenMeld could not reach Codex 5.6 Sol on this computer for this Wake. Reconnect the computer, then try again.";
 		renderSpaceConversationPanel({
@@ -3613,10 +3650,13 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
-		expect(screen.getByText(detailedFailure)).toBeTruthy();
+		expect(
+			screen.getByText("Codex 5.6 Sol could not complete this Wake.")
+		).toBeTruthy();
+		expect(screen.queryByText(detailedFailure)).toBeNull();
 	});
 
-	it("offers recovery only inside Message details for an anchored failure", async () => {
+	it("does not execute a fresh Wake through Message details recovery", async () => {
 		const onRecoverExecution = vi.fn<SpaceExecutionRecoveryHandler>(
 			async (attempt) =>
 				attempt.action === null
@@ -3663,19 +3703,11 @@ describe("SpaceConversationPanel", () => {
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
-		const retry = await screen.findByRole("button", {
-			name: "Retry as new execution",
-		});
-		fireEvent.click(retry);
-		await waitFor(() => {
-			expect(onRecoverExecution).toHaveBeenCalledWith({
-				action: "retry_as_new_execution",
-				dispatchId: "dispatch-1",
-				operationId: expect.any(String),
-				resultRef: null,
-				targetProfileId: TARGET_PROFILE_ID,
-			});
-		});
+		await screen.findByRole("dialog", { name: "Message details" });
+		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
 	});
 
 	it("summarizes multiple anchored failures in one stable footer", () => {

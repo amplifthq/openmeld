@@ -20,6 +20,11 @@ export function didLocalProjectConnectionsChange(
         "removedCount" in frame.payload.result &&
         frame.payload.result.removedCount > 0
       );
+    case "daemon.local_project_control.set_default_connection_result":
+      return (
+        "status" in frame.payload.result &&
+        frame.payload.result.status === "updated"
+      );
     default:
       return false;
   }

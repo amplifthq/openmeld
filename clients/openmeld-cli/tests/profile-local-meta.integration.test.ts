@@ -12,7 +12,7 @@ import {
   readProfileLocalMetaForAccount,
 } from "../src/config/profile-local-meta";
 import { resolveDispatchRuntimeContext } from "../src/local-service/execution/dispatch-runtime-preparation";
-import { resolveEffectiveProfileWorkingFolderRuntime } from "../src/profile-workspace/effective-runtime-resolution";
+import { resolveCurrentEffectiveProfileWorkingFolderRuntime } from "../src/profile-workspace/effective-runtime-resolution";
 import { withTempHome } from "./helpers/fs";
 
 const FALLBACK_ACCOUNT = {
@@ -179,11 +179,46 @@ describe("profile local meta", () => {
       ).resolves.toEqual({
         providerRuntimeWorkingDirectory: workspacePath,
       });
+      await expect(
+        resolveCurrentEffectiveProfileWorkingFolderRuntime({
+          defaultProjectId: null,
+          mode: "inspect",
+          openMeldProfileId: "agt-runtime-without-default-project",
+        })
+      ).resolves.toMatchObject({
+        effectiveRuntimeWorkingDirectory: workspacePath,
+        workingFolderFact: {
+          defaultProjectId: null,
+          localProjectBindingGeneration: null,
+          observedAtMs: expect.any(Number),
+          reasonCode: null,
+          source: "profile_workspace",
+          status: "ready",
+        },
+        workingFolderSource: "profile_workspace",
+      });
     });
   });
 
   it("fails closed when a Default Project has no local connection", async () => {
     await withTempHome(async () => {
+      await expect(
+        resolveCurrentEffectiveProfileWorkingFolderRuntime({
+          defaultProjectId: "project-missing",
+          mode: "inspect",
+          openMeldProfileId: "agt-project-missing",
+        })
+      ).resolves.toMatchObject({
+        status: "missing",
+        workingFolderFact: {
+          defaultProjectId: "project-missing",
+          localProjectBindingGeneration: null,
+          observedAtMs: expect.any(Number),
+          reasonCode: "project.local_connection.missing",
+          source: "default_project",
+          status: "missing",
+        },
+      });
       await expect(
         resolveDispatchRuntimeContext({
           defaultProjectId: "project-missing",
@@ -203,7 +238,7 @@ describe("profile local meta", () => {
     await withTempHome(async (home) => {
       const repositoryPath = join(home, "missing-project-folder");
       await mkdir(repositoryPath, { recursive: true });
-      await bindProject({
+      const connection = await bindProject({
         organizationId: "org-1",
         projectId: "project-folder-missing",
         projectSlug: "folder-missing",
@@ -211,6 +246,24 @@ describe("profile local meta", () => {
         repositoryPath,
       });
       await rm(repositoryPath, { recursive: true });
+
+      await expect(
+        resolveCurrentEffectiveProfileWorkingFolderRuntime({
+          defaultProjectId: "project-folder-missing",
+          mode: "inspect",
+          openMeldProfileId: "agt-project-folder-missing",
+        })
+      ).resolves.toMatchObject({
+        status: "missing",
+        workingFolderFact: {
+          defaultProjectId: "project-folder-missing",
+          localProjectBindingGeneration: connection.bindingGeneration,
+          observedAtMs: expect.any(Number),
+          reasonCode: "project.local_connection.folder_missing",
+          source: "default_project",
+          status: "missing",
+        },
+      });
 
       await expect(
         resolveDispatchRuntimeContext({
@@ -249,7 +302,7 @@ describe("profile local meta", () => {
         providerRuntimeWorkingDirectory: connection.repositoryPath,
       });
       await expect(
-        resolveEffectiveProfileWorkingFolderRuntime({
+        resolveCurrentEffectiveProfileWorkingFolderRuntime({
           defaultProjectId: "project-available",
           mode: "inspect",
           openMeldProfileId: "agt-project-available",
@@ -259,6 +312,14 @@ describe("profile local meta", () => {
         defaultProjectId: "project-available",
         effectiveRuntimeWorkingDirectory: connection.repositoryPath,
         status: "ready",
+        workingFolderFact: {
+          defaultProjectId: "project-available",
+          localProjectBindingGeneration: connection.bindingGeneration,
+          observedAtMs: expect.any(Number),
+          reasonCode: null,
+          source: "default_project",
+          status: "ready",
+        },
         workingFolderSource: "default_project",
         workspaceMode: null,
       });

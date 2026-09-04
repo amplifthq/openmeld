@@ -3178,23 +3178,14 @@ payloads. OpenMeld-owned identity, security, routing, queue, and publication
 failures continue to use precise OpenMeld-authored copy and one practical next
 action.
 
-A single terminal execution failure with no recoverable result shows
-**Retry as new execution** inline when Web can
-recover the exact source text and exact target Agent Profile. That action
-is labeled **Retry as new execution**, creates a fresh Wake with a new
-client-message identity, and makes clear that the request will run again. Every
-transport retry
-for that one action reuses the same identity. If Web cannot confirm the outcome,
-it shows `New execution not confirmed. Try again`; selecting that action
-redrives the same identity instead of creating another logical Wake. Only a
-definite failure clears the identity before another Retry. Grouped failures,
-stopped outcomes, publication failures, and outcomes without an exact source
-and target omit inline Retry rather than guessing what to rerun. `Open
-diagnostics` expands and focuses the retained technical details, including the
-bounded reason code, while raw internal error text stays out of product copy.
-If the fresh Retry request definitively fails, the action must show that failure
-visibly and remain available for another attempt; console logging alone is not
-a user-facing outcome. Outcome unknown is not definite failure.
+A terminal execution outcome does not show an inline action that starts another
+execution. Web exposes only exact result replay or exact conversation reply
+recovery when Core authorizes those operations. To run the request again, the
+user starts a new Wake through the ordinary composer so current Wakeability,
+target, authorization, and client-message identity are evaluated afresh.
+`Open diagnostics` expands and focuses the retained technical details,
+including the bounded reason code, while raw internal error text stays out of
+product copy. Outcome unknown never authorizes a second logical execution.
 
 When a persisted Agent Profile reply carries server-authored reply staleness
 context, Web may show the quiet `written before N newer messages` marker next to
@@ -3240,11 +3231,13 @@ Agent DMs use `Tell Center Agent what you need…`, and Threads use
 `Reply in thread…`.
 
 The `@` picker optimizes for the common user action:
-selecting an Agent Profile authors Wake by default while keeping the visible
-composer text as a plain `@Name` mention. The same picker surface exposes the
-other allowed relation without a required second dialog: Wake uses `@`, and
-Reference uses a link-style symbol. Selecting a Human Profile creates a fixed
-Human Mention mark; people never receive an Agent relation selector.
+selecting an Agent Profile authors Wake by default only when the current
+Core-owned Wakeability projection is `ready`, while keeping the visible composer
+text as a plain `@Name` mention. An unavailable or checking Agent defaults to
+Reference. The same picker surface exposes the other allowed relation without a
+required second dialog: Wake uses `@`, and Reference uses a link-style symbol.
+Selecting a Human Profile creates a fixed Human Mention mark; people never
+receive an Agent relation selector.
 
 After selection, Web renders one persistent editable semantic control per
 structured target. An Agent control places `@`, the Agent Profile icon,
@@ -3259,6 +3252,14 @@ or keyboard focus and remains available on touch-only surfaces. Web submits all
 structured relations explicitly instead of relying on Core to infer Wake from
 arbitrary bare text. Changing a semantic control changes the authored structured
 relation; AI interpretation must never silently rewrite it.
+
+An existing or restored Wake draft remains a Wake while the user edits it; Web
+does not silently downgrade the authored relation. Before every send path that
+would create a new Wake, Web reads the current Core-owned Wakeability and blocks
+before publishing the message or any Composer Upload when the Agent is not
+currently ready or the read cannot be completed. The Composer stays editable,
+the draft stays intact, and Reference authoring and ordinary text input remain
+available.
 
 The Composer member picker reuses the shared Fluid layout indicator for its
 active row. Pointer hover and combobox keyboard navigation update that one
@@ -3995,8 +3996,7 @@ projection. Web must not reconstruct it from local browser state, Space
 membership, Binding existence, route-online evidence, service health, setup
 completion, Agent Activity, one Wake's Outcome, or capability inventory. The
 current compatibility APIs and types may still use readiness or execution-status
-names during the migration described in
-`developing/architecture/wake-state-convergence-plan.md`.
+names, but those names do not create another authority path.
 
 Web may briefly refresh local owner diagnostics when Core reports checking or
 self-healing evidence, but that refresh behavior must have an explicit

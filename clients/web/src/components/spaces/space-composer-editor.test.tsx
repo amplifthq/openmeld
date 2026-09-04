@@ -207,6 +207,52 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
+	it("keeps Reference selectable while disabling Wake for a blocked Agent", () => {
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[createBlockedAgentTarget()]}
+				ariaLabel="Message this space"
+				authoredMentions={[
+					{
+						end: 7,
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+						start: 0,
+						text: "@Runner",
+					},
+				]}
+				mentionPickerItems={[]}
+				onChange={vi.fn()}
+				onSend={vi.fn()}
+				placeholder="To wake an agent, type @, then pick the agent."
+				text="@Runner review this."
+			/>
+		);
+
+		const relation = screen.getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		expect(
+			(
+				within(relation).getByRole("option", {
+					name: "Wake — Connect your computer before Runner can reply.",
+				}) as HTMLOptionElement
+			).disabled
+		).toBe(true);
+		expect(
+			(
+				within(relation).getByRole("option", {
+					name: "Reference",
+				}) as HTMLOptionElement
+			).disabled
+		).toBe(false);
+		expect(
+			screen
+				.getByRole("textbox", { name: "Message this space" })
+				.getAttribute("contenteditable")
+		).toBe("true");
+	});
+
 	it("opens the member picker from the @ control and inserts an Agent Wake token", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();
@@ -880,6 +926,17 @@ function createAgentTarget(): SpaceComposerAddressingTarget {
 			reasonCodes: [],
 			reasonText: null,
 			status: "ready",
+		},
+	};
+}
+
+function createBlockedAgentTarget(): SpaceComposerAddressingTarget {
+	return {
+		...createAgentTarget(),
+		wakeAvailability: {
+			reasonCodes: ["service.not_running"],
+			reasonText: "Connect your computer before Runner can reply.",
+			status: "blocked",
 		},
 	};
 }

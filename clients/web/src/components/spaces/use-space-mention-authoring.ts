@@ -305,6 +305,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				text,
 			}),
 		recordPendingSubmission: () => {
+			currentComposerHasDraftRef.current = false;
 			resetComposerState();
 		},
 		restoreFailedSubmission: (
@@ -313,6 +314,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			if (currentComposerHasDraftRef.current) {
 				return false;
 			}
+			currentComposerHasDraftRef.current = true;
 			const nextCaretPosition = preparedSubmission.text.length;
 			composerDraft.setContent({
 				authoredMentions: trackAuthoredMentionsInText({
@@ -446,8 +448,16 @@ export function buildSpaceMentionTargetItems(input: {
 export function resolveDefaultSpaceComposerMentionRelation(
 	suggestion: SpaceMentionSuggestion
 ): MessageMentionType | null {
-	if (suggestion.profileKind === "agent" && suggestion.allowedRelations.wake) {
-		return "wake";
+	if (suggestion.profileKind === "agent") {
+		if (
+			suggestion.allowedRelations.wake &&
+			suggestion.wakeAvailability.status === "ready"
+		) {
+			return "wake";
+		}
+		if (suggestion.allowedRelations.reference) {
+			return "reference";
+		}
 	}
 
 	if (

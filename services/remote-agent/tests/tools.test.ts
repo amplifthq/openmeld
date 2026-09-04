@@ -2152,7 +2152,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         mode: "update_service",
       })
     ).resolves.toEqual({
-      label: "Update OpenMeld Service",
+      label: "Update OpenMeld on Computer",
       target: {
         connectedComputerId: "computer_1",
         kind: "computer_setup",

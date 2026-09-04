@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
+	resolveAnchoredSpaceExecutionRecoveryState,
 	resolveAnchoredSpaceWakeRetryRequest,
 } from "./space-wake-retry";
 
@@ -101,6 +102,12 @@ describe("anchored execution recovery actions", () => {
 			})
 		).toBeNull();
 		expect(
+			resolveAnchoredSpaceExecutionRecoveryState({
+				notices,
+				outcomeNotice: terminalFailure(),
+			})
+		).toEqual({ request: null, status: "closed" });
+		expect(
 			resolveAnchoredSpaceWakeRetryRequest({
 				notices,
 				outcomeNotice: terminalFailure(),
@@ -169,5 +176,18 @@ describe("anchored execution recovery actions", () => {
 				outcomeNotice: failure,
 			})
 		).toBeNull();
+		expect(
+			resolveAnchoredSpaceExecutionRecoveryState({
+				notices: [
+					failure,
+					recoveryAvailable(),
+					{
+						...recoveryAvailable(),
+						systemNoticeResultRef: "dispatch-1::attempt-conflict",
+					},
+				],
+				outcomeNotice: failure,
+			})
+		).toEqual({ request: null, status: "invalid" });
 	});
 });
