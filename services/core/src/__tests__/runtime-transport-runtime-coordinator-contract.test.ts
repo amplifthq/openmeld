@@ -42,6 +42,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../lib/bindings";
+import { resolveCoreLocalComponentsReleaseManifest } from "../local-components/update-projection";
 import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission,
@@ -96,6 +97,11 @@ const RUN_ID_PATTERN = /^rctr_/;
 const SQL_SELECT_PATTERN = /^\s*SELECT\b/i;
 const TOKEN_FINGERPRINT_PATTERN = /^etfp_v1_[a-f0-9]{32}$/;
 const TOKEN_VALIDATION_HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const PUBLISHED_SERVICE_VERSION =
+  resolveCoreLocalComponentsReleaseManifest()?.components.service.bundleVersion;
+if (!PUBLISHED_SERVICE_VERSION) {
+  throw new Error("Expected the published OpenMeld Service release version.");
+}
 const buildAcceptedDispatchPayloadFingerprintStorageKey = (
   runtimeCoordinatorExecutionId: string
 ): string =>
@@ -3006,7 +3012,10 @@ const completeLatestAutomaticUpdateRequest = async (input: {
           input.result ??
           ({
             operation: "request_update",
-            result: { currentVersion: "0.3.153", status: "current" },
+            result: {
+              currentVersion: PUBLISHED_SERVICE_VERSION,
+              status: "current",
+            },
           } satisfies OpenMeldToolsControlResult),
       },
       v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
