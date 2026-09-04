@@ -2078,6 +2078,18 @@ export {
   spaceDispatchTraceStreamingSchema,
 } from "./http/space-dispatch-trace";
 export {
+  getSpaceEntryResolutionInputSchema,
+  getSpaceEntryResolutionResponseSchema,
+  spaceEntryAllowedViewSchema,
+  spaceEntryBlockedViewSchema,
+  spaceEntryOwnerSchema,
+  spaceEntryParticipationSchema,
+  spaceEntryRecoverySchema,
+  spaceEntrySafeContextSchema,
+  spaceEntryTargetSchema,
+  spaceEntryViewSchema,
+} from "./http/space-entry";
+export {
   buildSpaceComposerPublishedFileId,
   buildSpaceComposerUploadObjectKey,
   buildSpaceFileEntryIdForMutation,
