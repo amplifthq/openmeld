@@ -103,7 +103,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		const preview = screen.getByTestId("space-wake-preview-text");
 
 		expect(indicator.tagName).toBe("OUTPUT");
-		expect(indicator.textContent).toBe(`Agent is working · ${previewText}`);
+		expect(indicator.textContent).toBe(previewText);
 		expect(resolveOrbState(indicator)).toBe("composing");
 		expect(indicator.className).toContain("overflow-hidden");
 		expect(preview.className).toContain("truncate");

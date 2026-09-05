@@ -319,7 +319,7 @@ function InlineWakePreviewIndicator(input: {
 				data-testid="space-wake-preview-text"
 				style={{ fontVariationSettings: fontWeights.medium }}
 			>
-				{formatWakeProgress(input.text, true)}
+				{input.text}
 			</span>
 		</output>
 	);

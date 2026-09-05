@@ -187,14 +187,13 @@ export function AppSpacesSidebar(input: {
 	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
 	const otherActiveSpaceIds = [
 		...new Set(
-			[...sections.pinnedItems, ...sections.spaceItems]
-				.filter(
-					(space) =>
-						space.organizationId === currentOrganizationId &&
-						space.spaceId !== input.currentSpaceId &&
-						ambientActiveWakeSummaryBySpaceId.has(space.spaceId)
-				)
-				.map((space) => space.spaceId)
+			[...sections.pinnedItems, ...sections.spaceItems].flatMap((space) =>
+				space.organizationId === currentOrganizationId &&
+				space.spaceId !== input.currentSpaceId &&
+				ambientActiveWakeSummaryBySpaceId.has(space.spaceId)
+					? [space.spaceId]
+					: []
+			)
 		),
 	];
 	const otherActiveSpaceQueries = useQueries({
