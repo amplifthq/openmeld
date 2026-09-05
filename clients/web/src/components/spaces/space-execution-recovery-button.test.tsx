@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	SpaceExecutionRecoveryButton,
 	type SpaceExecutionRecoveryHandler,
-} from "./space-wake-retry";
+} from "./space-execution-recovery-actions";
 
 const recoveryRequest = {
 	dispatchId: "dispatch-1",

@@ -3549,10 +3549,9 @@ describe("remote agent OpenMeld tool catalog", () => {
         retryAsNewExecution: {
           action: "retry_as_new_execution" as const,
           enabled: false,
-          label: "Retry as new execution" as const,
-          reasonCode: "execution_recovery.higher_priority_action_available",
-          warning:
-            "This creates a new execution and may run the task again, including external side effects.",
+          label: "Start a new Wake" as const,
+          reasonCode: "execution_recovery.new_wake_required",
+          warning: null,
         },
       },
       destination,
@@ -3638,94 +3637,16 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
-  it("requests a fresh execution through the same Core recovery control plane", async () => {
-    const request = createSubmitTurnRequest();
-    const identity = {
-      agentControllerConversationId: null,
-      agentControllerRef: "builtin:codex",
-      attemptId: "attempt-1",
-      dispatchId: "dispatch-1",
-      resultRef: null,
-      runtimeCoordinatorExecutionId: "execution-1",
-      spaceId: "space-1",
-      targetProfileId: "agent-1",
-      taskId: "task-1",
-    };
-    const destination = {
-      spaceId: "space-1",
-      surface: "space" as const,
-      threadId: "thread-1",
-    };
-    const recovery = {
-      actions: {
-        recoverResult: {
-          action: "recover_result" as const,
-          enabled: false,
-          label: "Recover result" as const,
-          reasonCode: "execution_recovery.no_retained_result",
-          warning: null,
-        },
-        resumeControllerConversation: {
-          action: "resume_controller_conversation" as const,
-          enabled: false,
-          label: "Continue conversation" as const,
-          reasonCode: "execution_recovery.controller_resume_unavailable",
-          warning: null,
-        },
-        retryAsNewExecution: {
-          action: "retry_as_new_execution" as const,
-          enabled: true,
-          label: "Retry as new execution" as const,
-          reasonCode: "execution_recovery.fresh_execution_available",
-          warning:
-            "This creates a new execution and may run the task again, including external side effects.",
-        },
-      },
-      destination,
-      identity,
-      recommendedAction: "retry_as_new_execution" as const,
-      recoveredPublicationId: null,
-      status: "available" as const,
-      tier: "fresh_execution" as const,
-      updatedAtMs: TEST_NOW_MS,
-    };
-    const executeExecutionRecovery = vi.fn(async () => ({
-      action: "retry_as_new_execution" as const,
-      newExecutionId: "fresh-client-message-1",
-      operationId: "operation-fresh-1",
-      publicationId: null,
-      reasonCode: "execution_recovery.fresh_execution_requested",
-      recovery,
-      status: "new_execution_requested" as const,
-    }));
+  it("exposes result recovery and ordinary Wakes without a terminal rerun tool", async () => {
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { executeExecutionRecovery },
-      storage: await createStorageWithPendingContext(request),
+      coreWorker: {},
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
     });
-
-    await expect(
-      executeTool(tools, "openmeld_retry_as_new_execution", {
-        destination,
-        expectedIdentity: identity,
-        operationId: "operation-fresh-1",
-      })
-    ).resolves.toMatchObject({
-      newExecutionId: "fresh-client-message-1",
-      status: "new_execution_requested",
-    });
-    expect(executeExecutionRecovery).toHaveBeenCalledWith({
-      body: {
-        action: "retry_as_new_execution",
-        destination,
-        expectedIdentity: identity,
-        operationId: "operation-fresh-1",
-      },
-      context: expectedHostedCenterAgentContext(
-        request,
-        "openmeld_retry_as_new_execution" as RemoteAgentOpenMeldToolName
-      ),
-      spaceId: "space-1",
-    });
+    const names = tools.map((tool) => tool.name);
+    expect(names).not.toContain("openmeld_retry_as_new_execution");
+    expect(names).toContain("openmeld_recover_execution_result");
+    expect(names).toContain("openmeld_resume_controller_conversation");
+    expect(names).toContain("openmeld_wake_agent_profiles_in_space");
   });
 
   it.each([
@@ -3776,7 +3697,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       agentControllerRef: "builtin:codex",
       attemptId: "attempt-1",
       dispatchId: "dispatch-1",
-      resultRef: null,
+      resultRef: "dispatch-1::attempt-1",
       runtimeCoordinatorExecutionId: "execution-1",
       spaceId: destination.spaceId,
       targetProfileId: "agent-1",
@@ -3787,9 +3708,9 @@ describe("remote agent OpenMeld tool catalog", () => {
       actions: {
         recoverResult: {
           action: "recover_result" as const,
-          enabled: false,
+          enabled: true,
           label: "Recover result" as const,
-          reasonCode: "execution_recovery.no_retained_result",
+          reasonCode: "execution_recovery.retained_result_available",
           warning: null,
         },
         resumeControllerConversation: {
@@ -3801,30 +3722,29 @@ describe("remote agent OpenMeld tool catalog", () => {
         },
         retryAsNewExecution: {
           action: "retry_as_new_execution" as const,
-          enabled: true,
-          label: "Retry as new execution" as const,
-          reasonCode: "execution_recovery.fresh_execution_available",
-          warning:
-            "This creates a new execution and may run the task again, including external side effects.",
+          enabled: false,
+          label: "Start a new Wake" as const,
+          reasonCode: "execution_recovery.new_wake_required",
+          warning: null,
         },
       },
       destination: frozenDestination,
       identity,
-      recommendedAction: "retry_as_new_execution" as const,
+      recommendedAction: "recover_result" as const,
       recoveredPublicationId: null,
       status: "available" as const,
-      tier: "fresh_execution" as const,
+      tier: "durable_result_replay" as const,
       updatedAtMs: TEST_NOW_MS,
     };
     const inspectExecutionRecovery = vi.fn(async () => ({ recovery }));
     const executeExecutionRecovery = vi.fn(async () => ({
-      action: "retry_as_new_execution" as const,
-      newExecutionId: "fresh-client-message-1",
-      operationId: "operation-fresh-1",
-      publicationId: null,
-      reasonCode: "execution_recovery.fresh_execution_requested",
+      action: "recover_result" as const,
+      newExecutionId: null,
+      operationId: "operation-recover-1",
+      publicationId: "recovered-reply-1",
+      reasonCode: "execution_recovery.result_recovered",
       recovery,
-      status: "new_execution_requested" as const,
+      status: "completed" as const,
     }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {
@@ -3845,14 +3765,14 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(inspected).toMatchObject({
       recovery: {
         destination: frozenDestination,
-        recommendedAction: "retry_as_new_execution",
+        recommendedAction: "recover_result",
       },
     });
 
-    await executeTool(tools, "openmeld_retry_as_new_execution", {
+    await executeTool(tools, "openmeld_recover_execution_result", {
       destination: frozenDestination,
       expectedIdentity: identity,
-      operationId: "operation-fresh-1",
+      operationId: "operation-recover-1",
     });
 
     expect(inspectExecutionRecovery).toHaveBeenCalledWith({
@@ -3865,14 +3785,14 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
     expect(executeExecutionRecovery).toHaveBeenCalledWith({
       body: {
-        action: "retry_as_new_execution",
+        action: "recover_result",
         destination: frozenDestination,
         expectedIdentity: identity,
-        operationId: "operation-fresh-1",
+        operationId: "operation-recover-1",
       },
       context: expectedHostedCenterAgentContext(
         request,
-        "openmeld_retry_as_new_execution"
+        "openmeld_recover_execution_result"
       ),
       spaceId: identity.spaceId,
     });
