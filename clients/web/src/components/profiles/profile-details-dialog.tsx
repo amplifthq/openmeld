@@ -1,10 +1,7 @@
 "use client";
 
 import { Popover } from "@base-ui/react/popover";
-import {
-	formatProfileKind,
-	formatSpaceMemberActivityTime,
-} from "@openmeld/agent-profile";
+import { formatProfileKind } from "@openmeld/agent-profile";
 import type {
 	AuthProfileView,
 	ModelCatalog,
@@ -53,6 +50,7 @@ import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profil
 import { resolveSpaceMemberInlineStatusTextClassName } from "#/components/spaces/space-member-status-tone";
 import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { copyTextToClipboard } from "#/lib/clipboard";
+import { useMemberActivityTime } from "#/lib/spaces/use-member-activity-time";
 import {
 	organizationAgentRuntimeOverviewQueryOptions,
 	organizationComputersQueryOptions,
@@ -331,9 +329,7 @@ export function HumanProfileDetailsPopover(input: {
 	profileHref?: string;
 	trigger: ReactElement;
 }) {
-	const activityTime = input.entry.liveNow
-		? "Now"
-		: formatSpaceMemberActivityTime(input.entry.lastSeenLabel);
+	const activityTime = useMemberActivityTime(input.entry);
 	const canLoadCollaborationDetails = Boolean(
 		input.organizationId && input.orgSlug && input.entry.ownerUserId
 	);
