@@ -110,7 +110,7 @@
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.1.18",
-    "thinking-orbs": "^0.1.1",
+    "thinking-orbs": "0.3.1",
     "three": "^0.185.1",
     "vaul": "^1.1.2",
     "zod": "^4.3.6"

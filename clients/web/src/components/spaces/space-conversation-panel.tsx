@@ -2715,6 +2715,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 												}
 											/>
 										</Bubble>
+										{rowProgressStatus}
 										{renderConversationMessageFooter({
 											anchoredOutcomeNotices,
 											canUseMessageActions,
@@ -2733,7 +2734,6 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 											selfProfileId: input.selfProfileId,
 											threadsByRootSignalId: input.threadsByRootSignalId,
 										})}
-										{rowProgressStatus}
 									</div>
 								</BubbleGroup>
 							</MessageContent>

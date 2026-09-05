@@ -1473,6 +1473,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							{showProgressInAnswerArea ? progressStatus : null}
 						</BubbleContent>
 					</Bubble>
+					{showProgressInAnswerArea ? null : progressStatus}
 					<ThreadTimelineMessageFooter
 						addressingTargets={addressingTargets}
 						align={messageAlign}
@@ -1484,7 +1485,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						openMeldProfileId={input.selfProfileId}
 						organizationSlug={input.orgSlug}
 					/>
-					{showProgressInAnswerArea ? null : progressStatus}
 				</MessageContent>
 			</Message>
 		</MessageScrollerItem>

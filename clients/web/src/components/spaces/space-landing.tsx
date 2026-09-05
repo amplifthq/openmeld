@@ -142,7 +142,10 @@ import {
 	SpaceConversationRecoveryBanner,
 	type SpaceSetupVisibility,
 } from "./space-onboarding-banner";
-import { resolveSpacePendingAgentActionSurfacePlacement } from "./space-pending-agent-action-model";
+import {
+	partitionSpacePendingAgentActions,
+	resolveSpacePendingAgentActionIdentity,
+} from "./space-pending-agent-action-model";
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
@@ -1581,23 +1584,50 @@ function SpaceLandingReady({
 		spaceId: controller.spaceId,
 	});
 	const isCompactPresentation = input.presentation === "compact";
-	const {
-		agentProfileEditContext,
-		pendingActionSurfacePlacement,
-		pendingAgentActions,
-	} = useSpaceLandingPendingAgentActions({
-		controller,
-		isCompactPresentation,
-		state,
-	});
+	const { agentProfileEditContext, pendingAgentActions } =
+		useSpaceLandingPendingAgentActions({
+			controller,
+			state,
+		});
+	const [requestedInteraction, setRequestedInteraction] = useState<
+		string | undefined
+	>();
+	const activeActionThreadId =
+		!isCompactPresentation && controller.isCurrentAccessConfirmed
+			? (controller.activeThread?.threadId ?? null)
+			: null;
+	const pendingActionsByPanel = partitionSpacePendingAgentActions(
+		pendingAgentActions.surfaceProps.items,
+		activeActionThreadId
+	);
 	const pendingActionSurface = (
 		<SpacePendingAgentActions
 			{...pendingAgentActions.surfaceProps}
-			returnFocusRef={
-				pendingActionSurfacePlacement === "thread"
-					? controller.threadTextareaRef
-					: controller.textareaRef
+			items={pendingActionsByPanel.conversation}
+			onOpenRequestThread={
+				isCompactPresentation
+					? undefined
+					: (item) => {
+							const threadId = item.sourceContext?.threadId;
+							if (!threadId) {
+								return;
+							}
+							setRequestedInteraction(
+								resolveSpacePendingAgentActionIdentity(item)
+							);
+							controller.onOpenThread(threadId);
+						}
 			}
+			returnFocusRef={controller.textareaRef}
+		/>
+	);
+	const threadPendingActionSurface = (
+		<SpacePendingAgentActions
+			{...pendingAgentActions.surfaceProps}
+			initialInteractionIdentity={requestedInteraction}
+			items={pendingActionsByPanel.thread}
+			key={`${activeActionThreadId}:${requestedInteraction ?? ""}`}
+			returnFocusRef={controller.threadTextareaRef}
 		/>
 	);
 
@@ -1710,11 +1740,7 @@ function SpaceLandingReady({
 						historyErrorMessage={historyErrorMessage}
 						input={input}
 						onEditAgentProfile={pendingAgentActions.onEditAgentProfile}
-						pendingActionSurface={
-							pendingActionSurfacePlacement === "conversation"
-								? pendingActionSurface
-								: undefined
-						}
+						pendingActionSurface={pendingActionSurface}
 						prepareSetupHref={prepareSetupHref}
 						state={state}
 					/>
@@ -1734,11 +1760,7 @@ function SpaceLandingReady({
 							}
 							input={input}
 							onEditAgentProfile={pendingAgentActions.onEditAgentProfile}
-							pendingActionSurface={
-								pendingActionSurfacePlacement === "thread"
-									? pendingActionSurface
-									: undefined
-							}
+							pendingActionSurface={threadPendingActionSurface}
 							prepareSetupHref={prepareSetupHref}
 							state={state}
 						/>
@@ -1797,11 +1819,9 @@ function useSpaceLandingViewerState({
 
 function useSpaceLandingPendingAgentActions({
 	controller,
-	isCompactPresentation,
 	state,
 }: {
 	controller: ReadySpaceLandingController;
-	isCompactPresentation: boolean;
 	state: SpaceLandingState;
 }) {
 	const agentProfileEditContext = resolveAgentProfileEditDialogContext({
@@ -1829,13 +1849,6 @@ function useSpaceLandingPendingAgentActions({
 	});
 	return {
 		agentProfileEditContext,
-		pendingActionSurfacePlacement:
-			resolveSpacePendingAgentActionSurfacePlacement({
-				hasActiveThread:
-					!isCompactPresentation &&
-					controller.isCurrentAccessConfirmed &&
-					controller.activeThread !== null,
-			}),
 		pendingAgentActions,
 	};
 }

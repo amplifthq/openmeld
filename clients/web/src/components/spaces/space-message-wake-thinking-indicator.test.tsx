@@ -26,7 +26,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		const indicator = screen.getByTestId("space-wake-thinking-indicator");
 		expect(indicator.tagName).toBe("OUTPUT");
 		expect(indicator.textContent).toBe("Agent is working · 30s");
-		expect(resolveOrbState(indicator)).toBe("solving");
+		expect(resolveOrbState(indicator)).toBe("working");
 
 		view.rerender(
 			<SpaceMessageWakeThinkingIndicator
@@ -103,14 +103,14 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		const preview = screen.getByTestId("space-wake-preview-text");
 
 		expect(indicator.tagName).toBe("OUTPUT");
-		expect(indicator.textContent).toBe(`Agent is working · ${previewText}`);
+		expect(indicator.textContent).toBe(previewText);
 		expect(resolveOrbState(indicator)).toBe("composing");
 		expect(indicator.className).toContain("overflow-hidden");
 		expect(preview.className).toContain("truncate");
 		expect(preview.className).toContain("whitespace-nowrap");
 	});
 
-	it("uses composing while OpenMeld finalizes the reply", () => {
+	it("uses weaving while OpenMeld posts the reply", () => {
 		render(
 			<SpaceMessageWakeThinkingIndicator
 				entries={[
@@ -131,10 +131,10 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		expect(
 			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
-		).toBe("composing");
+		).toBe("weaving");
 	});
 
-	it("keeps pre-execution delivery on the existing neutral indicator", () => {
+	it("uses connecting before execution starts", () => {
 		render(
 			<SpaceMessageWakeThinkingIndicator
 				entries={[
@@ -154,8 +154,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		);
 
 		const indicator = screen.getByTestId("space-wake-thinking-indicator");
-		expect(resolveOrbState(indicator)).toBeNull();
-		expect(indicator.querySelector("svg")).toBeTruthy();
+		expect(resolveOrbState(indicator)).toBe("connecting");
 	});
 
 	it("uses final-status waiting copy after forty-five seconds without new evidence", () => {
@@ -177,7 +176,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		).toBe("Still waiting for the final status.");
 		expect(
 			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
-		).toBeNull();
+		).toBe("breathing");
 	});
 
 	it("keeps showing active progress when recent evidence refreshed the Wake", () => {

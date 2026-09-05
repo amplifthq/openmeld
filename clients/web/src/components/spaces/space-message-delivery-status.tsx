@@ -9,7 +9,6 @@ import {
 	resolveSpaceMessageDeliveryStatusText,
 	type SpaceMessageDeliveryPresentation,
 } from "#/lib/spaces/message-state";
-import { AnimatedMobiusIcon } from "./animated-mobius-icon";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import { SpaceAgentOrb } from "./space-agent-orb";
 
@@ -125,7 +124,7 @@ function renderDeliveryStatusIcon(
 ) {
 	switch (presentation) {
 		case "agent_sending":
-			return <AnimatedMobiusIcon />;
+			return <SpaceAgentOrb state="connecting" />;
 		case "agent_streaming":
 			return <SpaceAgentOrb data-testid="agent-working-orb" />;
 		case "agent_stream_failed":
