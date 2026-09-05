@@ -43,6 +43,35 @@ has already resumed. Plan reviews render formatted Markdown.
 
 Evidence: pr:652, pr:658, commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254
 
+### Clearer computer status and setup retries
+
+Fixed · v0.3.160 · web · cli
+
+Disconnected computers no longer make every local Agent look broken. Agent
+cards show when the computer is disconnected or its status is being checked,
+while preserving your saved on/off settings.
+
+Canceling an account switch leaves the existing computer account unchanged and
+updates the setup page. If computer authorization fails, the CLI explains how
+to get a new command, and Web offers a fresh attempt without a page reload.
+
+Evidence: pr:681, pr:682, commit:36167456e3b8808331ef5d41c0807a3fd45c8b8d, workflow:33972709677, https://github.com/amplifthq/openmeld/pull/681#issuecomment-5553165264
+
+### Find new models when configuring local Agents
+
+Improved · v0.3.160 · agent-profiles
+
+Local Agent model selectors show a small New badge beside newly added options,
+including GPT-6 Astra, Claude Fable 5.1 and supported Cursor and OpenCode models.
+The badge also appears on the selected model when creating or editing a Profile.
+
+Codex keeps GPT-5.6 Sol with High reasoning as its new-Profile recommendation.
+Claude recommends Opus 5 with model-default reasoning. Existing explicit model
+selections and remembered creation preferences are preserved; Claude Profiles
+that rely on the runtime default use Opus 5 instead of Opus 4.8.
+
+Evidence: pr:681, pr:682, commit:36167456e3b8808331ef5d41c0807a3fd45c8b8d, workflow:33972709677, https://github.com/amplifthq/openmeld/pull/681#issuecomment-5553165264
+
 ### Give Agent creation its own page and reduce status reads
 
 Fixed · v0.3.158 · agents · web
@@ -100,6 +129,22 @@ The OpenMeld Tools status no longer displays a local agent's logo. Each agent's
 readiness and sign-in status remain in the Local agents section.
 
 Evidence: pr:648, commit:7f2b736fd110f08f12c9562e0a7a181a4283fcff, worker-version:516fec14-7e67-45b4-90c2-eedaf6e9840d, smoke:chrome:openmeld-tools-status-20260905
+
+### Keep the OpenMeld guide current without another CLI upgrade
+
+Improved · v0.3.160 · cli · service
+
+OpenMeld can maintain its local Agent guide independently of the CLI, keeping
+the last working copy when a download or installation fails. Before a local
+task, Service checks the selected Agent's guide and supplies a public reading
+link when the installed copy is unavailable.
+
+The public guide starts with a short entry and loads detailed topics only as
+needed. New instructions are installed only when the local CLI supports them.
+Existing installations need the bridge CLI/Service update once to enable this
+maintenance path.
+
+Evidence: pr:681, pr:682, commit:36167456e3b8808331ef5d41c0807a3fd45c8b8d, workflow:33972709677, https://github.com/amplifthq/openmeld/pull/681#issuecomment-5553165264
 
 ### Link directly to Space messages
 
