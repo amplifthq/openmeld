@@ -71,7 +71,6 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
-import { SpaceActiveWakeSource } from "./space-active-wake-source";
 import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
@@ -139,6 +138,7 @@ import {
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
+import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -1421,7 +1421,14 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				onOpenMessageDetails: input.onOpenMessageDetails,
 			});
 	return (
-		<MessageScrollerItem messageId={input.item.id}>
+		<MessageScrollerItem
+			className={
+				input.item.activeWakeProgress
+					? "[content-visibility:visible]"
+					: undefined
+			}
+			messageId={input.item.id}
+		>
 			<Message
 				align={messageAlign}
 				className={cn(
@@ -1544,15 +1551,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 							})}
 							{showProgressInAnswerArea ? progressStatus : null}
-							{input.item.activeWakeSourceItemId &&
-							input.allItems.some(
-								(item) => item.id === input.item.activeWakeSourceItemId
-							) ? (
-								<SpaceActiveWakeSource
-									item={input.item}
-									onJumpToMessage={input.onJumpToMessage}
-								/>
-							) : null}
 						</BubbleContent>
 					</Bubble>
 					{showProgressInAnswerArea ? null : progressStatus}
@@ -1794,6 +1792,7 @@ function ThreadComposer(input: {
 				maxHeight: 180,
 			}}
 			slots={{
+				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
 					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
 						<p>{input.composerErrorMessage}</p>
