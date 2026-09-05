@@ -1040,6 +1040,59 @@ test("stages Space invitation receivers before publishing the CLI caller", () =>
   );
 });
 
+test("combines invitation and Service receivers while keeping conflicting writers blocked", () => {
+  const invitations = [
+    "packages/schemas/src/space-invitation.ts",
+    "services/core/src/organizations/space-invitations.ts",
+    "services/auth/src/lib/hono/space-invitation-routes.ts",
+  ];
+  const changedPaths = [
+    ...invitations,
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "services/core/src/runtime-transport/application/runtime-transport-dispatch-service.ts",
+    "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+    "packages/schemas/src/schemas/local-components.ts",
+    "clients/openmeld-cli/src/local-components/manifest.ts",
+    "services/core/src/local-components/update-projection.ts",
+  ];
+  const labels = buildProductionDeployStepSpecs(
+    ["db", "core", "auth", "gateway", "web", "cli"],
+    { changedPaths }
+  ).map((step) => step.label);
+  assert.deepEqual(labels, [
+    "Synchronize production database",
+    "Deploy Core with the current published CLI projection",
+    "Verify Core deployment is visible",
+    "Deploy Auth Worker",
+    "Verify Auth Worker health",
+    "Deploy Gateway Worker",
+    "Verify Gateway Worker health",
+    "Deploy Web",
+    "Verify Web health",
+    "Publish CLI and deploy its Core release projection",
+    "Verify final R2/npm/Core alignment",
+  ]);
+  assert.throws(
+    () =>
+      buildProductionDeployStepSpecs(["core", "auth", "cli"], { changedPaths }),
+    INDEPENDENT_SKILL_BRIDGE_ERROR_RE
+  );
+  assert.throws(
+    () =>
+      buildProductionDeployStepSpecs(
+        ["web", "gateway", "core", "auth", "cli"],
+        {
+          changedPaths: [
+            ...changedPaths,
+            "packages/schemas/src/schemas/http/inbox.ts",
+            "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
+          ],
+        }
+      ),
+    /Space invitation receiver order/u
+  );
+});
+
 test("locks database, CLI channel, and Worker deploys into release order", () => {
   const steps = buildProductionDeployStepSpecs([
     "remote-agent",

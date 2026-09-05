@@ -741,11 +741,13 @@ describe("CreateProfileDialog", () => {
 				name: CURRENT_CODEX_RADIO_PATTERN,
 			})
 		);
-		fireEvent.click(
-			await screen.findByRole("button", {
-				name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
-			})
-		);
+		expect(
+			(
+				await screen.findByRole("button", {
+					name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
+				})
+			).getAttribute("aria-expanded")
+		).toBe("true");
 		await waitFor(() => {
 			expect(
 				screen.getByRole("button", { name: "Edit Model" }).textContent

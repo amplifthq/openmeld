@@ -402,9 +402,13 @@ endpoint does not yet exist.
 When the shared invitation schema, Core owner, and Auth route change together,
 `space-invitation-receivers-first` orders Database, Core, Auth, Gateway, Web,
 Remote Agent, then CLI. It rejects Auth or CLI selection without both receivers,
-and fails closed if another directional profile also applies until their order
-is reviewed. Ordinary Core-only deployments retain their channel compatibility
-guard.
+and composes with `local-service-runtime-receiver-first`: Core accepts the new
+Service capability before CLI publication, while Core and Gateway also precede
+new Web callers. The independent Skill bridge additionally requires its public
+Web content before CLI publication. Other directional profiles still fail
+closed; in particular a Core writer requiring new Inbox readers cannot use this
+Core-first order. Ordinary Core-only deployments retain their channel
+compatibility guard.
 
 For the signed GitHub CLI lane, use the same approved main SHA for both stages:
 first run guarded local `release:deploy:local -- --scope db,core,auth --base
@@ -412,7 +416,10 @@ first run guarded local `release:deploy:local -- --scope db,core,auth --base
 stable CLI projection, verified by the existing receiver deployment helper;
 it does not advertise the future CLI version. Then run the normal GitHub CLI
 release, which publishes the new artifact and its Core projection. Deploy the
-remaining affected scopes afterward. The normal static hosted `full` order is
+remaining affected scopes afterward. When the same release includes the
+independent Skill bridge, include Gateway and Web in the first guarded local
+stage so its public content and report receivers are ready before the GitHub
+CLI publication. The normal static hosted `full` order is
 not valid for this first rollout. This staged receiver path is not startup
 recovery and never bypasses tag, channel, source, lease, or deployment health
 checks.

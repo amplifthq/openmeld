@@ -725,7 +725,10 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   if (!isSpaceInvitationReceiverFirstDiff(changedPaths)) {
     return profile;
   }
-  if (profile !== "default-auth-receiver-first") {
+  if (
+    profile !== "default-auth-receiver-first" &&
+    profile !== "local-service-runtime-receiver-first"
+  ) {
     throw new Error(
       `Space invitation receiver order must be reviewed together with ${profile}; split incompatible receiver-first releases.`
     );
