@@ -843,6 +843,13 @@ per-Profile readiness work. Splitting transport does not split authority: Auth,
 Core Wakeability, Binding, and RuntimeCoordinator remain the same owners, and
 the browser never derives or writes either projection.
 
+Within one overview request, Core shares in-flight Runtime Registry and
+Controller-report reads for identical database and Runtime/Controller keys.
+Missing results and failures are shared only for that request; the next request
+reads fresh facts. Profile-specific Binding, organization eligibility, provider
+evidence, route evidence, and final Wakeability still use their owning checks.
+No cross-request readiness cache or client-derived verdict is introduced.
+
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member
 receives the public four-state Wakeability status with private readiness facts

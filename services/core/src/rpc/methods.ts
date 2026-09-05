@@ -689,6 +689,7 @@ import {
 } from "../agent-activity/activity-session-inventory-rpc";
 import { rpcReadAgentActivitySnapshot as readAgentActivitySnapshot } from "../agent-activity/activity-snapshot-rpc";
 import { rpcReadAgentActivityStats as readAgentActivityStats } from "../agent-activity/activity-stats-rpc";
+import { createAgentExecutionReadinessReads } from "../agent-execution/application/agent-execution-readiness-reads";
 import {
   type AgentExecutionTargetRuntimeContext,
   type CoreAgentExecutionReadiness,
@@ -5709,6 +5710,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
   env: CoreBindings,
   input: GetCurrentOrganizationAgentRuntimeOverviewInput
 ): Promise<OrganizationAgentRuntimeOverviewResponse> {
+  const startedAtMs = Date.now();
   const context = requireRpcContext(input.context);
   const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
     context,
@@ -5730,6 +5732,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     viewerUserId: activeOrganization.userId,
   });
   console.info("[core.organization_agent_runtime_overview.read]", {
+    durationMs: Math.max(0, Date.now() - startedAtMs),
     actorProfileKind: context.actorContext.profileKind,
     agentProfileCount: response.agentProfiles.length,
     event: "organization_agent_runtime_overview.read",
@@ -5974,6 +5977,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
   >
 > {
   const profilesByOwner = new Map<string, EligibleOrganizationAgentProfile[]>();
+  const reads = createAgentExecutionReadinessReads();
   for (const profile of input.eligibleAgentProfiles) {
     const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
     profiles.push(profile);
@@ -6045,6 +6049,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             ? (preloadedRoutes.routes[agent.profileId] ?? null)
             : undefined;
           const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+            reads,
             activeOrganizationId: input.organizationId,
             env: input.env,
             generatedAt: input.generatedAt,
