@@ -300,7 +300,7 @@ For a localhost Routine smoke, start the Worker stack with
 then run the printed command to trigger one Core minute-scheduler tick:
 
 ```bash
-curl -X POST "http://localhost:<isolated-gateway-port>/__dev/routines/tick"
+curl -X POST "http://<lane-id>.localhost:<isolated-gateway-port>/__dev/routines/tick"
 ```
 
 The route exists only when the Gateway is running with
@@ -335,11 +335,33 @@ migration, but the Doppler runner fails if one would shadow its process
 environment. Secret ownership, safety, and onboarding are defined in
 `developing/engineering/environment-and-secrets.md`.
 
-Both isolated stack commands print the lane ID, actual localhost URLs,
+Both isolated stack commands print the lane ID, actual local URLs,
 persistence root, and effective `OPENMELD_HOME`. Do not assume the fixed
 3000/8080/8788/8790 ports in an isolated lane. Use the printed URLs.
 `pnpm dev:web:worktree` fails closed unless the same worktree has a live
 isolated Worker stack.
+
+Each isolated worktree automatically uses `<lane-id>.localhost`, for example
+`http://wt-a1b2c3d4e5f6.localhost:30176`. The lane ID comes from the worktree
+path, so its hostname survives restarts without agent configuration, a hosts
+file edit, or a shared DNS service. Web, Auth, Gateway, and Remote Agent use
+the same hostname with their allocated ports. Use these printed URLs rather
+than replacing the hostname with `localhost` or `127.0.0.1`: cookies are scoped
+by hostname, not port, and plain localhost would share browser authentication
+with other worktrees. Development auth cookies remain host-only; the Auth
+launcher also sets the passkey relying-party ID to this worktree hostname.
+Existing plain-localhost sessions and passkeys do not migrate to the new host;
+sign in and register any test passkeys again in the isolated environment.
+The fixed-port lane remains unchanged.
+
+Web's local CLI guidance, setup bootstrap lane selection, and local activity
+preview share one local-origin check, including `.localhost` subdomains. An
+external hostname that merely contains `localhost` is not a local origin.
+
+Third-party OAuth providers still require an allowed callback URL matching the
+chosen development origin. Automatic local hostnames do not register callbacks
+with GitHub, Google, or other providers. Use disposable local accounts for
+parallel authentication smoke unless that provider's callback is configured.
 
 Do not start or set up OpenMeld Service for a Web-only smoke that does not need
 local Agent execution. When Service validation is required, diagnose ownership
@@ -373,6 +395,7 @@ changes both Sandbox and another Remote Agent tool family.
 
 Each isolated lane owns all of the following:
 
+- one stable `.localhost` hostname for browser authentication isolation
 - public Web, Gateway, Auth, and Remote Agent ports
 - Worker inspector ports
 - one lane-specific Wrangler service registry, so local service bindings cannot

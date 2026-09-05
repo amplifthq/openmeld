@@ -41,6 +41,7 @@ import { DirectoryMembersOverview } from "#/components/directory/directory-membe
 import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
+import { isLocalWebOrigin } from "#/lib/local-web-origin";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAgentCreationPath } from "#/lib/organizations/organization-routes";
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
@@ -105,10 +106,7 @@ export function PeopleAndAgentsPage(input: {
 	const [agentProfileSearchQuery, setAgentProfileSearchQuery] = useState("");
 	const [activityPreview, setActivityPreview] = useState(false);
 	useEffect(() => {
-		const isLocalHost =
-			window.location.hostname === "localhost" ||
-			window.location.hostname === "127.0.0.1" ||
-			window.location.hostname === "::1";
+		const isLocalHost = isLocalWebOrigin(window.location.origin);
 		const isPreviewRequested =
 			input.activityPreview === true ||
 			new URLSearchParams(window.location.search).get("activityPreview") ===

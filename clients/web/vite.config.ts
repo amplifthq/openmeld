@@ -92,6 +92,7 @@ const config = defineConfig(({ command }) => {
 		...(isolatedDev
 			? {
 					server: {
+						host: new URL(isolatedDev.vars.WEB_APP_URL).hostname,
 						port: isolatedDev.port,
 						strictPort: true,
 					},
