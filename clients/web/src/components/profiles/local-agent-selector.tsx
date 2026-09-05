@@ -35,6 +35,12 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 	const selectedChoice = choices.find((choice) => choice.value === input.value);
 	const selectedDescription = resolveSelectedChoiceDescription(selectedChoice);
 	const selectionDisabled = input.disabled || input.locked === true;
+	let heading = "Choose an agent on your computer";
+	if (input.locked) {
+		heading = "Agent connected to this Session";
+	} else if (input.emptyState?.kind === "connect_computer") {
+		heading = "Connect your computer to use a local agent";
+	}
 
 	return (
 		<fieldset
@@ -46,9 +52,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 				className="mb-4 w-full text-left font-medium text-base"
 				id={headingId}
 			>
-				{input.locked
-					? "Agent connected to this Session"
-					: "Choose an agent on your computer"}
+				{heading}
 			</legend>
 			{input.locked ? (
 				<p className="text-pretty text-muted-foreground text-sm leading-5">
