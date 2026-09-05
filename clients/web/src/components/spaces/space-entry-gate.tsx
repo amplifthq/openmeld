@@ -11,7 +11,7 @@ import {
 	UserPlusIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { isSessionExpiredError } from "#/lib/session-expired";
@@ -37,6 +37,7 @@ export function SpaceEntryGate(input: {
 	threadRootSignalId?: string;
 }) {
 	const [password, setPassword] = useState("");
+	const queryClient = useQueryClient();
 	const [passwordError, setPasswordError] = useState<string | null>(null);
 	const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
 	const queryInput = {
@@ -49,12 +50,20 @@ export function SpaceEntryGate(input: {
 			? {}
 			: { threadRootSignalId: input.threadRootSignalId }),
 	};
-	const resolutionQuery = useQuery(
-		spaceEntryResolutionQueryOptions({
-			...queryInput,
-			enabled: typeof window !== "undefined",
-		})
-	);
+	const resolutionOptions = spaceEntryResolutionQueryOptions({
+		...queryInput,
+		enabled: typeof window !== "undefined",
+	});
+	const resolutionQuery = useQuery(resolutionOptions);
+	const retryAccess = async () => {
+		// Refetch alone shares an unfinished first request. Explicit retry must
+		// replace it, without releasing actions until the resolver confirms access.
+		await queryClient.cancelQueries({
+			queryKey: resolutionOptions.queryKey,
+			exact: true,
+		});
+		await resolutionQuery.refetch();
+	};
 
 	const rejected =
 		(resolutionQuery.data !== undefined &&
@@ -80,13 +89,7 @@ export function SpaceEntryGate(input: {
 		return (
 			<SpaceEntryConfirmationContext value={false}>
 				<SpaceEntryRetryContext
-					value={
-						resolutionQuery.isError
-							? async () => {
-									await resolutionQuery.refetch();
-								}
-							: null
-					}
+					value={{ retry: retryAccess, isError: resolutionQuery.isError }}
 				>
 					{input.restoredContent}
 				</SpaceEntryRetryContext>
@@ -96,7 +99,7 @@ export function SpaceEntryGate(input: {
 
 	const retry = () => {
 		setPasswordError(null);
-		resolutionQuery.refetch().catch((error: unknown) => {
+		retryAccess().catch((error: unknown) => {
 			console.error("Failed to check Space access.", error);
 		});
 	};
@@ -172,6 +175,9 @@ export function SpaceEntryState(input: {
 						OpenMeld is checking what this account can view and do here.
 					</p>
 				</div>
+				<Button onClick={input.onRetry} size="sm" variant="outline">
+					Check again
+				</Button>
 			</output>
 		);
 	}

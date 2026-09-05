@@ -284,6 +284,14 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			},
 			insertMentionTrigger: () => {
 				focusEditorAtSelection(editor, focusWhenReady);
+				// The toolbar opens the picker even after a word. Typed @ keeps
+				// the plugin's whitespace rule, so email addresses stay plain text.
+				const previousChar = editor.api.string(
+					editor.api.range("before", editor.selection)
+				);
+				if (previousChar.trim().length > 0) {
+					editor.tf.insertText(" ");
+				}
 				editor.tf.insertText("@");
 			},
 			selectTextRange: (selection) => {

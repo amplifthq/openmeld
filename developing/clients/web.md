@@ -3375,6 +3375,15 @@ Human-only DMs use `Message {name}…`, Agent DMs use `Message {name}…`, Cente
 Agent DMs use `Tell Center Agent what you need…`, and Threads use
 `Reply in thread…`.
 
+Draft editing and opening the `+` and `@` tools do not require permission to
+send. The `+` menu explains why file selection is unavailable when uploads are
+not authorized or a message is still sending. Send and upload authorization
+remain unchanged. The Composer keeps its access explanation visible after text
+is entered and offers the ordinary Human Join action beside the draft.
+Restored conversations expose an access-check retry even while the first request
+is pending. Retry cancels that request and asks the entry resolver again; it
+preserves the draft and never confirms access locally.
+
 The `@` picker optimizes for the common user action:
 selecting an Agent Profile authors Wake by default only when the current
 Core-owned Wakeability projection is `ready`, while keeping the visible composer

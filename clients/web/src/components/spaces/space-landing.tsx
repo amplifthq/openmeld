@@ -1532,22 +1532,24 @@ function SpaceLandingReady({
 		currentProfileIsActiveSpaceMember,
 		currentProfileName,
 	} = useSpaceLandingViewerState({ controller, state });
-	const humanJoinControl = (
-		<SpaceHumanJoinControl
-			humanProfile={currentHumanViewer.humanProfile}
-			isActiveSpaceMember={currentProfileIsActiveSpaceMember}
-			isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
-			isDirectMessage={isDirectMessage}
-			membersSnapshot={controller.membersSnapshot}
-			onJoin={async (profileId) => {
-				await handleAddProfiles([profileId]);
-			}}
-		/>
-	);
+	const humanJoinControl = controller.isCurrentAccessConfirmed
+		? resolveSpaceHumanJoinControl({
+				humanProfile: currentHumanViewer.humanProfile,
+				isActiveSpaceMember: currentProfileIsActiveSpaceMember,
+				isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+				isDirectMessage,
+				membersSnapshot: controller.membersSnapshot,
+				onJoin: async (profileId) => {
+					await handleAddProfiles([profileId]);
+				},
+			})
+		: null;
 	const managementControl = (
 		<SpaceLandingManagementControl
 			agentOwnerDirectMessageJoin={agentOwnerDirectMessageJoin}
-			humanJoinControl={humanJoinControl}
+			humanJoinControl={
+				state.spaceView === "messages" ? null : humanJoinControl
+			}
 			managementControl={currentSpaceControls.managementControl}
 		/>
 	);
@@ -1723,9 +1725,11 @@ function SpaceLandingReady({
 					<SpaceLandingConversation
 						agentDirectConversationKind={agentDirectConversationKind}
 						agentOwnerDirectMessageObserver={agentOwnerDirectMessageObserver}
-						composerPrimaryAction={resolveAgentOwnerDirectMessageComposerPrimaryAction(
-							agentOwnerDirectMessageJoin
-						)}
+						composerPrimaryAction={
+							resolveAgentOwnerDirectMessageComposerPrimaryAction(
+								agentOwnerDirectMessageJoin
+							) ?? humanJoinControl
+						}
 						composerProfileControl={composerProfileControl}
 						controller={controller}
 						currentProfileIsActiveSpaceMember={
@@ -2117,7 +2121,7 @@ function SpaceLandingConversation({
 	);
 }
 
-function SpaceHumanJoinControl(input: {
+function resolveSpaceHumanJoinControl(input: {
 	humanProfile: AuthProfileView | null;
 	isActiveSpaceMember: boolean;
 	isCenterAgentDirectMessage: boolean;

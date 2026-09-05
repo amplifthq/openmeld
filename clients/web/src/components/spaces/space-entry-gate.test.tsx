@@ -3,17 +3,32 @@ import {
 	QueryClientProvider,
 	queryOptions,
 } from "@tanstack/react-query";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useSpaceEntryConfirmed } from "./space-entry-confirmation";
 import { SpaceEntryGate } from "./space-entry-gate";
 import { SpaceEntryRecoveryNotice } from "./space-entry-recovery-notice";
 
+const entryRequest = vi.hoisted(() =>
+	vi.fn<({ signal }: { signal: AbortSignal }) => Promise<unknown>>()
+);
+beforeEach(() => {
+	entryRequest
+		.mockReset()
+		.mockImplementation(() => new Promise(() => undefined));
+});
 vi.mock("#/query/spaces/entry-resolution", () => ({
 	spaceEntryResolutionQueryOptions: () =>
 		queryOptions({
 			queryKey: ["entry"],
-			queryFn: () => new Promise(() => undefined),
+			queryFn: ({ signal }) => entryRequest({ signal }),
 			retry: false,
 		}),
 }));
@@ -21,6 +36,37 @@ vi.mock("#/lib/spaces/protected-space-access", () => ({
 	rememberProtectedSpaceAccess: vi.fn(),
 }));
 afterEach(cleanup);
+
+it("restarts a stalled access request and preserves the draft until access is confirmed", async () => {
+	let confirm: (value: unknown) => void = () => undefined;
+	entryRequest
+		.mockImplementationOnce(() => new Promise(() => undefined))
+		.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					confirm = resolve;
+				})
+		);
+	setup();
+	const draft = screen.getByRole("textbox", { name: "Draft" });
+	fireEvent.change(draft, { target: { value: "Unsent work" } });
+	fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+	await waitFor(() => expect(entryRequest).toHaveBeenCalledTimes(2));
+	expect(entryRequest.mock.calls[0]?.[0].signal.aborted).toBe(true);
+	expect(
+		(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled
+	).toBe(true);
+	act(() => confirm({ view: { state: "allowed", experience: "member" } }));
+	await waitFor(() =>
+		expect(
+			(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+				.disabled
+		).toBe(false)
+	);
+	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
+	expect((draft as HTMLInputElement).value).toBe("Unsent work");
+	expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+});
 
 function Conversation() {
 	return (
