@@ -1550,6 +1550,52 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
+	it("names an implicitly selected Agent owner in the Direct Message conversion warning", () => {
+		renderWithOrganizationQueryClient(
+			<SpaceMembersSidePanel
+				activeWakeWaitingTargetProfileIds={new Set()}
+				agentRecoveryPlansByProfileId={new Map()}
+				autoRefreshExhaustedProfileIds={new Set()}
+				currentOwnerUserId="user_felix"
+				currentProfileId="11111111-1111-4111-8111-111111111111"
+				isAgentRecoveryPending={() => false}
+				isLoading={false}
+				membersError={null}
+				onAddOrganizationDirectoryProfiles={vi.fn()}
+				onAgentRecoveryAction={async () => undefined}
+				onConvertDirectMessageToSpace={vi.fn()}
+				onOpenChange={vi.fn()}
+				onRefresh={async () => undefined}
+				open={true}
+				orgSlug="acme"
+				snapshot={createSpaceMembersSnapshot({
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							ownerUserId: "user_felix",
+							profileId: "11111111-1111-4111-8111-111111111111",
+							profileName: "Felix",
+						}),
+					],
+				})}
+			/>,
+			buildOrganizationDirectory({
+				centerAgentProfileId: "agt_44444444-4444-4444-8444-444444444444",
+				humanProfileId: "22222222-2222-4222-8222-222222222222",
+			})
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
+		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
+		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
+		const confirmation = screen.getByRole("dialog", {
+			name: "Turn this Direct Message into a Space?",
+		});
+		expect(confirmation.textContent).toContain(
+			"Adding Mira and Research Agent will move this conversation to Spaces."
+		);
+	});
+
 	it("requires explicit confirmation before adding a third profile to a Direct Message", async () => {
 		const onAddProfiles = vi.fn(async () => ({
 			addedCount: 1,

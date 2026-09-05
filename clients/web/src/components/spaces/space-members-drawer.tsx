@@ -1034,7 +1034,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		if (input.onConvertDirectMessageToSpace) {
 			const selectedNames: string[] = [];
 			for (const candidate of allCandidates) {
-				if (activeSelectedProfileIds.has(candidate.profileId)) {
+				if (effectiveSelectedProfileIds.has(candidate.profileId)) {
 					selectedNames.push(candidate.profileName);
 				}
 			}
