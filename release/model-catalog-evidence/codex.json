@@ -26,10 +26,7 @@
             "default_verbosity": "low",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -127,9 +124,7 @@
                 "description": "2x speed, increased usage"
               }
             ],
-            "additional_speed_tiers": [
-              "fast"
-            ],
+            "additional_speed_tiers": ["fast"],
             "supports_reasoning_summary_parameter": true,
             "supports_reasoning_summaries": true
           },
@@ -140,10 +135,7 @@
             "default_verbosity": "low",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -240,9 +232,7 @@
                 "description": "The fastest available responses for latency-sensitive work."
               }
             ],
-            "additional_speed_tiers": [
-              "fast"
-            ],
+            "additional_speed_tiers": ["fast"],
             "supports_reasoning_summary_parameter": true,
             "supports_reasoning_summaries": true
           },
@@ -253,10 +243,7 @@
             "default_verbosity": "low",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -348,9 +335,7 @@
                 "description": "1.5x speed, increased usage"
               }
             ],
-            "additional_speed_tiers": [
-              "fast"
-            ],
+            "additional_speed_tiers": ["fast"],
             "supports_reasoning_summary_parameter": true,
             "supports_reasoning_summaries": true
           },
@@ -361,10 +346,7 @@
             "default_verbosity": "low",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -452,9 +434,7 @@
                 "description": "1.5x speed, increased usage"
               }
             ],
-            "additional_speed_tiers": [
-              "fast"
-            ],
+            "additional_speed_tiers": ["fast"],
             "supports_reasoning_summary_parameter": true,
             "supports_reasoning_summaries": true
           },
@@ -465,10 +445,7 @@
             "default_verbosity": "low",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -565,10 +542,7 @@
             "default_verbosity": "high",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -665,10 +639,7 @@
             "default_verbosity": "low",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -752,9 +723,7 @@
                 "description": "1.5x speed, increased usage"
               }
             ],
-            "additional_speed_tiers": [
-              "fast"
-            ],
+            "additional_speed_tiers": ["fast"],
             "supports_reasoning_summary_parameter": true,
             "supports_reasoning_summaries": true
           },
@@ -765,10 +734,7 @@
             "default_verbosity": "low",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -853,9 +819,7 @@
                 "description": "1.5x speed, increased usage"
               }
             ],
-            "additional_speed_tiers": [
-              "fast"
-            ],
+            "additional_speed_tiers": ["fast"],
             "supports_reasoning_summary_parameter": true,
             "supports_reasoning_summaries": true
           },
@@ -866,10 +830,7 @@
             "default_verbosity": "medium",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -962,10 +923,7 @@
             "default_verbosity": "low",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": false,
             "truncation_policy": {
               "mode": "bytes",
@@ -1054,10 +1012,7 @@
             "default_verbosity": "low",
             "apply_patch_tool_type": "freeform",
             "web_search_tool_type": "text_and_image",
-            "input_modalities": [
-              "text",
-              "image"
-            ],
+            "input_modalities": ["text", "image"],
             "supports_image_detail_original": true,
             "truncation_policy": {
               "mode": "tokens",
@@ -1142,9 +1097,7 @@
                 "description": "1.5x speed, increased usage"
               }
             ],
-            "additional_speed_tiers": [
-              "fast"
-            ],
+            "additional_speed_tiers": ["fast"],
             "supports_reasoning_summary_parameter": true,
             "supports_reasoning_summaries": true
           }
@@ -1171,13 +1124,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": [
-                  "none",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh"
-                ]
+                "values": ["none", "low", "medium", "high", "xhigh"]
               }
             ],
             "tool_call": true,
@@ -1187,13 +1134,8 @@
             "release_date": "2025-12-11",
             "last_updated": "2025-12-11",
             "modalities": {
-              "input": [
-                "text",
-                "image"
-              ],
-              "output": [
-                "text"
-              ]
+              "input": ["text", "image"],
+              "output": ["text"]
             },
             "open_weights": false,
             "limit": {
@@ -1217,13 +1159,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": [
-                  "none",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh"
-                ]
+                "values": ["none", "low", "medium", "high", "xhigh"]
               }
             ],
             "tool_call": true,
@@ -1233,14 +1169,8 @@
             "release_date": "2026-02-05",
             "last_updated": "2026-02-05",
             "modalities": {
-              "input": [
-                "text",
-                "image",
-                "pdf"
-              ],
-              "output": [
-                "text"
-              ]
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
             },
             "open_weights": false,
             "limit": {
@@ -1264,13 +1194,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": [
-                  "none",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh"
-                ]
+                "values": ["none", "low", "medium", "high", "xhigh"]
               }
             ],
             "tool_call": true,
@@ -1280,14 +1204,8 @@
             "release_date": "2026-03-05",
             "last_updated": "2026-03-05",
             "modalities": {
-              "input": [
-                "text",
-                "image",
-                "pdf"
-              ],
-              "output": [
-                "text"
-              ]
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
             },
             "open_weights": false,
             "limit": {
@@ -1343,13 +1261,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": [
-                  "none",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh"
-                ]
+                "values": ["none", "low", "medium", "high", "xhigh"]
               }
             ],
             "tool_call": true,
@@ -1359,13 +1271,8 @@
             "release_date": "2026-03-17",
             "last_updated": "2026-03-17",
             "modalities": {
-              "input": [
-                "text",
-                "image"
-              ],
-              "output": [
-                "text"
-              ]
+              "input": ["text", "image"],
+              "output": ["text"]
             },
             "open_weights": false,
             "limit": {
@@ -1405,13 +1312,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": [
-                  "none",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh"
-                ]
+                "values": ["none", "low", "medium", "high", "xhigh"]
               }
             ],
             "tool_call": true,
@@ -1421,14 +1322,8 @@
             "release_date": "2026-04-23",
             "last_updated": "2026-04-23",
             "modalities": {
-              "input": [
-                "text",
-                "image",
-                "pdf"
-              ],
-              "output": [
-                "text"
-              ]
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
             },
             "open_weights": false,
             "limit": {
@@ -1484,14 +1379,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": [
-                  "none",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh",
-                  "max"
-                ]
+                "values": ["none", "low", "medium", "high", "xhigh", "max"]
               }
             ],
             "tool_call": true,
@@ -1501,14 +1389,8 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": [
-                "text",
-                "image",
-                "pdf"
-              ],
-              "output": [
-                "text"
-              ]
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
             },
             "open_weights": false,
             "limit": {
@@ -1577,14 +1459,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": [
-                  "none",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh",
-                  "max"
-                ]
+                "values": ["none", "low", "medium", "high", "xhigh", "max"]
               }
             ],
             "tool_call": true,
@@ -1594,14 +1469,8 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": [
-                "text",
-                "image",
-                "pdf"
-              ],
-              "output": [
-                "text"
-              ]
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
             },
             "open_weights": false,
             "limit": {
@@ -1670,14 +1539,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": [
-                  "none",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh",
-                  "max"
-                ]
+                "values": ["none", "low", "medium", "high", "xhigh", "max"]
               }
             ],
             "tool_call": true,
@@ -1687,14 +1549,8 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": [
-                "text",
-                "image",
-                "pdf"
-              ],
-              "output": [
-                "text"
-              ]
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
             },
             "open_weights": false,
             "limit": {
@@ -1763,13 +1619,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": [
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh",
-                  "max"
-                ]
+                "values": ["low", "medium", "high", "xhigh", "max"]
               }
             ],
             "tool_call": true,
@@ -1778,14 +1628,8 @@
             "release_date": "2026-09-04",
             "last_updated": "2026-09-04",
             "modalities": {
-              "input": [
-                "text",
-                "image",
-                "pdf"
-              ],
-              "output": [
-                "text"
-              ]
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
             },
             "open_weights": false,
             "limit": {
