@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const WEB_APPLICATION_ERROR_PATH =
   "/v1/observability/application-errors";
