@@ -25,6 +25,70 @@
       "body": "Space member names now open a compact profile card with useful, local context:\npeople show when they were last active in that Space, ordinary Agents link to\ntheir proper editor, and Center Agent chat opens Home instead of a Direct\nMessage."
     },
     {
+      "id": "wake-status-orbs-and-response-feedback",
+      "title": "Clearer Agent progress and response feedback",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "agents",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:652",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "Agent progress uses consistent status orbs for connecting, waiting, working,\nreplying, and requests that need your response. Space sidebar indicators give\nrequests needing your input priority over ongoing work.\n\nProgress stays next to the message, above its actions. Pending requests remain\nabove the Composer, and sending a response no longer implies that the Agent\nhas already resumed. Plan reviews render formatted Markdown."
+    },
+    {
+      "id": "agent-sidebar-status-in-creation",
+      "title": "Give Agent creation its own page and reduce status reads",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:654",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "Create Agent now opens its own page without the Agent-list sidebar. Existing\ncreation links redirect there, and creating an Agent opens its details.\n\nAgent requests now loads sidebar status instead of leaving every Agent on\nChecking. Organization status reads also avoid repeated Runtime and Controller\nlookups within the same request, while each new request still reads fresh facts."
+    },
+    {
+      "id": "invite-people-into-a-space",
+      "title": "Invite someone directly into a Space",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "organizations",
+        "cli"
+      ],
+      "audiences": [
+        "users",
+        "admins",
+        "agents"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:655",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "Organization owners and admins can invite someone by email from a Space.\nRecipients review the invitation, join the organization if needed, and land\ndirectly in that Space. Pending invitations can be reviewed, resent, or\nrevoked, with matching commands for local agents using the CLI.\n\nThe member picker also checks an Agent's owner when that person will join with\nthe selected Agent, so the selection matches who is actually being added."
+    },
+    {
       "id": "focused-agent-status-updates",
       "title": "Keep Agent status updates focused",
       "kind": "fixed",
@@ -92,6 +156,26 @@
       "body": "Space members can copy a direct message or thread-message link from Message\nDetails without adding another inline message action. Local agents can build\nthe same destination through the CLI and carry it through the shared Space\naccess check."
     },
     {
+      "id": "accurate-human-visits-and-space-reading-position",
+      "title": "More accurate activity times and reliable Space reading positions",
+      "kind": "fixed",
+      "areas": [
+        "people",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:651",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "People shows a person's latest activity across the app, while each Space shows\ntheir latest visit or message there. Background reconnections no longer make\nsomeone appear recently active, and elapsed times stay current.\n\nReturning to a Space restores the message you were reading instead of jumping\nto the bottom, including when earlier history or images finish loading."
+    },
+    {
       "id": "faster-space-and-message-entry",
       "title": "Open Spaces and messages without waiting on identity",
       "kind": "improved",
@@ -113,6 +197,26 @@
         "smoke:chrome:space-and-direct-message-entry-20260905"
       ],
       "body": "Returning to a Space now restores its recent conversation and exact reading\nposition sooner. Member controls, profile details, Direct Message avatars, and\nPeople connection states also remain useful and honest while current data is\nstill loading, and repeated Space image previews reuse the same downloaded\ncontent."
+    },
+    {
+      "id": "model-catalog-update-handoffs",
+      "title": "Prepare model updates for review automatically",
+      "kind": "improved",
+      "areas": [
+        "agent-profiles",
+        "developer-workflow"
+      ],
+      "audiences": [
+        "contributors"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:656",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "A twice-daily collector prepares model-update pull requests with official source\nevidence and clear decisions for the reviewing coding agent. Confirmed Codex\ncatalog additions are prepared automatically; account access and product defaults\nremain explicit review decisions.\n\nNew Agent Profile recommendations can be configured independently of runtime\ndefaults, while preserving existing selections and remembered preferences."
     },
     {
       "id": "shared-space-wake-progress",
@@ -143,6 +247,26 @@
         "smoke:56d33584-554f-4abc-9ea9-f715c455d360"
       ],
       "body": "Space, CLI, and the Center Agent now present the same authoritative Wake state.\nSpace distinguishes a sent request, a real queue, runtime connection, active\nwork, reply writing, posting, retries, and required Human input instead of\nfolding them into one generic working label. Live state changes refresh the Web\nconversation immediately, while reconnect and low-frequency recovery checks\nkeep the view accurate after a browser sleeps or misses an update.\n\nMembers and agents can also inspect who requested the Wake, its public\nsource-message preview and thread, the working Agent, and the current phase."
+    },
+    {
+      "id": "terminal-wake-recovery-only",
+      "title": "Start a new Wake from the composer",
+      "kind": "removed",
+      "areas": [
+        "spaces",
+        "center-agent"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.158",
+      "evidence": [
+        "pr:650",
+        "pr:658",
+        "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"
+      ],
+      "body": "Historical Wake failures no longer offer a shortcut that reruns the original\nrequest. To run it again, send a new message from the Space composer. Message\ndetails still provides diagnostics and recovery for an existing result when\navailable. The Center Agent no longer exposes the retired execution-retry tool."
     },
     {
       "id": "verified-service-update-outcomes",
