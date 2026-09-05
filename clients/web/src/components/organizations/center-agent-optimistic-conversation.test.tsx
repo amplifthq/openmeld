@@ -68,7 +68,7 @@ describe("CenterAgentOptimisticConversation", () => {
 		expect(within(optimisticReply).getByText("Center Agent")).toBeTruthy();
 		expect(status.textContent).toBe("Sending to Agent…");
 		expect(
-			status.querySelector('[data-slot="animated-mobius-icon"]')
+			status.querySelector('[data-space-agent-orb-state="connecting"]')
 		).toBeTruthy();
 	});
 });

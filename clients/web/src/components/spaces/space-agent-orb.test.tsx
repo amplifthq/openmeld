@@ -9,20 +9,20 @@ import {
 afterEach(cleanup);
 
 describe("SpaceAgentOrb", () => {
-	it("renders the solving orb at a 16 pixel visual footprint", () => {
+	it("renders the working orb at a 16 pixel visual footprint", () => {
 		const { container } = render(<SpaceAgentOrb />);
 		const orb = container.querySelector<HTMLCanvasElement>("canvas");
 		const orbSlot = container.querySelector<HTMLElement>(
 			'[data-slot="space-agent-orb"]'
 		);
 
-		expect(DEFAULT_SPACE_AGENT_ORB_STATE).toBe("solving");
+		expect(DEFAULT_SPACE_AGENT_ORB_STATE).toBe("working");
 		expect(orbSlot?.className).toContain("size-4");
 		expect(orb?.className).toContain("scale-80");
 		expect(orb?.style.width).toBe("20px");
 		expect(orb?.style.height).toBe("20px");
 		expect(orb?.getAttribute("aria-hidden")).toBe("true");
-		expect(orb?.dataset.spaceAgentOrbState).toBe("solving");
+		expect(orb?.dataset.spaceAgentOrbState).toBe("working");
 	});
 
 	it("renders a prominent 32 pixel orb without the compact scale", () => {
@@ -67,12 +67,12 @@ describe("SpaceAgentOrb", () => {
 		).toBe("shaping");
 	});
 
-	it("returns to solving after specialized work settles", () => {
+	it("returns to working after specialized work settles", () => {
 		expect(
 			resolveSpaceAgentWorkOrbState({
 				state: "output-available",
 				work: { key: "source.search", v: 1 },
 			})
-		).toBe("solving");
+		).toBe("working");
 	});
 });
