@@ -13245,6 +13245,9 @@ describe("SpaceLanding", () => {
 	});
 
 	it("checks current Wakeability before publishing selected files", async () => {
+		let finishAdmission: (snapshot: SpaceMembersSnapshot) => void = () => {
+			throw new Error("Admission read has not started.");
+		};
 		const postNormalMessageMock = vi.fn();
 		const publishComposerUploadMock = vi.fn();
 		const currentMembersSnapshot = createMembersSnapshot({
@@ -13260,7 +13263,12 @@ describe("SpaceLanding", () => {
 				"Expected current Core Wakeability reason in the fixture."
 			);
 		}
-		readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		readSpaceMembersMock.mockImplementation(
+			() =>
+				new Promise<SpaceMembersSnapshot>((resolve) => {
+					finishAdmission = resolve;
+				})
+		);
 		createWebSpaceApiMock.mockReturnValue({
 			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
 			postNormalMessage: postNormalMessageMock,
@@ -13312,6 +13320,18 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+		});
+		expect(
+			document.querySelector('[data-signal-id^="pending:"]')?.textContent
+		).toContain("review these notes");
+		expect(readComposerValue(textarea)).toBe("");
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		await act(async () => {
+			finishAdmission(currentMembersSnapshot);
+			await Promise.resolve();
+		});
+		await waitFor(() => {
 			expect(screen.getByText(currentBlockedReason)).toBeTruthy();
 		});
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
