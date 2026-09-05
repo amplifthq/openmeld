@@ -773,7 +773,7 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
-	it("shows a visible error when the manual members refresh fails", async () => {
+	it("keeps retry available after a refresh error without a permanent refresh button", async () => {
 		const refreshError = new Error("network unavailable");
 		const consoleErrorSpy = vi
 			.spyOn(console, "error")
@@ -788,7 +788,7 @@ describe("SpaceMembersSidePanel", () => {
 				currentProfileId="11111111-1111-4111-8111-111111111111"
 				isAgentRecoveryPending={() => false}
 				isLoading={false}
-				membersError={null}
+				membersError="network unavailable"
 				onAgentRecoveryAction={async () => undefined}
 				onOpenChange={vi.fn()}
 				onRefresh={onRefresh}
@@ -805,7 +805,10 @@ describe("SpaceMembersSidePanel", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Refresh members" }));
+		expect(
+			screen.queryByRole("button", { name: "Refresh members" })
+		).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
 		await waitFor(() => {
 			expect(onRefresh).toHaveBeenCalledWith({ forceNetwork: true });
@@ -814,7 +817,7 @@ describe("SpaceMembersSidePanel", () => {
 			SPACE_MEMBERS_REFRESH_ERROR_MESSAGE
 		);
 		expect(consoleErrorSpy).toHaveBeenCalledWith(
-			"Failed to refresh members.",
+			"Failed to retry member loading.",
 			refreshError
 		);
 	});

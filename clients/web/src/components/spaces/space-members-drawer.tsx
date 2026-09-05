@@ -40,7 +40,6 @@ import {
 } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	ArrowsClockwiseIcon,
 	CaretDownIcon,
 	CaretRightIcon,
 	MagnifyingGlassIcon,
@@ -266,9 +265,6 @@ export function SpaceMembersSidePanel(
 								open={model.isAddMembersOpen}
 							/>
 						) : null}
-						<SpaceMembersRefreshButton
-							onRefresh={() => input.onRefresh({ forceNetwork: true })}
-						/>
 						<SpaceMembersCloseButton
 							onClose={() => input.onOpenChange(false)}
 						/>
@@ -380,9 +376,6 @@ export function SpaceMembersDrawer(
 											open={model.isAddMembersOpen}
 										/>
 									) : null}
-									<SpaceMembersRefreshButton
-										onRefresh={() => input.onRefresh({ forceNetwork: true })}
-									/>
 									<SpaceMembersCloseButton
 										onClose={() => input.onOpenChange(false)}
 									/>
@@ -514,44 +507,6 @@ function SpaceAddMembersHeaderButton(input: {
 				</Tooltip>
 			</MotionConfig>
 		</LazyMotion>
-	);
-}
-
-function SpaceMembersRefreshButton(input: { onRefresh: () => Promise<void> }) {
-	const [isManualRefreshPending, setIsManualRefreshPending] = useState(false);
-
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Button
-						aria-label="Refresh members"
-						disabled={isManualRefreshPending}
-						onClick={() => {
-							if (isManualRefreshPending) {
-								return;
-							}
-							setIsManualRefreshPending(true);
-							input
-								.onRefresh()
-								.catch((error) => {
-									console.error("Failed to refresh members.", error);
-									toast.error(SPACE_MEMBERS_REFRESH_ERROR_MESSAGE);
-								})
-								.finally(() => {
-									setIsManualRefreshPending(false);
-								});
-						}}
-						size="icon-sm"
-						type="button"
-						variant="ghost"
-					>
-						<ArrowsClockwiseIcon />
-					</Button>
-				}
-			/>
-			<TooltipContent>Refresh members</TooltipContent>
-		</Tooltip>
 	);
 }
 
@@ -2438,37 +2393,47 @@ function SpaceMembersList(input: {
 	const shouldShowBlockingError = Boolean(
 		input.membersError && !input.snapshot
 	);
-	const shouldShowRefreshError = Boolean(input.membersError && input.snapshot);
-
+	const membersErrorNotice = input.membersError ? (
+		<div
+			className={cn(
+				"flex flex-col items-start gap-3 rounded-md border p-3 text-sm",
+				shouldShowBlockingError
+					? "border-destructive bg-destructive/10 text-destructive"
+					: resolveStatusToneWarningNoticeClassName()
+			)}
+		>
+			<p>
+				{shouldShowBlockingError
+					? SPACE_MEMBERS_LOAD_ERROR_MESSAGE
+					: SPACE_MEMBERS_REFRESH_ERROR_MESSAGE}
+			</p>
+			<Button
+				disabled={isRetryPending}
+				onClick={() => {
+					if (isRetryPending) {
+						return;
+					}
+					setIsRetryPending(true);
+					input
+						.onRefresh({ forceNetwork: true })
+						.catch((error) => {
+							console.error("Failed to retry member loading.", error);
+							toast.error(SPACE_MEMBERS_REFRESH_ERROR_MESSAGE);
+						})
+						.finally(() => {
+							setIsRetryPending(false);
+						});
+				}}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				Retry
+			</Button>
+		</div>
+	) : null;
 	if (shouldShowBlockingError) {
-		return (
-			<div className="flex flex-col gap-3 rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm">
-				<p>{SPACE_MEMBERS_LOAD_ERROR_MESSAGE}</p>
-				<Button
-					disabled={isRetryPending}
-					onClick={() => {
-						if (isRetryPending) {
-							return;
-						}
-						setIsRetryPending(true);
-						input
-							.onRefresh({ forceNetwork: true })
-							.catch((error) => {
-								console.error("Failed to retry member loading.", error);
-								toast.error(SPACE_MEMBERS_REFRESH_ERROR_MESSAGE);
-							})
-							.finally(() => {
-								setIsRetryPending(false);
-							});
-					}}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					Retry
-				</Button>
-			</div>
-		);
+		return membersErrorNotice;
 	}
 
 	if (
@@ -2478,16 +2443,7 @@ function SpaceMembersList(input: {
 	) {
 		return (
 			<div className="flex flex-col gap-3">
-				{shouldShowRefreshError ? (
-					<div
-						className={cn(
-							"rounded-md border p-3 text-sm",
-							resolveStatusToneWarningNoticeClassName()
-						)}
-					>
-						{SPACE_MEMBERS_REFRESH_ERROR_MESSAGE}
-					</div>
-				) : null}
+				{membersErrorNotice}
 				{roster.organizationEntries.length > 0 ? (
 					<section className="flex flex-col gap-1">
 						<h2 className="font-medium text-muted-foreground text-xs">
@@ -2563,10 +2519,13 @@ function SpaceMembersList(input: {
 	}
 
 	return (
-		<div className="border border-border px-3 py-6 text-center text-muted-foreground text-sm">
-			{input.query.trim().length > 0
-				? "No matching members found."
-				: "No members are visible in this space yet."}
+		<div className="flex flex-col gap-3">
+			{membersErrorNotice}
+			<div className="border border-border px-3 py-6 text-center text-muted-foreground text-sm">
+				{input.query.trim().length > 0
+					? "No matching members found."
+					: "No members are visible in this space yet."}
+			</div>
 		</div>
 	);
 }
