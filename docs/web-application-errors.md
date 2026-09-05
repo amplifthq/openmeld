@@ -7,7 +7,7 @@ not a product Audit Log or an execution authority.
 
 ## Find an incident
 
-1. Open Cloudflare **Workers & Pages → openmeld-web → Observability → Logs**.
+1. Open Cloudflare **Workers & Pages → openmeld-web-prod → Observability → Events**.
    Use `openmeld-web-stg` for staging.
 2. Select the incident's time range and search for
    `web.openmeld.application_error`. Save this query and review it daily and
