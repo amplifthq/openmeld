@@ -13,6 +13,7 @@ import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { cn } from "@openmeld/ui/lib/utils";
 import { type ReactNode, useId, useState } from "react";
+import { MessageResponse } from "#/components/ai/message-response";
 
 export type SpaceAgentInteractionResponseHandler = (
 	input: RespondToSpaceAgentInteractionBody
@@ -115,7 +116,7 @@ export function SpaceAgentInteractionCard(input: {
 				title="Response sent"
 			>
 				<p aria-live="polite" className="text-muted-foreground text-sm">
-					{input.item.targetLabel} is resuming this Wake.
+					Waiting for {input.item.targetLabel} to continue.
 				</p>
 			</InteractionShell>
 		);
@@ -208,7 +209,7 @@ function InteractionShell(input: {
 				"flex w-full max-w-2xl flex-col gap-4 bg-background text-left",
 				input.presentation === "surface"
 					? "p-0"
-					: "my-2 border border-border p-4 shadow-sm"
+					: "my-2 rounded-lg border border-border p-4"
 			)}
 			data-agent-interaction-kind={input.kind}
 		>
@@ -343,7 +344,7 @@ function PermissionSubject(input: {
 	}
 
 	return (
-		<div className="grid gap-2 border border-border bg-muted/40 p-3 text-sm">
+		<div className="grid gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
 			{subject.command ? (
 				<pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5">
 					<code>{subject.command}</code>
@@ -696,9 +697,11 @@ function PlanReviewInteraction(input: {
 
 	return (
 		<>
-			<pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border bg-muted/40 p-3 font-mono text-xs leading-6">
-				<code>{input.request.plan}</code>
-			</pre>
+			<div className="max-h-80 overflow-auto rounded-md border border-border bg-muted/40 p-3">
+				<MessageResponse variant="space-message">
+					{input.request.plan}
+				</MessageResponse>
+			</div>
 			{showFeedback ? (
 				<label className="grid gap-2 text-sm" htmlFor={feedbackId}>
 					<span className="font-medium text-foreground">

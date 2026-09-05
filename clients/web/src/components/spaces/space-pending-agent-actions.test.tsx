@@ -269,7 +269,7 @@ describe("SpacePendingAgentActions", () => {
 		resolveApproval();
 
 		expect(
-			await screen.findByText("@Runner is resuming this Wake.")
+			await screen.findByText("Waiting for @Runner to continue.")
 		).toBeTruthy();
 		expect(onPermissionModeUpdate).toHaveBeenCalledWith({
 			permissionMode: "claude-code:auto",
@@ -302,7 +302,7 @@ describe("SpacePendingAgentActions", () => {
 			screen.getByRole("button", { name: "Approve and continue" })
 		);
 		expect(
-			await screen.findByText("@Runner is resuming this Wake.")
+			await screen.findByText("Waiting for @Runner to continue.")
 		).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("button", { name: "Next action" }));
