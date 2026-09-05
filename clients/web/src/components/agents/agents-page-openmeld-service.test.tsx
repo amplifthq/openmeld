@@ -1605,7 +1605,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("OpenMeld Service is not connected")).toBeTruthy();
+		expect(screen.getByText("Computer not connected")).toBeTruthy();
 		expect(
 			screen.getByRole("link", { name: "Reconnect Computer" })
 		).toBeTruthy();
