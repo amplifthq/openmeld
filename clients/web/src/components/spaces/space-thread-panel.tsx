@@ -71,7 +71,6 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
-import { SpaceActiveWakeSource } from "./space-active-wake-source";
 import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
@@ -1552,15 +1551,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
 							})}
 							{showProgressInAnswerArea ? progressStatus : null}
-							{input.item.activeWakeSourceItemId &&
-							input.allItems.some(
-								(item) => item.id === input.item.activeWakeSourceItemId
-							) ? (
-								<SpaceActiveWakeSource
-									item={input.item}
-									onJumpToMessage={input.onJumpToMessage}
-								/>
-							) : null}
 						</BubbleContent>
 					</Bubble>
 					{showProgressInAnswerArea ? null : progressStatus}
