@@ -26,20 +26,15 @@ export type {
   ReadAgentActivityStatsInput,
 } from "./agent-activity/types";
 export { createAgentProfileBindingApi } from "./agent-profile-binding/api";
-export {
-  buildAgentProfileBindingOrganizationAuthorizationsRoute,
-  buildAgentProfilePrimaryBindingOrganizationAuthorizationRoute,
-} from "./agent-profile-binding/routes";
+export { buildCurrentAgentProfileSessionRoute } from "./agent-profile-binding/routes";
 export type {
-  AuthorizeAgentProfileBindingForOrganizationInput,
   CreateAgentProfileBindingApi,
   DisableAgentProfilePrimaryBindingInput,
   EnsureAgentProfilePrimaryBindingInput,
   GetAgentExecutionReadinessBatchInput,
   GetAgentExecutionReadinessInput,
   GetAgentProfilePrimaryBindingInput,
-  ListOrganizationBindingAuthorizationsInput,
-  RevokeAgentProfileBindingForOrganizationInput,
+  GetCurrentAgentProfileSessionInput,
   UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput,
   UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput,
   UpdateAgentProfilePrimaryBindingModelSelectionInput,
@@ -166,6 +161,7 @@ export {
   buildInboxSummaryPath,
   buildSpaceInboxReadThroughPath,
   buildSpaceInboxSummaryPath,
+  buildSpaceInboxUnreadTargetsPath,
 } from "./inbox/routes";
 export type {
   CreateInboxApi,
@@ -223,16 +219,11 @@ export {
   buildCurrentOrganizationMessageChannelsPath,
   buildCurrentOrganizationSpacesPath,
   buildCurrentOrganizationSpacesWithMemberCountsPath,
-  buildOrganizationBindingAuthorizationPreferencePath,
-  buildOrganizationBindingAuthorizationProfilesPath,
-  buildOrganizationBindingAuthorizationsBulkPath,
-  buildOrganizationWakeAccessChoicePath,
 } from "./organization/routes";
 export type {
   AgentProfileCreationDefaultsRouteInput,
   AgentProfileCreationRequestRouteInput,
   BeginLarkPlatformRegistrationInput,
-  BulkAuthorizeAgentProfileBindingsForOrganizationInput,
   CreateAgentProfileCreationRequestInput,
   CreateOrganizationApi,
   DecideAgentProfileCreationRequestInput,
@@ -241,10 +232,8 @@ export type {
   OrganizationRouteInput,
   PollLarkPlatformRegistrationInput,
   RequestMessageChannelSetupInput,
-  SaveOrganizationWakeAccessChoiceInput,
   SetAgentProfileCreationApprovalPreferenceInput,
   SetAgentProfileCreationDefaultsInput,
-  SetOrganizationBindingAuthorizationPreferenceInput,
   SetOrganizationInformationProtectionInput,
   UpdateCurrentOrganizationLogoInput,
 } from "./organization/types";
@@ -357,6 +346,7 @@ export type {
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceInput,
   RemoveSpaceMembersInput,
+  ResolveSpaceEntryInput,
   SetSpaceAccessModeInput,
   SpaceApi,
   SpaceAttachmentUploadBytes,

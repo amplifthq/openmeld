@@ -93,6 +93,7 @@ function buildSpaceTestDouble(rows: readonly SpaceMemberSqlRow[]) {
   const broadcast = vi.fn();
   const space = Object.create(Space.prototype) as {
     rpcBroadcastAgentReadinessInvalidated: Space["rpcBroadcastAgentReadinessInvalidated"];
+    rpcBroadcastWakeProgressChanged: Space["rpcBroadcastWakeProgressChanged"];
   };
   Object.defineProperties(space, {
     broadcast: { value: broadcast },
@@ -198,5 +199,32 @@ describe("Space readiness invalidation RPC", () => {
         version: nowMs + 1,
       }) satisfies Partial<SpaceLiveInvalidationFrame>
     );
+  });
+
+  it("broadcasts Wake progress as a refresh signal without embedding state", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(nowMs));
+    const { broadcast, space } = buildSpaceTestDouble([]);
+
+    const result = await space.rpcBroadcastWakeProgressChanged({
+      agentProfileIds: ["agent-active-1", "agent-active-1"],
+      clientMessageIds: ["client-message-1"],
+      reason: "runtime_coordinator.wake_progress_changed",
+      spaceId: "space-1",
+    });
+
+    expect(result).toEqual({
+      broadcast: true,
+      ok: true,
+      spaceId: "space-1",
+    });
+    expect(broadcast).toHaveBeenCalledWith({
+      agentProfileIds: ["agent-active-1"],
+      clientMessageIds: ["client-message-1"],
+      reason: "runtime_coordinator.wake_progress_changed",
+      spaceId: "space-1",
+      type: "wake.progress.changed",
+      version: nowMs,
+    });
   });
 });

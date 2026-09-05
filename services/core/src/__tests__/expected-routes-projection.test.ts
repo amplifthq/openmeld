@@ -31,6 +31,7 @@ function createBinding(
 }
 
 const activeAgentFact: ExpectedRouteProfileFact = {
+  defaultProjectId: null,
   profileKind: "agent",
   profileName: "Codex Agent",
   status: "active",
@@ -124,6 +125,32 @@ describe("expected routes projection", () => {
       agentProfileId: "agt-versioned",
       configurationRevision: 7,
     });
+  });
+
+  it("carries the current Default Project identity only for v4 consumers", () => {
+    const profileFact = {
+      ...activeAgentFact,
+      defaultProjectId: "project-1",
+    };
+    const current = buildExpectedRoutesProjection({
+      openMeldServiceRuntimeId: RUNTIME_ID,
+      bindings: [createBinding({ agentProfileId: "agt-project" })],
+      includeConfigurationRevision: true,
+      includeDefaultProjectId: true,
+      profileFactByProfileId: new Map([["agt-project", profileFact]]),
+    });
+    const legacy = buildExpectedRoutesProjection({
+      openMeldServiceRuntimeId: RUNTIME_ID,
+      bindings: [createBinding({ agentProfileId: "agt-project" })],
+      includeConfigurationRevision: true,
+      profileFactByProfileId: new Map([["agt-project", profileFact]]),
+    });
+
+    expect(current.expectedRoutes[0]).toMatchObject({
+      configurationRevision: 1,
+      defaultProjectId: "project-1",
+    });
+    expect(legacy.expectedRoutes[0]).not.toHaveProperty("defaultProjectId");
   });
 
   it("omits invalid stored Agent Controller Permission Mode", () => {

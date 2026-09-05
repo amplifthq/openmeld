@@ -57,6 +57,7 @@ import {
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import {
+	organizationDirectoryQueryFilters,
 	organizationDirectoryQueryOptions,
 	organizationMemberRoleQueryOptions,
 	organizationQueryKeys,
@@ -569,9 +570,11 @@ function OrganizationMemberRoleRow(input: {
 				role,
 			}),
 		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.directory(input.organizationId),
-			});
+			await queryClient.invalidateQueries(
+				organizationDirectoryQueryFilters({
+					organizationId: input.organizationId,
+				})
+			);
 			setSavedMessage("Role updated.");
 		},
 	});
@@ -585,9 +588,11 @@ function OrganizationMemberRoleRow(input: {
 			setRemoveDialogOpen(false);
 		},
 		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.directory(input.organizationId),
-			});
+			await queryClient.invalidateQueries(
+				organizationDirectoryQueryFilters({
+					organizationId: input.organizationId,
+				})
+			);
 			setRemoveDialogOpen(false);
 		},
 	});

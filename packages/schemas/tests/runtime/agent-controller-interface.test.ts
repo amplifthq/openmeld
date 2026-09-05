@@ -143,6 +143,48 @@ describe("agent controller interface schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts provider-scoped usage windows without exposing credentials", () => {
+    const result = agentControllerInterfaceSnapshotSchema.safeParse({
+      ...createValidAgentControllerInterfaceSnapshot(),
+      usageLimits: [
+        {
+          key: "opencode-go:rolling",
+          label: "5-hour usage",
+          observedAt: "2026-06-29T12:00:00.000Z",
+          provider: { displayName: "OpenCode Go", id: "opencode-go" },
+          resetsAt: "2026-06-29T15:00:00.000Z",
+          status: "available",
+          usedPercent: 82,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects private provider credential fields", () => {
+    const result = agentControllerInterfaceSnapshotSchema.safeParse({
+      ...createValidAgentControllerInterfaceSnapshot(),
+      usageLimits: [
+        {
+          key: "opencode-go:rolling",
+          label: "5-hour usage",
+          observedAt: "2026-06-29T12:00:00.000Z",
+          provider: {
+            apiKey: "must-not-leave-the-device",
+            displayName: "OpenCode Go",
+            id: "opencode-go",
+          },
+          resetsAt: "2026-06-29T15:00:00.000Z",
+          status: "available",
+          usedPercent: 82,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it.each([
     "unsupported",
     "unavailable",

@@ -37,8 +37,8 @@ export function SpaceProfileRequiredState(input: {
 			<CardContent className="flex flex-col gap-4">
 				<p className="max-w-prose text-muted-foreground text-sm">
 					{recommendedHumanProfile
-						? `OpenMeld needs to know which Human Profile should speak for you in this Space. Continue as ${recommendedHumanProfile.profileName}, or choose another profile in Directory.`
-						: "OpenMeld needs to know which Human Profile should speak for you in this Space before it can open the app view."}
+						? `Choose who you are in this Space. Continue as ${recommendedHumanProfile.profileName}, or choose another profile in People.`
+						: "Choose who you are in this Space before opening it."}
 				</p>
 				<div className="flex flex-col gap-2 sm:flex-row">
 					{recommendedHumanProfile ? (

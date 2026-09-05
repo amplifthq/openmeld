@@ -1,6 +1,7 @@
 "use client";
 
 import type { SpaceAccessMode } from "@openmeld/schemas/types";
+import { buildPublicSpaceEntryUrl } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -23,7 +24,6 @@ import {
 	SpaceAccessEditor,
 	type SpaceAccessUpdateInput,
 } from "./space-access-editor";
-import { buildPublicSpaceShareUrl } from "./space-share-url";
 
 export function SpaceShareDialog(input: {
 	accessMode: SpaceAccessMode;
@@ -37,9 +37,9 @@ export function SpaceShareDialog(input: {
 	const [origin] = useState<string | null>(() =>
 		typeof window === "undefined" ? null : window.location.origin
 	);
-	const shareUrl = buildPublicSpaceShareUrl({
+	const shareUrl = buildPublicSpaceEntryUrl({
 		origin,
-		spaceId: input.spaceId,
+		target: { spaceId: input.spaceId },
 	});
 
 	return (

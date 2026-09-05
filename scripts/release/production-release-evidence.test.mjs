@@ -48,6 +48,42 @@ test("publishes exact guarded local release sources for later status checks", ()
   }
 });
 
+test("records a later successful redeploy of the same source SHA", () => {
+  const fixture = createGitFixture();
+  try {
+    publishGuardedLocalReleaseEvidence({
+      cwd: fixture.repository,
+      now: "2026-08-30T17:00:00.000Z",
+      remote: fixture.remote,
+      scopes: ["web"],
+      sourceSha: fixture.sourceSha,
+    });
+    const redeploy = publishGuardedLocalReleaseEvidence({
+      cwd: fixture.repository,
+      now: "2026-08-30T17:01:00.000Z",
+      remote: fixture.remote,
+      scopes: ["web"],
+      sourceSha: fixture.sourceSha,
+    });
+
+    assert.equal(redeploy.published, true);
+    assert.deepEqual(
+      readGuardedLocalReleaseSources({
+        cwd: fixture.repository,
+        remote: fixture.remote,
+      }).get("web"),
+      {
+        recordedAt: "2026-08-30T17:01:00.000Z",
+        sha: fixture.sourceSha,
+        source: "guarded-local",
+        url: undefined,
+      }
+    );
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+});
+
 test("records an intentional rollback as the latest guarded local release", () => {
   const fixture = createGitFixture();
   try {
@@ -75,7 +111,7 @@ test("records an intentional rollback as the latest guarded local release", () =
     });
 
     assert.equal(firstPublish.published, true);
-    assert.equal(repeatedPublish.published, false);
+    assert.equal(repeatedPublish.published, true);
     assert.equal(nextPublish.published, true);
     const rollbackPublish = publishGuardedLocalReleaseEvidence({
       cwd: fixture.repository,

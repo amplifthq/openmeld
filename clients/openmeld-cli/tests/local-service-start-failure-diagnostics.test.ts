@@ -3,15 +3,17 @@ import {
   buildSystemServiceStartupFailureDiagnostics,
   buildSystemServiceStartupFailureReport,
   buildSystemServiceStartupFailureReportFromVerdict,
-  buildSystemServiceStartupTimeoutMessage,
   resolveSystemServiceStartupFailureVerdict,
-  SystemServiceStartupTimeoutError,
   waitForSystemServiceStartup,
 } from "../src/commands/service-start-failure";
 import type {
   DaemonServiceJobDiagnostics,
   DaemonServiceManager,
 } from "../src/local-service/lifecycle/daemon-service-manager";
+import {
+  buildSystemServiceStartupTimeoutMessage,
+  SystemServiceStartupTimeoutError,
+} from "../src/local-service/lifecycle/daemon-service-startup-wait";
 
 // Use plain rejecting functions (not vi.fn().mockRejectedValue) so the global
 // afterEach vi.restoreAllMocks() in setup-env.ts cannot wipe the implementation

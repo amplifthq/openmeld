@@ -830,6 +830,116 @@ describe("Inbox service", () => {
     }
   });
 
+  it("returns exact unread targets for the active Space", async () => {
+    const harness = createInboxHarness();
+    try {
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 900,
+        recipientUserId: "user_one",
+        sourceKey: "space_main_message",
+        spaceId: "space_one",
+      });
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 950,
+        recipientUserId: "user_one",
+        sourceKey: "space_thread_message",
+        spaceId: "space_one",
+        threadRootSignalId: "space_thread_root",
+      });
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 1000,
+        recipientUserId: "user_two",
+        sourceKey: "other_user_message",
+        spaceId: "space_one",
+      });
+
+      await expect(
+        createInboxService({ db: harness.db }).spaceUnreadTargets({
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+          spaceId: "space_one",
+        })
+      ).resolves.toEqual({
+        hasMoreTargets: false,
+        organizationId: "org_one",
+        spaceId: "space_one",
+        targets: [
+          {
+            occurredAtMs: 900,
+            signalId: "space_main_message",
+            threadRootSignalId: null,
+          },
+          {
+            occurredAtMs: 950,
+            signalId: "space_thread_message",
+            threadRootSignalId: "space_thread_root",
+          },
+        ],
+        totalUnreadCount: 2,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("reads through one thread without clearing main or another thread", async () => {
+    const harness = createInboxHarness();
+    try {
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 900,
+        recipientUserId: "user_one",
+        sourceKey: "space_main_message",
+        spaceId: "space_one",
+      });
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 950,
+        recipientUserId: "user_one",
+        sourceKey: "thread_one_message",
+        spaceId: "space_one",
+        threadRootSignalId: "thread_one",
+      });
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 975,
+        recipientUserId: "user_one",
+        sourceKey: "thread_two_message",
+        spaceId: "space_one",
+        threadRootSignalId: "thread_two",
+      });
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+
+      await expect(
+        service.markSpaceReadThrough({
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+          spaceId: "space_one",
+          threadRootSignalId: "thread_one",
+          throughOccurredAtMs: 1000,
+        })
+      ).resolves.toMatchObject({ markedReadCount: 1 });
+
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 925,
+        recipientUserId: "user_one",
+        sourceKey: "thread_one_delayed_message",
+        spaceId: "space_one",
+        threadRootSignalId: "thread_one",
+      });
+      expect(
+        harness.queryFirst<{ read_at_ms: number | null }>({
+          params: ["thread_one_delayed_message"],
+          sql: "SELECT read_at_ms FROM inbox_items WHERE source_key = ?",
+        })
+      ).toEqual({ read_at_ms: 4000 });
+      expect(
+        harness.queryFirst<{ unread_count: number }>({
+          sql: "SELECT count(*) AS unread_count FROM inbox_items WHERE read_at_ms IS NULL",
+        })
+      ).toEqual({ unread_count: 2 });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("rejects a Space read watermark far in the future", async () => {
     const harness = createInboxHarness();
     try {
@@ -1136,6 +1246,7 @@ function createInboxHarness() {
     "inbox_email_deliveries",
     "inbox_notification_preferences",
     "inbox_center_agent_read_watermarks",
+    "inbox_space_thread_read_watermarks",
     "space_index_spaces",
     "space_index_memberships",
   ]);

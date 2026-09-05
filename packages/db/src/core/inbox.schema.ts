@@ -178,6 +178,40 @@ export const inboxCenterAgentReadWatermarks = sqliteTable(
   ]
 );
 
+export const inboxSpaceThreadReadWatermarks = sqliteTable(
+  "inbox_space_thread_read_watermarks",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    spaceId: text("space_id").notNull(),
+    threadRootSignalId: text("thread_root_signal_id").notNull(),
+    throughOccurredAtMs: integer("through_occurred_at_ms").notNull(),
+    readAtMs: integer("read_at_ms").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    uniqueIndex("inbox_space_thread_read_watermarks_scope_unique").on(
+      table.organizationId,
+      table.recipientUserId,
+      table.spaceId,
+      table.threadRootSignalId
+    ),
+    check(
+      "inbox_space_thread_read_watermarks_identity_non_empty_check",
+      sql`length(trim("organization_id")) > 0 and length(trim("recipient_user_id")) > 0 and length(trim("space_id")) > 0 and length(trim("thread_root_signal_id")) > 0`
+    ),
+    check(
+      "inbox_space_thread_read_watermarks_timestamps_check",
+      sql`"through_occurred_at_ms" >= 0 and "read_at_ms" >= 0 and "created_at_ms" >= 0 and "updated_at_ms" >= "created_at_ms"`
+    ),
+  ]
+);
+
 export const inboxEmailDeliveries = sqliteTable(
   "inbox_email_deliveries",
   {

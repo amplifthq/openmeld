@@ -264,6 +264,44 @@ describe("space timeline helpers", () => {
 		});
 	});
 
+	it.each([
+		{
+			expectedAgentControllerRef: "builtin:claude",
+			memberAgentControllerRef: "builtin:claude",
+			name: "rebound",
+		},
+		{
+			expectedAgentControllerRef: null,
+			memberAgentControllerRef: null,
+			name: "unbound",
+		},
+	])("uses the current $name member controller instead of a stale message snapshot", ({
+		expectedAgentControllerRef,
+		memberAgentControllerRef,
+	}) => {
+		const profileId = "agt_33333333-3333-3333-3333-333333333333";
+		const [item] = buildSpaceTimelineItems({
+			envelopes: [
+				createTextSignal({
+					id: "sig-old-controller",
+					profile: {
+						agentControllerRef: "builtin:codex",
+						kind: "agent",
+						profileId,
+						profileName: "Runner",
+					},
+					text: "Completed the task.",
+					ts: 10,
+				}),
+			],
+			membersSnapshot: createMembersSnapshot({
+				runnerAgentControllerRef: memberAgentControllerRef,
+			}),
+		});
+
+		expect(item?.actorAgentControllerRef).toBe(expectedAgentControllerRef);
+	});
+
 	it("treats a removed live member avatar as authoritative over the old message snapshot", () => {
 		const [item] = buildSpaceTimelineItems({
 			envelopes: [
@@ -814,6 +852,34 @@ describe("space timeline helpers", () => {
 		});
 	});
 
+	it("preserves Agent Reference targets without inventing Wake details", () => {
+		const items = buildSpaceTimelineItems({
+			envelopes: [
+				createTextSignal({
+					id: "sig-reference",
+					ts: 10,
+					text: "@watcher context only",
+					messageEnvelope: {
+						activationTargets: [],
+						referenceTargets: ["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+						text: "@watcher context only",
+					},
+					meta: {
+						clientMessageId: "client-message-1",
+					},
+				}),
+			],
+			membersSnapshot: createMembersSnapshot(),
+		});
+
+		expect(items[0]).toMatchObject({
+			referenceTargetProfileIds: ["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+			wakeClientMessageId: null,
+			wakeSourceSignalId: null,
+			wakeTargetProfileIds: [],
+		});
+	});
+
 	it("does not project agent session details from source Wake messages", () => {
 		const items = buildSpaceTimelineItems({
 			envelopes: [
@@ -1351,6 +1417,7 @@ function createSystemNoticeSignal(input: {
 function createMembersSnapshot(
 	input: {
 		miraAvatarUrl?: string | null;
+		runnerAgentControllerRef?: string | null;
 		runnerRuntimeDeviceDisplayName?: string;
 		unavailableWatcher?: boolean;
 	} = {}
@@ -1358,6 +1425,7 @@ function createMembersSnapshot(
 	return createSpaceMembersSnapshot({
 		agents: [
 			createAgentMember({
+				agentControllerRef: input.runnerAgentControllerRef,
 				profileId: "agt_33333333-3333-3333-3333-333333333333",
 				profileName: "Runner",
 				liveNow: true,
@@ -1439,6 +1507,7 @@ function createHumanMember(input: {
 }
 
 function createAgentMember(input: {
+	agentControllerRef?: string | null;
 	wakeRouteEvidenceStatus?: "online" | "offline" | "unavailable";
 	profileId: string;
 	profileName: string;
@@ -1466,7 +1535,10 @@ function createAgentMember(input: {
 		addedByOwnerUserId: "user-mira",
 		addedByProfileId: "11111111-1111-1111-1111-111111111111",
 		agentControllerConversationId: null,
-		agentControllerRef: "builtin:codex",
+		agentControllerRef:
+			input.agentControllerRef === undefined
+				? "builtin:codex"
+				: input.agentControllerRef,
 		createdAt: "2026-04-11T00:00:00.000Z",
 		daemonRouteStatus: wakeRouteEvidenceStatus,
 		firstEnteredAt: null,
@@ -1548,6 +1620,7 @@ function createTextSignal(input: {
 	};
 	profile?: {
 		agentControllerConversationId?: string;
+		agentControllerRef?: string;
 		avatarUrl?: string;
 		kind: "human" | "agent" | "system";
 		profileId: string;

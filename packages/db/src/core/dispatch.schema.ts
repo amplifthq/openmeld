@@ -82,6 +82,7 @@ import {
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";
 import {
   openMeldRemoteAgentLarkPlatformChannelConnections,
@@ -132,6 +133,7 @@ import {
   spaceIndexProjectionEvents,
   spaceIndexSpaces,
 } from "./space-index.schema.ts";
+import { spaceInvitations } from "./space-invitation.schema.ts";
 
 export const openMeldDaemonOpsDecisions = sqliteTable(
   "openMeldDaemon_ops_decisions",
@@ -178,6 +180,7 @@ export const openMeldDaemonDispatchLedger = sqliteTable(
     dispatchId: text("dispatch_id").notNull(),
     spaceId: text("space_id").notNull(),
     sourceEventId: text("source_event_id").notNull(),
+    sourceProfileId: text("source_profile_id"),
     sourceClientMessageId: text("source_client_message_id"),
     dispatchOwnerKind: text("dispatch_owner_kind"),
     dispatchOwnerId: text("dispatch_owner_id"),
@@ -201,6 +204,12 @@ export const openMeldDaemonDispatchLedger = sqliteTable(
       table.spaceId,
       table.sourceEventId,
       table.targetProfileId
+    ),
+    index("idx_openMeldDaemon_dispatch_ledger_space_source_profile_target").on(
+      table.spaceId,
+      table.sourceProfileId,
+      table.targetProfileId,
+      table.dispatchId
     ),
     index("idx_openMeldDaemon_dispatch_ledger_space_client_message_target").on(
       table.spaceId,
@@ -1626,10 +1635,12 @@ export const agentActivityExecutionLinks = sqliteTable(
 );
 
 export const coreSchema = {
+  spaceInvitations,
   inboxCenterAgentReadWatermarks,
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  inboxSpaceThreadReadWatermarks,
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,
   agentActivityDigests,

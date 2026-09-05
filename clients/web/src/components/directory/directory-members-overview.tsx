@@ -3,7 +3,10 @@
 import type {
 	CenterAgentMemberResearchBatch,
 	MessageChannelProvider,
+	ModelCatalog,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -121,7 +124,7 @@ const INVITE_ROLE_OPTIONS = [
 }[];
 
 type DirectoryQueryState = {
-	data?: OrganizationDirectoryResponse;
+	data?: OrganizationProfileDirectoryResponse | OrganizationDirectoryResponse;
 	error: { message?: string } | null;
 	isError: boolean;
 	isPending: boolean;
@@ -144,9 +147,11 @@ type DirectoryMembersOverviewProps = {
 	directoryQuery: DirectoryQueryState;
 	focusProfileId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
+	modelCatalog?: ModelCatalog | null;
 	onCreateProfile: () => void;
 	onFocusConsumed?: () => void;
 	recovery: LocalAgentRecoveryController;
+	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 	storageScope: string;
 };
 
@@ -480,6 +485,7 @@ function useDirectoryMembersOverviewModel(
 				messageChannelsStatus,
 				members: input.directoryQuery.data?.members ?? [],
 				orgSlug: input.currentOrganization.slug,
+				runtimeOverview: input.runtimeOverview,
 			});
 	const profilesArePending = isPersonalWorkspace
 		? personalProfilesQuery.isPending
@@ -518,6 +524,7 @@ function useDirectoryMembersOverviewModel(
 			latestBatch: latestResearchBatch,
 			memberResearchError: researchErrors.member,
 			members: memberRows,
+			modelCatalog: input.modelCatalog ?? null,
 			onCreateProfile: input.onCreateProfile,
 			onDisconnectConnectedAccount: (identityLinkId) =>
 				disconnectConnectedAccountMutation.mutate(identityLinkId),
@@ -758,11 +765,16 @@ export function InvitationForm(input: { organizationId: string }) {
 			setSentMessage(`Invitation sent to ${email.trim()}.`);
 			setEmail("");
 			setRole("member");
-			queryClient
-				.invalidateQueries({
+			Promise.all([
+				queryClient.invalidateQueries({
 					queryKey: organizationQueryKeys.directory(input.organizationId),
-				})
-				.catch(() => undefined);
+				}),
+				queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.profileDirectory(
+						input.organizationId
+					),
+				}),
+			]).catch(() => undefined);
 		},
 	});
 	const normalizedEmail = email.trim();
@@ -996,7 +1008,7 @@ function resolveHumanProfilesError(input: {
 }): string | null {
 	if (input.isPersonalWorkspace) {
 		return input.personalProfilesFailed
-			? "OpenMeld could not load Human Profiles right now."
+			? "OpenMeld could not load people right now."
 			: null;
 	}
 	if (!input.directoryFailed) {
@@ -1004,6 +1016,6 @@ function resolveHumanProfilesError(input: {
 	}
 	return (
 		input.directoryErrorMessage ??
-		"OpenMeld could not load organization Human Profiles right now."
+		"OpenMeld could not load people in this organization right now."
 	);
 }

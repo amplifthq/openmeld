@@ -244,6 +244,23 @@ export async function waitForServiceRunning(input) {
   });
 }
 
+export async function waitForCoreServiceConnected(input) {
+  await waitForValue({
+    label: "Staging Core to observe the Canary Service connection",
+    timeoutMs: 2 * 60 * 1000,
+    read: () =>
+      runStagingApiHelper({
+        command: "current-readiness",
+        sensitiveValues: input.sensitiveValues,
+      }),
+    accept: isCoreServiceConnected,
+  });
+}
+
+export function isCoreServiceConnected(readiness) {
+  return readiness?.service?.connected === true;
+}
+
 export function resolveStagingServiceStatus(payload) {
   const envelope = payload?.payload ?? payload;
   const localResult = envelope?.localResult;
@@ -412,11 +429,13 @@ function runCanaryCli(input) {
   });
 }
 
-function stagingCanaryEnv() {
+export function stagingCanaryEnv() {
   return {
     ...process.env,
     OPENMELD_ACCEPT_DISCLAIMER: "1",
+    OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN: "1",
     OPENMELD_AUTH_URL: STAGING_AUTH_URL,
+    OPENMELD_CLI_BINARY_MANIFEST_URL: STAGING_MANIFEST_URL,
     OPENMELD_ENV_PRESET: "canary",
     OPENMELD_GATEWAY_URL: STAGING_GATEWAY_URL,
     OPENMELD_HOME: CANARY_HOME,

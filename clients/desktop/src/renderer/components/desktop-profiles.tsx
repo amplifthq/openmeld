@@ -12,7 +12,7 @@ export const DESKTOP_PROFILES_NAV_ITEMS: readonly SettingsNavItem[] = [
   },
   {
     id: "human-profiles",
-    title: "Human Profiles",
+    title: "People",
   },
 ] as const;
 
@@ -32,13 +32,13 @@ export function DesktopProfiles(props: DesktopProfilesProps) {
     return (
       <ProfilesHandoffPanel
         auth={props.auth}
-        description="Human Profiles live on OpenMeld Web for now."
+        description="People are managed in OpenMeld Web for now."
         onOpenWeb={props.onOpenWeb}
         onSignIn={props.onSignIn}
         rowDescription="Create and manage teammate identities in OpenMeld Web."
-        signedOutDescription="Sign in before managing Human Profiles."
+        signedOutDescription="Sign in before managing people."
         signInBusy={props.signInBusy}
-        title="Human Profiles"
+        title="People"
         webButtonLabel="Open OpenMeld Web"
       />
     );

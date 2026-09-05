@@ -144,7 +144,7 @@ function CenterAgentOptimisticReplyShell() {
 					Center Agent
 				</span>
 			</div>
-			<SpaceMessageDeliveryStatus presentation="agent_starting" />
+			<SpaceMessageDeliveryStatus presentation="agent_sending" />
 		</div>
 	);
 }

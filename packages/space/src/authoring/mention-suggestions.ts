@@ -57,6 +57,8 @@ export type SpaceMentionSuggestion = {
 export type SpaceMentionRelationChoice = {
   canonicalLiteral: string;
   description: string;
+  disabled: boolean;
+  disabledReason: string | null;
   label: string;
   relation: MessageMentionType;
 };
@@ -103,12 +105,16 @@ export function listSpaceMentionRelationChoices(input: {
       continue;
     }
 
+    const wakeBlocked =
+      relation === "wake" && input.wakeAvailability.status !== "ready";
     choices.push({
       canonicalLiteral: formatCanonicalMentionLiteral({
         name: input.primaryMentionLabel,
         type: relation,
       }),
       description: RELATION_DESCRIPTIONS[relation],
+      disabled: wakeBlocked,
+      disabledReason: wakeBlocked ? input.wakeAvailability.reasonText : null,
       label: RELATION_LABELS[relation],
       relation,
     });

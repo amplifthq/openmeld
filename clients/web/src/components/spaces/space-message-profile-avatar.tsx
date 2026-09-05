@@ -10,6 +10,7 @@ import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar
 
 type SpaceMessageProfileAvatarProps = {
 	agentControllerRef: string | null;
+	agentControllerPending?: boolean;
 	avatarImageUrl?: string | null;
 	displayName: string;
 	isCenterAgent?: boolean;
@@ -32,6 +33,16 @@ export function SpaceMessageProfileAvatar(
 					profileKind="center-agent"
 					profileName={input.displayName}
 					size={24}
+				/>
+			);
+		}
+
+		if (input.agentControllerPending) {
+			return (
+				<span
+					aria-hidden="true"
+					className="inline-flex h-5 w-5 shrink-0 rounded-[5px] bg-muted"
+					data-testid={`space-agent-profile-pending-avatar-${input.profileId}`}
 				/>
 			);
 		}

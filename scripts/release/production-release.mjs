@@ -92,6 +92,10 @@ const LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER = [
   "remote-agent",
   "cli",
 ];
+const WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER =
+  LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER;
+const SPACE_HISTORY_QUERY_RECEIVERS_FIRST_SCOPE_ORDER =
+  LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER;
 const CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
   "auth",
@@ -119,9 +123,22 @@ const REMOTE_AGENT_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER = [
   "gateway",
   "core",
 ];
+const REMOTE_AGENT_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER =
+  REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER;
+const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER =
+  LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER;
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "space-invitation-receivers-first": [
+    "db",
+    "core",
+    "auth",
+    "gateway",
+    "web",
+    "remote-agent",
+    "cli",
+  ],
   "center-agent-cli-receiver-first":
     CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER,
   "connect-computer-cli-receiver-first":
@@ -130,6 +147,12 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER,
   "core-worker-response-reader-first":
     CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
+  "core-worker-response-and-wake-progress-opt-in-receivers-first":
+    CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER,
+  "wake-progress-opt-in-receivers-first":
+    WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER,
+  "space-history-query-receivers-first":
+    SPACE_HISTORY_QUERY_RECEIVERS_FIRST_SCOPE_ORDER,
   "default-auth-receiver-first": SCOPE_ORDER,
   "inbox-source-target-receiver-first":
     INBOX_SOURCE_TARGET_RECEIVER_FIRST_SCOPE_ORDER,
@@ -139,10 +162,22 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-and-connect-computer-receivers-first":
     REMOTE_AGENT_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER,
+  "remote-agent-and-wake-progress-opt-in-receivers-first":
+    REMOTE_AGENT_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
 };
 const INBOX_SOURCE_TARGET_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/inbox.ts";
+const WAKE_PROGRESS_SCHEMA_PATH =
+  "packages/schemas/src/schemas/http/space-wake-progress.ts";
+const SPACE_HISTORY_QUERY_SCHEMA_PATH =
+  "packages/schemas/src/schemas/http/list-signals-query.ts";
+const WAKE_PROGRESS_CLI_CALLER_PATH =
+  "clients/openmeld-cli/src/space/wake-control-command.ts";
+const WAKE_PROGRESS_CORE_PRODUCER_PATHS = new Set([
+  "services/core/src/rpc/methods.ts",
+  "services/core/src/space/transport/do/space.ts",
+]);
 const INBOX_SOURCE_TARGET_WRITER_PATHS = new Set([
   "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
   "services/core/src/remote-agent/application/native-delivery-service.ts",
@@ -342,6 +377,15 @@ export function resolveAutomaticReleaseScopes(input) {
     scopes.add("cli");
     scopes.add("web");
   }
+  if (isWakeProgressOptInContractDiff(input.changedPaths)) {
+    scopes.add("gateway");
+    scopes.add("core");
+  }
+  if (isSpaceHistoryQueryContractDiff(input.changedPaths)) {
+    scopes.add("cli");
+    scopes.add("gateway");
+    scopes.add("core");
+  }
 
   return sortScopes(scopes);
 }
@@ -377,7 +421,11 @@ export function buildProductionVerifyStepSpecs(input) {
     if (!spec) {
       continue;
     }
-    if (scope === "core" && !input.scopes.includes("cli")) {
+    if (
+      scope === "core" &&
+      !input.scopes.includes("cli") &&
+      !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
+    ) {
       steps.push(coreCliChannelCompatibilityStep());
     }
     steps.push({
@@ -406,7 +454,11 @@ export function buildProductionPreflightStepSpecs(input) {
   if (input.scopes.some((scope) => scope === "cli" || scope === "core")) {
     steps.push(productionQueueVerificationStep("core"));
   }
-  if (input.scopes.includes("core") && !input.scopes.includes("cli")) {
+  if (
+    input.scopes.includes("core") &&
+    !input.scopes.includes("cli") &&
+    !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
+  ) {
     steps.push(coreCliChannelCompatibilityStep());
   }
   return steps;
@@ -493,8 +545,21 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertConnectComputerReleaseScopes(scopes, changedPaths);
   assertInboxSourceTargetReleaseScopes(scopes, changedPaths);
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
+  assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
+  assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
+  if (
+    deployOrderProfile === "space-invitation-receivers-first" &&
+    (selected.has("auth") || selected.has("cli")) &&
+    !(selected.has("core") && selected.has("auth"))
+  ) {
+    throw new Error(
+      "Space invitation release requires Core and Auth receivers before publishing its CLI caller."
+    );
+  }
   const orderedScopes = resolveProductionDeployScopeOrder(scopes, changedPaths);
+  assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
+  assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
   for (const scope of orderedScopes) {
     appendProductionDeployScopeSteps({
       deployOrderProfile,
@@ -563,7 +628,10 @@ function appendProductionDeployScopeSteps(input) {
     return;
   }
   if (input.scope === "core") {
-    if (input.selected.has("cli")) {
+    if (
+      input.selected.has("cli") ||
+      input.deployOrderProfile === "space-invitation-receivers-first"
+    ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
         input.steps.push(
           {
@@ -643,6 +711,27 @@ function resolveProductionDeployScopeOrder(scopes, changedPaths) {
 }
 
 function resolveProductionDeployOrderProfile(changedPaths) {
+  const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
+  if (!isSpaceInvitationReceiverFirstDiff(changedPaths)) {
+    return profile;
+  }
+  if (profile !== "default-auth-receiver-first") {
+    throw new Error(
+      `Space invitation receiver order must be reviewed together with ${profile}; split incompatible receiver-first releases.`
+    );
+  }
+  return "space-invitation-receivers-first";
+}
+
+function isSpaceInvitationReceiverFirstDiff(changedPaths) {
+  return [
+    "packages/schemas/src/space-invitation.ts",
+    "services/core/src/organizations/space-invitations.ts",
+    "services/auth/src/lib/hono/space-invitation-routes.ts",
+  ].every((path) => changedPaths.includes(path));
+}
+
+function resolveExistingProductionDeployOrderProfile(changedPaths) {
   const isConnectComputerReceiverFirst =
     isConnectComputerCliReceiverFirstDiff(changedPaths);
   const isInboxReceiverFirst =
@@ -659,12 +748,25 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   const isCenterAgentCliReceiverFirst = changedPaths.some(
     isCenterAgentCliReceiverFirstContractPath
   );
+  const isWakeProgressOptInReceiversFirst =
+    isWakeProgressOptInContractDiff(changedPaths);
   assertComposableConnectComputerReleaseProfile({
     isCenterAgentCliReceiverFirst,
     isConnectComputerReceiverFirst,
     isInboxReceiverFirst,
     isLocalServiceReceiverFirst,
   });
+  const wakeProgressOptInProfile = resolveWakeProgressOptInDeployOrderProfile({
+    isCenterAgentCliReceiverFirst,
+    isConnectComputerReceiverFirst,
+    isCoreWorkerResponseReaderFirst,
+    isRemoteAgentReceiverFirst,
+    isRemoteAgentRequestReceiverFirst,
+    isWakeProgressOptInReceiversFirst,
+  });
+  if (wakeProgressOptInProfile) {
+    return wakeProgressOptInProfile;
+  }
   if (
     isConnectComputerReceiverFirst &&
     (isRemoteAgentRequestReceiverFirst || isRemoteAgentReceiverFirst)
@@ -705,7 +807,31 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   if (isLocalServiceReceiverFirst) {
     return "local-service-runtime-receiver-first";
   }
-  return "default-auth-receiver-first";
+  return resolveDefaultDeployOrderProfile(changedPaths);
+}
+
+function resolveDefaultDeployOrderProfile(changedPaths) {
+  return isSpaceHistoryQueryContractDiff(changedPaths)
+    ? "space-history-query-receivers-first"
+    : "default-auth-receiver-first";
+}
+
+function resolveWakeProgressOptInDeployOrderProfile(input) {
+  assertComposableWakeProgressOptInReleaseProfile(input);
+  if (input.isWakeProgressOptInReceiversFirst) {
+    if (
+      input.isRemoteAgentRequestReceiverFirst ||
+      input.isRemoteAgentReceiverFirst ||
+      input.isCenterAgentCliReceiverFirst
+    ) {
+      return "remote-agent-and-wake-progress-opt-in-receivers-first";
+    }
+    if (input.isCoreWorkerResponseReaderFirst) {
+      return "core-worker-response-and-wake-progress-opt-in-receivers-first";
+    }
+    return "wake-progress-opt-in-receivers-first";
+  }
+  return null;
 }
 
 function assertComposableConnectComputerReleaseProfile(input) {
@@ -725,6 +851,27 @@ function assertComposableConnectComputerReleaseProfile(input) {
   if (input.isCenterAgentCliReceiverFirst) {
     throw new Error(
       "Connect Computer and Center Agent CLI receiver-first contracts cannot ship in one release because they require the CLI on opposite sides of the Web and Core deployments. Split them into independently releasable changes."
+    );
+  }
+}
+
+function assertComposableWakeProgressOptInReleaseProfile(input) {
+  if (!input.isWakeProgressOptInReceiversFirst) {
+    return;
+  }
+  if (input.isConnectComputerReceiverFirst) {
+    throw new Error(
+      "Connect Computer and Wake Progress opt-in receiver-first contracts cannot ship in one release because they require the CLI on opposite sides of the Core deployment. Split them into independently releasable changes."
+    );
+  }
+  if (
+    (input.isRemoteAgentRequestReceiverFirst ||
+      input.isRemoteAgentReceiverFirst ||
+      input.isCenterAgentCliReceiverFirst) &&
+    input.isCoreWorkerResponseReaderFirst
+  ) {
+    throw new Error(
+      "Remote Agent receiver-first and worker-response contracts cannot ship with a Wake Progress opt-in contract in one release because they require Remote Agent on opposite sides of the Core deployment. Split them into independently releasable changes."
     );
   }
 }
@@ -769,6 +916,89 @@ function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {
       path.startsWith(LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX)
     )
   );
+}
+
+function isWakeProgressOptInContractDiff(changedPaths) {
+  return (
+    changedPaths.includes(WAKE_PROGRESS_SCHEMA_PATH) &&
+    changedPaths.includes(WAKE_PROGRESS_CLI_CALLER_PATH) &&
+    changedPaths.some((path) => WAKE_PROGRESS_CORE_PRODUCER_PATHS.has(path))
+  );
+}
+
+function isSpaceHistoryQueryContractDiff(changedPaths) {
+  return changedPaths.includes(SPACE_HISTORY_QUERY_SCHEMA_PATH);
+}
+
+function assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths) {
+  if (
+    !(isSpaceHistoryQueryContractDiff(changedPaths) && scopes.includes("cli"))
+  ) {
+    return;
+  }
+  const selected = new Set(scopes);
+  if (selected.has("gateway") && selected.has("core")) {
+    return;
+  }
+  throw new Error(
+    "The Space history query contract requires the Gateway and Core scopes before publishing its CLI caller."
+  );
+}
+
+function assertSpaceHistoryQueryDeployOrder(scopes, changedPaths) {
+  if (
+    !(isSpaceHistoryQueryContractDiff(changedPaths) && scopes.includes("cli"))
+  ) {
+    return;
+  }
+  const gatewayIndex = scopes.indexOf("gateway");
+  const coreIndex = scopes.indexOf("core");
+  const cliIndex = scopes.indexOf("cli");
+  if (
+    gatewayIndex < 0 ||
+    coreIndex < 0 ||
+    gatewayIndex > cliIndex ||
+    coreIndex > cliIndex
+  ) {
+    throw new Error(
+      "The Space history query contract must deploy Gateway and Core before CLI. Split conflicting receiver-first changes into independently releasable releases."
+    );
+  }
+}
+
+function assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths) {
+  if (!isWakeProgressOptInContractDiff(changedPaths)) {
+    return;
+  }
+  const selected = new Set(scopes);
+  if (!(selected.has("core") || selected.has("cli"))) {
+    return;
+  }
+  if (selected.has("gateway") && selected.has("core")) {
+    return;
+  }
+  throw new Error(
+    "The Wake Progress opt-in contract requires the Gateway and Core scopes before publishing its Core producer or CLI caller."
+  );
+}
+
+function assertWakeProgressOptInDeployOrder(scopes, changedPaths) {
+  if (!isWakeProgressOptInContractDiff(changedPaths)) {
+    return;
+  }
+  const gatewayIndex = scopes.indexOf("gateway");
+  const coreIndex = scopes.indexOf("core");
+  const cliIndex = scopes.indexOf("cli");
+  if (
+    gatewayIndex < 0 ||
+    coreIndex < 0 ||
+    gatewayIndex > coreIndex ||
+    (cliIndex >= 0 && coreIndex > cliIndex)
+  ) {
+    throw new Error(
+      "The Wake Progress opt-in contract must deploy Gateway before Core and Core before CLI. Split conflicting receiver-first changes into independently releasable releases."
+    );
+  }
 }
 
 function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
@@ -946,7 +1176,6 @@ function readWorkspacePackages() {
       );
       const dependencyNames = new Set([
         ...Object.keys(packageJson.dependencies ?? {}),
-        ...Object.keys(packageJson.devDependencies ?? {}),
         ...Object.keys(packageJson.optionalDependencies ?? {}),
         ...Object.keys(packageJson.peerDependencies ?? {}),
       ]);

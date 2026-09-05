@@ -370,7 +370,7 @@ describe("agent execution status display rows", () => {
     );
   });
 
-  it("renders delivery-expired readiness impact as a user-facing Wake failure", () => {
+  it("does not let historical delivery impact override current ready facts", () => {
     const rows = createAgentExecutionStatusDisplayRows(
       resolveAgentExecutionStatus({
         agentProfileId: "agt_96969696-9696-4969-8969-969696969696",
@@ -402,8 +402,7 @@ describe("agent execution status display rows", () => {
 
     expect(rows).toContainEqual({
       label: "Reply status",
-      value:
-        "Blocked · This agent did not receive the last Wake from this computer.",
+      value: "Available for Wake · This agent can reply from this computer.",
     });
     expect(JSON.stringify(rows)).not.toContain(
       "runtime_coordinator.delivery_expired"
@@ -411,31 +410,13 @@ describe("agent execution status display rows", () => {
   });
 
   it.each([
-    [
-      "controller.launch.choice_required",
-      "Blocked · Choose which local install this agent should use.",
-    ],
-    [
-      "controller.launch.needs_repair",
-      "Blocked · Repair this local agent before it can reply.",
-    ],
-    [
-      "controller.client.upgrade_required",
-      "Blocked · Update this local agent before it can reply.",
-    ],
-    [
-      "controller.runtime.missing",
-      "Blocked · This local agent is not available on this computer.",
-    ],
-    [
-      "workspace.invalid",
-      "Blocked · Repair this agent's local workspace on this computer.",
-    ],
-    [
-      "workspace.missing",
-      "Blocked · Set up this agent's local workspace on this computer.",
-    ],
-  ] as const)("renders local setup readiness impact %s as user-facing recovery copy", (reasonCode, value) => {
+    "controller.launch.choice_required",
+    "controller.launch.needs_repair",
+    "controller.client.upgrade_required",
+    "controller.runtime.missing",
+    "workspace.invalid",
+    "workspace.missing",
+  ] as const)("does not let historical readiness impact %s override current ready facts", (reasonCode) => {
     const rows = createAgentExecutionStatusDisplayRows(
       resolveAgentExecutionStatus({
         agentProfileId: "agt_96969696-9696-4969-8969-969696969696",
@@ -467,7 +448,7 @@ describe("agent execution status display rows", () => {
 
     expect(rows).toContainEqual({
       label: "Reply status",
-      value,
+      value: "Available for Wake · This agent can reply from this computer.",
     });
     expect(JSON.stringify(rows)).not.toContain(reasonCode);
   });

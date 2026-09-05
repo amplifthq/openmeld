@@ -76,6 +76,7 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 	readInboxBrowserNotificationSettings: (input: { userId: string }) => ({
 		enabled: notificationSettingsByUserId.get(input.userId) ?? true,
 		permission: "granted",
+		soundEnabled: true,
 	}),
 	showInboxBrowserNotification: showInboxBrowserNotificationMock,
 	subscribeInboxBrowserNotificationSettings: (onChange: () => void) => {
@@ -195,6 +196,7 @@ describe("InboxBrowserNotificationListener", () => {
 			expect.objectContaining({
 				item: newItem,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				userId: "user-123",
 			})
 		);
 	});

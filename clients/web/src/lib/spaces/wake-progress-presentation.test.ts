@@ -15,6 +15,7 @@ import {
 
 const TARGET_PROFILE_ID = "agt_22222222-2222-2222-2222-222222222222";
 const SECOND_TARGET_PROFILE_ID = "agt_33333333-3333-3333-3333-333333333333";
+const CURRENT_RECOVERY_ADVICE_PATTERN = /Reconnect|Update|Review/u;
 
 describe("resolveSpaceMessageWakeProgressState", () => {
 	it("shows queued work plainly under the source message", () => {
@@ -30,7 +31,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		});
 
 		expect(state.thinkingEntries).toEqual([
-			expect.objectContaining({ text: "Wake is queued" }),
+			expect.objectContaining({ text: "runner is queued" }),
 		]);
 	});
 
@@ -51,13 +52,13 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				elapsedStartedAtMs: 1,
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
 	});
 
-	it("uses finalizing copy when a Wake is publishing a completed reply", () => {
+	it("uses natural posting copy when a Wake is publishing a completed reply", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			item: createTimelineItem(),
 			items: [
@@ -72,10 +73,10 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
-				text: "Finalizing reply",
+				text: "Posting reply from runner…",
 			}),
 		]);
-		expect(state.thinkingEntries[0]?.text).not.toBe("Agent is working");
+		expect(state.thinkingEntries[0]?.text).not.toBe("runner is working");
 	});
 
 	it("shows an outcome-unknown publication as a problem without a retry spinner", () => {
@@ -111,6 +112,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				createWakeProgressItem({
 					message: "I’m checking the release configuration now.",
 					phase: "writing",
+					previewText: "I’m checking the release configuration now.",
 					updatedAtMs: 1,
 				}),
 			],
@@ -121,6 +123,26 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				elapsedStartedAtMs: null,
 				kind: "preview",
 				text: "I’m checking the release configuration now.",
+			}),
+		]);
+	});
+
+	it("does not mistake a generic writing phase for reply text", () => {
+		const state = resolveSpaceMessageWakeProgressState({
+			item: createTimelineItem(),
+			items: [
+				createWakeProgressItem({
+					message: "runner started writing...",
+					phase: "writing",
+					updatedAtMs: 1,
+				}),
+			],
+		});
+
+		expect(state.thinkingEntries).toEqual([
+			expect.objectContaining({
+				kind: "progress",
+				text: "runner is replying",
 			}),
 		]);
 	});
@@ -174,12 +196,12 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 			expect.objectContaining({
 				elapsedStartedAtMs: null,
 				targetProfileId: SECOND_TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "codex is working",
 			}),
 		]);
 	});
@@ -203,7 +225,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.hasProblem).toBe(false);
 		expect(state.thinkingEntries).toEqual([
 			expect.objectContaining({
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
@@ -233,7 +255,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			expect.objectContaining({
 				elapsedStartedAtMs: 1,
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "runner is working",
 			}),
 		]);
 		expect(state.issueEntries).toEqual([]);
@@ -357,15 +379,13 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries[0]).toEqual(
 			expect.objectContaining({
 				targetProfileId: TARGET_PROFILE_ID,
-				text: "Agent is working",
+				text: "runner is working",
 			})
 		);
 		expect(state.issueEntries).toEqual([]);
 	});
 
-	it("resolves current-user per-Wake service failures to the local repair action", () => {
-		const copy =
-			"Runner is connected, but OpenMeld Service is not running on this computer. Start OpenMeld Service so this computer can receive local Wake work.";
+	it("keeps the failure reason without turning historical service state into an action", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			item: createTimelineItem(),
 			items: [
@@ -391,56 +411,53 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.thinkingEntries).toEqual([]);
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: copy,
+				body: "Runner could not complete this Wake because its computer was not connected to OpenMeld at the time.",
 				message: "@runner couldn't reply.",
 				targetLabel: "@runner",
 			}),
 		]);
-		expect(state.issueEntries[0]?.action).toMatchObject({
-			display: {
-				actionTarget: "prepare_setup",
-				body: copy,
-				primaryActionLabel: "Reconnect OpenMeld Service",
-			},
-			kind: "wake_failure",
-		});
+		expect(state.issueEntries[0]?.action).toBeNull();
+		expect(state.issueEntries[0]?.body).not.toMatch(
+			CURRENT_RECOVERY_ADVICE_PATTERN
+		);
 	});
 
-	it("keeps another user's local-service Wake failure informative without local repair", () => {
-		const state = resolveSpaceMessageWakeProgressState({
-			item: createTimelineItem(),
-			items: [
-				createWakeProgressItem({
-					failureReasonCode: "daemon.delivery.execution_stalled",
-					message: "@runner couldn't reply.",
-					phase: "failed",
-					updatedAtMs: 3,
-				}),
-			],
-			wakeFailureTargetContextsByProfileId: new Map([
-				[
-					TARGET_PROFILE_ID,
-					createWakeFailureTargetContext({
-						controllerDisplayName: "Ming's MacBook Pro",
-						isCurrentUserManageable: false,
-						ownerDisplayName: "Ming Yoo",
+	it("keeps a historical local-service failure stable after its Binding moves", () => {
+		const createState = (controllerDisplayName: string) =>
+			resolveSpaceMessageWakeProgressState({
+				item: createTimelineItem(),
+				items: [
+					createWakeProgressItem({
+						failureReasonCode: "daemon.delivery.execution_stalled",
+						message: "@runner couldn't reply.",
+						phase: "failed",
+						updatedAtMs: 3,
 					}),
 				],
-			]),
-		});
+				wakeFailureTargetContextsByProfileId: new Map([
+					[
+						TARGET_PROFILE_ID,
+						createWakeFailureTargetContext({
+							controllerDisplayName,
+							isCurrentUserManageable: false,
+							ownerDisplayName: "Ming Yoo",
+						}),
+					],
+				]),
+			});
+		const state = createState("Ming's MacBook Pro");
+		const afterBindingMove = createState("Ming's Mac Studio");
 
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: "Runner could not complete this Wake on Ming's MacBook Pro. Ask Ming Yoo to check OpenMeld Service and the local agent, then wake the agent again.",
+				body: "Runner could not complete this Wake.",
 			}),
 		]);
-		expect(state.issueEntries[0]?.action).toMatchObject({
-			display: { actionTarget: null },
-			kind: "wake_failure",
-		});
+		expect(afterBindingMove.issueEntries).toEqual(state.issueEntries);
+		expect(state.issueEntries[0]?.action).toBeNull();
 	});
 
-	it("uses the current recovery plan only when a failed Wake has no per-Wake reason", () => {
+	it("keeps the historical failure body while using the current recovery action", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			agentRecoveryPlansByProfileId: new Map([
 				[TARGET_PROFILE_ID, createConnectControllerPlan()],
@@ -448,17 +465,26 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			item: createTimelineItem(),
 			items: [
 				createWakeProgressItem({
-					failureReasonCode: null,
+					failureReasonCode: "service.not_running",
 					message: "@runner couldn't reply.",
 					phase: "failed",
 					updatedAtMs: 4,
 				}),
 			],
+			wakeFailureTargetContextsByProfileId: new Map([
+				[
+					TARGET_PROFILE_ID,
+					createWakeFailureTargetContext({
+						isCurrentUserManageable: true,
+						ownerDisplayName: "Mira",
+					}),
+				],
+			]),
 		});
 
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
-				body: "Runner is in this space, and Codex is available on this computer.",
+				body: "Runner could not complete this Wake because its computer was not connected to OpenMeld at the time.",
 			}),
 		]);
 		expect(state.issueEntries[0]?.action).toMatchObject({
@@ -470,7 +496,33 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		});
 	});
 
-	it("points users to People when no specific recovery action is available", () => {
+	it.each([
+		["connect", createConnectControllerPlan()],
+		["choose", createChooseControllerPlan()],
+	] as const)("keeps an execution-stalled failure historical when the current action is %s", (_kind, plan) => {
+		const state = resolveSpaceMessageWakeProgressState({
+			agentRecoveryPlansByProfileId: new Map([[TARGET_PROFILE_ID, plan]]),
+			item: createTimelineItem(),
+			items: [
+				createWakeProgressItem({
+					failureReasonCode: "daemon.delivery.execution_stalled",
+					message: "@runner couldn't reply.",
+					phase: "failed",
+					updatedAtMs: 4,
+				}),
+			],
+		});
+
+		expect(state.issueEntries[0]).toEqual(
+			expect.objectContaining({
+				action: expect.objectContaining({ kind: "agent_recovery", plan }),
+				body: "Runner could not complete this Wake.",
+			})
+		);
+		expect(state.issueEntries[0]?.body).not.toBe(plan.body);
+	});
+
+	it("uses a safe past-tense failure when no reason or current action is available", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			agentRecoveryPlansByProfileId: new Map([
 				[TARGET_PROFILE_ID, { kind: "none" }],
@@ -479,7 +531,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 			items: [
 				createWakeProgressItem({
 					failureReasonCode: null,
-					message: "@runner couldn't reply.",
+					message: "Runner needs setup before it can reply.",
 					phase: "failed",
 					updatedAtMs: 4,
 				}),
@@ -489,9 +541,31 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		expect(state.issueEntries).toEqual([
 			expect.objectContaining({
 				action: null,
-				body: "OpenMeld could not route this agent. Open People to see the agent setup status.",
+				body: "Runner could not complete this Wake.",
 			}),
 		]);
+		expect(state.issueEntries[0]?.body).not.toContain("needs setup");
+	});
+
+	it.each([
+		["service.update_required", "Update"],
+		["permission.denied.runtime", "Review"],
+	] as const)("does not turn historical %s evidence into current %s advice", (failureReasonCode, forbiddenAdvice) => {
+		const state = resolveSpaceMessageWakeProgressState({
+			agentRecoveryPlansByProfileId: new Map(),
+			item: createTimelineItem(),
+			items: [
+				createWakeProgressItem({
+					failureReasonCode,
+					message: "@runner couldn't reply.",
+					phase: "failed",
+					updatedAtMs: 5,
+				}),
+			],
+		});
+
+		expect(state.issueEntries[0]?.action).toBeNull();
+		expect(state.issueEntries[0]?.body).not.toContain(forbiddenAdvice);
 	});
 
 	it("keeps source Wake problem markers after transient failed progress expires", () => {
@@ -556,6 +630,7 @@ function createWakeProgressItem(input: {
 	failureReasonCode?: string | null;
 	message: string;
 	phase: WakeProgressItem["phase"];
+	previewText?: string;
 	sourceSignalId?: string;
 	startedAtMs?: number;
 	targetLabel?: string;
@@ -571,6 +646,7 @@ function createWakeProgressItem(input: {
 		failureReasonCode: input.failureReasonCode ?? null,
 		message: input.message,
 		phase: input.phase,
+		...(input.previewText ? { previewText: input.previewText } : {}),
 		sourceSignalId: input.sourceSignalId ?? "sig-source",
 		startedAtMs: input.startedAtMs ?? input.updatedAtMs,
 		targetLabel: input.targetLabel ?? "@runner",
@@ -630,7 +706,10 @@ function createWakeFailureTargetContext(
 	};
 }
 
-function createConnectControllerPlan(): AgentProfileReplyRecoveryPlan {
+function createConnectControllerPlan(): Exclude<
+	AgentProfileReplyRecoveryPlan,
+	{ kind: "none" }
+> {
 	return {
 		agentDisplayName: "Codex",
 		agentId: "codex",
@@ -644,5 +723,22 @@ function createConnectControllerPlan(): AgentProfileReplyRecoveryPlan {
 		recoveryReasonCode: "agent_profile_binding.missing",
 		secondaryLabel: "Not connected to a local agent yet",
 		title: "Runner is not connected",
+	};
+}
+
+function createChooseControllerPlan(): Exclude<
+	AgentProfileReplyRecoveryPlan,
+	{ kind: "none" }
+> {
+	return {
+		body: "Choose the local agent that should control Runner.",
+		kind: "choose_controller",
+		primaryActionId: "choose_local_agent",
+		primaryActionLabel: "Choose local agent",
+		profileId: TARGET_PROFILE_ID,
+		profileName: "Runner",
+		recoveryReasonCode: "agent_profile_binding.missing",
+		secondaryLabel: "No local agent is connected.",
+		title: "Choose a local agent",
 	};
 }

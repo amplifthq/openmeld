@@ -12,6 +12,14 @@ type OrganizationDirectoryAgentProfileWorkLocationSchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryAgentProfileWorkLocationSchema"];
 type OrganizationDirectoryAgentProfileIdentitySchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryAgentProfileIdentitySchema"];
+type OrganizationProfileDirectoryAgentProfileSchema =
+  typeof import("../../schemas/http/organization-directory")["organizationProfileDirectoryAgentProfileSchema"];
+type OrganizationProfileDirectoryResponseSchema =
+  typeof import("../../schemas/http/organization-directory")["organizationProfileDirectoryResponseSchema"];
+type OrganizationAgentRuntimeOverviewItemSchema =
+  typeof import("../../schemas/http/organization-directory")["organizationAgentRuntimeOverviewItemSchema"];
+type OrganizationAgentRuntimeOverviewResponseSchema =
+  typeof import("../../schemas/http/organization-directory")["organizationAgentRuntimeOverviewResponseSchema"];
 type OrganizationDirectoryResponseSchema =
   typeof import("../../schemas/http/organization-directory")["organizationDirectoryResponseSchema"];
 type OrganizationMemberWebActivityResponseSchema =
@@ -35,6 +43,14 @@ export type OrganizationDirectoryAgentProfileWorkLocation =
   z.infer<OrganizationDirectoryAgentProfileWorkLocationSchema>;
 export type OrganizationDirectoryAgentProfileIdentity =
   z.infer<OrganizationDirectoryAgentProfileIdentitySchema>;
+export type OrganizationProfileDirectoryAgentProfile =
+  z.infer<OrganizationProfileDirectoryAgentProfileSchema>;
+export type OrganizationProfileDirectoryResponse =
+  z.infer<OrganizationProfileDirectoryResponseSchema>;
+export type OrganizationAgentRuntimeOverviewItem =
+  z.infer<OrganizationAgentRuntimeOverviewItemSchema>;
+export type OrganizationAgentRuntimeOverviewResponse =
+  z.infer<OrganizationAgentRuntimeOverviewResponseSchema>;
 export type OrganizationDirectoryResponse =
   z.infer<OrganizationDirectoryResponseSchema>;
 export type OrganizationMemberWebActivityResponse =

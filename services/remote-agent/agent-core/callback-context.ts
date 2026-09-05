@@ -467,6 +467,7 @@ export type RemoteAgentCoreWorkerBinding = {
     input: CenterAgentGetOrganizationInviteLinkToolRpcInput
   ): Promise<unknown>;
   centerAgentGetOrganizationSpaceDirectory?(input: unknown): Promise<unknown>;
+  centerAgentListActiveSpaceWakes?(input: unknown): Promise<unknown>;
   centerAgentListComputers?(input: unknown): Promise<unknown>;
   centerAgentRequestOpenMeldToolsUpdate?(input: unknown): Promise<unknown>;
   centerAgentSetOpenMeldToolsMaintenance?(input: unknown): Promise<unknown>;
@@ -498,6 +499,7 @@ export type RemoteAgentCoreWorkerBinding = {
   }): Promise<CenterAgentSpaceAuthoringContractResponse>;
   centerAgentReadDispatchHistory?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
+  centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
   centerAgentRecordConnectorActionAudit?(
     input: CenterAgentRecordConnectorActionAuditBody & {
       context: OpenMeldRequestContext;

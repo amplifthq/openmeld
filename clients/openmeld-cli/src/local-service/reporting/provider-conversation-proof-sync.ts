@@ -2,7 +2,6 @@ import type {
   OpenMeldDaemonProviderConversationProof,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
-import { resolveProfileWorkspaceRuntime } from "../../profile-workspace/runtime-resolution";
 import { resolveLocalProviderConversationProof } from "../control-plane/conversation-execution-status";
 import type { RouteCatalog } from "../core/types";
 import {
@@ -43,19 +42,16 @@ export async function syncLocalServiceProviderConversationProofs(input: {
           if (!isCodexAppServerRouteWithConversation(route)) {
             return null;
           }
-          const workspace = await resolveProfileWorkspaceRuntime({
-            openMeldProfileId: route.profileId,
-            mode: "dispatch",
-          });
+          const workspace = route.workingFolderRuntime;
+          if (!workspace) {
+            return null;
+          }
           const proof = await resolveLocalProviderConversationProof({
             agentControllerConversationId: route.agentControllerConversationId,
             boundAgentControllerRef: route.agentControllerRef,
             launchContract: route.launchContract ?? null,
             profileAgentControllerRef: route.agentControllerRef,
-            runtimeWorkingDirectory:
-              workspace.status === "ready"
-                ? workspace.effectiveRuntimeWorkingDirectory
-                : null,
+            runtimeWorkingDirectory: workspace.effectiveRuntimeWorkingDirectory,
             transportMode: route.transportMode,
           });
           return toRuntimeProviderConversationProofInput({

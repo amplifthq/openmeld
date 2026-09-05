@@ -44,6 +44,12 @@ export const modelCatalogHostedRuntimePolicySchema = z.strictObject({
 export const modelCatalogAgentControllerSchema = z
   .strictObject({
     defaultModelId: boundedIdentifierSchema,
+    creationDefaults: z
+      .strictObject({
+        modelId: boundedIdentifierSchema,
+        reasoningLevel: nullableBoundedIdentifierSchema,
+      })
+      .optional(),
     hostedRuntimePolicy: modelCatalogHostedRuntimePolicySchema.optional(),
     models: z.array(modelCatalogModelSchema).min(1),
   })
@@ -98,6 +104,39 @@ export const modelCatalogAgentControllerSchema = z
         message: "defaultModelId must reference an available model",
         path: ["defaultModelId"],
       });
+    }
+  })
+  .superRefine((value, context) => {
+    if (value.creationDefaults) {
+      const selected = value.models.find(
+        (model) => model.id === value.creationDefaults?.modelId
+      );
+      if (!selected || selected.unavailable) {
+        context.addIssue({
+          code: "custom",
+          message: "creationDefaults must select an available model",
+          path: ["creationDefaults", "modelId"],
+        });
+      } else if (
+        value.creationDefaults.reasoningLevel !== null &&
+        !selected.supportedReasoningLevels.includes(
+          value.creationDefaults.reasoningLevel
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "creationDefaults reasoning must be supported by its model",
+          path: ["creationDefaults", "reasoningLevel"],
+        });
+      }
+      if (value.hostedRuntimePolicy) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "hosted controllers do not have local profile creation defaults",
+          path: ["creationDefaults"],
+        });
+      }
     }
 
     if (!value.hostedRuntimePolicy) {
@@ -157,3 +196,33 @@ export const modelCatalogSchema = z.strictObject({
 });
 
 export const getModelCatalogResponseSchema = modelCatalogSchema;
+
+/** Git-backed collector handoff; never execution or account-availability authority. */
+export const modelCatalogUpdateEvidenceSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  controller: boundedIdentifierSchema,
+  observedAt: z.iso.datetime({ offset: true }),
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  sources: z
+    .array(
+      z.strictObject({
+        url: z.url(),
+        kind: z.enum([
+          "official-release",
+          "official-harness-catalog",
+          "official-document",
+          "discovery-only",
+        ]),
+        data: z.json(),
+      })
+    )
+    .min(1),
+  changes: z.array(
+    z.strictObject({
+      modelId: boundedIdentifierSchema,
+      before: modelCatalogModelSchema.nullable(),
+      after: modelCatalogModelSchema,
+    })
+  ),
+  manual: z.array(z.string()),
+});

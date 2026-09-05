@@ -1,3 +1,11 @@
+import {
+	type AgentProfileReplyRecoveryPlan,
+	planAgentProfileReplyRecovery,
+} from "@openmeld/agent-profile";
+import {
+	createSpaceMemberAgentExecutionReadiness,
+	createSpaceMemberAgentSnapshot,
+} from "@openmeld/schemas/testing";
 import type {
 	GetSpaceMessageDetailsResponse,
 	PostSpaceWakeStopResponse,
@@ -22,20 +30,29 @@ import type { SpaceWakeStopTargetResolution } from "#/lib/spaces/wake-stop-targe
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 
 const CODE_MODE_PATTERN = /codemode/iu;
-const copyTextToClipboardMock = vi.hoisted(() => vi.fn());
+const { copyTextToClipboardMock, toastMock } = vi.hoisted(() => ({
+	copyTextToClipboardMock: vi.fn(),
+	toastMock: {
+		error: vi.fn(),
+		success: vi.fn(),
+	},
+}));
 
+import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
-import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
 const REPORT_POINTER_COPY_PATTERN =
 	/The report sends message IDs and system trace pointers/;
-const AGENTS_RECOVERY_HREF_PATTERN = /\/agents$/u;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
 const REFERENCED_SPACE_ID = "d".repeat(64);
 
 vi.mock("#/lib/clipboard", () => ({
 	copyTextToClipboard: copyTextToClipboardMock,
+}));
+
+vi.mock("sonner", () => ({
+	toast: toastMock,
 }));
 
 function createFreshExecutionRecoveryHandler() {
@@ -89,6 +106,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 	afterEach(() => {
 		cleanup();
 		copyTextToClipboardMock.mockReset();
+		toastMock.error.mockReset();
+		toastMock.success.mockReset();
 		useQueryMock.mockReset();
 	});
 
@@ -243,6 +262,52 @@ describe("SpaceMessageDetailsDrawer", () => {
 				expect.stringContaining("Message ID: sig-human\nType: Message")
 			);
 		});
+	});
+
+	it("copies a neutral entry link from Message details", async () => {
+		copyTextToClipboardMock.mockResolvedValue(true);
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel();
+
+		const messageLink = `${window.location.origin}/spaces/space-123?signalId=sig-human`;
+		expect(screen.getByRole("heading", { name: "Message link" })).toBeTruthy();
+		expect(screen.getByText(messageLink)).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+		await waitFor(() => {
+			expect(copyTextToClipboardMock).toHaveBeenCalledWith(messageLink);
+			expect(toastMock.success).toHaveBeenCalledWith("Link copied.");
+		});
+	});
+
+	it("preserves the Thread root in a copied reply link", async () => {
+		copyTextToClipboardMock.mockResolvedValue(true);
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel({ threadRootSignalId: "sig-thread-root" });
+		fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+		await waitFor(() => {
+			expect(copyTextToClipboardMock).toHaveBeenCalledWith(
+				`${window.location.origin}/spaces/space-123?signalId=sig-human&threadRootSignalId=sig-thread-root`
+			);
+		});
+	});
+
+	it("keeps the message link available when the details request fails", () => {
+		useQueryMock.mockReturnValue(createQueryResult({ isError: true }));
+
+		renderMessageDetailsPanel();
+
+		expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
+		expect(
+			screen.getByText("Couldn't load the rest of the message details.")
+		).toBeTruthy();
 	});
 
 	it("shows a long Agent reply as an expandable preview", () => {
@@ -449,11 +514,13 @@ describe("SpaceMessageDetailsDrawer", () => {
 			wakeProgressEntries: [
 				{
 					elapsedStartedAtMs: Date.UTC(2026, 5, 3, 22, 8),
+					lastEvidenceAtMs: Date.UTC(2026, 5, 3, 22, 8),
 					key: "runner-working",
 					kind: "progress",
 					phase: "running",
 					step: {
 						description: "The agent has the Wake.",
+						kind: "working",
 						label: "Agent is working",
 						status: "active",
 					},
@@ -521,7 +588,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const reasonSection = getActivityRegion("OpenMeld");
 		expect(
 			within(reasonSection).getByText(
-				"Runner couldn't reply: OpenMeld did not receive a message it could post in this space."
+				"This agent could not complete this Wake."
 			)
 		).toBeTruthy();
 		expect(within(reasonSection).queryByRole("link")).toBeNull();
@@ -532,13 +599,16 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(screen.queryByRole("heading", { name: "Replies" })).toBeNull();
 	});
 
-	it("keeps a historical failure notice verbatim and links its known reason to recovery", () => {
+	it("keeps a past-tense failure reason and uses the current confirmed recovery action", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
 		const persistedNoticeText = "Runner needs setup before it can reply.";
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_triage", createChooseControllerPlan("agt_triage", "Runner")],
+			]),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -559,13 +629,47 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const reasonSection = getActivityRegion("Runner");
-		expect(within(reasonSection).getByText(persistedNoticeText)).toBeTruthy();
+		expect(
+			within(reasonSection).getByText("Runner could not start this Wake.")
+		).toBeTruthy();
+		expect(within(reasonSection).queryByText(persistedNoticeText)).toBeNull();
 		const recoveryLink = within(reasonSection).getByRole("link", {
 			name: "Choose local agent",
 		});
-		expect(recoveryLink.getAttribute("href")).toMatch(
-			AGENTS_RECOVERY_HREF_PATTERN
+		expect(recoveryLink.getAttribute("href")).toBe(
+			"/o/acme/agents?profileId=agt_triage"
 		);
+	});
+
+	it("replaces an unmapped old setup notice with a safe past-tense outcome", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_triage", { kind: "none" }],
+			]),
+			replyItems: [
+				createTimelineItem({
+					id: "sig-terminal-failure",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeReasonCode: null,
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeType: "terminal_failure",
+					text: "Runner needs setup before it can reply.",
+				}),
+			],
+			targetProfileDisplayNamesByProfileId: new Map([["agt_triage", "Runner"]]),
+		});
+
+		const reasonSection = getActivityRegion("Runner");
+		expect(
+			within(reasonSection).getByText("Runner could not complete this Wake.")
+		).toBeTruthy();
+		expect(reasonSection.textContent).not.toContain("needs setup");
+		expect(reasonSection.textContent).not.toContain("Review setup");
 	});
 
 	it("links a runtime permission denial to Agent Profile permissions", () => {
@@ -574,6 +678,17 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					"agt_opencode",
+					createReviewAgentPlan({
+						actionId: "review_agent_permissions",
+						actionLabel: "Review Agent Profile permissions",
+						profileId: "agt_opencode",
+						profileName: "OpenCode Agent",
+					}),
+				],
+			]),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -594,8 +709,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const recoveryLink = screen.getByRole("link", {
 			name: "Review Agent Profile permissions",
 		});
-		expect(recoveryLink.getAttribute("href")).toMatch(
-			AGENTS_RECOVERY_HREF_PATTERN
+		expect(recoveryLink.getAttribute("href")).toBe(
+			"/o/acme/agents?profileId=agt_opencode"
 		);
 	});
 
@@ -603,15 +718,16 @@ describe("SpaceMessageDetailsDrawer", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
-		const onRetryWakeTarget = vi.fn().mockResolvedValue(undefined);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_triage", createChooseControllerPlan("agt_triage", "Runner")],
+			]),
 			item: createTimelineItem({
 				id: "sig-human",
 				text: "@Runner check the release build",
 				wakeTargetProfileIds: ["agt_triage"],
 			}),
-			onRetryWakeTarget,
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -635,135 +751,10 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 		expect(actions.map((action) => action.textContent)).toEqual([
 			"Choose local agent",
-			"Open diagnostics",
 		]);
-		expect(onRetryWakeTarget).not.toHaveBeenCalled();
 	});
 
-	it("shows a visible failure when retrying a Wake fails", async () => {
-		useQueryMock.mockReturnValue(
-			createQueryResult({ data: createHumanMessageDetails() })
-		);
-		const onOpenChange = vi.fn();
-		const onRetryWakeTarget = vi
-			.fn()
-			.mockRejectedValue(new Error("The retry request failed."));
-
-		renderMessageDetailsPanel({
-			item: createTimelineItem({
-				id: "sig-human",
-				text: "@Runner check the release build",
-				wakeTargetProfileIds: ["agt_triage"],
-			}),
-			onOpenChange,
-			onRetryWakeTarget,
-			replyItems: [
-				createTimelineItem({
-					id: "sig-terminal-failure",
-					replyToSignalId: "sig-human",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: "agt_triage",
-					systemNoticeType: "terminal_failure",
-					text: "Runner could not complete the Wake.",
-				}),
-			],
-		});
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "Retry as new execution" })
-		);
-
-		const failedRetryButton = await screen.findByRole("button", {
-			name: "New execution failed. Try again",
-		});
-		const firstClientMessageId =
-			onRetryWakeTarget.mock.calls[0]?.[0].clientMessageId;
-		expect(firstClientMessageId).toEqual(expect.any(String));
-
-		fireEvent.click(failedRetryButton);
-
-		await waitFor(() => {
-			expect(onRetryWakeTarget).toHaveBeenCalledTimes(2);
-		});
-		expect(onRetryWakeTarget.mock.calls[1]?.[0].clientMessageId).not.toBe(
-			firstClientMessageId
-		);
-		expect(onOpenChange).not.toHaveBeenCalledWith(false);
-	});
-
-	it("does not offer Retry when the source Wake contains attachments", () => {
-		useQueryMock.mockReturnValue(
-			createQueryResult({ data: createHumanMessageDetails() })
-		);
-
-		renderMessageDetailsPanel({
-			item: createTimelineItem({
-				attachments: [
-					{
-						fileName: "context.png",
-						height: 600,
-						id: "attachment-context",
-						localPreviewUrl: null,
-						mimeType: "image/png",
-						sizeBytes: 2048,
-						width: 800,
-					},
-				],
-				id: "sig-human",
-				text: "@Runner check this screenshot",
-				wakeTargetProfileIds: ["agt_triage"],
-			}),
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
-			replyItems: [
-				createTimelineItem({
-					id: "sig-terminal-failure",
-					replyToSignalId: "sig-human",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: "agt_triage",
-					systemNoticeType: "terminal_failure",
-					text: "Runner could not complete this Wake.",
-				}),
-			],
-		});
-
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
-	});
-
-	it("does not offer Retry when only one target of a multi-target Wake failed", () => {
-		useQueryMock.mockReturnValue(
-			createQueryResult({ data: createHumanMessageDetails() })
-		);
-
-		renderMessageDetailsPanel({
-			item: createTimelineItem({
-				id: "sig-human",
-				text: "@Runner @Reviewer check the release",
-				wakeTargetProfileIds: ["agt_triage", "agt_reviewer"],
-			}),
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
-			replyItems: [
-				createTimelineItem({
-					id: "sig-terminal-failure",
-					replyToSignalId: "sig-human",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: "agt_triage",
-					systemNoticeType: "terminal_failure",
-					text: "Runner could not complete this Wake.",
-				}),
-			],
-		});
-
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
-	});
-
-	it("offers recovery-controlled Retry and Open diagnostics for a persisted system failure", async () => {
+	it("keeps the failed reason prominent without treating a fresh Wake as recovery", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -776,7 +767,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				wakeTargetProfileIds: ["agt_center"],
 			}),
 			onRecoverExecution,
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-system-failure",
@@ -796,33 +786,76 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const reasonSection = getActivityRegion("Center Agent");
-		await within(reasonSection).findByRole("button", {
-			name: "Retry as new execution",
-		});
+		const failureReason = within(reasonSection).getByText(
+			"Center Agent could not complete this Wake."
+		);
+		expect(failureReason.closest("p")?.className).toContain("text-destructive");
+		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
 			Array.from(
 				reasonSection.querySelectorAll<HTMLButtonElement | HTMLAnchorElement>(
 					"button, a"
 				)
 			).map((action) => action.textContent)
-		).toEqual(["Retry as new execution", "Open diagnostics"]);
+		).toEqual([]);
 		expect(
 			screen.queryByRole("link", { name: "Review agent settings" })
 		).toBeNull();
 
-		fireEvent.click(
-			within(reasonSection).getByRole("button", { name: "Open diagnostics" })
-		);
+		expect(
+			within(reasonSection).queryByRole("button", {
+				name: "Open diagnostics",
+			})
+		).toBeNull();
 		const technicalDetails = screen
 			.getByText("Technical details")
 			.closest("details") as HTMLDetailsElement;
-		expect(technicalDetails.open).toBe(true);
+		expect(technicalDetails.open).toBe(false);
 		expect(
 			within(technicalDetails).getByText("dispatch.storage.schema_missing")
 		).toBeTruthy();
 	});
 
-	it("explains a reply-publication failure with one recovery action and diagnostics", async () => {
+	it("does not bypass exact recovery inspection when the recovery handler is unavailable", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					"agt_cursor",
+					createReviewComputerPlan({
+						actionId: "reconnect_openmeld_service",
+						actionLabel: "Reconnect Computer",
+						profileId: "agt_cursor",
+						profileName: "Cursor",
+					}),
+				],
+			]),
+			replyItems: [
+				createTimelineItem({
+					id: "sig-cursor-failure",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeDispatchId: "dispatch-cursor",
+					systemNoticeTargetProfileId: "agt_cursor",
+					systemNoticeType: "terminal_failure",
+					text: "Cursor could not reply.",
+				}),
+			],
+			targetProfileDisplayNamesByProfileId: new Map([["agt_cursor", "Cursor"]]),
+		});
+
+		expect(
+			screen.getByText("Cursor could not complete this Wake.")
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Reconnect Computer" })
+		).toBeNull();
+	});
+
+	it("explains a reply-publication failure with one recovery action", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -845,6 +878,17 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					"agt_cursor",
+					createReviewComputerPlan({
+						actionId: "reconnect_openmeld_service",
+						actionLabel: "Reconnect Computer",
+						profileId: "agt_cursor",
+						profileName: "Cursor",
+					}),
+				],
+			]),
 			item: createTimelineItem({
 				id: "sig-human",
 				text: "Run the release check",
@@ -877,6 +921,11 @@ describe("SpaceMessageDetailsDrawer", () => {
 			name: "Recover reply",
 		});
 		expect(
+			within(reasonSection).queryByRole("link", {
+				name: "Reconnect Computer",
+			})
+		).toBeNull();
+		expect(
 			within(reasonSection).getByText(
 				"OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again."
 			)
@@ -887,7 +936,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 					"button, a"
 				)
 			).map((action) => action.textContent)
-		).toEqual(["Recover reply", "Open diagnostics"]);
+		).toEqual(["Recover reply"]);
 		expect(
 			within(reasonSection).queryByRole("link", {
 				name: "Connect local agent",
@@ -895,12 +944,21 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeNull();
 	});
 
-	it("links Cursor plan limits to Cursor instead of local-agent setup", () => {
+	it("links a currently confirmed Cursor plan limit after exact recovery is unavailable", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_cursor", createCursorPlanLimitRecoveryPlan()],
+			]),
+			onRecoverExecution: async () => ({
+				action: null,
+				label: null,
+				status: "unavailable",
+				warning: null,
+			}),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-cursor-plan-failure",
@@ -918,18 +976,19 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const reasonSection = getActivityRegion("Cursor");
-		const managePlan = within(reasonSection).getByRole("link", {
+		const managePlan = await within(reasonSection).findByRole("link", {
 			name: "Manage Cursor plan",
-		});
-		const diagnostics = within(reasonSection).getByRole("button", {
-			name: "Open diagnostics",
 		});
 		expect(managePlan.getAttribute("href")).toBe(
 			"https://cursor.com/dashboard"
 		);
 		expect(managePlan.getAttribute("target")).toBe("_blank");
 		expect(managePlan.className).toContain("h-7");
-		expect(diagnostics.className).toContain("h-7");
+		expect(
+			within(reasonSection).queryByRole("button", {
+				name: "Open diagnostics",
+			})
+		).toBeNull();
 		expect(
 			within(reasonSection).queryByRole("link", {
 				name: "Connect local agent",
@@ -937,7 +996,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeNull();
 	});
 
-	it("offers recovery-controlled Retry and Open diagnostics for an oversized Center Agent tool result", async () => {
+	it("does not treat a fresh oversized-result rerun as execution recovery", async () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -950,7 +1009,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				wakeTargetProfileIds: ["agt_center"],
 			}),
 			onRecoverExecution,
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-large-tool-result",
@@ -970,16 +1028,14 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const reasonSection = getActivityRegion("Center Agent");
-		await within(reasonSection).findByRole("button", {
-			name: "Retry as new execution",
-		});
+		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
 			Array.from(
 				reasonSection.querySelectorAll<HTMLButtonElement | HTMLAnchorElement>(
 					"button, a"
 				)
 			).map((action) => action.textContent)
-		).toEqual(["Retry as new execution", "Open diagnostics"]);
+		).toEqual([]);
 	});
 
 	it("shows one exact Recover result action for an independent late-result notice", async () => {
@@ -1066,7 +1122,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 
 		renderMessageDetailsPanel({
-			onRetryWakeTarget: vi.fn(),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-publication-failure",
@@ -1150,11 +1205,13 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				["agt_runner", createChooseControllerPlan("agt_runner", "Runner")],
+			]),
 			item: createTimelineItem({
 				id: "sig-human",
 				wakeTargetProfileIds: ["agt_runner"],
 			}),
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -1196,7 +1253,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toEqual(["Choose local agent"]);
 	});
 
-	it("opens diagnostics for a known storage failure without a settings action", () => {
+	it("keeps technical details without a duplicate diagnostics action", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -1219,16 +1276,28 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toBeNull();
 		expect(screen.queryByRole("link")).toBeNull();
 		expect(
-			screen.getByRole("button", { name: "Open diagnostics" })
-		).toBeTruthy();
+			screen.queryByRole("button", { name: "Open diagnostics" })
+		).toBeNull();
+		expect(screen.getByText("Technical details")).toBeTruthy();
 	});
 
-	it("links a manageable local-service failure to its shared recovery target", () => {
+	it("links a confirmed current local-service blocker to Computer recovery", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
 
 		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					"agt_triage",
+					createReviewComputerPlan({
+						actionId: "reconnect_openmeld_service",
+						actionLabel: "Reconnect Computer",
+						profileId: "agt_triage",
+						profileName: "Runner",
+					}),
+				],
+			]),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -1254,11 +1323,42 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 
 		const recoveryLink = screen.getByRole("link", {
-			name: "Reconnect OpenMeld Service",
+			name: "Reconnect Computer",
 		});
 		expect(recoveryLink.getAttribute("href")).toMatch(
 			COMPUTERS_RECOVERY_HREF_PATTERN
 		);
+	});
+
+	it("keeps the failure outcome but hides a stale reconnect after the Agent is connected", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel({
+			agentRecoveryPlansByProfileId: new Map(),
+			replyItems: [
+				createTimelineItem({
+					id: "sig-terminal-failure",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeReasonCode: "service.not_running",
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeType: "terminal_failure",
+					text: "Runner could not reply because its computer disconnected.",
+				}),
+			],
+			targetProfileDisplayNamesByProfileId: new Map([["agt_triage", "Runner"]]),
+		});
+
+		expect(
+			screen.getByText(
+				"Runner could not complete this Wake because its computer was not connected to OpenMeld at the time."
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Reconnect Computer" })
+		).toBeNull();
 	});
 
 	it("shows a cross-workspace Agent failure without a dead-end action", () => {
@@ -1288,7 +1388,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const failureSection = getActivityRegion("OpenMeld");
 		const statusBadge = within(failureSection).getByText("Failed");
 		const failureReason = within(failureSection).getByText(
-			"Runner belongs to a different workspace."
+			"This agent could not start this Wake because its Agent Profile belonged to a different workspace."
 		);
 		expect(statusBadge.className).toContain("text-destructive");
 		expect(failureReason).toBeTruthy();
@@ -1317,7 +1417,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				systemNoticeType: "terminal_failure",
 				text: "Runner could not reply.",
 			}),
-			onRetryWakeTarget: vi.fn(),
 			targetProfileDisplayNamesByProfileId: new Map([["agt_triage", "Runner"]]),
 		});
 
@@ -1326,7 +1425,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 			"text-destructive"
 		);
 		expect(
-			within(failureSection).getByText("Runner could not reply.")
+			within(failureSection).getByText("Runner could not start this Wake.")
 		).toBeTruthy();
 		expect(screen.queryByText("Wake failed")).toBeNull();
 		expect(
@@ -1363,7 +1462,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				systemNoticeType: "wake_stopped",
 				text: "Wake was stopped.",
 			}),
-			onRetryWakeTarget: vi.fn(),
 		});
 
 		expect(
@@ -1591,7 +1689,99 @@ function getActivityRegion(name: string): HTMLElement {
 	return screen.getByRole("region", { name: `${name} activity` });
 }
 
+function createChooseControllerPlan(
+	profileId: string,
+	profileName: string
+): AgentProfileReplyRecoveryPlan {
+	return {
+		body: `Choose the local agent that should control ${profileName}.`,
+		kind: "choose_controller",
+		primaryActionId: "choose_local_agent",
+		primaryActionLabel: "Choose local agent",
+		profileId,
+		profileName,
+		recoveryReasonCode: "agent_profile_binding.missing",
+		secondaryLabel: "No local agent is connected.",
+		title: "Choose a local agent",
+	};
+}
+
+function createReviewAgentPlan(input: {
+	actionId: "review_agent_permissions";
+	actionLabel: string;
+	profileId: string;
+	profileName: string;
+}): AgentProfileReplyRecoveryPlan {
+	return {
+		body: `Review ${input.profileName}'s permissions before waking it again.`,
+		kind: "review_agent_profile",
+		primaryActionId: input.actionId,
+		primaryActionLabel: input.actionLabel,
+		profileId: input.profileId,
+		profileName: input.profileName,
+		recoveryReasonCode: "permission.denied.runtime",
+		secondaryLabel: "The Agent Profile blocked this action.",
+		title: "Review Agent Profile permissions",
+	};
+}
+
+function createCursorPlanLimitRecoveryPlan(): AgentProfileReplyRecoveryPlan {
+	const reasonCode = "cursor.plan_upgrade_required";
+	return planAgentProfileReplyRecovery({
+		member: createSpaceMemberAgentSnapshot({
+			agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+				displayState: "blocked",
+				facts: {
+					binding: {
+						routable: true,
+						source: "binding_truth",
+					},
+					providerAccount: {
+						blocked: true,
+						expiresAtMs: 1_770_000_000_000,
+						observedAtMs: 1_769_990_000_000,
+						provider: "codex",
+						reasonCodes: [reasonCode],
+						source: "wake_failure",
+					},
+				},
+				primaryAction: "fix_provider_account",
+				reasonCodes: [reasonCode],
+			}),
+			profileId: "agt_cursor",
+			profileName: "Cursor",
+			wakeState: "offline",
+			wakeabilityReasonCodes: [reasonCode],
+			wakeabilityReasonText: "Blocked",
+			wakeabilityStatus: "blocked",
+		}),
+	});
+}
+
+function createReviewComputerPlan(input: {
+	actionId: "reconnect_openmeld_service" | "update_openmeld_service";
+	actionLabel: string;
+	profileId: string;
+	profileName: string;
+}): AgentProfileReplyRecoveryPlan {
+	return {
+		body: `${input.actionLabel} before waking ${input.profileName} again.`,
+		kind: "review_computer",
+		primaryActionId: input.actionId,
+		primaryActionLabel: input.actionLabel,
+		profileId: input.profileId,
+		profileName: input.profileName,
+		recoveryReasonCode: "service.not_running",
+		secondaryLabel: `${input.profileName}'s computer is not connected.`,
+		title: input.actionLabel,
+	};
+}
+
 function renderMessageDetailsPanel(input?: {
+	agentRecoveryPlansByProfileId?: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
 	canJumpToMessage?: (signalId: string) => boolean;
 	item?: SpaceTimelineItem;
 	onJumpToMessage?: (signalId: string) => void;
@@ -1599,16 +1789,13 @@ function renderMessageDetailsPanel(input?: {
 	onViewInGraph?: (signalId: string) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onReportMessage?: (item: SpaceTimelineItem) => Promise<void>;
-	onRetryWakeTarget?: (input: {
-		sourceText: string;
-		targetProfileId: string;
-	}) => Promise<void>;
 	onWakeStopRequest?: (
 		target: SpaceWakeStopTargetResolution
 	) => Promise<PostSpaceWakeStopResponse>;
 	replyItems?: readonly SpaceTimelineItem[];
 	spaceReferencesById?: SpaceMessageReferencesById;
 	targetProfileDisplayNamesByProfileId?: ReadonlyMap<string, string>;
+	threadRootSignalId?: string;
 	wakeFailureTargetContextsByProfileId?: ReadonlyMap<
 		string,
 		WakeFailureTargetContext
@@ -1620,6 +1807,7 @@ function renderMessageDetailsPanel(input?: {
 	const item = input?.item ?? createTimelineItem({ id: "sig-human" });
 	return render(
 		<SpaceMessageDetailsDrawer
+			agentRecoveryPlansByProfileId={input?.agentRecoveryPlansByProfileId}
 			canJumpToMessage={
 				input?.canJumpToMessage ??
 				((signalId) =>
@@ -1632,7 +1820,6 @@ function renderMessageDetailsPanel(input?: {
 			onOpenChange={input?.onOpenChange ?? vi.fn()}
 			onRecoverExecution={input?.onRecoverExecution}
 			onReportMessage={input?.onReportMessage ?? vi.fn()}
-			onRetryWakeTarget={input?.onRetryWakeTarget}
 			onViewInGraph={input?.onViewInGraph}
 			onWakeStopRequest={input?.onWakeStopRequest}
 			open={true}
@@ -1643,6 +1830,7 @@ function renderMessageDetailsPanel(input?: {
 			targetProfileDisplayNamesByProfileId={
 				input?.targetProfileDisplayNamesByProfileId
 			}
+			threadRootSignalId={input?.threadRootSignalId}
 			wakeFailureTargetContextsByProfileId={
 				input?.wakeFailureTargetContextsByProfileId
 			}

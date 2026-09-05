@@ -4,7 +4,6 @@ import {
 	getAgentControllerPermissionModeDisplayMetadata,
 	listAgentControllerCollaborationModeOptions,
 	listAgentControllerPermissionModeOptions,
-	resolveAgentControllerModelCompatibility,
 } from "@openmeld/agent-runtime";
 import type {
 	AgentControllerCollaborationMode,
@@ -23,6 +22,14 @@ import {
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
+import {
+	BrainIcon,
+	FolderOpenIcon,
+	HandIcon,
+	LockKeyIcon,
+	UserCircleIcon,
+	WaveformIcon,
+} from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
@@ -37,6 +44,20 @@ import {
 	AgentProfileBindingChoiceList,
 } from "./agent-binding-choice-list";
 import {
+	AgentConfigurationCard,
+	AgentConfigurationGrid,
+} from "./agent-configuration-card";
+import {
+	buildBuiltinAgentControllerRef,
+	formatModelOptionLabel,
+	formatReasoningLevelLabel,
+	type ResolvedModelCompatibility,
+	resolveAgentProfileConfigurationSummaries,
+	resolveCreateProfileSubmitBlockReason,
+	resolveModelCompatibility,
+	resolveSelectedModelCompatibility,
+} from "./create-profile-form-logic";
+import {
 	isOpenCodeAgentId,
 	OpenCodePermissionsField,
 } from "./open-code-permissions-field";
@@ -49,17 +70,15 @@ const PROFILE_KIND_TABS = [
 		title: "Agent profile",
 	},
 	{
-		description: "Create another human profile on this account.",
+		description: "Create another personal profile on this account.",
 		kind: "human",
-		title: "Human profile",
+		title: "Person",
 	},
 ] as const satisfies readonly {
 	description: string;
 	kind: NewProfileKind;
 	title: string;
 }[];
-const REASONING_LEVEL_SPLIT_PATTERN = /[-_]/u;
-
 export type AgentProfileModelCompatibilityContext = {
 	agentControllerId: string;
 	controllerDisplayName: string;
@@ -68,17 +87,28 @@ export type AgentProfileModelCompatibilityContext = {
 	reportedModelIds: readonly string[] | null;
 };
 
+export type AgentProfileLocalAgentEmptyState = {
+	centerAgentHref: string | null;
+	kind:
+		| "connect_computer"
+		| "set_up_local_agents"
+		| "teammate_local_agents_unavailable";
+	primaryActionHref: string | null;
+};
+
 // Presentational, route-free Create Profile form. All state lives in the
 // parent dialog; this component only renders an available kind choice, the
 // name input, the agent binding radio, and the recoverable error block. It
 // performs no navigation, no StartFlow reads/writes, and no mutation.
-export function CreateProfileForm(input: {
+export type CreateProfileFormProps = {
 	additionalHumanProfileCreationEnabled: boolean;
 	additionalSubmitBlockReason?: string | null;
 	agentBindingChoices?: readonly AgentProfileBindingChoice[];
 	agentBindingValue?: string;
 	agentOwnershipSlot?: ReactNode;
+	agentOwnershipSummary?: string;
 	agentSessionSlot?: ReactNode;
+	agentSessionSummary?: string;
 	availableLocalAgentIds: readonly string[];
 	boundAgentId: string;
 	boundAgentControllerCollaborationMode: AgentControllerCollaborationMode | null;
@@ -96,8 +126,10 @@ export function CreateProfileForm(input: {
 	modelCatalog: ModelCatalog | null;
 	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	localFolderPickerDeviceId: string | null;
+	localAgentEmptyState?: AgentProfileLocalAgentEmptyState;
 	projectSelectionBlockReason?: string | null;
 	projectSelectionSlot?: ReactNode;
+	projectSelectionSummary?: string;
 	projectFolderPath: string;
 	profileKind: NewProfileKind | null;
 	profileName: string;
@@ -124,7 +156,9 @@ export function CreateProfileForm(input: {
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 	submitLabel?: string;
 	submittingLabel?: string;
-}) {
+};
+
+export function CreateProfileForm(input: CreateProfileFormProps) {
 	const submitBlockReasonId = useId();
 	// Block submit until the account profiles have resolved, so the acting human
 	// (creatorProfileId / Space-join actor) is populated before create runs.
@@ -173,26 +207,10 @@ export function CreateProfileForm(input: {
 							input={input}
 						/>
 					) : null}
-					{input.errorState ? (
-						<div className="grid gap-3 rounded-md border border-destructive/40 p-4">
-							<p className="text-destructive text-sm">
-								{input.errorState.message}
-							</p>
-							{input.errorState.setupRefreshAvailable ? (
-								<div>
-									<Link
-										className={buttonVariants({
-											size: "sm",
-											variant: "outline",
-										})}
-										to={input.recoveryActionHref}
-									>
-										{input.errorState.setupRefreshActionLabel}
-									</Link>
-								</div>
-							) : null}
-						</div>
-					) : null}
+					<CreateProfileErrorNotice
+						errorState={input.errorState}
+						recoveryActionHref={input.recoveryActionHref}
+					/>
 				</div>
 			</div>
 			<div
@@ -228,7 +246,7 @@ export function CreateProfileForm(input: {
 
 function AgentProfileFields(input: {
 	agentBindingHelpText: string;
-	input: Parameters<typeof CreateProfileForm>[0];
+	input: CreateProfileFormProps;
 }) {
 	const form = input.input;
 	return (
@@ -242,18 +260,127 @@ function AgentProfileFields(input: {
 				onChange={form.onChangeAgentBindingValue ?? form.onChangeBoundAgentId}
 				value={form.agentBindingValue ?? form.boundAgentId}
 			/>
-			{form.boundAgentId && form.projectSelectionSlot
-				? form.projectSelectionSlot
-				: null}
-			{form.boundAgentId && !form.projectSelectionSlot ? (
+			<AgentProfileAdvancedFields input={form} />
+			<div className="grid gap-1">
+				<p className="text-muted-foreground text-xs">
+					{input.agentBindingHelpText}
+				</p>
+			</div>
+		</>
+	);
+}
+
+export function AgentProfileAdvancedFields(input: {
+	input: CreateProfileFormProps;
+}) {
+	const form = input.input;
+	if (!form.boundAgentId) {
+		return null;
+	}
+	return (
+		<>
+			{form.projectSelectionSlot ? form.projectSelectionSlot : null}
+			{form.projectSelectionSlot ? null : (
 				<ProjectFolderField
 					disabled={form.isSubmitting}
 					onChange={form.onChangeProjectFolderPath}
 					pickerDeviceId={form.localFolderPickerDeviceId}
 					value={form.projectFolderPath}
 				/>
+			)}
+			<AgentProfileModelSelectionFields
+				agentId={form.boundAgentId}
+				disabled={form.isSubmitting}
+				modelCatalog={form.modelCatalog}
+				modelCompatibilityContext={form.modelCompatibilityContext}
+				modelId={form.boundModelId}
+				onChangeModelId={form.onChangeBoundModelId}
+				onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
+				reasoningLevel={form.boundReasoningLevel}
+			/>
+			<AgentControllerCollaborationModeFields
+				agentId={form.boundAgentId}
+				disabled={form.isSubmitting}
+				onChange={form.onChangeBoundAgentControllerCollaborationMode}
+				value={form.boundAgentControllerCollaborationMode}
+			/>
+			<AgentControllerPermissionModeFields
+				agentId={form.boundAgentId}
+				confirmed={form.boundAgentControllerPermissionModeConfirmed}
+				disabled={form.isSubmitting}
+				onChange={form.onChangeBoundAgentControllerPermissionMode}
+				onConfirmChange={
+					form.onChangeBoundAgentControllerPermissionModeConfirmed
+				}
+				value={form.boundAgentControllerPermissionMode}
+			/>
+			{isOpenCodeAgentId(form.boundAgentId) ? (
+				<OpenCodePermissionsField
+					disabled={form.isSubmitting}
+					onChange={form.onChangeBoundOpenCodePermission}
+					value={form.boundOpenCodePermission}
+				/>
 			) : null}
-			{form.boundAgentId ? (
+		</>
+	);
+}
+
+export function AgentProfileConfigurationCards(input: {
+	input: CreateProfileFormProps;
+}) {
+	const form = input.input;
+	if (!form.boundAgentId) {
+		return null;
+	}
+	const summaries = resolveAgentProfileConfigurationSummaries(form);
+
+	return (
+		<AgentConfigurationGrid>
+			{form.agentOwnershipSlot ? (
+				<AgentConfigurationCard
+					description="Who owns and maintains this Agent."
+					icon={<UserCircleIcon aria-hidden="true" />}
+					itemId="owner"
+					label="Owner"
+					summary={summaries.owner}
+				>
+					{form.agentOwnershipSlot}
+				</AgentConfigurationCard>
+			) : null}
+			{form.agentSessionSlot ? (
+				<AgentConfigurationCard
+					description="Start fresh or continue existing work."
+					icon={<WaveformIcon aria-hidden="true" />}
+					itemId="session"
+					label="Session"
+					summary={summaries.session}
+				>
+					{form.agentSessionSlot}
+				</AgentConfigurationCard>
+			) : null}
+			<AgentConfigurationCard
+				description="Where this Agent starts work."
+				icon={<FolderOpenIcon aria-hidden="true" />}
+				itemId="working-folder"
+				label="Working folder"
+				summary={summaries.workingFolder}
+			>
+				{form.projectSelectionSlot ?? (
+					<ProjectFolderField
+						disabled={form.isSubmitting}
+						onChange={form.onChangeProjectFolderPath}
+						pickerDeviceId={form.localFolderPickerDeviceId}
+						value={form.projectFolderPath}
+					/>
+				)}
+			</AgentConfigurationCard>
+			<AgentConfigurationCard
+				description="Choose the model and how deeply it reasons."
+				icon={<BrainIcon aria-hidden="true" />}
+				itemId="model"
+				label="Model"
+				summary={summaries.model}
+			>
 				<AgentProfileModelSelectionFields
 					agentId={form.boundAgentId}
 					disabled={form.isSubmitting}
@@ -264,44 +391,82 @@ function AgentProfileFields(input: {
 					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
 					reasoningLevel={form.boundReasoningLevel}
 				/>
+			</AgentConfigurationCard>
+			{summaries.collaboration ? (
+				<AgentConfigurationCard
+					description="How Codex works with you during a task."
+					icon={<HandIcon aria-hidden="true" />}
+					itemId="collaboration"
+					label="Collaboration"
+					summary={summaries.collaboration}
+				>
+					<AgentControllerCollaborationModeFields
+						agentId={form.boundAgentId}
+						disabled={form.isSubmitting}
+						onChange={form.onChangeBoundAgentControllerCollaborationMode}
+						value={form.boundAgentControllerCollaborationMode}
+					/>
+				</AgentConfigurationCard>
 			) : null}
-			{form.boundAgentId ? (
-				<AgentControllerCollaborationModeFields
-					agentId={form.boundAgentId}
-					disabled={form.isSubmitting}
-					onChange={form.onChangeBoundAgentControllerCollaborationMode}
-					value={form.boundAgentControllerCollaborationMode}
-				/>
-			) : null}
-			{form.boundAgentId ? (
-				<AgentControllerPermissionModeFields
-					agentId={form.boundAgentId}
-					confirmed={form.boundAgentControllerPermissionModeConfirmed}
-					disabled={form.isSubmitting}
-					onChange={form.onChangeBoundAgentControllerPermissionMode}
-					onConfirmChange={
-						form.onChangeBoundAgentControllerPermissionModeConfirmed
-					}
-					value={form.boundAgentControllerPermissionMode}
-				/>
-			) : null}
-			{isOpenCodeAgentId(form.boundAgentId) ? (
-				<OpenCodePermissionsField
-					disabled={form.isSubmitting}
-					onChange={form.onChangeBoundOpenCodePermission}
-					value={form.boundOpenCodePermission}
-				/>
-			) : null}
-			<div className="grid gap-1">
-				<p className="text-muted-foreground text-xs">
-					{input.agentBindingHelpText}
-				</p>
-			</div>
-		</>
+			<AgentConfigurationCard
+				description="What this Agent can do without asking."
+				icon={<LockKeyIcon aria-hidden="true" />}
+				itemId="permissions"
+				label="Permissions"
+				summary={summaries.permission}
+			>
+				<div className="grid gap-4">
+					<AgentControllerPermissionModeFields
+						agentId={form.boundAgentId}
+						confirmed={form.boundAgentControllerPermissionModeConfirmed}
+						disabled={form.isSubmitting}
+						onChange={form.onChangeBoundAgentControllerPermissionMode}
+						onConfirmChange={
+							form.onChangeBoundAgentControllerPermissionModeConfirmed
+						}
+						value={form.boundAgentControllerPermissionMode}
+					/>
+					{isOpenCodeAgentId(form.boundAgentId) ? (
+						<OpenCodePermissionsField
+							disabled={form.isSubmitting}
+							onChange={form.onChangeBoundOpenCodePermission}
+							value={form.boundOpenCodePermission}
+						/>
+					) : null}
+				</div>
+			</AgentConfigurationCard>
+		</AgentConfigurationGrid>
 	);
 }
 
-function AgentControllerCollaborationModeFields(input: {
+export function CreateProfileErrorNotice(input: {
+	errorState: NewProfileErrorState | null;
+	recoveryActionHref: string;
+}) {
+	if (!input.errorState) {
+		return null;
+	}
+	return (
+		<div
+			className="grid gap-3 rounded-md border border-destructive/40 p-4"
+			role="alert"
+		>
+			<p className="text-destructive text-sm">{input.errorState.message}</p>
+			{input.errorState.setupRefreshAvailable ? (
+				<div>
+					<Link
+						className={buttonVariants({ size: "sm", variant: "outline" })}
+						to={input.recoveryActionHref}
+					>
+						{input.errorState.setupRefreshActionLabel}
+					</Link>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+export function AgentControllerCollaborationModeFields(input: {
 	agentId: string;
 	disabled: boolean;
 	onChange: (mode: AgentControllerCollaborationMode) => void;
@@ -434,54 +599,7 @@ function resolveAgentBindingHelpText(input: {
 	return "Choose a local agent now, or choose later if you only need the profile name today.";
 }
 
-function resolveCreateProfileSubmitBlockReason(input: {
-	additionalHumanProfileCreationEnabled: boolean;
-	additionalSubmitBlockReason?: string | null;
-	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
-	boundAgentControllerPermissionModeConfirmed: boolean;
-	boundAgentId: string;
-	boundModelId: string;
-	isResolvingAccount: boolean;
-	profileKind: NewProfileKind | null;
-	profileName: string;
-	projectSelectionBlockReason?: string | null;
-	modelCatalog: ModelCatalog | null;
-	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
-}): string | null {
-	if (input.profileKind === null) {
-		return input.additionalHumanProfileCreationEnabled
-			? "Choose an Agent Profile or Human Profile."
-			: "Choose an Agent Profile.";
-	}
-	if (input.profileName.trim().length === 0) {
-		return "Enter a profile name.";
-	}
-	if (input.isResolvingAccount) {
-		return "Loading account profiles.";
-	}
-	if (input.additionalSubmitBlockReason) {
-		return input.additionalSubmitBlockReason;
-	}
-	if (input.projectSelectionBlockReason) {
-		return input.projectSelectionBlockReason;
-	}
-	if (
-		resolveSelectedModelCompatibility({
-			agentId: input.boundAgentId,
-			modelCatalog: input.modelCatalog,
-			modelCompatibilityContext: input.modelCompatibilityContext,
-			modelId: input.boundModelId,
-		})?.knownIncompatible
-	) {
-		return `Choose a model available in ${input.modelCompatibilityContext?.controllerDisplayName ?? "this local agent"} on this computer.`;
-	}
-	if (requiresUnconfirmedAgentControllerPermissionMode(input)) {
-		return "Confirm this permissions mode before creating the profile.";
-	}
-	return null;
-}
-
-function AgentControllerPermissionModeFields(input: {
+export function AgentControllerPermissionModeFields(input: {
 	agentId: string;
 	confirmed: boolean;
 	disabled: boolean;
@@ -566,30 +684,7 @@ function AgentControllerPermissionModeFields(input: {
 	);
 }
 
-function requiresUnconfirmedAgentControllerPermissionMode(input: {
-	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
-	boundAgentControllerPermissionModeConfirmed: boolean;
-	boundAgentId: string;
-	profileKind: NewProfileKind | null;
-}): boolean {
-	if (input.profileKind !== "agent" || !input.boundAgentId) {
-		return false;
-	}
-	const metadata = getAgentControllerPermissionModeDisplayMetadata(
-		input.boundAgentControllerPermissionMode,
-		{ agentControllerRef: buildBuiltinAgentControllerRef(input.boundAgentId) }
-	);
-	return (
-		metadata.requiresExplicitConfirmation &&
-		!input.boundAgentControllerPermissionModeConfirmed
-	);
-}
-
-function buildBuiltinAgentControllerRef(agentId: string): string {
-	return `builtin:${agentId}`;
-}
-
-export function AgentProfileModelSelectionFields(input: {
+type AgentProfileModelSelectionFieldsProps = {
 	agentId: string;
 	disabled: boolean;
 	modelCatalog: ModelCatalog | null;
@@ -598,49 +693,15 @@ export function AgentProfileModelSelectionFields(input: {
 	onChangeModelId: (modelId: string) => void;
 	onChangeReasoningLevel: (reasoningLevel: string) => void;
 	reasoningLevel: string;
-}) {
-	const modelSelectId = useId();
-	const reasoningSelectId = useId();
-	const controller =
-		input.modelCatalog?.agentControllers[input.agentId] ?? null;
-	const modelCompatibilityContext =
-		input.modelCompatibilityContext?.agentControllerId === input.agentId
-			? input.modelCompatibilityContext
-			: null;
-	const availableModels =
-		controller?.models.filter((model) => !model.unavailable) ?? [];
-	const defaultModel = availableModels.find(
-		(model) => model.id === controller?.defaultModelId
-	);
-	const currentUnavailableModel =
-		controller?.models.find(
-			(model) => model.id === input.modelId && model.unavailable
-		) ?? null;
-	const selectedModel =
-		availableModels.find((model) => model.id === input.modelId) ??
-		currentUnavailableModel;
-	const reasoningLevels = selectedModel?.supportedReasoningLevels ?? [];
-	const supportsIndependentReasoning = availableModels.some(
-		(model) => model.supportedReasoningLevels.length > 0
-	);
-	const modelDisplayValue = resolveModelSelectDisplayValue({
-		defaultModel,
-		modelId: input.modelId,
-		selectedModel,
-		defaultModelId: controller?.defaultModelId ?? "",
-	});
-	const reasoningDisplayValue = resolveReasoningSelectDisplayValue({
-		reasoningLevel: input.reasoningLevel,
-		selectedModel,
-	});
-	const selectedCompatibility = resolveSelectedModelCompatibility({
-		agentId: input.agentId,
-		modelCatalog: input.modelCatalog,
-		modelCompatibilityContext,
-		modelId: input.modelId,
-	});
+};
 
-	if (!controller || availableModels.length === 0) {
+export function AgentProfileModelSelectionFields(
+	input: AgentProfileModelSelectionFieldsProps
+) {
+	const modelSelectId = useId();
+	const state = resolveAgentProfileModelSelectionState(input);
+
+	if (!state) {
 		return null;
 	}
 
@@ -651,102 +712,221 @@ export function AgentProfileModelSelectionFields(input: {
 				<Select
 					disabled={input.disabled}
 					onValueChange={input.onChangeModelId}
-					value={input.modelId}
+					value={state.effectiveModelId}
 				>
 					<SelectTrigger
 						aria-label="Model"
 						className="h-10 w-full px-3 text-sm"
-						displayValue={modelDisplayValue}
+						displayValue={state.modelDisplayValue}
 						id={modelSelectId}
-						placeholder="Use controller default"
+						placeholder="Select a model"
 					/>
 					<SelectContent className="max-h-64">
-						<SelectItem
-							disabled={
-								resolveModelCompatibility({
-									controller,
-									context: modelCompatibilityContext,
-									modelId: controller.defaultModelId,
-								}).knownIncompatible
-							}
-							index={0}
-							value=""
-						>
-							{formatDefaultModelSelectionLabel(defaultModel)}
-						</SelectItem>
-						{currentUnavailableModel ? (
-							<SelectItem disabled index={1} value={currentUnavailableModel.id}>
-								{formatUnavailableModelOptionLabel(currentUnavailableModel)}
+						{state.currentUnavailableModel ? (
+							<SelectItem
+								disabled
+								index={0}
+								value={state.currentUnavailableModel.id}
+							>
+								{formatUnavailableModelOptionLabel(
+									state.currentUnavailableModel
+								)}
 							</SelectItem>
 						) : null}
 						{renderCompatibleModelOptions({
-							controller,
-							context: modelCompatibilityContext,
-							models: availableModels,
-							startIndex: currentUnavailableModel ? 2 : 1,
+							controller: state.controller,
+							context: state.modelCompatibilityContext,
+							models: state.availableModels,
+							startIndex: state.currentUnavailableModel ? 1 : 0,
 						})}
 					</SelectContent>
 				</Select>
 				<ModelCompatibilityNotice
-					compatibility={selectedCompatibility}
-					context={modelCompatibilityContext}
+					compatibility={state.selectedCompatibility}
+					context={state.modelCompatibilityContext}
 				/>
-				{supportsIndependentReasoning ? null : (
-					<p className="text-muted-foreground text-xs">
-						{input.agentId === "cursor"
-							? "Cursor includes reasoning in the exact model choice."
-							: "This controller does not offer a separate reasoning setting."}
-					</p>
-				)}
+				<IndependentReasoningUnavailableNote
+					agentId={input.agentId}
+					supported={state.supportsIndependentReasoning}
+				/>
 			</div>
-			{supportsIndependentReasoning ? (
-				<div className="grid min-w-0 gap-2">
-					<Label htmlFor={reasoningSelectId}>Reasoning effort</Label>
-					<Select
-						disabled={
-							input.disabled || !selectedModel || reasoningLevels.length === 0
-						}
-						onValueChange={input.onChangeReasoningLevel}
-						value={input.reasoningLevel}
-					>
-						<SelectTrigger
-							aria-label="Reasoning effort"
-							className="h-10 w-full px-3 text-sm"
-							displayValue={reasoningDisplayValue}
-							id={reasoningSelectId}
-							placeholder="Choose a model to set reasoning"
-						/>
-						<SelectContent className="max-h-64">
-							<SelectItem index={0} value="">
-								{formatDefaultReasoningSelectionLabel()}
-							</SelectItem>
-							{reasoningLevels.map((level, index) => (
-								<SelectItem index={index + 1} key={level} value={level}>
-									{formatReasoningLevelLabel(level)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-					{selectedModel && reasoningLevels.length === 0 ? (
-						<p className="text-muted-foreground text-xs">
-							Reasoning effort is not available for this model.
-						</p>
-					) : null}
-				</div>
-			) : null}
+			<AgentProfileReasoningSelection input={input} state={state} />
 		</div>
 	);
 }
 
+type AgentProfileModelSelectionState = {
+	availableModels: readonly ModelCatalogModel[];
+	controller: NonNullable<ModelCatalog["agentControllers"][string]>;
+	currentUnavailableModel: ModelCatalogModel | null;
+	effectiveModelId: string;
+	modelCompatibilityContext: AgentProfileModelCompatibilityContext | null;
+	modelDisplayValue: string;
+	reasoningDisplayValue: string | undefined;
+	reasoningLevels: readonly string[];
+	selectedCompatibility: ResolvedModelCompatibility | null;
+	selectedModel: ModelCatalogModel | null;
+	supportsIndependentReasoning: boolean;
+};
+
+function resolveAgentProfileModelSelectionState(
+	input: AgentProfileModelSelectionFieldsProps
+): AgentProfileModelSelectionState | null {
+	const controller =
+		input.modelCatalog?.agentControllers[input.agentId] ?? null;
+	if (!controller) {
+		return null;
+	}
+	const modelCompatibilityContext =
+		input.modelCompatibilityContext?.agentControllerId === input.agentId
+			? input.modelCompatibilityContext
+			: null;
+	const availableModels = controller.models.filter(
+		(model) => !model.unavailable
+	);
+	if (availableModels.length === 0) {
+		return null;
+	}
+	const currentUnavailableModel =
+		controller.models.find(
+			(model) => model.id === input.modelId && model.unavailable
+		) ?? null;
+	const effectiveModelId = input.modelId || controller.defaultModelId;
+	const selectedModel =
+		availableModels.find((model) => model.id === effectiveModelId) ??
+		currentUnavailableModel;
+	const reasoningLevels = selectedModel?.supportedReasoningLevels ?? [];
+	return {
+		availableModels,
+		controller,
+		currentUnavailableModel,
+		effectiveModelId,
+		modelCompatibilityContext,
+		modelDisplayValue: resolveModelSelectDisplayValue({
+			defaultModelId: controller.defaultModelId,
+			modelId: effectiveModelId,
+			selectedModel,
+		}),
+		reasoningDisplayValue: resolveReasoningSelectDisplayValue({
+			reasoningLevel: input.reasoningLevel,
+			selectedModel,
+		}),
+		reasoningLevels,
+		selectedCompatibility: resolveSelectedModelCompatibility({
+			agentId: input.agentId,
+			modelCatalog: input.modelCatalog,
+			modelCompatibilityContext,
+			modelId: input.modelId,
+		}),
+		selectedModel,
+		supportsIndependentReasoning: availableModels.some(
+			(model) => model.supportedReasoningLevels.length > 0
+		),
+	};
+}
+
+function IndependentReasoningUnavailableNote(input: {
+	agentId: string;
+	supported: boolean;
+}) {
+	if (input.supported) {
+		return null;
+	}
+	return (
+		<p className="text-muted-foreground text-xs">
+			{input.agentId === "cursor"
+				? "Cursor includes reasoning in the exact model choice."
+				: "This controller does not offer a separate reasoning setting."}
+		</p>
+	);
+}
+
+function AgentProfileReasoningSelection(input: {
+	input: AgentProfileModelSelectionFieldsProps;
+	state: AgentProfileModelSelectionState;
+}) {
+	const reasoningSelectId = useId();
+	if (!input.state.supportsIndependentReasoning) {
+		return null;
+	}
+	return (
+		<div className="grid min-w-0 gap-2">
+			<Label htmlFor={reasoningSelectId}>Reasoning effort</Label>
+			<Select
+				disabled={
+					input.input.disabled ||
+					!input.state.selectedModel ||
+					input.state.reasoningLevels.length === 0
+				}
+				onValueChange={(reasoningLevel) =>
+					applyReasoningLevelSelection({
+						effectiveModelId: input.state.effectiveModelId,
+						modelId: input.input.modelId,
+						onChangeModelId: input.input.onChangeModelId,
+						onChangeReasoningLevel: input.input.onChangeReasoningLevel,
+						reasoningLevel,
+					})
+				}
+				value={input.input.reasoningLevel}
+			>
+				<SelectTrigger
+					aria-label="Reasoning effort"
+					className="h-10 w-full px-3 text-sm"
+					displayValue={input.state.reasoningDisplayValue}
+					id={reasoningSelectId}
+					placeholder="Use model default"
+				/>
+				<SelectContent className="max-h-64">
+					<SelectItem index={0} value="">
+						{formatDefaultReasoningSelectionLabel()}
+					</SelectItem>
+					{input.state.reasoningLevels.map((level, index) => (
+						<SelectItem index={index + 1} key={level} value={level}>
+							{formatReasoningLevelLabel(level)}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			<ReasoningUnavailableForModelNote
+				hasSelectedModel={Boolean(input.state.selectedModel)}
+				reasoningLevelCount={input.state.reasoningLevels.length}
+			/>
+		</div>
+	);
+}
+
+function ReasoningUnavailableForModelNote(input: {
+	hasSelectedModel: boolean;
+	reasoningLevelCount: number;
+}) {
+	if (!(input.hasSelectedModel && input.reasoningLevelCount === 0)) {
+		return null;
+	}
+	return (
+		<p className="text-muted-foreground text-xs">
+			Reasoning effort is not available for this model.
+		</p>
+	);
+}
+
+function applyReasoningLevelSelection(input: {
+	effectiveModelId: string;
+	modelId: string;
+	onChangeModelId: (modelId: string) => void;
+	onChangeReasoningLevel: (reasoningLevel: string) => void;
+	reasoningLevel: string;
+}): void {
+	if (input.reasoningLevel && !input.modelId) {
+		input.onChangeModelId(input.effectiveModelId);
+	}
+	input.onChangeReasoningLevel(input.reasoningLevel);
+}
+
 function resolveModelSelectDisplayValue(input: {
-	defaultModel: ModelCatalogModel | null | undefined;
 	defaultModelId: string;
 	modelId: string;
 	selectedModel: ModelCatalogModel | null;
 }): string {
-	if (!input.modelId) {
-		return formatDefaultModelSelectionLabel(input.defaultModel);
-	}
 	if (!input.selectedModel) {
 		return input.modelId;
 	}
@@ -766,94 +946,8 @@ function resolveReasoningSelectDisplayValue(input: {
 	return formatDefaultReasoningSelectionLabel();
 }
 
-function formatDefaultModelSelectionLabel(
-	defaultModel: ModelCatalogModel | null | undefined
-): string {
-	return defaultModel
-		? `Use controller default (${defaultModel.displayName})`
-		: "Use controller default";
-}
-
-function formatModelOptionLabel(
-	model: ModelCatalogModel,
-	defaultModelId: string
-): string {
-	if (model.unavailable) {
-		return formatUnavailableModelOptionLabel(model);
-	}
-	return model.id === defaultModelId
-		? `${model.displayName} (default)`
-		: model.displayName;
-}
-
 function formatUnavailableModelOptionLabel(model: ModelCatalogModel): string {
 	return `${model.displayName} (unavailable)`;
-}
-
-type ResolvedModelCompatibility = {
-	knownIncompatible: boolean;
-	message: string | null;
-	status:
-		| "catalog_unavailable"
-		| "not_offered"
-		| "requires_newer_controller"
-		| "supported"
-		| "unknown";
-};
-
-function resolveSelectedModelCompatibility(input: {
-	agentId: string;
-	modelCatalog: ModelCatalog | null;
-	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
-	modelId: string;
-}): ResolvedModelCompatibility | null {
-	const controller = input.modelCatalog?.agentControllers[input.agentId];
-	if (!controller) {
-		return null;
-	}
-	return resolveModelCompatibility({
-		controller,
-		context:
-			input.modelCompatibilityContext?.agentControllerId === input.agentId
-				? input.modelCompatibilityContext
-				: null,
-		modelId: input.modelId || controller.defaultModelId,
-	});
-}
-
-function resolveModelCompatibility(input: {
-	controller: NonNullable<ModelCatalog["agentControllers"][string]>;
-	context?: AgentProfileModelCompatibilityContext | null;
-	modelId: string;
-}): ResolvedModelCompatibility {
-	const model = input.controller.models.find(
-		(candidate) => candidate.id === input.modelId
-	);
-	const compatibility = resolveAgentControllerModelCompatibility({
-		controller: input.controller,
-		installedVersion: input.context?.installedVersion ?? null,
-		modelId: input.modelId,
-		reportedModelIds: input.context?.reportedModelIds ?? null,
-	});
-	if (compatibility.status === "not_offered") {
-		return {
-			knownIncompatible: true,
-			message: `${model?.displayName ?? input.modelId} isn't available in ${input.context?.controllerDisplayName ?? "this local agent"} on this computer. Choose another model or update or change the installation.`,
-			status: compatibility.status,
-		};
-	}
-	if (compatibility.status === "requires_newer_controller") {
-		return {
-			knownIncompatible: true,
-			message: `${model?.displayName ?? input.modelId} requires ${input.context?.controllerDisplayName ?? "this local agent"} ${compatibility.minimumVersion} or later. This computer has ${compatibility.currentVersion}. Choose another model or update or change the installation.`,
-			status: compatibility.status,
-		};
-	}
-	return {
-		knownIncompatible: compatibility.status === "catalog_unavailable",
-		message: null,
-		status: compatibility.status,
-	};
 }
 
 function formatCompatibleModelOptionLabel(input: {
@@ -922,14 +1016,6 @@ function ModelCompatibilityNotice(input: {
 
 function formatDefaultReasoningSelectionLabel(): string {
 	return "Use model default";
-}
-
-function formatReasoningLevelLabel(level: string): string {
-	return level
-		.split(REASONING_LEVEL_SPLIT_PATTERN)
-		.filter(Boolean)
-		.map((segment) => segment[0]?.toUpperCase() + segment.slice(1))
-		.join(" ");
 }
 
 // The Profile kind switch is useful only when Auth allows both kinds. When

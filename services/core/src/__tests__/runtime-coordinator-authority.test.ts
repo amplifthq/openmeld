@@ -5,6 +5,7 @@ import {
   isRuntimeCoordinatorFinalizationRetryParkLimitReached,
   isRuntimeCoordinatorHeadWaitingRecoveryCandidate,
   isRuntimeCoordinatorLateResultRecoverable,
+  normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming,
   parkRuntimeCoordinatorFinalizationRetryEntry,
   planRuntimeCoordinatorFinalizationRetryAlarmWork,
   planRuntimeCoordinatorHeadAcceptedHandoffAlarmWork,
@@ -16,6 +17,8 @@ import {
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_MAX_AGE_MS,
   RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS,
   RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION,
+  RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+  RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
   RUNTIME_COORDINATOR_PRE_EXECUTION_HANDOFF_MODEL_VERSION,
   type RuntimeCoordinatorFinalizationRetryEntry,
   type RuntimeCoordinatorHeadLifecycleRecord,
@@ -278,11 +281,13 @@ describe("RuntimeCoordinator authority next-alarm resolvers", () => {
         nowMs: NOW_MS,
         records: [
           buildHeadLifecycleRecord({
+            acceptedAtMs: laterAcceptedCreatedAtMs,
             createdAtMs: laterAcceptedCreatedAtMs,
             runtimeCoordinatorExecutionId: null,
             status: "accepted",
           }),
           buildHeadLifecycleRecord({
+            acceptedAtMs: acceptedCreatedAtMs,
             createdAtMs: acceptedCreatedAtMs,
             runtimeCoordinatorExecutionId: null,
             status: "accepted",
@@ -298,6 +303,25 @@ describe("RuntimeCoordinator authority next-alarm resolvers", () => {
     expect(nextAlarmAtMs).toBe(
       acceptedCreatedAtMs + RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS
     );
+  });
+
+  it("starts a promoted head's handoff deadline when it becomes accepted", () => {
+    const queuedAtMs = NOW_MS - 5 * 60_000;
+    const promotedAtMs = NOW_MS - 5000;
+
+    expect(
+      resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMsFromRecords({
+        nowMs: NOW_MS,
+        records: [
+          buildHeadLifecycleRecord({
+            acceptedAtMs: promotedAtMs,
+            createdAtMs: queuedAtMs,
+            runtimeCoordinatorExecutionId: null,
+            status: "accepted",
+          }),
+        ],
+      })
+    ).toBe(promotedAtMs + RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS);
   });
 
   it("returns the earliest head failure-publication retry from scheduled retries only", () => {
@@ -711,12 +735,16 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
       nowMs: NOW_MS,
       records: [
         buildHeadLifecycleRecord({
+          acceptedAtMs:
+            NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 1000,
           createdAtMs:
             NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 1000,
           primaryDispatchId: "dispatch-accepted-input-first",
           status: "accepted",
         }),
         buildHeadLifecycleRecord({
+          acceptedAtMs:
+            NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS + 1000,
           createdAtMs:
             NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS + 1000,
           primaryDispatchId: "dispatch-accepted-future",
@@ -730,12 +758,16 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
           status: "execution_linked",
         }),
         buildHeadLifecycleRecord({
+          acceptedAtMs:
+            NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS,
           createdAtMs:
             NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS,
           primaryDispatchId: "dispatch-accepted-at-now",
           status: "accepted",
         }),
         buildHeadLifecycleRecord({
+          acceptedAtMs:
+            NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 2000,
           createdAtMs:
             NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 2000,
           primaryDispatchId: "dispatch-accepted-input-second",
@@ -749,6 +781,112 @@ describe("RuntimeCoordinator head lifecycle alarm planners", () => {
       "dispatch-accepted-at-now",
       "dispatch-accepted-input-second",
     ]);
+  });
+
+  it("normalizes a legacy accepted head from its latest authoritative transition", () => {
+    const promotedAtMs = NOW_MS - 1000;
+    const record = buildHeadLifecycleRecord({
+      createdAtMs:
+        NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 1000,
+      updatedAtMs: promotedAtMs,
+    });
+
+    expect(
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+    ).toMatchObject({
+      acceptedAtMs: promotedAtMs,
+      primaryDispatchId: record.primaryDispatchId,
+      status: "accepted",
+    });
+  });
+
+  it("reanchors a legacy waiting boundary when durable promotion evidence proves it still carries queue age", () => {
+    const createdAtMs = NOW_MS - 120_000;
+    const updatedAtMs = NOW_MS - 60_000;
+    const waitingBoundary = buildWaitingBoundary({
+      deadlineAtMs: createdAtMs + 300_000,
+      observedAtMs: updatedAtMs,
+      softDeadlineAtMs: createdAtMs + 20_000,
+      waitingSinceMs: createdAtMs,
+    });
+    const record = buildHeadLifecycleRecord({
+      createdAtMs,
+      status: "waiting",
+      updatedAtMs,
+      waitingBoundary,
+    });
+
+    expect(
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record, {
+        acceptedAtMs: updatedAtMs,
+      })
+    ).toMatchObject({
+      acceptedAtMs: updatedAtMs,
+      status: "waiting",
+      waitingBoundary: {
+        deadlineAtMs:
+          updatedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+        softDeadlineAtMs:
+          updatedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+        waitingSinceMs: updatedAtMs,
+      },
+    });
+  });
+
+  it("preserves a legacy waiting boundary already anchored to its latest transition", () => {
+    const createdAtMs = NOW_MS - 120_000;
+    const updatedAtMs = NOW_MS - 60_000;
+    const waitingBoundary = buildWaitingBoundary({
+      deadlineAtMs:
+        updatedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+      observedAtMs: updatedAtMs,
+      softDeadlineAtMs:
+        updatedAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+      waitingSinceMs: updatedAtMs,
+    });
+    const record = buildHeadLifecycleRecord({
+      createdAtMs,
+      status: "waiting",
+      updatedAtMs,
+      waitingBoundary,
+    });
+
+    expect(
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record, {
+        acceptedAtMs: updatedAtMs,
+      })
+    ).toMatchObject({
+      acceptedAtMs: updatedAtMs,
+      status: "waiting",
+      waitingBoundary,
+    });
+  });
+
+  it("preserves an ordinary legacy waiting boundary without promotion evidence", () => {
+    const createdAtMs = NOW_MS - 120_000;
+    const updatedAtMs = NOW_MS - 60_000;
+    const waitingBoundary = buildWaitingBoundary({
+      deadlineAtMs:
+        createdAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS,
+      observedAtMs: updatedAtMs,
+      softDeadlineAtMs:
+        createdAtMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+      waitingSinceMs: createdAtMs,
+    });
+    const record = buildHeadLifecycleRecord({
+      createdAtMs,
+      status: "waiting",
+      updatedAtMs,
+      waitingBoundary,
+    });
+
+    expect(
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(record)
+    ).toMatchObject({
+      acceptedAtMs: createdAtMs,
+      status: "waiting",
+      waitingBoundary,
+    });
   });
 
   it("plans due failure-publication retry records in record order", () => {

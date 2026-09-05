@@ -70,6 +70,7 @@ export const localRuntimeExecutionTargetCapabilitySchema = z
 
 export const localRuntimeLocalAgentControlSchema = z.strictObject({
   manageInstallations: z.boolean().optional(),
+  manageInstallationsSafely: z.boolean().optional(),
   refreshCatalog: z.boolean(),
   setEnabled: z.boolean(),
   setProfileWorkspace: z.boolean().optional(),
@@ -206,6 +207,11 @@ export const requestCurrentOpenMeldToolsUpdateResponseSchema =
 export const currentLocalAgentInstallationsResponseSchema = z.strictObject({
   agentId: z.string().trim().min(1).max(256),
   installations: z.array(localAgentInstallationOptionSchema),
+  selectionStatus: z.enum([
+    "available",
+    "blocked_by_work",
+    "operation_in_progress",
+  ]),
   selectedInstallationId: z.string().trim().min(1).max(256).nullable(),
 });
 

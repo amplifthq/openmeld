@@ -75,6 +75,7 @@ describe("listAccountSpaceItems", () => {
 
 		expect(listAccountSpaceIndexMock).toHaveBeenCalledWith({
 			data: {
+				includeDirectMessageProfileIds: true,
 				includePurposes: true,
 				limit: 500,
 				profileId: "human-default",
@@ -88,6 +89,7 @@ describe("listAccountSpaceItems", () => {
 					activeHumanCount: null,
 					activeMemberCount: null,
 					directMessageConvertedAt: null,
+					directMessageProfileIds: null,
 					joinedProfiles: [
 						{
 							lastJoinedAt: "2026-04-12T00:00:00.000Z",
@@ -116,6 +118,7 @@ describe("listAccountSpaceItems", () => {
 					activeHumanCount: null,
 					activeMemberCount: null,
 					directMessageConvertedAt: "2026-04-15T00:00:00.000Z",
+					directMessageProfileIds: null,
 					joinedProfiles: [
 						{
 							lastJoinedAt: "2026-04-12T00:00:00.000Z",

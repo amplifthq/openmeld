@@ -361,6 +361,16 @@ describe("Agent Profile Runtime Binding ensure", () => {
 
   it("keeps Binding rejection explicit and never reports claim success", async () => {
     ensurePrimaryBindingMock.mockResolvedValue({
+      binding: {
+        agentProfileId: "agt_existing",
+        executionTarget: {
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: {
+            authority: "openmeld_service_runtime",
+            value: "runtime-1",
+          },
+        },
+      },
       grantsClaimSuccess: false,
       reasonCodes: ["agent_profile_binding.agent_controller_report_missing"],
       routable: false,
@@ -376,6 +386,11 @@ describe("Agent Profile Runtime Binding ensure", () => {
     });
 
     expect(result).toEqual({
+      existingBinding: {
+        agentControllerRef: "builtin:codex",
+        agentProfileId: "agt_existing",
+        openMeldServiceRuntimeId: "runtime-1",
+      },
       reason: "binding_rejected",
       reasonCodes: ["agent_profile_binding.agent_controller_report_missing"],
       routable: false,

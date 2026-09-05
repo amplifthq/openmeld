@@ -123,10 +123,10 @@ function formatUnavailableResult(
 		case "local.folder_picker.picker_busy":
 			return "Finish or close the folder picker already open on this computer.";
 		case "local.folder_picker.service_offline":
-			return "OpenMeld Service is offline on this computer.";
+			return "This computer is offline.";
 		case "local.folder_picker.service_update_required":
 		case "local.folder_picker.helper_missing":
-			return "Update or repair OpenMeld Service on this computer, then try again.";
+			return "Update or reconnect this computer, then try again.";
 		case "local.folder_picker.portal_unavailable":
 			return "A desktop folder picker isn’t available in this Linux session.";
 		case "local.folder_picker.timed_out":
@@ -138,7 +138,7 @@ function formatUnavailableResult(
 
 function formatRequestFailure(error: StructuredApiClientFailure): string {
 	if (error.upstreamCode === "local.folder_picker.service_offline") {
-		return "OpenMeld Service is offline on this computer.";
+		return "This computer is offline.";
 	}
 	return (
 		error.message || "OpenMeld couldn’t open the folder picker. Try again."

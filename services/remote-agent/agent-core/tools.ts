@@ -1,5 +1,6 @@
 import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
 import {
+  accountSpaceActiveWakeSummaryResponseSchema,
   agentActivitySessionInventoryResponseSchema,
   agentActivitySnapshotResponseSchema,
   agentControllerCollaborationModeSchema,
@@ -111,6 +112,7 @@ import {
   FEEDBACK_ISSUE_CATEGORIES,
   FEEDBACK_ISSUE_STATUSES,
   feedbackIssueRecordSchema,
+  getActiveSpaceWakeProgressResponseSchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
   getCenterAgentTaskResponseSchema,
   inspectExecutionRecoveryResponseSchema,
@@ -1212,6 +1214,11 @@ const requestMemberAttentionToolInputSchema = strictObject({
   title: pipe(string(), trim(), minLength(1), maxLength(160)),
 });
 const learnAboutMeToolInputSchema = strictObject({});
+const readSpaceWakeProgressToolInputSchema = strictObject({
+  sourceProfileId: optional(trimmedNonEmptyStringSchema),
+  spaceId: trimmedNonEmptyStringSchema,
+  targetProfileId: optional(trimmedNonEmptyStringSchema),
+});
 
 async function executeMessageChannelIdentityNavigationAction(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
@@ -1337,6 +1344,8 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_get_organization_invite_link",
   "openmeld_create_organization_invite_link",
   "openmeld_list_spaces",
+  "openmeld_list_active_space_wakes",
+  "openmeld_read_space_wake_progress",
   "openmeld_list_projects",
   "openmeld_create_project",
   "openmeld_update_project",
@@ -1381,7 +1390,6 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
-  "openmeld_retry_as_new_execution",
   "openmeld_create_space",
   "openmeld_read_agent_profile_creation_defaults",
   "openmeld_create_agent_profile_request",
@@ -1437,6 +1445,8 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_read_organization_skills",
   "openmeld_get_organization_invite_link",
   "openmeld_list_spaces",
+  "openmeld_list_active_space_wakes",
+  "openmeld_read_space_wake_progress",
   "openmeld_list_projects",
   "openmeld_read_agent_profile_creation_defaults",
   "openmeld_read_agent_activity",
@@ -1482,7 +1492,6 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
-  "openmeld_retry_as_new_execution",
   "openmeld_set_organization_working_language",
   "openmeld_manage_agent_profile_creation_request",
   "openmeld_set_agent_profile_creation_approval_preferences",
@@ -2598,6 +2607,52 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         return organizationSpaceDirectoryResponseSchema.parse(
           await rpc(toolContext)
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_list_active_space_wakes",
+      description:
+        "List Spaces in the current Organization that currently have active Wakes, with authoritative active counts and target Agent Profiles. Use openmeld_list_spaces when you also need Space names. Use openmeld_read_space_wake_progress for the current phase, requester, source-message preview, or thread of one Space. Do not poll this tool continuously.",
+      input: object({}),
+      execute: async () => {
+        const toolContext =
+          await buildAnonymousCompatibleOrganizationReadToolContext({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_list_active_space_wakes",
+          });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentListActiveSpaceWakes,
+          "centerAgentListActiveSpaceWakes"
+        );
+        return accountSpaceActiveWakeSummaryResponseSchema.parse(
+          await rpc(toolContext)
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_space_wake_progress",
+      description:
+        "Read the authoritative active Wake progress for one Space, including each target Agent, current phase, latest evidence time, requester Profile, public source-message preview, and thread ID when present. Optionally narrow by the requester with sourceProfileId or by the working Agent with targetProfileId. This is a snapshot from the same Core-owned projection used by Web and CLI; do not infer execution from Space messages alone and do not poll continuously.",
+      input: readSpaceWakeProgressToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          readSpaceWakeProgressToolInputSchema,
+          payload
+        );
+        const toolContext =
+          await buildAnonymousCompatibleOrganizationReadToolContext({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_read_space_wake_progress",
+          });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentReadSpaceWakeProgress,
+          "centerAgentReadSpaceWakeProgress"
+        );
+        return getActiveSpaceWakeProgressResponseSchema.parse(
+          await rpc({ ...request, ...toolContext })
         );
       },
     }),
@@ -4294,40 +4349,6 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         const body = executeExecutionRecoveryBodySchema.parse({
           action: "resume_controller_conversation",
-          destination: payload.destination,
-          expectedIdentity: payload.expectedIdentity,
-          operationId: payload.operationId,
-        });
-        return executeExecutionRecoveryResponseSchema.parse(
-          await rpc({
-            body,
-            context,
-            spaceId: body.expectedIdentity.spaceId,
-          })
-        );
-      },
-    }),
-    toolDefinition({
-      name: "openmeld_retry_as_new_execution",
-      description:
-        "Start a new execution through OpenMeld's idempotent recovery control plane. Use only when openmeld_inspect_execution_recovery recommends retry_as_new_execution, copy its exact identity and destination, and tell the user that the task and external side effects may run again. Never use this when the outcome is unknown.",
-      input: strictObject({
-        destination: executionRecoveryDestinationInputSchema,
-        expectedIdentity: executionRecoveryIdentityInputSchema,
-        operationId: executionRecoveryIdentifierInputSchema,
-      }),
-      execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_retry_as_new_execution",
-        });
-        const rpc = requireCoreRpc(
-          input.coreWorker.executeExecutionRecovery,
-          "executeExecutionRecovery"
-        );
-        const body = executeExecutionRecoveryBodySchema.parse({
-          action: "retry_as_new_execution",
           destination: payload.destination,
           expectedIdentity: payload.expectedIdentity,
           operationId: payload.operationId,

@@ -2,9 +2,12 @@ import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	CurrentLocalRuntimeReplyReadinessResponse,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -14,12 +17,14 @@ import {
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatAgentWakeAvailabilityCheckedAt } from "#/components/agents/agents-page-agent-profile-helpers";
 import { PeopleAndAgentsPage } from "./people-and-agents-page";
 
 const agentProfilesCardSpy = vi.hoisted(() => vi.fn());
 const agentProfileCreationRequestsPanelSpy = vi.hoisted(() => vi.fn());
 const agentProfilesWorkspaceSpy = vi.hoisted(() => vi.fn());
 const appOuterRailSpy = vi.hoisted(() => vi.fn());
+const createAgentProfilePageSpy = vi.hoisted(() => vi.fn());
 const createProfileDialogSpy = vi.hoisted(() => vi.fn());
 const directoryMembersOverviewSpy = vi.hoisted(() => vi.fn());
 const invalidateQueriesMock = vi.hoisted(() => vi.fn());
@@ -171,6 +176,7 @@ vi.mock("#/components/agents/agents-page-agent-profiles-card", () => ({
 		onCreateProfile?: () => void;
 		presentation?: "cards" | "controller" | "detail";
 		showOwnerGroups?: boolean;
+		wakeAvailabilityNowMs: number;
 	}) => {
 		agentProfilesCardSpy(props);
 		const [editing, setEditing] = useState(false);
@@ -231,6 +237,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 		selectedProfileId: string | null;
 		showAgentRequests?: boolean;
 		searchControl?: ReactNode;
+		wakeAvailabilityNowMs: number;
 	}) => {
 		agentProfilesWorkspaceSpy(props);
 		const selectedProfile =
@@ -268,6 +275,24 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 }));
 
 vi.mock("#/components/profiles/create-profile-dialog", () => ({
+	CreateAgentProfilePage: (props: {
+		onProfileCreated?: (profile: AuthProfileView) => void;
+		organizationId: string;
+	}) => {
+		createAgentProfilePageSpy(props);
+		return (
+			<button
+				onClick={() =>
+					props.onProfileCreated?.(
+						buildAgentProfile("agent-new", "Felix Codex")
+					)
+				}
+				type="button"
+			>
+				Create agent profile
+			</button>
+		);
+	},
 	CreateProfileDialog: (props: {
 		onProfileCreated?: (profile: AuthProfileView) => void;
 		organizationId: string;
@@ -514,6 +539,61 @@ function buildOrganizationDirectory(): OrganizationDirectoryResponse {
 	};
 }
 
+function buildOrganizationProfileDirectory(
+	directory: OrganizationDirectoryResponse
+): OrganizationProfileDirectoryResponse {
+	return {
+		agentProfiles: directory.agentProfiles.map(
+			({ operationalContext: _operationalContext, readiness, ...profile }) => ({
+				...profile,
+				agentControllerRef: readiness.agentControllerRef,
+			})
+		),
+		generatedAt: directory.generatedAt,
+		members: directory.members,
+		organizationId: directory.organizationId,
+	};
+}
+
+function buildOrganizationAgentRuntimeOverview(
+	directory: OrganizationDirectoryResponse
+): OrganizationAgentRuntimeOverviewResponse {
+	return {
+		agentProfiles: directory.agentProfiles.map((profile) => ({
+			...(profile.operationalContext
+				? { operationalContext: profile.operationalContext }
+				: {}),
+			profileId: profile.profileId,
+			readiness: profile.readiness,
+		})),
+		generatedAt: directory.generatedAt,
+		organizationId: directory.organizationId,
+	};
+}
+
+function resolveOrganizationProjectionQuery(
+	queryKey: readonly unknown[],
+	directory: OrganizationDirectoryResponse
+) {
+	if (queryKey.includes("profile-directory")) {
+		return {
+			data: buildOrganizationProfileDirectory(directory),
+			error: null,
+			isError: false,
+			isPending: false,
+		};
+	}
+	if (queryKey.includes("agent-runtime-overview")) {
+		return {
+			data: buildOrganizationAgentRuntimeOverview(directory),
+			error: null,
+			isError: false,
+			isPending: false,
+		};
+	}
+	return null;
+}
+
 function buildRecoveryStub(
 	input: {
 		localRuntimeCount?: number;
@@ -593,6 +673,7 @@ describe("PeopleAndAgentsPage", () => {
 		agentProfileCreationRequestsPanelSpy.mockReset();
 		agentProfilesWorkspaceSpy.mockReset();
 		appOuterRailSpy.mockReset();
+		createAgentProfilePageSpy.mockReset();
 		createProfileDialogSpy.mockReset();
 		directoryMembersOverviewSpy.mockReset();
 		invalidateQueriesMock.mockReset().mockResolvedValue(undefined);
@@ -610,13 +691,12 @@ describe("PeopleAndAgentsPage", () => {
 				const queryKey = Array.isArray(options?.queryKey)
 					? options.queryKey
 					: [];
-				if (queryKey.includes("directory")) {
-					return {
-						data: organizationDirectoryFixture,
-						error: null,
-						isError: false,
-						isPending: false,
-					};
+				const organizationProjection = resolveOrganizationProjectionQuery(
+					queryKey,
+					organizationDirectoryFixture
+				);
+				if (organizationProjection) {
+					return organizationProjection;
 				}
 				if (queryKey.includes("agent-profile-creation-requests")) {
 					return {
@@ -643,6 +723,7 @@ describe("PeopleAndAgentsPage", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.useRealTimers();
 		vi.clearAllMocks();
 	});
 
@@ -700,16 +781,233 @@ describe("PeopleAndAgentsPage", () => {
 		).toBe(false);
 	});
 
-	it("counts only pending requests from the existing organization request query", () => {
+	it.each([
+		"agents",
+		"requests",
+	] as const)("loads status for the visible Agent sidebar in the %s view", (activeAgentView) => {
+		render(
+			<PeopleAndAgentsPage
+				activeAgentView={activeAgentView}
+				activeSectionId="agents"
+				focusProfileId={null}
+			/>
+		);
+		const runtimeQueryOptions = useQueryMock.mock.calls.find(([options]) =>
+			options.queryKey?.includes("agent-runtime-overview")
+		)?.[0];
+		expect(runtimeQueryOptions?.enabled).toBe(true);
+	});
+
+	it("loads Agent runtime display data independently on People", () => {
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="people"
+				focusProfileId="human-default"
+			/>
+		);
+
+		const runtimeQueryOptions = useQueryMock.mock.calls.find(([options]) =>
+			options.queryKey?.includes("agent-runtime-overview")
+		)?.[0];
+		expect(runtimeQueryOptions).toEqual(
+			expect.objectContaining({ enabled: true })
+		);
+		expect(directoryMembersOverviewSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				runtimeOverview: expect.objectContaining({
+					agentProfiles: expect.any(Array),
+				}),
+			})
+		);
+	});
+
+	it("renders Agent identities while runtime state is still loading", () => {
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			if (queryKey.includes("directory")) {
+			if (queryKey.includes("profile-directory")) {
 				return {
-					data: buildOrganizationDirectory(),
+					data: buildOrganizationProfileDirectory(organizationDirectoryFixture),
 					error: null,
 					isError: false,
 					isPending: false,
 				};
+			}
+			if (queryKey.includes("agent-runtime-overview")) {
+				return {
+					data: undefined,
+					error: null,
+					isError: false,
+					isPending: true,
+				};
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
+		);
+
+		const workspaceProps = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
+		expect(workspaceProps.profiles).toEqual([
+			expect.objectContaining({
+				openMeldProfileId: "agt_11111111-1111-4111-8111-111111111111",
+				profileName: "Scout",
+			}),
+		]);
+		expect(workspaceProps.profilesStatus).toBe("ready");
+		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([
+			"agt_11111111-1111-4111-8111-111111111111",
+		]);
+		expect(workspaceProps.readinessIsRefreshing).toBeUndefined();
+	});
+
+	it("keeps the cached Core overview visible while a background refresh runs", () => {
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				organizationDirectoryFixture
+			);
+			if (organizationProjection) {
+				return queryKey.includes("agent-runtime-overview")
+					? { ...organizationProjection, isFetching: true }
+					: organizationProjection;
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		const workspaceProps = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
+		expect(workspaceProps.readinessIsRefreshing).toBeUndefined();
+		expect(agentProfilesCardSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentExecutionReadinessIsRefreshing: true,
+				agentExecutionReadinessByProfileId: expect.any(Map),
+			})
+		);
+	});
+
+	it("keeps the cached Core overview alongside a background refresh failure", () => {
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				organizationDirectoryFixture
+			);
+			if (organizationProjection) {
+				return queryKey.includes("agent-runtime-overview")
+					? {
+							...organizationProjection,
+							error: new Error("Core could not refresh Wake availability."),
+							isError: true,
+						}
+					: organizationProjection;
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		const workspaceProps = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
+		expect(workspaceProps.readinessByProfileId.size).toBe(1);
+		expect(
+			workspaceProps.readinessErrorByProfileId.get(
+				"agt_11111111-1111-4111-8111-111111111111"
+			)
+		).toBe("Core could not refresh Wake availability.");
+	});
+
+	it("advances one shared Wake availability clock every minute", () => {
+		const checkedAt = "2026-09-04T12:00:00.000Z";
+		vi.useFakeTimers();
+		vi.setSystemTime(checkedAt);
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		let detailNowMs =
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
+		expect(formatAgentWakeAvailabilityCheckedAt(checkedAt, detailNowMs)).toBe(
+			"checked just now"
+		);
+
+		act(() => vi.advanceTimersByTime(60_000));
+		detailNowMs =
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
+		expect(formatAgentWakeAvailabilityCheckedAt(checkedAt, detailNowMs)).toBe(
+			"checked 1 minute ago"
+		);
+
+		act(() => vi.advanceTimersByTime(120_000));
+		detailNowMs =
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
+		expect(formatAgentWakeAvailabilityCheckedAt(checkedAt, detailNowMs)).toBe(
+			"checked 3 minutes ago"
+		);
+	});
+
+	it("counts only pending requests from the existing organization request query", () => {
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				organizationDirectoryFixture
+			);
+			if (organizationProjection) {
+				return organizationProjection;
 			}
 			if (queryKey.includes("agent-profile-creation-requests")) {
 				return {
@@ -878,13 +1176,12 @@ describe("PeopleAndAgentsPage", () => {
 		directory.agentProfiles = [firstAgent, secondAgent];
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			if (queryKey.includes("directory")) {
-				return {
-					data: directory,
-					error: null,
-					isError: false,
-					isPending: false,
-				};
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				directory
+			);
+			if (organizationProjection) {
+				return organizationProjection;
 			}
 			if (queryKey.includes("agent-profile-creation-requests")) {
 				return {
@@ -960,13 +1257,12 @@ describe("PeopleAndAgentsPage", () => {
 		directory.agentProfiles = [firstAgent, secondAgent];
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			if (queryKey.includes("directory")) {
-				return {
-					data: directory,
-					error: null,
-					isError: false,
-					isPending: false,
-				};
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				directory
+			);
+			if (organizationProjection) {
+				return organizationProjection;
 			}
 			if (queryKey.includes("agent-profile-creation-requests")) {
 				return {
@@ -1014,36 +1310,40 @@ describe("PeopleAndAgentsPage", () => {
 	});
 
 	it("keeps Create Agent in the sidebar when the list is empty", () => {
+		const onAgentViewChange = vi.fn();
 		Object.assign(currentOrganizationMock, {
 			id: "user-123",
 			isPersonal: true,
 			name: "Personal",
 			slug: "personal",
 		});
+		const emptyDirectory = {
+			...buildOrganizationDirectory(),
+			agentProfiles: [],
+		};
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			return queryKey.includes("directory")
-				? {
-						data: { ...buildOrganizationDirectory(), agentProfiles: [] },
-						error: null,
-						isError: false,
-						isPending: false,
-					}
-				: {
-						data: [buildHumanProfile("human-default")],
-						error: null,
-						isError: false,
-						isPending: false,
-					};
+			return (
+				resolveOrganizationProjectionQuery(queryKey, emptyDirectory) ?? {
+					data: [buildHumanProfile("human-default")],
+					error: null,
+					isError: false,
+					isPending: false,
+				}
+			);
 		});
 
 		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={null}
+				onAgentViewChange={onAgentViewChange}
+			/>
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 
-		expect(createProfileDialogSpy).toHaveBeenCalled();
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/personal/agents/new" });
 		expect(screen.queryByRole("button", { name: "Agent requests" })).toBeNull();
 	});
 
@@ -1063,19 +1363,14 @@ describe("PeopleAndAgentsPage", () => {
 		}));
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			return queryKey.includes("directory")
-				? {
-						data: directory,
-						error: null,
-						isError: false,
-						isPending: false,
-					}
-				: {
-						data: [buildHumanProfile("human-default")],
-						error: null,
-						isError: false,
-						isPending: false,
-					};
+			return (
+				resolveOrganizationProjectionQuery(queryKey, directory) ?? {
+					data: [buildHumanProfile("human-default")],
+					error: null,
+					isError: false,
+					isPending: false,
+				}
+			);
 		});
 		useLocalAgentRecoveryControllerMock.mockReturnValue({
 			...buildRecoveryStub(),
@@ -1112,16 +1407,14 @@ describe("PeopleAndAgentsPage", () => {
 		).toBeTruthy();
 	});
 
-	it("creates organization Agents directly in the active workspace", () => {
+	it("opens Agent creation in its own route in the active workspace", () => {
 		render(
 			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
-
-		expect(createProfileDialogSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ organizationId: "org-123" })
-		);
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/acme/agents/new" });
+		expect(createAgentProfilePageSpy).not.toHaveBeenCalled();
 	});
 
 	it("creates Human Profiles directly in the active workspace", () => {
@@ -1212,13 +1505,12 @@ describe("PeopleAndAgentsPage", () => {
 		directory.agentProfiles = [firstAgent, secondAgent];
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
-			if (queryKey.includes("directory")) {
-				return {
-					data: directory,
-					error: null,
-					isError: false,
-					isPending: false,
-				};
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				directory
+			);
+			if (organizationProjection) {
+				return organizationProjection;
 			}
 			if (queryKey.includes("agent-profile-creation-requests")) {
 				return {
@@ -1347,24 +1639,5 @@ describe("PeopleAndAgentsPage", () => {
 				storageScope: "user-123",
 			})
 		);
-	});
-
-	it("opens the created profile on the matching first-level home", () => {
-		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
-		);
-
-		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
-		fireEvent.click(
-			screen.getByRole("button", { name: "Create human profile" })
-		);
-
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
-			queryKey: ["start", "profiles", "user-123"],
-		});
-		expect(navigateMock).toHaveBeenCalledWith({
-			search: { profileId: "human-new" },
-			to: "/o/acme/people",
-		});
 	});
 });

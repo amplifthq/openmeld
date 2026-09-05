@@ -26,7 +26,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		const indicator = screen.getByTestId("space-wake-thinking-indicator");
 		expect(indicator.tagName).toBe("OUTPUT");
 		expect(indicator.textContent).toBe("Agent is working · 30s");
-		expect(resolveOrbState(indicator)).toBe("solving");
+		expect(resolveOrbState(indicator)).toBe("working");
 
 		view.rerender(
 			<SpaceMessageWakeThinkingIndicator
@@ -67,6 +67,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						kind: "status",
 						step: {
 							description: "OpenMeld accepted the Stop request.",
+							kind: "sent",
 							label: "Stop requested",
 							status: "complete",
 						},
@@ -102,14 +103,14 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		const preview = screen.getByTestId("space-wake-preview-text");
 
 		expect(indicator.tagName).toBe("OUTPUT");
-		expect(indicator.textContent).toBe(`Agent is working · ${previewText}`);
+		expect(indicator.textContent).toBe(previewText);
 		expect(resolveOrbState(indicator)).toBe("composing");
 		expect(indicator.className).toContain("overflow-hidden");
 		expect(preview.className).toContain("truncate");
 		expect(preview.className).toContain("whitespace-nowrap");
 	});
 
-	it("uses composing while OpenMeld finalizes the reply", () => {
+	it("uses weaving while OpenMeld posts the reply", () => {
 		render(
 			<SpaceMessageWakeThinkingIndicator
 				entries={[
@@ -118,6 +119,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						phase: "publishing",
 						step: {
 							description: "OpenMeld is finalizing the reply.",
+							kind: "posting",
 							label: "Finalizing reply",
 							status: "active",
 						},
@@ -129,10 +131,10 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		expect(
 			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
-		).toBe("composing");
+		).toBe("weaving");
 	});
 
-	it("keeps pre-execution delivery on the existing neutral indicator", () => {
+	it("uses connecting before execution starts", () => {
 		render(
 			<SpaceMessageWakeThinkingIndicator
 				entries={[
@@ -141,6 +143,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						phase: "sending",
 						step: {
 							description: "OpenMeld is sending the Wake request.",
+							kind: "starting",
 							label: "Sending to agent",
 							status: "active",
 						},
@@ -151,8 +154,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		);
 
 		const indicator = screen.getByTestId("space-wake-thinking-indicator");
-		expect(resolveOrbState(indicator)).toBeNull();
-		expect(indicator.querySelector("svg")).toBeTruthy();
+		expect(resolveOrbState(indicator)).toBe("connecting");
 	});
 
 	it("uses final-status waiting copy after forty-five seconds without new evidence", () => {
@@ -160,7 +162,12 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		render(
 			<SpaceMessageWakeThinkingIndicator
-				entries={[createThinkingEntry({ elapsedStartedAtMs: STARTED_AT_MS })]}
+				entries={[
+					createThinkingEntry({
+						elapsedStartedAtMs: STARTED_AT_MS,
+						lastEvidenceAtMs: STARTED_AT_MS,
+					}),
+				]}
 			/>
 		);
 
@@ -169,7 +176,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		).toBe("Still waiting for the final status.");
 		expect(
 			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
-		).toBeNull();
+		).toBe("breathing");
 	});
 
 	it("keeps showing active progress when recent evidence refreshed the Wake", () => {
@@ -179,7 +186,8 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 			<SpaceMessageWakeThinkingIndicator
 				entries={[
 					createThinkingEntry({
-						elapsedStartedAtMs: STARTED_AT_MS + 20_000,
+						elapsedStartedAtMs: STARTED_AT_MS,
+						lastEvidenceAtMs: STARTED_AT_MS + 20_000,
 					}),
 				]}
 			/>
@@ -187,7 +195,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe("Agent is working · 30s");
+		).toBe("Agent is working · 50s");
 	});
 
 	it("right-aligns self message progress without an extra leading offset", () => {
@@ -199,6 +207,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						elapsedStartedAtMs: null,
 						step: {
 							description: "This agent was included in the Wake.",
+							kind: "sent",
 							label: "Wake started",
 							status: "complete",
 						},
@@ -230,11 +239,13 @@ function createThinkingEntry(
 	const targetProfileId = input.targetProfileId ?? "agt_runner";
 	return {
 		elapsedStartedAtMs: input.elapsedStartedAtMs,
+		lastEvidenceAtMs: input.lastEvidenceAtMs ?? input.elapsedStartedAtMs,
 		key: input.key ?? `dispatch:${targetProfileId}`,
 		kind: input.kind ?? "progress",
 		phase: input.phase ?? (input.kind === "preview" ? "writing" : "running"),
 		step: input.step ?? {
 			description: "OpenMeld is running the agent.",
+			kind: "working",
 			label: "Agent is working",
 			status: "active",
 		},

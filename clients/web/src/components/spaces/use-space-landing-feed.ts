@@ -36,6 +36,7 @@ import {
 	writeSpaceHistoryEnvelopesToCache,
 } from "#/query/spaces/history";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
+import { spaceQueryKeys } from "#/query/spaces/status";
 import { useSpaceConversation } from "./use-space-conversation";
 
 const LIVE_RECONNECT_STATUS =
@@ -233,6 +234,9 @@ export function useSpaceLandingFeed(input: {
 		null
 	);
 	const liveInvalidationVersionByTypeRef = useRef(new Map<string, number>());
+	const wakeProgressRefreshScopeRef = useRef<WakeProgressRefreshScope | null>(
+		null
+	);
 	const wakeFinalOutcomeRefreshTimerRef = useRef<ReturnType<
 		typeof setTimeout
 	> | null>(null);
@@ -896,6 +900,7 @@ export function useSpaceLandingFeed(input: {
 					membersRefetch: input.membersRefetch,
 					membersRefetchTimerRef,
 					message,
+					openMeldProfileId: input.openMeldProfileId,
 					onAgentReadinessInvalidatedRef,
 					queryClient,
 					setLiveErrorMessage,
@@ -903,6 +908,7 @@ export function useSpaceLandingFeed(input: {
 					spaceId: input.spaceId,
 					statusRefetch: input.statusRefetch,
 					statusRefetchTimerRef,
+					wakeProgressRefreshScopeRef,
 				})
 			) {
 				return;
@@ -1075,11 +1081,22 @@ function clearReconnectTimer(timerRef: {
 	timerRef.current = null;
 }
 
-function handleNonTimelineLiveMessage(input: {
+type WakeProgressRefreshScope = {
+	inFlight: Promise<void> | null;
+	pending: boolean;
+	scopeKey: string;
+};
+
+type WakeProgressRefreshScopeRef = {
+	current: WakeProgressRefreshScope | null;
+};
+
+type NonTimelineLiveMessageInput = {
 	liveInvalidationVersionByTypeRef: { current: Map<string, number> };
 	membersRefetch: () => Promise<unknown>;
 	membersRefetchTimerRef: { current: ReturnType<typeof setTimeout> | null };
 	message: SpaceLiveMessage;
+	openMeldProfileId: string;
 	onAgentReadinessInvalidatedRef: {
 		current:
 			| ((input: {
@@ -1093,75 +1110,203 @@ function handleNonTimelineLiveMessage(input: {
 	spaceId: string;
 	statusRefetch: () => Promise<unknown>;
 	statusRefetchTimerRef: { current: ReturnType<typeof setTimeout> | null };
-}): boolean {
+	wakeProgressRefreshScopeRef: WakeProgressRefreshScopeRef;
+};
+
+function handleNonTimelineLiveMessage(
+	input: NonTimelineLiveMessageInput
+): boolean {
 	if (input.message.kind === "server_error") {
 		input.setLiveState("degraded");
 		input.setLiveErrorMessage(input.message.error.error);
 		return true;
 	}
 	if (input.message.kind === "invalidation") {
-		const frame = input.message.frame;
-		if (
-			shouldProcessLiveInvalidationFrame({
-				frame,
-				spaceId: input.spaceId,
-				versionsByTypeRef: input.liveInvalidationVersionByTypeRef,
-			})
-		) {
-			debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
-			if (frame.type === "space.meta.changed") {
-				input.queryClient
-					.invalidateQueries({ queryKey: accountSpaceQueryKeys.all })
-					.catch((error) => {
-						console.warn(
-							"[openmeld.web.space.meta_invalidation_refresh_failed]",
-							{
-								error: toStructuredApiClientFailure(error).message,
-								reason: frame.reason,
-								spaceId: input.spaceId,
-							}
-						);
-					});
-			} else if (frame.type === "space.files.changed") {
-				input.queryClient
-					.invalidateQueries({
-						queryKey: spaceFileQueryKeys.space(input.spaceId),
-					})
-					.catch((error) => {
-						console.warn(
-							"[openmeld.web.space.files_invalidation_refresh_failed]",
-							{
-								error: toStructuredApiClientFailure(error).message,
-								reason: frame.reason,
-								spaceId: input.spaceId,
-							}
-						);
-					});
-			} else {
-				debounceRefetch(input.membersRefetchTimerRef, input.membersRefetch);
-			}
-			if (frame.type === "agent.readiness.invalidated") {
-				publishAgentReadinessInvalidationFrame(frame);
-				const agentProfileIds = frame.agentProfileIds ?? [];
-				const refreshPromise = Promise.resolve(
-					input.onAgentReadinessInvalidatedRef.current?.({ agentProfileIds })
-				);
-				refreshPromise.catch((error) => {
-					console.warn(
-						"[openmeld.web.space.agent_readiness_invalidation_refresh_failed]",
-						{
-							agentProfileIds,
-							error: toStructuredApiClientFailure(error).message,
-							reason: frame.reason,
-							spaceId: input.spaceId,
-						}
-					);
-				});
-			}
-		}
+		handleLiveInvalidationMessage({ ...input, message: input.message });
 		return true;
 	}
 	return false;
+}
+
+function handleLiveInvalidationMessage(
+	input: Omit<NonTimelineLiveMessageInput, "message"> & {
+		message: SpaceLiveInvalidationMessage;
+	}
+): void {
+	const frame = input.message.frame;
+	if (
+		!shouldProcessLiveInvalidationFrame({
+			frame,
+			spaceId: input.spaceId,
+			versionsByTypeRef: input.liveInvalidationVersionByTypeRef,
+		})
+	) {
+		return;
+	}
+
+	if (frame.type !== "wake.progress.changed") {
+		debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
+	}
+	if (frame.type === "space.meta.changed") {
+		invalidateSpaceMetadata(input.queryClient, input.spaceId, frame.reason);
+	} else if (frame.type === "space.files.changed") {
+		invalidateSpaceFiles(input.queryClient, input.spaceId, frame.reason);
+	} else if (
+		frame.type === "space.members.changed" ||
+		frame.type === "agent.readiness.invalidated"
+	) {
+		debounceRefetch(input.membersRefetchTimerRef, input.membersRefetch);
+	}
+	if (frame.type === "wake.progress.changed") {
+		invalidateWakeProgress(input, frame.reason);
+	}
+	if (frame.type === "agent.readiness.invalidated") {
+		handleAgentReadinessInvalidation(input, frame);
+	}
+}
+
+function invalidateSpaceMetadata(
+	queryClient: QueryClient,
+	spaceId: string,
+	reason?: string
+): void {
+	queryClient
+		.invalidateQueries({ queryKey: accountSpaceQueryKeys.all })
+		.catch((error) => {
+			console.warn("[openmeld.web.space.meta_invalidation_refresh_failed]", {
+				error: toStructuredApiClientFailure(error).message,
+				reason,
+				spaceId,
+			});
+		});
+}
+
+function invalidateSpaceFiles(
+	queryClient: QueryClient,
+	spaceId: string,
+	reason?: string
+): void {
+	queryClient
+		.invalidateQueries({ queryKey: spaceFileQueryKeys.space(spaceId) })
+		.catch((error) => {
+			console.warn("[openmeld.web.space.files_invalidation_refresh_failed]", {
+				error: toStructuredApiClientFailure(error).message,
+				reason,
+				spaceId,
+			});
+		});
+}
+
+function invalidateWakeProgress(
+	input: Pick<
+		NonTimelineLiveMessageInput,
+		| "openMeldProfileId"
+		| "queryClient"
+		| "spaceId"
+		| "wakeProgressRefreshScopeRef"
+	>,
+	reason?: string
+): void {
+	const scopeKey = `${input.spaceId}::${input.openMeldProfileId}`;
+	let scope = input.wakeProgressRefreshScopeRef.current;
+	if (!scope || scope.scopeKey !== scopeKey) {
+		scope = { inFlight: null, pending: false, scopeKey };
+		input.wakeProgressRefreshScopeRef.current = scope;
+	}
+	scope.pending = true;
+	if (scope.inFlight) {
+		return;
+	}
+
+	const activeScope = scope;
+	activeScope.inFlight = flushWakeProgressRefreshes({
+		...input,
+		reason,
+		scope: activeScope,
+	}).finally(() => {
+		if (input.wakeProgressRefreshScopeRef.current !== activeScope) {
+			return;
+		}
+		activeScope.inFlight = null;
+		if (activeScope.pending) {
+			invalidateWakeProgress(input, reason);
+		}
+	});
+}
+
+async function flushWakeProgressRefreshes(
+	input: Pick<
+		NonTimelineLiveMessageInput,
+		| "openMeldProfileId"
+		| "queryClient"
+		| "spaceId"
+		| "wakeProgressRefreshScopeRef"
+	> & {
+		reason?: string;
+		scope: WakeProgressRefreshScope;
+	}
+): Promise<void> {
+	const queryKey = spaceQueryKeys.activeWakeProgressSummary(
+		input.spaceId,
+		input.openMeldProfileId
+	);
+	while (
+		input.wakeProgressRefreshScopeRef.current === input.scope &&
+		input.scope.pending
+	) {
+		input.scope.pending = false;
+		const wasAlreadyFetching =
+			input.queryClient.getQueryState(queryKey)?.fetchStatus === "fetching";
+		try {
+			await input.queryClient.invalidateQueries(
+				{
+					exact: true,
+					queryKey,
+					refetchType: "active",
+				},
+				{ cancelRefetch: false }
+			);
+		} catch (error) {
+			console.warn(
+				"[openmeld.web.space.wake_progress_invalidation_refresh_failed]",
+				{
+					error: toStructuredApiClientFailure(error).message,
+					reason: input.reason,
+					spaceId: input.spaceId,
+				}
+			);
+		}
+		if (
+			wasAlreadyFetching &&
+			input.wakeProgressRefreshScopeRef.current === input.scope
+		) {
+			input.scope.pending = true;
+		}
+	}
+}
+
+function handleAgentReadinessInvalidation(
+	input: Pick<
+		NonTimelineLiveMessageInput,
+		"onAgentReadinessInvalidatedRef" | "spaceId"
+	>,
+	frame: SpaceLiveInvalidationMessage["frame"]
+): void {
+	publishAgentReadinessInvalidationFrame(frame);
+	const agentProfileIds = frame.agentProfileIds ?? [];
+	Promise.resolve(
+		input.onAgentReadinessInvalidatedRef.current?.({ agentProfileIds })
+	).catch((error) => {
+		console.warn(
+			"[openmeld.web.space.agent_readiness_invalidation_refresh_failed]",
+			{
+				agentProfileIds,
+				error: toStructuredApiClientFailure(error).message,
+				reason: frame.reason,
+				spaceId: input.spaceId,
+			}
+		);
+	});
 }
 
 function handleLiveSignalMessage(input: {

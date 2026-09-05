@@ -20,6 +20,7 @@ export function OnboardingEntryGate(
 	input: PropsWithChildren<{
 		currentOrganization: OrganizationSummary;
 		currentSection: AppShellSection;
+		hasExplicitSpaceDestination?: boolean;
 		organizations: readonly OrganizationSummary[];
 		storageScope: string;
 	}>
@@ -29,6 +30,12 @@ export function OnboardingEntryGate(
 
 	useEffect(() => {
 		let cancelled = false;
+		// A requested Space is already a concrete task. Keep its access gate and
+		// in-Space setup guidance; do not replace the destination with Studio.
+		if (input.hasExplicitSpaceDestination) {
+			setEntryState("ready");
+			return;
+		}
 		const existing = readOnboardingProgress({
 			storage: window.localStorage,
 			storageScope: input.storageScope,
@@ -85,6 +92,7 @@ export function OnboardingEntryGate(
 	}, [
 		input.currentOrganization,
 		input.currentSection,
+		input.hasExplicitSpaceDestination,
 		input.organizations,
 		input.storageScope,
 		navigate,

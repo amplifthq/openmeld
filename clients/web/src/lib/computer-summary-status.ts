@@ -61,7 +61,7 @@ const CHECKING_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const SERVICE_NOT_CONNECTED_STATUS = {
-	label: "OpenMeld Service is not connected",
+	label: "Computer not connected",
 	reason: "service_not_connected",
 	showLabel: true,
 	tone: "danger",
@@ -85,7 +85,7 @@ const AGENT_SIGN_IN_NEEDED_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const AGENT_CHECK_FAILED_STATUS = {
-	label: "Couldn't check",
+	label: "Check delayed",
 	reason: "agent_check_failed",
 	showLabel: true,
 	tone: "warning",
@@ -138,21 +138,12 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 	isReconcilingStatus?: boolean;
 	readiness: CurrentLocalRuntimeReplyReadinessResponse | null | undefined;
 }): ComputerSummaryStatus | null {
-	if (input.isReconcilingStatus) {
-		return CHECKING_STATUS;
-	}
 	const readiness = input.readiness;
 	if (!readiness) {
-		return null;
+		return input.isReconcilingStatus ? CHECKING_STATUS : null;
 	}
 	if (isCurrentLocalRuntimeServiceDisconnected(readiness)) {
 		return SERVICE_NOT_CONNECTED_STATUS;
-	}
-	if (readiness.nextAction === "run_setup") {
-		return resolveLocalAgentAttentionStatus({
-			executionTarget: input.executionTarget ?? null,
-			readiness,
-		});
 	}
 	if (
 		readiness.primaryBlocker === "service_update_required" ||
@@ -162,6 +153,15 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 	}
 	if (hasCurrentLocalRuntimeOpenMeldToolsUpdate(readiness)) {
 		return UPDATE_AVAILABLE_STATUS;
+	}
+	if (readiness.nextAction === "run_setup") {
+		return resolveLocalAgentAttentionStatus({
+			executionTarget: input.executionTarget ?? null,
+			readiness,
+		});
+	}
+	if (input.isReconcilingStatus) {
+		return CHECKING_STATUS;
 	}
 	if (
 		readiness.nextAction === "none" &&

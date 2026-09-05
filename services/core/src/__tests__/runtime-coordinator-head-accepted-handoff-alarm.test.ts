@@ -31,12 +31,15 @@ const buildHeadLifecycleRecord = (
   overrides: Partial<RuntimeCoordinatorHeadLifecycleRecord> = {}
 ): RuntimeCoordinatorHeadLifecycleRecord => {
   const primaryDispatchId = overrides.primaryDispatchId ?? "dispatch-1";
+  const createdAtMs =
+    overrides.createdAtMs ??
+    NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 1000;
   const targetWakeLifecycleIdentity =
     overrides.targetWakeLifecycleIdentity ??
     buildTargetWakeLifecycleIdentity(primaryDispatchId);
   return {
-    createdAtMs:
-      NOW_MS - RUNTIME_COORDINATOR_HEAD_ACCEPTED_HANDOFF_WAIT_MS - 1000,
+    acceptedAtMs: overrides.acceptedAtMs ?? createdAtMs,
+    createdAtMs,
     duplicateDispatches: [],
     executionLinkedAtMs: null,
     modelVersion: RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION,

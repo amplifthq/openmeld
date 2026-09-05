@@ -58,11 +58,74 @@ describe("SpaceComposerEditor", () => {
 		expect(editor.getAttribute("contenteditable")).toBe("true");
 		const token = within(editor).getByTestId("space-composer-profile-token");
 		expect(within(token).getByText("Runner")).toBeTruthy();
-		expect(
-			within(editor).getByRole("combobox", {
-				name: "Change relation for Runner",
-			})
-		).toBeTruthy();
+		const relation = within(editor).getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		expect(relation).toBeTruthy();
+		const relationLabel = within(token).getByTestId(
+			"space-composer-profile-token-relation-width"
+		);
+		expect(relationLabel.textContent).toBe("Wake");
+		expect(relationLabel.parentElement?.className).toContain("gap-0.5");
+		expect(relation.className).toContain("absolute");
+		expect(relation.className).not.toContain("pr-4");
+		const visibleParts = Array.from(token.children).map((element) =>
+			element.getAttribute("data-slot")
+		);
+		expect(visibleParts.slice(0, 3)).toEqual([
+			"space-composer-profile-token-at",
+			"space-composer-profile-token-icon",
+			"space-composer-profile-token-name",
+		]);
+		expect(within(token).getByText("Runner").className).not.toContain(
+			"max-w-40"
+		);
+	});
+
+	it("removes an inline profile token from its hover and focus control", async () => {
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[createAgentTarget()]}
+				ariaLabel="Message this space"
+				authoredMentions={[
+					{
+						end: 7,
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+						start: 0,
+						text: "@Runner",
+					},
+				]}
+				mentionPickerItems={[]}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="To wake an agent, type @, then pick the agent."
+				text="@Runner review this."
+			/>
+		);
+
+		const removeButton = screen.getByRole("button", {
+			name: "Remove Runner from message",
+		});
+		expect(removeButton.className).toContain("absolute");
+		expect(removeButton.className).toContain("opacity-0");
+		expect(removeButton.className).toContain(
+			"group-hover/profile-token:opacity-100"
+		);
+		expect(removeButton.className).toContain("focus-visible:opacity-100");
+
+		fireEvent.click(removeButton);
+
+		await waitFor(() => {
+			expect(screen.queryByTestId("space-composer-profile-token")).toBeNull();
+			expect(onChange).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					authoredMentions: [],
+					text: "review this.",
+				})
+			);
+		});
 	});
 
 	it("keeps Human Mention inline without inventing a Wake or Reference selector", () => {
@@ -144,6 +207,52 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
+	it("keeps Reference selectable while disabling Wake for a blocked Agent", () => {
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[createBlockedAgentTarget()]}
+				ariaLabel="Message this space"
+				authoredMentions={[
+					{
+						end: 7,
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+						start: 0,
+						text: "@Runner",
+					},
+				]}
+				mentionPickerItems={[]}
+				onChange={vi.fn()}
+				onSend={vi.fn()}
+				placeholder="To wake an agent, type @, then pick the agent."
+				text="@Runner review this."
+			/>
+		);
+
+		const relation = screen.getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		expect(
+			(
+				within(relation).getByRole("option", {
+					name: "Wake — Connect your computer before Runner can reply.",
+				}) as HTMLOptionElement
+			).disabled
+		).toBe(true);
+		expect(
+			(
+				within(relation).getByRole("option", {
+					name: "Reference",
+				}) as HTMLOptionElement
+			).disabled
+		).toBe(false);
+		expect(
+			screen
+				.getByRole("textbox", { name: "Message this space" })
+				.getAttribute("contenteditable")
+		).toBe("true");
+	});
+
 	it("opens the member picker from the @ control and inserts an Agent Wake token", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();
@@ -170,6 +279,26 @@ describe("SpaceComposerEditor", () => {
 		const runnerOption = await screen.findByRole("option", {
 			name: RUNNER_OPTION_NAME,
 		});
+		const memberOptions = screen.getByRole("listbox", {
+			name: "Member options",
+		});
+		const sharedLayoutGroup = memberOptions.querySelector(
+			'[data-slot="shared-layout-group"]'
+		);
+		const sharedLayoutItem = runnerOption.closest(
+			'[data-slot="shared-layout-item"]'
+		);
+		expect(sharedLayoutGroup?.className).toContain("p-1.5");
+		expect(sharedLayoutItem?.parentElement?.className).toContain("gap-1");
+		expect(
+			sharedLayoutGroup?.querySelectorAll(
+				'[data-slot="shared-layout-background"]'
+			)
+		).toHaveLength(1);
+		expect(runnerOption.className).not.toContain("hover:bg-accent");
+		expect(runnerOption.className).not.toContain(
+			"data-[active-item=true]:bg-accent"
+		);
 		fireEvent.mouseDown(runnerOption);
 		fireEvent.click(runnerOption);
 
@@ -189,6 +318,42 @@ describe("SpaceComposerEditor", () => {
 				text: "Before @Runner ",
 			});
 		});
+	});
+
+	it("uses the Center Agent identity in the member picker", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message this space"
+				authoredMentions={[]}
+				centerAgentProfileId={AGENT_PROFILE_ID}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={vi.fn()}
+				onSend={vi.fn()}
+				placeholder="To wake an agent, type @, then pick the agent."
+				text=""
+			/>
+		);
+
+		act(() => composerRef.current?.insertMentionTrigger());
+
+		const runnerOption = await screen.findByRole("option", {
+			name: RUNNER_OPTION_NAME,
+		});
+		const avatar = within(runnerOption).getByTestId(
+			`space-profile-icon-${AGENT_PROFILE_ID}`
+		);
+		expect(avatar.getAttribute("data-profile-kind")).toBe("center-agent");
+		expect(
+			avatar.querySelector("canvas")?.getAttribute("data-profile-avatar-seed")
+		).toBe(
+			`openmeld-dither-profile-avatar:v1:center-agent:${AGENT_PROFILE_ID}`
+		);
+		expect(
+			within(runnerOption).queryByTestId("local-agent-logo-codex")
+		).toBeNull();
 	});
 
 	it("inserts a Human Mention token without an Agent relation control", async () => {
@@ -240,9 +405,7 @@ describe("SpaceComposerEditor", () => {
 	});
 
 	it("inserts a duplicate Agent appearance as an inline Reference token", async () => {
-		const composerRef = createRef<
-			HTMLTextAreaElement | SpaceComposerEditorHandle
-		>();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();
 		render(
 			<SpaceComposerEditor
@@ -369,9 +532,7 @@ describe("SpaceComposerEditor", () => {
 	});
 
 	it("copies an inline profile as ordinary public @Name text", () => {
-		const composerRef = createRef<
-			HTMLTextAreaElement | SpaceComposerEditorHandle
-		>();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
 		render(
 			<SpaceComposerEditor
 				addressingTargets={[createAgentTarget()]}
@@ -553,9 +714,7 @@ describe("SpaceComposerEditor", () => {
 	});
 
 	it("keeps Shift+Enter in the draft and sends with Enter", () => {
-		const composerRef = createRef<
-			HTMLTextAreaElement | SpaceComposerEditorHandle
-		>();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onSend = vi.fn();
 		render(
 			<SpaceComposerEditor
@@ -593,9 +752,7 @@ describe("SpaceComposerEditor", () => {
 	});
 
 	it("clears stale tokens when the existing draft is cleared after send", async () => {
-		const composerRef = createRef<
-			HTMLTextAreaElement | SpaceComposerEditorHandle
-		>();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const props = {
 			addressingTargets: [createAgentTarget()],
 			ariaLabel: "Message this space",
@@ -773,6 +930,17 @@ function createAgentTarget(): SpaceComposerAddressingTarget {
 	};
 }
 
+function createBlockedAgentTarget(): SpaceComposerAddressingTarget {
+	return {
+		...createAgentTarget(),
+		wakeAvailability: {
+			reasonCodes: ["service.not_running"],
+			reasonText: "Connect your computer before Runner can reply.",
+			status: "blocked",
+		},
+	};
+}
+
 function createHumanTarget(): SpaceComposerAddressingTarget {
 	return {
 		allowedRelations: { mention: true, reference: false, wake: false },
@@ -793,6 +961,7 @@ function createMentionPickerItems() {
 		snapshot: createSpaceMembersSnapshot({
 			agents: [
 				createSpaceMemberAgentSnapshot({
+					agentControllerRef: "builtin:codex",
 					profileId: AGENT_PROFILE_ID,
 					profileName: "Runner",
 				}),
@@ -808,10 +977,10 @@ function createMentionPickerItems() {
 }
 
 function getComposerEditorHandle(input: {
-	current: HTMLTextAreaElement | SpaceComposerEditorHandle | null;
+	current: SpaceComposerEditorHandle | null;
 }): SpaceComposerEditorHandle {
 	const current = input.current;
-	if (!(current && "insertMentionTrigger" in current)) {
+	if (!current) {
 		throw new Error("Expected the structured Composer editor handle.");
 	}
 	return current;

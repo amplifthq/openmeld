@@ -135,28 +135,46 @@ describe("space Wake progress HTTP schemas", () => {
     expect(parsed.success).toBe(false);
   });
 
-  it("accepts explicit timing and Wake Stop eligibility opt-in query values", () => {
+  it("accepts explicit optional Wake progress projection query values", () => {
     expect(
       getSpaceWakeProgressInputSchema.safeParse({
         spaceId: "space-123",
         clientMessageId: "client-message-1",
         includeTiming: "true",
+        includeSourceContext: "true",
+        includeWaitReason: "true",
         includeWakeStopEligibility: "true",
       })
     ).toMatchObject({
       success: true,
-      data: { includeTiming: true, includeWakeStopEligibility: true },
+      data: {
+        includeTiming: true,
+        includeSourceContext: true,
+        includeWaitReason: true,
+        includeWakeStopEligibility: true,
+      },
     });
 
     expect(
       getActiveSpaceWakeProgressInputSchema.safeParse({
         spaceId: "space-123",
+        includePageInfo: "1",
         includeTiming: "1",
+        includeSourceContext: "1",
+        includeWaitReason: "1",
         includeWakeStopEligibility: "1",
+        sourceProfileId: "human-source-1",
       })
     ).toMatchObject({
       success: true,
-      data: { includeTiming: true, includeWakeStopEligibility: true },
+      data: {
+        includePageInfo: true,
+        includeTiming: true,
+        includeSourceContext: true,
+        includeWaitReason: true,
+        includeWakeStopEligibility: true,
+        sourceProfileId: "human-source-1",
+      },
     });
   });
 
@@ -164,12 +182,24 @@ describe("space Wake progress HTTP schemas", () => {
     const parsed = getActiveSpaceWakeProgressResponseSchema.safeParse({
       query: {
         spaceId: "space-123",
+        sourceProfileId: "human-source-1",
         targetProfileId: null,
+      },
+      pageInfo: {
+        hasMore: true,
+        limit: 25,
       },
       items: [
         {
           clientMessageId: "client-message-1",
           sourceSignalId: "sig-source-1",
+          sourceContext: {
+            messagePreview: "Please diagnose the Wake status.",
+            profileId: "human-source-1",
+            profileKind: "human",
+            profileName: "Felix",
+            threadId: "thread-1",
+          },
           dispatchId: "dispatch-1",
           targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
           targetLabel: "@Codex",
@@ -179,6 +209,7 @@ describe("space Wake progress HTTP schemas", () => {
           startedAtMs: 1_804_999_990_000,
           updatedAtMs: 1_805_000_000_000,
           terminal: false,
+          waitReasonCode: "runtime.agent_controller_conversation.occupied",
         },
       ],
     });

@@ -40,6 +40,7 @@ export async function runSpaceWakeProgress(input: {
   baseUrl?: string;
   space: string;
   clientMessageId?: string;
+  sourceProfileId?: string;
   targetProfileId?: string;
   password?: string;
   view?: string;
@@ -75,12 +76,25 @@ export async function runSpaceWakeProgress(input: {
   const mode: WakeProgressMode = input.clientMessageId
     ? "client_message"
     : "active";
+  if (input.clientMessageId && input.sourceProfileId) {
+    emitWakeControlError({
+      error: createWakeControlCommandError(
+        "space.wake_progress.source_profile_selector_invalid",
+        "--source-profile can be used only with the active Space summary."
+      ),
+      operation: "space.wake_progress",
+      presenter,
+    });
+    return;
+  }
   const progressRead = await runSpaceReadWithPasswordRetry({
     initialPassword: input.password,
     interactive: interactive && runtime.resolvedView === "human",
     presenter,
     execute: async (password) => {
       const common = {
+        includeSourceContext: true,
+        includeWaitReason: true,
         includeWakeStopEligibility: true,
         requestContext,
         spaceId: input.space,
@@ -94,7 +108,12 @@ export async function runSpaceWakeProgress(input: {
             ...common,
             clientMessageId: input.clientMessageId,
           })
-        : await spaceApi.getActiveWakeProgress(common);
+        : await spaceApi.getActiveWakeProgress({
+            ...common,
+            ...(input.sourceProfileId
+              ? { sourceProfileId: input.sourceProfileId }
+              : {}),
+          });
     },
   }).catch((error: unknown) => {
     emitWakeControlError({
@@ -180,6 +199,7 @@ export async function runSpaceWakeStop(input: {
     presenter,
     execute: async (password) => {
       const common = {
+        includeWaitReason: true,
         includeWakeStopEligibility: true,
         requestContext,
         spaceId: input.space,

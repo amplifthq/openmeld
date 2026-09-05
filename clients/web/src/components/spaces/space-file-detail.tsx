@@ -51,7 +51,10 @@ import { Drawer } from "vaul";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
 import { UnsavedChangesDialog } from "#/components/forms/unsaved-changes-guard";
 import { baseQueryOptions } from "#/query/query-config";
-import { spaceFileQueryKeys } from "#/query/spaces/space-files";
+import {
+	spaceFileContentQueryOptions,
+	spaceFileQueryKeys,
+} from "#/query/spaces/space-files";
 import {
 	downloadContent,
 	formatFileDateTime,
@@ -134,24 +137,15 @@ export function SpaceFileDetail(input: {
 		displayedMimeType === "text/markdown" ||
 		displayedMimeType === "text/x-markdown";
 	const imagePreviewable = displayedMimeType.startsWith("image/");
-	const contentQuery = useQuery({
-		enabled: editable || imagePreviewable || previewRevision !== null,
-		queryKey: spaceFileQueryKeys.content(
-			input.spaceId,
-			input.file.id,
-			displayedRevision
-		),
-		queryFn: async ({ signal }) =>
-			await input.api.downloadFileContent({
-				spaceId: input.spaceId,
-				fileId: input.file.id,
-				revision: displayedRevision,
-				signal,
-			}),
-		gcTime: baseQueryOptions.gcTime,
-		retry: baseQueryOptions.retry,
-		staleTime: Number.POSITIVE_INFINITY,
-	});
+	const contentQuery = useQuery(
+		spaceFileContentQueryOptions({
+			api: input.api,
+			enabled: editable || imagePreviewable || previewRevision !== null,
+			fileId: input.file.id,
+			revision: displayedRevision,
+			spaceId: input.spaceId,
+		})
+	);
 	const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 	useEffect(() => {
 		if (!(imagePreviewable && contentQuery.data)) {

@@ -703,6 +703,7 @@ export const listActiveDispatchOutboxRecordsBySpace = (
   sql: SqlStorage,
   input: {
     limit?: number;
+    sourceProfileId?: string;
     spaceId: string;
     targetProfileId?: string | null;
   }
@@ -714,6 +715,7 @@ export const listActiveDispatchOutboxRecordsBySpace = (
   const normalizedTargetProfileId = normalizeOptionalSnapshot(
     input.targetProfileId
   );
+  const sourceProfileId = normalizeOptionalSnapshot(input.sourceProfileId);
   const limit = Math.max(
     1,
     Math.min(
@@ -721,18 +723,33 @@ export const listActiveDispatchOutboxRecordsBySpace = (
       Math.trunc(input.limit ?? MAX_ACTIVE_SPACE_OUTBOX_SCAN_ROWS)
     )
   );
+  const whereTargetSql = normalizedTargetProfileId
+    ? "AND target_profile_id = ?"
+    : "";
+  const whereSourceSql = sourceProfileId
+    ? "AND json_extract(payload_json, '$.sourceSignalSnapshot.profileId') = ?"
+    : "";
+  const bindings = [
+    OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
+    PERSISTED_OUTBOX_STATUS_QUEUED,
+    normalizedSpaceId,
+    ...(normalizedTargetProfileId ? [normalizedTargetProfileId] : []),
+    ...(sourceProfileId ? [sourceProfileId] : []),
+    limit,
+  ];
   const rows = sql
     .exec<OpenMeldDaemonDispatchOutboxPersistedRow>(
       `
         SELECT payload_json, status, created_at_ms, queued_at_ms
         FROM openMeldDaemon_outbox
         WHERE status IN (?, ?)
+          AND space_id = ?
+          ${whereTargetSql}
+          ${whereSourceSql}
         ORDER BY COALESCE(queued_at_ms, created_at_ms) DESC
         LIMIT ?
       `,
-      OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
-      PERSISTED_OUTBOX_STATUS_QUEUED,
-      limit
+      ...bindings
     )
     .toArray();
 

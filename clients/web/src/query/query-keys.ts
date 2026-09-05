@@ -1,5 +1,6 @@
 export const userQueryKeys = {
 	accountAvatar: ["user", "account-avatar"] as const,
+	deviceSessions: ["user", "device-sessions"] as const,
 	session: ["user", "session"] as const,
 	listSessions: ["user", "list-sessions"] as const,
 	listUserAccounts: ["user", "list-user-accounts"] as const,

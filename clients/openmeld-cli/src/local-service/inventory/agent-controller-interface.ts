@@ -256,6 +256,9 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     errorMessage: outcome.snapshot.message,
     lastSucceededAt: preservedLastSuccessfulCheckAt,
     probePolicy,
+    reasonCode: isControllerInterfaceProbeTimeout(outcome.snapshot.message)
+      ? "controller_check_timeout"
+      : "controller_check_failed",
   });
   return withUsageLimits(
     {
@@ -269,6 +272,11 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     },
     usageLimits
   );
+}
+
+function isControllerInterfaceProbeTimeout(message: string | null): boolean {
+  const normalized = message?.toLowerCase() ?? "";
+  return normalized.includes("timed out") || normalized.includes("timeout");
 }
 
 function withUsageLimits(
@@ -822,6 +830,9 @@ async function resolveOpenCodeInterfaceSnapshot(input: {
       message: readinessProbe.message ?? input.baseSnapshot.message,
       models: readinessProbe.models,
       status: readinessProbe.status,
+      ...(readinessProbe.usageLimits
+        ? { usageLimits: readinessProbe.usageLimits }
+        : {}),
       version,
       versionAdvisory: await resolveControllerVersionAdvisory({
         checkedAt: input.baseSnapshot.checkedAt,

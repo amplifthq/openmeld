@@ -33,6 +33,7 @@ const DEFAULT_COMPUTERS_ROUTE_STATE: ComputersRouteState = {
 	computersSetupCompleteRefresh: false,
 };
 const COMPUTER_OPTIONS_NAME_PATTERN = /Computer options/;
+const CHECKED_AT_LABEL_PATTERN = /^Checked /;
 let organizationComputersQueryData: OrganizationComputersResponse;
 let organizationDirectoryQueryData: OrganizationDirectoryResponse;
 const TestComputersRouteStateContext = createContext<ComputersRouteState>(
@@ -630,7 +631,10 @@ describe("ComputersPage", () => {
 				"Approvals, Interrupt, Model selection, Native event stream, Permission modes"
 			)
 		).toBeTruthy();
-		expect(screen.getByText("Last checked")).toBeTruthy();
+		expect(screen.queryByText("Last checked")).toBeNull();
+		expect(
+			screen.getAllByText(CHECKED_AT_LABEL_PATTERN).length
+		).toBeGreaterThan(0);
 		expect(
 			screen.getAllByText("Available on this computer").length
 		).toBeGreaterThan(0);

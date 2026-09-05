@@ -15,6 +15,7 @@ import type {
 	SpaceMessageAttachment,
 	SpaceMessageFileReference,
 	SpaceStatus,
+	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import {
 	buildSignalIndex,
@@ -53,6 +54,7 @@ export type SpaceTimelineItem = {
 	actorAvatarImageUrl: string | null;
 	actorControllerDisplay: string | null;
 	actorAgentControllerRef: string | null;
+	actorAgentControllerPending?: boolean;
 	actorOwnerDisplay: string | null;
 	actorOwnerName: string | null;
 	actorOwnerUserId: string | null;
@@ -70,7 +72,7 @@ export type SpaceTimelineItem = {
 	newMessagesDuringComposition: number | null;
 	navigationAction?: NavigationAction | null;
 	optimisticAgentReplySourceItemId?: string;
-	optimisticAgentReplyState?: "sending" | "working";
+	optimisticAgentReplyProgress?: WakeProgressItem;
 	replyPreviewText: string | null;
 	replyToProfileName: string | null;
 	replyToSignalId: string | null;
@@ -91,6 +93,7 @@ export type SpaceTimelineItem = {
 	transientActivityPurpose: string | null;
 	text: string;
 	wakeClientMessageId: string | null;
+	referenceTargetProfileIds?: readonly string[];
 	wakeSourceSignalId: string | null;
 	wakeTargetProfileIds: readonly string[];
 	agentStreamState?: {
@@ -131,7 +134,7 @@ export function resolveRecordedSpaceMessageDetailsItem(input: {
 	if (
 		recordedItem?.deliveryState !== "sent" ||
 		recordedItem.agentStreamState !== undefined ||
-		recordedItem.optimisticAgentReplyState !== undefined
+		recordedItem.optimisticAgentReplyProgress !== undefined
 	) {
 		return null;
 	}
@@ -332,6 +335,7 @@ function buildSpaceTimelineItem(input: {
 		createdAtMs: input.signal.ts,
 		actorControllerDisplay: actor.controllerDisplay,
 		actorAgentControllerRef: actor.agentControllerRef,
+		actorAgentControllerPending: actor.agentControllerPending,
 		actorName: actor.displayName,
 		actorAvatarImageUrl: actor.avatarImageUrl,
 		actorOwnerDisplay: actor.ownerDisplay,
@@ -370,7 +374,7 @@ function buildSpaceTimelineItem(input: {
 		systemNoticeTargetProfileId: readSystemNoticeTargetProfileId(input.signal),
 		transientActivityPurpose: readTransientActivityPurpose(input.signal),
 		text: projection.text,
-		...readSourceWakeDetails(input.signal),
+		...readSourceMessageAddressingDetails(input.signal),
 	};
 }
 
@@ -587,27 +591,36 @@ function readNewMessagesDuringComposition(
 	return signal.data.meta?.staleness?.newMessagesDuringComposition ?? null;
 }
 
-function readSourceWakeDetails(signal: SpaceTimelineVisibleEnvelope): {
+function readSourceMessageAddressingDetails(
+	signal: SpaceTimelineVisibleEnvelope
+): {
+	referenceTargetProfileIds: readonly string[];
 	wakeClientMessageId: string | null;
 	wakeSourceSignalId: string | null;
 	wakeTargetProfileIds: readonly string[];
 } {
 	if (signal.type !== "signal.text") {
 		return {
+			referenceTargetProfileIds: [],
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
 			wakeTargetProfileIds: [],
 		};
 	}
 
-	const targetProfileIds = normalizeUniqueNonEmptyStrings(
+	const wakeTargetProfileIds = normalizeUniqueNonEmptyStrings(
 		signal.data.messageEnvelope?.activationTargets ?? []
 	);
+	const wakeTargetProfileIdSet = new Set(wakeTargetProfileIds);
+	const referenceTargetProfileIds = normalizeUniqueNonEmptyStrings(
+		signal.data.messageEnvelope?.referenceTargets ?? []
+	).filter((profileId) => !wakeTargetProfileIdSet.has(profileId));
 	const clientMessageId = normalizeOptionalText(
 		signal.data.meta?.clientMessageId
 	);
-	if (targetProfileIds.length === 0) {
+	if (wakeTargetProfileIds.length === 0) {
 		return {
+			referenceTargetProfileIds,
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
 			wakeTargetProfileIds: [],
@@ -615,9 +628,10 @@ function readSourceWakeDetails(signal: SpaceTimelineVisibleEnvelope): {
 	}
 
 	return {
+		referenceTargetProfileIds,
 		wakeClientMessageId: clientMessageId,
 		wakeSourceSignalId: signal.id,
-		wakeTargetProfileIds: targetProfileIds,
+		wakeTargetProfileIds,
 	};
 }
 
@@ -816,6 +830,7 @@ function resolveActorPresentation(input: {
 	avatarImageUrl: string | null;
 	controllerDisplay: string | null;
 	agentControllerRef: string | null;
+	agentControllerPending: boolean;
 	displayName: string;
 	ownerDisplay: string | null;
 	ownerName: string | null;
@@ -831,6 +846,14 @@ function resolveActorPresentation(input: {
 	const signalOwnerUserId = input.signal.profile.owner?.trim() || null;
 	const signalAgentControllerRef =
 		input.signal.profile.agentControllerRef?.trim() || null;
+	const memberAgentControllerRef = findMemberAgentControllerRef({
+		membersSnapshot: input.membersSnapshot,
+		profileId: input.signal.profile.profileId,
+	});
+	const agentControllerRef =
+		memberAgentControllerRef === undefined
+			? signalAgentControllerRef
+			: memberAgentControllerRef;
 	const displayName =
 		signalProfileName ??
 		catalogEntry?.profileName ??
@@ -838,8 +861,7 @@ function resolveActorPresentation(input: {
 	const ownerName = signalOwnerName ?? catalogEntry?.ownerName ?? null;
 	const ownerUserId = signalOwnerUserId ?? catalogEntry?.ownerUserId ?? null;
 	const accent = resolveSpaceProfileAccent({
-		agentControllerRef:
-			signalAgentControllerRef ?? catalogEntry?.agentControllerRef ?? null,
+		agentControllerRef,
 		ownerName,
 		ownerUserId,
 		profileId: input.signal.profile.profileId,
@@ -861,8 +883,11 @@ function resolveActorPresentation(input: {
 				: memberAvatarUrl,
 		controllerDisplay:
 			accent.controllerDisplayName ?? catalogEntry?.controllerDisplay ?? null,
-		agentControllerRef:
-			signalAgentControllerRef ?? catalogEntry?.agentControllerRef ?? null,
+		agentControllerRef,
+		agentControllerPending:
+			input.signal.profile.kind === "agent" &&
+			agentControllerRef === null &&
+			input.membersSnapshot === null,
 		displayName,
 		ownerDisplay:
 			catalogEntry?.ownerDisplay ?? ownerName ?? ownerUserId ?? null,
@@ -871,6 +896,16 @@ function resolveActorPresentation(input: {
 		profileName: signalProfileName ?? catalogEntry?.profileName ?? displayName,
 		runtimeDeviceDisplayName: catalogEntry?.runtimeDeviceDisplayName ?? null,
 	};
+}
+
+function findMemberAgentControllerRef(input: {
+	membersSnapshot: SpaceMembersSnapshot | null;
+	profileId: string;
+}): string | null | undefined {
+	const agent = input.membersSnapshot?.agents.find(
+		(member) => member.profileId === input.profileId
+	);
+	return agent ? agent.agentControllerRef?.trim() || null : undefined;
 }
 
 function resolveUsableSignalProfileName(signal: SignalEnvelope): string | null {
@@ -927,7 +962,7 @@ function toLandingMember(
 				member
 			).detailLabel;
 	} else if (member.liveNow) {
-		detail = "Live human";
+		detail = "Live person";
 	}
 
 	return {

@@ -1,6 +1,7 @@
 "use client";
 
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import { resolveAgentWakeAvailabilityDisplayCategory } from "@openmeld/agent-runtime";
 import type {
 	AuthProfileView,
 	ModelCatalog,
@@ -9,11 +10,21 @@ import type {
 import {
 	buildSpaceMemberDirectory,
 	buildSpaceProfileAddPlan,
+	type SpaceMemberDirectory,
+	type SpaceMemberDirectoryEntry,
 	type SpaceProfileAddCandidate,
 	type SpaceProfileAddPlan,
 	type SpaceProfileAddProfile,
 } from "@openmeld/space";
+import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
@@ -30,21 +41,34 @@ import {
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowsClockwiseIcon,
+	CaretDownIcon,
+	CaretRightIcon,
 	MagnifyingGlassIcon,
 	PlusIcon,
 	UsersThreeIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "framer-motion";
-import type { CSSProperties } from "react";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+	AnimatePresence,
+	domAnimation,
+	LazyMotion,
+	MotionConfig,
+	m,
+} from "motion/react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
+import {
+	useDeferredValue,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
-import {
-	type AgentProfileEditDialogContext,
-	AgentProfileEditDialogController,
-} from "#/components/agents/agent-profile-edit-dialog-controller";
+import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
+import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
 import { SpaceCreateProfileButton } from "#/components/profiles/space-create-profile-button";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
@@ -58,15 +82,17 @@ import {
 } from "#/query/organizations/organization-directory";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
-import { buildEditableSpaceAgentProfilesById } from "./space-agent-profile-edit-access";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
+import { buildSpaceMemberDirectoryEntryByProfileId } from "./space-collaboration-profile";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
+import { SpaceInvitationsSection } from "./space-invitations-section";
 import { isSameOwnerUserId } from "./space-member-ownership";
 import { SpaceMemberRow } from "./space-member-row";
 import {
 	SPACE_MEMBERS_LOAD_ERROR_MESSAGE,
 	SPACE_MEMBERS_REFRESH_ERROR_MESSAGE,
 } from "./space-members-error-copy";
+import { SpaceProfileIcon } from "./space-profile-icon";
 import {
 	resolveSpaceWakeStatusTransientState,
 	type SpaceWakeStatusTransientState,
@@ -78,9 +104,6 @@ import {
 
 export const SPACE_MEMBERS_SIDE_PANEL_QUERY = "(min-width: 1280px)";
 
-// The Add-members card flash runs ~1.6s; clear the flag a touch later so a
-// later normal panel open doesn't replay it.
-const ADD_MEMBERS_FLASH_MS = 1700;
 const EMPTY_ACTIVE_WAKE_DISPLAY_TARGET_PROFILE_IDS: ReadonlySet<string> =
 	new Set();
 
@@ -123,8 +146,8 @@ type SpaceMembersSurfaceProps = {
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
-	isLoading: boolean;
 	isAgentRecoveryPending: (profileId: string) => boolean;
+	isLoading: boolean;
 	membersError: string | null;
 	modelCatalog?: ModelCatalog | null;
 	onAgentRecoveryAction: (
@@ -142,8 +165,8 @@ type SpaceMembersSurfaceProps = {
 	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRemoveMember?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	orgSlug: string;
-	/** Bumped by the Get-set-up banner's "Add agents" to open + flash the
-	 * Add-members card so a new user sees exactly where to act. */
+	/** Bumped by the Get-set-up banner's "Add agents" to open the shared
+	 * Add People or Agents dialog from the currently visible Members surface. */
 	openAddMembersNonce?: number;
 	prepareSetupHref?: string;
 	spaceId?: string;
@@ -153,11 +176,14 @@ type SpaceMembersSurfaceProps = {
 
 export function SpaceMembersToggleButton(input: {
 	controlsId: string;
-	memberCount: number;
+	memberCount: number | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
-	const memberLabel = `${String(input.memberCount)} member${input.memberCount === 1 ? "" : "s"}`;
+	const memberLabel =
+		input.memberCount === null
+			? "Members"
+			: `${String(input.memberCount)} member${input.memberCount === 1 ? "" : "s"}`;
 	return (
 		<Tooltip>
 			<TooltipTrigger
@@ -165,7 +191,11 @@ export function SpaceMembersToggleButton(input: {
 					<Button
 						aria-controls={input.controlsId}
 						aria-expanded={input.open}
-						aria-label={`Members, ${String(input.memberCount)} total`}
+						aria-label={
+							input.memberCount === null
+								? "Members"
+								: `Members, ${String(input.memberCount)} total`
+						}
 						onClick={() => input.onOpenChange(!input.open)}
 						size="sm"
 						type="button"
@@ -176,7 +206,9 @@ export function SpaceMembersToggleButton(input: {
 							className="size-4"
 							data-icon="users-three"
 						/>
-						<span className="tabular-nums">{input.memberCount}</span>
+						{input.memberCount === null ? null : (
+							<span className="tabular-nums">{input.memberCount}</span>
+						)}
 					</Button>
 				}
 			/>
@@ -193,7 +225,7 @@ export function SpaceMembersSidePanel(
 		panelWidth: string;
 	}
 ) {
-	const model = useSpaceMembersModel(input);
+	const model = useSpaceMembersModel(input, input.open);
 	const widthMetrics = SPACE_PANEL_WIDTH_METRICS.members;
 
 	return (
@@ -208,11 +240,20 @@ export function SpaceMembersSidePanel(
 			resizeHandleLabel="Resize Members panel"
 			width={input.panelWidth}
 		>
-			<header className="flex shrink-0 flex-col gap-1 border-border border-b px-4 py-3.5">
-				<div className="flex items-start justify-between gap-2">
-					<h2 className="min-w-0 whitespace-nowrap font-medium text-base">
-						Members
-					</h2>
+			<header className="shrink-0 border-border border-b px-4 py-3">
+				<div className="flex items-center justify-between gap-2">
+					<div className="flex min-w-0 items-baseline gap-2">
+						<h2 className="min-w-0 whitespace-nowrap font-medium text-base">
+							Members
+						</h2>
+						<span
+							aria-hidden="true"
+							className="truncate text-muted-foreground text-xs tabular-nums"
+						>
+							{model.membersCountLabel}
+						</span>
+						<span className="sr-only">{model.membersCountDescription}</span>
+					</div>
 					<div className="flex shrink-0 items-center gap-1">
 						<SpaceMembersSearchHeaderButton
 							onToggle={() => model.setIsSearchOpen(!model.isSearchOpen)}
@@ -220,9 +261,8 @@ export function SpaceMembersSidePanel(
 						/>
 						{input.onAddProfiles || input.onAddOrganizationDirectoryProfiles ? (
 							<SpaceAddMembersHeaderButton
-								onToggle={() =>
-									model.setIsAddMembersOpen(!model.isAddMembersOpen)
-								}
+								controlsId={model.addMembersDialogId}
+								onOpen={model.openAddMembers}
 								open={model.isAddMembersOpen}
 							/>
 						) : null}
@@ -234,9 +274,6 @@ export function SpaceMembersSidePanel(
 						/>
 					</div>
 				</div>
-				<p className="w-full text-muted-foreground text-sm">
-					{model.membersCountDescription}
-				</p>
 			</header>
 
 			<SpaceMembersBody
@@ -247,6 +284,8 @@ export function SpaceMembersSidePanel(
 				activeWakeWaitingTargetProfileIds={
 					input.activeWakeWaitingTargetProfileIds
 				}
+				addMembersDialogId={model.addMembersDialogId}
+				addMembersTriggerRef={model.addMembersTriggerRef}
 				agentProfileEditContext={input.agentProfileEditContext}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 				autoRefreshExhaustedProfileIds={input.autoRefreshExhaustedProfileIds}
@@ -255,12 +294,9 @@ export function SpaceMembersSidePanel(
 				currentProfileId={input.currentProfileId}
 				displayWakeOverrideByProfileId={input.displayWakeOverrideByProfileId}
 				filteredDirectory={model.filteredDirectory}
-				isAddMembersFlashing={model.isAddMembersFlashing}
-				isAddMembersOpen={model.isAddMembersOpen}
-				isAgentRecoveryPending={input.isAgentRecoveryPending}
-				isLoading={input.isLoading}
 				membersError={input.membersError}
 				modelCatalog={input.modelCatalog ?? null}
+				onAddMembersOpen={model.openAddMembers}
 				onAddMembersOpenChange={model.setIsAddMembersOpen}
 				onAddOrganizationDirectoryProfiles={
 					input.onAddOrganizationDirectoryProfiles
@@ -278,6 +314,11 @@ export function SpaceMembersSidePanel(
 				snapshot={input.snapshot}
 				spaceId={input.spaceId}
 				spaceName={input.spaceName}
+				viewState={{
+					isAddMembersOpen: model.isAddMembersOpen,
+					isAgentRecoveryPending: input.isAgentRecoveryPending,
+					isLoading: input.isLoading,
+				}}
 			/>
 		</SpaceInlineSidePanel>
 	);
@@ -289,7 +330,7 @@ export function SpaceMembersDrawer(
 		open: boolean;
 	}
 ) {
-	const model = useSpaceMembersModel(input);
+	const model = useSpaceMembersModel(input, input.open);
 
 	return (
 		<Drawer.Root
@@ -310,11 +351,22 @@ export function SpaceMembersDrawer(
 					}
 				>
 					<div className="flex min-h-0 w-full flex-col">
-						<div className="flex shrink-0 flex-col gap-1 border-border border-b px-4 py-3.5">
-							<div className="flex items-start justify-between gap-2">
-								<Drawer.Title className="font-medium text-base">
-									Members
-								</Drawer.Title>
+						<div className="shrink-0 border-border border-b px-4 py-3">
+							<div className="flex items-center justify-between gap-2">
+								<div className="flex min-w-0 items-baseline gap-2">
+									<Drawer.Title className="font-medium text-base">
+										Members
+									</Drawer.Title>
+									<span
+										aria-hidden="true"
+										className="truncate text-muted-foreground text-xs tabular-nums"
+									>
+										{model.membersCountLabel}
+									</span>
+									<Drawer.Description className="sr-only">
+										{model.membersCountDescription}
+									</Drawer.Description>
+								</div>
 								<div className="flex shrink-0 items-center gap-1">
 									<SpaceMembersSearchHeaderButton
 										onToggle={() => model.setIsSearchOpen(!model.isSearchOpen)}
@@ -323,9 +375,8 @@ export function SpaceMembersDrawer(
 									{input.onAddProfiles ||
 									input.onAddOrganizationDirectoryProfiles ? (
 										<SpaceAddMembersHeaderButton
-											onToggle={() =>
-												model.setIsAddMembersOpen(!model.isAddMembersOpen)
-											}
+											controlsId={model.addMembersDialogId}
+											onOpen={model.openAddMembers}
 											open={model.isAddMembersOpen}
 										/>
 									) : null}
@@ -337,9 +388,6 @@ export function SpaceMembersDrawer(
 									/>
 								</div>
 							</div>
-							<Drawer.Description className="w-full text-muted-foreground text-sm">
-								{model.membersCountDescription}
-							</Drawer.Description>
 						</div>
 
 						<SpaceMembersBody
@@ -350,6 +398,8 @@ export function SpaceMembersDrawer(
 							activeWakeWaitingTargetProfileIds={
 								input.activeWakeWaitingTargetProfileIds
 							}
+							addMembersDialogId={model.addMembersDialogId}
+							addMembersTriggerRef={model.addMembersTriggerRef}
 							agentProfileEditContext={input.agentProfileEditContext}
 							agentRecoveryPlansByProfileId={
 								input.agentRecoveryPlansByProfileId
@@ -364,12 +414,9 @@ export function SpaceMembersDrawer(
 								input.displayWakeOverrideByProfileId
 							}
 							filteredDirectory={model.filteredDirectory}
-							isAddMembersFlashing={model.isAddMembersFlashing}
-							isAddMembersOpen={model.isAddMembersOpen}
-							isAgentRecoveryPending={input.isAgentRecoveryPending}
-							isLoading={input.isLoading}
 							membersError={input.membersError}
 							modelCatalog={input.modelCatalog ?? null}
+							onAddMembersOpen={model.openAddMembers}
 							onAddMembersOpenChange={model.setIsAddMembersOpen}
 							onAddOrganizationDirectoryProfiles={
 								input.onAddOrganizationDirectoryProfiles
@@ -389,6 +436,11 @@ export function SpaceMembersDrawer(
 							snapshot={input.snapshot}
 							spaceId={input.spaceId}
 							spaceName={input.spaceName}
+							viewState={{
+								isAddMembersOpen: model.isAddMembersOpen,
+								isAgentRecoveryPending: input.isAgentRecoveryPending,
+								isLoading: input.isLoading,
+							}}
 						/>
 					</div>
 				</Drawer.Content>
@@ -426,35 +478,42 @@ function SpaceMembersSearchHeaderButton(input: {
 }
 
 function SpaceAddMembersHeaderButton(input: {
-	onToggle: () => void;
+	controlsId: string;
+	onOpen: (trigger: HTMLElement) => void;
 	open: boolean;
 }) {
 	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Button
-						aria-controls={SPACE_ADD_MEMBERS_REGION_ID}
-						aria-expanded={input.open}
-						aria-label="Add members"
-						id={SPACE_ADD_MEMBERS_TRIGGER_ID}
-						onClick={input.onToggle}
-						size="icon-sm"
-						type="button"
-						variant="ghost"
-					>
-						<motion.span
-							animate={{ rotate: input.open ? 45 : 0 }}
-							className="flex"
-							transition={springs.moderate}
-						>
-							<PlusIcon />
-						</motion.span>
-					</Button>
-				}
-			/>
-			<TooltipContent>Add members</TooltipContent>
-		</Tooltip>
+		<LazyMotion features={domAnimation} strict>
+			<MotionConfig reducedMotion="user">
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-controls={input.controlsId}
+								aria-expanded={input.open}
+								aria-haspopup="dialog"
+								aria-label="Add People or Agents"
+								onClick={(event) => input.onOpen(event.currentTarget)}
+								size="icon-sm"
+								type="button"
+								variant="ghost"
+							>
+								<m.span
+									animate={{
+										transform: input.open ? "rotate(45deg)" : "rotate(0deg)",
+									}}
+									className="flex"
+									transition={springs.moderate}
+								>
+									<PlusIcon />
+								</m.span>
+							</Button>
+						}
+					/>
+					<TooltipContent>Add People or Agents</TooltipContent>
+				</Tooltip>
+			</MotionConfig>
+		</LazyMotion>
 	);
 }
 
@@ -517,9 +576,13 @@ function SpaceMembersCloseButton(input: { onClose: () => void }) {
 	);
 }
 
-function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
+function useSpaceMembersModel(
+	input: SpaceMembersSurfaceProps,
+	surfaceOpen: boolean
+) {
+	const addMembersDialogId = useId();
+	const addMembersTriggerRef = useRef<HTMLElement | null>(null);
 	const [isAddMembersOpen, setIsAddMembersOpen] = useState(false);
-	const [isAddMembersFlashing, setIsAddMembersFlashing] = useState(false);
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
 	const lastOpenNonceRef = useRef(input.openAddMembersNonce);
 	const [query, setQuery] = useState("");
@@ -530,25 +593,21 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 		}
 	};
 
-	// An external "Add agents" click (Get-set-up banner) opens the Add-members
-	// card and flashes it once. The flag lives here (this model stays mounted)
-	// rather than in the card, which unmounts with the closed panel — so the
-	// flash survives the panel opening, and self-clears so a later normal open
-	// doesn't replay it.
+	// Both desktop and mobile Members surfaces stay mounted. Consume every
+	// external request in both models, but open the dialog only from the surface
+	// that is currently visible so one click cannot create duplicate portals.
 	useEffect(() => {
 		const nonce = input.openAddMembersNonce;
 		if (nonce === undefined || nonce === lastOpenNonceRef.current) {
 			return;
 		}
 		lastOpenNonceRef.current = nonce;
+		if (!surfaceOpen) {
+			return;
+		}
+		addMembersTriggerRef.current = null;
 		setIsAddMembersOpen(true);
-		setIsAddMembersFlashing(true);
-		const timer = window.setTimeout(
-			() => setIsAddMembersFlashing(false),
-			ADD_MEMBERS_FLASH_MS
-		);
-		return () => window.clearTimeout(timer);
-	}, [input.openAddMembersNonce]);
+	}, [input.openAddMembersNonce, surfaceOpen]);
 	const deferredQuery = useDeferredValue(query);
 	const directory = useMemo(
 		() =>
@@ -577,11 +636,21 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 	});
 
 	return {
+		addMembersDialogId,
+		addMembersTriggerRef,
 		filteredDirectory,
-		isAddMembersFlashing,
 		isAddMembersOpen,
 		isSearchOpen,
 		membersCountDescription,
+		membersCountLabel: resolveMembersCountLabel({
+			hasLoadError: Boolean(input.membersError && !input.snapshot),
+			isLoading: input.isLoading,
+			totalMembersCount,
+		}),
+		openAddMembers: (trigger: HTMLElement) => {
+			addMembersTriggerRef.current = trigger;
+			setIsAddMembersOpen(true);
+		},
 		query,
 		setIsAddMembersOpen,
 		setQuery,
@@ -589,7 +658,9 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 	};
 }
 
-function SpaceMembersBody(input: {
+type SpaceMembersBodyProps = {
+	addMembersDialogId: string;
+	addMembersTriggerRef: RefObject<HTMLElement | null>;
 	accountProfiles: readonly AuthProfileView[];
 	agentProfileEditContext?: AgentProfileEditDialogContext;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -604,15 +675,12 @@ function SpaceMembersBody(input: {
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
 	filteredDirectory: ReturnType<typeof filterSpaceMemberDirectory> | null;
-	isLoading: boolean;
-	isAgentRecoveryPending: (profileId: string) => boolean;
 	membersError: string | null;
 	modelCatalog: ModelCatalog | null;
+	onAddMembersOpen: (trigger: HTMLElement) => void;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
-	isAddMembersFlashing?: boolean;
-	isAddMembersOpen: boolean;
 	onAddMembersOpenChange: (open: boolean) => void;
 	onAddOrganizationDirectoryProfiles?: (
 		input: SpaceAddOrganizationDirectoryProfilesInput
@@ -633,36 +701,21 @@ function SpaceMembersBody(input: {
 	spaceId?: string;
 	spaceName?: string | null;
 	snapshot: SpaceMembersSnapshot | null;
-}) {
+	viewState: {
+		isAddMembersOpen: boolean;
+		isAgentRecoveryPending: (profileId: string) => boolean;
+		isLoading: boolean;
+	};
+};
+
+function SpaceMembersBody(input: SpaceMembersBodyProps) {
 	const shouldShowAddMembersEmptyCta =
 		Boolean(input.onAddProfiles || input.onAddOrganizationDirectoryProfiles) &&
-		!input.isAddMembersOpen &&
 		input.snapshot?.summary.totalCount === 1;
 	const [
 		checkingAgentWakeAvailabilityProfileId,
 		setCheckingAgentWakeAvailabilityProfileId,
 	] = useState<string | null>(null);
-	const [editingAgentProfileId, setEditingAgentProfileId] = useState<
-		string | null
-	>(null);
-	const editableAgentProfilesById = useMemo(() => {
-		return buildEditableSpaceAgentProfilesById({
-			accountProfiles: input.accountProfiles,
-			currentOwnerUserId: input.currentOwnerUserId,
-			editContextAvailable: Boolean(input.agentProfileEditContext),
-		});
-	}, [
-		input.accountProfiles,
-		input.agentProfileEditContext,
-		input.currentOwnerUserId,
-	]);
-	const editingAgentProfile = editingAgentProfileId
-		? (editableAgentProfilesById.get(editingAgentProfileId) ?? null)
-		: null;
-	const editableAgentProfileIds = useMemo(
-		() => new Set(editableAgentProfilesById.keys()),
-		[editableAgentProfilesById]
-	);
 	const handleCheckAgentWakeAvailability = async (profileId: string) => {
 		setCheckingAgentWakeAvailabilityProfileId(profileId);
 		try {
@@ -681,20 +734,16 @@ function SpaceMembersBody(input: {
 	};
 
 	return (
-		<>
-			<div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
-				<div className="flex flex-col gap-4">
-					<div
-						className={
-							input.isAddMembersFlashing
-								? "add-members-recall-flash"
-								: undefined
-						}
-					>
+		<LazyMotion features={domAnimation} strict>
+			<MotionConfig reducedMotion="user">
+				<div className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-3">
+					<div className="flex flex-col gap-3">
 						<SpaceAddProfilesSection
 							accountProfiles={input.accountProfiles}
 							currentOwnerUserId={input.currentOwnerUserId}
 							currentProfileId={input.currentProfileId}
+							dialogId={input.addMembersDialogId}
+							finalFocus={input.addMembersTriggerRef}
 							key={input.spaceId ?? "no-space"}
 							onAddOrganizationDirectoryProfiles={
 								input.onAddOrganizationDirectoryProfiles
@@ -705,92 +754,78 @@ function SpaceMembersBody(input: {
 							}
 							onOpenChange={input.onAddMembersOpenChange}
 							onRefresh={input.onRefresh}
-							open={input.isAddMembersOpen}
+							open={input.viewState.isAddMembersOpen}
 							orgSlug={input.orgSlug}
 							snapshot={input.snapshot}
 							spaceId={input.spaceId}
 							spaceName={input.spaceName}
 						/>
+
+						{shouldShowAddMembersEmptyCta ? (
+							<button
+								aria-controls={input.addMembersDialogId}
+								aria-expanded={input.viewState.isAddMembersOpen}
+								aria-haspopup="dialog"
+								className="flex flex-col items-center gap-2 rounded-md border border-border border-dashed px-3 py-4 text-center transition-colors hover:bg-muted/40"
+								onClick={(event) => input.onAddMembersOpen(event.currentTarget)}
+								type="button"
+							>
+								<span className="text-muted-foreground text-xs">
+									It is just you here so far.
+								</span>
+								<span className="flex items-center gap-1.5 font-medium text-sm">
+									<PlusIcon aria-hidden className="size-3.5" />
+									Add People or Agents
+								</span>
+							</button>
+						) : null}
+
+						<SpaceMembersSearchField
+							onQueryChange={input.onQueryChange}
+							open={input.searchOpen}
+							query={input.query}
+						/>
+
+						<SpaceMembersList
+							activeWakeDisplayTargetProfileIds={
+								input.activeWakeDisplayTargetProfileIds
+							}
+							activeWakeWaitingTargetProfileIds={
+								input.activeWakeWaitingTargetProfileIds
+							}
+							agentRecoveryPlansByProfileId={
+								input.agentRecoveryPlansByProfileId
+							}
+							autoRefreshExhaustedProfileIds={
+								input.autoRefreshExhaustedProfileIds
+							}
+							centerAgentProfileId={input.centerAgentProfileId}
+							currentOwnerUserId={input.currentOwnerUserId}
+							currentProfileId={input.currentProfileId}
+							displayWakeOverrideByProfileId={
+								input.displayWakeOverrideByProfileId
+							}
+							filteredDirectory={input.filteredDirectory}
+							isAgentRecoveryPending={input.viewState.isAgentRecoveryPending}
+							isAgentWakeAvailabilityCheckPending={(profileId) =>
+								checkingAgentWakeAvailabilityProfileId === profileId
+							}
+							isLoading={input.viewState.isLoading}
+							membersError={input.membersError}
+							modelCatalog={input.modelCatalog}
+							onAgentRecoveryAction={input.onAgentRecoveryAction}
+							onCheckAgentWakeAvailability={handleCheckAgentWakeAvailability}
+							onRefresh={input.onRefresh}
+							onRemoveMember={input.onRemoveMember}
+							orgSlug={input.orgSlug}
+							prepareSetupHref={input.prepareSetupHref}
+							query={input.query}
+							snapshot={input.snapshot}
+						/>
 					</div>
-
-					{shouldShowAddMembersEmptyCta ? (
-						<button
-							className="flex flex-col items-center gap-2 rounded-md border border-border border-dashed px-3 py-4 text-center transition-colors hover:bg-muted/40"
-							onClick={() => input.onAddMembersOpenChange(true)}
-							type="button"
-						>
-							<span className="text-muted-foreground text-xs">
-								It is just you here so far.
-							</span>
-							<span className="flex items-center gap-1.5 font-medium text-sm">
-								<PlusIcon aria-hidden className="size-3.5" />
-								Add members
-							</span>
-						</button>
-					) : null}
-
-					<SpaceMembersSearchField
-						onQueryChange={input.onQueryChange}
-						open={input.searchOpen}
-						query={input.query}
-					/>
-
-					<SpaceMembersList
-						activeWakeDisplayTargetProfileIds={
-							input.activeWakeDisplayTargetProfileIds
-						}
-						activeWakeWaitingTargetProfileIds={
-							input.activeWakeWaitingTargetProfileIds
-						}
-						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
-						autoRefreshExhaustedProfileIds={
-							input.autoRefreshExhaustedProfileIds
-						}
-						centerAgentProfileId={input.centerAgentProfileId}
-						currentOwnerUserId={input.currentOwnerUserId}
-						currentProfileId={input.currentProfileId}
-						displayWakeOverrideByProfileId={
-							input.displayWakeOverrideByProfileId
-						}
-						editableAgentProfileIds={editableAgentProfileIds}
-						filteredDirectory={input.filteredDirectory}
-						isAgentRecoveryPending={input.isAgentRecoveryPending}
-						isAgentWakeAvailabilityCheckPending={(profileId) =>
-							checkingAgentWakeAvailabilityProfileId === profileId
-						}
-						isLoading={input.isLoading}
-						membersError={input.membersError}
-						modelCatalog={input.modelCatalog}
-						onAgentRecoveryAction={input.onAgentRecoveryAction}
-						onCheckAgentWakeAvailability={handleCheckAgentWakeAvailability}
-						onEditAgentProfile={
-							input.agentProfileEditContext
-								? setEditingAgentProfileId
-								: undefined
-						}
-						onRefresh={input.onRefresh}
-						onRemoveMember={input.onRemoveMember}
-						orgSlug={input.orgSlug}
-						prepareSetupHref={input.prepareSetupHref}
-						query={input.query}
-						snapshot={input.snapshot}
-					/>
 				</div>
-			</div>
-			{editingAgentProfile && input.agentProfileEditContext ? (
-				<AgentProfileEditDialogController
-					context={input.agentProfileEditContext}
-					modelCatalog={input.modelCatalog}
-					onOpenChange={(open) => {
-						if (!open) {
-							setEditingAgentProfileId(null);
-						}
-					}}
-					open={true}
-					profile={editingAgentProfile}
-				/>
-			) : null}
-		</>
+			</MotionConfig>
+		</LazyMotion>
 	);
 }
 
@@ -800,19 +835,19 @@ function SpaceMembersSearchField(input: {
 	query: string;
 }) {
 	return (
-		<AnimatePresence initial={false}>
+		<AnimatePresence initial={false} mode="popLayout">
 			{input.open ? (
-				<motion.div
-					animate={{ height: "auto", marginBottom: "0rem", opacity: 1 }}
+				<m.div
+					animate={{ opacity: 1, transform: "scaleY(1)" }}
 					className="overflow-hidden"
 					exit={{
-						height: 0,
-						marginBottom: "-1rem",
 						opacity: 0,
+						transform: "scaleY(0.96)",
 						transition: { ...springs.moderate, bounce: 0 },
 					}}
 					id={SPACE_MEMBERS_SEARCH_REGION_ID}
-					initial={{ height: 0, marginBottom: "-1rem", opacity: 0 }}
+					initial={{ opacity: 0, transform: "scaleY(0.96)" }}
+					style={{ transformOrigin: "top" }}
 					transition={springs.moderate}
 				>
 					<Input
@@ -825,19 +860,18 @@ function SpaceMembersSearchField(input: {
 						spellCheck={false}
 						value={input.query}
 					/>
-				</motion.div>
+				</m.div>
 			) : null}
 		</AnimatePresence>
 	);
 }
 
-const SPACE_ADD_MEMBERS_REGION_ID = "space-add-members-region";
-const SPACE_ADD_MEMBERS_TRIGGER_ID = "space-add-members-trigger";
-
-function SpaceAddProfilesSection(input: {
+type SpaceAddProfilesSectionProps = {
 	accountProfiles: readonly AuthProfileView[];
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
+	dialogId: string;
+	finalFocus: RefObject<HTMLElement | null>;
 	onAddOrganizationDirectoryProfiles?: (
 		input: SpaceAddOrganizationDirectoryProfilesInput
 	) => Promise<SpaceAddProfilesResult>;
@@ -854,7 +888,17 @@ function SpaceAddProfilesSection(input: {
 	spaceId?: string;
 	spaceName?: string | null;
 	snapshot: SpaceMembersSnapshot | null;
-}) {
+};
+
+function SpaceAddProfilesSection(input: SpaceAddProfilesSectionProps) {
+	const model = useSpaceAddProfilesSectionModel(input);
+	if (!(input.onAddProfiles || input.onAddOrganizationDirectoryProfiles)) {
+		return null;
+	}
+	return <SpaceAddProfilesSectionView input={input} model={model} />;
+}
+
+function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	const [selectedProfileIds, setSelectedProfileIds] = useState<
 		ReadonlySet<string>
 	>(() => new Set());
@@ -868,7 +912,6 @@ function SpaceAddProfilesSection(input: {
 		spaceId: string | null;
 	} | null>(null);
 	const [addQuery, setAddQuery] = useState("");
-	const regionRef = useRef<HTMLDivElement | null>(null);
 	const activeSpaceId = input.spaceId ?? null;
 	const organizationContext = useOptionalAppOrganization();
 	const organization = organizationContext?.currentOrganization ?? null;
@@ -884,45 +927,6 @@ function SpaceAddProfilesSection(input: {
 		})
 	);
 
-	// On open: start from a clean message slate and move focus into the panel
-	// so keyboard users land on the search field or first selectable row.
-	useEffect(() => {
-		if (!input.open) {
-			return;
-		}
-		setErrorMessage(null);
-		setSuccessMessage(null);
-		setAddQuery("");
-		const region = regionRef.current;
-		const firstControl =
-			region?.querySelector<HTMLInputElement>("input[type='search']") ??
-			region?.querySelector<HTMLElement>('[role="checkbox"]');
-		firstControl?.focus();
-	}, [input.open]);
-
-	// Escape closes the panel while focus is inside it. Captured at the
-	// document so it runs before the drawer's own Escape handling, and kept
-	// off the panel element itself, which is non-interactive.
-	const onOpenChange = input.onOpenChange;
-	useEffect(() => {
-		if (!input.open) {
-			return;
-		}
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") {
-				return;
-			}
-			const region = regionRef.current;
-			if (!region?.contains(document.activeElement)) {
-				return;
-			}
-			event.stopPropagation();
-			onOpenChange(false);
-			document.getElementById(SPACE_ADD_MEMBERS_TRIGGER_ID)?.focus();
-		};
-		document.addEventListener("keydown", handleKeyDown, true);
-		return () => document.removeEventListener("keydown", handleKeyDown, true);
-	}, [input.open, onOpenChange]);
 	const personalProfilesPlan = useMemo(
 		() =>
 			buildSpaceProfileAddPlan({
@@ -951,48 +955,39 @@ function SpaceAddProfilesSection(input: {
 			}),
 		[directoryQuery.data, input.snapshot, organization?.name]
 	);
-	const allCandidates = useMemo(
+	const candidateGroups = useMemo(
 		() =>
 			usesOrganizationDirectory
-				? [
-						...organizationDirectoryCandidates.memberCandidates,
-						...organizationDirectoryCandidates.agentCandidates,
-					]
-				: personalProfilesPlan.selectableCandidates.map(
-						toAddMembersCandidateSummary
-					),
+				? organizationDirectoryCandidates
+				: buildPersonalAddMemberGroups({
+						alreadyJoinedCandidates:
+							personalProfilesPlan.alreadyJoinedCandidates,
+						selectableCandidates: personalProfilesPlan.selectableCandidates,
+					}),
 		[
 			organizationDirectoryCandidates,
+			personalProfilesPlan.alreadyJoinedCandidates,
 			personalProfilesPlan.selectableCandidates,
 			usesOrganizationDirectory,
 		]
 	);
+	const allCandidates = useMemo(
+		() => [
+			...candidateGroups.personGroups.flatMap((group) => [
+				...(group.humanCandidate ? [group.humanCandidate] : []),
+				...group.agentCandidates,
+			]),
+			...candidateGroups.organizationCandidates,
+		],
+		[candidateGroups]
+	);
 	const normalizedAddQuery = addQuery.trim().toLocaleLowerCase();
-	const visibleCandidates = useMemo(
-		() =>
-			normalizedAddQuery.length === 0
-				? allCandidates
-				: allCandidates.filter((candidate) =>
-						candidate.searchText.includes(normalizedAddQuery)
-					),
-		[allCandidates, normalizedAddQuery]
-	);
-	const agentCandidates = useMemo(
-		() =>
-			visibleCandidates.filter(
-				(candidate) => candidate.profileKind === "agent"
-			),
-		[visibleCandidates]
-	);
-	const humanCandidates = useMemo(
-		() =>
-			visibleCandidates.filter(
-				(candidate) => candidate.profileKind === "human"
-			),
-		[visibleCandidates]
+	const visibleCandidateGroups = useMemo(
+		() => filterAddMemberGroups(candidateGroups, normalizedAddQuery),
+		[candidateGroups, normalizedAddQuery]
 	);
 	const selectableProfileIds = useMemo(() => {
-		return new Set(allCandidates.map((candidate) => candidate.profileId));
+		return buildSelectableAddMemberProfileIds(allCandidates);
 	}, [allCandidates]);
 	const activeSelectedProfileIds = useMemo(() => {
 		if (selectedProfileIds.size === 0) {
@@ -1007,7 +1002,11 @@ function SpaceAddProfilesSection(input: {
 			? selectedProfileIds
 			: activeSelection;
 	}, [selectableProfileIds, selectedProfileIds]);
-	const selectedCount = activeSelectedProfileIds.size;
+	const effectiveSelectedProfileIds = resolveEffectiveAddMemberProfileIds({
+		candidateGroups,
+		selectedProfileIds: activeSelectedProfileIds,
+	});
+	const selectedCount = effectiveSelectedProfileIds.size;
 	const canRunAddMutation = usesOrganizationDirectory
 		? Boolean(input.onAddOrganizationDirectoryProfiles)
 		: Boolean(input.onAddProfiles);
@@ -1016,10 +1015,16 @@ function SpaceAddProfilesSection(input: {
 		input.snapshot !== null &&
 		selectedCount > 0 &&
 		!isSubmitting;
-
-	if (!(input.onAddProfiles || input.onAddOrganizationDirectoryProfiles)) {
-		return null;
-	}
+	const handleOpenChange = (open: boolean) => {
+		if (!open) {
+			setSelectedProfileIds(new Set());
+			setErrorMessage(null);
+			setSuccessMessage(null);
+			setConversionRequest(null);
+			setAddQuery("");
+		}
+		input.onOpenChange(open);
+	};
 
 	const handleSubmit = () => {
 		if (!canSubmit) {
@@ -1029,7 +1034,7 @@ function SpaceAddProfilesSection(input: {
 		if (input.onConvertDirectMessageToSpace) {
 			const selectedNames: string[] = [];
 			for (const candidate of allCandidates) {
-				if (activeSelectedProfileIds.has(candidate.profileId)) {
+				if (effectiveSelectedProfileIds.has(candidate.profileId)) {
 					selectedNames.push(candidate.profileName);
 				}
 			}
@@ -1065,7 +1070,7 @@ function SpaceAddProfilesSection(input: {
 			.then((result) => {
 				setSuccessMessage(formatAddProfilesSuccess(result));
 				setSelectedProfileIds(new Set());
-				input.onOpenChange(false);
+				handleOpenChange(false);
 			})
 			.catch((error: unknown) => {
 				setErrorMessage(formatAddProfilesError(error));
@@ -1092,7 +1097,7 @@ function SpaceAddProfilesSection(input: {
 			setSuccessMessage(formatAddProfilesSuccess(result));
 			setSelectedProfileIds(new Set());
 			setConversionRequest(null);
-			input.onOpenChange(false);
+			handleOpenChange(false);
 		} catch (error) {
 			setErrorMessage(formatAddProfilesError(error));
 			setConversionRequest(null);
@@ -1104,9 +1109,6 @@ function SpaceAddProfilesSection(input: {
 	const clearMessages = () => {
 		setErrorMessage(null);
 		setSuccessMessage(null);
-	};
-	const setRegionNode = (node: HTMLDivElement | null) => {
-		regionRef.current = node;
 	};
 	const toggleProfile = (profileId: string) => {
 		if (isSubmitting) {
@@ -1120,7 +1122,17 @@ function SpaceAddProfilesSection(input: {
 					selectableProfileIds.has(selectedId)
 				)
 			);
-			if (next.has(profileId)) {
+			const personGroup = candidateGroups.personGroups.find(
+				(group) => group.humanCandidate?.profileId === profileId
+			);
+			if (personGroup && effectiveSelectedProfileIds.has(profileId)) {
+				next.delete(profileId);
+				for (const agent of personGroup.agentCandidates) {
+					if (agent.ownerHumanProfileId === profileId) {
+						next.delete(agent.profileId);
+					}
+				}
+			} else if (next.has(profileId)) {
 				next.delete(profileId);
 			} else {
 				next.add(profileId);
@@ -1129,79 +1141,145 @@ function SpaceAddProfilesSection(input: {
 		});
 	};
 
+	return {
+		activeSelectedProfileIds,
+		effectiveSelectedProfileIds,
+		addQuery,
+		allCandidates,
+		canSubmit,
+		candidateGroups: visibleCandidateGroups,
+		clearMessages,
+		conversionRequest,
+		directoryQuery,
+		errorMessage,
+		handleConfirmConversion,
+		handleOpenChange,
+		handleSubmit,
+		isSubmitting,
+		organization,
+		organizationDirectoryCandidates,
+		personalProfilesPlan,
+		setAddQuery,
+		setConversionRequest,
+		setErrorMessage,
+		setSelectedProfileIds,
+		successMessage,
+		selectedCount,
+		toggleProfile,
+		usesOrganizationDirectory,
+	};
+}
+
+function SpaceAddProfilesSectionView({
+	input,
+	model,
+}: {
+	input: SpaceAddProfilesSectionProps;
+	model: ReturnType<typeof useSpaceAddProfilesSectionModel>;
+}) {
 	return (
 		<>
-			<SpaceAddProfilesPanel
-				addQuery={addQuery}
-				agentCandidates={agentCandidates}
-				canSubmit={canSubmit}
-				directoryHasData={Boolean(directoryQuery.data)}
-				directoryIsError={directoryQuery.isError}
-				directoryIsPending={directoryQuery.isPending}
+			<SpaceAddProfilesDialog
+				addQuery={model.addQuery}
+				candidateGroups={model.candidateGroups}
+				canSubmit={model.canSubmit}
+				dialogId={input.dialogId}
+				directoryHasData={Boolean(model.directoryQuery.data)}
+				directoryIsError={model.directoryQuery.isError}
+				directoryIsPending={model.directoryQuery.isPending}
 				emptyMessage={resolveAddMembersEmptyMessage({
-					addQuery,
-					organizationDirectoryCandidates,
-					organizationName: organization?.name ?? "Organization",
-					personalProfilesPlan,
-					usesOrganizationDirectory,
+					addQuery: model.addQuery,
+					organizationDirectoryCandidates:
+						model.organizationDirectoryCandidates,
+					organizationName: model.organization?.name ?? "Organization",
+					personalProfilesPlan: model.personalProfilesPlan,
+					usesOrganizationDirectory: model.usesOrganizationDirectory,
 				})}
-				errorMessage={errorMessage}
-				humanCandidates={humanCandidates}
-				isSubmitting={isSubmitting}
-				onAddQueryChange={setAddQuery}
-				onAddSuccess={() => input.onOpenChange(false)}
+				errorMessage={model.errorMessage}
+				finalFocus={input.finalFocus}
+				isSubmitting={model.isSubmitting}
+				onAddQueryChange={model.setAddQuery}
+				onAddSuccess={() => model.handleOpenChange(false)}
 				onClear={() => {
-					setSelectedProfileIds(new Set());
-					clearMessages();
+					model.setSelectedProfileIds(new Set());
+					model.clearMessages();
 				}}
+				onOpenChange={model.handleOpenChange}
 				onRefresh={input.onRefresh}
 				onRetryDirectory={() => {
-					directoryQuery.refetch().catch((error) => {
+					model.directoryQuery.refetch().catch((error) => {
 						console.error(
 							"Failed to reload the Organization Directory.",
 							error
 						);
 					});
 				}}
-				onSubmit={handleSubmit}
+				onSubmit={model.handleSubmit}
 				onSubmitError={(error) =>
-					setErrorMessage(formatAddProfilesError(error))
+					model.setErrorMessage(formatAddProfilesError(error))
 				}
-				onToggle={toggleProfile}
+				onToggle={model.toggleProfile}
 				open={input.open}
-				organizationName={organization?.name ?? "Organization"}
+				organizationName={model.organization?.name ?? "Organization"}
 				orgSlug={input.orgSlug}
-				selectedProfileIds={activeSelectedProfileIds}
-				setRegionNode={setRegionNode}
+				selectedCount={model.selectedCount}
+				selectedProfileIds={model.effectiveSelectedProfileIds}
 				snapshot={input.snapshot}
 				spaceId={input.spaceId}
 				spaceName={input.spaceName}
-				successMessage={successMessage}
-				usesOrganizationDirectory={usesOrganizationDirectory}
+				successMessage={model.successMessage}
+				usesOrganizationDirectory={model.usesOrganizationDirectory}
 			/>
 			<DirectMessageConversionDialog
-				defaultName={conversionRequest?.defaultName ?? ""}
-				isPending={isSubmitting}
-				onConfirm={handleConfirmConversion}
+				defaultName={model.conversionRequest?.defaultName ?? ""}
+				isPending={model.isSubmitting}
+				onConfirm={model.handleConfirmConversion}
 				onOpenChange={(open) => {
 					if (!open) {
-						setConversionRequest(null);
+						model.setConversionRequest(null);
 					}
 				}}
-				open={conversionRequest !== null}
-				selectedNames={conversionRequest?.selectedNames ?? []}
+				open={model.conversionRequest !== null}
+				selectedNames={model.conversionRequest?.selectedNames ?? []}
 			/>
 		</>
 	);
 }
 
 type SpaceAddMembersCandidateSummary = {
+	alreadyMember?: boolean;
+	agentControllerRef?: string | null;
+	availabilityCategory?: "available" | "checking" | "offline" | "unavailable";
+	availabilityLabel?: string | null;
+	avatarImageUrl?: string | null;
+	createdAt?: string | null;
 	description?: string;
 	isCenterAgent?: boolean;
+	lastUsedAt?: string | null;
+	operationalStatus?: "checking" | "idle" | "paused" | "working";
+	ownerHumanProfileId?: string | null;
+	ownerUserId?: string;
 	profileId: string;
 	profileKind: "agent" | "human";
 	profileName: string;
 	searchText: string;
+};
+
+type SpaceAddMembersPersonGroup = {
+	agentCandidates: readonly SpaceAddMembersCandidateSummary[];
+	avatarImageUrl?: string | null;
+	humanAlreadyMember: boolean;
+	humanCandidate: SpaceAddMembersCandidateSummary | null;
+	id: string;
+	lastActiveAt: string | null;
+	name: string;
+	searchText: string;
+};
+
+type SpaceAddMembersCandidateGroups = {
+	alreadyJoinedCount: number;
+	organizationCandidates: readonly SpaceAddMembersCandidateSummary[];
+	personGroups: readonly SpaceAddMembersPersonGroup[];
 };
 
 async function executeSpaceAddProfilesMutation(input: {
@@ -1238,20 +1316,22 @@ async function executeSpaceAddProfilesMutation(input: {
 	});
 }
 
-function SpaceAddProfilesPanel(input: {
+type SpaceAddProfilesDialogProps = {
 	addQuery: string;
-	agentCandidates: readonly SpaceAddMembersCandidateSummary[];
 	canSubmit: boolean;
+	candidateGroups: SpaceAddMembersCandidateGroups;
 	directoryHasData: boolean;
 	directoryIsError: boolean;
 	directoryIsPending: boolean;
+	dialogId: string;
 	emptyMessage: string;
 	errorMessage: string | null;
-	humanCandidates: readonly SpaceAddMembersCandidateSummary[];
+	finalFocus: RefObject<HTMLElement | null>;
 	isSubmitting: boolean;
 	onAddQueryChange: (query: string) => void;
 	onAddSuccess: () => void;
 	onClear: () => void;
+	onOpenChange: (open: boolean) => void;
 	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRetryDirectory: () => void;
 	onSubmit: () => Promise<void>;
@@ -1260,123 +1340,132 @@ function SpaceAddProfilesPanel(input: {
 	open: boolean;
 	organizationName: string;
 	orgSlug: string;
-	setRegionNode: (node: HTMLDivElement | null) => void;
 	selectedProfileIds: ReadonlySet<string>;
+	selectedCount: number;
 	snapshot: SpaceMembersSnapshot | null;
 	spaceId?: string;
 	spaceName?: string | null;
 	successMessage: string | null;
 	usesOrganizationDirectory: boolean;
+};
+
+function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
+	return (
+		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
+			<DialogContent
+				className="@container sm:max-w-2xl"
+				finalFocus={input.finalFocus}
+				id={input.dialogId}
+			>
+				<SpaceAddProfilesDialogContent input={input} />
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function SpaceAddProfilesDialogContent({
+	input,
+}: {
+	input: SpaceAddProfilesDialogProps;
 }) {
-	const { setRegionNode } = input;
-	const searchLabel = input.usesOrganizationDirectory
-		? "Search members and agents"
-		: "Search profiles";
+	const searchLabel = "Search people and agents";
 	const description = input.usesOrganizationDirectory
-		? `Choose people and agents from ${input.organizationName}.`
-		: "Choose profiles to add to this Space.";
+		? `Choose people and their agents from ${input.organizationName}.`
+		: "Choose people and their agents to add to this Space.";
 	const waitsForDirectory =
 		input.usesOrganizationDirectory && !input.directoryHasData;
 	const showCandidates = Boolean(
 		input.snapshot &&
 			(!input.usesOrganizationDirectory || input.directoryHasData)
 	);
-
 	return (
-		<AnimatePresence initial={false}>
-			{input.open ? (
-				// The wrapper owns the collapse so the section's full layout
-				// footprint reaches exactly zero before unmount: the border lives
-				// on the inner section (clipped at height 0 instead of leaving a
-				// 2px sliver), the negative bottom margin cancels the parent's
-				// gap-4 inside the same spring, and the exit spring drops bounce
-				// so AnimatePresence unmounts the moment the value settles.
-				<motion.div
-					animate={{ height: "auto", marginBottom: "0rem", opacity: 1 }}
-					className="overflow-hidden"
-					exit={{
-						height: 0,
-						marginBottom: "-1rem",
-						opacity: 0,
-						transition: { ...springs.moderate, bounce: 0 },
-					}}
-					initial={{ height: 0, marginBottom: "-1rem", opacity: 0 }}
-					transition={springs.moderate}
-				>
-					<div
-						className="@container rounded-lg border border-border bg-card"
-						id={SPACE_ADD_MEMBERS_REGION_ID}
-						ref={setRegionNode}
-					>
-						<div className="flex flex-col gap-3 p-3">
-							<div className="flex @min-[20rem]:flex-row flex-col @min-[20rem]:items-start @min-[20rem]:justify-between gap-2">
-								<h3 className="font-medium text-sm">Add members</h3>
-								{input.spaceId ? (
-									<SpaceCreateProfileButton
-										className="@min-[20rem]:w-auto w-full"
-										label="Create Agent"
-										onAfterJoin={async (profile) => {
-											input.onAddSuccess();
-											await input.onRefresh(
-												profile.profileKind === "agent"
-													? { agentProfileIds: [profile.openMeldProfileId] }
-													: undefined
-											);
-										}}
-										orgSlug={input.orgSlug}
-										spaceId={input.spaceId}
-										spaceName={input.spaceName ?? null}
-									/>
-								) : null}
-							</div>
-							<p className="w-full text-muted-foreground text-xs">
-								{description}
-							</p>
-							<Input
-								aria-label={searchLabel}
-								autoComplete="off"
-								onChange={(event) => input.onAddQueryChange(event.target.value)}
-								placeholder={searchLabel}
-								type="search"
-								value={input.addQuery}
-							/>
-							<SpaceAddProfilesStatus
-								errorMessage={input.errorMessage}
-								snapshot={input.snapshot}
-								successMessage={input.successMessage}
-							/>
-							<SpaceAddProfilesDirectoryState
-								isError={waitsForDirectory && input.directoryIsError}
-								isPending={waitsForDirectory && input.directoryIsPending}
-								onRetry={input.onRetryDirectory}
-								organizationName={input.organizationName}
-							/>
-							{showCandidates ? (
-								<SpaceAddMembersCandidates
-									agentCandidates={input.agentCandidates}
-									emptyMessage={input.emptyMessage}
-									humanCandidates={input.humanCandidates}
-									humanGroupLabel={
-										input.usesOrganizationDirectory ? "Members" : "Humans"
-									}
-									isSubmitting={input.isSubmitting}
-									onToggle={input.onToggle}
-									selectedProfileIds={input.selectedProfileIds}
-								/>
-							) : null}
-							<SpaceAddProfilesFooter
-								canSubmit={input.canSubmit}
-								isSubmitting={input.isSubmitting}
-								onClear={input.onClear}
-								onSubmit={input.onSubmit}
-								onSubmitError={input.onSubmitError}
-								selectedCount={input.selectedProfileIds.size}
-							/>
-						</div>
-					</div>
-				</motion.div>
+		<div className="flex flex-col gap-3">
+			<SpaceAddProfilesDialogHeader />
+			<DialogDescription>{description}</DialogDescription>
+			{input.spaceId ? (
+				<div className="flex flex-wrap items-center gap-2">
+					<SpaceCreateProfileButton
+						label="New Agent"
+						onAfterJoin={async (profile) => {
+							input.onAddSuccess();
+							await input.onRefresh(
+								profile.profileKind === "agent"
+									? { agentProfileIds: [profile.openMeldProfileId] }
+									: undefined
+							);
+						}}
+						orgSlug={input.orgSlug}
+						primary={true}
+						spaceId={input.spaceId}
+						spaceName={input.spaceName ?? null}
+					/>
+					{input.usesOrganizationDirectory ? (
+						<SpaceInvitationsSection spaceId={input.spaceId} />
+					) : null}
+				</div>
 			) : null}
-		</AnimatePresence>
+			<div className="relative">
+				<MagnifyingGlassIcon
+					aria-hidden="true"
+					className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+				/>
+				<Input
+					aria-label={searchLabel}
+					autoComplete="off"
+					autoFocus
+					className="pl-9"
+					onChange={(event) => input.onAddQueryChange(event.target.value)}
+					placeholder={searchLabel}
+					type="search"
+					value={input.addQuery}
+				/>
+			</div>
+			<SpaceAddProfilesStatus
+				errorMessage={input.errorMessage}
+				snapshot={input.snapshot}
+				successMessage={input.successMessage}
+			/>
+			<SpaceAddProfilesDirectoryState
+				isError={waitsForDirectory && input.directoryIsError}
+				isPending={waitsForDirectory && input.directoryIsPending}
+				onRetry={input.onRetryDirectory}
+				organizationName={input.organizationName}
+			/>
+			{showCandidates ? <SpaceAddProfilesCandidateList input={input} /> : null}
+			<SpaceAddProfilesFooter
+				canSubmit={input.canSubmit}
+				isSubmitting={input.isSubmitting}
+				onClear={input.onClear}
+				onSubmit={input.onSubmit}
+				onSubmitError={input.onSubmitError}
+				selectedCount={input.selectedCount}
+			/>
+		</div>
+	);
+}
+
+function SpaceAddProfilesDialogHeader() {
+	return (
+		<DialogHeader>
+			<DialogTitle>Add People or Agents</DialogTitle>
+		</DialogHeader>
+	);
+}
+
+function SpaceAddProfilesCandidateList({
+	input,
+}: {
+	input: SpaceAddProfilesDialogProps;
+}) {
+	return (
+		<SpaceAddMembersCandidates
+			candidateGroups={input.candidateGroups}
+			emptyMessage={input.emptyMessage}
+			isSubmitting={input.isSubmitting}
+			onToggle={input.onToggle}
+			searchActive={input.addQuery.trim().length > 0}
+			selectedProfileIds={input.selectedProfileIds}
+		/>
 	);
 }
 
@@ -1452,66 +1541,244 @@ function SpaceAddProfilesFooter(input: {
 }
 
 function SpaceAddMembersCandidates(input: {
-	agentCandidates: readonly SpaceAddMembersCandidateSummary[];
+	candidateGroups: SpaceAddMembersCandidateGroups;
 	emptyMessage: string;
-	humanCandidates: readonly SpaceAddMembersCandidateSummary[];
-	humanGroupLabel: string;
 	isSubmitting: boolean;
 	onToggle: (profileId: string) => void;
+	searchActive: boolean;
 	selectedProfileIds: ReadonlySet<string>;
 }) {
-	if (input.agentCandidates.length + input.humanCandidates.length === 0) {
+	const [collapsedGroupIds, setCollapsedGroupIds] = useState<
+		ReadonlySet<string>
+	>(() => new Set());
+	const candidateCount =
+		input.candidateGroups.personGroups.reduce(
+			(count, group) =>
+				count + group.agentCandidates.length + (group.humanCandidate ? 1 : 0),
+			0
+		) + input.candidateGroups.organizationCandidates.length;
+	if (candidateCount === 0) {
 		return (
 			<p className="text-muted-foreground text-sm">{input.emptyMessage}</p>
 		);
 	}
 
 	return (
-		<div className="-mx-1 flex max-h-72 flex-col gap-3 overflow-y-auto">
+		<div
+			className={cn(
+				"-mx-1 flex max-h-[min(32rem,calc(100dvh-18rem))] min-h-40 flex-col gap-4 overflow-y-auto px-1",
+				input.isSubmitting && "pointer-events-none opacity-70"
+			)}
+		>
 			<SpaceAddMembersCandidateGroup
-				candidates={input.agentCandidates}
-				isSubmitting={input.isSubmitting}
-				label="Agents"
+				candidates={input.candidateGroups.organizationCandidates}
+				label="Organization"
 				onToggle={input.onToggle}
 				selectedProfileIds={input.selectedProfileIds}
 			/>
-			<SpaceAddMembersCandidateGroup
-				candidates={input.humanCandidates}
-				isSubmitting={input.isSubmitting}
-				label={input.humanGroupLabel}
-				onToggle={input.onToggle}
-				selectedProfileIds={input.selectedProfileIds}
-			/>
+			{input.candidateGroups.personGroups.length > 0 ? (
+				<section aria-labelledby="space-add-members-people-heading">
+					<h3
+						className="px-2 pb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wider"
+						id="space-add-members-people-heading"
+					>
+						People &amp; Agents
+					</h3>
+					<div className="flex flex-col gap-1">
+						{input.candidateGroups.personGroups.map((group) => {
+							const expanded =
+								input.searchActive || !collapsedGroupIds.has(group.id);
+							return (
+								<SpaceAddMembersPersonGroupView
+									expanded={expanded}
+									group={group}
+									key={group.id}
+									onExpandedChange={(nextExpanded) => {
+										setCollapsedGroupIds((current) => {
+											const next = new Set(current);
+											if (nextExpanded) {
+												next.delete(group.id);
+											} else {
+												next.add(group.id);
+											}
+											return next;
+										});
+									}}
+									onToggle={input.onToggle}
+									selectedProfileIds={input.selectedProfileIds}
+								/>
+							);
+						})}
+					</div>
+				</section>
+			) : null}
+		</div>
+	);
+}
+
+function SpaceAddMembersPersonGroupView(input: {
+	expanded: boolean;
+	group: SpaceAddMembersPersonGroup;
+	onExpandedChange: (expanded: boolean) => void;
+	onToggle: (profileId: string) => void;
+	selectedProfileIds: ReadonlySet<string>;
+}) {
+	const selectedAgentCount = input.group.agentCandidates.filter(
+		(candidate) =>
+			candidate.ownerHumanProfileId === input.group.humanCandidate?.profileId &&
+			input.selectedProfileIds.has(candidate.profileId)
+	).length;
+	let humanDescription = resolvePersonActivityLabel(input.group.lastActiveAt);
+	if (input.group.humanAlreadyMember) {
+		humanDescription = "In this Space";
+	} else if (selectedAgentCount > 0) {
+		humanDescription = `Joins with ${selectedAgentCount === 1 ? "selected Agent" : `${String(selectedAgentCount)} selected Agents`}`;
+	}
+	return (
+		<SpacePersonAgentGroup
+			agentsId={`space-add-members-person-${input.group.id}-agents`}
+			expanded={input.expanded}
+			header={
+				<div className="min-w-0 flex-1">
+					{input.group.humanCandidate ? (
+						<CheckboxGroup
+							checkedIndices={
+								input.selectedProfileIds.has(
+									input.group.humanCandidate.profileId
+								)
+									? new Set([0])
+									: new Set()
+							}
+							className="w-full"
+						>
+							<CheckboxItem
+								adornment={
+									<SpaceProfileIcon
+										agentControllerRef={null}
+										avatarImageUrl={input.group.avatarImageUrl}
+										profileId={input.group.humanCandidate.profileId}
+										profileKind="human"
+										profileName={input.group.name}
+										size="sm"
+									/>
+								}
+								checked={input.selectedProfileIds.has(
+									input.group.humanCandidate.profileId
+								)}
+								description={humanDescription}
+								index={0}
+								label={input.group.name}
+								onToggle={() =>
+									input.onToggle(input.group.humanCandidate?.profileId ?? "")
+								}
+							/>
+						</CheckboxGroup>
+					) : (
+						<div className="flex min-h-11 items-center gap-3 px-3 py-2">
+							<SpaceProfileIcon
+								agentControllerRef={null}
+								avatarImageUrl={input.group.avatarImageUrl}
+								profileId={input.group.id}
+								profileKind="human"
+								profileName={input.group.name}
+								size="sm"
+							/>
+							<div className="min-w-0">
+								<p className="truncate text-sm">{input.group.name}</p>
+								<p className="text-muted-foreground text-xs">
+									{humanDescription}
+								</p>
+							</div>
+						</div>
+					)}
+				</div>
+			}
+			name={input.group.name}
+			onExpandedChange={input.onExpandedChange}
+			showToggle={input.group.agentCandidates.length > 0}
+			toggleClassName="mt-1"
+		>
+			{input.group.agentCandidates.length > 0 ? (
+				<div className="ml-9">
+					<SpaceAddMembersCandidateGroup
+						candidates={input.group.agentCandidates}
+						onToggle={input.onToggle}
+						selectedProfileIds={input.selectedProfileIds}
+					/>
+				</div>
+			) : null}
+		</SpacePersonAgentGroup>
+	);
+}
+
+function SpacePersonAgentGroup(input: {
+	agentsId: string;
+	children: ReactNode;
+	expanded: boolean;
+	header: ReactNode;
+	name: string;
+	onExpandedChange: (expanded: boolean) => void;
+	showToggle: boolean;
+	toggleClassName?: string;
+}) {
+	return (
+		<div>
+			<div className="flex items-start gap-1">
+				{input.header}
+				{input.showToggle ? (
+					<Button
+						aria-controls={input.agentsId}
+						aria-expanded={input.expanded}
+						aria-label={`${input.expanded ? "Collapse" : "Expand"} ${input.name}`}
+						className={cn("shrink-0", input.toggleClassName)}
+						onClick={() => input.onExpandedChange(!input.expanded)}
+						size="icon-xs"
+						type="button"
+						variant="ghost"
+					>
+						{input.expanded ? <CaretDownIcon /> : <CaretRightIcon />}
+					</Button>
+				) : null}
+			</div>
+			{input.expanded && input.showToggle ? (
+				<div id={input.agentsId}>{input.children}</div>
+			) : null}
 		</div>
 	);
 }
 
 function SpaceAddMembersCandidateGroup(input: {
 	candidates: readonly SpaceAddMembersCandidateSummary[];
-	isSubmitting: boolean;
-	label: string;
+	label?: string;
 	onToggle: (profileId: string) => void;
 	selectedProfileIds: ReadonlySet<string>;
 }) {
 	if (input.candidates.length === 0) {
 		return null;
 	}
-	const headingId = `space-add-members-group-${input.label.toLowerCase()}`;
+	const headingId = input.label
+		? `space-add-members-group-${input.label.toLowerCase()}`
+		: undefined;
 	const checkedIndices = new Set<number>();
 	for (const [index, candidate] of input.candidates.entries()) {
-		if (input.selectedProfileIds.has(candidate.profileId)) {
+		if (
+			candidate.alreadyMember ||
+			input.selectedProfileIds.has(candidate.profileId)
+		) {
 			checkedIndices.add(index);
 		}
 	}
 
 	return (
-		<div className={cn(input.isSubmitting && "pointer-events-none opacity-70")}>
-			<h3
-				className="px-3 pb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wider"
-				id={headingId}
-			>
-				{input.label}
-			</h3>
+		<div>
+			{input.label ? (
+				<h3
+					className="px-2 pb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wider"
+					id={headingId}
+				>
+					{input.label}
+				</h3>
+			) : null}
 			<CheckboxGroup
 				aria-labelledby={headingId}
 				checkedIndices={checkedIndices}
@@ -1519,11 +1786,32 @@ function SpaceAddMembersCandidateGroup(input: {
 			>
 				{input.candidates.map((candidate, index) => (
 					<CheckboxItem
-						checked={input.selectedProfileIds.has(candidate.profileId)}
-						description={candidate.description}
+						adornment={
+							<SpaceProfileIcon
+								agentControllerRef={candidate.agentControllerRef ?? null}
+								avatarImageUrl={candidate.avatarImageUrl}
+								isCenterAgent={candidate.isCenterAgent}
+								profileId={candidate.profileId}
+								profileKind={candidate.profileKind}
+								profileName={candidate.profileName}
+							/>
+						}
+						checked={
+							candidate.alreadyMember ||
+							input.selectedProfileIds.has(candidate.profileId)
+						}
+						description={resolveAgentCandidateDescription(candidate)}
+						disabled={candidate.alreadyMember}
 						index={index}
 						key={candidate.profileId}
 						label={candidate.profileName}
+						labelAdornment={
+							candidate.isCenterAgent ? (
+								<Badge className="h-4 px-1.5 text-[10px]" variant="secondary">
+									Remote
+								</Badge>
+							) : undefined
+						}
 						onToggle={() => input.onToggle(candidate.profileId)}
 					/>
 				))}
@@ -1587,11 +1875,7 @@ function toSpaceProfileAddProfile(
 	};
 }
 
-type OrganizationDirectoryAddCandidates = {
-	agentCandidates: readonly SpaceAddMembersCandidateSummary[];
-	alreadyJoinedCount: number;
-	memberCandidates: readonly SpaceAddMembersCandidateSummary[];
-};
+type OrganizationDirectoryAddCandidates = SpaceAddMembersCandidateGroups;
 
 function buildOrganizationDirectoryAddCandidates(input: {
 	directory: OrganizationSpaceProfileCandidates | null;
@@ -1603,66 +1887,118 @@ function buildOrganizationDirectoryAddCandidates(input: {
 		...(input.snapshot?.agents.map((member) => member.profileId) ?? []),
 	]);
 	let alreadyJoinedCount = 0;
-	const memberCandidates = (input.directory?.members ?? []).flatMap(
-		(member): readonly SpaceAddMembersCandidateSummary[] => {
-			const profile = member.humanProfile;
-			if (profile?.status !== "active") {
-				return [];
-			}
-			if (joinedProfileIds.has(profile.profileId)) {
-				alreadyJoinedCount += 1;
-				return [];
-			}
-			return [
-				{
-					description: `@${profile.profileHandle} · ${member.memberName}`,
-					profileId: profile.profileId,
-					profileKind: "human",
-					profileName: profile.profileName,
-					searchText: normalizeAddMembersSearchText([
-						profile.profileName,
-						profile.profileHandle,
-						member.memberName,
-					]),
-				},
-			];
-		}
-	);
-	const agentCandidates = (input.directory?.agentProfiles ?? []).flatMap(
+	const visibleAgents = (input.directory?.agentProfiles ?? []).flatMap(
 		(agent): readonly SpaceAddMembersCandidateSummary[] => {
 			if (agent.status !== "active") {
 				return [];
 			}
-			if (joinedProfileIds.has(agent.profileId)) {
+			const alreadyMember = joinedProfileIds.has(agent.profileId);
+			if (alreadyMember) {
 				alreadyJoinedCount += 1;
-				return [];
 			}
-			const description = resolveOrganizationAgentDescription({
-				isCenterAgent: agent.isCenterAgent === true,
-				organizationName: input.organizationName,
-				ownerName: agent.ownerName,
-			});
+			const availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
+				agent.readiness.agentWakeAvailability
+			);
 			return [
 				{
-					description,
+					alreadyMember,
+					agentControllerRef: agent.agentControllerRef,
+					availabilityCategory,
+					availabilityLabel: agent.readiness.agentWakeAvailability.badgeLabel,
+					avatarImageUrl: agent.avatarUrl,
+					createdAt: agent.createdAt,
+					description: agent.isCenterAgent
+						? `Center Agent for ${input.organizationName}`
+						: undefined,
 					isCenterAgent: agent.isCenterAgent === true,
+					lastUsedAt: agent.lastUsedAt,
+					operationalStatus: agent.operationalContext?.status,
 					profileId: agent.profileId,
 					profileKind: "agent",
 					profileName: agent.profileName,
+					ownerUserId: agent.ownerUserId,
 					searchText: normalizeAddMembersSearchText([
 						agent.profileName,
 						agent.profileHandle,
 						agent.ownerName,
-						description,
+						agent.readiness.agentWakeAvailability.badgeLabel,
 					]),
 				},
 			];
 		}
 	);
+	const organizationCandidates = visibleAgents
+		.filter((agent) => agent.isCenterAgent)
+		.sort(compareAddMembersCandidates);
+	const agentsByOwnerUserId = new Map<
+		string,
+		SpaceAddMembersCandidateSummary[]
+	>();
+	for (const agent of visibleAgents) {
+		if (agent.isCenterAgent || !agent.ownerUserId) {
+			continue;
+		}
+		const ownerAgents = agentsByOwnerUserId.get(agent.ownerUserId) ?? [];
+		ownerAgents.push(agent);
+		agentsByOwnerUserId.set(agent.ownerUserId, ownerAgents);
+	}
+	const personGroups = (input.directory?.members ?? [])
+		.flatMap((member): readonly SpaceAddMembersPersonGroup[] => {
+			const profile = member.humanProfile;
+			const agentCandidates = (
+				agentsByOwnerUserId.get(member.userId) ?? []
+			).sort(compareAddMembersCandidates);
+			if (profile?.status !== "active" && agentCandidates.length === 0) {
+				return [];
+			}
+			const humanAlreadyMember = Boolean(
+				profile && joinedProfileIds.has(profile.profileId)
+			);
+			if (humanAlreadyMember) {
+				alreadyJoinedCount += 1;
+			}
+			const humanCandidate =
+				profile?.status === "active" && !humanAlreadyMember
+					? {
+							avatarImageUrl: member.avatarImageUrl,
+							profileId: profile.profileId,
+							profileKind: "human" as const,
+							profileName: profile.profileName,
+							searchText: normalizeAddMembersSearchText([
+								profile.profileName,
+								profile.profileHandle,
+								member.memberName,
+							]),
+						}
+					: null;
+			if (!(humanCandidate || agentCandidates.length > 0)) {
+				return [];
+			}
+			for (const agent of agentCandidates) {
+				agent.ownerHumanProfileId = profile?.profileId ?? null;
+			}
+			return [
+				{
+					agentCandidates,
+					avatarImageUrl: member.avatarImageUrl,
+					humanAlreadyMember,
+					humanCandidate,
+					id: member.userId,
+					lastActiveAt: member.lastActiveAt,
+					name: member.memberName,
+					searchText: normalizeAddMembersSearchText([
+						member.memberName,
+						profile?.profileName,
+						profile?.profileHandle,
+					]),
+				},
+			];
+		})
+		.sort(compareAddMembersPeople);
 	return {
-		agentCandidates: [...agentCandidates].sort(compareAddMembersCandidates),
 		alreadyJoinedCount,
-		memberCandidates: [...memberCandidates].sort(compareAddMembersCandidates),
+		organizationCandidates,
+		personGroups,
 	};
 }
 
@@ -1674,7 +2010,9 @@ function toAddMembersCandidateSummary(
 	}
 	const ownerName = candidate.profile.ownerName?.trim();
 	return {
-		...(ownerName ? { description: `Owned by ${ownerName}` } : {}),
+		createdAt: candidate.profile.createdAt,
+		lastUsedAt: candidate.profile.lastUsedAt,
+		ownerUserId: candidate.profile.ownerUserId ?? undefined,
 		profileId: candidate.profileId,
 		profileKind: candidate.profileKind,
 		profileName: candidate.profileName,
@@ -1683,20 +2021,6 @@ function toAddMembersCandidateSummary(
 			ownerName,
 		]),
 	};
-}
-
-function resolveOrganizationAgentDescription(input: {
-	isCenterAgent: boolean;
-	organizationName: string;
-	ownerName?: string;
-}): string {
-	if (input.isCenterAgent) {
-		return `Center Agent for ${input.organizationName}`;
-	}
-	if (input.ownerName) {
-		return `Owned by ${input.ownerName}`;
-	}
-	return "Organization Agent";
 }
 
 function normalizeAddMembersSearchText(
@@ -1708,14 +2032,211 @@ function normalizeAddMembersSearchText(
 		.toLocaleLowerCase();
 }
 
+function buildSelectableAddMemberProfileIds(
+	candidates: readonly SpaceAddMembersCandidateSummary[]
+): ReadonlySet<string> {
+	const profileIds = new Set<string>();
+	for (const candidate of candidates) {
+		if (!candidate.alreadyMember) {
+			profileIds.add(candidate.profileId);
+		}
+	}
+	return profileIds;
+}
+
 function compareAddMembersCandidates(
 	left: SpaceAddMembersCandidateSummary,
 	right: SpaceAddMembersCandidateSummary
 ): number {
+	if (left.alreadyMember !== right.alreadyMember) {
+		return left.alreadyMember ? -1 : 1;
+	}
 	if (left.isCenterAgent !== right.isCenterAgent) {
 		return left.isCenterAgent ? -1 : 1;
 	}
+	const availabilityOrder = {
+		available: 0,
+		checking: 1,
+		offline: 2,
+		unavailable: 3,
+	} as const;
+	const leftAvailability = left.availabilityCategory
+		? availabilityOrder[left.availabilityCategory]
+		: 4;
+	const rightAvailability = right.availabilityCategory
+		? availabilityOrder[right.availabilityCategory]
+		: 4;
+	if (leftAvailability !== rightAvailability) {
+		return leftAvailability - rightAvailability;
+	}
+	const activeWorkOrder = { working: 0, paused: 1, idle: 2, checking: 3 };
+	const leftWork = left.operationalStatus
+		? activeWorkOrder[left.operationalStatus]
+		: 4;
+	const rightWork = right.operationalStatus
+		? activeWorkOrder[right.operationalStatus]
+		: 4;
+	if (leftWork !== rightWork) {
+		return leftWork - rightWork;
+	}
+	const recency = compareOptionalDatesDescending(
+		left.lastUsedAt,
+		right.lastUsedAt
+	);
+	if (recency !== 0) {
+		return recency;
+	}
 	return left.profileName.localeCompare(right.profileName);
+}
+
+function compareAddMembersPeople(
+	left: SpaceAddMembersPersonGroup,
+	right: SpaceAddMembersPersonGroup
+): number {
+	const activity = compareOptionalDatesDescending(
+		left.lastActiveAt,
+		right.lastActiveAt
+	);
+	return activity || left.name.localeCompare(right.name);
+}
+
+function compareOptionalDatesDescending(
+	left: string | null | undefined,
+	right: string | null | undefined
+): number {
+	const leftTime = left ? Date.parse(left) : 0;
+	const rightTime = right ? Date.parse(right) : 0;
+	return rightTime - leftTime;
+}
+
+function buildPersonalAddMemberGroups(input: {
+	alreadyJoinedCandidates: readonly SpaceProfileAddCandidate[];
+	selectableCandidates: readonly SpaceProfileAddCandidate[];
+}): SpaceAddMembersCandidateGroups {
+	const groupsByOwner = new Map<string, SpaceAddMembersPersonGroup>();
+	for (const { alreadyMember, candidate } of [
+		...input.alreadyJoinedCandidates.map((candidate) => ({
+			alreadyMember: true,
+			candidate,
+		})),
+		...input.selectableCandidates.map((candidate) => ({
+			alreadyMember: false,
+			candidate,
+		})),
+	]) {
+		const summary = {
+			...toAddMembersCandidateSummary(candidate),
+			alreadyMember,
+		};
+		const ownerId = candidate.profile.ownerUserId ?? "personal";
+		const ownerName = candidate.profile.ownerName?.trim() || "You";
+		const current = groupsByOwner.get(ownerId) ?? {
+			agentCandidates: [],
+			humanAlreadyMember: false,
+			humanCandidate: null,
+			id: ownerId,
+			lastActiveAt: null,
+			name: ownerName,
+			searchText: normalizeAddMembersSearchText([ownerName]),
+		};
+		if (summary.profileKind === "human") {
+			current.humanAlreadyMember = alreadyMember;
+			current.humanCandidate = alreadyMember ? null : summary;
+			current.name = summary.profileName;
+			current.searchText = normalizeAddMembersSearchText([
+				summary.profileName,
+				ownerName,
+			]);
+		} else {
+			(current.agentCandidates as SpaceAddMembersCandidateSummary[]).push(
+				summary
+			);
+		}
+		groupsByOwner.set(ownerId, current);
+	}
+	return {
+		alreadyJoinedCount: input.alreadyJoinedCandidates.length,
+		organizationCandidates: [],
+		personGroups: [...groupsByOwner.values()].map((group) => ({
+			...group,
+			agentCandidates: [...group.agentCandidates].sort(
+				compareAddMembersCandidates
+			),
+		})),
+	};
+}
+
+function filterAddMemberGroups(
+	groups: SpaceAddMembersCandidateGroups,
+	query: string
+): SpaceAddMembersCandidateGroups {
+	if (!query) {
+		return groups;
+	}
+	return {
+		...groups,
+		organizationCandidates: groups.organizationCandidates.filter((candidate) =>
+			candidate.searchText.includes(query)
+		),
+		personGroups: groups.personGroups.flatMap((group) => {
+			if (group.searchText.includes(query)) {
+				return [group];
+			}
+			const agentCandidates = group.agentCandidates.filter((candidate) =>
+				candidate.searchText.includes(query)
+			);
+			return agentCandidates.length > 0 ? [{ ...group, agentCandidates }] : [];
+		}),
+	};
+}
+
+function resolveEffectiveAddMemberProfileIds(input: {
+	candidateGroups: SpaceAddMembersCandidateGroups;
+	selectedProfileIds: ReadonlySet<string>;
+}): ReadonlySet<string> {
+	const effectiveIds = new Set(input.selectedProfileIds);
+	for (const group of input.candidateGroups.personGroups) {
+		if (
+			group.humanCandidate &&
+			group.agentCandidates.some(
+				(agent) =>
+					input.selectedProfileIds.has(agent.profileId) &&
+					agent.ownerHumanProfileId === group.humanCandidate?.profileId
+			)
+		) {
+			effectiveIds.add(group.humanCandidate.profileId);
+		}
+	}
+	return effectiveIds;
+}
+
+function resolvePersonActivityLabel(
+	lastActiveAt: string | null
+): string | undefined {
+	return (
+		resolveDirectoryHumanProfileActivityLabel({
+			lastActiveAt,
+			profileStatus: "active",
+		}) ?? undefined
+	);
+}
+
+function resolveAgentCandidateDescription(
+	candidate: SpaceAddMembersCandidateSummary
+): string | undefined {
+	if (candidate.alreadyMember) {
+		return "In this Space";
+	}
+	if (candidate.description) {
+		return candidate.description;
+	}
+	if (candidate.operationalStatus === "working") {
+		return "Working now";
+	}
+	if (candidate.operationalStatus === "paused") {
+		return "Paused";
+	}
+	return candidate.availabilityLabel ?? undefined;
 }
 
 function resolveAddMembersEmptyMessage(input: {
@@ -1780,7 +2301,6 @@ function SpaceMembersList(input: {
 	currentOwnerUserId: string | null;
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
-	editableAgentProfileIds: ReadonlySet<string>;
 	filteredDirectory: ReturnType<typeof filterSpaceMemberDirectory> | null;
 	isLoading: boolean;
 	isAgentWakeAvailabilityCheckPending: (profileId: string) => boolean;
@@ -1791,7 +2311,6 @@ function SpaceMembersList(input: {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onCheckAgentWakeAvailability: (profileId: string) => Promise<void>;
-	onEditAgentProfile?: (profileId: string) => void;
 	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRemoveMember?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	orgSlug: string;
@@ -1800,6 +2319,37 @@ function SpaceMembersList(input: {
 	snapshot: SpaceMembersSnapshot | null;
 }) {
 	const [isRetryPending, setIsRetryPending] = useState(false);
+	const [collapsedPersonProfileIds, setCollapsedPersonProfileIds] = useState<
+		ReadonlySet<string>
+	>(() => new Set());
+	const entriesByProfileId = useMemo(
+		() => buildSpaceMemberDirectoryEntryByProfileId(input.snapshot),
+		[input.snapshot]
+	);
+	const directory = useMemo(
+		() =>
+			input.snapshot
+				? buildSpaceMemberDirectoryForStatusOrder(
+						buildSpaceMemberDirectory(input.snapshot)
+					)
+				: null,
+		[input.snapshot]
+	);
+	const roster = useMemo(
+		() =>
+			buildSpaceMembersRoster({
+				centerAgentProfileId: input.centerAgentProfileId,
+				directory,
+				filteredDirectory: input.filteredDirectory,
+				searchActive: input.query.trim().length > 0,
+			}),
+		[
+			input.centerAgentProfileId,
+			directory,
+			input.filteredDirectory,
+			input.query,
+		]
+	);
 	const activeWakeDisplayTargetProfileIds =
 		input.activeWakeDisplayTargetProfileIds ??
 		EMPTY_ACTIVE_WAKE_DISPLAY_TARGET_PROFILE_IDS;
@@ -1814,13 +2364,70 @@ function SpaceMembersList(input: {
 			snapshot: input.snapshot,
 		});
 	const creatorProfileIds = buildSpaceCreatorProfileIds(input.snapshot);
+	const requiredAgentOwnerHumanProfileIds =
+		buildRequiredAgentOwnerHumanProfileIds({
+			centerAgentProfileId: input.centerAgentProfileId,
+			snapshot: input.snapshot,
+		});
+	const renderMemberRow = (entry: SpaceMemberDirectoryEntry) => {
+		const recoveryPlan =
+			input.agentRecoveryPlansByProfileId.get(entry.profileId) ?? null;
+		// Display-only Wake smoothing. Skip it while a recovery plan is active so
+		// the real recovery state is never masked.
+		const wakeDisplayOverride =
+			recoveryPlan && recoveryPlan.kind !== "none"
+				? undefined
+				: input.displayWakeOverrideByProfileId?.get(entry.profileId);
+		const wakeDisplayEntry = wakeDisplayOverride
+			? applyWakeAvailabilityDisplayOverride(entry, wakeDisplayOverride)
+			: undefined;
+		const removeMemberAction =
+			input.onRemoveMember &&
+			canShowRemoveMemberAction({
+				creatorProfileIds,
+				currentProfileId: input.currentProfileId,
+				profileId: entry.profileId,
+				requiredAgentOwnerHumanProfileIds,
+			})
+				? input.onRemoveMember
+				: undefined;
+		return (
+			<SpaceMemberRow
+				agentRecoveryPlan={recoveryPlan}
+				centerAgentProfileId={input.centerAgentProfileId}
+				currentOwnerUserId={input.currentOwnerUserId}
+				currentProfileId={input.currentProfileId}
+				density="compact"
+				entriesByProfileId={entriesByProfileId}
+				entry={entry}
+				isAgentRecoveryPending={input.isAgentRecoveryPending(entry.profileId)}
+				isAgentWakeAvailabilityCheckPending={input.isAgentWakeAvailabilityCheckPending(
+					entry.profileId
+				)}
+				memberTransientState={resolveEntryMemberTransientState({
+					activeWakeDisplayTargetProfileIds,
+					entry,
+					memberTransientStatesByProfileId,
+				})}
+				modelCatalog={input.modelCatalog}
+				onAgentRecoveryAction={input.onAgentRecoveryAction}
+				onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
+				onRemoveFromSpace={removeMemberAction}
+				orgSlug={input.orgSlug}
+				prepareSetupHref={input.prepareSetupHref}
+				showAgentConnectionDetail={false}
+				variant="full"
+				wakeDisplayEntry={wakeDisplayEntry}
+			/>
+		);
+	};
 
 	if (input.isLoading && !input.snapshot) {
 		return (
-			<div className="flex flex-col gap-3">
+			<div className="flex flex-col gap-2">
 				{Array.from({ length: 5 }).map((_, index) => (
 					<Skeleton
-						className="h-14 w-full"
+						className="h-10 w-full"
 						key={`space-members-drawer-skeleton-${String(index)}`}
 					/>
 				))}
@@ -1864,9 +2471,13 @@ function SpaceMembersList(input: {
 		);
 	}
 
-	if (input.filteredDirectory && input.filteredDirectory.sections.length > 0) {
+	if (
+		roster.organizationEntries.length > 0 ||
+		roster.personGroups.length > 0 ||
+		roster.ungroupedAgentEntries.length > 0
+	) {
 		return (
-			<div className="flex flex-col gap-5">
+			<div className="flex flex-col gap-3">
 				{shouldShowRefreshError ? (
 					<div
 						className={cn(
@@ -1877,84 +2488,76 @@ function SpaceMembersList(input: {
 						{SPACE_MEMBERS_REFRESH_ERROR_MESSAGE}
 					</div>
 				) : null}
-				{input.filteredDirectory.sections.map((section) => (
-					<section className="flex flex-col gap-2" key={section.id}>
+				{roster.organizationEntries.length > 0 ? (
+					<section className="flex flex-col gap-1">
 						<h2 className="font-medium text-muted-foreground text-xs">
-							{section.title}
+							Organization
 						</h2>
 						<div className="flex flex-col">
-							{section.entries.map((entry) => {
-								const recoveryPlan =
-									input.agentRecoveryPlansByProfileId.get(entry.profileId) ??
-									null;
-								// Display-only Wake smoothing. Skip it while a recovery plan is
-								// active so the real recovery state is never masked; terminal
-								// offline/unavailable already bypass the debounce upstream.
-								const wakeDisplayOverride =
-									recoveryPlan && recoveryPlan.kind !== "none"
-										? undefined
-										: input.displayWakeOverrideByProfileId?.get(
-												entry.profileId
-											);
-								// Project only into the narrow display-only prop. entry stays
-								// raw so the details dialog / recovery / Check-again / sorting
-								// never see the replayed Available snapshot (Codex M1).
-								const wakeDisplayEntry = wakeDisplayOverride
-									? applyWakeAvailabilityDisplayOverride(
-											entry,
-											wakeDisplayOverride
-										)
-									: undefined;
-								const removeMemberAction =
-									input.onRemoveMember &&
-									canShowRemoveMemberAction({
-										creatorProfileIds,
-										currentProfileId: input.currentProfileId,
-										profileId: entry.profileId,
-									})
-										? input.onRemoveMember
-										: undefined;
+							{roster.organizationEntries.map((entry) => (
+								<div key={entry.id}>{renderMemberRow(entry)}</div>
+							))}
+						</div>
+					</section>
+				) : null}
+				{roster.personGroups.length > 0 ? (
+					<section className="flex flex-col gap-1">
+						<h2 className="font-medium text-muted-foreground text-xs">
+							People &amp; Agents
+						</h2>
+						<div className="flex flex-col gap-1">
+							{roster.personGroups.map((group) => {
+								const expanded =
+									input.query.trim().length > 0 ||
+									!collapsedPersonProfileIds.has(group.humanEntry.profileId);
 								return (
-									<SpaceMemberRow
-										agentRecoveryPlan={recoveryPlan}
-										centerAgentProfileId={input.centerAgentProfileId}
-										currentOwnerUserId={input.currentOwnerUserId}
-										currentProfileId={input.currentProfileId}
-										entry={entry}
-										isAgentRecoveryPending={input.isAgentRecoveryPending(
-											entry.profileId
-										)}
-										isAgentWakeAvailabilityCheckPending={input.isAgentWakeAvailabilityCheckPending(
-											entry.profileId
-										)}
-										key={entry.id}
-										memberTransientState={resolveEntryMemberTransientState({
-											activeWakeDisplayTargetProfileIds,
-											entry,
-											memberTransientStatesByProfileId,
-										})}
-										modelCatalog={input.modelCatalog}
-										onAgentRecoveryAction={input.onAgentRecoveryAction}
-										onCheckAgentWakeAvailability={
-											input.onCheckAgentWakeAvailability
+									<SpacePersonAgentGroup
+										agentsId={`space-members-person-${group.humanEntry.profileId}-agents`}
+										expanded={expanded}
+										header={
+											<div className="min-w-0 flex-1">
+												{renderMemberRow(group.humanEntry)}
+											</div>
 										}
-										onEditAgentProfile={
-											input.onEditAgentProfile &&
-											input.editableAgentProfileIds.has(entry.profileId)
-												? input.onEditAgentProfile
-												: undefined
-										}
-										onRemoveFromSpace={removeMemberAction}
-										orgSlug={input.orgSlug}
-										prepareSetupHref={input.prepareSetupHref}
-										variant="full"
-										wakeDisplayEntry={wakeDisplayEntry}
-									/>
+										key={group.humanEntry.profileId}
+										name={group.humanEntry.profileName}
+										onExpandedChange={(nextExpanded) => {
+											setCollapsedPersonProfileIds((current) => {
+												const next = new Set(current);
+												if (nextExpanded) {
+													next.delete(group.humanEntry.profileId);
+												} else {
+													next.add(group.humanEntry.profileId);
+												}
+												return next;
+											});
+										}}
+										showToggle={group.agentEntries.length > 0}
+										toggleClassName="mt-1.5"
+									>
+										<div className="ml-7 flex flex-col">
+											{group.agentEntries.map((entry) => (
+												<div key={entry.id}>{renderMemberRow(entry)}</div>
+											))}
+										</div>
+									</SpacePersonAgentGroup>
 								);
 							})}
 						</div>
 					</section>
-				))}
+				) : null}
+				{roster.ungroupedAgentEntries.length > 0 ? (
+					<section className="flex flex-col gap-1">
+						<h2 className="font-medium text-muted-foreground text-xs">
+							Agents
+						</h2>
+						<div className="flex flex-col">
+							{roster.ungroupedAgentEntries.map((entry) => (
+								<div key={entry.id}>{renderMemberRow(entry)}</div>
+							))}
+						</div>
+					</section>
+				) : null}
 			</div>
 		);
 	}
@@ -1972,11 +2575,130 @@ function canShowRemoveMemberAction(input: {
 	creatorProfileIds: ReadonlySet<string>;
 	currentProfileId: string;
 	profileId: string;
+	requiredAgentOwnerHumanProfileIds: ReadonlySet<string>;
 }): boolean {
 	return (
 		input.profileId !== input.currentProfileId &&
-		!input.creatorProfileIds.has(input.profileId)
+		!input.creatorProfileIds.has(input.profileId) &&
+		!input.requiredAgentOwnerHumanProfileIds.has(input.profileId)
 	);
+}
+
+type SpaceMembersPersonGroup = {
+	agentEntries: readonly SpaceMemberDirectoryEntry[];
+	humanEntry: SpaceMemberDirectoryEntry;
+};
+
+type SpaceMembersRoster = {
+	organizationEntries: readonly SpaceMemberDirectoryEntry[];
+	personGroups: readonly SpaceMembersPersonGroup[];
+	ungroupedAgentEntries: readonly SpaceMemberDirectoryEntry[];
+};
+
+function buildSpaceMembersRoster(input: {
+	centerAgentProfileId: string | null;
+	directory: SpaceMemberDirectory | null;
+	filteredDirectory: SpaceMemberDirectory | null;
+	searchActive: boolean;
+}): SpaceMembersRoster {
+	const emptyRoster: SpaceMembersRoster = {
+		organizationEntries: [],
+		personGroups: [],
+		ungroupedAgentEntries: [],
+	};
+	if (!(input.directory && input.filteredDirectory)) {
+		return emptyRoster;
+	}
+	const allHumanEntries =
+		input.directory.sections.find((section) => section.id === "humans")
+			?.entries ?? [];
+	const allAgentEntries =
+		input.directory.sections.find((section) => section.id === "agents")
+			?.entries ?? [];
+	const visibleProfileIds = new Set(
+		input.filteredDirectory.sections.flatMap((section) =>
+			section.entries.map((entry) => entry.profileId)
+		)
+	);
+	const regularAgentEntries = allAgentEntries.filter(
+		(entry) => entry.profileId !== input.centerAgentProfileId
+	);
+	const assignedAgentProfileIds = new Set<string>();
+	const personGroups = allHumanEntries.flatMap(
+		(humanEntry): readonly SpaceMembersPersonGroup[] => {
+			const ownedAgentEntries = regularAgentEntries.filter(
+				(agentEntry) =>
+					humanEntry.ownerUserId !== null &&
+					agentEntry.ownerUserId === humanEntry.ownerUserId
+			);
+			for (const agentEntry of ownedAgentEntries) {
+				assignedAgentProfileIds.add(agentEntry.profileId);
+			}
+			const humanMatches = visibleProfileIds.has(humanEntry.profileId);
+			const visibleAgentEntries = humanMatches
+				? ownedAgentEntries
+				: ownedAgentEntries.filter((entry) =>
+						visibleProfileIds.has(entry.profileId)
+					);
+			if (
+				input.searchActive &&
+				!humanMatches &&
+				visibleAgentEntries.length === 0
+			) {
+				return [];
+			}
+			return [
+				{
+					agentEntries: visibleAgentEntries,
+					humanEntry,
+				},
+			];
+		}
+	);
+	const organizationEntries = allAgentEntries.filter(
+		(entry) =>
+			entry.profileId === input.centerAgentProfileId &&
+			(!input.searchActive || visibleProfileIds.has(entry.profileId))
+	);
+	const ungroupedAgentEntries = regularAgentEntries.filter(
+		(entry) =>
+			!assignedAgentProfileIds.has(entry.profileId) &&
+			(!input.searchActive || visibleProfileIds.has(entry.profileId))
+	);
+	return {
+		organizationEntries,
+		personGroups,
+		ungroupedAgentEntries,
+	};
+}
+
+function buildRequiredAgentOwnerHumanProfileIds(input: {
+	centerAgentProfileId: string | null;
+	snapshot: SpaceMembersSnapshot | null;
+}): ReadonlySet<string> {
+	const requiredOwnerUserIds = new Set<string>();
+	for (const agent of input.snapshot?.agents ?? []) {
+		const ownerUserId = agent.ownerUserId?.trim();
+		if (
+			agent.status === "active" &&
+			agent.profileId !== input.centerAgentProfileId &&
+			ownerUserId
+		) {
+			requiredOwnerUserIds.add(ownerUserId);
+		}
+	}
+	const requiredHumanProfileIds = new Set<string>();
+	for (const human of input.snapshot?.humans ?? []) {
+		const ownerUserId = human.ownerUserId?.trim();
+		if (
+			human.status === "active" &&
+			ownerUserId &&
+			requiredOwnerUserIds.has(ownerUserId)
+		) {
+			requiredHumanProfileIds.add(human.profileId);
+		}
+	}
+	return requiredHumanProfileIds;
 }
 
 function buildSpaceCreatorProfileIds(
@@ -2079,4 +2801,15 @@ function resolveMembersCountDescription(input: {
 
 	const totalMembersCount = input.totalMembersCount;
 	return `${String(totalMembersCount)} member${totalMembersCount === 1 ? "" : "s"} in this space`;
+}
+
+function resolveMembersCountLabel(input: {
+	hasLoadError: boolean;
+	isLoading: boolean;
+	totalMembersCount: number | null;
+}): string {
+	if (input.totalMembersCount === null) {
+		return input.hasLoadError || !input.isLoading ? "Unavailable" : "Loading";
+	}
+	return String(input.totalMembersCount);
 }

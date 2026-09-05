@@ -1,5 +1,18 @@
 import type { InboxItem } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const queueSoundMock = vi.hoisted(() => vi.fn());
+const readSoundEnabledMock = vi.hoisted(() => vi.fn(() => true));
+const writeSoundEnabledMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./browser-notification-sound", () => ({
+	INBOX_BROWSER_NOTIFICATION_SOUND_PREFERENCE_KEY_PREFIX:
+		"openmeld.inbox.browser-notification-sounds.enabled",
+	queueInboxBrowserNotificationSound: queueSoundMock,
+	readInboxBrowserNotificationSoundEnabled: readSoundEnabledMock,
+	writeInboxBrowserNotificationSoundEnabled: writeSoundEnabledMock,
+}));
+
 import {
 	clearInboxBrowserNotificationItemPending,
 	disableInboxBrowserNotifications,
@@ -10,6 +23,7 @@ import {
 	readInboxBrowserNotificationPromptDismissed,
 	readInboxBrowserNotificationSettings,
 	readPendingInboxBrowserNotificationItemIds,
+	setInboxBrowserNotificationSoundEnabled,
 	showInboxBrowserNotification,
 	subscribeInboxBrowserNotificationSettings,
 } from "./browser-notifications";
@@ -26,6 +40,9 @@ describe("Inbox browser notifications", () => {
 		window.localStorage.clear();
 		notificationConstructorMock = vi.fn();
 		requestPermissionMock = vi.fn().mockResolvedValue("granted");
+		queueSoundMock.mockReset();
+		readSoundEnabledMock.mockReset().mockReturnValue(true);
+		writeSoundEnabledMock.mockReset();
 		installNotificationMock({
 			constructorMock: notificationConstructorMock,
 			permission: "default",
@@ -51,13 +68,18 @@ describe("Inbox browser notifications", () => {
 		expect(readInboxBrowserNotificationSettings({ userId: USER_ID })).toEqual({
 			enabled: false,
 			permission: "default",
+			soundEnabled: true,
 		});
 		expect(requestPermissionMock).not.toHaveBeenCalled();
 
 		const settings = await enableInboxBrowserNotifications({ userId: USER_ID });
 
 		expect(requestPermissionMock).toHaveBeenCalledOnce();
-		expect(settings).toEqual({ enabled: true, permission: "granted" });
+		expect(settings).toEqual({
+			enabled: true,
+			permission: "granted",
+			soundEnabled: true,
+		});
 		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBe("enabled");
 	});
 
@@ -66,7 +88,11 @@ describe("Inbox browser notifications", () => {
 
 		const settings = await enableInboxBrowserNotifications({ userId: USER_ID });
 
-		expect(settings).toEqual({ enabled: false, permission: "default" });
+		expect(settings).toEqual({
+			enabled: false,
+			permission: "default",
+			soundEnabled: true,
+		});
 		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBeNull();
 	});
 
@@ -80,6 +106,7 @@ describe("Inbox browser notifications", () => {
 		expect(readInboxBrowserNotificationSettings({ userId: USER_ID })).toEqual({
 			enabled: true,
 			permission: "granted",
+			soundEnabled: true,
 		});
 		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBeNull();
 	});
@@ -112,8 +139,31 @@ describe("Inbox browser notifications", () => {
 
 		const settings = disableInboxBrowserNotifications({ userId: USER_ID });
 
-		expect(settings).toEqual({ enabled: false, permission: "granted" });
+		expect(settings).toEqual({
+			enabled: false,
+			permission: "granted",
+			soundEnabled: true,
+		});
 		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBe("disabled");
+	});
+
+	it("updates the browser-local sound preference without changing notification permission", () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+
+		const settings = setInboxBrowserNotificationSoundEnabled({
+			enabled: false,
+			userId: USER_ID,
+		});
+
+		expect(writeSoundEnabledMock).toHaveBeenCalledWith({
+			enabled: false,
+			userId: USER_ID,
+		});
+		expect(settings.permission).toBe("granted");
 	});
 
 	it("refreshes settings after focus and every visibility change", () => {
@@ -151,11 +201,13 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			}),
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			}),
 		]);
@@ -172,6 +224,8 @@ describe("Inbox browser notifications", () => {
 				tag: `openmeld-inbox:${item.id}`,
 			})
 		);
+		expect(queueSoundMock).toHaveBeenCalledOnce();
+		expect(queueSoundMock).toHaveBeenCalledWith({ item, userId: USER_ID });
 	});
 
 	it("releases a failed delivery claim so the notification can be retried", async () => {
@@ -191,6 +245,7 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=retry-item",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			})
 		).rejects.toThrow("Notification constructor failed");
@@ -198,6 +253,7 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=retry-item",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			})
 		).resolves.toMatchObject({ status: "delivered" });
@@ -220,11 +276,44 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item: createInboxItem({ id: "constructor-crash-item" }),
 				sourcePath: "/o/amplift/inbox?item=constructor-crash-item",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			})
 		).rejects.toThrow("Notification constructor failed");
 
 		expect(window.localStorage.getItem(deliveredKey)).toBeNull();
+		expect(queueSoundMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps a successful notification delivered when sound queuing fails", async () => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+		queueSoundMock.mockImplementationOnce(() => {
+			throw new Error("Sound queue unavailable");
+		});
+		const warning = vi
+			.spyOn(console, "warn")
+			.mockImplementation(() => undefined);
+
+		await expect(
+			showInboxBrowserNotification({
+				item: createInboxItem({ id: "sound-queue-failure-item" }),
+				sourcePath: "/o/amplift/inbox?item=sound-queue-failure-item",
+				userId: USER_ID,
+				viewingSourceSession: false,
+			})
+		).resolves.toMatchObject({ status: "delivered" });
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
+		expect(warning).toHaveBeenCalledWith(
+			"[openmeld.web.inbox.browser_notification_sound_queue_failed]",
+			expect.objectContaining({
+				error: "Sound queue unavailable",
+				itemId: "sound-queue-failure-item",
+			})
+		);
 	});
 
 	it("revalidates the active feed after acquiring the cross-tab lock", async () => {
@@ -261,6 +350,7 @@ describe("Inbox browser notifications", () => {
 					? { status: "context_changed" as const }
 					: { item, status: "eligible" as const },
 			sourcePath: "/o/amplift/inbox?item=queued-context-item",
+			userId: USER_ID,
 			viewingSourceSession: false,
 		});
 
@@ -288,6 +378,7 @@ describe("Inbox browser notifications", () => {
 					status: "ineligible" as const,
 				}),
 				sourcePath: "/o/amplift/inbox?item=resolved-while-queued",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			})
 		).resolves.toEqual({ status: "ineligible" });
@@ -318,6 +409,7 @@ describe("Inbox browser notifications", () => {
 					status: "eligible" as const,
 				}),
 				sourcePath: "/o/amplift/inbox?item=fresh-item",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			})
 		).resolves.toMatchObject({ status: "delivered" });
@@ -329,6 +421,10 @@ describe("Inbox browser notifications", () => {
 				requireInteraction: false,
 			})
 		);
+		expect(queueSoundMock).toHaveBeenCalledWith({
+			item: freshItem,
+			userId: USER_ID,
+		});
 	});
 
 	it("keeps pending retries scoped to the user and Organization", () => {
@@ -429,6 +525,7 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			})
 		).resolves.toEqual({ reason: "claim_failed", status: "deferred" });
@@ -439,6 +536,7 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			})
 		).resolves.toMatchObject({ status: "delivered" });
@@ -461,6 +559,7 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox",
+				userId: USER_ID,
 				viewingSourceSession: true,
 			})
 		).resolves.toEqual({ reason: "source_visible", status: "deferred" });
@@ -470,6 +569,7 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox",
+				userId: USER_ID,
 				viewingSourceSession: false,
 			})
 		).resolves.toMatchObject({ status: "delivered" });
@@ -483,6 +583,7 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item: createInboxItem({ id: "hidden-tab-item" }),
 				sourcePath: "/o/amplift/inbox",
+				userId: USER_ID,
 				viewingSourceSession: true,
 			})
 		).resolves.toMatchObject({ status: "delivered" });

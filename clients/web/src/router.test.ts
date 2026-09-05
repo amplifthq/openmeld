@@ -3,6 +3,7 @@ import { resetBrowserQueryClientForTests } from "./integrations/tanstack-query/q
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
+	APP_ROUTE_PRELOAD_DELAY_MS,
 } from "./lib/app-route-loading";
 import { resetAppQueryPersistenceControllerForTests } from "./query/persistence/app-query-persistence";
 import { getRouter } from "./router";
@@ -23,6 +24,7 @@ describe("router query integration", () => {
 		);
 		expect(router.options.defaultPendingMs).toBe(APP_ROUTE_PENDING_DELAY_MS);
 		expect(router.options.defaultPreloadStaleTime).toBe(0);
+		expect(router.options.defaultPreloadDelay).toBe(APP_ROUTE_PRELOAD_DELAY_MS);
 		expect(router.options.defaultPendingComponent).toBeUndefined();
 		expect(router.options.Wrap).toBeTypeOf("function");
 	});
@@ -37,6 +39,34 @@ describe("router query integration", () => {
 		expect(firstRouter.options.context.queryPersistence).toBe(
 			secondRouter.options.context.queryPersistence
 		);
+	});
+
+	it("remembers nested scroll positions by page instead of navigation entry", () => {
+		const router = getRouter({ isServer: true });
+		const getScrollRestorationKey = router.options.getScrollRestorationKey;
+
+		expect(getScrollRestorationKey).toBeTypeOf("function");
+		expect(
+			getScrollRestorationKey?.({
+				pathname: "/o/acme/spaces/space-a",
+				searchStr: "?signalId=first",
+				state: { __TSR_key: "visit-a" },
+			} as never)
+		).toBe("/o/acme/spaces/space-a");
+		expect(
+			getScrollRestorationKey?.({
+				pathname: "/o/acme/spaces/space-a",
+				searchStr: "?signalId=second",
+				state: { __TSR_key: "visit-b" },
+			} as never)
+		).toBe("/o/acme/spaces/space-a");
+		expect(
+			getScrollRestorationKey?.({
+				pathname: "/o/acme/spaces/space-b",
+				searchStr: "",
+				state: { __TSR_key: "visit-c" },
+			} as never)
+		).toBe("/o/acme/spaces/space-b");
 	});
 
 	it("creates a fresh query client for each server-side router creation", () => {

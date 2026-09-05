@@ -149,7 +149,7 @@ const policySections = [
 export function PrivacyPolicyPage() {
 	return (
 		<LegalPolicyPage
-			intro="OpenMeld is an experimental collaboration loop for humans, Spaces, and local AI agents. This policy explains what we collect, why we collect it, how local execution fits in, and what limits you should understand before using the service."
+			intro="OpenMeld is an experimental collaboration loop for people, Spaces, and local AI agents. This policy explains what we collect, why we collect it, how local execution fits in, and what limits you should understand before using the service."
 			lastUpdated={LAST_UPDATED}
 			sections={policySections}
 			summaryItems={summaryItems}

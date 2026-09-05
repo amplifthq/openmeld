@@ -31,6 +31,7 @@ type LedgerRow = {
   dispatchId: string;
   spaceId: string;
   sourceEventId: string;
+  sourceProfileId?: string | null;
   sourceClientMessageId: string | null;
   dispatchOwnerKind?: string | null;
   dispatchOwnerId?: string | null;
@@ -340,12 +341,16 @@ const createInMemoryDispatchLedgerDb = (options?: {
               const hasSourceClientMessageId = queryIncludes(
                 "source_client_message_id"
               );
+              const hasSourceProfileId = queryIncludes("source_profile_id");
               const hasDispatchOwner = queryIncludes("dispatch_owner_kind");
               let argIndex = 0;
               const idempotencyKey = args[argIndex++];
               const dispatchId = args[argIndex++];
               const spaceId = args[argIndex++];
               const sourceEventId = args[argIndex++];
+              const sourceProfileId = hasSourceProfileId
+                ? normalizeOptionalText(args[argIndex++])
+                : null;
               const sourceClientMessageId = hasSourceClientMessageId
                 ? normalizeOptionalText(args[argIndex++])
                 : null;
@@ -376,6 +381,7 @@ const createInMemoryDispatchLedgerDb = (options?: {
                 dispatchId: String(dispatchId),
                 spaceId: String(spaceId),
                 sourceEventId: String(sourceEventId),
+                sourceProfileId,
                 sourceClientMessageId,
                 dispatchOwnerKind,
                 dispatchOwnerId,
@@ -752,6 +758,7 @@ const createInMemoryDispatchLedgerDb = (options?: {
               let argIndex = 0;
               const spaceId = args[argIndex++];
               const sourceEventId = args[argIndex++];
+              const sourceProfileId = normalizeOptionalText(args[argIndex++]);
               const sourceClientMessageId = args[argIndex++];
               const dispatchOwnerKind = args[argIndex++];
               const dispatchOwnerId = args[argIndex++];
@@ -796,6 +803,7 @@ const createInMemoryDispatchLedgerDb = (options?: {
               }
               row.spaceId = String(spaceId);
               row.sourceEventId = String(sourceEventId);
+              row.sourceProfileId ??= sourceProfileId;
               row.sourceClientMessageId = normalizeOptionalText(
                 sourceClientMessageId
               );
@@ -823,12 +831,16 @@ const createInMemoryDispatchLedgerDb = (options?: {
               const hasSourceClientMessageId = queryIncludes(
                 "source_client_message_id = ?"
               );
+              const hasSourceProfileId = queryIncludes("source_profile_id");
               const hasDispatchOwner = queryIncludes("dispatch_owner_kind");
               if (hasFirstSeenUpdate) {
                 let argIndex = 0;
                 const dispatchId = args[argIndex++];
                 const spaceId = args[argIndex++];
                 const sourceEventId = args[argIndex++];
+                const sourceProfileId = hasSourceProfileId
+                  ? normalizeOptionalText(args[argIndex++])
+                  : null;
                 const sourceClientMessageId = hasSourceClientMessageId
                   ? args[argIndex++]
                   : null;
@@ -880,6 +892,7 @@ const createInMemoryDispatchLedgerDb = (options?: {
                 row.dispatchId = String(dispatchId);
                 row.spaceId = String(spaceId);
                 row.sourceEventId = String(sourceEventId);
+                row.sourceProfileId ??= sourceProfileId;
                 row.sourceClientMessageId = normalizeOptionalText(
                   sourceClientMessageId
                 );
@@ -903,6 +916,9 @@ const createInMemoryDispatchLedgerDb = (options?: {
               const dispatchId = args[argIndex++];
               const spaceId = args[argIndex++];
               const sourceEventId = args[argIndex++];
+              const sourceProfileId = hasSourceProfileId
+                ? normalizeOptionalText(args[argIndex++])
+                : null;
               const sourceClientMessageId = hasSourceClientMessageId
                 ? args[argIndex++]
                 : null;
@@ -967,6 +983,7 @@ const createInMemoryDispatchLedgerDb = (options?: {
               row.dispatchId = String(dispatchId);
               row.spaceId = String(spaceId);
               row.sourceEventId = String(sourceEventId);
+              row.sourceProfileId ??= sourceProfileId;
               row.sourceClientMessageId = normalizeOptionalText(
                 sourceClientMessageId
               );
@@ -1066,6 +1083,7 @@ const buildDispatchMessage = (overrides?: {
   idempotencyKey?: string;
   sourceClientMessageId?: string;
   sourceEventId?: string;
+  sourceProfileId?: string;
   targetProfileId?: string;
 }): OpenMeldDaemonDispatchQueueMessage => {
   const dispatchId = overrides?.dispatchId ?? "dispatch-1";
@@ -1076,6 +1094,11 @@ const buildDispatchMessage = (overrides?: {
     dispatchId,
     spaceId: "space-1",
     sourceEventId,
+    sourceSignalSnapshot: {
+      profileId: overrides?.sourceProfileId ?? "human-1",
+      profileKind: "human",
+      text: "Wake the agent",
+    },
     ...(overrides?.deliveryRecoveryReason
       ? { deliveryRecoveryReason: overrides.deliveryRecoveryReason }
       : {}),
@@ -1396,6 +1419,21 @@ describe("claimDispatchAttempt", () => {
     const ledgerInsert = readLedgerInsert();
     expect(ledgerInsert.query).toContain("source_client_message_id");
     expect(ledgerInsert.bindings).toContain("client-message-1");
+  });
+
+  it("persists the immutable source profile selector on new ledger claims", async () => {
+    const { db, readLedgerInsert } = createDispatchLedgerInsertCaptureDb();
+
+    await claimDispatchAttempt({
+      db,
+      message: buildDispatchMessage({ sourceProfileId: "human-source-1" }),
+      attempt: 1,
+      nowMs: 1000,
+    });
+
+    const ledgerInsert = readLedgerInsert();
+    expect(ledgerInsert.query).toContain("source_profile_id");
+    expect(ledgerInsert.bindings).toContain("human-source-1");
   });
 
   it("persists dispatch owner evidence from the queue message on new ledger claims", async () => {

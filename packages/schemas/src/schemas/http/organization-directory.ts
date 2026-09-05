@@ -8,6 +8,14 @@ import { authProfileManagedRoleSchema } from "./profiles";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
+
+// Trusted Core-to-Space write, never accepted as a browser-selected identity/time.
+export const spaceMemberWebActivityWriteSchema = z.strictObject({
+  organizationId: trimmedNonEmptyStringSchema,
+  userId: trimmedNonEmptyStringSchema,
+  profileId: uuidProfileIdSchema,
+  lastActiveAt: ISO_DATE_TIME_SCHEMA,
+});
 const nullableTrimmedStringSchema = z.union([
   trimmedNonEmptyStringSchema,
   z.null(),
@@ -101,6 +109,32 @@ export const organizationDirectoryAgentProfileSchema =
       organizationDirectoryAgentProfileOperationalContextSchema.optional(),
     readiness: getAgentExecutionReadinessResponseSchema,
   });
+
+export const organizationProfileDirectoryAgentProfileSchema =
+  organizationDirectoryAgentProfileIdentitySchema.extend({
+    agentControllerRef: nullableTrimmedStringSchema,
+    isCenterAgent: z.boolean().optional(),
+  });
+
+export const organizationProfileDirectoryResponseSchema = z.strictObject({
+  organizationId: trimmedNonEmptyStringSchema,
+  generatedAt: ISO_DATE_TIME_SCHEMA,
+  members: z.array(organizationDirectoryMemberSchema),
+  agentProfiles: z.array(organizationProfileDirectoryAgentProfileSchema),
+});
+
+export const organizationAgentRuntimeOverviewItemSchema = z.strictObject({
+  profileId: agentProfileIdSchema,
+  operationalContext:
+    organizationDirectoryAgentProfileOperationalContextSchema.optional(),
+  readiness: getAgentExecutionReadinessResponseSchema,
+});
+
+export const organizationAgentRuntimeOverviewResponseSchema = z.strictObject({
+  organizationId: trimmedNonEmptyStringSchema,
+  generatedAt: ISO_DATE_TIME_SCHEMA,
+  agentProfiles: z.array(organizationAgentRuntimeOverviewItemSchema),
+});
 
 export const organizationDirectoryResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,

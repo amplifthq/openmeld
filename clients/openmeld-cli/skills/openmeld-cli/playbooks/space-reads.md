@@ -1,22 +1,42 @@
 # Space Reads Playbook
 
 Use this playbook for fast, read-only Space inspection with the public
-`openmeld` CLI. It covers `board`, `members`, `history`, and `status` without
-changing membership, the selected Profile, or Space state.
+`openmeld` CLI. It covers entry resolution, `board`, `members`, `history`,
+`status`, and live Wake progress without changing membership, the selected
+Profile, or Space state.
 
 ## Start Here
 
-All four commands accept either a 64-character Space ID or a complete OpenMeld
+All commands accept either a 64-character Space ID or a complete OpenMeld
 Space URL. Quote URLs so shell-sensitive query characters stay literal:
 
 ```bash
+openmeld space access "<space-url-or-id>" --profile <profile-id> --view agent
 openmeld space board "<space-url-or-id>" --profile <profile-id> --json
 openmeld space members "<space-url-or-id>" --profile <profile-id> --json
 openmeld space history "<space-url-or-id>" --profile <profile-id> --kind text --brief --limit 20 --view agent
 openmeld space status "<space-url-or-id>" --profile <profile-id> --json
+openmeld space wake-progress "<space-url-or-id>" --profile <profile-id> --view agent
 ```
 
+To create one of those destinations, use the local link builder:
+
+```bash
+openmeld space link <space-id> --signal <signal-id> --thread-root-signal <thread-root-signal-id> --view agent
+```
+
+The result explicitly reports `grantsAccess: false` and includes the matching
+`space access` continuation. Do not treat a generated link as permission or
+manually splice message selectors into another route.
+
 Do not manually extract the Space ID from a copied URL.
+
+Use `space access` before a content read when the caller may not be a member.
+Its `resolution.view` answers whether content may be shown; its independent
+`resolution.participation` answers whether the Profile can participate. Follow
+the structured `viewAction` for sign-in, password, owner contact, or target
+continuation. Do not turn `contact_space_owner` into an invented join request:
+that product flow does not exist yet.
 
 ## Acting Profile
 
@@ -52,6 +72,13 @@ openmeld space status "<space-url-or-id>" --profile <profile-id> --json
   window without presence noise. Use anchored or raw history only when needed.
 - `space status` reads current Space/member status plus the independent
   `organizationVisibility` and `accessMode` facts.
+- `space access` reads the Core-owned entry decision for the target and current
+  identity. It does not read messages or change membership.
+- `space wake-progress` reads the current Wake lifecycle plus Space-owned public
+  requester identity and display name, source-message preview, and thread
+  context. Use
+  `--source-profile <profile-id>` to narrow the active summary to work requested
+  by one Human or Agent Profile. It does not expose private agent context.
 
 ## Output Contract
 
@@ -59,8 +86,10 @@ Adjacent Agent View commands intentionally retain their existing compatible
 presentations. Use the explicit machine form when one stable shape matters:
 
 - `board --json`: the shared Space Board response
+- `access --json`: the canonical shared Space entry resolution
 - `members --json`: the versioned `space.members` envelope
 - `status --json`: canonical Space status JSON
+- `wake-progress --view agent`: the validated live Wake progress envelope
 - `history --brief --view agent`: one compact message-only history result
 - `history --json`: raw message envelopes as ndjson
 
@@ -112,12 +141,18 @@ data or a successful read.
 
 ## Performance And Freshness
 
-These commands must read current authorized projections. Never make them look
-fast by caching stale Space data, skipping sign-in or Profile authorization, or
-turning a timeout into success. The CLI may reuse the same already-remotely-
+These commands must read current authorized projections. `space access` is the
+intentional public preflight and may run without sign-in so Core can return the
+safe anonymous outcome; content reads still require their normal authorization.
+Never make reads look fast by caching stale Space data or turning a timeout into
+success. The CLI may reuse the same already-remotely-
 validated session within one command while still checking that the locally
 stored credential is unchanged.
 
 If a read is unexpectedly slow, record the exact command, wall time, output
 mode, and non-sensitive request/error evidence. Retry only the same read; do not
 write Space state as a diagnostic shortcut.
+
+Wake progress is a snapshot for a concrete coordination decision. Do not poll
+it continuously or infer a terminal outcome when Core still reports active
+work.

@@ -495,7 +495,7 @@ export function buildDaemonReinstallResultTitle(
     case "already_healthy":
       return "✅ OpenMeld Service Is Already Healthy";
     case "scheduled":
-      return "✅ OpenMeld Service Update Is Ready";
+      return "⏳ OpenMeld Service Update Started";
     case "completed":
       return outcome.serviceState === "running"
         ? `✅ OpenMeld Service ${actionPastTitle}`

@@ -66,29 +66,28 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		updateWorkspaceMock.mockReset().mockResolvedValue(undefined);
 	});
 
-	it("shows the Default Project, future-Wake notice, and maintenance actions", () => {
+	it("presents one starting-location choice instead of maintenance actions", () => {
 		renderSettings();
 
-		expect(screen.getByText("OpenMeld")).toBeTruthy();
-		expect(screen.getByText("/repo")).toBeTruthy();
+		expect(
+			screen.getByRole("radiogroup", { name: "Starting location" })
+		).toBeTruthy();
+		const folderOption = screen.getByRole("radio", {
+			name: "A folder on this computer",
+		});
+		const projectOption = screen.getByRole("radio", {
+			name: "A Project folder",
+		});
+		expect(folderOption).toBeTruthy();
+		expect(projectOption).toBeTruthy();
+		expect(screen.getAllByRole("radio")[0]).toBe(folderOption);
+		expect(screen.getAllByRole("radio")[1]).toBe(projectOption);
+		expect(
+			screen.getByRole("radio", { name: "OpenMeld managed" })
+		).toBeTruthy();
 		expect(screen.getByText(FUTURE_WAKES_PROJECT_SETTINGS_NOTICE)).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Change Default Project" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Change local folder" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Choose custom working folder" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", {
-				name: "Let OpenMeld choose",
-			})
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Clear Default Project" })
-		).toBeTruthy();
+		expect(screen.queryByText("Clear Default Project")).toBeNull();
+		expect(screen.queryByText("Change local folder")).toBeNull();
 	});
 
 	it("saves a custom working-folder draft only after explicit confirmation", async () => {
@@ -102,7 +101,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		window.sessionStorage.clear();
 		const { onProfileUpdated } = renderSettings();
 		fireEvent.click(
-			screen.getByRole("button", { name: "Choose custom working folder" })
+			screen.getByRole("radio", { name: "A folder on this computer" })
 		);
 		fireEvent.click(
 			screen.getByRole("button", { name: "Enter path manually" })
@@ -142,11 +141,8 @@ describe("AgentProfileProjectSettingsDialog", () => {
 	it("switches to the managed workspace before clearing the Default Project", async () => {
 		const { onProfileUpdated } = renderSettings();
 
-		screen
-			.getByRole("button", {
-				name: "Let OpenMeld choose",
-			})
-			.click();
+		fireEvent.click(screen.getByRole("radio", { name: "OpenMeld managed" }));
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
 		await vi.waitFor(() => {
 			expect(updateWorkspaceMock).toHaveBeenCalledWith({
@@ -174,23 +170,18 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		renderSettings("blocked");
 
 		expect(screen.getByText(ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE)).toBeTruthy();
-		for (const name of [
-			"Change Default Project",
-			"Change local folder",
-			"Choose custom working folder",
-			"Let OpenMeld choose",
-		]) {
-			expect(
-				(screen.getByRole("button", { name }) as HTMLButtonElement).disabled
-			).toBe(true);
-		}
+		expect(
+			screen
+				.getByRole("radiogroup", { name: "Starting location" })
+				.getAttribute("aria-disabled")
+		).toBe("true");
 		expect(
 			(
 				screen.getByRole("button", {
-					name: "Clear Default Project",
+					name: "Save changes",
 				}) as HTMLButtonElement
 			).disabled
-		).toBe(false);
+		).toBe(true);
 		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 	});
 
@@ -212,6 +203,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 			<AgentProfileProjectSettingsDialog
 				actorProfileId="human-1"
 				agentControllerRef="builtin:codex"
+				currentWorkingFolder="/repo"
 				executionTargetChangeEligibilityStatus="allowed"
 				onOpenChange={vi.fn()}
 				onProfileUpdated={vi.fn()}
@@ -255,6 +247,7 @@ function renderSettings(
 			<AgentProfileProjectSettingsDialog
 				actorProfileId="human-1"
 				agentControllerRef="builtin:codex"
+				currentWorkingFolder="/repo"
 				executionTargetChangeEligibilityStatus={
 					executionTargetChangeEligibilityStatus
 				}

@@ -1,6 +1,7 @@
 import { redirect } from "@tanstack/react-router";
 import { getRequiredServerEnv } from "#/env";
 import { resolveAuthenticatedEntryTarget } from "./auth-entry-policy";
+import { hasAddAccountAuthIntent } from "./auth-intent";
 import { getSession } from "./auth-session";
 import { resolveActiveOrganizationEntryPath } from "./organizations/organization-scope";
 
@@ -47,6 +48,9 @@ export async function guardAnonymousOnlyRoute(
 		},
 	});
 	if (!session) {
+		return;
+	}
+	if (hasAddAccountAuthIntent(locationHref)) {
 		return;
 	}
 

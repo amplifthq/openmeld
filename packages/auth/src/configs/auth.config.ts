@@ -1,4 +1,5 @@
 import { passkey } from "@better-auth/passkey";
+import { ORGANIZATION_INVITATION_LIFETIME_SECONDS } from "@openmeld/schemas";
 import { APIError, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import {
@@ -7,6 +8,7 @@ import {
   getOrgAdapter,
   lastLoginMethod,
   magicLink,
+  multiSession,
   type OrganizationOptions,
   oneTimeToken,
   organization,
@@ -71,11 +73,13 @@ import {
 export type AuthConfigEnv = AuthConfigInput & {
   AUTH_EMAIL?: CloudflareEmailSender;
   OPENMELD_CORE_WORKER?: AgentActivitySessionInventoryLifecycleWorker &
-    CenterAgentMemoryLifecycleWorker;
+    CenterAgentMemoryLifecycleWorker &
+    import("@openmeld/schemas").SpaceInvitationWorker;
   OPENMELD_DB?: D1Database;
 };
 
 const TRAILING_SLASH_PATTERN = /\/$/;
+const ADD_ACCOUNT_AUTH_INTENT = "add-account";
 const PERSONAL_ORGANIZATION_OWNER_UNIQUE_CONSTRAINT =
   "UNIQUE constraint failed: organizations.created_by_user_id";
 const PERSONAL_MEMBERSHIP_ID_UNIQUE_CONSTRAINT =
@@ -101,15 +105,51 @@ type UserLookupContext = {
   };
 };
 
-function buildMagicLinkWebUrl(webAppUrl: string, token: string): string {
+function buildMagicLinkWebUrl(
+  webAppUrl: string,
+  token: string,
+  sourceUrl?: string
+): string {
+  const searchParams = new URLSearchParams({ token });
+  const redirectTarget = resolveVerificationRedirectTarget(sourceUrl);
+  if (redirectTarget) {
+    searchParams.set("redirect", redirectTarget);
+  }
+  if (hasTrustedAddAccountMagicLinkIntent(webAppUrl, sourceUrl)) {
+    searchParams.set("intent", ADD_ACCOUNT_AUTH_INTENT);
+  }
+
   try {
     const magicLinkUrl = new URL("/magic-link", webAppUrl);
-    magicLinkUrl.searchParams.set("token", token);
+    magicLinkUrl.search = searchParams.toString();
     return magicLinkUrl.toString();
   } catch {
     const sanitizedBaseUrl = webAppUrl.replace(TRAILING_SLASH_PATTERN, "");
-    return `${sanitizedBaseUrl}/magic-link?token=${encodeURIComponent(token)}`;
+    return `${sanitizedBaseUrl}/magic-link?${searchParams.toString()}`;
   }
+}
+
+function hasTrustedAddAccountMagicLinkIntent(
+  webAppUrl: string,
+  sourceUrl: string | undefined
+): boolean {
+  const parsedWebAppUrl = parseUrl(webAppUrl);
+  const parsedSourceUrl = parseUrl(sourceUrl);
+  const callbackUrl = parseUrl(
+    parsedSourceUrl?.searchParams.get("callbackURL")
+  );
+  if (!(parsedWebAppUrl && callbackUrl)) {
+    return false;
+  }
+
+  const expectedCallbackUrl = new URL("/magic-link", parsedWebAppUrl);
+  const intentValues = callbackUrl.searchParams.getAll("intent");
+  return (
+    callbackUrl.origin === expectedCallbackUrl.origin &&
+    callbackUrl.pathname === expectedCallbackUrl.pathname &&
+    intentValues.length === 1 &&
+    intentValues[0] === ADD_ACCOUNT_AUTH_INTENT
+  );
 }
 
 function buildVerifyEmailWebUrl(
@@ -770,10 +810,40 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           organizationId: organization.id,
         }),
     },
+    invitationExpiresIn: ORGANIZATION_INVITATION_LIFETIME_SECONDS,
     requireEmailVerificationOnInvitation: true,
     roles: organizationRoles,
-    sendInvitationEmail: async (data) => {
+    sendInvitationEmail: async (data, request) => {
       try {
+        const spaceInvitationId = request?.headers.get(
+          "x-openmeld-space-invitation-id"
+        );
+        if (spaceInvitationId) {
+          const core = env.OPENMELD_CORE_WORKER;
+          if (!core) {
+            throw new Error("Core is required for a Space invitation");
+          }
+          const bound = await core.spaceInvitation({
+            userId: data.inviter.user.id,
+            email: data.inviter.user.email,
+            emailVerified: data.inviter.user.emailVerified,
+            request: {
+              action: "bind",
+              invitationId: spaceInvitationId,
+              organizationInvitationId: data.id,
+              organizationInvitationOwned:
+                request?.headers.get(
+                  "x-openmeld-space-invitation-owns-organization"
+                ) === "true",
+            },
+          });
+          if (!bound.result.ok) {
+            throw new Error(bound.result.message);
+          }
+          // The Auth-managed Space invitation route sends the single targeted
+          // email after this native Organization prerequisite succeeds.
+          return;
+        }
         const organizationName = readRequiredString(
           data.organization.name,
           "Organization name"
@@ -947,6 +1017,9 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     plugins: [
       bearer(),
       username(),
+      multiSession({
+        maximumSessions: 5,
+      }),
       organization({
         ...organizationOptions,
       }),
@@ -958,10 +1031,11 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       }),
       magicLink({
         expiresIn: validated.AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS,
-        sendMagicLink: async ({ email, token }) => {
+        sendMagicLink: async ({ email, token, url }) => {
           const magicLinkUrl = buildMagicLinkWebUrl(
             validated.WEB_APP_URL,
-            token
+            token,
+            url
           );
           const emailContent = buildMagicLinkEmailContent({
             brandName: validated.AUTH_BRAND_NAME,

@@ -125,6 +125,7 @@ export {
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";
 export {
   openMeldRemoteAgentLarkPlatformChannelConnections,
@@ -174,3 +175,4 @@ export {
   spaceIndexProjectionEvents,
   spaceIndexSpaces,
 } from "./space-index.schema.ts";
+export { spaceInvitations } from "./space-invitation.schema.ts";

@@ -84,9 +84,11 @@ advances one ref per completed scope under
 append-only evidence chain whose latest record contains the exact released
 first-parent `main` commit and completion time. `release:status` combines those
 records with hosted release jobs and uses the latest completed event for each
-scope. A workstation release therefore cannot disappear merely because no
-GitHub deployment job ran, and an explicit rollback remains visible as the
-latest deployed source instead of being mistaken for a failed evidence write.
+scope. A successful redeploy of the same source SHA is still a new completed
+event and must advance that scope's evidence ref with its later completion time.
+A workstation release therefore cannot disappear merely because no GitHub
+deployment job ran, and an explicit rollback remains visible as the latest
+deployed source instead of being mistaken for a failed evidence write.
 
 `--deployed` remains a one-run diagnostic override for historical releases that
 predate these refs. It is not the normal completion path:
@@ -145,11 +147,12 @@ It also accepts comma-separated scopes, `cloud`, and `full`.
 - Selecting `cli` owns its required Core projection; adding `core` does not
   deploy Core twice.
 
-`auto` is the default local plan. It follows changed workspace dependencies and
-local-component release paths, so it intentionally prefers a safe superset for
-shared package changes. Review the plan. An operator may narrow it with an
-explicit scope only when the changed contract and mixed-version behavior prove
-that narrower rollout is safe.
+`auto` is the default local plan. It follows changed runtime-capable workspace
+dependencies and local-component release paths, so it intentionally prefers a
+safe superset for shared package changes. Development-only dependencies do not
+expand production release scope. Review the plan. An operator may narrow it
+with an explicit scope only when the changed contract and mixed-version behavior
+prove that narrower rollout is safe.
 
 The planner selects the `remote-agent-receiver-first` deploy-order profile when
 the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
@@ -216,6 +219,32 @@ before its Remote Agent producer. Constraints that require the same component
 on opposite sides of another deployment fail closed and require separate
 releases. This includes Connect Computer combined with Inbox source-target,
 Local Service runtime, or Center Agent CLI receiver-first contracts.
+
+The planner selects `wake-progress-opt-in-receivers-first` only when one diff
+changes the shared Wake Progress schema, its Core producer, and the CLI caller
+that explicitly opts into the additive wait-reason field. It automatically
+includes Gateway and Core, and an explicit scope that would publish Core or CLI
+without both scopes fails closed. Within the selected scopes, Gateway deploys
+before Core, and Core deploys before CLI. Web may deploy first because the new
+query flag is optional and an older Gateway safely ignores it.
+
+This detector is intentionally specific to the proven opt-in contract. A path
+match cannot infer whether an arbitrary future Space HTTP change adds a strict
+request caller or a response producer, and those directions require opposite
+receiver-first orders. Future contract families need their own explicit
+producer, receiver, and compatibility evidence instead of inheriting this
+profile. This constraint composes with compatible Remote Agent request or
+worker-response receiver-first orders. If the same diff requires one component
+on both sides of another, including any Remote Agent receiver-first family
+combined with a worker-response producer, the planner fails closed and requires
+separate releases.
+
+The shared Space history query has its own receiver-first profile. When its
+schema changes, the automatic plan includes Gateway, Core, and CLI, deploys both
+cloud receivers before the CLI caller, and rejects a CLI-only release. A staged
+Gateway/Core release remains valid before the CLI publication. Compatible
+profiles may choose a different order between Gateway and Core, but both must
+still precede CLI.
 
 When any receiver-first profile includes both Core and CLI, the first Core
 deploy reads the stable production CLI version, loads that version's
@@ -360,6 +389,31 @@ URL. Rolling Web back temporarily removes the archive projection and returns
 all clients to the verified raw fallback; it does not make setup or upgrades
 unsafe. Old clients also ignore additive delta and signing-identity fields.
 
+### Space invitation receivers before new clients
+
+The first Space invitation release requires Database, Core, then Auth before
+the new CLI command or Web invitation entry points become available. Auth calls
+the new Core RPC; publishing CLI first would expose a command whose Auth
+endpoint does not yet exist.
+
+When the shared invitation schema, Core owner, and Auth route change together,
+`space-invitation-receivers-first` orders Database, Core, Auth, Gateway, Web,
+Remote Agent, then CLI. It rejects Auth or CLI selection without both receivers,
+and fails closed if another directional profile also applies until their order
+is reviewed. Ordinary Core-only deployments retain their channel compatibility
+guard.
+
+For the signed GitHub CLI lane, use the same approved main SHA for both stages:
+first run guarded local `release:deploy:local -- --scope db,core,auth --base
+<previous-production-sha>`. This profile deploys Core with the immutable current
+stable CLI projection, verified by the existing receiver deployment helper;
+it does not advertise the future CLI version. Then run the normal GitHub CLI
+release, which publishes the new artifact and its Core projection. Deploy the
+remaining affected scopes afterward. The normal static hosted `full` order is
+not valid for this first rollout. This staged receiver path is not startup
+recovery and never bypasses tag, channel, source, lease, or deployment health
+checks.
+
 ## Local Scoped Release
 
 Use this lane only from a dedicated clean release worktree at the exact approved
@@ -369,6 +423,7 @@ workspace and is not an agent release lane.
 ```sh
 git status --short
 git fetch origin main --tags
+node scripts/release/prepare-release-worktree.mjs
 pnpm run release:plan
 pnpm run release:deploy:local -- --scope web
 ```
@@ -384,6 +439,13 @@ then releases held scopes in reverse order. Deployment or evidence publication
 failure remains red and still releases the leases. It does not repeat package
 checks, unit tests, or integration tests that already established confidence in
 the commit.
+
+The prepare script only prepares this worktree's package dependencies. It
+exits without changing them when the required release runtime is already
+available. When a frozen install reports success without creating the required
+links, it retries once with a forced frozen relink and verifies the dependency
+again. It does not read or mutate OpenMeld user state and does not contact
+production.
 
 The shared lease is a Git compare-and-swap ref under
 `refs/heads/openmeld-production-leases/<scope>`. Its canonical metadata records
@@ -575,6 +637,13 @@ full
 - `cloud` deploys only the five cloud components.
 - `full` runs Database, Auth, Web, Gateway, Core, and Remote Agent in order.
 - CLI publishing is not available in this workflow.
+
+The separate CLI Release workflow also deploys the Core projection required by
+the published CLI channel. Before any CLI or Core mutation, it proves that the
+Production D1 pending migration list is empty. If migrations remain, release
+the exact SHA with the `database` scope first, then rerun CLI Release. This gate
+prevents a new Core writer from reaching an older database constraint or
+schema.
 
 For a Center Agent bridge release that includes Context Scope Plan, first run
 the `remote-agent` scope from the approved commit and verify it succeeds. Then

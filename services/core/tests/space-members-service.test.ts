@@ -86,6 +86,7 @@ class MutableSqlStorage {
     payload_json: string;
   }> = [];
   private readonly cursorRows = new Map<string, SqlRow>();
+  private readonly webActivity = new Map<string, number>();
   private memberSelectAllCount = 0;
   private signalPayloadSelectCount = 0;
   private signalActivitySelectCount = 0;
@@ -95,6 +96,24 @@ class MutableSqlStorage {
   } | null = null;
 
   exec<T extends SqlRow>(sql: string, ...params: unknown[]): FakeSqlCursor<T> {
+    if (sql.includes("space_member_web_activity")) {
+      const value = this.webActivity.get(String(params[0]));
+      return new FakeSqlCursor<T>(
+        value === undefined ? [] : [{ last_active_at: value } as unknown as T]
+      );
+    }
+    if (sql.includes("MAX(ts) AS last_active_at")) {
+      const times = this.signalRows
+        .filter(
+          (row) => row.type === "signal.text" && row.profile_id === params[0]
+        )
+        .map((row) => row.ts);
+      return new FakeSqlCursor<T>([
+        {
+          last_active_at: times.length ? Math.max(...times) : null,
+        } as unknown as T,
+      ]);
+    }
     if (sql.includes("space_members_backfill_watermark")) {
       if (INSERT_INTO_SQL_REGEX.test(sql)) {
         this.backfillWatermark = {
@@ -300,6 +319,10 @@ class MutableSqlStorage {
       profile_kind: signal.profile.kind,
       payload_json: JSON.stringify(signal),
     });
+  }
+
+  seedWebActivity(profileId: string, at: string): void {
+    this.webActivity.set(profileId, Date.parse(at));
   }
 
   seedCursor(input: {
@@ -756,6 +779,7 @@ describe("space-members-service", () => {
       nowIso,
     });
 
+    sql.seedWebActivity("hum-status-live", nowIso);
     const summary = await readSpaceStatusMembersSummaryUseCase({
       sql: sql as unknown as SqlStorage,
       env: {} as CoreBindings,
@@ -806,6 +830,8 @@ describe("space-members-service", () => {
         ),
       },
     ]);
+
+    sql.seedWebActivity("hum-members-joiner-live", "2026-03-06T12:05:00.000Z");
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
@@ -1436,6 +1462,8 @@ describe("space-members-service", () => {
       profile: createHumanProfile(targetProfileId, "Human Helper"),
       nowIso: "2026-03-06T12:32:00.000Z",
     });
+
+    sql.seedWebActivity(targetProfileId, "2026-03-06T12:33:00.000Z");
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
@@ -2483,7 +2511,7 @@ describe("space-members-service", () => {
     );
   });
 
-  it("keeps online daemon route truth authoritative while controller report evidence stays diagnostic", async () => {
+  it("keeps Wake checking until an online route also has current controller facts", async () => {
     const sql = new MutableSqlStorage();
     const runtimeTransportClient = await import(
       "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
@@ -2586,10 +2614,10 @@ describe("space-members-service", () => {
       profileId: "agt_route_online",
       runtimeDeviceDisplayName: "Felix's composer",
       agentWakeAvailability: {
-        status: "available_for_wake",
+        status: "checking_connection",
       },
       ownerWakeDiagnostics: {
-        state: "none",
+        state: "checking_wake_status",
         wakeRouteEvidence: {
           reasonCode: "online",
           status: "online",
@@ -2612,7 +2640,7 @@ describe("space-members-service", () => {
     expect(outsiderSnapshot.agents[0]).toMatchObject({
       profileId: "agt_route_online",
       agentWakeAvailability: {
-        status: "available_for_wake",
+        status: "checking_connection",
       },
       ownerWakeDiagnostics: null,
     });
@@ -2888,7 +2916,7 @@ describe("space-members-service", () => {
       snapshot.agents.find((agent) => agent.profileId === "agt_batch_available")
     ).toMatchObject({
       agentWakeAvailability: {
-        status: "available_for_wake",
+        status: "checking_connection",
       },
     });
     expect(
@@ -3318,7 +3346,7 @@ describe("space-members-service", () => {
     expect(snapshot.agents[0]).toMatchObject({
       profileId: "agt_route_offline",
       agentWakeAvailability: {
-        label: "Reconnecting OpenMeld Service",
+        label: "Reconnecting Computer",
         reasonCode: "local_service.reconnecting",
         status: "checking_connection",
       },
@@ -3432,7 +3460,7 @@ describe("space-members-service", () => {
     expect(snapshot.agents[0]).toMatchObject({
       profileId: "agt_route_report_covered",
       agentWakeAvailability: {
-        label: "Reconnecting OpenMeld Service",
+        label: "Reconnecting Computer",
         reasonCode: "local_service.reconnecting",
         status: "checking_connection",
       },

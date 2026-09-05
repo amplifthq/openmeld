@@ -20,11 +20,17 @@ export const agentControllerUsageLimitStatusSchema = z.enum([
   "unsupported",
 ]);
 
+export const agentControllerUsageProviderSchema = z.strictObject({
+  displayName: ACI_BOUNDED_LABEL_SCHEMA,
+  id: ACI_BOUNDED_ID_SCHEMA,
+});
+
 export const agentControllerUsageLimitSchema = z
   .strictObject({
     key: ACI_BOUNDED_ID_SCHEMA,
     label: ACI_BOUNDED_LABEL_SCHEMA,
     observedAt: ACI_ISO_DATE_TIME_SCHEMA,
+    provider: agentControllerUsageProviderSchema.optional(),
     resetsAt: ACI_ISO_DATE_TIME_SCHEMA.nullable(),
     status: agentControllerUsageLimitStatusSchema,
     usedPercent: z.number().finite().min(0).max(100).nullable(),

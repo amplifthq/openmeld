@@ -10,7 +10,6 @@ export type SpaceMessageDeliveryPresentation =
 	| "sending"
 	| "sending_delayed"
 	| "agent_sending"
-	| "agent_starting"
 	| "agent_streaming"
 	| "agent_stream_failed"
 	| "agent_stream_stopped"
@@ -19,19 +18,10 @@ export type SpaceMessageDeliveryPresentation =
 export function resolveSpaceMessageDeliveryPresentation(input: {
 	item: Pick<
 		SpaceTimelineItem,
-		| "agentStreamState"
-		| "createdAtMs"
-		| "deliveryState"
-		| "optimisticAgentReplyState"
+		"agentStreamState" | "createdAtMs" | "deliveryState"
 	>;
 	nowMs: number;
 }): SpaceMessageDeliveryPresentation | null {
-	if (input.item.optimisticAgentReplyState === "sending") {
-		return "agent_sending";
-	}
-	if (input.item.optimisticAgentReplyState === "working") {
-		return "agent_starting";
-	}
 	if (input.item.agentStreamState) {
 		switch (input.item.agentStreamState.status) {
 			case "streaming":
@@ -78,8 +68,6 @@ export function resolveSpaceMessageDeliveryStatusText(
 			return "Still sending...";
 		case "agent_sending":
 			return "Sending to Agent…";
-		case "agent_starting":
-			return SPACE_AGENT_WORKING_STATUS_TEXT;
 		case "agent_streaming":
 			return SPACE_AGENT_WORKING_STATUS_TEXT;
 		case "agent_stream_failed":

@@ -1,14 +1,18 @@
 "use client";
 
+import { Popover } from "@base-ui/react/popover";
 import { formatProfileKind } from "@openmeld/agent-profile";
 import type {
+	AuthProfileView,
+	ModelCatalog,
 	ProfileDetailsField,
 	ProfileDetailsRecoveryAction,
 	ProfileDetailsSection,
 	ProfileDetailsSectionId,
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
-import { Button } from "@openmeld/ui/components/button";
+import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -18,56 +22,669 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
+	ArrowRightIcon,
 	CaretDownIcon,
 	ChatCircleTextIcon,
 	CopyIcon,
+	PencilSimpleIcon,
 } from "@phosphor-icons/react";
+import { useQuery } from "@tanstack/react-query";
+import type { ReactElement, ReactNode } from "react";
 import { toast } from "sonner";
+import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import type {
+	DirectoryAgentProfileSummary,
+	DirectoryHumanProfileComputer,
+	DirectoryProjectionStatus,
+} from "#/components/directory/directory-human-profile-model";
+import {
+	buildDirectoryAgentProfilesByOwner,
+	resolveHumanProfileComputer,
+} from "#/components/directory/directory-human-profile-model";
+import {
+	DirectoryAgentProfilesSummary,
+	DirectoryHumanProfileComputerSummary,
+} from "#/components/directory/directory-human-profile-presentation";
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+import { resolveSpaceMemberInlineStatusTextClassName } from "#/components/spaces/space-member-status-tone";
+import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { copyTextToClipboard } from "#/lib/clipboard";
+import { useMemberActivityTime } from "#/lib/spaces/use-member-activity-time";
+import {
+	organizationAgentRuntimeOverviewQueryOptions,
+	organizationComputersQueryOptions,
+	organizationProfileDirectoryQueryOptions,
+} from "#/query/organizations/organization-directory";
 
 const AGENT_WORKSPACE_TECHNICAL_SECTION_IDS: ReadonlySet<ProfileDetailsSectionId> =
 	new Set(["connection", "agent_controller_permission_mode", "advanced"]);
 
-export function ProfileDetailsDialog(input: {
-	currentSession?: {
-		href: string;
-		nativeSessionId: string;
-		title: string;
-	};
+const AGENT_PROFILE_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+	month: "short",
+	timeZoneName: "short",
+	year: "numeric",
+});
+
+const PROFILE_DETAILS_POPOVER_CLASS_NAME =
+	"w-[min(22rem,calc(100vw-1.5rem))] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl outline-none";
+const PROFILE_DETAILS_POPOVER_COLLISION_PADDING = 20;
+
+export function AgentProfileMoreDetailsDialog(input: {
+	agentProfile: AuthProfileView;
 	details: ProfileDetailsSnapshot;
-	isDirectMessagePending?: boolean;
-	isRecoveryActionPending?: boolean;
-	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
-	onOpenDirectMessage?: () => void;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
-			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-xl">
+			<DialogContent className="flex max-h-[min(46rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
 				<DialogHeader className="shrink-0 pr-8">
-					<DialogTitle>About profile</DialogTitle>
+					<DialogTitle>More details</DialogTitle>
 					<DialogDescription>
-						Profile details from OpenMeld, scoped to what this viewer can
-						access.
+						Profile ID and creation details.
 					</DialogDescription>
 				</DialogHeader>
 
-				<ProfileDetailsContent
-					className="min-h-0 flex-1 overflow-y-auto pr-1"
-					currentSession={input.currentSession}
+				<AgentProfileMoreDetailsContent
 					details={input.details}
-					isDirectMessagePending={input.isDirectMessagePending}
-					isRecoveryActionPending={input.isRecoveryActionPending}
-					onOpenDirectMessage={input.onOpenDirectMessage}
-					onRecoveryAction={input.onRecoveryAction}
-					testId="profile-details-dialog-scroll-area"
+					profile={input.agentProfile}
 				/>
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+export function AgentProfileDetailsContent(input: {
+	chatHref?: string;
+	className?: string;
+	details: ProfileDetailsSnapshot;
+	entry: SpaceMemberDirectoryEntry;
+	isDirectMessagePending?: boolean;
+	isCenterAgent?: boolean;
+	moreDetailsHref?: string;
+	onOpenDirectMessage?: () => void;
+}) {
+	const canEdit = input.details.viewerScope === "owner_self";
+
+	return (
+		<div
+			className={cn("min-h-0 flex-1 overflow-y-auto pr-1", input.className)}
+			data-testid="profile-details-popover-scroll-area"
+		>
+			<AgentProfileDetailsHeader
+				canEdit={canEdit}
+				details={input.details}
+				entry={input.entry}
+				isCenterAgent={input.isCenterAgent === true}
+				moreDetailsHref={input.moreDetailsHref}
+				showAvailabilitySummary
+			/>
+			<AgentProfileDirectMessageAction
+				href={input.chatHref}
+				isPending={input.isDirectMessagePending === true}
+				onOpen={input.onOpenDirectMessage}
+				profileName={input.entry.profileName}
+			/>
+		</div>
+	);
+}
+
+function AgentProfileDetailsHeader(input: {
+	canEdit: boolean;
+	details: ProfileDetailsSnapshot;
+	entry: SpaceMemberDirectoryEntry;
+	isCenterAgent: boolean;
+	moreDetailsHref?: string;
+	showAvailabilitySummary: boolean;
+}) {
+	const modelSummary =
+		selectDetailsRows(input.details, ["model"])[0]?.value ??
+		input.entry.controllerDisplayName ??
+		"Agent";
+	const presenceSummary = resolveAgentPresenceSummary(input.entry);
+	const showAvailabilitySummary =
+		input.showAvailabilitySummary &&
+		input.entry.availabilitySummary &&
+		input.entry.availabilitySummary !== presenceSummary;
+	return (
+		<div className="flex min-w-0 items-start gap-3">
+			{input.isCenterAgent ? (
+				<SpaceProfileIcon
+					agentControllerRef={input.entry.agentControllerRef}
+					isCenterAgent
+					profileId={input.entry.profileId}
+					profileKind="agent"
+					profileName={input.entry.profileName}
+					size="md"
+				/>
+			) : (
+				<AgentProfileControllerAvatar
+					agentControllerRef={input.entry.agentControllerRef}
+					profileId={input.entry.profileId}
+					size={48}
+				/>
+			)}
+			<div className="min-w-0 flex-1 pt-0.5">
+				<p className="break-words font-semibold text-base text-foreground">
+					{input.entry.profileName}
+				</p>
+				<p className="mt-1 break-words text-muted-foreground text-sm">
+					{modelSummary}
+				</p>
+				{presenceSummary ? (
+					<p
+						className={cn(
+							"mt-2 text-xs",
+							resolveSpaceMemberInlineStatusTextClassName(input.entry)
+						)}
+					>
+						{presenceSummary}
+					</p>
+				) : null}
+				{showAvailabilitySummary ? (
+					<p className="mt-1 text-muted-foreground text-xs">
+						{input.entry.availabilitySummary}
+					</p>
+				) : null}
+			</div>
+			<AgentProfileDetailsAction
+				canEdit={input.canEdit}
+				href={input.moreDetailsHref}
+				profileName={input.entry.profileName}
+			/>
+		</div>
+	);
+}
+
+function AgentProfileDetailsAction(input: {
+	canEdit: boolean;
+	href?: string;
+	profileName: string;
+}) {
+	if (!input.href) {
+		return null;
+	}
+	if (!input.canEdit) {
+		return null;
+	}
+	return (
+		<a
+			aria-label={`Edit ${input.profileName}`}
+			className={cn(
+				buttonVariants({ size: "icon-xs", variant: "ghost" }),
+				"shrink-0"
+			)}
+			href={input.href}
+		>
+			<PencilSimpleIcon aria-hidden="true" />
+		</a>
+	);
+}
+
+function AgentProfileDirectMessageAction(input: {
+	href?: string;
+	isPending: boolean;
+	onOpen?: () => void;
+	profileName: string;
+}) {
+	if (!(input.href || input.onOpen)) {
+		return null;
+	}
+	const content = (
+		<>
+			<ChatCircleTextIcon aria-hidden="true" className="size-3.5 shrink-0" />
+			<span className="truncate">Chat with {input.profileName}</span>
+		</>
+	);
+	if (input.href) {
+		return (
+			<a
+				className={cn(
+					buttonVariants({ size: "default", variant: "default" }),
+					"mt-3 w-full min-w-0 justify-center px-4"
+				)}
+				href={input.href}
+			>
+				{content}
+			</a>
+		);
+	}
+	return (
+		<Button
+			className="mt-3 w-full min-w-0 justify-center px-4"
+			disabled={input.isPending}
+			onClick={input.onOpen}
+			type="button"
+			variant="default"
+		>
+			{content}
+		</Button>
+	);
+}
+
+export function AgentProfileDetailsPopover(input: {
+	chatHref?: string;
+	details: ProfileDetailsSnapshot;
+	entry: SpaceMemberDirectoryEntry;
+	isDirectMessagePending?: boolean;
+	isCenterAgent?: boolean;
+	moreDetailsHref?: string;
+	onOpenDirectMessage?: () => void;
+	trigger: ReactElement;
+}) {
+	return (
+		<Popover.Root modal={false}>
+			<Popover.Trigger render={input.trigger} />
+			<Popover.Portal>
+				<Popover.Positioner
+					align="start"
+					className="z-50"
+					collisionAvoidance={{
+						align: "shift",
+						fallbackAxisSide: "none",
+						side: "flip",
+					}}
+					collisionPadding={PROFILE_DETAILS_POPOVER_COLLISION_PADDING}
+					side="bottom"
+					sideOffset={8}
+				>
+					<Popover.Popup
+						aria-label={`${input.entry.profileName} Profile`}
+						className={cn(
+							PROFILE_DETAILS_POPOVER_CLASS_NAME,
+							"max-h-[var(--available-height)] overflow-hidden"
+						)}
+						role="dialog"
+					>
+						<AgentProfileDetailsContent
+							chatHref={input.chatHref}
+							className="max-h-[min(34rem,calc(var(--available-height)-1.5rem))]"
+							details={input.details}
+							entry={input.entry}
+							isCenterAgent={input.isCenterAgent}
+							isDirectMessagePending={input.isDirectMessagePending}
+							moreDetailsHref={input.moreDetailsHref}
+							onOpenDirectMessage={input.onOpenDirectMessage}
+						/>
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
+	);
+}
+
+export function HumanProfileDetailsPopover(input: {
+	currentOwnerUserId: string | null;
+	entry: SpaceMemberDirectoryEntry;
+	isSelf?: boolean;
+	isDirectMessagePending?: boolean;
+	modelCatalog: ModelCatalog | null;
+	onOpenDirectMessage?: () => void;
+	organizationId: string | null;
+	orgSlug?: string;
+	profileHref?: string;
+	trigger: ReactElement;
+}) {
+	const activityTime = useMemberActivityTime(input.entry);
+	const canLoadCollaborationDetails = Boolean(
+		input.organizationId && input.orgSlug && input.entry.ownerUserId
+	);
+	return (
+		<Popover.Root modal={false}>
+			<Popover.Trigger render={input.trigger} />
+			<Popover.Portal>
+				<Popover.Positioner
+					align="start"
+					className="z-50"
+					collisionAvoidance={{
+						align: "shift",
+						fallbackAxisSide: "none",
+						side: "flip",
+					}}
+					collisionPadding={PROFILE_DETAILS_POPOVER_COLLISION_PADDING}
+					side="bottom"
+					sideOffset={8}
+				>
+					<Popover.Popup
+						aria-label={`${input.entry.profileName} Profile`}
+						className={PROFILE_DETAILS_POPOVER_CLASS_NAME}
+						role="dialog"
+					>
+						{canLoadCollaborationDetails ? (
+							<HumanProfileDetailsPopoverWithCollaboration
+								activityTime={activityTime}
+								currentOwnerUserId={input.currentOwnerUserId}
+								entry={input.entry}
+								isDirectMessagePending={input.isDirectMessagePending === true}
+								isSelf={input.isSelf === true}
+								modelCatalog={input.modelCatalog}
+								onOpenDirectMessage={input.onOpenDirectMessage}
+								organizationId={input.organizationId ?? ""}
+								orgSlug={input.orgSlug ?? ""}
+								profileHref={input.profileHref}
+							/>
+						) : (
+							<HumanProfileDetailsPopoverContent
+								activityTime={activityTime}
+								entry={input.entry}
+								isDirectMessagePending={input.isDirectMessagePending === true}
+								isSelf={input.isSelf === true}
+								onOpenDirectMessage={input.onOpenDirectMessage}
+								profileHref={input.profileHref}
+							/>
+						)}
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
+	);
+}
+
+export function ProfileDetailsPopover(input: {
+	details: ProfileDetailsSnapshot;
+	trigger: ReactElement;
+}) {
+	return (
+		<Popover.Root modal={false}>
+			<Popover.Trigger render={input.trigger} />
+			<Popover.Portal>
+				<Popover.Positioner
+					align="start"
+					className="z-50"
+					collisionAvoidance={{
+						align: "shift",
+						fallbackAxisSide: "none",
+						side: "flip",
+					}}
+					collisionPadding={PROFILE_DETAILS_POPOVER_COLLISION_PADDING}
+					side="bottom"
+					sideOffset={8}
+				>
+					<Popover.Popup
+						aria-label={`${input.details.profileName} Profile`}
+						className={cn(
+							PROFILE_DETAILS_POPOVER_CLASS_NAME,
+							"max-h-[var(--available-height)] overflow-hidden"
+						)}
+						role="dialog"
+					>
+						<div className="max-h-[min(34rem,calc(var(--available-height)-1.5rem))] overflow-y-auto pr-1">
+							<h2 className="font-semibold text-base">Check this Profile</h2>
+							<ProfileDetailsContent className="mt-3" details={input.details} />
+						</div>
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
+	);
+}
+
+function HumanProfileDetailsPopoverWithCollaboration(input: {
+	activityTime: string | null;
+	currentOwnerUserId: string | null;
+	entry: SpaceMemberDirectoryEntry;
+	isDirectMessagePending: boolean;
+	isSelf: boolean;
+	modelCatalog: ModelCatalog | null;
+	onOpenDirectMessage?: () => void;
+	organizationId: string;
+	orgSlug: string;
+	profileHref?: string;
+}) {
+	const profileDirectoryQuery = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: true,
+			organizationId: input.organizationId,
+		})
+	);
+	const runtimeOverviewQuery = useQuery(
+		organizationAgentRuntimeOverviewQueryOptions({
+			enabled: true,
+			organizationId: input.organizationId,
+		})
+	);
+	const computersQuery = useQuery(
+		organizationComputersQueryOptions({
+			enabled: true,
+			organizationId: input.organizationId,
+		})
+	);
+	const agentProfiles = profileDirectoryQuery.data
+		? (buildDirectoryAgentProfilesByOwner({
+				agentProfiles: profileDirectoryQuery.data.agentProfiles,
+				orgSlug: input.orgSlug,
+				runtimeOverview: runtimeOverviewQuery.data,
+			}).get(input.entry.ownerUserId ?? "") ?? [])
+		: [];
+	const agentsStatus = resolveDirectoryProjectionStatus({
+		isError: profileDirectoryQuery.isError,
+		isPending: profileDirectoryQuery.isPending,
+	});
+	const computersStatus = resolveDirectoryProjectionStatus({
+		isError: computersQuery.isError,
+		isPending: computersQuery.isPending,
+	});
+	const computer = resolveHumanProfileComputer({
+		computers: computersQuery.data ?? null,
+		isCurrentUser: input.entry.ownerUserId === input.currentOwnerUserId,
+		orgSlug: input.orgSlug,
+		status: computersStatus,
+		userId: input.entry.ownerUserId ?? "",
+	});
+	return (
+		<HumanProfileDetailsPopoverContent
+			activityTime={input.activityTime}
+			agentProfiles={agentProfiles}
+			agentsStatus={agentsStatus}
+			computer={computer}
+			entry={input.entry}
+			isDirectMessagePending={input.isDirectMessagePending}
+			isSelf={input.isSelf}
+			modelCatalog={input.modelCatalog}
+			onOpenDirectMessage={input.onOpenDirectMessage}
+			profileHref={input.profileHref}
+		/>
+	);
+}
+
+function resolveDirectoryProjectionStatus(input: {
+	isError: boolean;
+	isPending: boolean;
+}): DirectoryProjectionStatus {
+	if (input.isPending) {
+		return "loading";
+	}
+	return input.isError ? "failed" : "ready";
+}
+
+function HumanProfileDetailsPopoverContent(input: {
+	activityTime: string | null;
+	agentProfiles?: readonly DirectoryAgentProfileSummary[];
+	agentsStatus?: DirectoryProjectionStatus;
+	computer?: DirectoryHumanProfileComputer;
+	entry: SpaceMemberDirectoryEntry;
+	isDirectMessagePending: boolean;
+	isSelf: boolean;
+	modelCatalog?: ModelCatalog | null;
+	onOpenDirectMessage?: () => void;
+	profileHref?: string;
+}) {
+	const showAgentProfiles =
+		input.agentsStatus === "ready" &&
+		Boolean(input.agentProfiles && input.agentProfiles.length > 0);
+	return (
+		<>
+			<div className="flex min-w-0 items-start gap-3">
+				<SpaceProfileIcon
+					agentControllerRef={null}
+					avatarImageUrl={input.entry.avatarUrl}
+					profileId={input.entry.profileId}
+					profileKind="human"
+					profileName={input.entry.profileName}
+					size="md"
+				/>
+				<div className="min-w-0 flex-1 pt-0.5">
+					<div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+						<p className="break-words font-semibold text-base text-foreground">
+							{input.entry.profileName}
+						</p>
+						{input.isSelf ? (
+							<span className="text-muted-foreground text-sm before:mr-1.5 before:content-['·']">
+								You
+							</span>
+						) : null}
+					</div>
+					<div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
+						{input.activityTime ? (
+							<span title="Last activity in this Space">
+								{input.activityTime}
+							</span>
+						) : null}
+						{input.computer ? (
+							<>
+								{input.activityTime ? <span aria-hidden="true">·</span> : null}
+								<DirectoryHumanProfileComputerSummary
+									computer={input.computer}
+									ownerName={input.entry.profileName}
+								/>
+							</>
+						) : null}
+					</div>
+				</div>
+				{input.profileHref ? (
+					<a
+						aria-label={`View ${input.entry.profileName} profile`}
+						className={cn(
+							buttonVariants({ size: "icon-xs", variant: "ghost" }),
+							"shrink-0"
+						)}
+						href={input.profileHref}
+						title="View profile"
+					>
+						<ArrowRightIcon aria-hidden="true" />
+					</a>
+				) : null}
+			</div>
+			<AgentProfileDirectMessageAction
+				isPending={input.isDirectMessagePending}
+				onOpen={input.onOpenDirectMessage}
+				profileName={input.entry.profileName}
+			/>
+			{showAgentProfiles && input.agentProfiles ? (
+				<div className="mt-4 border-border border-t pt-4">
+					<DirectoryAgentProfilesSummary
+						modelCatalog={input.modelCatalog ?? null}
+						ownerName={input.entry.profileName}
+						path={input.profileHref}
+						profiles={input.agentProfiles}
+						status={input.agentsStatus}
+						variant="popover"
+					/>
+				</div>
+			) : null}
+		</>
+	);
+}
+
+function resolveAgentPresenceSummary(
+	entry: SpaceMemberDirectoryEntry
+): string | null {
+	if (entry.availabilityReasonCode === "agent_execution.ready") {
+		return "Available for Wake";
+	}
+	if (entry.availabilityBadgeLabel) {
+		return entry.availabilityBadgeLabel;
+	}
+	switch (entry.presenceStatus) {
+		case "wakeable":
+			return "Available for Wake";
+		case "checking_connection":
+			return "Checking";
+		case "offline":
+			return "Offline";
+		case "unavailable":
+			return "Unavailable";
+		default:
+			return entry.presenceLabel ?? entry.availabilitySummary;
+	}
+}
+
+function AgentProfileMoreDetailsContent(input: {
+	details: ProfileDetailsSnapshot;
+	profile: AuthProfileView;
+}) {
+	const details = buildAgentProfileMoreDetailsSnapshot(input);
+	return (
+		<ProfileDetailsContent
+			className="min-h-0 flex-1 overflow-y-auto pr-1"
+			details={details}
+			showSummary={false}
+			testId="profile-details-dialog-scroll-area"
+		/>
+	);
+}
+
+function buildAgentProfileMoreDetailsSnapshot(input: {
+	details: ProfileDetailsSnapshot;
+	profile: AuthProfileView;
+}): ProfileDetailsSnapshot {
+	const profileRows = selectDetailsRows(input.details, [
+		"profile_id",
+		"created_from",
+		"created_at",
+		"updated_at",
+	]).map((row) => {
+		if (row.id === "created_at") {
+			return {
+				...row,
+				value: formatAgentProfileTimestamp(input.profile.createdAt),
+			};
+		}
+		if (row.id === "updated_at") {
+			return {
+				...row,
+				value: formatAgentProfileTimestamp(input.profile.updatedAt),
+			};
+		}
+		return row;
+	});
+	const sections: ProfileDetailsSection[] = [];
+	if (profileRows.length > 0) {
+		sections.push({
+			id: "profile",
+			recoveryAction: null,
+			rows: profileRows,
+			title: "Profile details",
+		});
+	}
+	return { ...input.details, sections };
+}
+
+function selectDetailsRows(
+	details: ProfileDetailsSnapshot,
+	rowIds: readonly string[]
+): ProfileDetailsField[] {
+	const rowsById = new Map<string, ProfileDetailsField>();
+	for (const section of details.sections) {
+		for (const row of section.rows) {
+			rowsById.set(row.id, row);
+		}
+	}
+	return rowIds.flatMap((rowId) => {
+		const row = rowsById.get(rowId);
+		return row ? [row] : [];
+	});
+}
+
+function formatAgentProfileTimestamp(value: string): string {
+	const date = new Date(value);
+	return Number.isNaN(date.getTime())
+		? value
+		: AGENT_PROFILE_TIMESTAMP_FORMATTER.format(date);
 }
 
 export function ProfileDetailsContent(input: {
@@ -85,6 +702,7 @@ export function ProfileDetailsContent(input: {
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	onOpenDirectMessage?: () => void;
 	showSummary?: boolean;
+	summaryAvatar?: ReactNode;
 	testId?: string;
 }) {
 	const excludedSectionIds = new Set(input.excludedSectionIds ?? []);
@@ -108,13 +726,16 @@ export function ProfileDetailsContent(input: {
 		<div className={cn("min-w-0", input.className)} data-testid={input.testId}>
 			{input.showSummary === false ? null : (
 				<div className="flex min-w-0 items-start justify-between gap-3">
-					<div className="min-w-0">
-						<p className="break-words font-medium text-sm">
-							{input.details.profileName}
-						</p>
-						<p className="text-muted-foreground text-xs">
-							{formatProfileKind(input.details.profileKind)}
-						</p>
+					<div className="flex min-w-0 items-start gap-2.5">
+						{input.summaryAvatar}
+						<div className="min-w-0">
+							<p className="break-words font-medium text-sm">
+								{input.details.profileName}
+							</p>
+							<p className="text-muted-foreground text-xs">
+								{formatProfileKind(input.details.profileKind)}
+							</p>
+						</div>
 					</div>
 					{input.onOpenDirectMessage ? (
 						<Button

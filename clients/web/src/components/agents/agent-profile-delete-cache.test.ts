@@ -1,6 +1,7 @@
 import type {
 	AuthProfileView,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
@@ -22,6 +23,8 @@ describe("Agent Profile delete list caches", () => {
 		const otherAccountProfilesQueryKey =
 			startQueryKeys.profilesForStorageScope("account-2");
 		const acmeDirectoryQueryKey = organizationQueryKeys.directory("org-acme");
+		const acmeProfileDirectoryQueryKey =
+			organizationQueryKeys.profileDirectory("org-acme");
 		const betaDirectoryQueryKey = organizationQueryKeys.directory("org-beta");
 		const roleQueryKey = organizationQueryKeys.role("org-acme", "account-1");
 		const profiles = [
@@ -38,6 +41,7 @@ describe("Agent Profile delete list caches", () => {
 			createProfile(REMOVED_PROFILE_ID),
 		]);
 		queryClient.setQueryData(acmeDirectoryQueryKey, acmeDirectory);
+		queryClient.setQueryData(acmeProfileDirectoryQueryKey, acmeDirectory);
 		queryClient.setQueryData(betaDirectoryQueryKey, betaDirectory);
 		queryClient.setQueryData(roleQueryKey, "owner");
 
@@ -59,6 +63,11 @@ describe("Agent Profile delete list caches", () => {
 			)?.agentProfiles
 		).toEqual([]);
 		expect(
+			queryClient.getQueryData<OrganizationProfileDirectoryResponse>(
+				acmeProfileDirectoryQueryKey
+			)?.agentProfiles
+		).toEqual([]);
+		expect(
 			queryClient
 				.getQueryData<OrganizationDirectoryResponse>(betaDirectoryQueryKey)
 				?.agentProfiles.map((profile) => profile.profileId)
@@ -69,6 +78,9 @@ describe("Agent Profile delete list caches", () => {
 
 		expect(queryClient.getQueryData(profilesQueryKey)).toEqual(profiles);
 		expect(queryClient.getQueryData(acmeDirectoryQueryKey)).toEqual(
+			acmeDirectory
+		);
+		expect(queryClient.getQueryData(acmeProfileDirectoryQueryKey)).toEqual(
 			acmeDirectory
 		);
 		expect(queryClient.getQueryData(betaDirectoryQueryKey)).toEqual(
@@ -83,6 +95,8 @@ describe("Agent Profile delete list caches", () => {
 		const otherAccountProfilesQueryKey =
 			startQueryKeys.profilesForStorageScope("account-2");
 		const directoryQueryKey = organizationQueryKeys.directory("org-acme");
+		const profileDirectoryQueryKey =
+			organizationQueryKeys.profileDirectory("org-acme");
 		const roleQueryKey = organizationQueryKeys.role("org-acme", "account-1");
 		queryClient.setQueryData(profilesQueryKey, [
 			createProfile(REMOVED_PROFILE_ID),
@@ -92,6 +106,10 @@ describe("Agent Profile delete list caches", () => {
 		]);
 		queryClient.setQueryData(
 			directoryQueryKey,
+			createDirectory("org-acme", [REMOVED_PROFILE_ID])
+		);
+		queryClient.setQueryData(
+			profileDirectoryQueryKey,
 			createDirectory("org-acme", [REMOVED_PROFILE_ID])
 		);
 		queryClient.setQueryData(roleQueryKey, "owner");
@@ -107,6 +125,9 @@ describe("Agent Profile delete list caches", () => {
 		expect(queryClient.getQueryState(directoryQueryKey)?.isInvalidated).toBe(
 			true
 		);
+		expect(
+			queryClient.getQueryState(profileDirectoryQueryKey)?.isInvalidated
+		).toBe(true);
 		expect(
 			queryClient.getQueryState(otherAccountProfilesQueryKey)?.isInvalidated
 		).toBe(false);

@@ -7,11 +7,13 @@ import type { AuthView } from "./auth-views";
 import { LastUsedBadge } from "./last-userd-badge";
 
 type MagicLinkButtonProps = {
+	addingAccount?: boolean;
 	isSubmitting?: boolean;
 	view: AuthView;
 };
 
 export function MagicLinkButton({
+	addingAccount = false,
 	isSubmitting = false,
 	view,
 }: MagicLinkButtonProps) {
@@ -23,7 +25,8 @@ export function MagicLinkButton({
 	const isMagicLinkLastUsed = lastUsed === "magic-link";
 
 	const to = useRedirectQueryPath(
-		view === "magicLink" ? "/login" : "/magic-link"
+		view === "magicLink" ? "/login" : "/magic-link",
+		addingAccount ? { intent: "add-account" } : undefined
 	);
 	const label =
 		view === "magicLink" ? "Login with Password" : "Login with Magic Link";

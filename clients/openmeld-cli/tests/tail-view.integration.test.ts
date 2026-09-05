@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAuthSession } from "../src/config/auth-session";
-import { runTail } from "../src/space/history";
+import {
+  runTail,
+  SPACE_HISTORY_BRIEF_TEXT_MAX_CHARACTERS,
+} from "../src/space/history";
 import { runSpaceThread } from "../src/space/thread";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
@@ -475,6 +478,87 @@ describe("tail view mode", () => {
       expect(stdout).not.toContain("system.space.members");
       expect(stdout).not.toContain("system.session.meta");
       expect(stdout).not.toContain("diagnostics");
+    });
+  });
+
+  it("caps long brief text and returns an exact full-message command", async () => {
+    await withTempHome(async () => {
+      const longText = `start-${"x".repeat(
+        SPACE_HISTORY_BRIEF_TEXT_MAX_CHARACTERS
+      )}-end`;
+      mockHistoryFetch({
+        signals: [
+          {
+            v: 1,
+            id: "signal-long-1",
+            spaceId: "demo",
+            ts: 1,
+            type: "signal.text",
+            profile: {
+              kind: "agent",
+              profileId: AGENT_SIGNAL_PROFILE_ID,
+              profileName: "Mira",
+              owner: OWNER_USER_ID,
+              ownerName: OWNER_NAME,
+              agentControllerRef: "builtin:codex",
+            },
+            data: {
+              text: longText,
+              messageEnvelope: {
+                text: longText,
+                activationTargets: [],
+                referenceTargets: [],
+              },
+            },
+          },
+        ],
+      });
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runTail({
+          profile: AGENT_PROFILE_ID,
+          baseUrl: "https://gateway.openmeld.invalid",
+          space: "demo",
+          limit: 20,
+          brief: true,
+          json: false,
+          view: "agent",
+        });
+      });
+
+      const payload = JSON.parse(stdout.trim()) as {
+        briefTextMaxCharacters?: number;
+        messages?: Array<{
+          fullTextCommand?: string;
+          mentionTargets?: unknown[];
+          referenceTargets?: unknown[];
+          replyTo?: string;
+          text?: string | null;
+          textOriginalCharacters?: number | null;
+          textTruncated?: boolean;
+          thread?: unknown;
+          wakeTargets?: unknown[];
+        }>;
+      };
+      const message = payload.messages?.[0];
+      expect(payload.briefTextMaxCharacters).toBe(
+        SPACE_HISTORY_BRIEF_TEXT_MAX_CHARACTERS
+      );
+      expect([...(message?.text ?? "")]).toHaveLength(
+        SPACE_HISTORY_BRIEF_TEXT_MAX_CHARACTERS
+      );
+      expect(message).toMatchObject({
+        fullTextCommand:
+          "openmeld space history demo --around-signal signal-long-1 --before 0 --after 0 --kind text --profile agt_aaaaaaaa-0000-0000-0000-000000000000 --view agent",
+        textOriginalCharacters: [...longText].length,
+        textTruncated: true,
+      });
+      expect(message?.text).not.toContain("-end");
+      expect(message).not.toHaveProperty("mentionTargets");
+      expect(message).not.toHaveProperty("referenceTargets");
+      expect(message).not.toHaveProperty("replyTo");
+      expect(message).not.toHaveProperty("thread");
+      expect(message).not.toHaveProperty("wakeTargets");
     });
   });
 

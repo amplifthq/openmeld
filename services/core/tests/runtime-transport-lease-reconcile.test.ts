@@ -16,8 +16,10 @@ import {
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportBaseCapabilitiesSchema,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import releaseManifestJson from "../../../release/local-components.json";
 import type { CoreBindings } from "../src/lib/bindings";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
 import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
@@ -32,6 +34,8 @@ const BASE_URL = "http://localhost";
 const DAEMON_TEST_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const REQUEST_ID = "req-runtime-transport-reconcile";
 const SERVER_ROUTE_RECONCILIATION_REASON = "server_route_reconciliation";
+const CURRENT_RELEASE_SERVICE_VERSION =
+  releaseManifestJson.components.service.bundleVersion;
 
 const touchedOwnerUserIds = new Set<string>();
 
@@ -115,6 +119,7 @@ async function registerSession(input: {
   };
   ownerUserId: string;
   profileIds: string[];
+  serviceVersion?: string;
   socket: WebSocket;
 }): Promise<{
   acceptedLeases: Array<{ leaseEpoch: number; profileId: string }>;
@@ -134,6 +139,9 @@ async function registerSession(input: {
         connectionGeneration: 1,
         profileIds: input.profileIds,
         capabilities: input.capabilities ?? {},
+        ...(input.serviceVersion
+          ? { serviceVersion: input.serviceVersion }
+          : {}),
         runtimeContract: {
           epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
         },
@@ -156,9 +164,13 @@ async function registerSession(input: {
 
   const frame = await waitForJsonMessage(
     input.socket,
-    (value) => value.code === "daemon.session.register",
+    (value) =>
+      value.code === "daemon.session.register" || value.code === "daemon.error",
     5000
   );
+  if (frame.code === "daemon.error") {
+    throw new Error(`Daemon registration failed: ${JSON.stringify(frame)}`);
+  }
   const payload = frame.payload as {
     acceptedLeases?: Array<{ leaseEpoch: number; profileId: string }>;
     connectionGeneration?: number;
@@ -173,11 +185,13 @@ async function registerSession(input: {
 }
 
 async function sendHeartbeat(input: {
+  capabilities?: Record<string, unknown>;
   daemonSessionId: string;
   deviceId: string;
   lane?: string;
   ownerUserId: string;
   leases: Array<{ leaseEpoch: number; profileId: string }>;
+  serviceVersion?: string;
   socket: WebSocket;
 }): Promise<{
   ok: boolean;
@@ -193,7 +207,8 @@ async function sendHeartbeat(input: {
         deviceId: input.deviceId,
         lane: input.lane ?? "dev-local",
         daemonSessionId: input.daemonSessionId,
-        serviceVersion: "0.7.91",
+        serviceVersion: input.serviceVersion ?? "0.7.91",
+        ...(input.capabilities ? { capabilities: input.capabilities } : {}),
         leases: input.leases,
         runtimeContract: {
           epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -405,6 +420,55 @@ async function expectNoRouteCatalogChangedFrame(
     }
     throw error;
   }
+}
+
+async function expectNoOpenMeldToolsControlRequestFrame(
+  socket: WebSocket
+): Promise<void> {
+  try {
+    const frame = await waitForJsonMessage(
+      socket,
+      (value) => value.code === "daemon.openmeld_tools_control.request",
+      300
+    );
+    throw new Error(
+      `Expected no daemon.openmeld_tools_control.request frame, but received ${JSON.stringify(frame)}`
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("Timed out waiting for WebSocket message")
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function waitForAutomaticUpdateTarget(input: {
+  computerKey: string;
+  expectedTarget: string | null;
+  shard: DurableObjectStub<RuntimeTransportHub>;
+}): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    const target = await runInDurableObject(input.shard, (instance) => {
+      const internal = instance as unknown as {
+        automaticToolsUpdateTargetByComputer: Map<string, string>;
+      };
+      return (
+        internal.automaticToolsUpdateTargetByComputer.get(input.computerKey) ??
+        null
+      );
+    });
+    if (target === input.expectedTarget) {
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(
+    `Timed out waiting for automatic update target ${String(input.expectedTarget)}`
+  );
 }
 
 async function lookupRoute(input: {
@@ -886,6 +950,196 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
+
+  it("requests one automatic update from a capable production Service and coalesces the release", async () => {
+    const ownerUserId = "owner-openmeld-tools-automatic-update";
+    const daemonSessionId = "daemon-session-openmeld-tools-automatic-update";
+    const deviceId = "device-openmeld-tools-automatic-update";
+    const socket = await openDaemonStream(ownerUserId);
+    const localComponents = createAutomaticUpdateLocalComponentsStatus();
+    const capabilities = {
+      localComponents,
+      openMeldToolsControl: {
+        requestAutomaticUpdate: true,
+        requestUpdate: true,
+        setAutomaticUpdates: true,
+      },
+    };
+    const parsedCapabilities =
+      runtimeTransportBaseCapabilitiesSchema.safeParse(capabilities);
+    expect(
+      parsedCapabilities.success,
+      parsedCapabilities.success
+        ? undefined
+        : JSON.stringify(parsedCapabilities.error.issues)
+    ).toBe(true);
+
+    try {
+      const automaticRequest = waitForJsonMessage(
+        socket,
+        (value) => value.code === "daemon.openmeld_tools_control.request",
+        5000
+      );
+      await registerSession({
+        capabilities,
+        daemonSessionId,
+        deviceId,
+        lane: "prod",
+        ownerUserId,
+        profileIds: [],
+        serviceVersion: "0.3.137",
+        socket,
+      });
+      const requestFrame = await automaticRequest;
+      expect(requestFrame).toMatchObject({
+        code: "daemon.openmeld_tools_control.request",
+        payload: {
+          request: {
+            operation: "request_update",
+            requestSource: "automatic",
+          },
+        },
+      });
+      const requestId = (requestFrame.payload as { requestId: string })
+        .requestId;
+      socket.send(
+        JSON.stringify({
+          code: "daemon.openmeld_tools_control.result",
+          payload: {
+            requestId,
+            result: {
+              operation: "request_update",
+              result: {
+                currentVersion: CURRENT_RELEASE_SERVICE_VERSION,
+                status: "current",
+              },
+            },
+          },
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        })
+      );
+
+      await sendHeartbeat({
+        capabilities,
+        daemonSessionId,
+        deviceId,
+        lane: "prod",
+        leases: [],
+        ownerUserId,
+        serviceVersion: "0.3.137",
+        socket,
+      });
+      await expectNoOpenMeldToolsControlRequestFrame(socket);
+    } finally {
+      socket.close(1000, "test_done");
+    }
+  });
+
+  it("clears a failed automatic request so a replacement Service can retry", async () => {
+    const ownerUserId = "owner-openmeld-tools-automatic-retry";
+    const firstDaemonSessionId =
+      "daemon-session-openmeld-tools-automatic-retry-1";
+    const secondDaemonSessionId =
+      "daemon-session-openmeld-tools-automatic-retry-2";
+    const deviceId = "device-openmeld-tools-automatic-retry";
+    const computerKey = `${ownerUserId}:${deviceId}:prod`;
+    const shard = getRuntimeTransportShard(ownerUserId);
+    const capabilities = {
+      localComponents: createAutomaticUpdateLocalComponentsStatus(),
+      openMeldToolsControl: {
+        requestAutomaticUpdate: true,
+        requestUpdate: true,
+        setAutomaticUpdates: true,
+      },
+    };
+    const firstSocket = await openDaemonStream(ownerUserId);
+    let secondSocket: WebSocket | null = null;
+
+    try {
+      const firstAutomaticRequest = waitForJsonMessage(
+        firstSocket,
+        (value) => value.code === "daemon.openmeld_tools_control.request",
+        5000
+      );
+      await registerSession({
+        capabilities,
+        daemonSessionId: firstDaemonSessionId,
+        deviceId,
+        lane: "prod",
+        ownerUserId,
+        profileIds: [],
+        serviceVersion: "0.3.137",
+        socket: firstSocket,
+      });
+      await expect(firstAutomaticRequest).resolves.toMatchObject({
+        payload: {
+          request: {
+            operation: "request_update",
+            requestSource: "automatic",
+          },
+        },
+      });
+      await waitForAutomaticUpdateTarget({
+        computerKey,
+        expectedTarget: CURRENT_RELEASE_SERVICE_VERSION,
+        shard,
+      });
+
+      firstSocket.close(1000, "replace_service");
+      await waitForAutomaticUpdateTarget({
+        computerKey,
+        expectedTarget: null,
+        shard,
+      });
+
+      secondSocket = await openDaemonStream(ownerUserId);
+      const retryRequest = waitForJsonMessage(
+        secondSocket,
+        (value) => value.code === "daemon.openmeld_tools_control.request",
+        5000
+      );
+      await registerSession({
+        capabilities,
+        daemonSessionId: secondDaemonSessionId,
+        deviceId,
+        lane: "prod",
+        ownerUserId,
+        profileIds: [],
+        serviceVersion: "0.3.137",
+        socket: secondSocket,
+      });
+      const retryFrame = await retryRequest;
+      expect(retryFrame).toMatchObject({
+        payload: {
+          request: {
+            operation: "request_update",
+            requestSource: "automatic",
+          },
+        },
+      });
+      const retryRequestId = (retryFrame.payload as { requestId: string })
+        .requestId;
+      secondSocket.send(
+        JSON.stringify({
+          code: "daemon.openmeld_tools_control.result",
+          payload: {
+            requestId: retryRequestId,
+            result: {
+              operation: "request_update",
+              result: {
+                currentVersion: CURRENT_RELEASE_SERVICE_VERSION,
+                status: "current",
+              },
+            },
+          },
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        })
+      );
+    } finally {
+      firstSocket.close(1000, "test_done");
+      secondSocket?.close(1000, "test_done");
+    }
+  }, 10_000);
 
   it("nudges a fresh daemon session to resync when expected routes are missing from register", async () => {
     const ownerUserId = "owner-route-reconcile-register";
@@ -1554,6 +1808,15 @@ describe("runtime transport lease reconciliation", () => {
         profileIds: ["agt-owner-match"],
       });
       expect(registered.rejectedProfiles).toEqual([]);
+      await expect(
+        sendHeartbeat({
+          socket,
+          ownerUserId,
+          daemonSessionId: "daemon-session-owner-match",
+          deviceId: "device-owner-match",
+          leases: registered.acceptedLeases,
+        })
+      ).resolves.toEqual({ ok: true, staleLeases: [] });
 
       const route = await lookupRoute({
         ownerUserId,
@@ -1701,6 +1964,15 @@ describe("runtime transport lease reconciliation", () => {
       const connectionGeneration = registered.connectionGeneration;
       expect(leaseEpoch).toBe(1);
       expect(connectionGeneration).toBe(1);
+      await expect(
+        sendHeartbeat({
+          socket,
+          ownerUserId,
+          daemonSessionId,
+          deviceId: "device-3",
+          leases: registered.acceptedLeases,
+        })
+      ).resolves.toEqual({ ok: true, staleLeases: [] });
 
       const dispatchId = "dispatch-stale-lease-log-1";
       const attemptId = "attempt-stale-lease-log-1";
@@ -1777,6 +2049,52 @@ describe("runtime transport lease reconciliation", () => {
     }
   });
 });
+
+function createAutomaticUpdateLocalComponentsStatus(): Record<string, unknown> {
+  return {
+    schemaVersion: 1,
+    generatedAt: "2026-09-01T12:54:00.000Z",
+    entrypoint: "setup",
+    summaryLabel: "Everything is up to date",
+    summaryDescription: "OpenMeld Tools are ready.",
+    setupAction: "none",
+    setupActionLabel: "Everything is up to date",
+    setupActionDescription: "OpenMeld Tools are ready.",
+    maintenance: {
+      automaticUpdatesEnabled: true,
+      status: "ready",
+    },
+    cli: {
+      commandContractVersion:
+        "openmeld-cli-command-contract-2026-05-local-components-v1",
+      latestPackageVersion: "0.3.137",
+      packageVersion: "0.3.137",
+      reasonCodes: [],
+      requiredCommandContractVersion: null,
+      status: "ok",
+    },
+    service: {
+      expectedBundleHash: "c".repeat(64),
+      expectedBundleVersion: "0.3.137",
+      installedBundleHash: "c".repeat(64),
+      installedBundleVersion: "0.3.137",
+      reasonCodes: [],
+      runtimeContractEpoch: "runtime-transport-epoch-2026-07-default-project",
+      serviceContractVersion:
+        "openmeld-service-contract-2026-09-codex-thread-model-v1",
+      status: "ok",
+    },
+    skills: {
+      expectedBundleHash: "d".repeat(64),
+      installedBundleHash: "d".repeat(64),
+      reasonCodes: [],
+      skillContractVersion:
+        "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
+      status: "ok",
+      targetCount: 1,
+    },
+  };
+}
 
 describe("daemon stream keepalive", () => {
   it("answers a daemon-stream keepalive PING with PONG", async () => {

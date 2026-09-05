@@ -6,7 +6,7 @@
   Profiles collaborate, with local execution carried through OpenMeld Service.
 - Read this when: You need the product-level meaning of OpenMeld, Space, Human
   Profile, Agent Profile, Agent Controller, Wake/Reference addressing, local
-  execution, setup, Prepare, readiness, diagnostics, or the main user promise
+  execution, setup, Prepare, Wakeability, diagnostics, or the main user promise
   before making a product or architecture decision.
 - Update this when: The product model, primary user promise, collaboration model,
   or relationship between cloud Spaces and local execution changes.
@@ -79,7 +79,7 @@ Web or CLI Space message
 
 This loop is the product.
 
-Setup, readiness, binding, service status, route state, and diagnostics are
+Setup, Wakeability, binding, service status, route state, and diagnostics are
 supporting evidence. They matter only because they help the user reach,
 understand, or repair the product loop.
 
@@ -120,19 +120,19 @@ infrastructure, not identity: an Agent Profile can be bound to an Agent
 Controller for execution, while the profile's name, instructions, and
 continuity stay independent of which controller runs it.
 
-Readiness may appear on Agent Profile surfaces, but Agent Profile identity does
-not own readiness truth. Readiness is a product claim about whether this Agent
-Profile can reply through the current transport path. Final user-facing
-readiness comes from the transport-owned readiness projection; no single factor
-— route online, Binding existence, completed Prepare, or local process health —
-is enough alone.
+Wakeability may appear on Agent Profile surfaces, but Agent Profile identity
+does not own its truth. Wakeability is the current product answer to whether an
+Agent Profile can accept a new Wake through the requested transport path. Final
+user-facing Wakeability comes from the Core-owned transport projection; no
+single factor — route online, Binding existence, completed Prepare, or local
+process health — is enough alone.
 
 OpenMeld Service is the local execution carrier and trust boundary between OpenMeld cloud
 collaboration and work performed on the user's computer.
 
 OpenMeld Service makes local agent work possible for the intended account, computer,
 lane, and Agent Profile. It carries execution; it does not own Space truth,
-Agent Profile identity, final readiness truth, or the visible Space outcome.
+Agent Profile identity, final Wakeability, or the visible Space outcome.
 
 Space Message Addressing is how a Space message names other members: Wake and
 Reference. Wake is the only addressing relation that dispatches executable
@@ -162,7 +162,7 @@ and trace details belong in the transport architecture contract.
 
 Setup and repair exist to align the product loop. Prepare is the product step
 that makes one computer ready to carry local agent work for the intended
-account and lane; completed Prepare is supporting evidence, not readiness
+account and lane; completed Prepare is supporting evidence, not Wakeability
 truth.
 
 They must not report success merely because a local process is running, a tool
@@ -170,16 +170,16 @@ was detected, or a partial connection exists. They support the product only when
 the relevant account, computer, lane, OpenMeld Service, local agent capability, and
 Agent Profile are aligned enough for the promised reply path.
 
-Readiness exists to express whether the product loop can likely work now.
+Wakeability exists to answer whether the product loop can accept a new Wake now.
 
 The user-facing question is:
 
 ```text
-Can this Agent Profile reply from this computer in this Space right now?
+Can this Agent accept a new Wake here right now?
 ```
 
 If a status cannot answer that question, it is diagnostic evidence, not product
-readiness.
+Wakeability.
 
 Diagnostics exist to explain the loop when it fails. They should help users or
 operators understand where the chain broke, without replacing clear product copy
@@ -208,12 +208,12 @@ validation workflow belongs in `developing/engineering/`.
 - OpenMeld is reliable Space-to-local-agent-to-Space collaboration.
 - A user request for agent work should produce one visible reply or one explicit
   visible failure.
-- Setup, readiness, repair, service status, and diagnostics are supporting
+- Setup, Wakeability, repair, service status, and diagnostics are supporting
   evidence, not the product itself.
 - An Agent Profile is an AI teammate identity, not local execution truth.
-- Agent Profile identity does not own readiness truth.
+- Agent Profile identity does not own Wakeability.
 - OpenMeld Service is the local execution carrier and trust boundary, not product
-  identity or final readiness truth.
+  identity or final Wakeability.
 - A setup or repair flow must not report success before the promised reply path
   is aligned.
 - User-facing status must use clear product language and show the next action.

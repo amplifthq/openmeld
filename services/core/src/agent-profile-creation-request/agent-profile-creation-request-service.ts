@@ -190,6 +190,13 @@ export class AgentProfileCreationRequestExecutionError extends Error {
   }
 }
 
+class AgentProfileCreationRequestCheckpointStorageError extends Error {
+  constructor(cause: unknown) {
+    super("Agent Profile creation checkpoint storage failed.", { cause });
+    this.name = "AgentProfileCreationRequestCheckpointStorageError";
+  }
+}
+
 export async function failStaleAgentProfileCreationRequests(input: {
   limit?: number;
   nowMs: number;
@@ -258,6 +265,7 @@ export function createAgentProfileCreationRequestService(input: {
       return toPublicRequest(await requireRequest(record));
     }
     let activeClaim = claimed;
+    let committedAgentProfileId = claimed.createdAgentProfileId;
     let createdAgentProfileId: string;
     try {
       createdAgentProfileId = await input.createAgentProfile(claimed, {
@@ -270,18 +278,26 @@ export function createAgentProfileCreationRequestService(input: {
             }
             return;
           }
+          committedAgentProfileId = agentProfileId;
           const checkpointedAtMs = Math.max(now(), activeClaim.updatedAtMs + 1);
-          const checkpointed = await input.repository.transition({
-            expectedProfileCreationAttempt: activeClaim.profileCreationAttempt,
-            expectedStatuses: ["approved"],
-            expectedUpdatedAtMs: activeClaim.updatedAtMs,
-            requestId: activeClaim.id,
-            update: {
-              createdAgentProfileId: agentProfileId,
-              statusReason: "profile_created",
-              updatedAtMs: checkpointedAtMs,
-            },
-          });
+          const checkpointed = await input.repository
+            .transition({
+              expectedProfileCreationAttempt:
+                activeClaim.profileCreationAttempt,
+              expectedStatuses: ["approved"],
+              expectedUpdatedAtMs: activeClaim.updatedAtMs,
+              requestId: activeClaim.id,
+              update: {
+                createdAgentProfileId: agentProfileId,
+                statusReason: "profile_created",
+                updatedAtMs: checkpointedAtMs,
+              },
+            })
+            .catch((cause) => {
+              throw new AgentProfileCreationRequestCheckpointStorageError(
+                cause
+              );
+            });
           if (!checkpointed) {
             throw new AgentProfileCreationRequestStateError(
               "This Agent Profile setup attempt was superseded."
@@ -298,8 +314,19 @@ export function createAgentProfileCreationRequestService(input: {
           : null;
       const createdAgentProfileId =
         executionError?.createdAgentProfileId ??
+        committedAgentProfileId ??
         activeClaim.createdAgentProfileId ??
         record.createdAgentProfileId;
+      if (error instanceof AgentProfileCreationRequestCheckpointStorageError) {
+        console.error(
+          "[core.agent_profile_creation_request.execution_failed]",
+          {
+            error: readFailureMessage(error.cause),
+            organizationId: record.organizationId,
+            requestId: record.id,
+          }
+        );
+      }
       const failed = await input.repository.transition({
         expectedProfileCreationAttempt: activeClaim.profileCreationAttempt,
         expectedStatuses: ["approved"],
@@ -307,7 +334,9 @@ export function createAgentProfileCreationRequestService(input: {
         requestId: record.id,
         update: {
           createdAgentProfileId,
-          failureMessage: normalizeFailureMessage(error),
+          failureMessage: normalizeFailureMessage(error, {
+            createdAgentProfileId,
+          }),
           status: "failed",
           statusReason: createdAgentProfileId
             ? "profile_created"
@@ -747,9 +776,21 @@ export function toPublicRequest(
   });
 }
 
-function normalizeFailureMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
+function normalizeFailureMessage(
+  error: unknown,
+  input: { createdAgentProfileId: string | null }
+): string {
+  const raw = readFailureMessage(error);
+  if (error instanceof AgentProfileCreationRequestCheckpointStorageError) {
+    return input.createdAgentProfileId
+      ? "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely."
+      : "OpenMeld couldn't finish creating this Agent. Retry to continue safely.";
+  }
   const normalized =
     raw.trim() || "OpenMeld couldn't finish creating this Agent.";
   return normalized.slice(0, 1000);
+}
+
+function readFailureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -1,5 +1,11 @@
+import { RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
-import { resolveWakeFailureDisplay } from "./wake-failure-display";
+import {
+	resolveHistoricalWakeFailureBody,
+	resolveWakeFailureDisplay,
+} from "./wake-failure-display";
+
+const ACCOUNT_OR_SETTINGS_PATTERN = /account|settings/iu;
 
 describe("resolveWakeFailureDisplay", () => {
 	it("explains a cross-workspace Agent Profile without offering a dead-end action", () => {
@@ -66,5 +72,88 @@ describe("resolveWakeFailureDisplay", () => {
 			actionTarget: null,
 			body: "OpenMeld did not receive enough error details to explain why Runner could not reply. Open diagnostics for technical details.",
 		});
+	});
+
+	it("does not project a recovery action for an accepted Wake payload conflict", () => {
+		expect(
+			resolveWakeFailureDisplay({
+				failureReasonCode:
+					RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
+				targetLabel: "@runner",
+			})
+		).toEqual({
+			actionTarget: null,
+			body: "OpenMeld stopped this Wake for Runner because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics.",
+		});
+	});
+});
+
+describe("resolveHistoricalWakeFailureBody", () => {
+	it("keeps a cross-workspace failure factual instead of calling it a system problem", () => {
+		expect(
+			resolveHistoricalWakeFailureBody({
+				failureReasonCode: "agent_profile.organization_mismatch",
+				targetLabel: "@runner",
+			})
+		).toBe(
+			"Runner could not start this Wake because its Agent Profile belonged to a different workspace."
+		);
+	});
+
+	it("does not turn provider unavailability into an account-settings failure", () => {
+		const display = resolveHistoricalWakeFailureBody({
+			failureReasonCode: "provider.unavailable",
+			targetLabel: "@runner",
+		});
+
+		expect(display).toBe(
+			"Runner could not complete this Wake because its selected model was unavailable."
+		);
+		expect(display).not.toMatch(ACCOUNT_OR_SETTINGS_PATTERN);
+	});
+
+	it.each([
+		null,
+		"future.unclassified_failure",
+	])("uses a safe past-tense outcome when the historical reason is %s", (failureReasonCode) => {
+		expect(
+			resolveHistoricalWakeFailureBody({
+				failureReasonCode,
+				targetLabel: "@runner",
+			})
+		).toBe("Runner could not complete this Wake.");
+	});
+
+	it("does not infer a historical device identity from current state", () => {
+		const display = resolveHistoricalWakeFailureBody({
+			failureReasonCode: "service.not_running",
+			targetLabel: "@runner",
+		});
+
+		expect(display).toBe(
+			"Runner could not complete this Wake because its computer was not connected to OpenMeld at the time."
+		);
+	});
+
+	it("states only the historical outcome when local Agent evidence is incomplete", () => {
+		expect(
+			resolveHistoricalWakeFailureBody({
+				failureReasonCode: "agent_profile_binding.missing",
+				targetLabel: "@runner",
+			})
+		).toBe("Runner could not start this Wake.");
+	});
+
+	it.each([
+		"daemon.delivery.execution_stalled",
+		"daemon.delivery.finalization_timeout",
+	])("does not turn %s into a historical disconnect", (failureReasonCode) => {
+		const display = resolveHistoricalWakeFailureBody({
+			failureReasonCode,
+			targetLabel: "@runner",
+		});
+
+		expect(display).toBe("Runner could not complete this Wake.");
+		expect(display).not.toContain("not connected");
 	});
 });

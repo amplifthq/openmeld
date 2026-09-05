@@ -9,7 +9,6 @@ import {
 	resolveSpaceMessageDeliveryStatusText,
 	type SpaceMessageDeliveryPresentation,
 } from "#/lib/spaces/message-state";
-import { AnimatedMobiusIcon } from "./animated-mobius-icon";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import { SpaceAgentOrb } from "./space-agent-orb";
 
@@ -51,15 +50,16 @@ export function SpaceMessageDeliveryStatus(input: {
 	if (!statusText) {
 		return null;
 	}
-	const animateAgentStatus =
-		presentation === "agent_sending" || presentation === "agent_starting";
+	const animateAgentStatus = presentation === "agent_sending";
+	const isSystemOutcome = isSystemOutcomePresentation(presentation);
 
 	return (
 		<Marker
 			aria-atomic="true"
 			aria-label={statusText}
 			className={cn(
-				"w-fit gap-2 text-muted-foreground",
+				"gap-2 text-muted-foreground",
+				isSystemOutcome ? "w-full" : "w-fit",
 				presentation === "send_failed" ? "text-destructive" : null,
 				input.align === "end" ? "ml-auto text-right" : null,
 				input.className
@@ -67,6 +67,7 @@ export function SpaceMessageDeliveryStatus(input: {
 			data-align={input.align ?? "start"}
 			data-space-message-delivery-status=""
 			role="status"
+			variant={isSystemOutcome ? "separator" : "default"}
 		>
 			<MarkerIcon className="flex size-4 items-center justify-center">
 				{renderDeliveryStatusIcon(presentation)}
@@ -79,6 +80,17 @@ export function SpaceMessageDeliveryStatus(input: {
 				)}
 			</MarkerContent>
 		</Marker>
+	);
+}
+
+function isSystemOutcomePresentation(
+	presentation: SpaceMessageDeliveryPresentation
+): boolean {
+	return (
+		presentation === "send_failed" ||
+		presentation === "agent_stream_failed" ||
+		presentation === "agent_stream_stopped" ||
+		presentation === "agent_stream_publish_failed"
 	);
 }
 
@@ -112,8 +124,7 @@ function renderDeliveryStatusIcon(
 ) {
 	switch (presentation) {
 		case "agent_sending":
-		case "agent_starting":
-			return <AnimatedMobiusIcon />;
+			return <SpaceAgentOrb state="connecting" />;
 		case "agent_streaming":
 			return <SpaceAgentOrb data-testid="agent-working-orb" />;
 		case "agent_stream_failed":

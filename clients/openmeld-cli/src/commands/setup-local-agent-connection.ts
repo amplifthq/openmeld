@@ -52,6 +52,7 @@ import {
   runDaemonInstall,
   runDaemonReinstall,
 } from "./service";
+import { assertSetupServiceUpdateComplete } from "./setup-service-update-truth";
 
 const LOCAL_AGENT_CONNECTION_CARD_TITLE = "Local Agent Connection";
 const RETIRED_HUMAN_PROFILE_SETUP_MESSAGE =
@@ -508,6 +509,7 @@ async function runSetupLocalAgentConnectionServiceGate(input: {
   });
 
   if (gateResult.status === "aligned") {
+    await assertSetupServiceUpdateComplete();
     return "continue";
   }
 
@@ -616,6 +618,7 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
   });
   const reasonCodes = collectReadinessReasonCodes(snapshot);
   if (reasonCodes.length === 0) {
+    await assertSetupServiceUpdateComplete();
     return "completed";
   }
 
@@ -666,6 +669,12 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
         `OpenMeld Service refresh did not complete: ${refreshOutcome.result}`
       );
     }
+    if (refreshOutcome.result === "scheduled") {
+      throw new Error(
+        "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes."
+      );
+    }
+    await assertSetupServiceUpdateComplete();
     return "completed";
   }
 

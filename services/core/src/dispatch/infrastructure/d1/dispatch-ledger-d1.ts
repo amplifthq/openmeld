@@ -576,6 +576,7 @@ const prepareExistingDispatchLedgerForNewAttempt = (input: {
           ${input.includeDispatchId ? "dispatch_id = ?," : ""}
           space_id = ?,
           source_event_id = ?,
+          source_profile_id = COALESCE(source_profile_id, ?),
           source_client_message_id = ?,
           dispatch_owner_kind = CASE
             WHEN dispatch_owner_kind IS NULL AND dispatch_owner_id IS NULL THEN ?
@@ -602,6 +603,7 @@ const prepareExistingDispatchLedgerForNewAttempt = (input: {
       ...(input.includeDispatchId ? [input.message.dispatchId] : []),
       input.message.spaceId,
       input.message.sourceEventId,
+      normalizeString(input.message.sourceSignalSnapshot?.profileId),
       normalizeString(input.message.sourceClientMessageId),
       dispatchOwner.kind,
       dispatchOwner.id,
@@ -632,6 +634,7 @@ const claimNewDispatchAttempt = (
           dispatch_id,
           space_id,
           source_event_id,
+          source_profile_id,
           source_client_message_id,
           dispatch_owner_kind,
           dispatch_owner_id,
@@ -642,7 +645,7 @@ const claimNewDispatchAttempt = (
           attempt_count,
           latest_attempt_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(idempotency_key) DO NOTHING
       `
     )
@@ -651,6 +654,7 @@ const claimNewDispatchAttempt = (
       input.message.dispatchId,
       input.message.spaceId,
       input.message.sourceEventId,
+      normalizeString(input.message.sourceSignalSnapshot?.profileId),
       normalizeString(input.message.sourceClientMessageId),
       dispatchOwner.kind,
       dispatchOwner.id,

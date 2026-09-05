@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 const BRANCH_REF_PREFIX = "refs/heads/";
 const VERSIONED_RELEASE_BRANCH_PATTERN =
@@ -99,10 +100,71 @@ export function assertVersionedReleaseBranchFacts(input) {
 
 export function resolvePullRequestReleaseMode(input) {
   if (!isVersionedReleaseBranchName(input.branchName)) {
+    assertDeferredReleaseBranchFacts(input);
     return "deferred";
   }
   assertVersionedReleaseBranchFacts(input);
   return "strict";
+}
+
+export function assertDeferredReleaseBranchFacts(input) {
+  const errors = [];
+  const comparison = compareDeferredReleaseBranchFacts(input);
+  if (!comparison.packageVersionMatches) {
+    errors.push(
+      `CLI package version must match the PR base outside a versioned release branch: base=${String(input.basePackageVersion ?? "missing")} current=${String(input.currentPackageVersion ?? "missing")}.`
+    );
+  }
+  if (!comparison.manifestMatches) {
+    errors.push(
+      "release/local-components.json must match the PR base outside a versioned release branch."
+    );
+  }
+  if (errors.length > 0) {
+    throw new Error(
+      [
+        ...errors,
+        "Move the release stamp to the formal codex/release-X.Y.Z-<baseSHA> branch after the feature PR merges.",
+      ].join("\n")
+    );
+  }
+}
+
+export function compareDeferredReleaseBranchFacts(input) {
+  return {
+    manifestMatches: isDeepStrictEqual(
+      input.currentManifest,
+      input.baseManifest
+    ),
+    packageVersionMatches:
+      input.currentPackageVersion === input.basePackageVersion,
+  };
+}
+
+export function assertCurrentDeferredReleaseBranch(input) {
+  const repoRoot = input.repoRoot ?? process.cwd();
+  const baseSha = resolveGitCommitSha(input.baseSha, repoRoot);
+  const packageManifest = readJson(`${repoRoot}/${CLI_PACKAGE_PATH}`);
+  const releaseManifest = readJson(
+    `${repoRoot}/${LOCAL_COMPONENTS_MANIFEST_PATH}`
+  );
+  const basePackageManifest = readJsonAtRevision(
+    repoRoot,
+    baseSha,
+    CLI_PACKAGE_PATH
+  );
+  const baseReleaseManifest = readJsonAtRevision(
+    repoRoot,
+    baseSha,
+    LOCAL_COMPONENTS_MANIFEST_PATH
+  );
+
+  assertDeferredReleaseBranchFacts({
+    baseManifest: baseReleaseManifest,
+    basePackageVersion: basePackageManifest.version,
+    currentManifest: releaseManifest,
+    currentPackageVersion: packageManifest.version,
+  });
 }
 
 export function assertCurrentVersionedReleaseBranch(input) {
@@ -175,13 +237,14 @@ function run() {
   if (!branchName) {
     throw new Error("A pull request head branch is required.");
   }
-  if (!isVersionedReleaseBranchName(branchName)) {
-    process.stdout.write("mode=deferred\n");
-    return;
-  }
   const baseSha = process.argv[3]?.trim();
   if (!baseSha) {
-    throw new Error("A strict release PR requires its exact base commit SHA.");
+    throw new Error("Release branch policy requires an exact base commit SHA.");
+  }
+  if (!isVersionedReleaseBranchName(branchName)) {
+    assertCurrentDeferredReleaseBranch({ baseSha });
+    process.stdout.write("mode=deferred\n");
+    return;
   }
   assertCurrentVersionedReleaseBranch({ baseSha, branchName });
   process.stdout.write("mode=strict\n");

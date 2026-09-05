@@ -4,6 +4,7 @@ import { createTestOpenMeldProfile } from "./helpers/openmeld-profile-fixture";
 const mocks = vi.hoisted(() => ({
   createAgentProfileBindingApi: vi.fn(),
   listOpenMeldProfiles: vi.fn(),
+  readExpectedRoutes: vi.fn(),
   readLocalEnabledControllers: vi.fn(),
   resolveBaseUrl: vi.fn(),
 }));
@@ -28,10 +29,7 @@ vi.mock("../src/config/base-url", () => ({
 
 vi.mock("../src/system/expected-routes-read-session", () => ({
   createExpectedRoutesReadSession: () => ({
-    read: () =>
-      Promise.resolve({
-        status: "legacy_endpoint_unavailable",
-      }),
+    read: () => mocks.readExpectedRoutes(),
   }),
 }));
 
@@ -73,7 +71,7 @@ const createRouteCatalog = (profileIds: string[]): RouteCatalog => ({
 });
 
 describe("local service route catalog Core primary binding lookup", () => {
-  it("skips the profile and registers the catalog when binding lookup is unavailable", async () => {
+  it("preserves the current catalog when a v3 compatibility binding read fails transiently", async () => {
     const profile = createTestOpenMeldProfile({
       openMeldProfileId: "agt-binding-lookup",
       ownerUserId: "owner-1",
@@ -84,6 +82,34 @@ describe("local service route catalog Core primary binding lookup", () => {
       .mockRejectedValue(new Error("Core binding lookup unavailable"));
     mocks.createAgentProfileBindingApi.mockReturnValue({ getPrimaryBinding });
     mocks.listOpenMeldProfiles.mockResolvedValue([profile]);
+    mocks.readExpectedRoutes.mockResolvedValue({
+      contractVersion: "v3",
+      response: {
+        excludedProfiles: [],
+        expectedRoutes: [
+          {
+            agentControllerCollaborationMode: null,
+            agentControllerPermissionMode: null,
+            agentProfileId: "agt-binding-lookup",
+            bindingId: "binding-current",
+            bindingState: "enabled_primary",
+            configurationRevision: 7,
+            executionTarget: {
+              agentControllerConversationId: null,
+              agentControllerRef: "builtin:codex",
+              openMeldServiceRuntimeId: "runtime-current",
+            },
+            profileName: "Binding Lookup Agent",
+            reasonCodes: [],
+            routable: true,
+          },
+        ],
+        generatedAt: "2026-09-04T00:00:00.000Z",
+        openMeldServiceRuntimeId: "runtime-current",
+        runtimeResolution: "resolved",
+      },
+      status: "resolved",
+    });
     mocks.readLocalEnabledControllers.mockResolvedValue(new Map());
     mocks.resolveBaseUrl.mockResolvedValue("http://127.0.0.1:8080");
 
@@ -111,48 +137,21 @@ describe("local service route catalog Core primary binding lookup", () => {
       registerCatalog,
     });
 
-    expect(result.status).toBe("changed");
-    if (result.status === "changed") {
-      expect(result.diff).toEqual({
-        addedProfileIds: [],
-        keptProfileIds: [],
-        removedProfileIds: ["agt-existing"],
-      });
-      expect(result.skippedProfiles).toEqual([
-        {
-          profileId: "agt-binding-lookup",
-          profileName: "Binding Lookup Agent",
-          skipReason: "profile.binding.read_unavailable",
-        },
-      ]);
+    expect(result.status).toBe("failed");
+    if (result.status === "failed") {
+      expect(result.reason).toBe("load_failed");
+      expect(result.errorMessage).toContain("Core binding lookup unavailable");
     }
     expect(getPrimaryBinding).toHaveBeenCalledWith(
       expect.objectContaining({
         agentProfileId: "agt-binding-lookup",
       })
     );
-    expect(registerCatalog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        profileIds: [],
-        skippedProfiles: [
-          {
-            profileId: "agt-binding-lookup",
-            profileName: "Binding Lookup Agent",
-            skipReason: "profile.binding.read_unavailable",
-          },
-        ],
-      })
-    );
-    expect(catalogState.profileIds).toEqual([]);
-    expect(catalogState.routeByProfileId.has("agt-existing")).toBe(false);
-    expect(catalogState.skippedProfiles).toEqual([
-      {
-        profileId: "agt-binding-lookup",
-        profileName: "Binding Lookup Agent",
-        skipReason: "profile.binding.read_unavailable",
-      },
-    ]);
-    expect(leasesByProfileId.has("agt-existing")).toBe(false);
+    expect(registerCatalog).not.toHaveBeenCalled();
+    expect(catalogState.profileIds).toEqual(["agt-existing"]);
+    expect(catalogState.routeByProfileId.has("agt-existing")).toBe(true);
+    expect(catalogState.skippedProfiles).toEqual([]);
+    expect(leasesByProfileId.get("agt-existing")).toBe(3);
   });
 
   it("treats unavailable Core primary binding reads as skipped profile diagnostics, not unbound profiles", async () => {
@@ -182,6 +181,9 @@ describe("local service route catalog Core primary binding lookup", () => {
     });
     mocks.createAgentProfileBindingApi.mockReturnValue({ getPrimaryBinding });
     mocks.listOpenMeldProfiles.mockResolvedValue([profile]);
+    mocks.readExpectedRoutes.mockResolvedValue({
+      status: "legacy_endpoint_unavailable",
+    });
     mocks.readLocalEnabledControllers.mockResolvedValue(new Map());
     mocks.resolveBaseUrl.mockResolvedValue("http://127.0.0.1:8080");
 

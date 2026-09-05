@@ -95,6 +95,7 @@ describe("InboxBrowserNotificationPrompt", () => {
 		expect(readInboxBrowserNotificationSettings({ userId: USER_ID })).toEqual({
 			enabled: true,
 			permission: "granted",
+			soundEnabled: true,
 		});
 	});
 

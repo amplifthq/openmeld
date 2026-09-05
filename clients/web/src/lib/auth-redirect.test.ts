@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_AUTHENTICATED_ENTRY_PATH } from "./auth-entry-policy";
 import {
 	getCurrentRedirectTarget,
+	getFrontendCallbackURLWithRedirect,
 	resolvePostAuthRedirect,
 	withRedirectQuery,
 	withRedirectQueryFromSearch,
@@ -96,6 +97,18 @@ describe("auth redirect helpers", () => {
 		);
 	});
 
+	it("keeps the add-account intent through a magic-link callback", () => {
+		window.history.replaceState(
+			{},
+			"",
+			"http://localhost:3000/magic-link?intent=add-account&redirect=%2F"
+		);
+
+		expect(getFrontendCallbackURLWithRedirect("/magic-link")).toBe(
+			"http://localhost:3000/magic-link?redirect=%2F&intent=add-account"
+		);
+	});
+
 	it("builds the same redirect links from an explicit route search value", () => {
 		expect(
 			withRedirectQueryFromSearch("/forgot-password", {
@@ -116,5 +129,14 @@ describe("auth redirect helpers", () => {
 		).toBe(
 			"/check-email?redirect=%2Fo%2Facme%2Fnew-space&email=mira%40example.com"
 		);
+	});
+
+	it("ignores typed route search values that are not redirect strings", () => {
+		expect(
+			withRedirectQueryFromSearch("/login", {
+				activityPreview: 1,
+				redirect: 1,
+			})
+		).toBe("/login");
 	});
 });

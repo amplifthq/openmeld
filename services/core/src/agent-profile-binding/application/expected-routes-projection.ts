@@ -16,6 +16,7 @@ import type { AgentProfileBindingRecord } from "../infrastructure/d1/agent-profi
 // exclusion list is diagnostic-only and never participates in availability.
 
 export type ExpectedRouteProfileFact = {
+  defaultProjectId: string | null;
   profileKind: "human" | "agent" | "system";
   profileName: string | null;
   status: "active" | "disabled";
@@ -26,6 +27,7 @@ export function buildExpectedRoutesProjection(input: {
   bindings: readonly AgentProfileBindingRecord[];
   includeAgentControllerCollaborationMode?: boolean;
   includeConfigurationRevision?: boolean;
+  includeDefaultProjectId?: boolean;
   profileFactByProfileId: ReadonlyMap<string, ExpectedRouteProfileFact | null>;
 }): {
   excludedProfiles: LocalRuntimeExpectedRouteExclusion[];
@@ -68,6 +70,9 @@ export function buildExpectedRoutesProjection(input: {
         binding,
         input.includeConfigurationRevision === true
       ),
+      ...(input.includeDefaultProjectId === true
+        ? { defaultProjectId: profileFact.defaultProjectId }
+        : {}),
       executionTarget: {
         agentControllerConversationId:
           normalizeOptionalIdentifier(binding.agentControllerConversationId) ??

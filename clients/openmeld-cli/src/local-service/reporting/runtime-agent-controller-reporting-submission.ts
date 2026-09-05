@@ -793,7 +793,18 @@ function shouldRetryWithoutUsageLimits(input: {
   if (failure.status !== 400) {
     return false;
   }
-  return collectCompatibilityDiagnosticText(failure).includes("usagelimits");
+  const diagnosticText = collectCompatibilityDiagnosticText(failure);
+  if (diagnosticText.includes("usagelimits")) {
+    return true;
+  }
+  return (
+    diagnosticText.includes("provider") &&
+    input.submittedReports.some((report) =>
+      report.agentControllerInterface?.usageLimits?.some(
+        (limit) => limit.provider
+      )
+    )
+  );
 }
 
 function shouldRetryWithoutAgentControllerInterface(input: {

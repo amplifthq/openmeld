@@ -45,6 +45,6 @@ export function isOpenMeldToolsComponentUpdateActionable(
 ): boolean {
 	return (
 		update?.status === "update_available" ||
-		isOpenMeldToolsComponentUpdateRequired(update)
+		update?.status === "update_required"
 	);
 }

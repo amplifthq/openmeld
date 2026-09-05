@@ -107,24 +107,6 @@ export function buildCurrentOrganizationInformationProtectionPath(): string {
   return "/v1/organizations/current/information-protection";
 }
 
-export function buildOrganizationBindingAuthorizationsBulkPath(
-  organizationId: string
-): string {
-  return `/v1/organizations/${encodeURIComponent(organizationId)}/binding-authorizations/bulk`;
-}
-
-export function buildOrganizationBindingAuthorizationProfilesPath(
-  organizationId: string
-): string {
-  return `/v1/organizations/${encodeURIComponent(organizationId)}/binding-authorizations/profiles`;
-}
-
-export function buildOrganizationBindingAuthorizationPreferencePath(
-  organizationId: string
-): string {
-  return `/v1/organizations/${encodeURIComponent(organizationId)}/binding-authorization-preference`;
-}
-
 export function buildAgentProfileCreationDefaultsPath(
   organizationId: string,
   agentControllerRef: string
@@ -170,10 +152,4 @@ export function buildAgentProfileCreationApprovalPreferencePath(
   organizationId: string
 ): string {
   return `/v1/organizations/${encodeURIComponent(organizationId)}/agent-profile-creation-approval-preference`;
-}
-
-export function buildOrganizationWakeAccessChoicePath(
-  organizationId: string
-): string {
-  return `/v1/organizations/${encodeURIComponent(organizationId)}/wake-access-choice`;
 }

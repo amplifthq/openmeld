@@ -16,15 +16,10 @@ export {
   buildCurrentOrganizationMessageChannelSetupRequestsPath,
   buildCurrentOrganizationSpacesPath,
   buildCurrentOrganizationSpacesWithMemberCountsPath,
-  buildOrganizationBindingAuthorizationPreferencePath,
-  buildOrganizationBindingAuthorizationProfilesPath,
-  buildOrganizationBindingAuthorizationsBulkPath,
-  buildOrganizationWakeAccessChoicePath,
 } from "./routes";
 export type {
   AgentProfileCreationDefaultsRouteInput,
   AgentProfileCreationRequestRouteInput,
-  BulkAuthorizeAgentProfileBindingsForOrganizationInput,
   CreateAgentProfileCreationRequestInput,
   CreateOrganizationApi,
   DecideAgentProfileCreationRequestInput,
@@ -33,10 +28,8 @@ export type {
   OrganizationRequestInput,
   OrganizationRouteInput,
   RequestMessageChannelSetupInput,
-  SaveOrganizationWakeAccessChoiceInput,
   SetAgentProfileCreationApprovalPreferenceInput,
   SetAgentProfileCreationDefaultsInput,
-  SetOrganizationBindingAuthorizationPreferenceInput,
   SetOrganizationInformationProtectionInput,
   UpdateCurrentOrganizationLogoInput,
 } from "./types";

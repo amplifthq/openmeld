@@ -18,15 +18,18 @@ afterEach(() => {
 });
 
 describe("SpaceMessageProgressStatus", () => {
-	it("shows honest optimistic work without inventing an elapsed start time", () => {
+	it("shows the authoritative optimistic phase without inventing elapsed time", () => {
 		const view = render(
 			<SpaceMessageProgressStatus entries={[]} item={createStartingItem()} />
 		);
 
 		const startingStatus = screen.getByRole("status", {
-			name: "Agent is working",
+			name: "Runner is working",
 		});
-		expect(startingStatus.textContent).toBe("Agent is working");
+		expect(
+			startingStatus.querySelector('[data-slot="thinking-indicator-word"]')
+				?.textContent
+		).toBe("Runner is working");
 		expect(
 			startingStatus.querySelector('[data-slot="agent-thinking-elapsed"]')
 		).toBeNull();
@@ -100,6 +103,30 @@ describe("SpaceMessageProgressStatus", () => {
 			screen.getByRole("button", { name: "Open message details" })
 		);
 		expect(onOpenMessageDetails).toHaveBeenCalledOnce();
+	});
+
+	it("shows required input ahead of stale live tool activity", () => {
+		render(
+			<SpaceMessageProgressStatus
+				entries={[
+					createWakeProgressEntry({
+						step: {
+							description: "The Agent is waiting for your response.",
+							kind: "needs_input",
+							label: "Runner needs your input",
+							status: "pending",
+						},
+						text: "Runner needs your input",
+					}),
+				]}
+				item={createStreamingToolActivityItem()}
+			/>
+		);
+
+		expect(
+			screen.getByRole("status", { name: "Runner needs your input" })
+		).toBeTruthy();
+		expect(screen.queryByTestId("space-agent-tool-activity")).toBeNull();
 	});
 
 	it("shows one working state when a live stream has no visible tool activity", () => {
@@ -255,11 +282,13 @@ function createWakeProgressEntry(
 ): SpaceMessageWakeThinkingEntry {
 	return {
 		elapsedStartedAtMs: 1_800_000_000_000,
+		lastEvidenceAtMs: 1_800_000_000_000,
 		key: "dispatch:agt_runner",
 		kind: "progress",
 		phase: "running",
 		step: {
 			description: "OpenMeld is running the agent.",
+			kind: "working",
 			label: "Agent is working",
 			status: "active",
 		},
@@ -272,11 +301,13 @@ function createWakeProgressEntry(
 function createWakePreviewEntry(): SpaceMessageWakeThinkingEntry {
 	return {
 		elapsedStartedAtMs: null,
+		lastEvidenceAtMs: null,
 		key: "dispatch:agt_runner:preview",
 		kind: "preview",
 		phase: "writing",
 		step: {
 			description: "OpenMeld is receiving live output from the agent.",
+			kind: "replying",
 			label: "Agent is working",
 			status: "active",
 		},
@@ -301,7 +332,17 @@ function createStartingItem(): SpaceTimelineItem {
 	const item = createStreamingItem();
 	item.agentStreamState = undefined;
 	item.deliveryState = "pending";
-	item.optimisticAgentReplyState = "working";
+	item.optimisticAgentReplyProgress = {
+		clientMessageId: "client-message-1",
+		dispatchId: "dispatch-1",
+		message: "Runner is working.",
+		phase: "running",
+		sourceSignalId: "signal-1",
+		targetLabel: "Runner",
+		targetProfileId: "agt_runner",
+		terminal: false,
+		updatedAtMs: 1_800_000_000_000,
+	};
 	return item;
 }
 

@@ -13,6 +13,7 @@ import {
   resolvePrePushReleaseMode,
 } from "./pre-push-release-ready.mjs";
 import {
+  assertDeferredReleaseBranchFacts,
   assertVersionedReleaseBranchFacts,
   resolvePullRequestReleaseMode,
 } from "./release-branch-policy.mjs";
@@ -27,6 +28,7 @@ const PACKAGE_VERSION_MISMATCH_PATTERN = /package version/u;
 const BASE_COMMIT_MISMATCH_PATTERN = /base commit/u;
 const RELEASE_ONLY_DIFF_PATTERN = /release-only diff/u;
 const RESTAMP_VERSION_MISMATCH_PATTERN = /already declare the release version/u;
+const PREMATURE_RELEASE_STAMP_PATTERN = /must match the PR base/u;
 const RELEASE_RELEVANT_PATH_PATTERN = /packages\/schemas\/src\/index\.ts/u;
 const PRE_PUSH_GATE_CONTROL_PATH_EXAMPLES = [
   ".husky/pre-push",
@@ -153,6 +155,51 @@ test("release PR strict mode allows a manifest-only restamp of an already declar
         baseManifestVersion: "0.3.34",
       }),
     RESTAMP_VERSION_MISMATCH_PATTERN
+  );
+});
+
+test("deferred release mode rejects only premature release stamps", () => {
+  const baseManifest = {
+    components: {
+      cli: { packageVersion: "0.3.153" },
+      service: { bundleVersion: "0.3.153" },
+    },
+    schemaVersion: 1,
+  };
+
+  assert.doesNotThrow(() =>
+    assertDeferredReleaseBranchFacts({
+      baseManifest,
+      basePackageVersion: "0.3.153",
+      currentManifest: structuredClone(baseManifest),
+      currentPackageVersion: "0.3.153",
+    })
+  );
+  assert.throws(
+    () =>
+      assertDeferredReleaseBranchFacts({
+        baseManifest,
+        basePackageVersion: "0.3.153",
+        currentManifest: structuredClone(baseManifest),
+        currentPackageVersion: "0.3.154",
+      }),
+    PREMATURE_RELEASE_STAMP_PATTERN
+  );
+  assert.throws(
+    () =>
+      assertDeferredReleaseBranchFacts({
+        baseManifest,
+        basePackageVersion: "0.3.153",
+        currentManifest: {
+          ...baseManifest,
+          components: {
+            ...baseManifest.components,
+            cli: { packageVersion: "0.3.154" },
+          },
+        },
+        currentPackageVersion: "0.3.153",
+      }),
+    PREMATURE_RELEASE_STAMP_PATTERN
   );
 });
 

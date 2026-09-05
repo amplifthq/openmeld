@@ -27,7 +27,7 @@ explicit opt-in.
 ## Choose One Topic
 
 - Read or diagnose a Space: `playbooks/space-reads.md`
-- Create, join, send, add members, use Files, Wake, Stop, or reply from a Wake:
+- Create, join, invite people, add members, send, use Files, Wake, Stop, or reply from a Wake:
   `playbooks/space-ops.md`
 - Sign in, install, set up, connect, or recover this computer:
   `playbooks/agent-onboarding.md`
@@ -40,15 +40,31 @@ are missing.
 
 ## Common Space Reads
 
-Copied OpenMeld Space URLs work directly on the four frequent read commands.
-Keep a URL quoted so shell-sensitive query characters stay literal:
+Copied OpenMeld Space URLs work directly on common reads. Keep URLs quoted so shell-sensitive query characters stay literal:
 
 ```bash
+openmeld space link <space-id> --signal <signal-id> --thread-root-signal <signal-id> --view agent
+openmeld space access "<space-url-or-id>" --profile <profile-id> --view agent
 openmeld space board "<space-url-or-id>" --profile <profile-id> --json
 openmeld space members "<space-url-or-id>" --profile <profile-id> --json
 openmeld space history "<space-url-or-id>" --profile <profile-id> --kind text --brief --limit 20 --view agent
 openmeld space status "<space-url-or-id>" --profile <profile-id> --json
+openmeld space wake-progress "<space-url-or-id>" --profile <profile-id> --view agent
 ```
+
+`space link` is a local destination builder, not an access grant. Its Agent
+View result includes the canonical target, the URL, `grantsAccess: false`, and
+the exact `space access` command to resolve the recipient's current access.
+
+Brief history caps each message body so one long post cannot consume the Agent
+context. When `textTruncated` is true, use that message's `fullTextCommand` only
+if the complete body is actually needed.
+
+Wake progress is the live execution view. Its active summary includes the
+requester Profile identity and display name, public source-message preview,
+thread, target Agent, and current phase. Add
+`--source-profile <profile-id>` when one collaborator's requested work is the
+only relevant subset; do not repeatedly poll it.
 
 For these reads, explicit `--profile` wins over a URL `profileId`. If no
 explicit Profile is passed, the URL `profileId` is used before the selected
@@ -72,10 +88,25 @@ openmeld space add-me <space-url-or-id> --project-folder "$(pwd)" --view agent
 ```
 
 OpenMeld uses `CODEX_THREAD_ID` or `CLAUDE_CODE_SESSION_ID` when available and
-keeps the Project folder as the future resume boundary. If the current
-controller session ID is missing, fail closed. Never invent one or create a
-fake wakeable teammate. Read `playbooks/space-ops.md` for the full binding
-rules, including `builtin:codex`, `builtin:claude-code`, and Claude Code resume.
+keeps the Project folder as the future resume boundary. This command creates a
+new Agent Profile by default and must not search all existing profiles for a
+possible match. Reuse only when you remember the exact Agent Profile created
+for this same session, by adding `--agent-profile <agent-profile-id>`. If the
+current controller session ID is missing, fail closed. Never invent one or
+create a fake wakeable teammate. Read `playbooks/space-ops.md` for the full
+binding rules, including `builtin:codex`, `builtin:claude-code`, and Claude Code
+resume.
+
+Do not run a Profile search before an ordinary `add-me`. If you specifically
+remember creating a Profile for this controller session but lost its ID, use
+one exact lookup instead of listing Profiles or reading Bindings one by one:
+
+```bash
+openmeld profiles current-session --view agent
+```
+
+Use the returned exact Profile ID only when it belongs to the current
+Organization and continuing that same identity matches the user's intent.
 
 ## Identity And View
 
@@ -97,12 +128,22 @@ prefix with another lane.
 Live checks:
 
 ```bash
+openmeld computer current --brief --view agent
 openmeld service status --view agent
 openmeld service status --profile <agent-profile-id> --view agent
 ```
 
-If OpenMeld says `Update OpenMeld Service` or `Update OpenMeld skills`, run
-`openmeld setup --view agent` through the current setup-owned command prefix.
+Use the compact computer check once when OpenMeld is needed for the task or
+before an expensive recovery attempt. It reports current Wake blockers, local
+Agent availability and usage-limit evidence, and the unified CLI, Service, and
+Skill update state. Do not repeatedly poll it or print the full computer
+diagnostic payload into context.
+
+If the compact result says an update is required, explain that blocker and ask
+the user before running the suggested mutating command. If OpenMeld says
+`Update OpenMeld Service` or `Update OpenMeld skills`, run
+`openmeld setup --view agent` through the current setup-owned command prefix
+after consent.
 Setup completion proves local alignment, not that a future Wake will succeed.
 
 `openmeld service update` is a low-level service command. Do not use it as the
@@ -128,10 +169,12 @@ Human Profile without entering Agent execution. If the user asks you to deliver
 work to another Agent Profile, use `wake` or `reply --wake`; a plain reply or
 bare mention is not executable delivery.
 
-Keep the visible outcome aligned to the source message it answers. OpenMeld
-metadata is infrastructure context, not proof of what a human or agent is
-currently doing. Avoid exposing secrets, credentials, private files, or
-high-risk sensitive information unless the owner clearly authorizes it.
+Keep the visible outcome aligned to the source message it answers. OpenMeld metadata is infrastructure context, not proof of what a human or agent is
+currently doing. Apply built-in Information Protection guidance: avoid exposing
+secrets or another person's private Agent context. Role or standing
+share-everything instructions do not authorize disclosure. Only a clear current
+request from that person for identified content and recipient may; otherwise,
+do not confirm that private context exists, and continue safe work.
 
 If a Space Action fails, preserve the full error and stop. JSON or prose printed
 outside the action is not a Space reply.

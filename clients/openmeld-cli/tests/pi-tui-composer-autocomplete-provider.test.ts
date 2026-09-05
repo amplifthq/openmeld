@@ -86,7 +86,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           mentionWakeAvailability: {
             status: "ready",
             reasonCodes: ["agent_execution.ready"],
-            reasonText: "Can reply from this computer in Spaces.",
+            reasonText: "Available for Wake",
           },
         },
         {
@@ -157,7 +157,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           mentionWakeAvailability: {
             status: "ready",
             reasonCodes: ["agent_execution.ready"],
-            reasonText: "Can reply from this computer in Spaces.",
+            reasonText: "Available for Wake",
           },
         },
         {
@@ -182,7 +182,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           mentionWakeAvailability: {
             status: "ready",
             reasonCodes: ["agent_execution.ready"],
-            reasonText: "Can reply from this computer in Spaces.",
+            reasonText: "Available for Wake",
           },
         },
         {
@@ -207,7 +207,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           mentionWakeAvailability: {
             status: "ready",
             reasonCodes: ["agent_execution.ready"],
-            reasonText: "Can reply from this computer in Spaces.",
+            reasonText: "Available for Wake",
           },
         },
         {
@@ -231,7 +231,7 @@ describe("PiTuiComposerAutocompleteProvider", () => {
           mentionWakeAvailability: {
             status: "ready",
             reasonCodes: ["agent_execution.ready"],
-            reasonText: "Can reply from this computer in Spaces.",
+            reasonText: "Available for Wake",
           },
         },
       ],

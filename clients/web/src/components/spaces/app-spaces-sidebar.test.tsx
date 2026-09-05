@@ -69,10 +69,9 @@ const {
 	appOrganizationMock,
 	getAccountSpaceActiveWakeSummaryMock,
 	getCurrentSpaceInboxSummaryMock,
+	getActiveWakeProgressMock,
 	listAccountSpaceItemsMock,
 	navigateMock,
-	prefetchSpaceConversationIntentMock,
-	preloadRouteMock,
 	setAccountSpaceItemPinnedMock,
 } = vi.hoisted(() => ({
 	appOrganizationMock: {
@@ -100,10 +99,9 @@ const {
 	} as AppOrganizationMock,
 	getAccountSpaceActiveWakeSummaryMock: vi.fn(),
 	getCurrentSpaceInboxSummaryMock: vi.fn(),
+	getActiveWakeProgressMock: vi.fn(),
 	listAccountSpaceItemsMock: vi.fn(),
 	navigateMock: vi.fn(),
-	prefetchSpaceConversationIntentMock: vi.fn(),
-	preloadRouteMock: vi.fn(),
 	setAccountSpaceItemPinnedMock: vi.fn(),
 }));
 
@@ -125,7 +123,6 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 			</a>
 		),
 		useNavigate: () => navigateMock,
-		useRouter: () => ({ preloadRoute: preloadRouteMock }),
 	};
 });
 
@@ -133,10 +130,6 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => appOrganizationMock,
 	useCurrentOrganizationSlug: () =>
 		appOrganizationMock.currentOrganization.slug,
-}));
-
-vi.mock("./use-space-conversation-intent-prefetch", () => ({
-	useSpaceConversationIntentPrefetch: () => prefetchSpaceConversationIntentMock,
 }));
 
 vi.mock("#/lib/spaces/account-spaces", () => ({
@@ -160,7 +153,78 @@ vi.mock("#/lib/spaces/account-space-active-wake", () => ({
 	) => getAccountSpaceActiveWakeSummaryMock(...args),
 }));
 
+vi.mock("#/lib/spaces/api", () => ({
+	createUnscopedWebSpaceApi: () => ({
+		getActiveWakeProgress: (...args: unknown[]) =>
+			getActiveWakeProgressMock(...args),
+	}),
+}));
+
 describe("AppSpacesSidebar", () => {
+	it("uses the unopened Space snapshot and removes its marker when its tasks finish", async () => {
+		const queryClient = createSidebarQueryClient();
+		seedCurrentSpaceWakeRace(queryClient);
+		const working = createWakeProgressItem({
+			clientMessageId: "client-beta",
+			dispatchId: "dispatch-beta",
+			phase: "running",
+			sourceSignalId: "signal-beta",
+			targetLabel: "Reviewer",
+			targetProfileId: "agent-beta",
+			updatedAtMs: Date.now(),
+		});
+		const response = {
+			items: [
+				working,
+				{
+					...working,
+					dispatchId: "dispatch-question",
+					targetLabel: "Planner",
+					pendingInteraction: {
+						canRespond: true,
+						expiresAtMs: null,
+						interactionId: "question-beta",
+						kind: "question" as const,
+						request: null,
+						requestedAtMs: Date.now(),
+					},
+				},
+			],
+			pageInfo: { hasMore: false, limit: 50 },
+			query: { spaceId: "space-beta", targetProfileId: null },
+		};
+		getActiveWakeProgressMock.mockResolvedValue(response);
+		renderSidebar(
+			<AppSpacesSidebar
+				currentProfileId="human-1"
+				currentSpaceId="space-alpha"
+			/>,
+			queryClient
+		);
+		expect(
+			await screen.findByRole("button", {
+				name: "Planner needs your input; Reviewer is working. Open Beta",
+			})
+		).toBeTruthy();
+		expect(getActiveWakeProgressMock).toHaveBeenCalledWith(
+			expect.objectContaining({ spaceId: "space-beta" })
+		);
+		getActiveWakeProgressMock.mockResolvedValue({ ...response, items: [] });
+		await act(async () => {
+			await queryClient.invalidateQueries({
+				queryKey: spaceActiveWakeProgressSummaryQueryOptions({
+					enabled: true,
+					openMeldProfileId: "human-1",
+					spaceId: "space-beta",
+				}).queryKey,
+			});
+		});
+		expect(await screen.findByRole("link", { name: "Beta" })).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Beta, active Wake" })
+		).toBeNull();
+	});
+
 	beforeEach(() => {
 		appOrganizationMock.activeOrganization = {
 			id: "org-acme",
@@ -175,6 +239,9 @@ describe("AppSpacesSidebar", () => {
 			slug: "acme",
 		};
 		listAccountSpaceItemsMock.mockReset();
+		getActiveWakeProgressMock
+			.mockReset()
+			.mockRejectedValue(new Error("Snapshot unavailable"));
 		getAccountSpaceActiveWakeSummaryMock.mockReset().mockResolvedValue({
 			generatedAtMs: 0,
 			items: [],
@@ -185,10 +252,6 @@ describe("AppSpacesSidebar", () => {
 		});
 		navigateMock.mockReset();
 		navigateMock.mockResolvedValue(undefined);
-		prefetchSpaceConversationIntentMock
-			.mockReset()
-			.mockResolvedValue(undefined);
-		preloadRouteMock.mockReset().mockResolvedValue(undefined);
 		setAccountSpaceItemPinnedMock.mockReset();
 	});
 
@@ -226,10 +289,10 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const beta = await screen.findByRole("button", {
+		const beta = await screen.findByRole("link", {
 			name: "Beta, unread messages",
 		});
-		const alpha = screen.getByRole("button", { name: "Alpha" });
+		const alpha = screen.getByRole("link", { name: "Alpha" });
 
 		expect(beta.compareDocumentPosition(alpha)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
@@ -269,8 +332,8 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const alpha = await screen.findByRole("button", { name: "Alpha" });
-		const beta = screen.getByRole("button", {
+		const alpha = await screen.findByRole("link", { name: "Alpha" });
+		const beta = screen.getByRole("link", {
 			name: "Beta, unread messages",
 		});
 		expect(alpha.compareDocumentPosition(beta)).toBe(
@@ -316,10 +379,10 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const newSpace = await screen.findByRole("button", {
+		const newSpace = await screen.findByRole("link", {
 			name: "Launch Room, New Space, unread messages",
 		});
-		const existingSpace = screen.getByRole("button", {
+		const existingSpace = screen.getByRole("link", {
 			name: "Existing, unread messages",
 		});
 		expect(newSpace.compareDocumentPosition(existingSpace)).toBe(
@@ -357,10 +420,10 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const pinnedNew = await screen.findByRole("button", {
+		const pinnedNew = await screen.findByRole("link", {
 			name: "Pinned New, New Space",
 		});
-		const pinnedFirst = screen.getByRole("button", { name: "Pinned First" });
+		const pinnedFirst = screen.getByRole("link", { name: "Pinned First" });
 		expect(pinnedNew.compareDocumentPosition(pinnedFirst)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
@@ -414,14 +477,14 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />,
 			queryClient
 		);
-		const pinnedNew = await screen.findByRole("button", {
+		const pinnedNew = await screen.findByRole("link", {
 			name: "Pinned New, New Space",
 		});
-		const pinnedFirst = screen.getByRole("button", { name: "Pinned First" });
-		const regularNew = screen.getByRole("button", {
+		const pinnedFirst = screen.getByRole("link", { name: "Pinned First" });
+		const regularNew = screen.getByRole("link", {
 			name: "Regular New, New Space",
 		});
-		const regularUnread = screen.getByRole("button", {
+		const regularUnread = screen.getByRole("link", {
 			name: "Regular Unread, unread messages",
 		});
 		expect(pinnedNew.compareDocumentPosition(pinnedFirst)).toBe(
@@ -451,18 +514,18 @@ describe("AppSpacesSidebar", () => {
 		await waitFor(() => {
 			expect(
 				screen
-					.getByRole("button", { name: "Pinned First" })
+					.getByRole("link", { name: "Pinned First" })
 					.compareDocumentPosition(
-						screen.getByRole("button", { name: "Pinned New" })
+						screen.getByRole("link", { name: "Pinned New" })
 					)
 			).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 			expect(
 				screen
-					.getByRole("button", {
+					.getByRole("link", {
 						name: "Regular Unread, unread messages",
 					})
 					.compareDocumentPosition(
-						screen.getByRole("button", { name: "Regular New" })
+						screen.getByRole("link", { name: "Regular New" })
 					)
 			).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 		});
@@ -486,7 +549,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("button", { name: "Previously Seen" })
+			await screen.findByRole("link", { name: "Previously Seen" })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("button", {
@@ -511,7 +574,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const firstUnseen = await screen.findByRole("button", {
+		const firstUnseen = await screen.findByRole("link", {
 			name: "First Unseen, New Space",
 		});
 		fireEvent.pointerEnter(firstUnseen);
@@ -521,7 +584,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			screen.getByRole("button", { name: "First Unseen, New Space" })
+			screen.getByRole("link", { name: "First Unseen, New Space" })
 		).toBeTruthy();
 	});
 
@@ -556,13 +619,13 @@ describe("AppSpacesSidebar", () => {
 		renderSidebar(
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
-		await screen.findByRole("button", { name: "Existing" });
+		await screen.findByRole("link", { name: "Existing" });
 		expect(screen.queryByText("Focus Room")).toBeNull();
 
 		act(() => focusManager.setFocused(true));
 
 		expect(
-			await screen.findByRole("button", {
+			await screen.findByRole("link", {
 				name: "Focus Room, New Space",
 			})
 		).toBeTruthy();
@@ -591,7 +654,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />,
 			queryClient
 		);
-		await screen.findByRole("button", { name: "Existing" });
+		await screen.findByRole("link", { name: "Existing" });
 
 		act(() => focusManager.setFocused(true));
 		await waitFor(() => {
@@ -602,7 +665,7 @@ describe("AppSpacesSidebar", () => {
 			).toBe("error");
 		});
 
-		expect(screen.getByRole("button", { name: "Existing" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Existing" })).toBeTruthy();
 		expect(
 			screen.queryByText("OpenMeld could not load your spaces.")
 		).toBeNull();
@@ -623,7 +686,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		expect(await screen.findByRole("button", { name: "Alpha" })).toBeTruthy();
+		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
 			screen.queryByRole("heading", { level: 2, name: "Pinned" })
 		).toBeNull();
@@ -661,7 +724,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const pinnedSpace = await screen.findByRole("button", {
+		const pinnedSpace = await screen.findByRole("link", {
 			name: "Pinned Alpha",
 		});
 		expect(screen.queryByText("Welcome Pinned")).toBeNull();
@@ -678,7 +741,7 @@ describe("AppSpacesSidebar", () => {
 		);
 		expect(
 			spacesHeading.compareDocumentPosition(
-				screen.getByRole("button", { name: "Regular Beta" })
+				screen.getByRole("link", { name: "Regular Beta" })
 			)
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
@@ -713,7 +776,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		await screen.findByRole("button", {
+		await screen.findByRole("link", {
 			name: "Felix and Center Agent plus Ada",
 		});
 		expect(
@@ -725,14 +788,14 @@ describe("AppSpacesSidebar", () => {
 		const spacesHeading = getSidebarGroupLabel("Spaces");
 		expect(
 			spacesHeading.compareDocumentPosition(
-				screen.getByRole("button", {
+				screen.getByRole("link", {
 					name: "Felix and Center Agent plus Ada",
 				})
 			)
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 		expect(
 			spacesHeading.compareDocumentPosition(
-				screen.getByRole("button", { name: "Ordinary Pair" })
+				screen.getByRole("link", { name: "Ordinary Pair" })
 			)
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
@@ -759,7 +822,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		for (const spaceName of ["Pinned Alpha", "Regular Beta"]) {
-			const row = await screen.findByRole("button", { name: spaceName });
+			const row = await screen.findByRole("link", { name: spaceName });
 			expect(row?.querySelector('[data-space-icon="channel"]')).toBeTruthy();
 		}
 	});
@@ -799,7 +862,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("button", { name: "Acme Project" })
+			await screen.findByRole("link", { name: "Acme Project" })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("button", { name: "Personal Pinned" })
@@ -904,7 +967,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		expect(await screen.findByRole("button", { name: "Alpha" })).toBeTruthy();
+		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(screen.queryByText("Joined as Mira")).toBeNull();
 		expect(screen.queryByText("Joined as Codex")).toBeNull();
 		expect(screen.queryByText("1 other profile also joined")).toBeNull();
@@ -925,7 +988,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const openSpaceButton = await screen.findByRole("button", {
+		const openSpaceButton = await screen.findByRole("link", {
 			name: "Alpha",
 		});
 		const spaceName = openSpaceButton.querySelector<HTMLElement>(
@@ -1005,8 +1068,8 @@ describe("AppSpacesSidebar", () => {
 			/>
 		);
 
-		const workingButton = await screen.findByRole("button", {
-			name: "Alpha, agent working",
+		const workingButton = await screen.findByRole("link", {
+			name: "Alpha, active Wake",
 		});
 		const workingRow = workingButton.closest<HTMLElement>(
 			'[data-slot="center-truncated-text"], li, div'
@@ -1026,20 +1089,20 @@ describe("AppSpacesSidebar", () => {
 			false
 		);
 		const workingStatus = screen.getByRole("button", {
-			name: "Clico Codex is working. Open Alpha",
+			name: "Clico Codex has an active Wake. Open Alpha",
 		});
 		expect(workingStatus).toBe(orbSlot);
 		fireEvent.pointerEnter(workingStatus);
 		fireEvent.mouseEnter(workingStatus);
 		await waitFor(() => {
-			expect(screen.getByText("Clico Codex is working")).toBeTruthy();
+			expect(screen.getByText("Clico Codex has an active Wake")).toBeTruthy();
 		});
 		expect(
 			orbSlot?.classList.contains("group-hover/space-row:scale-[0.625]")
 		).toBe(true);
 
 		// The idle row keeps the plain label and never mounts an orb.
-		expect(screen.getByRole("button", { name: "Beta" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Beta" })).toBeTruthy();
 
 		// The pin action stays in the slot, hidden until hover/focus reveals it.
 		const pinButton = screen.getByRole("button", { name: "Pin Alpha" });
@@ -1090,13 +1153,13 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const workingStatus = await screen.findByRole("button", {
-			name: "Clico Codex and Felix Codex are working. Open Alpha",
+			name: "Clico Codex and Felix Codex have an active Wake. Open Alpha",
 		});
 		fireEvent.pointerEnter(workingStatus);
 		fireEvent.mouseEnter(workingStatus);
 		await waitFor(() => {
 			expect(
-				screen.getByText("Clico Codex and Felix Codex are working")
+				screen.getByText("Clico Codex and Felix Codex have an active Wake")
 			).toBeTruthy();
 		});
 	});
@@ -1155,8 +1218,8 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("button", {
-				name: "Alpha, agent working",
+			await screen.findByRole("link", {
+				name: "Alpha, active Wake",
 			})
 		).toBeTruthy();
 		expect(
@@ -1167,6 +1230,78 @@ describe("AppSpacesSidebar", () => {
 		expect(
 			document.querySelector('[data-space-active-wake-orb="true"]')
 		).toBeTruthy();
+	});
+
+	it("shows that the current Agent is waiting when its current task is occupied", async () => {
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [
+				createAccountSpaceItem({
+					pinnedAt: "2026-04-29T01:00:00.000Z",
+					spaceId: "space-alpha",
+					spaceName: "Alpha",
+				}),
+			],
+			spaceItems: [],
+		});
+		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
+			generatedAtMs: Date.now(),
+			items: [
+				{
+					activeTargets: [
+						{
+							activeWakeCount: 1,
+							profileId: "agt_clico",
+							profileName: "Clico Codex",
+						},
+					],
+					activeWakeCount: 1,
+					spaceId: "space-alpha",
+				},
+			],
+		});
+		const queryClient = createSidebarQueryClient();
+		setSpaceWakeProgressPresentationItems({
+			items: [
+				createWakeProgressItem({
+					clientMessageId: "client-message-alpha",
+					dispatchId: "dispatch-alpha",
+					phase: "running",
+					sourceSignalId: "signal-alpha",
+					targetLabel: "Clico Codex",
+					targetProfileId: "agt_clico",
+					updatedAtMs: Date.now(),
+					waitReasonCode: "runtime.agent_controller_conversation.occupied",
+				}),
+			],
+			openMeldProfileId: "human-1",
+			queryClient,
+			spaceId: "space-alpha",
+		});
+
+		renderSidebar(
+			<AppSpacesSidebar
+				currentProfileId="human-1"
+				currentSpaceId="space-alpha"
+			/>,
+			queryClient
+		);
+
+		expect(
+			await screen.findByRole("link", {
+				name: "Alpha, agent waiting",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "Waiting for Clico Codex’s current task. Open Alpha",
+			})
+		).toBeTruthy();
+		expect(
+			document.querySelector('[data-space-active-wake-waiting="true"]')
+		).toBeTruthy();
+		expect(
+			document.querySelector('[data-space-active-wake-orb="true"]')
+		).toBeNull();
 	});
 
 	it("keeps the current Space orb aligned with a recovered Core active Wake summary", async () => {
@@ -1217,7 +1352,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("button", { name: "Alpha, agent working" })
+			await screen.findByRole("link", { name: "Alpha, active Wake" })
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", {
@@ -1302,9 +1437,9 @@ describe("AppSpacesSidebar", () => {
 			queryClient
 		);
 
-		expect(await screen.findByRole("button", { name: "Alpha" })).toBeTruthy();
+		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Beta, agent working" })
+			screen.getByRole("link", { name: "Beta, active Wake" })
 		).toBeTruthy();
 		expect(
 			document.querySelectorAll('[data-space-active-wake-orb="true"]')
@@ -1337,7 +1472,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("button", { name: "Alpha, agent working" })
+			await screen.findByRole("link", { name: "Alpha, active Wake" })
 		).toBeTruthy();
 
 		view.rerender(
@@ -1350,9 +1485,9 @@ describe("AppSpacesSidebar", () => {
 			</SpaceWakeProgressVisibleProjectionProvider>
 		);
 
-		expect(screen.getByRole("button", { name: "Alpha" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Beta, agent working" })
+			screen.getByRole("link", { name: "Beta, active Wake" })
 		).toBeTruthy();
 		expect(
 			document.querySelectorAll('[data-space-active-wake-orb="true"]')
@@ -1374,9 +1509,9 @@ describe("AppSpacesSidebar", () => {
 			queryClient
 		);
 
-		expect(screen.getByRole("button", { name: "Alpha" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Beta, agent working" })
+			screen.getByRole("link", { name: "Beta, active Wake" })
 		).toBeTruthy();
 		expect(
 			document.querySelectorAll('[data-space-active-wake-orb="true"]')
@@ -1402,7 +1537,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		expect(await screen.findByRole("button", { name: "Alpha" })).toBeTruthy();
+		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
 			document.querySelector('[data-space-active-wake-orb="true"]')
 		).toBeNull();
@@ -1428,8 +1563,8 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const openSpaceButton = await screen.findByRole("button", {
-			name: "Alpha, agent working",
+		const openSpaceButton = await screen.findByRole("link", {
+			name: "Alpha, active Wake",
 		});
 		await waitFor(() => {
 			expect(
@@ -1517,14 +1652,14 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const workingRow = (
-			await screen.findByRole("button", {
-				name: "Working, unread messages, agent working",
+			await screen.findByRole("link", {
+				name: "Working, unread messages, active Wake",
 			})
 		).parentElement;
-		const unreadRow = screen.getByRole("button", {
+		const unreadRow = screen.getByRole("link", {
 			name: "Unread, unread messages",
 		}).parentElement;
-		const idleRow = screen.getByRole("button", { name: "Idle" }).parentElement;
+		const idleRow = screen.getByRole("link", { name: "Idle" }).parentElement;
 
 		const workingUnreadIndicator = workingRow?.querySelector<HTMLElement>(
 			'[data-space-unread-indicator="true"]'
@@ -1597,7 +1732,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const openSpaceButton = await screen.findByRole("button", {
+		const openSpaceButton = await screen.findByRole("link", {
 			name: "Alpha",
 		});
 		const spaceName = openSpaceButton.querySelector<HTMLElement>(
@@ -1643,7 +1778,7 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const rowButton = await screen.findByRole("button", {
+		const rowButton = await screen.findByRole("link", {
 			name: longSpaceName,
 		});
 		expect(rowButton).toBeTruthy();
@@ -1693,11 +1828,10 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		fireEvent.click(await screen.findByRole("button", { name: "Alpha" }));
-
-		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/spaces/space-alpha?profileId=human-1",
-		});
+		const link = await screen.findByRole("link", { name: "Alpha" });
+		expect(link.getAttribute("href")).toBe(
+			"/o/acme/spaces/space-alpha?profileId=human-1"
+		);
 	});
 
 	it("opens an agent-only Space with the current Human Web viewer", async () => {
@@ -1726,16 +1860,14 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Alpha, New Space" })
-		);
+		const link = await screen.findByRole("link", { name: "Alpha, New Space" });
 
-		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/spaces/space-alpha?profileId=human-1",
-		});
+		expect(link.getAttribute("href")).toBe(
+			"/o/acme/spaces/space-alpha?profileId=human-1"
+		);
 	});
 
-	it("prefetches a Space conversation after deliberate pointer intent", async () => {
+	it("uses the Router link for Space navigation", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -1750,23 +1882,11 @@ describe("AppSpacesSidebar", () => {
 			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		fireEvent.pointerEnter(
-			await screen.findByRole("button", { name: "Alpha" })
-		);
+		const link = await screen.findByRole("link", { name: "Alpha" });
 
-		await waitFor(
-			() => {
-				expect(preloadRouteMock).toHaveBeenCalledWith({
-					to: "/o/acme/spaces/space-alpha?profileId=human-1",
-				});
-				expect(prefetchSpaceConversationIntentMock).toHaveBeenCalledWith({
-					spaceId: "space-alpha",
-					openMeldProfileId: "human-1",
-				});
-			},
-			{ timeout: 250 }
+		expect(link.getAttribute("href")).toBe(
+			"/o/acme/spaces/space-alpha?profileId=human-1"
 		);
-		expect(navigateMock).not.toHaveBeenCalled();
 	});
 
 	it("renders the current space with the fluid sidebar selection surface", async () => {
@@ -1791,12 +1911,11 @@ describe("AppSpacesSidebar", () => {
 			/>
 		);
 
-		const activeButton = await screen.findByRole("button", { name: "Alpha" });
-		const activeRow = activeButton.closest("[data-fluid-nav-value]");
+		const activeLink = await screen.findByRole("link", { name: "Alpha" });
+		const activeRow = activeLink.closest("[data-fluid-nav-value]");
 
 		expect(activeRow?.getAttribute("data-state")).toBe("active");
-		fireEvent.focus(activeButton);
-		expect(preloadRouteMock).not.toHaveBeenCalled();
+		fireEvent.focus(activeLink);
 		await waitFor(() => {
 			expect(
 				container.querySelector('[data-slot="fluid-nav-menu-active-indicator"]')
@@ -1876,7 +1995,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("button", { name: "Pinned Alpha" })
+			await screen.findByRole("link", { name: "Pinned Alpha" })
 		).toBeTruthy();
 		const newSpaceButton = screen.getByRole("button", { name: "New Space" });
 		const pinnedHeading = getSidebarGroupLabel("Pinned");

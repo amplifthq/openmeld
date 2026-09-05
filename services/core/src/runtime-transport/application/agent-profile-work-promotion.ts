@@ -63,6 +63,23 @@ export async function readPendingAgentProfileWorkPromotions(
   });
 }
 
+export async function readPendingAgentProfileWorkPromotion(
+  storage: AgentProfileWorkPromotionStorage,
+  targetProfileId: string
+): Promise<PendingAgentProfileWorkPromotion | null> {
+  const value = await storage.get<unknown>(
+    buildPendingAgentProfileWorkPromotionStorageKey(targetProfileId)
+  );
+  if (value === undefined) {
+    return null;
+  }
+  const parsed = parsePendingAgentProfileWorkPromotion(value);
+  if (!parsed) {
+    throw new Error("runtime_coordinator.agent_profile_work_promotion_invalid");
+  }
+  return parsed;
+}
+
 export async function clearPendingAgentProfileWorkPromotion(
   storage: AgentProfileWorkPromotionStorage,
   expected: PendingAgentProfileWorkPromotion
@@ -148,7 +165,7 @@ export function resolveAgentProfileWorkPromotionGate():
   return "open";
 }
 
-function parsePendingAgentProfileWorkPromotion(
+export function parsePendingAgentProfileWorkPromotion(
   value: unknown
 ): PendingAgentProfileWorkPromotion | null {
   if (!value || typeof value !== "object") {

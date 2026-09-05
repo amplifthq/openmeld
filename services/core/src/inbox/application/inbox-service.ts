@@ -2,6 +2,7 @@ import {
   INBOX_LIST_DEFAULT_LIMIT,
   INBOX_LIST_MAX_LIMIT,
   INBOX_SPACE_SUMMARY_MAX_SPACES,
+  INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS,
   inboxItemSchema,
   inboxSourceTargetSchema,
   inboxViewSchema,
@@ -17,6 +18,7 @@ import type {
   MarkAllInboxItemsReadResponse,
   MarkInboxItemReadResponse,
   SpaceInboxSummaryResponse,
+  SpaceInboxUnreadTargetsResponse,
 } from "@openmeld/schemas/types";
 import {
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
@@ -228,6 +230,94 @@ export function createInboxService(input: {
           spaceId: row.space_id,
           unreadCount: countValue(row.unread_count),
         })),
+      };
+    },
+
+    async spaceUnreadTargets(targetInput: {
+      organizationId: string;
+      recipientUserId: string;
+      spaceId: string;
+    }): Promise<SpaceInboxUnreadTargetsResponse> {
+      requireIdentifier(targetInput.organizationId, "organizationId");
+      requireIdentifier(targetInput.recipientUserId, "recipientUserId");
+      requireIdentifier(targetInput.spaceId, "spaceId");
+      const filters = `
+        organization_id = ?
+        AND recipient_user_id = ?
+        AND cleared_at_ms IS NULL
+        AND read_at_ms IS NULL
+        AND ${INBOX_SPACE_MESSAGE_FILTER}
+        AND json_extract(source_target_json, '$.spaceId') = ?
+        AND ${CURRENT_SOURCE_ACCESS_FILTER}
+      `;
+      const countRow = await input.db
+        .prepare(
+          `SELECT count(*) AS unread_count FROM inbox_items WHERE ${filters}`
+        )
+        .bind(
+          targetInput.organizationId,
+          targetInput.recipientUserId,
+          targetInput.spaceId
+        )
+        .first<{ unread_count: number }>();
+      const targetResult = await input.db
+        .prepare(
+          `
+            SELECT occurred_at_ms, source_target_json
+            FROM inbox_items
+            WHERE ${filters}
+              AND json_extract(source_target_json, '$.signalId') IS NOT NULL
+            ORDER BY occurred_at_ms ASC, id ASC
+            LIMIT ?
+          `
+        )
+        .bind(
+          targetInput.organizationId,
+          targetInput.recipientUserId,
+          targetInput.spaceId,
+          INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS + 1
+        )
+        .all<{
+          occurred_at_ms: number;
+          source_target_json: string;
+        }>();
+      const totalUnreadCount = countValue(countRow?.unread_count);
+      const rows = (targetResult.results ?? []) as Array<{
+        occurred_at_ms: number;
+        source_target_json: string;
+      }>;
+      const targets = rows
+        .slice(0, INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS)
+        .map((row) => {
+          const parsed = inboxSourceTargetSchema.safeParse(
+            JSON.parse(row.source_target_json)
+          );
+          if (
+            !parsed.success ||
+            (parsed.data.kind !== "space" &&
+              parsed.data.kind !== "center_agent") ||
+            parsed.data.signalId === undefined
+          ) {
+            return null;
+          }
+          return {
+            occurredAtMs: nonnegativeIntegerValue(row.occurred_at_ms),
+            signalId: parsed.data.signalId,
+            threadRootSignalId:
+              parsed.data.kind === "space"
+                ? (parsed.data.threadRootSignalId ?? null)
+                : null,
+          };
+        })
+        .filter((target) => target !== null);
+      return {
+        hasMoreTargets:
+          rows.length > INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS ||
+          targets.length < totalUnreadCount,
+        organizationId: targetInput.organizationId,
+        spaceId: targetInput.spaceId,
+        targets,
+        totalUnreadCount,
       };
     },
 
@@ -490,6 +580,7 @@ export function createInboxService(input: {
       organizationId: string;
       recipientUserId: string;
       spaceId: string;
+      threadRootSignalId?: string;
       throughOccurredAtMs: number;
     }): Promise<{ markedReadCount: number; readThroughAt: string }> {
       return await markSpaceInboxReadThrough({
@@ -643,6 +734,7 @@ async function markSpaceInboxReadThrough(input: {
   organizationId: string;
   recipientUserId: string;
   spaceId: string;
+  threadRootSignalId?: string;
   throughOccurredAtMs: number;
   unavailableCode: string;
   unavailableMessage: string;
@@ -650,6 +742,9 @@ async function markSpaceInboxReadThrough(input: {
   requireIdentifier(input.organizationId, "organizationId");
   requireIdentifier(input.recipientUserId, "recipientUserId");
   requireIdentifier(input.spaceId, "spaceId");
+  if (input.threadRootSignalId !== undefined) {
+    requireIdentifier(input.threadRootSignalId, "threadRootSignalId");
+  }
   const timestamp = readNowMs(input.nowMs);
   if (
     !isReadPositionWithinAllowedFutureSkew({
@@ -713,50 +808,101 @@ async function markSpaceInboxReadThrough(input: {
     input.itemScope === "space"
       ? INBOX_SPACE_MESSAGE_FILTER
       : INBOX_CENTER_AGENT_MESSAGE_FILTER;
-  const itemThreadFilter =
-    input.itemScope === "space"
-      ? "AND json_type(source_target_json, '$.threadRootSignalId') IS NULL"
-      : "";
+  const threadScoped =
+    input.itemScope === "space" && input.threadRootSignalId !== undefined;
+  let itemThreadFilter = "";
+  if (input.itemScope === "space") {
+    itemThreadFilter = threadScoped
+      ? "AND json_extract(source_target_json, '$.threadRootSignalId') = ?"
+      : "AND json_type(source_target_json, '$.threadRootSignalId') IS NULL";
+  }
+  const watermarkStatement = threadScoped
+    ? input.db
+        .prepare(
+          `
+            INSERT INTO inbox_space_thread_read_watermarks (
+              organization_id,
+              recipient_user_id,
+              space_id,
+              thread_root_signal_id,
+              through_occurred_at_ms,
+              read_at_ms,
+              created_at_ms,
+              updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(
+              organization_id,
+              recipient_user_id,
+              space_id,
+              thread_root_signal_id
+            ) DO UPDATE SET
+              through_occurred_at_ms = max(
+                inbox_space_thread_read_watermarks.through_occurred_at_ms,
+                excluded.through_occurred_at_ms
+              ),
+              read_at_ms = CASE
+                WHEN excluded.through_occurred_at_ms >
+                  inbox_space_thread_read_watermarks.through_occurred_at_ms
+                THEN excluded.read_at_ms
+                ELSE inbox_space_thread_read_watermarks.read_at_ms
+              END,
+              updated_at_ms = max(
+                inbox_space_thread_read_watermarks.updated_at_ms,
+                excluded.updated_at_ms
+              )
+          `
+        )
+        .bind(
+          input.organizationId,
+          input.recipientUserId,
+          input.spaceId,
+          input.threadRootSignalId,
+          input.throughOccurredAtMs,
+          timestamp,
+          timestamp,
+          timestamp
+        )
+    : input.db
+        .prepare(
+          `
+            INSERT INTO inbox_center_agent_read_watermarks (
+              organization_id,
+              recipient_user_id,
+              space_id,
+              through_occurred_at_ms,
+              read_at_ms,
+              created_at_ms,
+              updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(organization_id, recipient_user_id, space_id)
+            DO UPDATE SET
+              through_occurred_at_ms = max(
+                inbox_center_agent_read_watermarks.through_occurred_at_ms,
+                excluded.through_occurred_at_ms
+              ),
+              read_at_ms = CASE
+                WHEN excluded.through_occurred_at_ms >
+                  inbox_center_agent_read_watermarks.through_occurred_at_ms
+                THEN excluded.read_at_ms
+                ELSE inbox_center_agent_read_watermarks.read_at_ms
+              END,
+              updated_at_ms = max(
+                inbox_center_agent_read_watermarks.updated_at_ms,
+                excluded.updated_at_ms
+              )
+          `
+        )
+        .bind(
+          input.organizationId,
+          input.recipientUserId,
+          input.spaceId,
+          input.throughOccurredAtMs,
+          timestamp,
+          timestamp,
+          timestamp
+        );
   const [, itemResult] = await input.db.batch([
-    input.db
-      .prepare(
-        `
-          INSERT INTO inbox_center_agent_read_watermarks (
-            organization_id,
-            recipient_user_id,
-            space_id,
-            through_occurred_at_ms,
-            read_at_ms,
-            created_at_ms,
-            updated_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(organization_id, recipient_user_id, space_id)
-          DO UPDATE SET
-            through_occurred_at_ms = max(
-              inbox_center_agent_read_watermarks.through_occurred_at_ms,
-              excluded.through_occurred_at_ms
-            ),
-            read_at_ms = CASE
-              WHEN excluded.through_occurred_at_ms >
-                inbox_center_agent_read_watermarks.through_occurred_at_ms
-              THEN excluded.read_at_ms
-              ELSE inbox_center_agent_read_watermarks.read_at_ms
-            END,
-            updated_at_ms = max(
-              inbox_center_agent_read_watermarks.updated_at_ms,
-              excluded.updated_at_ms
-            )
-        `
-      )
-      .bind(
-        input.organizationId,
-        input.recipientUserId,
-        input.spaceId,
-        input.throughOccurredAtMs,
-        timestamp,
-        timestamp,
-        timestamp
-      ),
+    watermarkStatement,
     input.db
       .prepare(
         `
@@ -781,7 +927,8 @@ async function markSpaceInboxReadThrough(input: {
         input.organizationId,
         input.recipientUserId,
         input.throughOccurredAtMs,
-        input.spaceId
+        input.spaceId,
+        ...(threadScoped ? [input.threadRootSignalId as string] : [])
       ),
   ]);
   if (!itemResult) {

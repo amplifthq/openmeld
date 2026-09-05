@@ -1,11 +1,19 @@
-const MAGIC_LINK_PREFERRED_REDIRECT_PREFIXES = [
+const INVITATION_ROUTES = [
 	"/accept-invitation",
+	"/accept-space-invitation",
 	"/join-organization",
-	"/link-slack",
+	"/invitations",
 ] as const;
 
 export function shouldPreferMagicLink(redirectTarget: string | null): boolean {
-	return MAGIC_LINK_PREFERRED_REDIRECT_PREFIXES.some((routePrefix) =>
-		redirectTarget?.startsWith(routePrefix)
+	return Boolean(
+		redirectTarget &&
+			(isInvitationRedirectTarget(redirectTarget) ||
+				redirectTarget.startsWith("/link-slack"))
 	);
+}
+
+export function isInvitationRedirectTarget(target: string): boolean {
+	const pathname = target.split("?")[0]?.split("#")[0];
+	return INVITATION_ROUTES.some((route) => pathname === route);
 }

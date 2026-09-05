@@ -74,6 +74,9 @@ const createDisconnectDiagnosticsHarness = (): {
   Object.defineProperty(hub, "state", {
     value: createRuntimeTransportMutableState(),
   });
+  Object.defineProperty(hub, "currentDeviceOperationWaiters", {
+    value: new Map(),
+  });
   const pendingWork: Promise<unknown>[] = [];
   const persistedRecords = new Map<string, unknown>();
   Object.defineProperty(hub, "ctx", {

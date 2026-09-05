@@ -1,6 +1,8 @@
+import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
+	ModelCatalog,
 } from "@openmeld/schemas/types";
 import {
 	cleanup,
@@ -14,7 +16,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveAgentProfileSidebarGroups } from "./agent-profile-sidebar-groups";
 import { AgentProfilesWorkspace } from "./agent-profiles-workspace";
 
-const appFullWidthLayoutSpy = vi.hoisted(() => vi.fn());
+const { appFullWidthLayoutSpy, appNavigationPresentationSpy } = vi.hoisted(
+	() => ({
+		appFullWidthLayoutSpy: vi.fn(),
+		appNavigationPresentationSpy: vi.fn(() => ({ dismiss: vi.fn() })),
+	})
+);
 
 vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
@@ -69,32 +76,140 @@ vi.mock("#/components/app/app-contextual-layout", () => ({
 }));
 
 vi.mock("#/components/app/app-navigation-presentation", () => ({
-	useAppNavigationPresentation: () => ({ dismiss: vi.fn() }),
+	useAppNavigationPresentation: () => appNavigationPresentationSpy(),
 }));
 
 const CURRENT_USER_ID = "user-current";
+const TEST_MODEL_CATALOG: ModelCatalog = {
+	agentControllers: {
+		codex: {
+			defaultModelId: "gpt-5.6-sol",
+			models: [
+				{
+					displayName: "GPT-5.6 Sol",
+					id: "gpt-5.6-sol",
+					minCliVersion: null,
+					supportedReasoningLevels: ["low", "medium", "high"],
+					unavailable: false,
+				},
+			],
+		},
+	},
+	schemaVersion: 1,
+	updatedAt: "2026-09-03T00:00:00.000Z",
+};
 
 afterEach(() => {
 	cleanup();
 	appFullWidthLayoutSpy.mockReset();
+	appNavigationPresentationSpy.mockClear();
 });
 
 describe("AgentProfilesWorkspace", () => {
-	it("puts the current user's owner group first and sorts remaining owners stably", () => {
+	it("keeps the current user's owner group first, then orders owners by Agent activity", () => {
 		const groups = resolveAgentProfileSidebarGroups({
 			currentUserId: CURRENT_USER_ID,
+			operationalContextByProfileId: new Map<
+				string,
+				AgentProfileOperationalContextInput
+			>([
+				[
+					"agent-zed",
+					{
+						currentWorkLocation: "Release room",
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "working",
+						waitingCount: 0,
+					},
+				],
+			]),
 			profiles: [
 				createProfile("agent-zed", "user-zed", "Zed", "Zed Agent"),
-				createProfile("agent-amy", "user-amy", "Amy", "Amy Agent"),
+				createProfile("agent-amy", "user-amy", "Amy", "Amy Agent", {
+					lastUsedAt: "2026-09-03T08:00:00.000Z",
+				}),
 				createProfile("agent-current", CURRENT_USER_ID, "Felix", "Felix Agent"),
 			],
 		});
 
 		expect(groups.map((group) => group.label)).toEqual([
 			"Felix (you)",
-			"Amy",
 			"Zed",
+			"Amy",
 		]);
+	});
+
+	it("orders Agents within an owner by live work, waiting work, and recent use", () => {
+		const groups = resolveAgentProfileSidebarGroups({
+			currentUserId: CURRENT_USER_ID,
+			operationalContextByProfileId: new Map<
+				string,
+				AgentProfileOperationalContextInput
+			>([
+				[
+					"agent-working",
+					{
+						currentWorkLocation: "Launch",
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "working",
+						waitingCount: 0,
+					},
+				],
+				[
+					"agent-waiting",
+					{
+						currentWorkLocation: "Release",
+						queuedWorkLocations: ["Checks"],
+						recoveryAction: { kind: "continue_interrupted_work" },
+						status: "paused",
+						waitingCount: 1,
+					},
+				],
+			]),
+			profiles: [
+				createProfile("agent-no-activity", CURRENT_USER_ID, "Felix", "Alpha"),
+				createProfile("agent-recent", CURRENT_USER_ID, "Felix", "Recent", {
+					lastUsedAt: "2026-09-03T09:00:00.000Z",
+				}),
+				createProfile("agent-working", CURRENT_USER_ID, "Felix", "Working"),
+				createProfile("agent-older", CURRENT_USER_ID, "Felix", "Older", {
+					lastUsedAt: "2026-09-02T09:00:00.000Z",
+				}),
+				createProfile("agent-waiting", CURRENT_USER_ID, "Felix", "Waiting"),
+			],
+		});
+
+		expect(
+			groups[0]?.profiles.map((profile) => profile.openMeldProfileId)
+		).toEqual([
+			"agent-working",
+			"agent-waiting",
+			"agent-recent",
+			"agent-older",
+			"agent-no-activity",
+		]);
+	});
+
+	it("puts a newly created idle Agent ahead of older idle activity", () => {
+		const groups = resolveAgentProfileSidebarGroups({
+			currentUserId: CURRENT_USER_ID,
+			profiles: [
+				createProfile("agent-used", CURRENT_USER_ID, "Felix", "Used Agent", {
+					createdAt: "2026-08-01T00:00:00.000Z",
+					lastUsedAt: "2026-09-02T09:00:00.000Z",
+				}),
+				createProfile("agent-new", CURRENT_USER_ID, "Felix", "New Agent", {
+					createdAt: "2026-09-03T09:00:00.000Z",
+					lastUsedAt: null,
+				}),
+			],
+		});
+
+		expect(
+			groups[0]?.profiles.map((profile) => profile.openMeldProfileId)
+		).toEqual(["agent-new", "agent-used"]);
 	});
 
 	it("keeps Agent requests fixed above owner groups and uses the Core request count", () => {
@@ -107,6 +222,17 @@ describe("AgentProfilesWorkspace", () => {
 		expect(requests.textContent).toContain("Agent requests");
 		expect(requests.textContent).toContain("2");
 		fireEvent.click(requests);
+	});
+
+	it("opens the separate creation flow from the sidebar", () => {
+		const onCreateAgent = vi.fn();
+		renderWorkspace({
+			onCreateAgent,
+		});
+
+		const createButton = screen.getByRole("button", { name: "Create Agent" });
+		fireEvent.click(createButton);
+		expect(onCreateAgent).toHaveBeenCalledOnce();
 	});
 
 	it("places Agent search before the availability filter", () => {
@@ -226,12 +352,16 @@ describe("AgentProfilesWorkspace", () => {
 		expect(screen.getByTestId("profiles-controller")).toBeTruthy();
 	});
 
-	it("shows Controller/model summary and the authoritative Wake availability", () => {
+	it("keeps ready and idle as the quiet default", () => {
 		renderWorkspace();
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(item.textContent).toContain("Codex · gpt-5.6-sol");
+		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
 		expect(item.textContent).toContain("Available");
+		expect(item.textContent).not.toContain("Idle");
+		expect(
+			within(item).queryByTestId("agent-profile-operational-status")
+		).toBeNull();
 		expect(
 			within(item).getByTestId("agent-profile-controller-avatar-agent-current")
 		).toBeTruthy();
@@ -243,9 +373,115 @@ describe("AgentProfilesWorkspace", () => {
 		expect(avatar.className).toContain("rounded-lg");
 		expect(avatar.className).toContain("overflow-hidden");
 		expect(item.querySelector('[data-profile-kind="center-agent"]')).toBeNull();
-		expect(within(item).getByText("Available").getAttribute("title")).toBe(
-			"Available for Wake"
-		);
+	});
+
+	it("keeps only the stable Available verdict visible during background refresh", () => {
+		renderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...createReadiness(),
+						agentWakeAvailability: {
+							...createReadiness().agentWakeAvailability,
+							isRefreshing: true,
+						},
+						generatedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+					},
+				],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(item.textContent).toContain("Available");
+		expect(item.textContent).not.toContain("checked 3 minutes ago");
+		expect(item.textContent).not.toContain("Refreshing…");
+	});
+
+	it("does not rerender an unrelated Agent row after targeted readiness changes", () => {
+		const onSelectProfile = vi.fn();
+		const initialReadiness = createReadiness();
+		const { rerenderWorkspace } = renderWorkspace({
+			onSelectProfile,
+			readinessByProfileId: new Map([["agent-current", initialReadiness]]),
+		});
+		appNavigationPresentationSpy.mockClear();
+
+		rerenderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...initialReadiness,
+						generatedAt: "2026-09-04T10:01:00.000Z",
+					},
+				],
+			]),
+		});
+
+		expect(appNavigationPresentationSpy).toHaveBeenCalledOnce();
+	});
+
+	it("shows the Controller default model when no model is explicitly selected", () => {
+		const readiness = createReadiness();
+		if (!readiness.primaryBinding) {
+			throw new Error("Expected a primary Binding fixture");
+		}
+		const {
+			modelSelection: _modelSelection,
+			...primaryBindingWithoutModelSelection
+		} = readiness.primaryBinding;
+		renderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...readiness,
+						primaryBinding: primaryBindingWithoutModelSelection,
+					},
+				],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
+	});
+
+	it("keeps Controller branding without repeating an initial runtime check", () => {
+		renderWorkspace({
+			agentControllerRefByProfileId: new Map([
+				["agent-current", "builtin:codex"],
+			]),
+			readinessByProfileId: new Map(),
+			readinessPendingProfileIds: new Set(),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(within(item).getByTestId("local-agent-logo-codex")).toBeTruthy();
+		expect(item.textContent).toContain("Codex");
+		expect(item.textContent).not.toContain("Checking");
+	});
+
+	it("keeps the Agent identity static while activity is checking", () => {
+		renderWorkspace({
+			operationalContextByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						currentWorkLocation: null,
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "checking",
+						waitingCount: 0,
+					},
+				],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		const name = within(item).getByText("Felix Agent");
+		expect(name.className).not.toContain("bg-clip-text");
+		expect(name.style.backgroundImage).toBe("");
 	});
 
 	it("shows owner and team-safe workload on their rows", () => {
@@ -279,9 +515,12 @@ describe("AgentProfilesWorkspace", () => {
 			"agent-profile-operational-status"
 		);
 		expect(ownerStatus.getAttribute("data-agent-work-status")).toBe("working");
-		expect(ownerStatus.textContent).toContain("∞");
-		expect(within(ownerStatus).getByText("Working").className).toContain(
-			"shimmer-text"
+		expect(
+			within(ownerStatus).getByTestId("agent-profile-working-orb")
+		).toBeTruthy();
+		expect(ownerStatus.textContent).toContain("+1");
+		expect(ownerStatus.textContent).toContain(
+			"Agent is working in Launch planning"
 		);
 
 		const observerItem = screen.getByRole("button", {
@@ -293,7 +532,8 @@ describe("AgentProfilesWorkspace", () => {
 		expect(observerStatus.getAttribute("data-agent-work-status")).toBe(
 			"waiting"
 		);
-		expect(observerStatus.textContent).toContain("Waiting");
+		expect(observerStatus.textContent).toContain("+2");
+		expect(observerStatus.textContent).toContain("Waiting to continue");
 		expect(observerItem.textContent).not.toContain("Needs attention");
 	});
 
@@ -317,25 +557,49 @@ describe("AgentProfilesWorkspace", () => {
 		const ownerStatus = within(ownerItem).getByTestId(
 			"agent-profile-operational-status"
 		);
-		expect(ownerStatus.textContent).toContain("Needs attention");
+		expect(ownerStatus.textContent).toContain("Needs your attention");
 		const indicator = ownerStatus.querySelector(
 			'[data-agent-needs-attention-indicator="true"]'
 		);
-		expect(indicator?.className).toContain("bg-amber-500");
+		expect(indicator).toBeTruthy();
+		expect(ownerStatus.className).toContain("text-amber-700");
+		expect(ownerStatus.className).toContain("dark:text-amber-400");
 	});
 
-	it("shows a readiness refresh error before cached sidebar availability", () => {
+	it("keeps cached sidebar availability without exposing refresh detail", () => {
 		renderWorkspace({
+			readinessByProfileId: new Map([
+				[
+					"agent-current",
+					{
+						...createReadiness(),
+						generatedAt: new Date().toISOString(),
+					},
+				],
+			]),
 			readinessErrorByProfileId: new Map([
 				["agent-current", "Core could not refresh Wake availability."],
 			]),
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(within(item).getByText("Unavailable").getAttribute("title")).toBe(
-			"Core could not refresh Wake availability."
-		);
-		expect(within(item).queryByText("Available")).toBeNull();
+		expect(item.textContent).toContain("Available");
+		expect(item.textContent).not.toContain("checked just now");
+		expect(item.textContent).not.toContain("Couldn’t refresh availability.");
+		expect(within(item).queryByRole("alert")).toBeNull();
+	});
+
+	it("shows a neutral sidebar result when the first availability check fails", () => {
+		renderWorkspace({
+			readinessByProfileId: new Map(),
+			readinessErrorByProfileId: new Map([
+				["agent-current", "Core could not read Wake availability."],
+			]),
+		});
+
+		const item = screen.getByRole("button", { name: "Open Felix Agent" });
+		expect(item.textContent).toContain("Couldn’t check availability.");
+		expect(item.textContent).not.toContain("Unavailable");
 	});
 
 	it("keeps Offline and Unavailable rows static gray and less prominent for every viewer", () => {
@@ -443,6 +707,22 @@ describe("AgentProfilesWorkspace", () => {
 		expect(screen.getByTestId("profiles-controller")).toBeTruthy();
 	});
 
+	it("turns the ready empty workspace into one centered creation action", () => {
+		const onCreateAgent = vi.fn();
+		renderWorkspace({ onCreateAgent, profiles: [] });
+
+		const createCard = screen.getByTestId("create-agent-empty-state");
+		expect(createCard.tagName).toBe("BUTTON");
+		expect(createCard.parentElement?.className).toContain("flex-1");
+		expect(createCard.parentElement?.className).toContain("place-items-center");
+		expect(createCard.textContent).toContain("Create Agent");
+		expect(createCard.textContent).toContain(
+			"Give your team an AI teammate that can work and reply in Spaces."
+		);
+		fireEvent.click(createCard);
+		expect(onCreateAgent).toHaveBeenCalledOnce();
+	});
+
 	it("explains an empty Agent search without blaming the availability filter", () => {
 		renderWorkspace({
 			hasAnyProfiles: true,
@@ -504,7 +784,7 @@ describe("AgentProfilesWorkspace", () => {
 				selectedProfileId={null}
 			/>
 		);
-		expect(screen.getByRole("heading", { name: "No Agents yet" })).toBeTruthy();
+		expect(screen.getByTestId("create-agent-empty-state")).toBeTruthy();
 	});
 });
 
@@ -522,6 +802,7 @@ function renderWorkspace(
 			activeView="agents"
 			currentUserId={CURRENT_USER_ID}
 			initialSidebarStates={undefined}
+			modelCatalog={TEST_MODEL_CATALOG}
 			onCreateAgent={vi.fn()}
 			onSelectProfile={vi.fn()}
 			onViewChange={vi.fn()}
@@ -551,7 +832,8 @@ function createProfile(
 	profileId: string,
 	ownerUserId: string,
 	ownerName: string,
-	profileName: string
+	profileName: string,
+	overrides: Partial<AuthProfileView> = {}
 ): AuthProfileView {
 	return {
 		avatarUrl: undefined,
@@ -570,6 +852,7 @@ function createProfile(
 		source: "web_create",
 		status: "active",
 		updatedAt: "2026-08-01T00:00:00.000Z",
+		...overrides,
 	};
 }
 
@@ -613,6 +896,7 @@ function createReadiness(): GetAgentExecutionReadinessResponse {
 		agentWakeAvailability: {
 			action: "none",
 			badgeLabel: "Available",
+			category: "available",
 			phase: "ready",
 			reasonCode: "agent.available_for_wake",
 			status: "available_for_wake",

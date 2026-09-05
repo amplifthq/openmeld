@@ -5,7 +5,6 @@ import {
 	CaretDownIcon,
 	CaretLeftIcon,
 	CaretRightIcon,
-	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import {
 	type RefObject,
@@ -22,6 +21,7 @@ import {
 	type SpaceAgentPermissionModeUpdateHandler,
 	type SpaceAgentProfileEditHandler,
 } from "./space-agent-interaction-card";
+import { SpaceAgentOrb } from "./space-agent-orb";
 import {
 	listActionablePendingAgentInteractions,
 	resolveSpacePendingAgentActionIdentity,
@@ -29,6 +29,8 @@ import {
 
 export function SpacePendingAgentActions(input: {
 	items: readonly WakeProgressItem[];
+	initialInteractionIdentity?: string;
+	onOpenRequestThread?: (item: WakeProgressItem) => void;
 	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
 	onRespond?: SpaceAgentInteractionResponseHandler;
@@ -42,9 +44,11 @@ export function SpacePendingAgentActions(input: {
 		() => listActionablePendingAgentInteractions(input.items),
 		[input.items]
 	);
-	const [isOpen, setIsOpen] = useState(false);
+	const [isOpen, setIsOpen] = useState(
+		Boolean(input.initialInteractionIdentity)
+	);
 	const [selectedInteractionIdentity, setSelectedInteractionIdentity] =
-		useState<string | null>(null);
+		useState<string | null>(input.initialInteractionIdentity ?? null);
 	const [surfaceElement, setSurfaceElement] = useState<HTMLElement | null>(
 		null
 	);
@@ -156,22 +160,18 @@ export function SpacePendingAgentActions(input: {
 			ref={setSurfaceElement}
 		>
 			<div className="w-full pb-2" data-space-conversation-content-width="">
-				<div className="overflow-hidden rounded-md border border-amber-500/35 bg-amber-500/6 shadow-sm">
+				<div className="overflow-hidden rounded-lg border bg-background">
 					<Button
 						aria-controls={panelId}
 						aria-expanded={isSurfaceOpen}
 						aria-label={triggerLabel}
-						className="min-h-11 w-full justify-start gap-3 rounded-none px-3 py-2 text-left hover:bg-amber-500/8"
+						className="min-h-11 w-full justify-start gap-3 px-3 py-2 text-left"
 						onClick={toggleSurface}
 						ref={triggerRef}
 						type="button"
 						variant="ghost"
 					>
-						<WarningCircleIcon
-							aria-hidden="true"
-							className="size-4 shrink-0 text-amber-600 dark:text-amber-400"
-							weight="fill"
-						/>
+						<SpaceAgentOrb state="listening" />
 						<span className="min-w-0 flex-1">
 							<span aria-live="polite" className="block font-medium text-sm">
 								{triggerLabel}
@@ -188,7 +188,7 @@ export function SpacePendingAgentActions(input: {
 					{isSurfaceOpen ? (
 						<fieldset
 							aria-label="Current pending action"
-							className="max-h-[min(60dvh,34rem)] min-w-0 overflow-y-auto border-0 border-amber-500/25 border-t p-3 sm:p-4"
+							className="max-h-[min(60dvh,34rem)] min-w-0 overflow-y-auto border-0 border-border border-t p-3 sm:p-4"
 							id={panelId}
 						>
 							{count > 1 ? (
@@ -220,17 +220,33 @@ export function SpacePendingAgentActions(input: {
 									</div>
 								</div>
 							) : null}
-							<SpaceAgentInteractionCard
-								item={selectedItem}
-								key={selectedItemIdentity}
-								onEditAgentProfile={input.onEditAgentProfile}
-								onPermissionModeUpdate={input.onPermissionModeUpdate}
-								onRespond={input.onRespond}
-								permissionModeShortcut={input.permissionModeShortcutsByProfileId?.get(
-									selectedItem.targetProfileId
-								)}
-								presentation="surface"
-							/>
+							{selectedItem.sourceContext?.threadId &&
+							input.onOpenRequestThread ? (
+								<div className="grid gap-2">
+									<p className="text-sm">
+										{selectedItem.targetLabel} needs your response in a thread.
+									</p>
+									<Button
+										onClick={() => input.onOpenRequestThread?.(selectedItem)}
+										type="button"
+										variant="outline"
+									>
+										Open thread
+									</Button>
+								</div>
+							) : (
+								<SpaceAgentInteractionCard
+									item={selectedItem}
+									key={selectedItemIdentity}
+									onEditAgentProfile={input.onEditAgentProfile}
+									onPermissionModeUpdate={input.onPermissionModeUpdate}
+									onRespond={input.onRespond}
+									permissionModeShortcut={input.permissionModeShortcutsByProfileId?.get(
+										selectedItem.targetProfileId
+									)}
+									presentation="surface"
+								/>
+							)}
 						</fieldset>
 					) : null}
 				</div>

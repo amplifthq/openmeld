@@ -63,6 +63,8 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_list_routines", "routines.read"],
   ["openmeld_list_slack_channels", "slack.channels.read"],
   ["openmeld_list_spaces", "spaces.read"],
+  ["openmeld_list_active_space_wakes", "spaces.read"],
+  ["openmeld_read_space_wake_progress", "spaces.read"],
   ["openmeld_learn_about_me", "organization.member_research.start"],
   ["openmeld_pause_routine", "routine.pause"],
   ["openmeld_post_slack_channel_message", "slack.message.post"],
@@ -142,10 +144,6 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   [
     "openmeld_resume_controller_conversation",
     "execution.recovery.conversation.resume",
-  ],
-  [
-    "openmeld_retry_as_new_execution",
-    "execution.recovery.retry_as_new_execution",
   ],
   ["openmeld_resume_routine", "routine.resume"],
   ["openmeld_search_slack_messages", "slack.messages.search"],

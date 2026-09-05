@@ -5,12 +5,14 @@ import { useInboxBrowserNotificationSettings } from "./use-inbox-browser-notific
 const disableMock = vi.hoisted(() => vi.fn());
 const enableMock = vi.hoisted(() => vi.fn());
 const readSettingsMock = vi.hoisted(() => vi.fn());
+const setSoundEnabledMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/lib/inbox/browser-notifications", () => ({
 	disableInboxBrowserNotifications: disableMock,
 	enableInboxBrowserNotifications: enableMock,
 	readInboxBrowserNotificationSettings: readSettingsMock,
+	setInboxBrowserNotificationSoundEnabled: setSoundEnabledMock,
 	subscribeInboxBrowserNotificationSettings: subscribeMock,
 }));
 
@@ -21,7 +23,9 @@ describe("useInboxBrowserNotificationSettings", () => {
 		readSettingsMock.mockReset().mockImplementation(({ userId }) => ({
 			enabled: userId === "user-enabled",
 			permission: "granted",
+			soundEnabled: true,
 		}));
+		setSoundEnabledMock.mockReset();
 		subscribeMock.mockReset().mockReturnValue(() => undefined);
 	});
 
@@ -54,11 +58,16 @@ describe("useInboxBrowserNotificationSettings", () => {
 			expect(result.current.settings).toEqual({
 				enabled: true,
 				permission: "granted",
+				soundEnabled: true,
 			});
 		});
 
 		await act(async () => {
-			resolveEnable?.({ enabled: true, permission: "granted" });
+			resolveEnable?.({
+				enabled: true,
+				permission: "granted",
+				soundEnabled: true,
+			});
 			await oldOperation;
 		});
 
@@ -66,6 +75,7 @@ describe("useInboxBrowserNotificationSettings", () => {
 		expect(result.current.settings).toEqual({
 			enabled: true,
 			permission: "granted",
+			soundEnabled: true,
 		});
 	});
 
@@ -101,15 +111,39 @@ describe("useInboxBrowserNotificationSettings", () => {
 		expect(result.current.isPending).toBe(true);
 
 		await act(async () => {
-			resolveOld?.({ enabled: true, permission: "granted" });
+			resolveOld?.({
+				enabled: true,
+				permission: "granted",
+				soundEnabled: true,
+			});
 			await oldOperation;
 		});
 		expect(result.current.isPending).toBe(true);
 
 		await act(async () => {
-			resolveCurrent?.({ enabled: true, permission: "granted" });
+			resolveCurrent?.({
+				enabled: true,
+				permission: "granted",
+				soundEnabled: true,
+			});
 			await currentOperation;
 		});
 		expect(result.current.isPending).toBe(false);
+	});
+
+	it("updates the current user's browser-local sound preference", () => {
+		const { result } = renderHook(() =>
+			useInboxBrowserNotificationSettings("user-current")
+		);
+
+		act(() => {
+			result.current.setSoundEnabled(false);
+		});
+
+		expect(setSoundEnabledMock).toHaveBeenCalledWith({
+			enabled: false,
+			userId: "user-current",
+		});
+		expect(result.current.soundError).toBeNull();
 	});
 });

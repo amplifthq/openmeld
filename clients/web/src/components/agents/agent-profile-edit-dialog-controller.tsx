@@ -6,7 +6,9 @@ import type {
 	AgentProfileBindingOpenCodePermission,
 	AuthProfileView,
 	ModelCatalog,
+	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
+import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -30,7 +32,10 @@ import {
 	resolveAgentProfileControllerChangeOptions,
 	resolveAgentProfileEditState,
 } from "./agent-profile-edit-state";
-import { AgentProfileEditDialog } from "./agents-page-agent-profiles-card";
+import {
+	AgentProfileConfigurationOverview,
+	AgentProfileEditDialog,
+} from "./agents-page-agent-profiles-card";
 import { formatMutationError } from "./agents-page-formatters";
 
 export type AgentProfileEditDialogContext = Omit<
@@ -48,12 +53,127 @@ export function AgentProfileEditDialogController(input: {
 	open: boolean;
 	profile: AuthProfileView;
 }) {
+	const controller = useAgentProfileEditController({
+		context: input.context,
+		enabled: input.open,
+		modelCatalog: input.modelCatalog,
+		profile: input.profile,
+	});
+
+	return (
+		<AgentProfileEditDialog
+			controllerChangeEligibilityStatus={
+				controller.controllerChangeEligibilityStatus
+			}
+			controllerChangeOptions={controller.controllerChangeOptions}
+			editState={controller.editState}
+			initialSection={input.initialSection}
+			isLoading={input.open && controller.isLoading}
+			isPending={controller.isPending}
+			loadErrorMessage={
+				input.open && controller.isError
+					? "OpenMeld could not load this Agent's settings. Close this dialog and try again."
+					: null
+			}
+			modelCatalog={input.modelCatalog}
+			onControllerChange={controller.onControllerChange}
+			onControllerCollaborationModeUpdate={
+				controller.onControllerCollaborationModeUpdate
+			}
+			onControllerPermissionModeUpdate={
+				controller.onControllerPermissionModeUpdate
+			}
+			onModelSelectionUpdate={controller.onModelSelectionUpdate}
+			onOpenChange={input.onOpenChange}
+			onOpenCodePermissionUpdate={controller.onOpenCodePermissionUpdate}
+			onRenameProfile={controller.onRenameProfile}
+			onSaveComplete={async () => undefined}
+			open={input.open}
+			profileName={input.profile.profileName}
+		/>
+	);
+}
+
+export function AgentProfileInlineConfigurationController(input: {
+	context: AgentProfileEditDialogContext;
+	details: ProfileDetailsSnapshot;
+	entry: SpaceMemberDirectoryEntry;
+	modelCatalog: ModelCatalog | null;
+	ownerEntry: SpaceMemberDirectoryEntry | null;
+	profile: AuthProfileView;
+}) {
+	const controller = useAgentProfileEditController({
+		context: input.context,
+		enabled: true,
+		modelCatalog: input.modelCatalog,
+		profile: input.profile,
+	});
+	if (controller.isLoading) {
+		return (
+			<div className="rounded-lg border border-border bg-muted/20 px-3 py-4 text-muted-foreground text-sm">
+				Loading Agent settings…
+			</div>
+		);
+	}
+	if (controller.isError) {
+		return (
+			<div
+				className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-3 text-destructive text-sm"
+				role="alert"
+			>
+				OpenMeld could not load this Agent’s settings. Close this profile and
+				try again.
+			</div>
+		);
+	}
+	return (
+		<AgentProfileConfigurationOverview
+			compact
+			controllerChangeEligibilityStatus={
+				controller.controllerChangeEligibilityStatus
+			}
+			controllerChangeOptions={controller.controllerChangeOptions}
+			controllerDisplayName={input.entry.controllerDisplayName}
+			controllerModelSummary={
+				resolveDetailsValue(input.details, "model") ??
+				input.entry.controllerDisplayName ??
+				"No Controller connected"
+			}
+			details={input.details}
+			disabled={controller.isPending}
+			editState={controller.editState}
+			modelCatalog={input.modelCatalog}
+			modelCompatibilityContext={null}
+			onControllerChange={controller.onControllerChange}
+			onControllerCollaborationModeUpdate={
+				controller.onControllerCollaborationModeUpdate
+			}
+			onControllerPermissionModeUpdate={
+				controller.onControllerPermissionModeUpdate
+			}
+			onModelSelectionUpdate={controller.onModelSelectionUpdate}
+			onOpenCodePermissionUpdate={controller.onOpenCodePermissionUpdate}
+			onRenameProfile={controller.onRenameProfile}
+			ownerAvatarUrl={input.ownerEntry?.avatarUrl}
+			ownerProfileId={input.ownerEntry?.profileId}
+			runtime={null}
+			showHeading={false}
+		/>
+	);
+}
+
+function useAgentProfileEditController(input: {
+	context: AgentProfileEditDialogContext;
+	enabled: boolean;
+	modelCatalog: ModelCatalog | null;
+	profile: AuthProfileView;
+}) {
 	const queryClient = useQueryClient();
 	const [isPending, setIsPending] = useState(false);
 	const bindingQuery = useQuery(
 		agentProfilePrimaryBindingQueryOptions({
 			agentProfileId: input.profile.openMeldProfileId,
-			enabled: input.open,
+			enabled: input.enabled,
 			organizationId: input.context.organizationId,
 			storageScope: input.context.storageScope,
 		})
@@ -61,7 +181,7 @@ export function AgentProfileEditDialogController(input: {
 	const controllerChangeEligibilityQuery = useQuery(
 		agentProfileControllerChangeEligibilityQueryOptions({
 			agentProfileId: input.profile.openMeldProfileId,
-			enabled: input.open,
+			enabled: input.enabled,
 			organizationId: input.context.organizationId,
 			storageScope: input.context.storageScope,
 		})
@@ -91,6 +211,17 @@ export function AgentProfileEditDialogController(input: {
 		try {
 			await action();
 			toast.success(successMessage);
+			try {
+				await input.context.onSaved(input.profile.openMeldProfileId);
+			} catch (error) {
+				console.error(
+					"Agent Profile was saved, but current views could not be refreshed.",
+					error
+				);
+				toast.error(
+					"The Agent was saved, but OpenMeld could not refresh the latest settings. Refresh the page to see them."
+				);
+			}
 		} catch (error) {
 			updateError = error;
 			toast.error(formatMutationError(error, errorMessage));
@@ -168,46 +299,33 @@ export function AgentProfileEditDialogController(input: {
 			`Agent renamed to ${profileName}.`
 		);
 
-	return (
-		<AgentProfileEditDialog
-			controllerChangeEligibilityStatus={
-				controllerChangeEligibilityQuery.data?.status ?? "unavailable"
-			}
-			controllerChangeOptions={controllerChangeOptions}
-			editState={editState}
-			initialSection={input.initialSection}
-			isLoading={input.open && bindingQuery.isPending}
-			isPending={isPending}
-			loadErrorMessage={
-				input.open && bindingQuery.isError
-					? "OpenMeld could not load this Agent's settings. Close this dialog and try again."
-					: null
-			}
-			modelCatalog={input.modelCatalog}
-			onControllerChange={handleControllerChange}
-			onControllerCollaborationModeUpdate={
-				handleControllerCollaborationModeUpdate
-			}
-			onControllerPermissionModeUpdate={handleControllerPermissionModeUpdate}
-			onModelSelectionUpdate={handleModelSelectionUpdate}
-			onOpenChange={input.onOpenChange}
-			onOpenCodePermissionUpdate={handleOpenCodePermissionUpdate}
-			onRenameProfile={handleRenameProfile}
-			onSaveComplete={async () => {
-				try {
-					await input.context.onSaved(input.profile.openMeldProfileId);
-				} catch (error) {
-					console.error(
-						"Agent Profile was saved, but current views could not be refreshed.",
-						error
-					);
-					toast.error(
-						"The Agent was saved, but OpenMeld could not refresh the latest settings. Refresh the page to see them."
-					);
-				}
-			}}
-			open={input.open}
-			profileName={input.profile.profileName}
-		/>
-	);
+	return {
+		controllerChangeEligibilityStatus:
+			controllerChangeEligibilityQuery.data?.status ?? "unavailable",
+		controllerChangeOptions,
+		editState,
+		isError: bindingQuery.isError,
+		isLoading: bindingQuery.isPending,
+		isPending,
+		onControllerChange: handleControllerChange,
+		onControllerCollaborationModeUpdate:
+			handleControllerCollaborationModeUpdate,
+		onControllerPermissionModeUpdate: handleControllerPermissionModeUpdate,
+		onModelSelectionUpdate: handleModelSelectionUpdate,
+		onOpenCodePermissionUpdate: handleOpenCodePermissionUpdate,
+		onRenameProfile: handleRenameProfile,
+	};
+}
+
+function resolveDetailsValue(
+	details: ProfileDetailsSnapshot,
+	fieldId: string
+): string | null {
+	for (const section of details.sections) {
+		const row = section.rows.find((candidate) => candidate.id === fieldId);
+		if (row) {
+			return row.value;
+		}
+	}
+	return null;
 }
