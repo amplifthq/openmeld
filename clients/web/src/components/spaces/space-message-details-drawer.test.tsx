@@ -30,7 +30,13 @@ import type { SpaceWakeStopTargetResolution } from "#/lib/spaces/wake-stop-targe
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 
 const CODE_MODE_PATTERN = /codemode/iu;
-const copyTextToClipboardMock = vi.hoisted(() => vi.fn());
+const { copyTextToClipboardMock, toastMock } = vi.hoisted(() => ({
+	copyTextToClipboardMock: vi.fn(),
+	toastMock: {
+		error: vi.fn(),
+		success: vi.fn(),
+	},
+}));
 
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
@@ -43,6 +49,10 @@ const REFERENCED_SPACE_ID = "d".repeat(64);
 
 vi.mock("#/lib/clipboard", () => ({
 	copyTextToClipboard: copyTextToClipboardMock,
+}));
+
+vi.mock("sonner", () => ({
+	toast: toastMock,
 }));
 
 function createFreshExecutionRecoveryHandler() {
@@ -96,6 +106,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 	afterEach(() => {
 		cleanup();
 		copyTextToClipboardMock.mockReset();
+		toastMock.error.mockReset();
+		toastMock.success.mockReset();
 		useQueryMock.mockReset();
 	});
 
@@ -250,6 +262,52 @@ describe("SpaceMessageDetailsDrawer", () => {
 				expect.stringContaining("Message ID: sig-human\nType: Message")
 			);
 		});
+	});
+
+	it("copies a neutral entry link from Message details", async () => {
+		copyTextToClipboardMock.mockResolvedValue(true);
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel();
+
+		const messageLink = `${window.location.origin}/spaces/space-123?signalId=sig-human`;
+		expect(screen.getByRole("heading", { name: "Message link" })).toBeTruthy();
+		expect(screen.getByText(messageLink)).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+		await waitFor(() => {
+			expect(copyTextToClipboardMock).toHaveBeenCalledWith(messageLink);
+			expect(toastMock.success).toHaveBeenCalledWith("Link copied.");
+		});
+	});
+
+	it("preserves the Thread root in a copied reply link", async () => {
+		copyTextToClipboardMock.mockResolvedValue(true);
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+
+		renderMessageDetailsPanel({ threadRootSignalId: "sig-thread-root" });
+		fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+		await waitFor(() => {
+			expect(copyTextToClipboardMock).toHaveBeenCalledWith(
+				`${window.location.origin}/spaces/space-123?signalId=sig-human&threadRootSignalId=sig-thread-root`
+			);
+		});
+	});
+
+	it("keeps the message link available when the details request fails", () => {
+		useQueryMock.mockReturnValue(createQueryResult({ isError: true }));
+
+		renderMessageDetailsPanel();
+
+		expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
+		expect(
+			screen.getByText("Couldn't load the rest of the message details.")
+		).toBeTruthy();
 	});
 
 	it("shows a long Agent reply as an expandable preview", () => {
@@ -1872,6 +1930,7 @@ function renderMessageDetailsPanel(input?: {
 	replyItems?: readonly SpaceTimelineItem[];
 	spaceReferencesById?: SpaceMessageReferencesById;
 	targetProfileDisplayNamesByProfileId?: ReadonlyMap<string, string>;
+	threadRootSignalId?: string;
 	wakeFailureTargetContextsByProfileId?: ReadonlyMap<
 		string,
 		WakeFailureTargetContext
@@ -1907,6 +1966,7 @@ function renderMessageDetailsPanel(input?: {
 			targetProfileDisplayNamesByProfileId={
 				input?.targetProfileDisplayNamesByProfileId
 			}
+			threadRootSignalId={input?.threadRootSignalId}
 			wakeFailureTargetContextsByProfileId={
 				input?.wakeFailureTargetContextsByProfileId
 			}
