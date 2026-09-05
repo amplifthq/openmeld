@@ -8,6 +8,10 @@ import type { AuthBindings } from "../src/lib/bindings";
 import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 import {
+  organizationJoinLinkSchema as legacyJoinLinkSchema,
+  previewOrganizationJoinLinkResponseSchema as legacyPreviewSchema,
+} from "./support/legacy-join-link-contract";
+import {
   applyDrizzleMigrations,
   createSqliteD1Harness,
   type SqliteD1Harness,
@@ -197,6 +201,38 @@ describe("organization join link HTTP API", () => {
     });
     expect(createResponse.status).toBe(201);
     const created = await readJoinLink(createResponse);
+    expect(legacyJoinLinkSchema.safeParse(created).success).toBe(true);
+    const legacyPreview = await previewJoinLink(context, created.token);
+    expect(legacyPreviewSchema.safeParse(legacyPreview).success).toBe(true);
+    // The scope is stored server-side, never trusted from the preview caller.
+    await context.harness.db
+      .prepare(
+        "UPDATE organization_join_links SET space_id = ? WHERE token = ?"
+      )
+      .bind("client-launch", created.token)
+      .run();
+    const scopedLegacyPreview = await previewJoinLink(context, created.token);
+    expect(legacyPreviewSchema.safeParse(scopedLegacyPreview).success).toBe(
+      true
+    );
+    const scopedPreview = await context.app.fetch(
+      new Request(
+        `${AUTH_BASE_URL}/api/auth/organization/join-link/preview?token=${created.token}&responseVersion=2`
+      ),
+      context.env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(scopedPreview.status).toBe(200);
+    await expect(scopedPreview.json()).resolves.toMatchObject({
+      active: true,
+      spaceId: "client-launch",
+    });
+    await context.harness.db
+      .prepare(
+        "UPDATE organization_join_links SET space_id = NULL WHERE token = ?"
+      )
+      .bind(created.token)
+      .run();
     expect(created.token).toMatch(ORGANIZATION_JOIN_LINK_TOKEN_PATTERN);
     expect(created).toMatchObject({
       createdBy: owner.userId,
@@ -256,7 +292,6 @@ describe("organization join link HTTP API", () => {
     );
     await expect(previewJoinLink(context, reset.token)).resolves.toEqual({
       active: true,
-      spaceId: null,
       ok: true,
       organizationName: "Acme Research",
       organizationSlug: "acme-research",

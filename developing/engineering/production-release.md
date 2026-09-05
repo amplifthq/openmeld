@@ -399,6 +399,34 @@ the new CLI command or Web invitation entry points become available. Auth calls
 the new Core RPC; publishing CLI first would expose a command whose Auth
 endpoint does not yet exist.
 
+Invitation approval rollout has a first-release precondition: before new Core
+is active against old Auth, there must be no existing join requests or their
+Inbox projections. The only public producers call `organizationJoinRequest`
+from the new Auth `/organization/join-requests` and `/organization/join-link/request`
+routes; old Auth has neither producer. Core does not create requests on startup
+or migrate existing invitations into requests. Core reuses existing Auth identity
+and directory RPCs; native invitation delivery remains Auth-owned.
+
+After the additive migrations, the release owner must verify both counts are
+zero through the authorized read-only production D1 diagnostic path:
+
+```sql
+SELECT count(*) AS join_requests FROM organization_join_requests;
+SELECT count(*) AS review_items FROM inbox_items
+WHERE json_extract(source_target_json, '$.kind') = 'organization_join_request';
+```
+
+Old Auth strictly rejects the new review-email `purpose` and `invitationRequestId`
+fields with a non-retryable validation error. Therefore the first-release order
+is not a safe Auth-only rollback after requests exist. Keep compatible Auth in
+place during recovery; do not rely on mail retries or restore bearer enrollment.
+
+Legacy organization link get/create responses keep their original strict shape.
+Space-scoped management requests explicitly select Space scope. Link preview
+exposes Space context only with `responseVersion=2`, which new Web sends after
+Auth is updated. Old clients can still read links, but legacy nonmember accept
+intentionally fails closed; update Web promptly so recipients can request approval.
+
 When the shared invitation schema, Core owner, and Auth route change together,
 `space-invitation-receivers-first` orders Database, Core, Auth, Gateway, Web,
 Remote Agent, then CLI. It rejects Auth or CLI selection without both receivers,

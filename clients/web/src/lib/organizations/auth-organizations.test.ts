@@ -324,7 +324,7 @@ describe("auth organization client helpers", () => {
 			organizationSlug: "acme-research",
 		});
 		expect(fetchMock).toHaveBeenCalledWith(
-			`/api/auth/organization/join-link/preview?token=${token}`,
+			`/api/auth/organization/join-link/preview?token=${token}&responseVersion=2`,
 			expect.objectContaining({ credentials: "include", method: "GET" })
 		);
 	});
