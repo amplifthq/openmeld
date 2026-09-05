@@ -54,6 +54,14 @@ from browser state.
 
 ### Client version recovery
 
+The client reports application errors through the Web-owned diagnostic intake
+before attempting Vite version recovery. It preserves the original import
+rejection while a reload is pending. Router and React error boundaries, global
+errors, unhandled rejections, and resource failures share the same bounded
+reporter. Reporting does not decide recovery, mutate application state, or
+retry a failed diagnostic request. See `docs/web-application-errors.md` for
+the privacy, coverage, and operator query contract.
+
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
 

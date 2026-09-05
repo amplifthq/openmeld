@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
@@ -10,6 +12,21 @@ import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts"
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
 
 const config = defineConfig({
+	define: {
+		__OPENMELD_WEB_BUILD__: JSON.stringify({
+			id: randomUUID(),
+			sha: execFileSync("git", ["rev-parse", "HEAD"], {
+				encoding: "utf8",
+			}).trim(),
+			dirty:
+				execFileSync("git", ["status", "--porcelain"], {
+					encoding: "utf8",
+				}).trim().length > 0,
+		}),
+	},
+	// Keep browser diagnostics private. Full SSR maps exceed the current 4 GB
+	// release build budget; server errors retain native Worker invocation logs.
+	environments: { client: { build: { sourcemap: "hidden" } } },
 	plugins: [
 		cloudflare({
 			viteEnvironment: { name: "ssr" },
