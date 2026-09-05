@@ -13,13 +13,22 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { isSessionExpiredError } from "#/lib/session-expired";
+import { isCurrentSpaceAccessRejection } from "#/lib/spaces/errors";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
 import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolution";
+import {
+	SpaceEntryConfirmationContext,
+	SpaceEntryRetryContext,
+} from "./space-entry-confirmation";
 
 export function SpaceEntryGate(input: {
 	backHref?: string;
 	children: (resolution: GetSpaceEntryResolutionResponse) => ReactNode;
+	/** Already identity-scoped, display-only app content; never used by public entry. */
+	restoredContent?: ReactNode;
+	onAccessRejected?: () => void;
 	openMeldProfileId?: string;
 	renderFrame: (content: ReactNode) => ReactNode;
 	signalId?: string;
@@ -47,8 +56,42 @@ export function SpaceEntryGate(input: {
 		})
 	);
 
-	if (resolutionQuery.data?.view.state === "allowed") {
-		return input.children(resolutionQuery.data);
+	const rejected =
+		(resolutionQuery.data !== undefined &&
+			resolutionQuery.data.view.state !== "allowed") ||
+		isSessionExpiredError(resolutionQuery.error) ||
+		isCurrentSpaceAccessRejection(resolutionQuery.error);
+	useEffect(() => {
+		if (rejected) {
+			input.onAccessRejected?.();
+		}
+	}, [rejected, input.onAccessRejected]);
+	if (!rejected && resolutionQuery.data?.view.state === "allowed") {
+		return (
+			<SpaceEntryConfirmationContext value={true}>
+				<SpaceEntryRetryContext value={null}>
+					{input.children(resolutionQuery.data)}
+				</SpaceEntryRetryContext>
+			</SpaceEntryConfirmationContext>
+		);
+	}
+
+	if (!(rejected || resolutionQuery.data) && input.restoredContent) {
+		return (
+			<SpaceEntryConfirmationContext value={false}>
+				<SpaceEntryRetryContext
+					value={
+						resolutionQuery.isError
+							? async () => {
+									await resolutionQuery.refetch();
+								}
+							: null
+					}
+				>
+					{input.restoredContent}
+				</SpaceEntryRetryContext>
+			</SpaceEntryConfirmationContext>
+		);
 	}
 
 	const retry = () => {

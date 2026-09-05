@@ -46,6 +46,7 @@ import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
 import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
+import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 import {
 	SPACE_LIVE_RECONNECTING_LABEL,
 	SPACE_LIVE_STALE_LABEL,
@@ -582,6 +583,7 @@ function renderSpaceLanding(
 		queryClient?: QueryClient;
 		spaceId?: string;
 		observeVisibleWakeProgress?: boolean;
+		entryConfirmed?: boolean;
 	} = {}
 ) {
 	// SpaceLanding's Slack-discovery header state always mounts two real
@@ -603,7 +605,9 @@ function renderSpaceLanding(
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
 				<AppOrganizationProvider scope={organizationScope}>
-					{ui}
+					<SpaceEntryConfirmationContext value={input.entryConfirmed ?? true}>
+						{ui}
+					</SpaceEntryConfirmationContext>
 				</AppOrganizationProvider>
 			</SpaceWakeProgressVisibleProjectionProvider>
 		</TestQueryClientProvider>
@@ -999,7 +1003,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Continue from the compact conversation.",
 				timeoutMs: 30_000,
@@ -2075,7 +2079,10 @@ describe("SpaceLanding", () => {
 		).toBe(false);
 	});
 
-	it("keeps restored conversation authoring available while current access is confirming", async () => {
+	it.each([
+		false,
+		true,
+	])("keeps saved authoring read-only while access confirms (status already succeeded: %s)", async (statusConfirmed) => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
@@ -2092,7 +2099,9 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({
 				isFetchedAfterMount: false,
 				isFetching: true,
-				isPending: true,
+				isPending: !statusConfirmed,
+				isSuccess: statusConfirmed,
+				data: statusConfirmed ? createSpaceStatus() : undefined,
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -2113,7 +2122,7 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		renderSpaceLanding({ entryConfirmed: !statusConfirmed });
 
 		expect(screen.getByText("Private launch numbers")).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Design Room" })).toBeTruthy();
@@ -8867,7 +8876,7 @@ describe("SpaceLanding", () => {
 		const relation = within(token).getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
-		expect(relation).toHaveProperty("value", "wake");
+		expect(relation.textContent).toBe("Wake");
 		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
@@ -8986,7 +8995,8 @@ describe("SpaceLanding", () => {
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
-		fireEvent.change(relationControl, { target: { value: "reference" } });
+		fireEvent.click(relationControl);
+		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
 		const sendButton = screen.getByRole("button", { name: "Send message" });
 		await waitFor(() => {
 			expect((sendButton as HTMLButtonElement).disabled).toBe(false);
@@ -9001,7 +9011,7 @@ describe("SpaceLanding", () => {
 					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
 					text: "@Runner please reply",
 				},
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "@Runner please reply",
 				timeoutMs: 30_000,
@@ -9098,8 +9108,8 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByRole("combobox", {
 				name: "Change relation for Runner",
-			})
-		).toHaveProperty("value", "wake");
+			}).textContent
+		).toBe("Wake");
 		expect(screen.getAllByTestId("space-composer-profile-token")).toHaveLength(
 			1
 		);
@@ -9180,12 +9190,10 @@ describe("SpaceLanding", () => {
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
-		if (!(relationControl instanceof HTMLSelectElement)) {
-			throw new Error("Expected the Runner relation control to be a select");
-		}
-		fireEvent.change(relationControl, { target: { value: "reference" } });
+		fireEvent.click(relationControl);
+		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
 		await waitFor(() => {
-			expect(relationControl.value).toBe("reference");
+			expect(relationControl.textContent).toBe("Reference");
 		});
 		await appendComposerText(textarea, "for context", "@Runner for context");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -9200,6 +9208,7 @@ describe("SpaceLanding", () => {
 				},
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@Runner for context",
@@ -9238,12 +9247,12 @@ describe("SpaceLanding", () => {
 			name: "Message this space",
 		});
 		await insertComposerMember(RUNNER_OPTION_NAME);
-		fireEvent.change(
+		fireEvent.click(
 			screen.getByRole("combobox", {
 				name: "Change relation for Runner",
-			}),
-			{ target: { value: "reference" } }
+			})
 		);
+		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
 		await appendComposerText(
 			textarea,
 			"for context, then ",
@@ -9275,7 +9284,7 @@ describe("SpaceLanding", () => {
 					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
 					text: "@Runner for context, then @Runner again",
 				},
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "@Runner for context, then @Runner again",
 				timeoutMs: 30_000,
@@ -9355,6 +9364,7 @@ describe("SpaceLanding", () => {
 				},
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@Runner @Reviewer please compare",
@@ -12536,6 +12546,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "First hello",
@@ -12711,6 +12722,7 @@ describe("SpaceLanding", () => {
 				files: [messageFile],
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Photos from the picnic",
@@ -12872,7 +12884,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [createSpaceMessageFileReference(descriptor)],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "",
 				timeoutMs: 30_000,
@@ -12966,7 +12978,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Text can still be sent",
 				timeoutMs: 30_000,
@@ -13066,7 +13078,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Text can still be sent",
 				timeoutMs: 30_000,
@@ -13159,7 +13171,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Send this with the file",
 				timeoutMs: 30_000,
@@ -13485,6 +13497,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: "client-center-agent-first-message",
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Start the launch plan",
@@ -13533,7 +13546,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: starterPrompt,
 				timeoutMs: 30_000,
@@ -13646,6 +13659,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: "client-center-agent-late-first-message",
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Continue from the loading shell",
@@ -13774,6 +13788,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "DM hello",
@@ -14315,6 +14330,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Plain text message",
@@ -14364,6 +14380,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@unknown-token stays plain text",
@@ -14453,6 +14470,7 @@ describe("SpaceLanding", () => {
 				},
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@Watcher hello there",
@@ -16598,6 +16616,7 @@ describe("SpaceLanding", () => {
 			expect(postThreadSignalMock).toHaveBeenCalledWith({
 				body: expect.objectContaining({
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 					messageEnvelope: expect.objectContaining({
 						activationTargets: [DEFAULT_AGENT_PROFILE_ID],
 					}),

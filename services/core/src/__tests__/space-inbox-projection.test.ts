@@ -48,6 +48,49 @@ const publishTextSignal = (
 ).publishTextSignal;
 
 describe("Space Inbox projection", () => {
+  it("keeps an unconfirmed Human author's CLI update unread without turning self references into notifications", () => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("profile-author", "user-author", "human"),
+        member("profile-alias", "user-author", "human"),
+        member("profile-reader", "user-reader", "human"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      signal: textSignal({
+        authorKind: "human",
+        authorName: "Alex Author",
+        authorProfileId: "profile-author",
+        mentionTargets: ["profile-alias", "profile-reader"],
+        text: "The planning notes are ready for review.",
+      }),
+      signalContext: {
+        threadContext: { rootSignalId: "root-1", threadId: "thread-1" },
+        threadPlacement: "thread",
+      },
+      threadRootAuthorUserId: "user-author",
+      spaceName: "Planning",
+    });
+    expect(record?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "user-author",
+        kind: "space_message",
+        importance: "normal",
+        title: "New message in Planning",
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space-1",
+          signalId: "signal-1",
+          threadRootSignalId: "root-1",
+        },
+      }),
+      expect.objectContaining({
+        recipientUserId: "user-reader",
+        kind: "space_mention",
+      }),
+    ]);
+  });
+
   it("decodes a persisted rollout-only Human Reference before retrying the outbox", () => {
     const legacyCandidate = {
       ...candidate("user-1"),
@@ -111,16 +154,21 @@ describe("Space Inbox projection", () => {
     expect(record?.candidates).toEqual([
       expect.objectContaining({
         preview: sanitizeSignalTextPreview(text),
+        recipientUserId: "user-author",
+      }),
+      expect.objectContaining({
+        preview: sanitizeSignalTextPreview(text),
         recipientUserId: "user-reader",
       }),
     ]);
   });
 
-  it("projects exact thread targets, Human Mention priority, and active human visibility without notifying the author", () => {
+  it("projects exact thread targets, Human Mention priority, and active human visibility without notifying a confirmed author", () => {
     const signal = textSignal({
       authorKind: "human",
       authorName: "Alex Author",
       authorProfileId: "profile-author",
+      authorHasRead: true,
       mentionTargets: ["profile-referenced"],
       text: "Please review the updated launch notes.",
     });
@@ -893,6 +941,7 @@ function member(
 }
 
 function textSignal(input: {
+  authorHasRead?: true;
   authorKind: "agent" | "human";
   authorName: string;
   authorProfileId: string;
@@ -903,7 +952,10 @@ function textSignal(input: {
 }): SignalEnvelope {
   return {
     data: {
-      ...(input.purpose ? { meta: { purpose: input.purpose } } : {}),
+      meta: {
+        ...(input.purpose ? { purpose: input.purpose } : {}),
+        ...(input.authorHasRead ? { authorHasRead: true as const } : {}),
+      },
       messageEnvelope: {
         activationTargets: [],
         mentionTargets: input.mentionTargets ?? [],

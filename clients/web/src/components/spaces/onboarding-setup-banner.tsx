@@ -36,9 +36,8 @@ export type OnboardingSetupBannerProps = {
 	orgSlug: string;
 	spaceId: string;
 	spaceName: string | null;
-	/** Decisions the user has dismissed this session (presentation-only). A
-	 * dismissed row hides; a refresh or the header "Get set up" recall re-shows
-	 * it, since dismissal is never persisted (Invariant 4/6). */
+	/** Presentation preferences persisted for this account and Space. The
+	 * header "Get set up" action recalls dismissed rows. */
 	dismissedIds: ReadonlySet<OnboardingDecisionId>;
 	onDismiss: (id: OnboardingDecisionId) => void;
 };

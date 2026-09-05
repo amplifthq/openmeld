@@ -131,6 +131,7 @@ import type {
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
+import { useSpaceEntryConfirmed } from "./space-entry-confirmation";
 import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import type {
 	SpaceExecutionRecoveryAttempt,
@@ -302,6 +303,7 @@ function buildNormalMessagePostInput(input: {
 			: {}),
 		meta: {
 			clientMessageId: input.clientMessageId,
+			authorHasRead: true as const,
 		},
 		spaceId: input.spaceId,
 		text: input.text,
@@ -738,6 +740,7 @@ function useSpaceLandingBootstrapState(input: {
 	queryClient: ReturnType<typeof useQueryClient>;
 	spaceId: string;
 }) {
+	const entryConfirmed = useSpaceEntryConfirmed();
 	const bootstrapQuery = useQuery(
 		spaceBootstrapQueryOptions({
 			spaceId: input.spaceId,
@@ -776,7 +779,9 @@ function useSpaceLandingBootstrapState(input: {
 		[statusError, bootstrapError].find(isCurrentSpaceAccessRejection) ?? null;
 	const landingError = currentAccessRejection ?? bootstrapError ?? statusError;
 	const currentStatusSnapshot =
-		currentAccessRejection === null ? (statusQuery.data ?? null) : null;
+		entryConfirmed && currentAccessRejection === null
+			? (statusQuery.data ?? null)
+			: null;
 	useEffect(() => {
 		if (currentStatusSnapshot === null) {
 			return;
@@ -834,9 +839,7 @@ function useSpaceLandingBootstrapState(input: {
 			: null;
 	const statusSnapshot = currentStatusSnapshot ?? restoredDisplayStatus;
 	const currentStatusConfirmationPending =
-		currentStatusSnapshot === null &&
-		landingError === null &&
-		statusQuery.isPending;
+		currentStatusSnapshot === null && landingError === null;
 	const membersError = resolveQueryError({
 		error: membersQuery.error,
 		isError: membersQuery.isError,
@@ -3391,6 +3394,7 @@ function useSpaceThreadController(input: {
 			const postInput = {
 				body: {
 					clientMessageId,
+					authorHasRead: true as const,
 					...(sendInput.files?.length ? { files: [...sendInput.files] } : {}),
 					...(sendInput.preparedSubmission.messageEnvelope
 						? {

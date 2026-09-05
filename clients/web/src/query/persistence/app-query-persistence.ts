@@ -2,6 +2,7 @@ import type { BrowserQueryPersistenceController } from "./browser-query-persiste
 import {
 	BROWSER_QUERY_CACHE_MAX_AGE_MS,
 	createBrowserQueryPersistenceController,
+	mergePersistedBrowserViews,
 } from "./browser-query-persistence";
 import {
 	createDexieQueryCacheStore,
@@ -38,6 +39,7 @@ export function resolveAppQueryPersistenceController(options?: {
 
 	if (!browserPersistenceState) {
 		const store = createDexieQueryCacheStore({
+			mergePayload: mergePersistedBrowserViews,
 			diagnostics: defaultQueryPersistenceDiagnostics,
 			retentionMs: BROWSER_QUERY_CACHE_MAX_AGE_MS,
 		});

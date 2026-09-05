@@ -83,7 +83,48 @@ describe("Fluid Select", () => {
     ).toBe("beta");
     await waitFor(() => {
       expect(screen.queryByRole("listbox")).toBeNull();
+      expect(document.activeElement).toBe(trigger);
     });
+  });
+
+  it("lets an embedded editor restore focus after selection and Escape", async () => {
+    const editor = document.createElement("textarea");
+    document.body.append(editor);
+    try {
+      render(
+        <Select
+          defaultValue="alpha"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            editor.focus();
+          }}
+        >
+          <SelectTrigger aria-label="Embedded relation" />
+          <SelectContent>
+            <SelectItem index={0} value="alpha">
+              Alpha
+            </SelectItem>
+            <SelectItem index={1} value="beta">
+              Beta
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      );
+      const trigger = screen.getByRole("combobox", {
+        name: "Embedded relation",
+      });
+      fireEvent.click(trigger);
+      fireEvent.click(await screen.findByRole("option", { name: "Beta" }));
+      await waitFor(() => expect(document.activeElement).toBe(editor));
+      fireEvent.click(trigger);
+      fireEvent.keyDown(await screen.findByRole("listbox"), { key: "Escape" });
+      await waitFor(() => {
+        expect(screen.queryByRole("listbox")).toBeNull();
+        expect(document.activeElement).toBe(editor);
+      });
+    } finally {
+      editor.remove();
+    }
   });
 
   it("can anchor the menu above the trigger and align its end edge", async () => {

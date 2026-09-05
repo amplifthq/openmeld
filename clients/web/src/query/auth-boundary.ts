@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { clearAllComposerDrafts } from "#/lib/composer-draft-storage";
+import { clearSpaceConversationPositions } from "#/lib/space-conversation-position";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 
@@ -17,6 +18,7 @@ export async function resetAccountScopedQueriesAfterAuthChange(
 	options?: { queryPersistence?: BrowserQueryPersistenceController }
 ): Promise<void> {
 	clearAllComposerDrafts();
+	clearSpaceConversationPositions();
 	const queryPersistence =
 		options?.queryPersistence ?? resolveAppQueryPersistenceController();
 	try {

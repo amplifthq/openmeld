@@ -14,6 +14,48 @@ afterEach(async () => {
 });
 
 describe("DexieQueryCacheStore", () => {
+	it("evicts the oldest saved conversation within the shared byte budget", async () => {
+		let now = 100;
+		const store = createTestStore({ now: () => now++, retentionMs: 60_000 });
+		const storage = (scopeId: string) =>
+			store.createStorage({
+				ownerAccountId: "account-a",
+				organizationId: "org-a",
+				scopeAlias: "org-a",
+				scopeId,
+				scopeKind: "space",
+			});
+		const payload = "x".repeat(2 * 1024 * 1024);
+		for (let i = 0; i < 17; i++) {
+			await storage(`space-${i}`).setItem("cache", payload);
+		}
+		expect(await storage("space-0").getItem("cache")).toBeNull();
+		expect(await storage("space-1").getItem("cache")).toBe(payload);
+		expect(await storage("space-16").getItem("cache")).toBe(payload);
+		expect(await store.countRecords()).toBe(16);
+	});
+	it("fences a delayed writer after account or Space cache removal", async () => {
+		const store = createTestStore();
+		const scope = {
+			ownerAccountId: "account-a",
+			organizationId: "org-a",
+			scopeAlias: "org-a",
+			scopeId: "space-a",
+			scopeKind: "space" as const,
+		};
+		const oldTab = store.createStorage(scope);
+		await oldTab.getItem("cache");
+		await oldTab.setItem("cache", "saved");
+		await store.createStorage(scope).removeItem("cache");
+		await oldTab.setItem("cache", "late write");
+		expect(await store.createStorage(scope).getItem("cache")).toBeNull();
+		const newTab = store.createStorage(scope);
+		await newTab.getItem("cache");
+		await newTab.setItem("cache", "new session");
+		await store.clearAccount("account-a");
+		await newTab.setItem("cache", "late account write");
+		expect(await store.createStorage(scope).getItem("cache")).toBeNull();
+	});
 	it("isolates the same storage key by account and organization", async () => {
 		const store = createTestStore();
 		const organizationA = store.createStorage({
