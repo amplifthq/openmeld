@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
-  parseCodexModels,
-  prepareUpdate,
-  renderReview,
-} from "./catalog-update.mjs";
+import { parseCodexModels, prepareUpdate } from "./catalog-update.mjs";
+import { combineUpdates } from "./collect-update.mjs";
 import { assertAdditionsOnly, publicationDecision } from "./publish-update.mjs";
+import { renderBatchReview } from "./review.mjs";
 
 const existing = {
   id: "existing-model",
@@ -78,12 +76,13 @@ test("a real upstream addition becomes a reviewable catalog change without movin
     ),
     false
   );
-  const review = renderReview(
-    result.evidence,
-    "Verify the installed model/list."
+  const review = renderBatchReview(
+    [result.evidence],
+    { codex: { verification: "Verify the installed model/list." } },
+    catalog
   );
   assert.ok(review.includes("creationDefaults"));
-  assert.ok(review.includes("No authenticated harness probe"));
+  assert.ok(review.includes("No authenticated probe"));
 });
 
 test("acknowledged observations stay quiet despite the next collection timestamp", () => {
@@ -151,7 +150,7 @@ test("review ownership and a declined exact proposal prevent bot churn", () => {
       pulls: [
         {
           state: "CLOSED",
-          headRefName: `codex/catalog-update-codex-${fingerprint}`,
+          headRefName: `codex/catalog-update-batch-${fingerprint}`,
         },
       ],
     }),
@@ -166,10 +165,71 @@ test("review ownership and a declined exact proposal prevent bot churn", () => {
 test("publication rejects a default change even when the catalog itself is valid", () => {
   const prepared = prepareUpdate(input);
   assert.doesNotThrow(() =>
-    assertAdditionsOnly(catalog, prepared.catalog, prepared.evidence)
+    assertAdditionsOnly(catalog, prepared.catalog, [prepared.evidence])
   );
   prepared.catalog.agentControllers.codex.defaultModelId = raw.models[0].slug;
   assert.throws(() =>
-    assertAdditionsOnly(catalog, prepared.catalog, prepared.evidence)
+    assertAdditionsOnly(catalog, prepared.catalog, [prepared.evidence])
+  );
+});
+
+test("one handoff names discovery-only candidates and flags actual source disagreements", async () => {
+  // Captured from the first hosted collection on 2026-09-05, run 33951500949.
+  const discovery = JSON.parse(
+    await readFile(
+      new URL("./fixtures/discovery-2026-09-05.json", import.meta.url),
+      "utf8"
+    )
+  );
+  const codex = prepareUpdate({
+    ...input,
+    sources: [
+      ...sources,
+      {
+        kind: "discovery-only",
+        url: "https://models.dev/api.json",
+        data: { openai: discovery.openai },
+      },
+    ],
+  });
+  const claude = prepareUpdate({
+    ...input,
+    controller: "claude-code",
+    codexModels: [],
+    sources: [
+      {
+        kind: "discovery-only",
+        url: "https://models.dev/api.json",
+        data: { anthropic: discovery.anthropic },
+      },
+    ],
+  });
+  const combined = combineUpdates(catalog, [codex, claude]);
+  assertAdditionsOnly(catalog, combined.catalog, combined.evidence);
+  assert.deepEqual(
+    combined.catalog.agentControllers["claude-code"],
+    catalog.agentControllers["claude-code"]
+  );
+  const config = {
+    codex: { verification: "Check model/list" },
+    "claude-code": { verification: "Check installed account" },
+  };
+  const review = renderBatchReview(combined.evidence, config, catalog);
+  assert.ok(review.includes("## codex"));
+  assert.ok(review.includes("## claude-code"));
+  assert.ok(review.includes("anthropic/claude-fable-5-1"));
+  assert.ok(review.includes("Discovery only; exact harness ID"));
+  assert.ok(review.includes("Different surfaces; verify against the harness"));
+  assert.ok(review.includes("ultra"));
+  assert.equal(
+    combineUpdates(catalog, [codex, claude]).fingerprint,
+    combined.fingerprint
+  );
+  assert.throws(() =>
+    assertAdditionsOnly(
+      catalog,
+      { ...combined.catalog, updatedAt: catalog.updatedAt },
+      combined.evidence
+    )
   );
 });
