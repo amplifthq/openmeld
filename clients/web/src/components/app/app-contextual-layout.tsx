@@ -26,6 +26,7 @@ export type AppContextualNavItem<ItemId extends string = string> = {
 	id: ItemId;
 	icon: Icon;
 	label: string;
+	accessory?: ReactNode;
 	preserveSearch?: boolean;
 	statusTone?: ComputerAttentionTone;
 	to?: string;
@@ -177,6 +178,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 		>
 			<Icon className="size-4 shrink-0" />
 			<CenterTruncatedText className="flex-1" text={input.item.label} />
+			{input.item.accessory}
 		</span>
 	);
 

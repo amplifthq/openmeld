@@ -111,6 +111,10 @@ function isMockLinkActive(input: {
 		: routerLocation.pathname.startsWith(input.to);
 }
 
+vi.mock("#/query/organizations/invitation-requests", () => ({
+	useInvitationReviewCount: () => ({ data: 0 }),
+}));
+
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => appOrganization,
 	useCurrentOrganizationSlug: () => appOrganization.currentOrganization.slug,

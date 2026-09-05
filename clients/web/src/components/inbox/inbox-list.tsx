@@ -111,9 +111,7 @@ function InboxItemRow(input: {
 		orgSlug: input.organizationSlug,
 	});
 	const handleOpen = () => {
-		if (unread) {
-			input.onOpenItem(input.item);
-		}
+		input.onOpenItem(input.item);
 	};
 	const handleAuxClick = (event: MouseEvent<HTMLAnchorElement>) => {
 		if (event.button === 1) {

@@ -823,6 +823,10 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     const organizationSlug = normalizeOptionalText(recipient.organization_slug);
     const inboxUrl = organizationSlug
       ? buildInboxItemUrl({
+          invitationRequestId:
+            request.purpose === "invitation_review"
+              ? request.invitationRequestId
+              : undefined,
           itemId: request.itemId,
           organizationSlug,
           webAppUrl: this.env.WEB_APP_URL,

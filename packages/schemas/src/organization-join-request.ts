@@ -31,6 +31,7 @@ export const organizationJoinRequestInputSchema = z.discriminatedUnion(
       email: z.string().trim().toLowerCase().pipe(z.email()),
     }),
     z.strictObject({ action: z.literal("list"), organizationId: id }),
+    z.strictObject({ action: z.literal("summary"), organizationId: id }),
     z.strictObject({ action: z.literal("get"), requestId: id }),
     z.strictObject({ action: z.literal("approve"), requestId: id }),
     z.strictObject({ action: z.literal("reject"), requestId: id }),
@@ -72,6 +73,7 @@ export const organizationJoinRequestResponseSchema = z.discriminatedUnion(
     z.strictObject({
       ok: z.literal(true),
       requests: z.array(organizationJoinRequestSchema),
+      actionRequiredCount: z.number().int().nonnegative().optional(),
     }),
     z.strictObject({ ok: z.literal(false), code: id, message: z.string() }),
   ]

@@ -1,5 +1,4 @@
-import type { OrganizationJoinRequest } from "@openmeld/schemas";
-import { Button, buttonVariants } from "@openmeld/ui/components/button";
+import { buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Card,
 	CardContent,
@@ -7,9 +6,17 @@ import {
 	CardTitle,
 } from "@openmeld/ui/components/card";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useLocation } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	Link,
+	useLocation,
+	useNavigate,
+} from "@tanstack/react-router";
+import { useEffect } from "react";
 import { AuthPageShell } from "#/components/auth/auth-page-shell";
+import { RequestDetails } from "#/components/organizations/invitation-request-details";
 import { useAuthSession } from "#/hooks/auth.hooks";
+import { listOrganizations } from "#/lib/organizations/auth-organizations";
 import { requestOrganizationJoinRequests } from "#/lib/organizations/organization-join-requests";
 
 export const Route = createFileRoute("/invitation-requests")({
@@ -41,6 +48,25 @@ function InvitationRequestsPage() {
 		onSettled: () => query.refetch(),
 	});
 	const request = query.data?.[0];
+	const navigate = useNavigate();
+	const memberships = useQuery({
+		queryKey: ["invitation-request-organizations", session.data?.user.id],
+		enabled: Boolean(session.data),
+		queryFn: listOrganizations,
+	});
+	const organization = memberships.data?.find(
+		(item) => item.id === request?.organizationId
+	);
+	useEffect(() => {
+		if (organization && requestId) {
+			navigate({
+				to: "/o/$orgSlug/settings/invitations",
+				params: { orgSlug: organization.slug },
+				search: { requestId },
+				replace: true,
+			});
+		}
+	}, [navigate, organization, requestId]);
 	const content = () => {
 		if (session.isPending) {
 			return <p>Loading request…</p>;
@@ -61,11 +87,14 @@ function InvitationRequestsPage() {
 				<p>Open an invitation request from your Inbox or its shared link.</p>
 			);
 		}
-		if (query.isPending) {
+		if (query.isPending || memberships.isPending || organization) {
 			return <p>Loading request…</p>;
 		}
 		if (query.error) {
 			return <p role="alert">{query.error.message}</p>;
+		}
+		if (memberships.error) {
+			return <p role="alert">{memberships.error.message}</p>;
 		}
 		if (!request) {
 			return null;
@@ -101,54 +130,5 @@ function InvitationRequestsPage() {
 				</CardContent>
 			</Card>
 		</AuthPageShell>
-	);
-}
-
-function RequestDetails({
-	request,
-	pending,
-	onReview,
-}: {
-	request: OrganizationJoinRequest;
-	pending: boolean;
-	onReview: (action: "approve" | "reject") => void;
-}) {
-	return (
-		<>
-			<p className="font-medium">{request.email}</p>
-			<p className="text-muted-foreground text-sm">
-				Invitation to {request.organizationName}
-				{request.spaceName ? ` and ${request.spaceName}` : ""}, sponsored by{" "}
-				{request.requestedByName}. The recipient will join as an organization
-				member, not a guest.
-			</p>
-			<p>Status: {request.status}</p>
-			{request.status === "approved" ? (
-				<p className="text-muted-foreground text-sm">
-					{request.invitationSentAt
-						? "Invitation sent. The recipient must accept it before joining."
-						: "Approved. The invitation still needs to be sent."}
-				</p>
-			) : null}
-			{request.canReview &&
-			(request.status === "pending" || request.status === "approved") ? (
-				<div className="flex flex-wrap gap-2">
-					<Button disabled={pending} onClick={() => onReview("approve")}>
-						{request.status === "approved"
-							? "Send invitation again"
-							: "Approve and send invitation"}
-					</Button>
-					{request.status === "pending" ? (
-						<Button
-							disabled={pending}
-							onClick={() => onReview("reject")}
-							variant="outline"
-						>
-							Decline
-						</Button>
-					) : null}
-				</div>
-			) : null}
-		</>
 	);
 }

@@ -25,7 +25,7 @@ export function buildInboxItemSourceNavigation(input: {
 	switch (target.kind) {
 		case "organization_join_request":
 			return {
-				href: `/invitation-requests?requestId=${encodeURIComponent(target.requestId)}`,
+				href: `/o/${encodeURIComponent(input.orgSlug)}/settings/invitations?requestId=${encodeURIComponent(target.requestId)}`,
 				openInNewTab: false,
 			};
 		case "agent_profile":

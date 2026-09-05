@@ -28,6 +28,7 @@ type ClaimedDeliveryRow = {
   resolution_status: "not_applicable" | "open" | "resolved";
   source_accessible: number;
   source_target_kind: string;
+  invitation_request_id: string | null;
   title: string;
   urgent_email_enabled: number;
 };
@@ -225,6 +226,7 @@ async function claimDelivery(input: {
           items.attention,
           items.importance,
           json_extract(items.source_target_json, '$.kind') AS source_target_kind,
+          json_extract(items.source_target_json, '$.requestId') AS invitation_request_id,
           items.title,
           items.preview,
           items.resolution_status,
@@ -310,7 +312,11 @@ async function sendUrgentEmail(input: {
   try {
     const raw = await input.send({
       ...(input.claimed.source_target_kind === "organization_join_request"
-        ? { purpose: "invitation_review" as const }
+        ? {
+            purpose: "invitation_review" as const,
+            invitationRequestId:
+              input.claimed.invitation_request_id ?? undefined,
+          }
         : {}),
       deliveryId: input.claimed.delivery_id,
       itemId: input.claimed.item_id,

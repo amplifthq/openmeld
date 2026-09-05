@@ -78,6 +78,16 @@ describe("invitation approval boundary", () => {
     }
     const requestId = result.requests[0].id;
     expect(result.requests[0].status).toBe("pending");
+    const summary = (userId: string) =>
+      call(userId, { action: "summary", organizationId: f.organizationId });
+    expect(await summary(f.ownerId)).toMatchObject({
+      ok: true,
+      actionRequiredCount: 1,
+    });
+    expect(await summary(f.recipientId)).toMatchObject({
+      ok: true,
+      actionRequiredCount: 0,
+    });
     expect(await create()).toMatchObject({
       ok: true,
       requests: [{ id: requestId }],
@@ -105,6 +115,10 @@ describe("invitation approval boundary", () => {
         .first();
     // Approval is not delivery: keep the actionable item until Auth confirms sending.
     expect(await reviewState()).toEqual({ resolution_status: "open" });
+    expect(await summary(f.ownerId)).toMatchObject({
+      ok: true,
+      actionRequiredCount: 1,
+    });
     expect(
       await call(f.recipientId, { action: "delivery_complete", requestId })
     ).toMatchObject({ ok: false, code: "organization.join_request.forbidden" });
@@ -115,6 +129,10 @@ describe("invitation approval boundary", () => {
       requests: [{ invitationSentAt: expect.any(Number) }],
     });
     expect(await reviewState()).toEqual({ resolution_status: "resolved" });
+    expect(await summary(f.ownerId)).toMatchObject({
+      ok: true,
+      actionRequiredCount: 0,
+    });
     expect(
       await call(f.ownerId, { action: "reject", requestId })
     ).toMatchObject({

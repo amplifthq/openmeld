@@ -30,6 +30,7 @@ export type InboxUrgentEmailFailure = {
 };
 
 export function buildInboxItemUrl(input: {
+  invitationRequestId?: string;
   itemId: string;
   organizationSlug: string;
   webAppUrl: string | undefined;
@@ -48,10 +49,15 @@ export function buildInboxItemUrl(input: {
       return null;
     }
     const itemUrl = new URL(
-      `/o/${encodeURIComponent(organizationSlug)}/inbox`,
+      input.invitationRequestId
+        ? `/o/${encodeURIComponent(organizationSlug)}/settings/invitations`
+        : `/o/${encodeURIComponent(organizationSlug)}/inbox`,
       baseUrl
     );
-    itemUrl.searchParams.set("item", input.itemId);
+    itemUrl.searchParams.set(
+      input.invitationRequestId ? "requestId" : "item",
+      input.invitationRequestId ?? input.itemId
+    );
     return itemUrl.toString();
   } catch {
     return null;

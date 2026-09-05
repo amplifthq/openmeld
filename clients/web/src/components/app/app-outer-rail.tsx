@@ -118,9 +118,12 @@ type AppOuterRailAccount = {
 	name?: string | null;
 };
 
+import { useInvitationReviewCount } from "#/query/organizations/invitation-requests";
+
 type AppRailDestinationId = AppOuterRailDestination;
 
 type AppRailDestination = {
+	needsInvitationReview?: boolean;
 	attentionCount?: number;
 	compactLabel?: string;
 	icon: ReactNode;
@@ -236,6 +239,7 @@ function buildSettingsRailItem(input: { orgSlug: string }): AppRailDestination {
 }
 
 export function AppOuterRail({ account, initialState }: AppOuterRailProps) {
+	const invitationReviewCount = useInvitationReviewCount().data ?? 0;
 	const { presentation } = useAppNavigationPresentation();
 	const drawerPresentation = presentation === "drawer";
 	const [state, setState] = useState<SidebarPersistedState>(() =>
@@ -408,9 +412,12 @@ export function AppOuterRail({ account, initialState }: AppOuterRailProps) {
 					>
 						<AppRailLink
 							active={activeDestination === "settings"}
-							destination={buildSettingsRailItem({
-								orgSlug,
-							})}
+							destination={{
+								...buildSettingsRailItem({
+									orgSlug,
+								}),
+								needsInvitationReview: invitationReviewCount > 0,
+							}}
 							index={0}
 							tier={displayState.tier}
 						/>
@@ -1342,6 +1349,9 @@ function AppRailLink(input: {
 	const attentionCount = Math.max(0, input.destination.attentionCount ?? 0);
 	const unreadCount = Math.max(0, input.destination.unreadCount ?? 0);
 	let statusIndicator: AppRailStatusIndicator | null = null;
+	if (input.destination.needsInvitationReview) {
+		statusIndicator = { kind: "invitation-review", tone: "warning" };
+	}
 	const unreadIndicatorKind = resolveAppRailUnreadIndicatorKind(
 		input.destination.id
 	);
@@ -1354,7 +1364,9 @@ function AppRailLink(input: {
 	const accessibleLabel = buildAppRailAccessibleLabel({
 		attentionCount,
 		destinationId: input.destination.id,
-		label: input.destination.label,
+		label: input.destination.needsInvitationReview
+			? "Settings, invitation requests need attention"
+			: input.destination.label,
 		unreadCount,
 	});
 	const children = (
@@ -1514,7 +1526,10 @@ function AppRailAttentionBadge(input: {
 	);
 }
 
-type AppRailStatusIndicatorKind = "center-agent-unread" | "spaces-unread";
+type AppRailStatusIndicatorKind =
+	| "center-agent-unread"
+	| "spaces-unread"
+	| "invitation-review";
 
 type AppRailStatusIndicator = {
 	kind: AppRailStatusIndicatorKind;

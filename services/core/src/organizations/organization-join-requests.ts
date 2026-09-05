@@ -89,6 +89,7 @@ async function execute(
   if (
     request.action === "create" ||
     request.action === "list" ||
+    request.action === "summary" ||
     request.action === "create_from_link"
   ) {
     return await createOrListRequests(env, db, input, request);
@@ -102,7 +103,7 @@ async function createOrListRequests(
   input: OrganizationJoinRequestRpcInput,
   request: Extract<
     OrganizationJoinRequestRpcInput["request"],
-    { action: "create" | "list" | "create_from_link" }
+    { action: "create" | "list" | "summary" | "create_from_link" }
   >
 ): Promise<OrganizationJoinRequestResponse> {
   const sponsorUserId =
@@ -114,6 +115,17 @@ async function createOrListRequests(
     request.organizationId,
     sponsorUserId
   );
+  if (request.action === "summary") {
+    const count = canReview(member.role)
+      ? await db
+          .prepare(
+            "SELECT count(*) AS total FROM organization_join_requests WHERE organization_id = ? AND (status = 'pending' OR (status = 'approved' AND invitation_sent_at IS NULL AND reviewed_by_user_id = ?))"
+          )
+          .bind(request.organizationId, input.userId)
+          .first<{ total: number }>()
+      : null;
+    return { ok: true, requests: [], actionRequiredCount: count?.total ?? 0 };
+  }
   if (request.action === "list") {
     const reviewer = canReview(member.role);
     const rows = await db
@@ -191,7 +203,14 @@ async function manageRequest(
   input: OrganizationJoinRequestRpcInput,
   request: Exclude<
     OrganizationJoinRequestRpcInput["request"],
-    { action: "create" | "list" | "create_from_link" | "authorize_link" }
+    {
+      action:
+        | "create"
+        | "list"
+        | "summary"
+        | "create_from_link"
+        | "authorize_link";
+    }
   >
 ): Promise<OrganizationJoinRequestResponse> {
   const row = await db

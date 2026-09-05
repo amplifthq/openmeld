@@ -11,6 +11,7 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { InvitationRequestLink } from "#/components/organizations/invitation-request-link";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -20,6 +21,7 @@ import {
 	requestSpaceInvitations,
 	SpaceInvitationRequestError,
 } from "#/lib/organizations/space-invitations";
+import { invitationRequestQueryKey } from "#/query/organizations/invitation-requests";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
 
 export function SpaceInvitationsSection({ spaceId }: { spaceId: string }) {
@@ -74,7 +76,10 @@ export function SpaceInvitationsSection({ spaceId }: { spaceId: string }) {
 				spaceId,
 				email,
 			}),
-		onSuccess: () => setEmail(""),
+		onSuccess: () => {
+			setEmail("");
+			return client.invalidateQueries({ queryKey: invitationRequestQueryKey });
+		},
 	});
 	if (!organization || organization.isPersonal) {
 		return null;
@@ -91,7 +96,15 @@ export function SpaceInvitationsSection({ spaceId }: { spaceId: string }) {
 				}
 			}}
 		>
-			<DialogTrigger render={<Button size="xs" variant="outline" />}>
+			<DialogTrigger
+				render={
+					<Button
+						disabled={role.isPending || role.isError}
+						size="xs"
+						variant="outline"
+					/>
+				}
+			>
 				<EnvelopeSimpleIcon aria-hidden="true" />
 				Invite
 			</DialogTrigger>
@@ -153,12 +166,14 @@ export function SpaceInvitationsSection({ spaceId }: { spaceId: string }) {
 				{proposal.data?.[0] ? (
 					<output className="block text-sm">
 						Request submitted.{" "}
-						<a
+						<Link
 							className="underline"
-							href={`/invitation-requests?requestId=${encodeURIComponent(proposal.data[0].id)}`}
+							params={{ orgSlug: organization.slug }}
+							search={{ requestId: proposal.data[0].id }}
+							to="/o/$orgSlug/settings/invitations"
 						>
 							View request
-						</a>
+						</Link>
 					</output>
 				) : null}
 				{proposal.error ? (

@@ -93,6 +93,7 @@ export const authRpcResolveUserDisplayNameResultSchema = z.discriminatedUnion(
 
 export const authRpcSendInboxUrgentEmailInputSchema = z.strictObject({
   purpose: z.literal("invitation_review").optional(),
+  invitationRequestId: trimmedNonEmptyStringSchema.max(256).optional(),
   deliveryId: trimmedNonEmptyStringSchema.max(256),
   itemId: trimmedNonEmptyStringSchema.max(256),
   organizationId: trimmedNonEmptyStringSchema.max(256),
