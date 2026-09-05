@@ -119,7 +119,7 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 			});
 	const deviceLabel = computer?.deviceDisplayName ?? "Computer";
 	const statusLabel =
-		status?.label ?? (deviceId ? "Status unavailable" : "Not connected");
+		status?.label ?? (deviceId ? "Connection status delayed" : "Not connected");
 	const accessibleLabel = deviceId
 		? `Open ${deviceLabel} details, ${statusLabel}`
 		: "Connect this Computer";

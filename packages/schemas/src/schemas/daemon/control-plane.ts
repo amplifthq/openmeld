@@ -328,6 +328,9 @@ export const openMeldDaemonManageLocalAgentInstallationPayloadSchema =
       changed: z.boolean(),
       installations: z.array(localAgentInstallationOptionSchema),
       reportSyncStatus: z.enum(["submitted", "skipped", "failed"]),
+      selectionStatus: z
+        .enum(["available", "blocked_by_work", "operation_in_progress"])
+        .optional(),
       selectedInstallationId: z.string().trim().min(1).max(256).nullable(),
       status: z.enum(["listed", "updated", "unchanged"]),
     }),
@@ -339,6 +342,9 @@ export const openMeldDaemonManageLocalAgentInstallationPayloadSchema =
       message: z.string().min(1).optional(),
       reasonCode: z.string().min(1).optional(),
       reportSyncStatus: z.literal("failed"),
+      selectionStatus: z
+        .enum(["available", "blocked_by_work", "operation_in_progress"])
+        .optional(),
       selectedInstallationId: z.string().trim().min(1).max(256).nullable(),
       status: z.literal("rejected"),
     }),

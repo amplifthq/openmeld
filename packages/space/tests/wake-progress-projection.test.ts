@@ -216,6 +216,7 @@ describe("Wake progress projection", () => {
     expect(items[0]).toMatchObject({
       phase: "writing",
       message: "I’m checking the release configuration now.",
+      previewText: "I’m checking the release configuration now.",
     });
 
     items = applyWakeProgressSignals({
@@ -925,7 +926,7 @@ describe("Wake progress projection", () => {
     expect(items[0]).toMatchObject({
       failureReasonCode: "runtime_coordinator.delivery_expired",
       message:
-        "This Wake expired before it reached this agent. Start or reconnect OpenMeld Service, then wake the agent again.",
+        "This Wake expired before it reached this agent. Reconnect the computer, then wake the Agent again.",
       phase: "failed",
       terminal: true,
     });
@@ -935,27 +936,27 @@ describe("Wake progress projection", () => {
   it.each([
     [
       "daemon.delivery.start_timeout",
-      "OpenMeld could not start this agent in time. Start or reconnect OpenMeld Service, then wake the agent again.",
+      "OpenMeld could not start this agent in time. Reconnect the computer, then wake the Agent again.",
     ],
     [
       "daemon.delivery.timeout",
-      "This agent took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
+      "This agent took too long to finish this Wake. Reconnect the computer before trying again.",
     ],
     [
       "timed_out_no_output",
-      "This agent took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
+      "This agent took too long to finish this Wake. Reconnect the computer before trying again.",
     ],
     [
       "timed_out_after_output",
-      "This agent took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
+      "This agent took too long to finish this Wake. Reconnect the computer before trying again.",
     ],
     [
       "timeout",
-      "This agent took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
+      "This agent took too long to finish this Wake. Reconnect the computer before trying again.",
     ],
     [
       "daemon.delivery.execution_stalled",
-      "This agent stopped making progress on this Wake. Reconnect OpenMeld Service before trying again.",
+      "This agent stopped making progress on this Wake. Reconnect the computer before trying again.",
     ],
     [
       "daemon.delivery.finalization_timeout",

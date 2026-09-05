@@ -85,6 +85,29 @@ describe("PromptInput", () => {
 
 		expect(onSubmit).not.toHaveBeenCalled();
 	});
+
+	it("focuses the editor when the user presses an empty part of the surface", () => {
+		render(<PromptInputContentEditableHarness />);
+
+		const editor = screen.getByTestId("editor");
+		const surface = editor.parentElement;
+		expect(surface).not.toBeNull();
+
+		fireEvent.pointerDown(surface as HTMLElement, { button: 0 });
+
+		expect(document.activeElement).toBe(editor);
+	});
+
+	it("leaves nested controls in charge of their own pointer interactions", () => {
+		render(<PromptInputContentEditableHarness showAction />);
+
+		const action = screen.getByRole("button", { name: "Add a file" });
+		action.focus();
+
+		fireEvent.pointerDown(screen.getByTestId("action-icon"), { button: 0 });
+
+		expect(document.activeElement).toBe(action);
+	});
 });
 
 function PromptInputHarness({
@@ -106,6 +129,27 @@ function PromptInputHarness({
 			value={value}
 		>
 			<PromptInputTextarea aria-label="Message" ref={onTextareaRef} />
+		</PromptInput>
+	);
+}
+
+function PromptInputContentEditableHarness({
+	showAction = false,
+}: {
+	showAction?: boolean;
+}) {
+	return (
+		<PromptInput>
+			<div
+				contentEditable
+				data-testid="editor"
+				suppressContentEditableWarning
+			/>
+			{showAction ? (
+				<button aria-label="Add a file" type="button">
+					<span data-testid="action-icon">+</span>
+				</button>
+			) : null}
 		</PromptInput>
 	);
 }

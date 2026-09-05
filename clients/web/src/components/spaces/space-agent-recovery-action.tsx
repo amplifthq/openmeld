@@ -1,7 +1,7 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
-import { WrenchIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, WrenchIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { buildOrganizationComputersPath } from "#/lib/organizations/organization-routes";
 import {
@@ -26,9 +26,10 @@ function isSpaceAgentProfileBindingRecoveryPlan(
 
 export function SpaceAgentRecoveryActionControl(input: {
 	actionLabel?: string;
+	allowComputerAction?: boolean;
 	className?: string;
 	isPending: boolean;
-	onAction: (plan: SpaceAgentProfileBindingRecoveryPlan) => Promise<void>;
+	onAction?: (plan: SpaceAgentProfileBindingRecoveryPlan) => Promise<void>;
 	orgSlug: string;
 	plan: AgentProfileReplyRecoveryPlan;
 	prepareSetupHref?: string;
@@ -40,9 +41,28 @@ export function SpaceAgentRecoveryActionControl(input: {
 	if (plan.kind === "none") {
 		return null;
 	}
+	if (plan.primaryActionId === "manage_cursor_plan") {
+		return (
+			<a
+				className={cn(
+					buttonVariants({ size: "sm", variant: "outline" }),
+					"mt-1 text-foreground",
+					input.className
+				)}
+				href="https://cursor.com/dashboard"
+				rel="noreferrer"
+				target="_blank"
+			>
+				<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
+				{input.actionLabel ?? plan.primaryActionLabel}
+			</a>
+		);
+	}
 
-	// Computer/service-level reconnect is owned by the Get-set-up banner.
-	if (plan.kind === "review_computer") {
+	// Most Space surfaces leave Computer/service recovery to the Get-set-up
+	// banner. Message details can opt in when the current recovery plan confirms
+	// that this exact Agent still needs that Computer action.
+	if (plan.kind === "review_computer" && !input.allowComputerAction) {
 		return null;
 	}
 	if (plan.primaryActionId === "manage_local_agent") {
@@ -64,12 +84,16 @@ export function SpaceAgentRecoveryActionControl(input: {
 	const actionLabel = input.actionLabel ?? plan.primaryActionLabel;
 
 	if (isSpaceAgentProfileBindingRecoveryPlan(plan)) {
+		const onAction = input.onAction;
+		if (!onAction) {
+			return null;
+		}
 		return (
 			<Button
 				className={cn("mt-1 text-foreground", input.className)}
 				disabled={input.isPending}
 				onClick={() => {
-					input.onAction(plan).catch((error) => {
+					onAction(plan).catch((error) => {
 						console.error("Failed to run agent recovery action.", error);
 					});
 				}}

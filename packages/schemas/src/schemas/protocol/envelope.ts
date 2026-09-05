@@ -80,11 +80,13 @@ export const spaceLiveInvalidationFrameSchema = z.strictObject({
     "space.meta.changed",
     "space.files.changed",
     "agent.readiness.invalidated",
+    "wake.progress.changed",
   ]),
   spaceId: nonEmptyTrimmedStringFromUnknown,
   version: finiteIntegerNumber,
   profileIds: z.array(nonEmptyTrimmedStringFromUnknown).optional(),
   agentProfileIds: z.array(nonEmptyTrimmedStringFromUnknown).optional(),
+  clientMessageIds: z.array(nonEmptyTrimmedStringFromUnknown).optional(),
   reason: nonEmptyTrimmedStringFromUnknown.optional(),
 });
 

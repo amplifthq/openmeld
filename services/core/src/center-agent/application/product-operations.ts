@@ -33,9 +33,6 @@ export type CenterAgentProductOperationDeps = {
     onBehalfOf?: CenterAgentCreateConfiguredAgentProfileBody["onBehalfOf"];
     spaceId: string;
   }): Promise<void>;
-  authorizeAgentProfileForOrganization(input: {
-    agentProfileId: string;
-  }): Promise<void>;
   checkAgentProfileReadiness(input: {
     agentProfileId: string;
   }): Promise<CenterAgentCheckAgentProfileReadinessResponse>;

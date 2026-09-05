@@ -57,4 +57,39 @@ describe("OpenMeld CLI hints", () => {
     });
     expect(plainStdout).not.toMatch(UNRELATED_SPACE_WRITE_HINT_RE);
   });
+
+  it("keeps a malformed Space history query on the same read command", async () => {
+    const { plainStdout } = await withCapturedStdio(() =>
+      Promise.resolve(
+        emitHelpfulHints({
+          argv: [
+            "node",
+            "openmeld",
+            "--view",
+            "agent",
+            "space",
+            "history",
+            "space-123",
+            "--around-signal",
+            "signal-123",
+          ],
+          effectiveView: "agent",
+          message: "aroundSignalId cannot be combined with limit.",
+        })
+      )
+    );
+
+    const payload = JSON.parse(plainStdout) as {
+      hints: string[];
+      type: string;
+    };
+    expect(payload).toEqual({
+      type: "hints",
+      code: "cli.hints",
+      hints: [
+        "openmeld space history --profile <profile-id> <space-id-or-url> --kind text --brief --limit 20",
+      ],
+    });
+    expect(plainStdout).not.toMatch(UNRELATED_SPACE_WRITE_HINT_RE);
+  });
 });

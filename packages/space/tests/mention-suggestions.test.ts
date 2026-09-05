@@ -346,13 +346,27 @@ describe("space mention suggestions", () => {
         wakeAvailability: human.wakeAvailability,
       }).map((choice) => choice.label)
     ).toEqual(["Mention"]);
-    expect(
-      listSpaceMentionRelationChoices({
-        allowedRelations: agent.allowedRelations,
-        primaryMentionLabel: agent.primaryMentionLabel,
-        wakeAvailability: agent.wakeAvailability,
-      }).map((choice) => choice.label)
-    ).toEqual(["Wake", "Reference"]);
+    const agentChoices = listSpaceMentionRelationChoices({
+      allowedRelations: agent.allowedRelations,
+      primaryMentionLabel: agent.primaryMentionLabel,
+      wakeAvailability: agent.wakeAvailability,
+    });
+    expect(agentChoices.map((choice) => choice.label)).toEqual([
+      "Wake",
+      "Reference",
+    ]);
+    expect(agentChoices).toEqual([
+      expect.objectContaining({
+        disabled: true,
+        disabledReason: agent.wakeAvailability.reasonText,
+        relation: "wake",
+      }),
+      expect.objectContaining({
+        disabled: false,
+        disabledReason: null,
+        relation: "reference",
+      }),
+    ]);
     expect(agent.description).toContain(
       "Unavailable now: Connect a local agent before this profile can reply"
     );

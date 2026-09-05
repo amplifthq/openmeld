@@ -241,7 +241,7 @@ function formatReasonCodeFamily(reasonCode: string): string {
     reasonCode.startsWith("background_helper.") ||
     reasonCode.startsWith("daemon.runtime_contract.")
   ) {
-    return "OpenMeld Service is not connected on this computer.";
+    return "This computer is not connected to OpenMeld.";
   }
   if (
     reasonCode.startsWith("claim_eligibility.") ||
@@ -265,7 +265,7 @@ function formatReasonCodeFamily(reasonCode: string): string {
     return "This agent's local connection needs setup.";
   }
   if (reasonCode.startsWith("local_service.")) {
-    return "OpenMeld Service is not connected for this account.";
+    return "This computer is not connected to the current OpenMeld account.";
   }
   if (reasonCode.startsWith("agent_execution.route_")) {
     return REPLY_ROUTE_RECONNECTING_REASON;
@@ -373,13 +373,13 @@ const REASON_TEXT: Record<string, string> = {
   "workspace.invalid": "Repair this agent's local workspace on this computer.",
   "workspace.missing": "Set up this agent's local workspace on this computer.",
   "local_service.identity_mismatch":
-    "OpenMeld Service is connected to a different local runtime for this account.",
+    "This computer’s OpenMeld connection does not match this account.",
   "local_service.not_connected_for_account":
-    "OpenMeld Service is not connected for this OpenMeld account on this computer.",
+    "This computer is not connected to the current OpenMeld account.",
   "local_service.refresh_in_progress":
-    "OpenMeld Service is checking this agent again on this computer.",
+    "OpenMeld is checking this agent again on this computer.",
   "local_service.unavailable":
-    "OpenMeld could not check OpenMeld Service for this account.",
+    "OpenMeld could not check this computer’s connection.",
   "execution_authority.missing": "Wake execution authority is missing.",
   "execution_authority.mismatch":
     "Wake execution authority does not match this agent.",

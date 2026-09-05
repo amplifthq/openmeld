@@ -26,7 +26,7 @@ const upsertProfileSpaceHistoryInputSchema = z.strictObject({
 export const upsertProfileSpaceHistory = createServerFn({
 	method: "POST",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = upsertProfileSpaceHistoryInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(

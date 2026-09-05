@@ -34,7 +34,10 @@ const AGENT_PROFILE_ID = "agt-codex";
 const CREATE_AN_AGENT_PROFILE_NAME = /Create an Agent/;
 const PERMISSIONS_MODE_NAME_PATTERN = /permissions mode/i;
 const REPAIR_OR_RECONNECT_ACTION_NAME_PATTERN = /repair|reconnect/i;
+const TIME_WITH_MINUTES_PATTERN = /:\d{2}/u;
 const WAKE_ACCESS_LABEL_PATTERN = /Wake access:/i;
+const WAKEABILITY_LINK_ACTION_PATTERN =
+	/Connect computer|Reconnect computer|Update/u;
 const ORGANIZATION_WAKE_ACCESS_SWITCH_PATTERN = /organization.*Wake access/i;
 
 const ensureRuntimeBindingMock = vi.hoisted(() => vi.fn());
@@ -76,8 +79,18 @@ vi.mock("#/lib/organizations/agent-activity", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-	Link: ({ children, to }: { children: ReactNode; to: string }) => (
-		<a href={to}>{children}</a>
+	Link: ({
+		"aria-label": ariaLabel,
+		children,
+		to,
+	}: {
+		"aria-label"?: string;
+		children: ReactNode;
+		to: string;
+	}) => (
+		<a aria-label={ariaLabel} href={to}>
+			{children}
+		</a>
 	),
 	useNavigate: () => navigateMock,
 }));
@@ -323,7 +336,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("shows Agent Controller Permission Mode on the card and profile details", async () => {
+	it("shows Agent Controller Permission Mode on the card without repeating it in More details", async () => {
 		renderAgentProfilesCard();
 
 		await waitFor(() => {
@@ -338,11 +351,13 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("button", { name: "About profile" }));
+		fireEvent.click(screen.getByRole("button", { name: "More details" }));
 
-		expect(screen.getByText("Agent Controller Permission Mode")).toBeTruthy();
-		expect(screen.getByText("Permissions mode")).toBeTruthy();
-		expect(screen.getAllByText("Approve for me").length).toBeGreaterThan(0);
+		const dialog = screen.getByRole("dialog", { name: "More details" });
+		expect(
+			within(dialog).queryByText("Agent Controller Permission Mode")
+		).toBeNull();
+		expect(within(dialog).queryByText("Permissions mode")).toBeNull();
 	});
 
 	it("renders one selected Agent as an inline detail workspace", async () => {
@@ -359,13 +374,14 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			screen.getByRole("heading", { name: "Research Agent" })
 		).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Direct Message" }).textContent
-		).toContain("Direct Message");
-		expect(
-			screen.getByRole("button", { name: "Edit Agent" }).textContent
-		).toContain("Edit Agent");
-		expect(screen.queryByRole("button", { name: "About profile" })).toBeNull();
-		expect(screen.getByText("Agent Controller Permission Mode")).toBeTruthy();
+			screen.getByRole("button", { name: "Chat with Research Agent" })
+				.textContent
+		).toContain("Chat with Research Agent");
+		expect(screen.getByRole("button", { name: "Edit Name" })).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Agent options for Research Agent" })
+		);
+		expect(screen.getByRole("button", { name: "More details" })).toBeTruthy();
 		expect(
 			screen.getByTestId(`agent-profile-controller-avatar-${AGENT_PROFILE_ID}`)
 		).toBeTruthy();
@@ -376,11 +392,60 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
-	it("puts owner operational context first and collapses technical details", async () => {
+	it("shows current activity before configuration and keeps the details dialog concise", () => {
 		renderAgentProfilesCard(
 			{},
 			createPrimaryBindingResponse("codex:approveForMe").binding,
 			{
+				agentProfileActivityNavigationByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							current: {
+								href: "/o/acme/spaces/space-launch",
+								source: "space",
+								title: "Launch planning",
+							},
+							queued: [
+								{
+									href: "/o/acme/direct-messages/dm-customer",
+									source: "direct_message",
+									title: "Customer follow-up",
+								},
+								{
+									href: "/o/acme/spaces/space-bug-triage",
+									source: "space",
+									title: "Bug triage",
+								},
+								{
+									href: "/o/acme/computers/computer-sales",
+									source: "computer",
+									title: "Sales follow-up",
+								},
+								{
+									href: "/o/acme/spaces/space-release",
+									source: "space",
+									title: "Release review",
+								},
+								{
+									href: "/o/acme/direct-messages/dm-design",
+									source: "direct_message",
+									title: "Design feedback",
+								},
+								{
+									href: "/o/acme/computers/computer-research",
+									source: "computer",
+									title: "Research notes",
+								},
+								{
+									href: "/o/acme/spaces/space-retro",
+									source: "space",
+									title: "Team retrospective",
+								},
+							],
+						},
+					],
+				]),
 				agentProfileOperationalContextByProfileId: new Map([
 					[
 						AGENT_PROFILE_ID,
@@ -389,7 +454,197 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 							queuedWorkLocations: ["Customer follow-up"],
 							recoveryAction: null,
 							status: "working",
-							waitingCount: 1,
+							waitingCount: 7,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		expect(screen.queryByText("Operational context")).toBeNull();
+		expect(screen.queryByText("Technical details")).toBeNull();
+		expect(screen.queryByText("Profile type")).toBeNull();
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(within(presence).getByText("Unavailable")).toBeTruthy();
+		expect(within(presence).queryByText("Working")).toBeNull();
+		expect(presence.getAttribute("data-agent-presence-status")).toBe(
+			"unavailable"
+		);
+		expect(screen.getByText("Launch planning")).toBeTruthy();
+		expect(screen.queryByText("7 queued")).toBeNull();
+		expect(screen.queryByText("Next: Customer follow-up")).toBeNull();
+		const spaceLinks = screen.getAllByRole("link", {
+			name: "Open Space: Launch planning",
+		});
+		expect(spaceLinks).toHaveLength(1);
+		expect(
+			spaceLinks.every(
+				(link) => link.getAttribute("href") === "/o/acme/spaces/space-launch"
+			)
+		).toBe(true);
+		const directMessageLink = screen.getByRole("link", {
+			name: "Open Direct Message: Customer follow-up",
+		});
+		expect(directMessageLink.getAttribute("href")).toBe(
+			"/o/acme/direct-messages/dm-customer"
+		);
+		const currentActivityHeading = screen.getByRole("heading", {
+			name: "Current activity",
+		});
+		const currentActivity = currentActivityHeading.closest("section");
+		const activityList = within(currentActivity as HTMLElement).getByRole(
+			"list",
+			{ name: "Current activity" }
+		);
+		expect(activityList.className).toContain("grid-cols-1");
+		expect(activityList.className).toContain(
+			"@[36rem]/agent-detail:grid-cols-2"
+		);
+		expect(activityList.className).toContain(
+			"@[54rem]/agent-detail:grid-cols-3"
+		);
+		expect(
+			within(currentActivity as HTMLElement).getAllByRole("listitem")
+		).toHaveLength(8);
+		expect(
+			within(currentActivity as HTMLElement).queryByRole("list", {
+				name: "Working in",
+			})
+		).toBeNull();
+		expect(
+			within(currentActivity as HTMLElement).queryByRole("list", {
+				name: "Up next",
+			})
+		).toBeNull();
+		const workingBadge = within(currentActivity as HTMLElement).getByText(
+			"Working",
+			{ exact: true }
+		);
+		expect(workingBadge.closest('[data-slot="badge"]')).toBeTruthy();
+		expect(workingBadge.closest('[data-slot="badge"]')?.className).toContain(
+			"text-primary"
+		);
+		const upNextBadges = within(currentActivity as HTMLElement).getAllByText(
+			"Up next",
+			{ exact: true }
+		);
+		expect(upNextBadges).toHaveLength(7);
+		expect(
+			upNextBadges.every((badge) => badge.closest('[data-slot="badge"]'))
+		).toBe(true);
+		expect(
+			upNextBadges.every((badge) =>
+				badge
+					.closest('[data-slot="badge"]')
+					?.className.includes("text-muted-foreground")
+			)
+		).toBe(true);
+		expect(
+			within(currentActivity as HTMLElement).queryByText("Working", {
+				exact: true,
+				selector: ":not([data-slot='badge'])",
+			})
+		).toBeNull();
+		const destinationItems = within(
+			currentActivity as HTMLElement
+		).getAllByRole("listitem");
+		fireEvent.pointerEnter(destinationItems[0] as HTMLElement);
+		expect(
+			(currentActivity as HTMLElement).querySelector(
+				'[data-slot="shared-layout-background"]'
+			)
+		).toBeTruthy();
+		const configurationHeading = screen.getByRole("heading", {
+			name: "How this Agent works",
+		});
+		expect(
+			currentActivityHeading
+				.closest("section")
+				?.nextElementSibling?.contains(configurationHeading)
+		).toBe(true);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Agent options for Research Agent" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "More details" }));
+
+		expect(screen.getByRole("heading", { name: "More details" })).toBeTruthy();
+		const dialog = screen.getByRole("dialog", { name: "More details" });
+		expect(within(dialog).getByText("Profile details")).toBeTruthy();
+		const profileIdLabel = within(dialog).getByText("Profile ID");
+		const createdFromLabel = within(dialog).getByText("Created from");
+		expect(
+			profileIdLabel
+				.closest("button")
+				?.nextElementSibling?.contains(createdFromLabel)
+		).toBe(true);
+		expect(within(dialog).queryByText("Profile history")).toBeNull();
+		expect(within(dialog).queryByText("Status")).toBeNull();
+		expect(within(dialog).queryByText("Activity")).toBeNull();
+		expect(within(dialog).queryByText("Diagnostics")).toBeNull();
+		expect(within(dialog).queryByText("Binding state")).toBeNull();
+		expect(within(dialog).queryByText("Binding source")).toBeNull();
+		expect(within(dialog).queryByText("Handle")).toBeNull();
+		expect(within(dialog).queryByText("Owner")).toBeNull();
+		expect(within(dialog).queryByText("Model")).toBeNull();
+		expect(within(dialog).queryByText("Permissions mode")).toBeNull();
+		expect(screen.getByText("Created").nextElementSibling?.textContent).toMatch(
+			TIME_WITH_MINUTES_PATTERN
+		);
+	});
+
+	it("keeps Activity checking out of the Wakeability header", () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: null,
+							queuedWorkLocations: [],
+							recoveryAction: null,
+							status: "checking",
+							waitingCount: 0,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(within(presence).getByText("Unavailable")).toBeTruthy();
+		expect(within(presence).queryByText("Checking activity")).toBeNull();
+		expect(
+			screen.queryByRole("heading", { name: "Current activity" })
+		).toBeNull();
+		expect(screen.queryByTestId("agent-current-activity")).toBeNull();
+	});
+
+	it("hides Current activity when the Agent has no current work", () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						createWakeAvailabilityReadiness("available_for_wake"),
+					],
+				]),
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: null,
+							queuedWorkLocations: [],
+							recoveryAction: null,
+							status: "idle",
+							waitingCount: 0,
 						},
 					],
 				]),
@@ -398,35 +653,328 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 
 		expect(
-			await screen.findByRole("heading", { name: "Operational context" })
-		).toBeTruthy();
-		const workStatus = screen.getByTestId("agent-profile-operational-status");
-		expect(workStatus.getAttribute("data-agent-work-status")).toBe("working");
-		expect(within(workStatus).getByText("Working").className).toContain(
-			"shimmer-text"
+			screen.queryByRole("heading", { name: "Current activity" })
+		).toBeNull();
+		expect(screen.queryByText("No current work")).toBeNull();
+		expect(screen.queryByText("Not working right now")).toBeNull();
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(within(presence).getByText("Available")).toBeTruthy();
+		expect(presence.getAttribute("data-agent-presence-status")).toBe(
+			"available"
 		);
-		expect(screen.getByText("Current: Launch planning")).toBeTruthy();
-		expect(screen.getByText("1 queued")).toBeTruthy();
-		expect(screen.getByText("Wakeability")).toBeTruthy();
-		expect(screen.getByText("Usage")).toBeTruthy();
-		expect(screen.getByText("Settings timing")).toBeTruthy();
-		expect(screen.getAllByText("Not reported")).toHaveLength(2);
-
-		const technicalDetails = screen.getByTestId(
-			"profile-technical-details"
-		) as HTMLDetailsElement;
-		expect(technicalDetails.open).toBe(false);
 		expect(
-			within(technicalDetails).getByText("Technical details")
+			screen.getByRole("heading", { name: "How this Agent works" })
 		).toBeTruthy();
+		expect(screen.queryByText("Runs on")).toBeNull();
 		expect(
-			within(technicalDetails).getByText("Agent Controller Permission Mode")
-		).toBeTruthy();
-		expect(screen.queryByText("Activity")).toBeNull();
-		expect(screen.queryByText("Wake availability")).toBeNull();
+			screen.queryByText("The local tool and computer that run this Agent.")
+		).toBeNull();
 	});
 
-	it("shows the Coordinator workload summary and owner-only work locations in Profile Details", () => {
+	it("shows a neutral cold Wakeability check without a recovery CTA", () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map(),
+				agentExecutionReadinessPendingProfileIds: new Set([AGENT_PROFILE_ID]),
+			},
+			null,
+			{ presentation: "detail" }
+		);
+
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(within(presence).getByText("Checking…")).toBeTruthy();
+		expect(
+			within(presence).queryByRole("link", {
+				name: WAKEABILITY_LINK_ACTION_PATTERN,
+			})
+		).toBeNull();
+		expect(
+			within(presence).queryByRole("button", {
+				name: "Connect local agent",
+			})
+		).toBeNull();
+	});
+
+	it("keeps cached Available Wakeability while Activity is Working and refreshes", () => {
+		const readiness = {
+			...createWakeAvailabilityReadiness("available_for_wake"),
+			generatedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+		};
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentExecutionReadinessIsRefreshing: true,
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: null,
+							queuedWorkLocations: [],
+							recoveryAction: null,
+							status: "working",
+							waitingCount: 0,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(presence.textContent).toContain("Available");
+		expect(presence.textContent).toContain("checked 3 minutes ago");
+		expect(presence.textContent).toContain("Refreshing…");
+		expect(presence.textContent).not.toContain("Working");
+		const currentActivity = screen
+			.getByRole("heading", { name: "Current activity" })
+			.closest("section");
+		expect(currentActivity?.textContent).toContain("Working");
+	});
+
+	it("keeps cached Unavailable Wakeability while Activity is Working and refreshes", () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(binding),
+			generatedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+			},
+			binding,
+			{
+				agentExecutionReadinessIsRefreshing: true,
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: null,
+							queuedWorkLocations: [],
+							recoveryAction: null,
+							status: "working",
+							waitingCount: 0,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(presence.textContent).toContain("Unavailable");
+		expect(presence.textContent).toContain("checked 3 minutes ago");
+		expect(presence.textContent).toContain("Refreshing…");
+		expect(presence.textContent).not.toContain("Working");
+		const currentActivity = screen
+			.getByRole("heading", { name: "Current activity" })
+			.closest("section");
+		expect(currentActivity?.textContent).toContain("Working");
+	});
+
+	it("keeps one local-agent connection action beside the unbound Wakeability blocker", async () => {
+		const readiness = createUnboundAgentReadiness();
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+				selectedExecutionTarget: createSelectedExecutionTarget(),
+			},
+			null,
+			{ presentation: "detail" }
+		);
+
+		const modelLabel = await screen.findByText("Model", { exact: true });
+		const modelCard = modelLabel.closest("[data-fluid-card-item]");
+		expect(modelCard).toBeTruthy();
+		expect(
+			within(modelCard as HTMLElement).queryByText("Connect to a local agent")
+		).toBeNull();
+		expect(
+			within(modelCard as HTMLElement).queryByRole("combobox", {
+				name: "Choose local agent",
+			})
+		).toBeNull();
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(
+			within(presence).getByRole("button", {
+				name: "Connect local agent",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getAllByRole("combobox", { name: "Choose local agent" })
+		).toHaveLength(1);
+	});
+
+	it("does not offer a local-agent connection while availability is loading", async () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map(),
+				agentExecutionReadinessPendingProfileIds: new Set([AGENT_PROFILE_ID]),
+				selectedExecutionTarget: createSelectedExecutionTarget(),
+			},
+			null,
+			{ presentation: "detail" }
+		);
+
+		const modelLabel = await screen.findByText("Model", { exact: true });
+		const modelCard = modelLabel.closest("[data-fluid-card-item]");
+		expect(modelCard).toBeTruthy();
+		expect(
+			within(modelCard as HTMLElement).queryByText("Connect to a local agent")
+		).toBeNull();
+		expect(
+			within(modelCard as HTMLElement).queryByRole("combobox", {
+				name: "Choose local agent",
+			})
+		).toBeNull();
+		expect(
+			within(modelCard as HTMLElement).queryByRole("button", {
+				name: "Connect local agent",
+			})
+		).toBeNull();
+	});
+
+	it("shows the owner which computer and controller conversation run the Agent", () => {
+		const baseBinding =
+			createPrimaryBindingResponse("codex:approveForMe").binding;
+		const primaryBinding = {
+			...baseBinding,
+			executionTarget: {
+				...baseBinding.executionTarget,
+				agentControllerConversationId: "conversation-123",
+			},
+		};
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(primaryBinding),
+			primaryBinding,
+			routeDeviceId: "device-1",
+			runtimeDeviceDisplayName: "Felix’s MacBook Pro",
+		} as unknown as GetAgentExecutionReadinessResponse;
+
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+			},
+			primaryBinding,
+			{ presentation: "detail" }
+		);
+
+		expect(screen.getByText("Runtime")).toBeTruthy();
+		expect(screen.getByText("Felix’s MacBook Pro")).toBeTruthy();
+		expect(screen.getByText("Conversation ID: conversation-123")).toBeTruthy();
+		const overview = screen.getByTestId("agent-configuration-overview");
+		const cards = Array.from(
+			overview.querySelectorAll("[data-fluid-card-item]")
+		);
+		const cardOrder = [
+			"Owner",
+			"Model",
+			"Working folder",
+			"Collaboration mode",
+			"Permissions",
+			"Runtime",
+		].map((label) => {
+			const labelElement = within(overview).getByText(label, { exact: true });
+			const card = labelElement.closest("[data-fluid-card-item]");
+			if (!card) {
+				throw new Error(`Expected ${label} inside a configuration card.`);
+			}
+			return cards.indexOf(card);
+		});
+		expect(cardOrder).toEqual([0, 1, 2, 3, 4, 5]);
+	});
+
+	it("shows a missing working folder with one direct recovery action", () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const baseReadiness = createReadinessResponseWithPrimaryBinding(binding);
+		const readiness = {
+			...baseReadiness,
+			agentExecutionReadiness: {
+				...baseReadiness.agentExecutionReadiness,
+				facts: {
+					...baseReadiness.agentExecutionReadiness.facts,
+					runtime: {
+						ready: false,
+						reasonCodes: ["profile.workspace.missing", "profile.unbound"],
+						source: "prepare_readiness",
+					},
+				},
+				primaryAction: "run_prepare",
+				reasonCodes: ["profile.workspace.missing", "profile.unbound"],
+			},
+			agentWakeAvailability: {
+				...baseReadiness.agentWakeAvailability,
+				action: "run_prepare",
+				badgeLabel: "Working folder missing",
+				label: "Working folder missing",
+				phase: "unavailable",
+				reasonCode: "profile.workspace.missing",
+				summary: "Choose a working folder for this Agent.",
+				tooltip: "Working folder missing",
+			},
+			primaryActionPlan: {
+				action: "run_prepare",
+				target: { kind: "current_computer" },
+			},
+		} as unknown as GetAgentExecutionReadinessResponse;
+
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+			},
+			binding,
+			{ presentation: "detail" }
+		);
+
+		const overview = screen.getByTestId("agent-configuration-overview");
+		expect(within(overview).getByText("Working folder missing")).toBeTruthy();
+		expect(
+			within(overview).getByText("Choose a working folder for this Agent.")
+		).toBeTruthy();
+		expect(
+			within(overview).getByRole("button", { name: "Choose folder" })
+		).toBeTruthy();
+		expect(within(overview).getByText("Choose folder")).toBeTruthy();
+		expect(within(overview).queryByText("OpenMeld managed")).toBeNull();
+	});
+
+	it("keeps a checking Wake projection as checking in Profile Details", () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						createWakeAvailabilityReadiness("checking_connection"),
+					],
+				]),
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "detail" }
+		);
+
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(
+			within(presence).getByText("Checking Wake availability")
+		).toBeTruthy();
+		expect(presence.getAttribute("data-agent-presence-status")).toBe(
+			"checking"
+		);
+		expect(within(presence).queryByText("Unavailable for Wake")).toBeNull();
+	});
+
+	it("keeps current work out of the metadata dialog", () => {
 		renderAgentProfilesCard(
 			{},
 			createPrimaryBindingResponse("codex:approveForMe").binding,
@@ -451,20 +999,39 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("button", { name: "About profile" }));
+		fireEvent.click(screen.getByRole("button", { name: "More details" }));
 
-		expect(screen.getByText("Activity")).toBeTruthy();
-		expect(screen.getByText("Working · 1 queued")).toBeTruthy();
-		expect(screen.getByText("Launch planning")).toBeTruthy();
-		expect(screen.getByText("Customer follow-up")).toBeTruthy();
+		const dialog = screen.getByRole("dialog", { name: "More details" });
+		expect(within(dialog).queryByText("Activity")).toBeNull();
+		expect(within(dialog).queryByText("Launch planning")).toBeNull();
+		expect(within(dialog).queryByText("Customer follow-up")).toBeNull();
 	});
 
-	it("renders owner recovery actions in the Profile Details dialog and invokes the supplied handler", () => {
+	it("renders owner recovery actions beside current activity", () => {
 		const onRecoveryAction = vi.fn();
 		renderAgentProfilesCard(
 			{},
 			createPrimaryBindingResponse("codex:approveForMe").binding,
 			{
+				agentProfileActivityNavigationByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							current: {
+								href: "/o/acme/spaces/space-launch",
+								source: "space",
+								title: "Launch planning",
+							},
+							queued: [
+								{
+									href: "/o/acme/computers/computer-release",
+									source: "computer",
+									title: "Post-release checks",
+								},
+							],
+						},
+					],
+				]),
 				agentProfileOperationalContextByProfileId: new Map([
 					[
 						AGENT_PROFILE_ID,
@@ -480,23 +1047,89 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 					],
 				]),
 				onRecoveryAction,
+				presentation: "detail",
 			}
 		);
 
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Agent options for Research Agent",
-			})
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(presence.getAttribute("data-agent-presence-status")).toBe(
+			"unavailable"
 		);
-		fireEvent.click(screen.getByRole("button", { name: "About profile" }));
-		fireEvent.click(
-			screen.getByRole("button", { name: "Continue interrupted work" })
+		expect(within(presence).getByText("Unavailable")).toBeTruthy();
+		const twoItemActivityList = screen.getByRole("list", {
+			name: "Current activity",
+		});
+		expect(within(twoItemActivityList).getByText("Current")).toBeTruthy();
+		expect(
+			within(twoItemActivityList)
+				.getByRole("link", { name: "Open Space: Launch planning" })
+				.getAttribute("href")
+		).toBe("/o/acme/spaces/space-launch");
+		expect(twoItemActivityList.className).toContain(
+			"@[36rem]/agent-detail:grid-cols-2"
+		);
+		expect(twoItemActivityList.className).not.toContain(
+			"@[54rem]/agent-detail:grid-cols-3"
+		);
+		expect(onRecoveryAction).not.toHaveBeenCalled();
+	});
+
+	it("keeps waiting work in Current activity without replacing Wakeability", () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileActivityNavigationByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							current: {
+								href: "/o/acme/computers/computer-felix",
+								source: "computer",
+								title: "Research",
+							},
+							queued: [],
+						},
+					],
+				]),
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Research",
+							queuedWorkLocations: [],
+							recoveryAction: null,
+							status: "paused",
+							waitingCount: 0,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
 		);
 
-		expect(onRecoveryAction).toHaveBeenCalledWith({
-			kind: "continue_interrupted_work",
-			visibility: "owner_self",
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(presence.getAttribute("data-agent-presence-status")).toBe(
+			"unavailable"
+		);
+		expect(within(presence).queryByText("Waiting to continue")).toBeNull();
+		const oneItemActivityList = screen.getByRole("list", {
+			name: "Current activity",
 		});
+		expect(
+			within(oneItemActivityList)
+				.getByRole("link", { name: "Open Computer: Research" })
+				.getAttribute("href")
+		).toBe("/o/acme/computers/computer-felix");
+		expect(oneItemActivityList.className).toContain("grid-cols-1");
+		expect(oneItemActivityList.className).not.toContain(
+			"@[36rem]/agent-detail:grid-cols-2"
+		);
+		const currentBadge = screen.getByText("Current", { exact: true });
+		expect(currentBadge.closest('[data-slot="badge"]')?.className).toContain(
+			"text-primary"
+		);
+		expect(screen.queryByText("Current work", { exact: true })).toBeNull();
 	});
 
 	it("renders owner recovery actions in the selected Agent detail", async () => {
@@ -588,11 +1221,24 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			{},
 			createPrimaryBindingResponse("codex:approveForMe").binding,
 			{
+				agentProfileActivityNavigationByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							current: {
+								href: "/o/acme/spaces/release-room",
+								source: "space",
+								title: "Release room",
+							},
+							queued: [],
+						},
+					],
+				]),
 				agentProfileOperationalContextByProfileId: new Map([
 					[
 						AGENT_PROFILE_ID,
 						{
-							currentWorkLocation: null,
+							currentWorkLocation: "Release room",
 							queuedWorkLocations: ["Customer follow-up"],
 							recoveryAction: { kind: "skip_interrupted_work" },
 							recoveryTargetWakeLifecycleId: "twl_interrupted",
@@ -605,10 +1251,36 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			}
 		);
 
+		const interruptedWork = await screen.findByTestId(
+			"agent-current-interrupted-work"
+		);
+		expect(within(interruptedWork).getByText("Release room")).toBeTruthy();
+		expect(within(interruptedWork).getByText("Needs attention")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Skip interrupted work" })
+		).toBeNull();
 		fireEvent.click(
-			await screen.findByRole("button", { name: "Skip interrupted work" })
+			within(interruptedWork).getByRole("button", { name: "Skip" })
 		);
 
+		expect(executeAgentProfileWorkRecoveryMock).not.toHaveBeenCalled();
+		const confirmation = screen.getByRole("alertdialog", {
+			name: "Skip this work?",
+		});
+		expect(
+			within(confirmation).getByText(
+				"This work will not continue. Any queued work can start after you skip it."
+			)
+		).toBeTruthy();
+		fireEvent.click(
+			within(confirmation).getByRole("button", { name: "Cancel" })
+		);
+		expect(screen.queryByRole("alertdialog")).toBeNull();
+
+		fireEvent.click(
+			within(interruptedWork).getByRole("button", { name: "Skip" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Skip work" }));
 		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledWith({
 			action: "skip_interrupted_work",
 			agentProfileId: AGENT_PROFILE_ID,
@@ -643,9 +1315,8 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			}
 		);
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Skip interrupted work" })
-		);
+		fireEvent.click(await screen.findByRole("button", { name: "Skip" }));
+		fireEvent.click(screen.getByRole("button", { name: "Skip work" }));
 
 		expect(executeAgentProfileWorkRecoveryMock).not.toHaveBeenCalled();
 		expect(toastMock.error).toHaveBeenCalledWith(
@@ -653,7 +1324,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 	});
 
-	it("shows only team-safe workload and Usage in a teammate Agent detail", async () => {
+	it("shows team-safe Profile details for a teammate Agent", async () => {
 		const baseBinding = createPrimaryBindingResponse(
 			"codex:approveForMe",
 			"builtin:codex",
@@ -669,6 +1340,15 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const readiness = {
 			...createReadinessResponseWithPrimaryBinding(primaryBinding),
 			agentControllerRef: null,
+			publicProfileConfiguration: {
+				agentControllerCollaborationMode: "codex:default",
+				agentControllerPermissionMode: "codex:approveForMe",
+				agentControllerRef: "builtin:codex",
+				modelSelection: {
+					modelId: "gpt-5.5",
+					reasoningLevel: "high",
+				},
+			},
 			agentWakeAvailability: {
 				action: "none",
 				badgeLabel: "Unavailable",
@@ -691,6 +1371,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			agentExecutionReadinessByProfileId: new Map([
 				[AGENT_PROFILE_ID, readiness],
 			]),
+			ownerAvatarUrlByUserId: new Map([
+				["user-1", "https://example.com/felix-avatar.png"],
+			]),
 			agentProfileOperationalContextByProfileId: new Map([
 				[
 					AGENT_PROFILE_ID,
@@ -710,23 +1393,46 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			await screen.findByTestId("agent-profile-workspace-detail")
 		).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Direct Message" })).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Edit Agent" })).toBeNull();
 		expect(
-			screen.getByRole("heading", { name: "Operational context" })
+			screen.getByRole("button", { name: "Chat with Research Agent" })
 		).toBeTruthy();
-		expect(screen.getByText("Working")).toBeTruthy();
-		expect(screen.getByText("2 queued")).toBeTruthy();
-		expect(screen.getByText("Usage")).toBeTruthy();
-		expect(screen.getByText("Exhausted")).toBeTruthy();
-		expect(screen.queryByText("Settings timing")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Edit Name" })).toBeNull();
+		expect(screen.queryByText("Operational context")).toBeNull();
+		expect(
+			screen.getByRole("heading", { name: "Current activity" })
+		).toBeTruthy();
+		expect(screen.getByText("Working · 2 queued")).toBeTruthy();
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(within(presence).getByText("Unavailable")).toBeTruthy();
+		expect(within(presence).queryByText("Working")).toBeNull();
 		expect(screen.queryByText("Private Space")).toBeNull();
 		expect(screen.queryByText("Private task")).toBeNull();
+		expect(
+			screen.getByRole("heading", { name: "How this Agent works" })
+		).toBeTruthy();
+		expect(screen.getAllByText("Codex · GPT-5.5 · high")).toHaveLength(2);
+		expect(screen.getByText("Approve for me")).toBeTruthy();
+		expect(
+			document.querySelector('img[src="https://example.com/felix-avatar.png"]')
+		).toBeTruthy();
+		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
+		expect(
+			screen.queryByTestId(
+				`agent-profile-controller-fallback-${AGENT_PROFILE_ID}`
+			)
+		).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Agent options for Research Agent" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "More details" }));
+		const dialog = screen.getByRole("dialog", { name: "More details" });
+		expect(within(dialog).getByText("Profile details")).toBeTruthy();
+		expect(within(dialog).queryByText("Availability")).toBeNull();
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("Computer")).toBeNull();
-		expect(screen.queryByText("Model")).toBeNull();
+		expect(within(dialog).queryByText("Model")).toBeNull();
 		expect(screen.queryByText("Binding state")).toBeNull();
-		expect(screen.queryByText("GPT-5.5 · High")).toBeNull();
+		expect(within(dialog).queryByText("GPT-5.5 · High")).toBeNull();
 		expect(screen.queryByText("No Controller connected")).toBeNull();
 		await waitFor(() => {
 			expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
@@ -791,10 +1497,44 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect((await screen.findByRole("alert")).textContent).toContain(
 			"Core could not read Wake availability."
 		);
-		expect(screen.getByText("Unavailable")).toBeTruthy();
+		expect(screen.getByText("Couldn’t check availability.")).toBeTruthy();
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(
+			within(presence).queryByRole("link", {
+				name: WAKEABILITY_LINK_ACTION_PATTERN,
+			})
+		).toBeNull();
+		expect(
+			within(presence).queryByRole("button", {
+				name: REPAIR_OR_RECONNECT_ACTION_NAME_PATTERN,
+			})
+		).toBeNull();
 	});
 
-	it("prioritizes a readiness refresh failure over cached availability", async () => {
+	it("keeps cached Available on the card when its refresh fails", () => {
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						createWakeAvailabilityReadiness("available_for_wake"),
+					],
+				]),
+				agentExecutionReadinessErrorByProfileId: new Map([
+					[AGENT_PROFILE_ID, "Core could not refresh Wake availability."],
+				]),
+			},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "cards" }
+		);
+
+		const badge = screen.getByTestId("agent-profile-row-availability-badge");
+		expect(badge.getAttribute("data-availability-phase")).toBe("available");
+		expect(badge.textContent).toContain("Available");
+		expect(badge.textContent).toContain("Couldn’t refresh availability.");
+	});
+
+	it("keeps cached Available when its refresh fails", async () => {
 		renderAgentProfilesCard(
 			{
 				agentExecutionReadinessByProfileId: new Map([
@@ -814,10 +1554,42 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect((await screen.findByRole("alert")).textContent).toContain(
 			"Core could not refresh Wake availability."
 		);
-		expect(screen.getByText("Unavailable")).toBeTruthy();
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(presence.textContent).toContain("Available");
+		expect(presence.textContent).toContain("Couldn’t refresh availability.");
 		expect(
-			document.querySelector('[data-availability-phase="available"]')
+			within(presence).queryByRole("link", {
+				name: WAKEABILITY_LINK_ACTION_PATTERN,
+			})
 		).toBeNull();
+	});
+
+	it("keeps cached Unavailable when its refresh fails", async () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						createReadinessResponseWithPrimaryBinding(
+							binding
+						) as unknown as GetAgentExecutionReadinessResponse,
+					],
+				]),
+				agentExecutionReadinessErrorByProfileId: new Map([
+					[AGENT_PROFILE_ID, "Core could not refresh Wake availability."],
+				]),
+			},
+			binding,
+			{ presentation: "detail" }
+		);
+
+		const presence = screen.getByTestId("agent-profile-presence");
+		expect(presence.textContent).toContain("Unavailable");
+		expect(presence.textContent).toContain("Couldn’t refresh availability.");
+		expect((await within(presence).findByRole("alert")).textContent).toContain(
+			"Core could not refresh Wake availability."
+		);
 	});
 
 	it("keeps the Core recovery action in the selected Agent detail", async () => {
@@ -827,24 +1599,37 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			{ presentation: "detail" }
 		);
 
-		const reconnectLink = await screen.findByRole("link", {
-			name: "Reconnect OpenMeld Service",
+		const presence = screen.getByTestId("agent-profile-presence");
+		const headerActions = screen.getByTestId(
+			"agent-profile-header-recovery-actions"
+		);
+		const reconnectLink = await within(headerActions).findByRole("link", {
+			name: "Reconnect computer",
 		});
+		const reason = within(presence).getByText(
+			"Connect your computer before this Agent can reply."
+		);
 		expect(reconnectLink.getAttribute("href")).toBe("/app/connect");
+		expect(reason).toBeTruthy();
+		expect(
+			within(presence).getByRole("link", { name: "Reconnect computer" })
+		).toBe(reconnectLink);
+		expect(
+			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
+		).toBeNull();
 	});
 
-	it("edits in place and Cancel restores the read-only detail without saving", async () => {
+	it("edits the name in place and Cancel restores it without saving", async () => {
 		renderAgentProfilesCard({}, undefined, { presentation: "detail" });
 
-		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
-		expect(screen.getByTestId("agent-profile-inline-editor")).toBeTruthy();
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Name" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
 			target: { value: "Unsaved Agent" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-		expect(screen.queryByTestId("agent-profile-inline-editor")).toBeNull();
-		expect(screen.getByText("Agent Controller Permission Mode")).toBeTruthy();
+		expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull();
+		expect(screen.getByText("How this Agent works")).toBeTruthy();
 		expect(renameOpenMeldProfileMock).not.toHaveBeenCalled();
 	});
 
@@ -855,7 +1640,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderAgentProfilesCard({}, undefined, { presentation: "detail" });
 
-		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Name" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
 			target: { value: "Still in the form" },
 		});
@@ -864,25 +1649,19 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect((await screen.findByRole("alert")).textContent).toContain(
 			"The Agent name could not be saved."
 		);
-		expect(screen.getByTestId("agent-profile-inline-editor")).toBeTruthy();
+		expect(screen.getByRole("textbox", { name: "Name" })).toBeTruthy();
 		expect(
 			(screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value
 		).toBe("Still in the form");
 	});
 
 	it("leaves inline edit after a rename without waiting for a full refresh", async () => {
-		let finishRefresh: (() => void) | undefined;
-		const refreshAll = vi.fn(
-			async () =>
-				await new Promise<void>((resolve) => {
-					finishRefresh = resolve;
-				})
-		);
+		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		renderAgentProfilesCard({ refreshAll }, undefined, {
 			presentation: "detail",
 		});
 
-		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Name" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
 			target: { value: "Field Research Agent" },
 		});
@@ -890,15 +1669,15 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 
 		await waitFor(() => {
 			expect(renameOpenMeldProfileMock).toHaveBeenCalled();
-			expect(refreshAll).toHaveBeenCalled();
-			expect(screen.queryByTestId("agent-profile-inline-editor")).toBeNull();
+			expect(refreshAll).not.toHaveBeenCalled();
+			expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull();
 		});
-		finishRefresh?.();
 	});
 
-	it("keeps a saved rename and reports a background refresh failure", async () => {
-		const refreshError = new Error("Directory refresh timed out.");
-		const refreshAll = vi.fn().mockRejectedValue(refreshError);
+	it("keeps a saved rename independent from an unrelated full refresh", async () => {
+		const refreshAll = vi
+			.fn()
+			.mockRejectedValue(new Error("Directory refresh timed out."));
 		const consoleError = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
@@ -906,25 +1685,21 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			presentation: "detail",
 		});
 
-		fireEvent.click(await screen.findByRole("button", { name: "Edit Agent" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Edit Name" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
 			target: { value: "Field Research Agent" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
 		await waitFor(() => {
-			expect(screen.queryByTestId("agent-profile-inline-editor")).toBeNull();
-			expect(toastMock.warning).toHaveBeenCalledWith(
-				"The Agent was renamed, but OpenMeld could not refresh every view. Refresh the page to see the latest details."
-			);
-			expect(consoleError).toHaveBeenCalledWith(
-				"Agent was renamed, but current views could not be refreshed.",
-				refreshError
-			);
+			expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull();
+			expect(refreshAll).not.toHaveBeenCalled();
+			expect(toastMock.warning).not.toHaveBeenCalled();
+			expect(consoleError).not.toHaveBeenCalled();
 		});
 	});
 
-	it("shows the current native Session title and links back to Agent Activity", async () => {
+	it("does not treat an idle bound Session as current activity", async () => {
 		const baseBinding =
 			createPrimaryBindingResponse("codex:approveForMe").binding;
 		const primaryBinding = {
@@ -970,19 +1745,94 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				},
 			],
 		});
-		renderAgentProfilesCard({}, primaryBinding);
+		renderAgentProfilesCard({}, primaryBinding, { presentation: "detail" });
 
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Agent options for Research Agent",
-			})
-		);
-		fireEvent.click(screen.getByRole("button", { name: "About profile" }));
-
+		await waitFor(() => {
+			expect(readCurrentAgentActivitySessionsMock).toHaveBeenCalled();
+		});
 		expect(
-			await screen.findByText("Ship the Agent Profile upgrade")
-		).toBeTruthy();
-		const sessionLink = screen.getByRole("link", { name: "View Session" });
+			screen.queryByRole("heading", { name: "Current activity" })
+		).toBeNull();
+		expect(screen.queryByText("Ship the Agent Profile upgrade")).toBeNull();
+	});
+
+	it("shows a working bound Session with its title, conversation, and computer", async () => {
+		const baseBinding =
+			createPrimaryBindingResponse("codex:approveForMe").binding;
+		const primaryBinding = {
+			...baseBinding,
+			executionTarget: {
+				...baseBinding.executionTarget,
+				agentControllerConversationId: "native-session-1",
+			},
+		};
+		readCurrentAgentActivitySessionsMock.mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "org-acme", name: "Acme" },
+			sessions: [
+				{
+					bindingState: "bound",
+					boundAgentProfileId: AGENT_PROFILE_ID,
+					canFork: true,
+					canResume: false,
+					computer: {
+						id: "computer-1",
+						lastSeenAtMs: 1_787_220_000_000,
+						name: "Mira's MacBook Pro",
+						state: "online",
+					},
+					dataState: "current",
+					inventoryUpdatedAtMs: 1_787_220_000_000,
+					lastActiveAtMs: 1_787_220_000_000,
+					localAgent: {
+						agentControllerRef: "builtin:codex",
+						name: "Codex",
+						provider: "codex",
+					},
+					nativeSessionId: "native-session-1",
+					nativeSessionTitle: "Ship the Agent Profile upgrade",
+					organization: { id: "org-acme", name: "Acme" },
+					origin: "openmeld",
+					owner: { name: "Mira", userId: "user-1" },
+					project: { id: "project-1", name: "OpenMeld", slug: "openmeld" },
+					startedAtMs: 1_787_218_000_000,
+					status: "working",
+				},
+			],
+		});
+		renderAgentProfilesCard({}, primaryBinding, {
+			agentProfileOperationalContextByProfileId: new Map([
+				[
+					AGENT_PROFILE_ID,
+					{
+						currentWorkLocation: null,
+						queuedWorkLocations: [],
+						recoveryAction: null,
+						status: "working",
+						waitingCount: 0,
+					},
+				],
+			]),
+			presentation: "detail",
+		});
+
+		const sessionLinks = await screen.findAllByRole("link", {
+			name: "Open Computer: Ship the Agent Profile upgrade",
+		});
+		const sessionLink = sessionLinks.find((link) =>
+			link.closest('[role="list"][aria-label="Current activity"]')
+		);
+		expect(sessionLink).toBeTruthy();
+		if (!sessionLink) {
+			throw new Error("Expected the working Session in Current activity.");
+		}
+		expect(sessionLink.textContent).toContain(
+			"Ship the Agent Profile upgrade · native-session-1"
+		);
+		expect(within(sessionLink).getByText("Mira's MacBook Pro")).toBeTruthy();
+		expect(within(sessionLink).getByText("Working")).toBeTruthy();
 		expect(sessionLink.getAttribute("href")).toBe(
 			"/o/acme/agent-activity/sessions?query=native-session-1"
 		);
@@ -1043,7 +1893,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		expect(screen.getByRole("button", { name: "About profile" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "More details" })).toBeTruthy();
 		expect(
 			screen.getByRole("button", { name: "Default Project and folder" })
 		).toBeTruthy();
@@ -1319,7 +2169,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			});
 		});
 		expect(refreshAll).not.toHaveBeenCalled();
-		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+		expect(invalidateQueriesSpy).not.toHaveBeenCalledWith({
 			queryKey: organizationQueryKeys.all,
 		});
 		await waitFor(() => {
@@ -2028,12 +2878,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			updatePrimaryBindingAgentControllerPermissionModeMock
 		).not.toHaveBeenCalled();
-		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+		expect(invalidateQueriesSpy).not.toHaveBeenCalledWith({
 			queryKey: organizationQueryKeys.all,
 		});
-		expect(toastMock.success).toHaveBeenCalledWith(
-			"Settings saved for Research Agent. This computer must sync the changes before new work starts. Permission mode changes can also reach running sessions when the local agent supports live updates."
-		);
+		expect(toastMock.success).toHaveBeenCalledWith("Agent settings saved.");
 	});
 
 	it("keeps saved OpenCode permissions after closing and reopening Agent settings", async () => {
@@ -2123,7 +2971,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			updatePrimaryBindingAgentControllerPermissionModeMock
 		).not.toHaveBeenCalled();
-		expect(refreshAll).toHaveBeenCalled();
+		expect(refreshAll).not.toHaveBeenCalled();
 	});
 
 	it("allows renaming an Agent that does not have a primary binding", async () => {
@@ -2210,8 +3058,8 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				storageScope: "test-scope",
 			})
 		);
-		expect(refreshAll).toHaveBeenCalled();
-		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+		expect(refreshAll).not.toHaveBeenCalled();
+		expect(invalidateQueriesSpy).not.toHaveBeenCalledWith({
 			queryKey: organizationQueryKeys.all,
 		});
 		await waitFor(() => {
@@ -2332,8 +3180,8 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				storageScope: "test-scope",
 			})
 		);
-		expect(refreshAll).toHaveBeenCalled();
-		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+		expect(refreshAll).not.toHaveBeenCalled();
+		expect(invalidateQueriesSpy).not.toHaveBeenCalledWith({
 			queryKey: organizationQueryKeys.all,
 		});
 		await waitFor(() => {
@@ -2396,6 +3244,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				})
 			).textContent
 		).toContain("Reconnect 2 Agents");
+		expect(
+			screen.getByRole("button", { name: "Connect local agent" })
+		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Reconnect all" }));
 		expect(
 			screen.getByRole("heading", { name: "Reconnect 2 Agents?" })
@@ -2428,7 +3279,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 					]),
 				})
 			);
-			expect(refreshAll).toHaveBeenCalledTimes(1);
+			expect(refreshAll).not.toHaveBeenCalled();
 			expect(toastMock.success).toHaveBeenCalledWith(
 				"Reconnected 2 Agents to this computer. OpenMeld is checking whether they can reply."
 			);
@@ -2465,7 +3316,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 
 		fireEvent.click(
-			await screen.findByRole("button", { name: "Reconnect to Codex CLI" })
+			await screen.findByRole("button", { name: "Connect local agent" })
 		);
 
 		await waitFor(() => {
@@ -2585,7 +3436,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
-	it("keeps a recently Available Agent visually stable during a brief connection check", async () => {
+	it("keeps a recently Available Agent visually stable during a brief connection check", () => {
 		const availableReadiness =
 			createWakeAvailabilityReadiness("available_for_wake");
 		const { rerenderAgentProfilesCard } = renderAgentProfilesCard({
@@ -2594,7 +3445,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			]),
 		});
 
-		expect((await screen.findAllByText("Available")).length).toBeGreaterThan(0);
+		expect(
+			document.querySelector('[data-availability-phase="available"]')
+		).toBeTruthy();
 
 		rerenderAgentProfilesCard(
 			{
@@ -2609,7 +3462,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 
 		expect(screen.queryByText("Checking")).toBeNull();
-		expect(screen.getAllByText("Available").length).toBeGreaterThan(0);
+		expect(
+			document.querySelector('[data-availability-phase="available"]')
+		).toBeTruthy();
 	});
 
 	it("hides owner labels by default for personal Agents", async () => {
@@ -2630,7 +3485,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.getByText("1 Agent")).toBeTruthy();
 	});
 
-	it("lets an unchecked Agent choose a local agent from the profile row", async () => {
+	it("lets an explicitly unbound Agent choose a local agent from the profile row", async () => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		let resolveBinding!: (value: { status: "accepted" }) => void;
 		ensureRuntimeBindingMock.mockReturnValueOnce(
@@ -2638,22 +3493,26 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				resolveBinding = resolve;
 			})
 		);
-		const { queryClient } = renderAgentProfilesCard({
-			agentExecutionReadinessByProfileId: new Map(),
-			refreshAll,
-			selectedExecutionTarget: createSelectedExecutionTarget(),
-		});
+		const { queryClient } = renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, createUnboundAgentReadiness()],
+				]),
+				refreshAll,
+				selectedExecutionTarget: createSelectedExecutionTarget(),
+			},
+			null
+		);
 		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
 
 		expect(
-			await screen.findByText("Wake availability not checked yet")
-		).toBeTruthy();
-		expect(
-			screen.getByRole("combobox", { name: "Choose local agent" })
+			await screen.findByRole("combobox", { name: "Choose local agent" })
 		).toBeTruthy();
 		expect(screen.getAllByText("Codex CLI").length).toBeGreaterThan(0);
 
-		fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Connect local agent" })
+		);
 		await waitFor(() => {
 			expect(
 				screen.getByRole("button", { name: "Connecting..." })
@@ -2682,11 +3541,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				storageScope: "test-scope",
 			})
 		);
-		expect(refreshAll).toHaveBeenCalled();
-		await waitFor(() => {
-			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
-				queryKey: organizationQueryKeys.all,
-			});
+		expect(refreshAll).not.toHaveBeenCalled();
+		expect(invalidateQueriesSpy).not.toHaveBeenCalledWith({
+			queryKey: organizationQueryKeys.all,
 		});
 		expect(toastMock.success).toHaveBeenCalledWith(
 			"Local agent connection saved for Research Agent. OpenMeld is checking whether it can reply from this computer."
@@ -2735,6 +3592,7 @@ function renderAgentProfilesCard(
 						recovery={createRecovery(nextOverrides, nextPrimaryBinding)}
 						serviceUpdatePath="/app/connect"
 						setupPath="/app/connect"
+						wakeAvailabilityNowMs={Date.now()}
 						{...cardOverrides}
 					/>
 				</TooltipProvider>
@@ -2988,6 +3846,38 @@ function createReconnectBindingReadiness(
 	};
 }
 
+function createUnboundAgentReadiness(): GetAgentExecutionReadinessResponse {
+	const readiness = createReconnectBindingReadiness(
+		AGENT_PROFILE_ID,
+		"builtin:codex"
+	);
+	return {
+		...readiness,
+		agentExecutionReadiness: {
+			...readiness.agentExecutionReadiness,
+			facts: {
+				...readiness.agentExecutionReadiness.facts,
+				binding: {
+					reasonCodes: ["agent_profile_binding.missing"],
+					routable: false,
+					source: "missing",
+				},
+			},
+			reasonCodes: ["agent_profile_binding.missing"],
+		},
+		agentWakeAvailability: {
+			...readiness.agentWakeAvailability,
+			reasonCode: "agent_profile_binding.missing",
+		},
+		primaryActionPlan: {
+			action: "reconnect_binding",
+			target: { kind: "choose_local_agent" },
+		},
+		primaryBinding: null,
+		runtimeDeviceDisplayName: null,
+	};
+}
+
 function createSelectedExecutionTarget() {
 	return {
 		localAgentCatalog: {
@@ -3156,7 +4046,7 @@ function createReadinessResponseWithPrimaryBinding(
 			phase: "service_not_connected",
 			reasonCode: "local_service.not_connected_for_account",
 			status: "unavailable_for_wake",
-			summary: "This agent cannot reply from this computer right now.",
+			summary: "Connect your computer before this Agent can reply.",
 			tooltip: "Unavailable for Wake",
 		},
 		agentWakeRouteRegistration: {

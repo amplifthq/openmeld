@@ -1,6 +1,8 @@
 import {
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
+  currentAgentProfileSessionLookupQuerySchema,
+  currentAgentProfileSessionLookupResponseSchema,
   disableAgentProfilePrimaryBindingResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
@@ -27,13 +29,14 @@ import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
-  respondAgentProfileOrganizationOwnershipRequired,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { readJsonRequestBody } from "./rpc-http.parsers";
 
 const AGENT_PROFILE_BINDING_ROUTE =
   "/v1/agent-profiles/:agentProfileId/primary-binding";
+const CURRENT_AGENT_PROFILE_SESSION_ROUTE =
+  "/v1/agent-profiles/current-session";
 const AGENT_PROFILE_CONTROLLER_CHANGE_ELIGIBILITY_ROUTE =
   "/v1/agent-profiles/:agentProfileId/controller-change-eligibility";
 const AGENT_PROFILE_DEFAULT_PROJECT_ROUTE =
@@ -46,12 +49,6 @@ const AGENT_PROFILE_BINDING_AGENT_CONTROLLER_COLLABORATION_MODE_ROUTE =
   "/v1/agent-profiles/:agentProfileId/primary-binding/agent-controller-collaboration-mode";
 const AGENT_PROFILE_BINDING_OPEN_CODE_PERMISSION_ROUTE =
   "/v1/agent-profiles/:agentProfileId/primary-binding/opencode-permission";
-const AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE =
-  "/v1/agent-profiles/:agentProfileId/primary-binding/organization-authorization";
-const AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATIONS_ROUTE =
-  "/v1/agent-profiles/primary-bindings/organization-authorizations";
-const AGENT_PROFILE_ORGANIZATION_WAKE_ACCESS_ROUTE =
-  "/v1/agent-profiles/primary-bindings/organization-wake-access";
 const AGENT_PROFILE_ROUTE_CATALOG_SYNC_ROUTE =
   "/v1/agent-profiles/:agentProfileId/route-catalog-sync";
 const AGENT_PROFILES_ROUTE_CATALOG_SYNC_ROUTE =
@@ -66,6 +63,38 @@ const AGENT_PROFILE_WORK_RECOVERY_ROUTE =
 export function registerAgentProfileBindingRoutes(
   app: Hono<HonoBindings>
 ): void {
+  app.get(CURRENT_AGENT_PROFILE_SESSION_ROUTE, (c) => {
+    const query = currentAgentProfileSessionLookupQuerySchema.safeParse({
+      agentControllerConversationId: c.req.query(
+        "agentControllerConversationId"
+      ),
+      agentControllerRef: c.req.query("agentControllerRef"),
+    });
+    if (!query.success) {
+      return respondBadRequest({
+        c,
+        route: CURRENT_AGENT_PROFILE_SESSION_ROUTE,
+        method: "GET",
+        code: "invalid_payload",
+        message:
+          query.error.issues[0]?.message ??
+          "Current Agent Profile Session lookup is invalid",
+      });
+    }
+
+    return executeRpcRoute({
+      c,
+      route: CURRENT_AGENT_PROFILE_SESSION_ROUTE,
+      method: "GET",
+      responseSchema: currentAgentProfileSessionLookupResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.getCurrentAgentProfileSession({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+
   app.post(AGENT_PROFILE_WORK_RECOVERY_ROUTE, async (c) => {
     const routeParams = parseAgentProfileBindingRouteParams({
       agentProfileId: c.req.param("agentProfileId"),
@@ -254,38 +283,6 @@ export function registerAgentProfileBindingRoutes(
         }),
     });
   });
-
-  app.put(AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE,
-      method: "PUT",
-    })
-  );
-
-  app.get(AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATIONS_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATIONS_ROUTE,
-      method: "GET",
-    })
-  );
-
-  app.get(AGENT_PROFILE_ORGANIZATION_WAKE_ACCESS_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: AGENT_PROFILE_ORGANIZATION_WAKE_ACCESS_ROUTE,
-      method: "GET",
-    })
-  );
-
-  app.delete(AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: AGENT_PROFILE_BINDING_ORGANIZATION_AUTHORIZATION_ROUTE,
-      method: "DELETE",
-    })
-  );
 
   app.get(AGENT_EXECUTION_READINESS_ROUTE, (c) => {
     const routeParams = parseAgentExecutionReadinessRouteParams({

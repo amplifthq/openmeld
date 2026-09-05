@@ -2,7 +2,6 @@ import { resolveAgentWakeAvailability } from "@openmeld/agent-runtime";
 import {
 	createFetchTransport,
 	OpenMeldApiClientHttpError,
-	type SpaceApi,
 } from "@openmeld/api-client";
 import { SPACE_STREAM_KEEPALIVE_PING } from "@openmeld/protocol";
 import {
@@ -20,7 +19,6 @@ import type {
 	AuthProfileView,
 	CreateAgentProfileCreationRequestResponse,
 	GetSpaceStatusResponse,
-	OrganizationDirectoryResponse,
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
 	SpaceMemberAgentSnapshot,
@@ -45,6 +43,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
+import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
 import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import {
@@ -106,6 +105,82 @@ function createHangingFetchRequest() {
 	};
 }
 
+function createUnavailableExecutionRecovery(input: {
+	dispatchId: string;
+	targetProfileId: string;
+}) {
+	return {
+		actions: {
+			recoverResult: {
+				action: "recover_result" as const,
+				enabled: false,
+				label: "Recover result" as const,
+				reasonCode: "execution_recovery.unavailable",
+				warning: null,
+			},
+			resumeControllerConversation: {
+				action: "resume_controller_conversation" as const,
+				enabled: false,
+				label: "Recover reply" as const,
+				reasonCode: "execution_recovery.unavailable",
+				warning: null,
+			},
+			retryAsNewExecution: {
+				action: "retry_as_new_execution" as const,
+				enabled: false,
+				label: "Retry as new execution" as const,
+				reasonCode: "execution_recovery.unavailable",
+				warning: null,
+			},
+		},
+		destination: {
+			spaceId: "space-123",
+			surface: "space" as const,
+			threadId: null,
+		},
+		identity: {
+			agentControllerConversationId: null,
+			agentControllerRef: null,
+			attemptId: null,
+			dispatchId: input.dispatchId,
+			resultRef: null,
+			runtimeCoordinatorExecutionId: null,
+			spaceId: "space-123",
+			targetProfileId: input.targetProfileId,
+			taskId: null,
+		},
+		recommendedAction: null,
+		recoveredPublicationId: null,
+		status: "unavailable" as const,
+		tier: "none" as const,
+		updatedAtMs: RECENT_ACTIVITY_TS,
+	};
+}
+
+function createLegacyFreshExecutionRecovery(input: {
+	dispatchId: string;
+	targetProfileId: string;
+}) {
+	const unavailable = createUnavailableExecutionRecovery(input);
+	return {
+		...unavailable,
+		actions: {
+			...unavailable.actions,
+			retryAsNewExecution: {
+				action: "retry_as_new_execution" as const,
+				enabled: true,
+				label: "Retry as new execution" as const,
+				reasonCode: "execution_recovery.available",
+				warning:
+					"This starts a new execution and may run the task and its side effects again.",
+			},
+		},
+		recommendedAction: "retry_as_new_execution" as const,
+		status: "available" as const,
+		tier: "fresh_execution" as const,
+	};
+}
+
 const {
 	createDirectMessageApiMock,
 	createWebSpaceApiMock,
@@ -123,6 +198,8 @@ const {
 	createAgentProfileCreationRequestMock,
 	createStartHumanProfileMock,
 	notifyAgentExecutionReadinessRefreshMock,
+	readSpaceMembersMock,
+	threadProgrammaticSendHarness,
 	toastMock,
 	useAccountAvatarMock,
 	clearSpaceConversationCacheMock,
@@ -143,6 +220,11 @@ const {
 	createAgentProfileCreationRequestMock: vi.fn(),
 	createStartHumanProfileMock: vi.fn(),
 	notifyAgentExecutionReadinessRefreshMock: vi.fn(),
+	readSpaceMembersMock: vi.fn(),
+	threadProgrammaticSendHarness: {
+		enabled: false,
+		text: "Programmatic thread message",
+	},
 	useAccountAvatarMock: vi.fn(),
 	clearSpaceConversationCacheMock: vi.fn(async () => undefined),
 	toastMock: Object.assign(vi.fn(), {
@@ -243,6 +325,7 @@ vi.mock("@tanstack/react-router", () => ({
 		<a href={to}>{children}</a>
 	),
 	useBlocker: () => ({ status: "unblocked" as const }),
+	useElementScrollRestoration: () => undefined,
 	useNavigate: () => useNavigateMock,
 	useRouterState: (input: {
 		select?: (state: { location: { pathname: string } }) => unknown;
@@ -301,6 +384,16 @@ vi.mock("#/lib/agents/agent-execution-readiness", () => ({
 		notifyAgentExecutionReadinessRefreshMock,
 }));
 
+vi.mock("#/query/spaces/members", async () => {
+	const actual = await vi.importActual<typeof import("#/query/spaces/members")>(
+		"#/query/spaces/members"
+	);
+	return {
+		...actual,
+		readSpaceMembers: readSpaceMembersMock,
+	};
+});
+
 vi.mock("#/hooks/account.hooks", async () => {
 	const actual = await vi.importActual<typeof import("#/hooks/account.hooks")>(
 		"#/hooks/account.hooks"
@@ -314,6 +407,39 @@ vi.mock("#/hooks/account.hooks", async () => {
 vi.mock("sonner", () => ({
 	toast: toastMock,
 }));
+
+vi.mock("./space-thread-panel", async () => {
+	const actual = await vi.importActual<typeof import("./space-thread-panel")>(
+		"./space-thread-panel"
+	);
+	return {
+		...actual,
+		SpaceThreadPanel: (...args: Parameters<typeof actual.SpaceThreadPanel>) => {
+			const [props] = args;
+			const ActualSpaceThreadPanel = actual.SpaceThreadPanel;
+			return (
+				<>
+					<ActualSpaceThreadPanel {...props} />
+					{threadProgrammaticSendHarness.enabled &&
+					props.activeThread &&
+					props.onSendText ? (
+						<button
+							onClick={() => {
+								const sendPromise = props.onSendText?.(
+									threadProgrammaticSendHarness.text
+								);
+								sendPromise?.catch(() => undefined);
+							}}
+							type="button"
+						>
+							Send programmatic thread text
+						</button>
+					) : null}
+				</>
+			);
+		},
+	};
+});
 
 vi.mock("#/components/agents/use-local-agent-recovery-controller", () => ({
 	useLocalAgentRecoveryController: (...args: unknown[]) => ({
@@ -396,7 +522,6 @@ const REVIEWER_OPTION_NAME = /Reviewer/;
 const RUNNER_OPTION_NAME = /Runner/;
 const SCOUT_OPTION_NAME = /Scout/;
 const WATCHER_OPTION_NAME = /Watcher/;
-const CREATE_PROFILE_BUTTON_NAME = /Create profile/i;
 const DIAGNOSTIC_REPORT_POINTER_COPY =
 	/The report sends message IDs and system trace pointers, not the message text\./;
 const LOCAL_SETUP_PREFERENCE_TEXT = /Local setup preference/;
@@ -412,13 +537,16 @@ const SPACE_THREAD_PANEL_SELECTION_STORAGE_KEY =
 	"openmeld.space.thread-panel.active-thread:space-123";
 const NOTIFICATIONS_BUTTON_NAME_PATTERN = /notifications/i;
 const ACTIVE_WAKE_SERVICE_WAITING_NOTE_PATTERN =
-	/A Wake is waiting for OpenMeld Service to reconnect\./;
+	/A Wake is waiting for the computer to reconnect\./;
 const READY_WORD_PATTERN = /\bReady\b/u;
 const WAITING_FOR_OPENMELD_SERVICE_PATTERN = /Waiting for OpenMeld Service/;
 const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
 const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
 const ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN = /^Add people or agents/;
 const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
+const CAN_VIEW_TEXT_PATTERN = /can view$/;
+const OWNED_BY_MING_PATTERN = /Owned by Ming Yoo/;
+const CONTROLLED_BY_PATTERN = /Controlled by/;
 type TestAgentExecutionReadiness = ReturnType<
 	typeof createSpaceMemberAgentExecutionReadiness
 >;
@@ -670,6 +798,11 @@ describe("SpaceLanding", () => {
 		notifyAgentExecutionReadinessRefreshMock
 			.mockReset()
 			.mockResolvedValue(undefined);
+		readSpaceMembersMock
+			.mockReset()
+			.mockResolvedValue(createMembersSnapshot() as SpaceMembersSnapshot);
+		threadProgrammaticSendHarness.enabled = false;
+		threadProgrammaticSendHarness.text = "Programmatic thread message";
 		toastMock.mockReset();
 		toastMock.error.mockReset();
 		toastMock.success.mockReset();
@@ -692,6 +825,14 @@ describe("SpaceLanding", () => {
 					targetProfileId: null,
 				},
 			}),
+			inspectExecutionRecovery: vi.fn(
+				async (input: { dispatchId: string }) => ({
+					recovery: createUnavailableExecutionRecovery({
+						dispatchId: input.dispatchId,
+						targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+					}),
+				})
+			),
 			leaveSpace: vi.fn().mockResolvedValue({
 				leftProfileId: DEFAULT_SPACE_PROFILE_ID,
 				status: "left",
@@ -1213,7 +1354,9 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: "Alex" }));
 		fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
@@ -1232,7 +1375,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(
 				screen
-					.getByRole("button", { name: "Add members" })
+					.getByRole("button", { name: "Add People or Agents" })
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
@@ -1331,7 +1474,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("closes Add members when profile history refresh fails after the membership write", async () => {
+	it("closes Add People or Agents when profile history refresh fails after the membership write", async () => {
 		const addMembersMock = vi.fn().mockResolvedValue({
 			addedMemberIds: [SECOND_AGENT_PROFILE_ID],
 			alreadyMemberIds: [],
@@ -1410,7 +1553,9 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: SCOUT_OPTION_NAME }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 
@@ -1426,7 +1571,7 @@ describe("SpaceLanding", () => {
 			});
 			expect(
 				screen
-					.getByRole("button", { name: "Add members" })
+					.getByRole("button", { name: "Add People or Agents" })
 					.getAttribute("aria-expanded")
 			).toBe("false");
 		});
@@ -1521,7 +1666,9 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
 		fireEvent.click(screen.getByRole("checkbox", { name: SCOUT_OPTION_NAME }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 
@@ -1654,16 +1801,27 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
-		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add People or Agents" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "New Agent" }));
 		const dialog = await screen.findByRole("dialog", {
 			name: "Create a new Agent",
 		});
-		fireEvent.change(within(dialog).getByLabelText("Profile name"), {
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Edit Runs on" })
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Create and connect later",
+			})
+		);
+		fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+		fireEvent.change(await within(dialog).findByLabelText("Agent name"), {
 			target: { value: "Scout" },
 		});
 		const submitButton = within(dialog).getByRole("button", {
-			name: CREATE_PROFILE_BUTTON_NAME,
+			name: "Create Agent",
 		}) as HTMLButtonElement;
 		await waitFor(() => {
 			expect(submitButton.disabled).toBe(false);
@@ -1673,7 +1831,7 @@ describe("SpaceLanding", () => {
 		await flushPromiseQueue();
 		expect(
 			screen
-				.getByRole("button", { name: "Add members" })
+				.getByRole("button", { name: "Add People or Agents" })
 				.getAttribute("aria-expanded")
 		).toBe("false");
 		expect(membersRefetchMock).toHaveBeenCalledTimes(2);
@@ -1856,7 +2014,15 @@ describe("SpaceLanding", () => {
 		const loadingComposer = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		expect((loadingComposer as HTMLTextAreaElement).disabled).toBe(false);
+		expect(loadingComposer).toBeInstanceOf(HTMLDivElement);
+		expect(loadingComposer.getAttribute("contenteditable")).toBe("true");
+		expect(document.querySelector('textarea[name="space-message"]')).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Choose files to send" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Mention a member" })
+		).toBeNull();
 		loadingComposer.focus();
 		await setComposerValue(loadingComposer, "Draft from the first frame");
 		expect(
@@ -1967,6 +2133,11 @@ describe("SpaceLanding", () => {
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(true);
+		const membersButton = screen.getByRole("button", { name: "Members" });
+		expect(membersButton.textContent).toBe("");
+		fireEvent.click(membersButton);
+		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
+		expect(screen.queryByText("Runner")).toBeNull();
 		fireEvent.keyDown(composer, { key: "Enter" });
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: "Space information" }));
@@ -2797,7 +2968,7 @@ describe("SpaceLanding", () => {
 		const thinkingIndicator = within(
 			sourceMessageGroup as HTMLElement
 		).getByTestId("space-wake-thinking-indicator");
-		expect(thinkingIndicator.textContent).toContain("Sending to agent");
+		expect(thinkingIndicator.textContent).toContain("Wake sent to runner");
 		expect(thinkingIndicator.textContent).not.toContain("Wake is queued");
 		expect(screen.queryByText("Starting Wake for @runner...")).toBeNull();
 		expect(screen.queryByText("OpenMeld System")).toBeNull();
@@ -2870,7 +3041,9 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -2890,7 +3063,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = within(
 				sourceMessageGroup as HTMLElement
 			).getByTestId("space-wake-thinking-indicator");
-			expect(thinkingIndicator.textContent).toContain("Agent is working");
+			expect(thinkingIndicator.textContent).toContain("runner is working");
 		});
 	});
 
@@ -2979,7 +3152,9 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getActiveWakeProgressMock).toHaveBeenCalledWith({
+				includePreviewText: true,
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -2998,7 +3173,7 @@ describe("SpaceLanding", () => {
 		const thinkingIndicator = within(
 			sourceMessageGroup as HTMLElement
 		).getByTestId("space-wake-thinking-indicator");
-		expect(thinkingIndicator.textContent).toContain("Agent is working");
+		expect(thinkingIndicator.textContent).toContain("runner is working");
 
 		await act(async () => {
 			resolveDetailedWakeProgress({
@@ -3090,7 +3265,7 @@ describe("SpaceLanding", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("Sending to agent");
+		).toContain("Wake sent to runner");
 
 		await act(async () => {
 			resolveActiveWakeProgress({
@@ -3172,7 +3347,9 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3192,7 +3369,9 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = within(
 				sourceMessageGroup as HTMLElement
 			).getByTestId("space-wake-thinking-indicator");
-			expect(thinkingIndicator.textContent).toContain("Finalizing reply");
+			expect(thinkingIndicator.textContent).toContain(
+				"Posting reply from runner…"
+			);
 		});
 	});
 
@@ -3290,7 +3469,9 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3379,7 +3560,9 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3410,7 +3593,7 @@ describe("SpaceLanding", () => {
 		});
 		expect(
 			within(failedAgentActivity).getByText(
-				"MYCC-Invoko could not complete this Wake on Ming Yoo's computer. Ask Ming Yoo to check OpenMeld Service and the local agent, then wake the agent again."
+				"MYCC-Invoko could not complete this Wake because its computer was not connected to OpenMeld at the time."
 			)
 		).toBeTruthy();
 		expect(
@@ -3487,7 +3670,9 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3507,7 +3692,7 @@ describe("SpaceLanding", () => {
 			const thinkingIndicator = within(
 				sourceMessageGroup as HTMLElement
 			).getByTestId("space-wake-thinking-indicator");
-			expect(thinkingIndicator.textContent).toContain("Agent is working");
+			expect(thinkingIndicator.textContent).toContain("runner is working");
 		});
 	});
 
@@ -3664,6 +3849,11 @@ describe("SpaceLanding", () => {
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
 				}
+				const spaceInboxUnreadTargetsResult =
+					resolveSpaceInboxUnreadTargetsQueryResult(options.queryKey);
+				if (spaceInboxUnreadTargetsResult) {
+					return spaceInboxUnreadTargetsResult;
+				}
 				const [scope, kind, spaceId] = options.queryKey;
 				if (kind === "account-spaces") {
 					return createQueryResult({
@@ -3801,7 +3991,9 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3810,7 +4002,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(
 				screen.getByTestId("space-wake-thinking-indicator").textContent
-			).toContain("Agent is working");
+			).toContain("runner is working");
 		});
 
 		view.rerender(
@@ -3839,7 +4031,7 @@ describe("SpaceLanding", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("Agent is working");
+		).toContain("runner is working");
 	});
 
 	it("does not show expired terminal Wake progress returned during history recovery", async () => {
@@ -3909,7 +4101,9 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -4024,7 +4218,7 @@ describe("SpaceLanding", () => {
 		});
 		expect(
 			within(failedAgentActivity).getByText(
-				"Codex is in this space, but OpenMeld cannot tell which local agent should reply for it yet."
+				"Codex could not complete this Wake."
 			)
 		).toBeTruthy();
 		const localAgentLink = within(failedAgentActivity).getByRole("link", {
@@ -4250,6 +4444,16 @@ describe("SpaceLanding", () => {
 	});
 
 	it("connects a local agent for failed Wake setup recovery", async () => {
+		const membersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createWorkspaceMissingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
+			wakeState: "offline",
+			wakeability: {
+				status: "blocked",
+				reasonCodes: ["runtime.projection_missing"],
+				reasonText: "Local setup is incomplete",
+			},
+		});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -4257,16 +4461,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentExecutionReadiness:
-						createRunPrepareAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
-					wakeState: "offline",
-					wakeability: {
-						status: "blocked",
-						reasonCodes: ["runtime.projection_missing"],
-						reasonText: "Local setup is incomplete",
-					},
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -4285,26 +4480,13 @@ describe("SpaceLanding", () => {
 							text: "@runner(wake) status check",
 							ts: RECENT_ACTIVITY_TS,
 						}),
-						createTextSignal({
+						createTerminalFailureNoticeSignal({
+							actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+							dispatchId: "dispatch-1",
 							id: "sig-route-failed",
+							replyToSignalId: "sig-user",
 							text: "Couldn't route @runner right now",
 							ts: RECENT_ACTIVITY_TS + 1,
-							meta: {
-								clientMessageId: "client-message-1",
-								dispatchId: "dispatch-1",
-								errorCode: "runtime.projection_missing",
-								purpose: DISPATCH_ACTIVITY_FAILED_PURPOSE,
-								sourceClientMessageId: "client-message-1",
-								sourceEventId: "sig-user",
-								targetMentionLabel: "runner",
-								targetProfileId: DEFAULT_AGENT_PROFILE_ID,
-								transient: true,
-							},
-							profile: {
-								kind: "system",
-								profileId: "openmeld-system",
-								profileName: "OpenMeld System",
-							},
 						}),
 					],
 					nextCursor: null,
@@ -4328,11 +4510,13 @@ describe("SpaceLanding", () => {
 		const failedAgentActivity = await screen.findByRole("region", {
 			name: "Runner activity",
 		});
-		expect(
-			within(failedAgentActivity)
-				.getByRole("link", { name: "Connect local agent" })
-				.getAttribute("href")
-		).toBe("/o/acme/connect?returnTo=space&session=fresh&spaceId=space-123");
+		const connectLocalAgent = await within(failedAgentActivity).findByRole(
+			"link",
+			{ name: "Connect local agent" }
+		);
+		expect(connectLocalAgent.getAttribute("href")).toBe(
+			"/o/acme/connect?returnTo=space&session=fresh&spaceId=space-123"
+		);
 	});
 
 	it("does not guess a local agent from the profile name when routing fails", () => {
@@ -4674,7 +4858,7 @@ describe("SpaceLanding", () => {
 		const panel = screen.getByRole("complementary", { name: "Members" });
 		expectSpaceAgentAvailabilityIndicator(panel, {
 			label: "Offline",
-			tooltip: "OpenMeld Service is not connected on this computer.",
+			tooltip: "Computer not connected",
 		});
 		expect(
 			within(panel).queryByRole("link", { name: "Reconnect OpenMeld Service" })
@@ -4709,7 +4893,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows both empty Space setup cards and opens the existing Add members flow", () => {
+	it("shows both empty Space setup cards and opens Add People or Agents", () => {
 		useLocalAgentRecoveryControllerMock.mockReturnValue({
 			localRuntimesQuery: {
 				data: { localRuntimes: [] },
@@ -4772,12 +4956,16 @@ describe("SpaceLanding", () => {
 				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
 			})
 		);
-		const membersPanel = screen.getByRole("dialog", { name: "Members" });
+		const addMembersDialog = screen.getByRole("dialog", {
+			name: "Add People or Agents",
+		});
 		expect(
-			within(membersPanel).getByRole("heading", { name: "Add members" })
+			within(addMembersDialog).getByRole("heading", {
+				name: "Add People or Agents",
+			})
 		).toBeTruthy();
 		expect(
-			within(membersPanel).getByRole("button", { name: "Create Agent" })
+			within(addMembersDialog).getByRole("button", { name: "New Agent" })
 		).toBeTruthy();
 	});
 
@@ -4821,17 +5009,178 @@ describe("SpaceLanding", () => {
 					profileName: "Mira",
 				}),
 			],
+			isCenterAgentDirectMessage: true,
 		});
 
 		expect(screen.queryByRole("region", { name: "Get set up" })).toBeNull();
 		expect(screen.queryByText("Connect this computer")).toBeNull();
 		expect(screen.queryByText("Bring your agents")).toBeNull();
 		expect(screen.queryByText("Add your first agent")).toBeNull();
+		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Join conversation first" })
+		).toBeNull();
 	});
 
-	it("moves a converted Direct Message to Spaces without waiting for cache reconciliation", async () => {
-		const pendingRefresh = new Promise<void>(() => undefined);
-		const invalidateQueriesMock = vi.fn().mockReturnValue(pendingRefresh);
+	it("lets an Agent owner view a Direct Message read-only and join explicitly", async () => {
+		const convertToSpaceMock = vi.fn().mockResolvedValue({
+			accessMode: "members_only",
+			addedMemberIds: [DEFAULT_SPACE_PROFILE_ID],
+			alreadyMemberIds: [],
+			convertedAt: "2026-09-02T00:00:00.000Z",
+			name: "Alice, Runner, and Mira",
+			spaceId: "space-123",
+		});
+		createDirectMessageApiMock.mockReturnValue({
+			convertToSpace: convertToSpaceMock,
+		});
+		const members = createMembersSnapshot({
+			defaultAgentOwnerName: "Mira",
+			defaultAgentOwnerUserId: "user-mira",
+			defaultAgentProfileName: "Runner",
+			defaultHumanOwnerName: "Alice",
+			defaultHumanOwnerUserId: "user-alice",
+		});
+		members.humans[0] = {
+			...members.humans[0],
+			profileId: "33333333-3333-4333-8333-333333333333",
+			profileName: "Alice",
+		};
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: {
+					...createSpaceStatus(),
+					accessMode: "members_only",
+					name: "Alice and Runner",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				},
+			}),
+			members: createQueryResult({ isSuccess: true, data: members }),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding({
+			accountProfiles: [
+				createLandingAccountProfile({
+					openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+					ownerUserId: "user-mira",
+					profileKind: "human",
+					profileName: "Mira",
+				}),
+			],
+		});
+
+		expect(screen.getByText("Mira can view")).toBeTruthy();
+		const composer = screen.getByRole("textbox", {
+			name: "Message Runner",
+		});
+		expect(composer.getAttribute("aria-placeholder")).toBe(
+			"You can view this Direct Message because you own Runner. Join to participate."
+		);
+		expect(
+			screen.getByText("Join the conversation to send the first message.")
+		).toBeTruthy();
+		const joinButtons = screen.getAllByRole("button", {
+			name: "Join conversation first",
+		});
+		expect(joinButtons).toHaveLength(2);
+		const composerSection = document.querySelector(
+			'[data-slot="space-composer-section"]'
+		);
+		expect(composerSection).not.toBeNull();
+		expect(
+			within(composerSection as HTMLElement).queryByRole("button", {
+				name: "Send message",
+			})
+		).toBeNull();
+		fireEvent.click(
+			within(composerSection as HTMLElement).getByRole("button", {
+				name: "Join conversation first",
+			})
+		);
+		expect(
+			screen.getByRole("heading", {
+				name: "Turn this Direct Message into a Space?",
+			})
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Turn into a Space" }));
+
+		await waitFor(() => {
+			expect(convertToSpaceMock).toHaveBeenCalledWith({
+				name: "Alice, Runner, and Mira",
+				profileIds: [DEFAULT_SPACE_PROFILE_ID],
+				spaceId: "space-123",
+			});
+		});
+	});
+
+	it("tells the active Direct Message participant that the Agent owner can view", () => {
+		const members = createMembersSnapshot({
+			defaultAgentOwnerName: "Mira",
+			defaultAgentOwnerUserId: "user-mira",
+			defaultAgentProfileName: "Runner",
+			defaultHumanOwnerName: "Alice",
+			defaultHumanOwnerUserId: "user-alice",
+		});
+		members.humans[0] = {
+			...members.humans[0],
+			profileId: "33333333-3333-4333-8333-333333333333",
+			profileName: "Alice",
+		};
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: {
+					...createSpaceStatus(),
+					accessMode: "members_only",
+					name: "Alice and Runner",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				},
+			}),
+			members: createQueryResult({ isSuccess: true, data: members }),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding({
+			accountProfiles: [
+				createLandingAccountProfile({
+					openMeldProfileId: "33333333-3333-4333-8333-333333333333",
+					ownerUserId: "user-alice",
+					profileKind: "human",
+					profileName: "Alice",
+				}),
+			],
+		});
+
+		expect(screen.getByText("Mira can view")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Join conversation first" })
+		).toBeNull();
+	});
+
+	it("keeps the joining Agent owner in membership cache while opening the converted Space", async () => {
+		const pendingInvalidation = new Promise<void>(() => undefined);
+		const invalidateQueriesMock = vi.fn().mockReturnValue(pendingInvalidation);
+		const members = createMembersSnapshot({
+			defaultAgentOwnerName: "Mira",
+			defaultAgentOwnerUserId: "user-mira",
+			defaultAgentProfileName: "Runner",
+			defaultHumanOwnerName: "Alice",
+			defaultHumanOwnerUserId: "user-alice",
+		}) as SpaceMembersSnapshot;
+		members.humans[0] = {
+			...members.humans[0],
+			profileId: "33333333-3333-4333-8333-333333333333",
+			profileName: "Alice",
+		};
+		let cachedMembers = members;
 		let cachedStatus: GetSpaceStatusResponse = {
 			...createSpaceStatus(),
 			accessMode: "members_only",
@@ -4860,8 +5209,19 @@ describe("SpaceLanding", () => {
 				},
 			],
 		};
+		let joiningProfileCachedAtNavigation = false;
+		let memberCountAtNavigation = 0;
 		const setQueryDataMock = vi.fn(
 			(queryKey: readonly unknown[], updater: unknown) => {
+				if (
+					queryKey[0] === "spaces" &&
+					queryKey[1] === "members" &&
+					typeof updater === "function"
+				) {
+					cachedMembers = (
+						updater as (members: SpaceMembersSnapshot) => SpaceMembersSnapshot
+					)(cachedMembers);
+				}
 				if (
 					queryKey[0] === "spaces" &&
 					queryKey[1] === "status" &&
@@ -4885,17 +5245,29 @@ describe("SpaceLanding", () => {
 		useQueryClientMock.mockReturnValue({
 			cancelQueries: vi.fn().mockResolvedValue(undefined),
 			fetchQuery: vi.fn().mockResolvedValue(undefined),
-			getQueryData: vi.fn(() => undefined),
+			getQueryData: vi.fn((queryKey: readonly unknown[]) =>
+				queryKey[0] === "spaces" && queryKey[1] === "members"
+					? cachedMembers
+					: undefined
+			),
 			invalidateQueries: invalidateQueriesMock,
 			resetQueries: vi.fn().mockResolvedValue(undefined),
 			setQueriesData: setQueriesDataMock,
 			setQueryData: setQueryDataMock,
 		});
 		useNavigateMock.mockImplementation(() => {
+			joiningProfileCachedAtNavigation = cachedMembers.humans.some(
+				(member) => member.profileId === DEFAULT_SPACE_PROFILE_ID
+			);
+			memberCountAtNavigation = cachedMembers.summary.totalCount;
 			expect(cachedStatus.directMessageConvertedAt).toBe(
 				"2026-08-08T00:00:00.000Z"
 			);
 			expect(cachedStatus.name).toBe("Launch Team");
+			expect(cachedStatus.members).toMatchObject({
+				humanCount: 2,
+				totalCount: 3,
+			});
 			expect(cachedAccountSections.spaceItems[0]).toMatchObject({
 				directMessageConvertedAt: "2026-08-08T00:00:00.000Z",
 				spaceName: "Launch Team",
@@ -4904,7 +5276,7 @@ describe("SpaceLanding", () => {
 		});
 		const convertToSpaceMock = vi.fn().mockResolvedValue({
 			accessMode: "members_only",
-			addedMemberIds: [SECOND_AGENT_PROFILE_ID],
+			addedMemberIds: [DEFAULT_SPACE_PROFILE_ID],
 			alreadyMemberIds: [],
 			convertedAt: "2026-08-08T00:00:00.000Z",
 			name: "Launch Team",
@@ -4918,10 +5290,7 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: cachedStatus,
 			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot(),
-			}),
+			members: createQueryResult({ isSuccess: true, data: members }),
 			history: createQueryResult({
 				isSuccess: true,
 				data: { envelopes: [], nextCursor: null },
@@ -4936,22 +5305,14 @@ describe("SpaceLanding", () => {
 					profileKind: "human",
 					profileName: "Mira",
 				}),
-				createLandingAccountProfile({
-					openMeldProfileId: SECOND_AGENT_PROFILE_ID,
-					ownerUserId: "user-mira",
-					profileKind: "agent",
-					profileName: "Scout",
-				}),
 			],
-			organizationScope: createOrganizationScope({ isPersonal: true }),
 		});
 
 		fireEvent.click(
-			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
+			screen.getAllByRole("button", {
+				name: "Join conversation first",
+			})[0] as Element
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add members" }));
-		fireEvent.click(screen.getByRole("checkbox", { name: SCOUT_OPTION_NAME }));
-		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), {
 			target: { value: "Launch Team" },
 		});
@@ -4960,17 +5321,21 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(convertToSpaceMock).toHaveBeenCalledWith({
 				name: "Launch Team",
-				profileIds: [SECOND_AGENT_PROFILE_ID],
+				profileIds: [DEFAULT_SPACE_PROFILE_ID],
 				spaceId: "space-123",
 			});
 		});
 		await flushPromiseQueue();
 
-		expect(useNavigateMock).toHaveBeenCalledWith({
-			replace: true,
-			search: { profileId: DEFAULT_SPACE_PROFILE_ID },
-			to: "/o/acme/spaces/space-123",
+		await waitFor(() => {
+			expect(useNavigateMock).toHaveBeenCalledWith({
+				replace: true,
+				search: { profileId: DEFAULT_SPACE_PROFILE_ID },
+				to: "/o/acme/spaces/space-123",
+			});
 		});
+		expect(joiningProfileCachedAtNavigation).toBe(true);
+		expect(memberCountAtNavigation).toBe(3);
 	});
 
 	it("shows only Connect this computer in a Direct Message with the user's own local Agent", () => {
@@ -5104,6 +5469,10 @@ describe("SpaceLanding", () => {
 			screen.queryByRole("button", {
 				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
 			})
+		).toBeNull();
+		expect(screen.queryByText(CAN_VIEW_TEXT_PATTERN)).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Join conversation first" })
 		).toBeNull();
 	});
 
@@ -5460,19 +5829,22 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentExecutionReadiness:
-						createRunPrepareAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
-					defaultAgentOwnerName: "Ming Yoo",
-					defaultAgentOwnerUserId: "user-ming",
-					defaultAgentRuntimeDeviceDisplayName: "Ming's MacBook Pro",
-					wakeState: "offline",
-					wakeability: {
-						status: "blocked",
-						reasonCodes: ["runtime.projection_missing"],
-						reasonText: "Local setup is incomplete",
-					},
-				}),
+				data: withDefaultAgentAgentWakeAvailability(
+					createMembersSnapshot({
+						defaultAgentExecutionReadiness:
+							createRunPrepareAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
+						defaultAgentOwnerName: "Ming Yoo",
+						defaultAgentOwnerUserId: "user-ming",
+						defaultAgentRuntimeDeviceDisplayName: "Ming's MacBook Pro",
+						wakeState: "offline",
+						wakeability: {
+							status: "blocked",
+							reasonCodes: ["runtime.projection_missing"],
+							reasonText: "Local setup is incomplete",
+						},
+					}) as SpaceMembersSnapshot,
+					createTestAgentAgentWakeAvailability("available_for_wake")
+				),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -5504,11 +5876,8 @@ describe("SpaceLanding", () => {
 			tooltip: "Available for Wake",
 		});
 		expect(within(panel).queryByText(LOCAL_SETUP_PREFERENCE_TEXT)).toBeNull();
-		expect(
-			within(panel).getByText(
-				"Controlled by Ming's MacBook Pro Codex · Owned by Ming Yoo"
-			)
-		).toBeTruthy();
+		expect(within(panel).queryByText(OWNED_BY_MING_PATTERN)).toBeNull();
+		expect(within(panel).queryByText(CONTROLLED_BY_PATTERN)).toBeNull();
 		expect(within(panel).queryByRole("link", { name: "Run setup" })).toBeNull();
 		expect(
 			within(panel).queryByRole("link", { name: "Check this computer again" })
@@ -5522,14 +5891,9 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByText("Controlled by Ming's MacBook Pro Codex")
 		).toBeTruthy();
-		expect(
-			screen.getAllByText(
-				"Controlled by Ming's MacBook Pro Codex · Owned by Ming Yoo"
-			).length
-		).toBe(1);
 	});
 
-	it("keeps owner attribution for a non-owned agent out of the member row", () => {
+	it("keeps a non-owned agent concise without repeating ownership", () => {
 		vi.stubGlobal(
 			"matchMedia",
 			createMatchMediaMock({ desktopMembersPanel: true })
@@ -5573,9 +5937,9 @@ describe("SpaceLanding", () => {
 		const panel = screen.getByRole("complementary", {
 			name: "Members",
 		});
-		expect(within(panel).getByText("Owned by Ming Yoo")).toBeTruthy();
+		expect(within(panel).getByText("Runner")).toBeTruthy();
+		expect(within(panel).queryByText("Owned by Ming Yoo")).toBeNull();
 		expect(within(panel).queryByText("managed by Ming Yoo")).toBeNull();
-		expect(screen.getAllByText("Owned by Ming Yoo").length).toBe(1);
 	});
 
 	it("does not show setup recovery when the space member is already wakeable", () => {
@@ -5740,10 +6104,7 @@ describe("SpaceLanding", () => {
 			within(dialog).getByRole("heading", { name: "Members" })
 		).toBeTruthy();
 		expect(
-			within(dialog).getByRole("heading", { name: "Agents" })
-		).toBeTruthy();
-		expect(
-			within(dialog).getByRole("heading", { name: "Humans" })
+			within(dialog).getByRole("heading", { name: "People & Agents" })
 		).toBeTruthy();
 		expect(within(dialog).getByText("@runner(wake)")).toBeTruthy();
 
@@ -5759,7 +6120,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(within(dialog).getByText("Runner")).toBeTruthy();
-			expect(within(dialog).queryByText("Mira")).toBeNull();
+			expect(within(dialog).getByText("Mira")).toBeTruthy();
 		});
 	});
 
@@ -5833,7 +6194,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(within(panel).getByText("Runner")).toBeTruthy();
-			expect(within(panel).queryByText("Mira")).toBeNull();
+			expect(within(panel).getByText("Mira")).toBeTruthy();
 		});
 
 		fireEvent.click(membersButton);
@@ -6311,11 +6672,7 @@ describe("SpaceLanding", () => {
 		expect(
 			within(panel).getAllByText("Connect local agent").length
 		).toBeGreaterThan(0);
-		expect(
-			within(panel).getByText(
-				"Connect a local agent before this profile can reply."
-			)
-		).toBeTruthy();
+		expect(within(panel).getByText("Needs connection")).toBeTruthy();
 		expect(
 			within(panel).queryByText("Local setup preference: Codex")
 		).toBeNull();
@@ -6356,20 +6713,23 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentMentionAlias: "codex",
-					defaultAgentProfileName: "Codex",
-					defaultAgentExecutionReadiness:
-						createActionRequiredLocalReadinessAgentExecutionReadiness(
-							DEFAULT_AGENT_PROFILE_ID
-						),
-					wakeState: "offline",
-					wakeability: {
-						status: "blocked",
-						reasonCodes: ["runtime.agent_controller_report_stale"],
-						reasonText: "Local readiness report is stale",
-					},
-				}),
+				data: withDefaultAgentAgentWakeAvailability(
+					createMembersSnapshot({
+						defaultAgentMentionAlias: "codex",
+						defaultAgentProfileName: "Codex",
+						defaultAgentExecutionReadiness:
+							createActionRequiredLocalReadinessAgentExecutionReadiness(
+								DEFAULT_AGENT_PROFILE_ID
+							),
+						wakeState: "offline",
+						wakeability: {
+							status: "blocked",
+							reasonCodes: ["runtime.agent_controller_report_stale"],
+							reasonText: "Local readiness report is stale",
+						},
+					}) as SpaceMembersSnapshot,
+					createTestAgentAgentWakeAvailability("available_for_wake")
+				),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -6519,20 +6879,23 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentMentionAlias: "codex",
-					defaultAgentProfileName: "Codex",
-					defaultAgentExecutionReadiness:
-						createStaleLocalReadinessAgentExecutionReadiness(
-							DEFAULT_AGENT_PROFILE_ID
-						),
-					wakeState: "offline",
-					wakeability: {
-						status: "blocked",
-						reasonCodes: ["runtime.agent_controller_report_stale"],
-						reasonText: "Local readiness report is stale",
-					},
-				}),
+				data: withDefaultAgentAgentWakeAvailability(
+					createMembersSnapshot({
+						defaultAgentMentionAlias: "codex",
+						defaultAgentProfileName: "Codex",
+						defaultAgentExecutionReadiness:
+							createStaleLocalReadinessAgentExecutionReadiness(
+								DEFAULT_AGENT_PROFILE_ID
+							),
+						wakeState: "offline",
+						wakeability: {
+							status: "blocked",
+							reasonCodes: ["runtime.agent_controller_report_stale"],
+							reasonText: "Local readiness report is stale",
+						},
+					}) as SpaceMembersSnapshot,
+					createTestAgentAgentWakeAvailability("available_for_wake")
+				),
 				refetch: membersRefetchMock,
 			}),
 			history: createQueryResult({
@@ -7288,9 +7651,10 @@ describe("SpaceLanding", () => {
 			within(panel).queryByText(WAITING_FOR_OPENMELD_SERVICE_PATTERN)
 		).toBeNull();
 		await waitFor(() => {
-			expect(
-				within(panel).getByText(ACTIVE_WAKE_SERVICE_WAITING_NOTE_PATTERN)
-			).toBeTruthy();
+			expectSpaceAgentAvailabilityIndicator(panel, {
+				label: "Waiting",
+				tooltip: "Wake waiting for this computer to reconnect",
+			});
 		});
 		await waitFor(() => {
 			expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
@@ -7415,7 +7779,9 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
 				clientMessageId: "client-message-1",
+				includePreviewText: true,
 				includeTiming: true,
+				includeWaitReason: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -8054,6 +8420,195 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("managed by Mira")).toBeNull();
 	});
 
+	it("uses current bootstrap Agent identity over stale unbound caches in the first frame", () => {
+		const members = createMembersSnapshot();
+		const history = {
+			envelopes: [
+				createTextSignal({
+					id: "sig-agent-bootstrap-identity",
+					profile: {
+						kind: "agent",
+						profileId: DEFAULT_AGENT_PROFILE_ID,
+						profileName: "Runner",
+					},
+					text: "Rendered from bootstrap",
+				}),
+			],
+			nextCursor: null,
+		};
+		mockSpaceQueries({
+			bootstrap: createQueryResult({
+				data: {
+					history,
+					members,
+					status: createSpaceStatus(),
+					threads: { previews: [], threads: [] },
+				},
+				isSuccess: true,
+			}),
+			status: createQueryResult({
+				data: createSpaceStatus(),
+				isSuccess: true,
+			}),
+			members: createQueryResult({
+				data: createMembersSnapshot({ defaultAgentControllerRef: null }),
+				isSuccess: true,
+			}),
+			history: createQueryResult({ data: history, isSuccess: true }),
+		});
+
+		renderSpaceLanding();
+
+		expect(
+			screen.getByTestId(
+				`space-agent-profile-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByTestId(
+				`space-agent-profile-fallback-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeNull();
+	});
+
+	it("does not write stale bootstrap Agent identity over newer restored history", async () => {
+		const queryClient = createTestQueryClient();
+		useQueryClientMock.mockReturnValue(queryClient);
+		const currentMembers = {
+			...createMembersSnapshot({
+				defaultAgentControllerRef: "builtin:claude",
+			}),
+			generatedAt: "2026-07-01T00:00:02.000Z",
+		};
+		const bootstrapMembers = {
+			...createMembersSnapshot({
+				defaultAgentControllerRef: "builtin:codex",
+			}),
+			generatedAt: "2026-07-01T00:00:01.000Z",
+		};
+		const currentSignal = {
+			...createTextSignal({
+				id: "sig-restored-newer-agent-identity",
+				profile: {
+					kind: "agent",
+					profileId: DEFAULT_AGENT_PROFILE_ID,
+					profileName: "Runner",
+				},
+				text: "Keep the restored identity current",
+			}),
+			profile: {
+				agentControllerRef: "builtin:claude",
+				kind: "agent",
+				profileId: DEFAULT_AGENT_PROFILE_ID,
+				profileName: "Runner",
+			},
+		} as SignalEnvelope;
+		const bootstrapSignal = {
+			...currentSignal,
+			profile: {
+				...currentSignal.profile,
+				agentControllerRef: "builtin:codex",
+			},
+		} as SignalEnvelope;
+		const currentHistory = {
+			envelopes: [currentSignal],
+			nextCursor: null,
+		};
+
+		queryClient.setQueryData(
+			spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
+			currentMembers
+		);
+		queryClient.setQueryData(
+			spaceQueryKeys.history("space-123", DEFAULT_SPACE_PROFILE_ID),
+			currentHistory
+		);
+		mockSpaceQueries({
+			bootstrap: createQueryResult({
+				data: {
+					history: {
+						envelopes: [bootstrapSignal],
+						nextCursor: null,
+					},
+					members: bootstrapMembers,
+					status: createSpaceStatus(),
+					threads: { previews: [], threads: [] },
+				},
+				isSuccess: true,
+			}),
+			history: createQueryResult({ data: currentHistory, isSuccess: true }),
+			members: createQueryResult({ data: currentMembers, isSuccess: true }),
+			status: createQueryResult({
+				data: createSpaceStatus(),
+				isSuccess: true,
+			}),
+		});
+
+		renderSpaceLanding({ queryClient });
+		await flushPromiseQueue();
+
+		expect(
+			queryClient
+				.getQueryData<{
+					envelopes: readonly SignalEnvelope[];
+				}>(spaceQueryKeys.history("space-123", DEFAULT_SPACE_PROFILE_ID))
+				?.envelopes.find(
+					(signal) => signal.id === "sig-restored-newer-agent-identity"
+				)?.profile.agentControllerRef
+		).toBe("builtin:claude");
+		queryClient.clear();
+	});
+
+	it("uses successful bootstrap Agent identity while the empty members query retains an error", () => {
+		const history = {
+			envelopes: [
+				createTextSignal({
+					id: "sig-agent-bootstrap-after-members-error",
+					profile: {
+						kind: "agent",
+						profileId: DEFAULT_AGENT_PROFILE_ID,
+						profileName: "Runner",
+					},
+					text: "Rendered after a stale members error",
+				}),
+			],
+			nextCursor: null,
+		};
+		mockSpaceQueries({
+			bootstrap: createQueryResult({
+				data: {
+					history,
+					members: createMembersSnapshot(),
+					status: createSpaceStatus(),
+					threads: { previews: [], threads: [] },
+				},
+				isSuccess: true,
+			}),
+			status: createQueryResult({
+				data: createSpaceStatus(),
+				isSuccess: true,
+			}),
+			members: createQueryResult({
+				error: new Error("stale members failure"),
+				isError: true,
+			}),
+			history: createQueryResult({ data: history, isSuccess: true }),
+		});
+
+		renderSpaceLanding();
+
+		expect(
+			screen.getByTestId(
+				`space-agent-profile-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByTestId(
+				`space-agent-profile-fallback-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeNull();
+	});
+
 	it("uses the Center Agent Dither identity in an ordinary Space", () => {
 		mockSpaceQueries({
 			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
@@ -8177,7 +8732,7 @@ describe("SpaceLanding", () => {
 		expect(targetList.className).toContain("max-h-[288px]");
 		expect(targetList.className).toContain("overflow-y-auto");
 		expect(within(targetList).getByText("Agents")).toBeTruthy();
-		expect(within(targetList).getByText("Humans")).toBeTruthy();
+		expect(within(targetList).getByText("People")).toBeTruthy();
 		expect(within(targetList).getByText("Runner")).toBeTruthy();
 		expect(within(targetList).getByText("Watcher")).toBeTruthy();
 		expect(within(targetList).getByText("Manual Agent")).toBeTruthy();
@@ -8308,16 +8863,157 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "@Runner wake please reply");
 
-		expect(screen.getByTestId("space-composer-profile-token")).toBeTruthy();
-		expect(screen.getByText("Waking 1 agent")).toBeTruthy();
+		const token = screen.getByTestId("space-composer-profile-token");
+		const relation = within(token).getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		expect(relation).toHaveProperty("value", "wake");
+		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
-	it("sends a Wake mention for a not-ready agent instead of blocking before send", async () => {
+	it("keeps a stale-Available Wake draft editable and sends it after switching to Reference", async () => {
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			currentDeviceTargetQuery: {
+				data: {
+					availability: "resolved",
+					deviceId: "device-office",
+				},
+			},
+			selectedTargetDevice: {
+				deviceId: "device-office",
+				deviceDisplayName: "Office Mac mini",
+			},
+			refreshAll: vi.fn().mockResolvedValue(undefined),
+			runtimeLane: "dev-local",
+			startStateQuery: {
+				data: createStartStateWithCodexCatalog(),
+			},
+		});
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
-				id: "sig-runner-wake",
-				text: "@Runner(wake) please reply",
+				id: "sig-runner-reference",
+				text: "@Runner please review this context",
 			})
+		);
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createMissingBindingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
+		}) as SpaceMembersSnapshot;
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		});
+		const setQueryDataMock = vi.fn(
+			(queryKey: readonly unknown[], snapshot: unknown) => {
+				if (
+					JSON.stringify(queryKey) ===
+						JSON.stringify(
+							spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
+						) &&
+					typeof snapshot === "object" &&
+					snapshot !== null &&
+					"humans" in snapshot &&
+					"agents" in snapshot
+				) {
+					Object.assign(membersResult, { data: snapshot });
+				}
+			}
+		);
+		useQueryClientMock.mockReturnValue({
+			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			fetchQuery: vi.fn().mockResolvedValue(undefined),
+			getQueryData: vi.fn(() => undefined),
+			invalidateQueries: vi.fn().mockResolvedValue(undefined),
+			resetQueries: vi.fn().mockResolvedValue(undefined),
+			setQueriesData: vi.fn(),
+			setQueryData: setQueryDataMock,
+		});
+		const currentBlockedReason =
+			currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary;
+		if (!currentBlockedReason) {
+			throw new Error(
+				"Expected current Core Wakeability reason in the fixture."
+			);
+		}
+		readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: membersResult,
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [],
+					nextCursor: null,
+				},
+			}),
+		});
+
+		renderSpaceLanding();
+
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await insertComposerMember(RUNNER_OPTION_NAME);
+		await appendComposerText(textarea, "please reply", "@Runner please reply");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledWith({
+				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+				spaceId: "space-123",
+			});
+			expect(
+				screen.getAllByText(currentBlockedReason).length
+			).toBeGreaterThanOrEqual(2);
+		});
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(readComposerValue(textarea)).toBe("@Runner please reply");
+		expect(textarea.getAttribute("contenteditable")).toBe("true");
+		expect(setQueryDataMock).toHaveBeenCalledWith(
+			spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
+			currentMembersSnapshot
+		);
+		expect(
+			screen.getByRole("link", { name: "Choose local agent" })
+		).toBeTruthy();
+
+		const relationControl = screen.getByRole("combobox", {
+			name: "Change relation for Runner",
+		});
+		fireEvent.change(relationControl, { target: { value: "reference" } });
+		const sendButton = screen.getByRole("button", { name: "Send message" });
+		await waitFor(() => {
+			expect((sendButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		fireEvent.click(sendButton);
+
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				messageEnvelope: {
+					activationTargets: [],
+					mentionTargets: [],
+					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
+					text: "@Runner please reply",
+				},
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "@Runner please reply",
+				timeoutMs: 30_000,
+			});
+		});
+		expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+	});
+
+	it("preserves a Wake draft when the current readiness check fails", async () => {
+		const postNormalMessageMock = vi.fn();
+		readSpaceMembersMock.mockRejectedValueOnce(
+			new Error("network unavailable")
 		);
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
@@ -8329,43 +9025,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					defaultAgentControllerRef: "builtin:codex",
-					defaultAgentExecutionReadiness:
-						createSpaceMemberAgentExecutionReadiness({
-							agentProfileId: DEFAULT_AGENT_PROFILE_ID,
-							displayState: "not_ready",
-							facts: {
-								binding: {
-									reasonCodes: [],
-									routable: true,
-									source: "binding_truth",
-								},
-								claim: {
-									executionBlocked: false,
-									grantsClaimSuccess: false,
-									reasonCodes: [],
-									source: "not_checked",
-								},
-								route: {
-									deviceId: "device-office",
-									observedAt: "2026-04-29T00:00:00.000Z",
-									online: true,
-									reasonCodes: [],
-									source: "daemon_route",
-								},
-								runtime: {
-									ready: false,
-									reasonCodes: ["runtime.projection_missing"],
-									source: "missing",
-								},
-							},
-							primaryAction: "run_prepare",
-							reasonCodes: ["runtime.projection_missing"],
-						}),
-					defaultAgentMentionAlias: "runner",
-					defaultAgentProfileName: "Runner",
-				}),
+				data: createMembersSnapshot(),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -8381,30 +9041,26 @@ describe("SpaceLanding", () => {
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
 		});
-		await setComposerValue(textarea, "@Runner(wake) please reply");
+		await insertComposerMember(RUNNER_OPTION_NAME);
+		await appendComposerText(
+			textarea,
+			"keep this draft",
+			"@Runner keep this draft"
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-		await waitFor(() => {
-			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				messageEnvelope: {
-					activationTargets: ["agt_22222222-2222-2222-2222-222222222222"],
-					mentionTargets: [],
-					referenceTargets: [],
-					text: "@Runner(wake) please reply",
-				},
-				meta: {
-					clientMessageId: expect.any(String),
-				},
-				spaceId: "space-123",
-				text: "@Runner(wake) please reply",
-				timeoutMs: 30_000,
-			});
-		});
-		expect(
-			screen.queryByText(
-				'"Runner" cannot reply yet: OpenMeld needs current local agent capability from this computer.'
-			)
-		).toBeNull();
+		const errorMessage = await screen.findByText(
+			"OpenMeld couldn't confirm that this agent can reply right now. Try again."
+		);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(readComposerValue(textarea)).toBe("@Runner keep this draft");
+		expect(textarea.getAttribute("contenteditable")).toBe("true");
+		const errorSurface = errorMessage.parentElement;
+		if (!errorSurface) {
+			throw new Error("Expected the Composer error surface.");
+		}
+		expect(within(errorSurface).queryByRole("button")).toBeNull();
+		expect(within(errorSurface).queryByRole("link")).toBeNull();
 	});
 
 	it("inserts a bare Wake mention when an agent is selected", async () => {
@@ -8627,8 +9283,17 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows a quiet summary for multiple structured targets", async () => {
+	it("keeps multiple structured targets self-explanatory without a duplicate summary", async () => {
 		const reviewerProfileId = "agt_33333333-3333-4333-8333-333333333333";
+		const membersSnapshot = createMembersSnapshot({
+			extraAgents: [
+				{
+					mentionAlias: "reviewer",
+					profileId: reviewerProfileId,
+					profileName: "Reviewer",
+				},
+			],
+		});
 		const postNormalMessageMock = vi.fn().mockResolvedValue(
 			createTextSignal({
 				id: "sig-multi-wake",
@@ -8645,15 +9310,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "reviewer",
-							profileId: reviewerProfileId,
-							profileName: "Reviewer",
-						},
-					],
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -8663,6 +9320,7 @@ describe("SpaceLanding", () => {
 				},
 			}),
 		});
+		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 
 		renderSpaceLanding();
 
@@ -8676,7 +9334,10 @@ describe("SpaceLanding", () => {
 
 		await insertComposerMember(REVIEWER_OPTION_NAME, "Rev");
 
-		expect(await screen.findByText("Waking 2 agents")).toBeTruthy();
+		expect(screen.getAllByTestId("space-composer-profile-token")).toHaveLength(
+			2
+		);
+		expect(screen.queryByText("Waking 2 agents")).toBeNull();
 
 		await appendComposerText(
 			textarea,
@@ -8872,6 +9533,11 @@ describe("SpaceLanding", () => {
 				);
 				if (organizationSpacesResult) {
 					return organizationSpacesResult;
+				}
+				const spaceInboxUnreadTargetsResult =
+					resolveSpaceInboxUnreadTargetsQueryResult(options.queryKey);
+				if (spaceInboxUnreadTargetsResult) {
+					return spaceInboxUnreadTargetsResult;
 				}
 				if (
 					queryKey ===
@@ -9216,6 +9882,47 @@ describe("SpaceLanding", () => {
 				.getByRole("log", { name: "Conversation history" })
 				.getAttribute("aria-busy")
 		).toBe("false");
+	});
+
+	it("keeps an unresolved cached Agent identity as a placeholder while bootstrap loads", () => {
+		mockSpaceQueries({
+			bootstrap: createQueryResult({ isPending: true }),
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({ isPending: true }),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [
+						createTextSignal({
+							id: "sig-saved-agent-history",
+							profile: {
+								kind: "agent",
+								profileId: DEFAULT_AGENT_PROFILE_ID,
+								profileName: "Runner",
+							},
+							text: "Visible from the saved browser view",
+						}),
+					],
+					nextCursor: null,
+				},
+			}),
+		});
+
+		renderSpaceLanding();
+
+		expect(
+			screen.getByTestId(
+				`space-agent-profile-pending-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByTestId(
+				`space-agent-profile-fallback-avatar-${DEFAULT_AGENT_PROFILE_ID}`
+			)
+		).toBeNull();
 	});
 
 	it("routes live thread replies to thread state instead of the main conversation", async () => {
@@ -10054,7 +10761,7 @@ describe("SpaceLanding", () => {
 		});
 		expectSpaceAgentAvailabilityIndicator(blockedPanel, {
 			label: "Offline",
-			tooltip: "OpenMeld Service is not connected on this computer.",
+			tooltip: "Computer not connected",
 		});
 		expect(
 			within(blockedPanel).queryByText("Reconnect OpenMeld Service")
@@ -10178,7 +10885,7 @@ describe("SpaceLanding", () => {
 		});
 		expectSpaceAgentAvailabilityIndicator(blockedPanel, {
 			label: "Offline",
-			tooltip: "OpenMeld Service is not connected on this computer.",
+			tooltip: "Computer not connected",
 		});
 		expect(
 			within(blockedPanel).queryByText("Reconnect OpenMeld Service")
@@ -10221,7 +10928,7 @@ describe("SpaceLanding", () => {
 		});
 		expectSpaceAgentAvailabilityIndicator(checkingPanel, {
 			label: "Offline",
-			tooltip: "OpenMeld Service is not connected on this computer.",
+			tooltip: "Computer not connected",
 		});
 		expect(
 			within(checkingPanel).queryByRole("link", {
@@ -10456,6 +11163,8 @@ describe("SpaceLanding", () => {
 			}
 		);
 		useQueryClientMock.mockReturnValue({
+			getQueryCache: vi.fn(() => ({ find: vi.fn(() => null) })),
+			getQueryData: vi.fn(),
 			invalidateQueries: invalidateQueriesMock,
 			setQueryData: vi.fn(),
 		});
@@ -10581,6 +11290,8 @@ describe("SpaceLanding", () => {
 			.fn()
 			.mockRejectedValue(new Error("members refresh failed"));
 		useQueryClientMock.mockReturnValue({
+			getQueryCache: vi.fn(() => ({ find: vi.fn(() => null) })),
+			getQueryData: vi.fn(),
 			invalidateQueries: invalidateQueriesMock,
 			setQueryData: vi.fn(),
 		});
@@ -10695,6 +11406,8 @@ describe("SpaceLanding", () => {
 		const statusRefetchMock = vi.fn().mockResolvedValue(undefined);
 		const membersRefetchMock = vi.fn().mockResolvedValue(undefined);
 		useQueryClientMock.mockReturnValue({
+			getQueryCache: vi.fn(() => ({ find: vi.fn(() => null) })),
+			getQueryData: vi.fn(),
 			invalidateQueries: invalidateQueriesMock,
 			setQueryData: vi.fn(),
 		});
@@ -12531,6 +13244,83 @@ describe("SpaceLanding", () => {
 		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
 	});
 
+	it("checks current Wakeability before publishing selected files", async () => {
+		const postNormalMessageMock = vi.fn();
+		const publishComposerUploadMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		const currentBlockedReason =
+			currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary;
+		if (!currentBlockedReason) {
+			throw new Error(
+				"Expected current Core Wakeability reason in the fixture."
+			);
+		}
+		readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		createWebSpaceApiMock.mockReturnValue({
+			discardComposerUpload: vi.fn().mockResolvedValue(undefined),
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: vi.fn().mockImplementation((input) =>
+				Promise.resolve(
+					createSpaceComposerUpload({
+						id: input.uploadId,
+						mimeType: input.mimeType,
+						name: input.name,
+						sizeBytes: input.bytes.size,
+					})
+				)
+			),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
+			},
+		});
+		await screen.findByText("Ready");
+
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await insertComposerMember(RUNNER_OPTION_NAME);
+		await appendComposerText(
+			textarea,
+			"review these notes",
+			"@Runner review these notes"
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(screen.getByText(currentBlockedReason)).toBeTruthy();
+		});
+		expect(publishComposerUploadMock).not.toHaveBeenCalled();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(screen.getByText("Ready")).toBeTruthy();
+		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
+	});
+
 	it("keeps a file-only Composer open when its staged file cannot be published", async () => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
@@ -13003,7 +13793,9 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = within(
 			sourceMessageGroup as HTMLElement
 		).getByTestId("space-wake-thinking-indicator");
-		expect(wakeThinkingIndicator.textContent).toContain("Starting Wake…");
+		expect(wakeThinkingIndicator.textContent).toContain(
+			"Starting Wake for runner…"
+		);
 
 		await act(async () => {
 			resolvePost?.(
@@ -13014,6 +13806,57 @@ describe("SpaceLanding", () => {
 			);
 			await Promise.resolve();
 		});
+	});
+
+	it("keeps an Agent Direct Message draft when its automatic Wake is currently blocked", async () => {
+		const postNormalMessageMock = vi.fn();
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		const currentBlockedReason =
+			currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary;
+		if (!currentBlockedReason) {
+			throw new Error(
+				"Expected current Core Wakeability reason in the fixture."
+			);
+		}
+		readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: {
+					...createSpaceStatus(),
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				},
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+
+		const composer = screen.getByRole("textbox", { name: "Message Runner" });
+		await setComposerValue(composer, "Keep this Direct Message draft");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(screen.getByText(currentBlockedReason)).toBeTruthy();
+		});
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(readComposerValue(composer)).toBe("Keep this Direct Message draft");
+		expect(composer.getAttribute("contenteditable")).toBe("true");
 	});
 
 	it("removes the outgoing normal message when the send fails", async () => {
@@ -13530,6 +14373,16 @@ describe("SpaceLanding", () => {
 	});
 
 	it("sends picker-authored bare mentions with a structured message envelope and reorders recent mentions after success", async () => {
+		const watcherProfileId = "agt_33333333-3333-3333-3333-333333333333";
+		const membersSnapshot = createMembersSnapshot({
+			extraAgents: [
+				{
+					mentionAlias: "watcher",
+					profileId: watcherProfileId,
+					profileName: "Watcher",
+				},
+			],
+		});
 		const postNormalMessageMock = vi.fn().mockImplementation((input) =>
 			Promise.resolve(
 				createTextSignal({
@@ -13550,15 +14403,7 @@ describe("SpaceLanding", () => {
 			}),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "watcher",
-							profileId: "agt_33333333-3333-3333-3333-333333333333",
-							profileName: "Watcher",
-						},
-					],
-				}),
+				data: membersSnapshot,
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -13577,13 +14422,14 @@ describe("SpaceLanding", () => {
 							createWakeTarget({
 								status: "running",
 								targetLabel: "@watcher",
-								targetProfileId: "agt_33333333-3333-3333-3333-333333333333",
+								targetProfileId: watcherProfileId,
 							}),
 						],
 					}),
 				}),
 			},
 		});
+		readSpaceMembersMock.mockResolvedValue(membersSnapshot);
 
 		renderSpaceLanding();
 
@@ -13600,7 +14446,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				messageEnvelope: {
-					activationTargets: ["agt_33333333-3333-3333-3333-333333333333"],
+					activationTargets: [watcherProfileId],
 					mentionTargets: [],
 					referenceTargets: [],
 					text: "@Watcher hello there",
@@ -13637,7 +14483,7 @@ describe("SpaceLanding", () => {
 		const wakeThinkingIndicator = within(
 			sourceMessageGroup as HTMLElement
 		).getByTestId("space-wake-thinking-indicator");
-		expect(wakeThinkingIndicator.textContent).toContain("Sending to agent");
+		expect(wakeThinkingIndicator.textContent).toContain("Wake sent to watcher");
 		fireEvent.click(wakeThinkingIndicator);
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })
@@ -13728,6 +14574,22 @@ describe("SpaceLanding", () => {
 	});
 
 	it("opens an Inbox source at the exact loaded Space message", () => {
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.getAttribute("role") === "log") {
+					return createDomRect({ bottom: 500, top: 0 });
+				}
+				if (this.hasAttribute("data-signal-id")) {
+					const conversation = this.closest<HTMLElement>("[role='log']");
+					const scrollTop = conversation?.scrollTop ?? 0;
+					return createDomRect({
+						bottom: 760 - scrollTop,
+						top: 700 - scrollTop,
+					});
+				}
+				return createDomRect({ bottom: 0, top: 0 });
+			});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -13758,10 +14620,11 @@ describe("SpaceLanding", () => {
 		);
 		expect(target?.getAttribute("data-highlighted")).toBe("true");
 		expect(target?.className).toContain("motion-reduce:transition-none");
-		expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
-			block: "center",
-		});
+		expect(
+			screen.getByRole("log", { name: "Conversation history" }).scrollTop
+		).toBe(480);
 		expect(document.activeElement).toBe(target);
+		rectSpy.mockRestore();
 	});
 
 	it("opens a terminal Wake failure Inbox target at the source message that presents its outcome", () => {
@@ -14674,331 +15537,27 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("retries a single-target anchored execution failure as a new Wake", async () => {
-		const sourceText = "@Scout check the release build";
-		const postNormalMessageMock = vi.fn().mockResolvedValue(
-			createTextSignal({
-				id: "sig-retried-wake",
-				messageEnvelope: {
-					activationTargets: [SECOND_AGENT_PROFILE_ID],
-					referenceTargets: [],
-					text: sourceText,
-				},
-				text: sourceText,
-			})
-		);
+	it("does not execute an older Core fresh Wake through execution recovery", async () => {
+		const inspectExecutionRecovery = vi.fn().mockResolvedValue({
+			recovery: createLegacyFreshExecutionRecovery({
+				dispatchId: "dispatch-legacy-fresh",
+				targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			}),
+		});
+		const executeExecutionRecovery = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
-			getWakeProgress: vi.fn().mockResolvedValue({
-				items: [],
-				query: {
-					clientMessageId: "client-message-original",
-					spaceId: "space-123",
-					targetProfileId: null,
-				},
-			}),
-			postNormalMessage: postNormalMessageMock,
-		});
-		mockSpaceQueries({
-			status: createQueryResult({
-				isSuccess: true,
-				data: createSpaceStatus(),
-			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "scout",
-							profileId: SECOND_AGENT_PROFILE_ID,
-							profileName: "Scout",
-						},
-					],
-				}),
-			}),
-			history: createQueryResult({
-				isSuccess: true,
-				data: {
-					envelopes: [
-						createTextSignal({
-							id: "sig-source-wake",
-							messageEnvelope: {
-								activationTargets: [SECOND_AGENT_PROFILE_ID],
-								referenceTargets: [],
-								text: sourceText,
-							},
-							meta: { clientMessageId: "client-message-original" },
-							text: sourceText,
-						}),
-						createTerminalFailureNoticeSignal({
-							actorProfileId: SECOND_AGENT_PROFILE_ID,
-							dispatchId: null,
-							failureStage: "execution",
-							id: "sig-scout-failure",
-							replyToSignalId: "sig-source-wake",
-							text: "Scout could not complete this Wake.",
-						}),
-					],
-					nextCursor: null,
-				},
-			}),
-			messageDetailsBySignalId: {
-				"sig-source-wake": createMessageDetailsQueryResult({
-					signalId: "sig-source-wake",
-				}),
-			},
-		});
-
-		renderSpaceLanding();
-
-		const sourceMessage = document.querySelector(
-			'[data-signal-id="sig-source-wake"]'
-		);
-		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
-		if (!sourceRow) {
-			throw new Error("Expected the failed Wake source message row.");
-		}
-		fireEvent.click(
-			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
-			})
-		);
-		const messageDetailsDialog = await screen.findByRole("dialog", {
-			name: "Message details",
-		});
-		fireEvent.click(
-			within(messageDetailsDialog).getByRole("button", {
-				name: "Retry as new execution",
-			})
-		);
-
-		await waitFor(() => {
-			expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
-		});
-		const postInput = postNormalMessageMock.mock.calls[0]?.[0];
-		expect(postInput).toEqual({
-			messageEnvelope: {
-				activationTargets: [SECOND_AGENT_PROFILE_ID],
-				referenceTargets: [],
-				text: sourceText,
-			},
-			meta: {
-				clientMessageId: expect.any(String),
-			},
-			spaceId: "space-123",
-			text: sourceText,
-			timeoutMs: 30_000,
-		});
-		expect(postInput.meta.clientMessageId).not.toBe("client-message-original");
-		await waitFor(() => {
-			expect(
-				document.querySelector('[data-signal-id="sig-retried-wake"]')
-			).not.toBeNull();
-			expect(toastMock.success).toHaveBeenCalledWith("Retried");
-			expect(
-				screen.queryByRole("heading", { name: "Message details" })
-			).toBeNull();
-		});
-	});
-
-	it("keeps an outcome-unknown Wake Retry under one client message identity", async () => {
-		const sourceText = "@Scout check the release build";
-		const hangingRequest = createHangingFetchRequest();
-		const postNormalMessageMock = vi.fn(
-			async (input: Parameters<SpaceApi["postNormalMessage"]>[0]) =>
-				await hangingRequest.request({
-					operation: "space.retry-wake",
-					timeoutMs: input.timeoutMs,
-				})
-		);
-		createWebSpaceApiMock.mockReturnValue({
+			executeExecutionRecovery,
+			getActiveWakeProgress: vi.fn().mockResolvedValue({ items: [] }),
 			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
 			getWakeProgress: vi.fn().mockResolvedValue({
 				items: [],
 				query: {
-					clientMessageId: "client-message-original",
+					clientMessageId: "client-message-legacy-fresh",
 					spaceId: "space-123",
 					targetProfileId: null,
 				},
 			}),
-			postNormalMessage: postNormalMessageMock,
-		});
-		mockSpaceQueries({
-			status: createQueryResult({
-				isSuccess: true,
-				data: createSpaceStatus(),
-			}),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot({
-					extraAgents: [
-						{
-							mentionAlias: "scout",
-							profileId: SECOND_AGENT_PROFILE_ID,
-							profileName: "Scout",
-						},
-					],
-				}),
-			}),
-			history: createQueryResult({
-				isSuccess: true,
-				data: {
-					envelopes: [
-						createTextSignal({
-							id: "sig-source-wake",
-							messageEnvelope: {
-								activationTargets: [SECOND_AGENT_PROFILE_ID],
-								referenceTargets: [],
-								text: sourceText,
-							},
-							meta: { clientMessageId: "client-message-original" },
-							text: sourceText,
-						}),
-						createTerminalFailureNoticeSignal({
-							actorProfileId: SECOND_AGENT_PROFILE_ID,
-							dispatchId: null,
-							failureStage: "execution",
-							id: "sig-scout-failure",
-							replyToSignalId: "sig-source-wake",
-							text: "Scout could not complete this Wake.",
-						}),
-					],
-					nextCursor: null,
-				},
-			}),
-			messageDetailsBySignalId: {
-				"sig-source-wake": createMessageDetailsQueryResult({
-					signalId: "sig-source-wake",
-				}),
-			},
-		});
-
-		renderSpaceLanding();
-
-		const sourceMessage = document.querySelector(
-			'[data-signal-id="sig-source-wake"]'
-		);
-		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
-		if (!sourceRow) {
-			throw new Error("Expected the failed Wake source message row.");
-		}
-		fireEvent.click(
-			within(sourceRow as HTMLElement).getByRole("button", {
-				name: "Message details",
-			})
-		);
-		const messageDetailsDialog = await screen.findByRole("dialog", {
-			name: "Message details",
-		});
-		fireEvent.click(
-			within(messageDetailsDialog).getByRole("button", {
-				name: "Retry as new execution",
-			})
-		);
-
-		await waitFor(() => {
-			expect(hangingRequest.fetchMock).toHaveBeenCalledTimes(1);
-		});
-		await act(async () => {
-			hangingRequest.abortForTimeout();
-			await Promise.resolve();
-		});
-		await waitFor(() => {
-			expect(hangingRequest.fetchMock).toHaveBeenCalledTimes(2);
-		});
-		await act(async () => {
-			hangingRequest.abortForTimeout();
-			await Promise.resolve();
-		});
-
-		const unconfirmedRetryButton = await within(
-			messageDetailsDialog
-		).findByRole("button", {
-			name: "New execution not confirmed. Try again",
-		});
-		expect(toastMock.warning).toHaveBeenCalledWith(
-			"OpenMeld couldn't confirm this message yet. It may still appear in the Space, so wait a moment before sending it again."
-		);
-		expect(toastMock.error).not.toHaveBeenCalled();
-		expect(postNormalMessageMock.mock.calls[1]?.[0]).toEqual(
-			postNormalMessageMock.mock.calls[0]?.[0]
-		);
-		const retryClientMessageId =
-			postNormalMessageMock.mock.calls[0]?.[0].meta?.clientMessageId;
-		expect(retryClientMessageId).toEqual(expect.any(String));
-
-		fireEvent.click(unconfirmedRetryButton);
-		await waitFor(() => {
-			expect(hangingRequest.fetchMock).toHaveBeenCalledTimes(3);
-		});
-		expect(postNormalMessageMock.mock.calls[2]?.[0].meta?.clientMessageId).toBe(
-			retryClientMessageId
-		);
-		await act(async () => {
-			hangingRequest.abortForTimeout();
-			await Promise.resolve();
-		});
-		await waitFor(() => {
-			expect(hangingRequest.fetchMock).toHaveBeenCalledTimes(4);
-		});
-		expect(postNormalMessageMock.mock.calls[3]?.[0].meta?.clientMessageId).toBe(
-			retryClientMessageId
-		);
-		await act(async () => {
-			hangingRequest.abortForTimeout();
-			await Promise.resolve();
-		});
-	});
-
-	it("retries a failed Wake inside its originating thread", async () => {
-		const sourceText = "@runner(wake) continue the thread review";
-		const postNormalMessageMock = vi.fn();
-		const postThreadSignalMock = vi.fn().mockResolvedValue({
-			placement: {
-				createdAt: "2026-04-11T00:00:00.000Z",
-				placement: "thread",
-				signalId: "sig-thread-retried-wake",
-				threadId: "thread-1",
-			},
-			signal: createTextSignal({
-				id: "sig-thread-retried-wake",
-				messageEnvelope: {
-					activationTargets: [DEFAULT_AGENT_PROFILE_ID],
-					referenceTargets: [],
-					text: sourceText,
-				},
-				text: sourceText,
-			}),
-		});
-		createWebSpaceApiMock.mockReturnValue({
-			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
-			getWakeProgress: vi.fn().mockResolvedValue({
-				items: [],
-				query: {
-					clientMessageId: "client-message-original",
-					spaceId: "space-123",
-					targetProfileId: null,
-				},
-			}),
-			postNormalMessage: postNormalMessageMock,
-			postThreadSignal: postThreadSignalMock,
-		});
-		const threadWakeSource = createTextSignal({
-			id: "sig-thread-wake-source",
-			messageEnvelope: {
-				activationTargets: [DEFAULT_AGENT_PROFILE_ID],
-				referenceTargets: [],
-				text: sourceText,
-			},
-			meta: { clientMessageId: "client-message-original" },
-			text: sourceText,
-		});
-		const threadFailure = createTerminalFailureNoticeSignal({
-			actorProfileId: DEFAULT_AGENT_PROFILE_ID,
-			dispatchId: null,
-			failureStage: "execution",
-			id: "sig-thread-wake-failure",
-			replyToSignalId: threadWakeSource.id,
-			text: "Runner could not complete this Wake.",
+			inspectExecutionRecovery,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -15011,85 +15570,197 @@ describe("SpaceLanding", () => {
 			}),
 			history: createQueryResult({
 				isSuccess: true,
-				data: { envelopes: [threadWakeSource], nextCursor: null },
-			}),
-			threadSignals: createQueryResult({
-				isSuccess: true,
-				data: { signals: [threadWakeSource, threadFailure] },
-			}),
-			threads: createQueryResult({
-				isSuccess: true,
 				data: {
-					threads: [
-						{
-							createdAt: "2026-04-11T00:00:00.000Z",
-							createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
-							rootSignalId: threadWakeSource.id,
-							spaceId: "space-123",
-							threadId: "thread-1",
-							updatedAt: "2026-04-11T00:00:00.000Z",
-						},
+					envelopes: [
+						createTextSignal({
+							id: "sig-legacy-fresh-source",
+							messageEnvelope: {
+								activationTargets: [DEFAULT_AGENT_PROFILE_ID],
+								referenceTargets: [],
+								text: "@Runner finish the report",
+							},
+							text: "@Runner finish the report",
+						}),
+						createTerminalFailureNoticeSignal({
+							actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+							dispatchId: "dispatch-legacy-fresh",
+							id: "sig-legacy-fresh-failure",
+							replyToSignalId: "sig-legacy-fresh-source",
+							text: "Runner could not complete this Wake.",
+						}),
 					],
+					nextCursor: null,
 				},
 			}),
+			messageDetailsBySignalId: {
+				"sig-legacy-fresh-source": createMessageDetailsQueryResult({
+					signalId: "sig-legacy-fresh-source",
+				}),
+			},
 		});
 
 		renderSpaceLanding();
 
-		const rootMessage = screen
-			.getByText(sourceText)
-			.closest("[data-signal-id]");
-		expect(rootMessage).not.toBeNull();
-		fireEvent.mouseEnter(rootMessage as HTMLElement);
-		fireEvent.click(
-			within(rootMessage as HTMLElement).getAllByRole("button", {
-				name: "Open thread",
-			})[0] as HTMLElement
+		const sourceMessage = document.querySelector(
+			'[data-signal-id="sig-legacy-fresh-source"]'
 		);
-		const threadPanel = screen.getByLabelText("Thread");
-		const threadSourceMessage = threadPanel.querySelector(
-			'[data-signal-id="sig-thread-wake-source"]'
-		);
-		const threadSourceRow = threadSourceMessage?.closest(
-			"[data-message-row-id]"
-		);
-		if (!threadSourceRow) {
-			throw new Error("Expected the failed Wake source row in the thread.");
+		const sourceRow = sourceMessage?.closest("[data-message-row-id]");
+		if (!sourceRow) {
+			throw new Error("Expected the failed Wake source message row.");
 		}
 		fireEvent.click(
-			within(threadSourceRow as HTMLElement).getByRole("button", {
+			within(sourceRow as HTMLElement).getByRole("button", {
 				name: "Message details",
 			})
 		);
-		const messageDetailsDialog = await screen.findByRole("dialog", {
-			name: "Message details",
-		});
-		fireEvent.click(
-			await within(messageDetailsDialog).findByRole("button", {
-				name: "Retry as new execution",
-			})
+		await screen.findByRole("dialog", { name: "Message details" });
+		await waitFor(() =>
+			expect(inspectExecutionRecovery).toHaveBeenCalledOnce()
 		);
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
+		expect(executeExecutionRecovery).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		false,
+		true,
+	])("keeps historical Wake failures diagnostic-only (thread: %s)", async (thread) => {
+		const postNormalMessageMock = vi.fn();
+		const postThreadSignalMock = vi.fn();
+		const dialog = await openHistoricalWakeFailure({
+			postNormalMessageMock,
+			postThreadSignalMock,
+			stageComposerUploadMock: vi.fn(),
+			thread,
+		});
+		expect(
+			within(dialog).queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(postThreadSignalMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"blocked",
+		"network failure",
+	] as const)("blocks Agent Direct Message programmatic thread text before publication when current Wakeability is %s", async (failureKind) => {
+		const postThreadSignalMock = vi.fn();
+		const stageComposerUploadMock = vi.fn();
+		const initialMembersSnapshot =
+			createMembersSnapshot() as SpaceMembersSnapshot;
+		const membersResult = createQueryResult({
+			isSuccess: true,
+			data: initialMembersSnapshot,
+		});
+		const currentMembersSnapshot = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createMissingBindingAgentExecutionReadiness(DEFAULT_AGENT_PROFILE_ID),
+		}) as SpaceMembersSnapshot;
+		const setQueryDataMock = vi.fn(
+			(queryKey: readonly unknown[], snapshot: unknown) => {
+				if (
+					JSON.stringify(queryKey) ===
+						JSON.stringify(
+							spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID)
+						) &&
+					typeof snapshot === "object" &&
+					snapshot !== null &&
+					"humans" in snapshot &&
+					"agents" in snapshot
+				) {
+					Object.assign(membersResult, { data: snapshot });
+				}
+			}
+		);
+		useQueryClientMock.mockReturnValue({
+			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			fetchQuery: vi.fn().mockResolvedValue(undefined),
+			getQueryData: vi.fn(() => undefined),
+			invalidateQueries: vi.fn().mockResolvedValue(undefined),
+			resetQueries: vi.fn().mockResolvedValue(undefined),
+			setQueriesData: vi.fn(),
+			setQueryData: setQueryDataMock,
+		});
+		if (failureKind === "blocked") {
+			useLocalAgentRecoveryControllerMock.mockReturnValue({
+				currentDeviceTargetQuery: {
+					data: {
+						availability: "resolved",
+						deviceId: "device-office",
+					},
+				},
+				selectedTargetDevice: {
+					deviceId: "device-office",
+					deviceDisplayName: "Office Mac mini",
+				},
+				refreshAll: vi.fn().mockResolvedValue(undefined),
+				runtimeLane: "dev-local",
+				startStateQuery: {
+					data: createStartStateWithCodexCatalog(),
+				},
+			});
+			readSpaceMembersMock.mockResolvedValue(currentMembersSnapshot);
+		} else {
+			readSpaceMembersMock.mockRejectedValue(new Error("network unavailable"));
+		}
+		const expectedErrorMessage =
+			failureKind === "blocked"
+				? currentMembersSnapshot.agents[0]?.agentWakeAvailability?.summary
+				: "OpenMeld couldn't confirm that this agent can reply right now. Try again.";
+		if (!expectedErrorMessage) {
+			throw new Error("Expected a current Wakeability failure message.");
+		}
+		threadProgrammaticSendHarness.enabled = true;
+		threadProgrammaticSendHarness.text =
+			"Keep this programmatic Agent DM thread message";
+		const sendButton = await openAgentDirectMessageThreadProgrammaticSend({
+			membersQueryResult: membersResult,
+			postThreadSignalMock,
+			stageComposerUploadMock,
+		});
+
+		fireEvent.click(sendButton);
 
 		await waitFor(() => {
-			expect(postThreadSignalMock).toHaveBeenCalledTimes(1);
+			expect(readSpaceMembersMock).toHaveBeenCalledOnce();
+			expect(screen.getByText(expectedErrorMessage)).toBeTruthy();
 		});
-		const postInput = postThreadSignalMock.mock.calls[0]?.[0];
-		expect(postInput).toEqual({
-			body: {
-				clientMessageId: expect.any(String),
-				messageEnvelope: {
-					activationTargets: [DEFAULT_AGENT_PROFILE_ID],
-					referenceTargets: [],
-					text: sourceText,
-				},
-				text: sourceText,
-			},
-			spaceId: "space-123",
-			threadId: "thread-1",
-			timeoutMs: 30_000,
-		});
-		expect(postInput.body.clientMessageId).not.toBe("client-message-original");
-		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		expect(postThreadSignalMock).not.toHaveBeenCalled();
+		expect(stageComposerUploadMock).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("button", {
+				name: "Send programmatic thread text",
+			})
+		).toBeTruthy();
+		expect(threadProgrammaticSendHarness.text).toBe(
+			"Keep this programmatic Agent DM thread message"
+		);
+		const threadComposer = screen
+			.getByRole("textbox", { name: "Reply in thread" })
+			.closest('[data-slot="thread-composer"]');
+		if (!threadComposer) {
+			throw new Error("Expected the Agent Direct Message thread Composer.");
+		}
+		expect(threadComposer.textContent).not.toContain(DEFAULT_AGENT_PROFILE_ID);
+		if (failureKind === "blocked") {
+			expect(membersResult.data).toBe(currentMembersSnapshot);
+			expect(setQueryDataMock).toHaveBeenCalledWith(
+				spaceQueryKeys.members("space-123", DEFAULT_SPACE_PROFILE_ID),
+				currentMembersSnapshot
+			);
+			expect(
+				within(threadComposer as HTMLElement).getByRole("link", {
+					name: "Choose local agent",
+				})
+			).toBeTruthy();
+		} else {
+			expect(membersResult.data).toBe(initialMembersSnapshot);
+			expect(
+				within(threadComposer as HTMLElement).queryByRole("link")
+			).toBeNull();
+		}
 	});
 
 	it("submits Diagnostic Reports from thread messages", async () => {
@@ -16178,6 +16849,212 @@ describe("SpaceLanding", () => {
 	});
 });
 
+async function openHistoricalWakeFailure(input: {
+	postNormalMessageMock?: ReturnType<typeof vi.fn>;
+	postThreadSignalMock?: ReturnType<typeof vi.fn>;
+	stageComposerUploadMock: ReturnType<typeof vi.fn>;
+	thread: boolean;
+}) {
+	const sourceText = "@Runner check the release build";
+	const sourceSignal = createTextSignal({
+		id: "sig-blocked-retry-source",
+		messageEnvelope: {
+			activationTargets: [DEFAULT_AGENT_PROFILE_ID],
+			referenceTargets: [],
+			text: sourceText,
+		},
+		meta: { clientMessageId: "client-message-original" },
+		text: sourceText,
+	});
+	const failureSignal = createTerminalFailureNoticeSignal({
+		actorProfileId: DEFAULT_AGENT_PROFILE_ID,
+		dispatchId: null,
+		failureStage: "execution",
+		id: "sig-blocked-retry-failure",
+		replyToSignalId: sourceSignal.id,
+		text: "Runner could not complete this Wake.",
+	});
+	createWebSpaceApiMock.mockReturnValue({
+		getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		getWakeProgress: vi.fn().mockResolvedValue({
+			items: [],
+			query: {
+				clientMessageId: "client-message-original",
+				spaceId: "space-123",
+				targetProfileId: null,
+			},
+		}),
+		postNormalMessage: input.postNormalMessageMock ?? vi.fn(),
+		postThreadSignal: input.postThreadSignalMock ?? vi.fn(),
+		stageComposerUpload: input.stageComposerUploadMock,
+	});
+	mockSpaceQueries({
+		status: createQueryResult({
+			isSuccess: true,
+			data: createSpaceStatus(),
+		}),
+		members: createQueryResult({
+			isSuccess: true,
+			data: createMembersSnapshot(),
+		}),
+		history: createQueryResult({
+			isSuccess: true,
+			data: {
+				envelopes: input.thread
+					? [sourceSignal]
+					: [sourceSignal, failureSignal],
+				nextCursor: null,
+			},
+		}),
+		...(input.thread
+			? {
+					threadSignals: createQueryResult({
+						isSuccess: true,
+						data: { signals: [sourceSignal, failureSignal] },
+					}),
+					threads: createQueryResult({
+						isSuccess: true,
+						data: {
+							threads: [
+								{
+									createdAt: "2026-04-11T00:00:00.000Z",
+									createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+									rootSignalId: sourceSignal.id,
+									spaceId: "space-123",
+									threadId: "thread-1",
+									updatedAt: "2026-04-11T00:00:00.000Z",
+								},
+							],
+						},
+					}),
+				}
+			: {
+					messageDetailsBySignalId: {
+						[sourceSignal.id]: createMessageDetailsQueryResult({
+							signalId: sourceSignal.id,
+						}),
+					},
+				}),
+	});
+
+	renderSpaceLanding();
+
+	let sourceRow: Element | null;
+	if (input.thread) {
+		const rootMessage = document.querySelector(
+			`[data-signal-id="${sourceSignal.id}"]`
+		);
+		if (!rootMessage) {
+			throw new Error("Expected the failed Wake source message.");
+		}
+		fireEvent.mouseEnter(rootMessage as HTMLElement);
+		fireEvent.click(
+			within(rootMessage as HTMLElement).getAllByRole("button", {
+				name: "Open thread",
+			})[0] as HTMLElement
+		);
+		const threadPanel = screen.getByLabelText("Thread");
+		sourceRow =
+			threadPanel
+				.querySelector(`[data-signal-id="${sourceSignal.id}"]`)
+				?.closest("[data-message-row-id]") ?? null;
+	} else {
+		sourceRow =
+			document
+				.querySelector(`[data-signal-id="${sourceSignal.id}"]`)
+				?.closest("[data-message-row-id]") ?? null;
+	}
+	if (!sourceRow) {
+		throw new Error("Expected the failed Wake source message row.");
+	}
+	fireEvent.click(
+		within(sourceRow as HTMLElement).getByRole("button", {
+			name: "Message details",
+		})
+	);
+	return await screen.findByRole("dialog", { name: "Message details" });
+}
+
+async function openAgentDirectMessageThreadProgrammaticSend(input: {
+	membersQueryResult?: ReturnType<typeof createQueryResult>;
+	postThreadSignalMock: ReturnType<typeof vi.fn>;
+	stageComposerUploadMock: ReturnType<typeof vi.fn>;
+}) {
+	const rootSignal = createTextSignal({
+		id: "sig-agent-dm-thread-root",
+		text: "Start an Agent Direct Message thread",
+	});
+	createWebSpaceApiMock.mockReturnValue({
+		getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		getWakeProgress: vi.fn().mockResolvedValue({
+			items: [],
+			query: {
+				clientMessageId: "client-message-1",
+				spaceId: "space-123",
+				targetProfileId: null,
+			},
+		}),
+		postNormalMessage: vi.fn(),
+		postThreadSignal: input.postThreadSignalMock,
+		stageComposerUpload: input.stageComposerUploadMock,
+	});
+	mockSpaceQueries({
+		status: createQueryResult({
+			isSuccess: true,
+			data: {
+				...createSpaceStatus(),
+				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+			},
+		}),
+		members:
+			input.membersQueryResult ??
+			createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+		history: createQueryResult({
+			isSuccess: true,
+			data: { envelopes: [rootSignal], nextCursor: null },
+		}),
+		threadSignals: createQueryResult({
+			isSuccess: true,
+			data: { signals: [rootSignal] },
+		}),
+		threads: createQueryResult({
+			isSuccess: true,
+			data: {
+				threads: [
+					{
+						createdAt: "2026-04-11T00:00:00.000Z",
+						createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+						rootSignalId: rootSignal.id,
+						spaceId: "space-123",
+						threadId: "thread-1",
+						updatedAt: "2026-04-11T00:00:00.000Z",
+					},
+				],
+			},
+		}),
+	});
+
+	renderSpaceLanding();
+	const rootMessage = document.querySelector(
+		`[data-signal-id="${rootSignal.id}"]`
+	);
+	if (!rootMessage) {
+		throw new Error("Expected the Agent Direct Message thread root.");
+	}
+	fireEvent.mouseEnter(rootMessage as HTMLElement);
+	fireEvent.click(
+		within(rootMessage as HTMLElement).getAllByRole("button", {
+			name: "Open thread",
+		})[0] as HTMLElement
+	);
+	return await screen.findByRole("button", {
+		name: "Send programmatic thread text",
+	});
+}
+
 function expectSpaceAgentAvailabilityIndicator(
 	scope: HTMLElement,
 	input: { isRefreshing?: boolean; label: string; tooltip?: string }
@@ -16193,8 +17070,12 @@ function expectSpaceAgentAvailabilityIndicator(
 		return labelMatches && tooltipMatches;
 	});
 	if (!indicator) {
+		const actual = indicators.map((candidate) => ({
+			label: candidate.getAttribute("aria-label"),
+			tooltip: candidate.getAttribute("title"),
+		}));
 		throw new Error(
-			`Expected space agent availability indicator ${input.label}`
+			`Expected space agent availability indicator ${input.label}; received ${JSON.stringify(actual)}`
 		);
 	}
 	const indicatorClassName = indicator.className;
@@ -16279,8 +17160,22 @@ function withDefaultAgentAgentWakeAvailability(
 }
 
 function createTestAgentAgentWakeAvailability(
-	status: "checking_connection" | "unavailable_for_wake"
+	status: "available_for_wake" | "checking_connection" | "unavailable_for_wake"
 ): SpaceMemberAgentAgentWakeAvailability {
+	if (status === "available_for_wake") {
+		return {
+			action: "none",
+			badgeLabel: "Available",
+			category: "available",
+			isRefreshing: false,
+			label: "Available for Wake",
+			phase: "available",
+			reasonCode: "agent_execution.ready",
+			status,
+			summary: "This agent can receive Wake requests.",
+			tooltip: "Available for Wake",
+		};
+	}
 	if (status === "checking_connection") {
 		return {
 			action: "check_status",
@@ -16291,7 +17186,7 @@ function createTestAgentAgentWakeAvailability(
 			phase: "checking_status",
 			reasonCode: "agent_execution.check_status",
 			status,
-			summary: "Checking this agent's Wake availability.",
+			summary: "Checking whether this agent can reply.",
 			tooltip: "Checking Wake availability",
 		};
 	}
@@ -16363,7 +17258,7 @@ function mockSpaceQueries(input: {
 	status: Record<string, unknown>;
 	members: Record<string, unknown>;
 	history: Record<string, unknown>;
-	organizationDirectory?: OrganizationDirectoryResponse;
+	organizationDirectory?: OrganizationSpaceProfileCandidates;
 	messageDetailsBySignalId?: Record<string, Record<string, unknown>>;
 	threads?: Record<string, unknown>;
 	threadSignals?: Record<string, unknown>;
@@ -16432,6 +17327,11 @@ function mockSpaceQueries(input: {
 			);
 			if (organizationSpacesResult) {
 				return organizationSpacesResult;
+			}
+			const spaceInboxUnreadTargetsResult =
+				resolveSpaceInboxUnreadTargetsQueryResult(options.queryKey);
+			if (spaceInboxUnreadTargetsResult) {
+				return spaceInboxUnreadTargetsResult;
 			}
 			if (
 				isExpectedSpace &&
@@ -16559,6 +17459,17 @@ function mockSpaceQueries(input: {
 				options.queryKey[4] === profileId
 			) {
 				return threadSignals;
+			}
+			if (
+				options.queryKey[0] === "inbox" &&
+				options.queryKey[2] === "space-unread-targets" &&
+				typeof options.queryKey[3] === "string" &&
+				spaceIds.has(options.queryKey[3])
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: { targets: [], totalUnreadCount: 0 },
+				});
 			}
 			if (
 				Array.isArray(options.queryKey) &&
@@ -16933,52 +17844,36 @@ function createOrganizationScope(
 function createOrganizationDirectoryFixture(input: {
 	centerAgentProfileId: string;
 	humanProfileId: string;
-}): OrganizationDirectoryResponse {
+}): OrganizationSpaceProfileCandidates {
 	return {
 		agentProfiles: [
 			{
+				agentControllerRef: null,
 				createdAt: "2026-07-16T00:00:00.000Z",
-				createdByUserId: "user-mira",
-				creatorProfileId: null,
 				isCenterAgent: true,
-				isDefault: false,
 				lastUsedAt: null,
-				managedRole: "center_agent",
-				organizationId: "org-acme",
 				ownerName: "Mira",
 				ownerUserId: "user-mira",
 				profileHandle: "center-agent",
 				profileId: input.centerAgentProfileId,
-				profileKind: "agent",
 				profileName: "Center Agent",
 				readiness: buildRemoteCenterAgentReadiness("available", {
 					agentProfileId: input.centerAgentProfileId,
 				}),
-				source: "managed",
 				status: "active",
-				updatedAt: "2026-07-16T00:00:00.000Z",
 			},
 		],
-		generatedAt: "2026-07-16T00:00:00.000Z",
 		members: [
 			{
+				avatarImageUrl: null,
 				humanProfile: {
-					lastUsedAt: "2026-07-16T00:00:00.000Z",
 					profileHandle: "alex",
 					profileId: input.humanProfileId,
 					profileName: "Alex",
 					status: "active",
 				},
-				joinedAt: "2026-07-16T00:00:00.000Z",
-				memberId: "member-alex",
-				organizationId: "org-acme",
-				role: "member",
-				user: {
-					email: "alex@example.com",
-					id: "user-alex",
-					image: null,
-					name: "Alex",
-				},
+				lastActiveAt: "2026-07-16T00:00:00.000Z",
+				memberName: "Alex",
 				userId: "user-alex",
 			},
 		],
@@ -17067,6 +17962,40 @@ function resolveOrganizationSpacesQueryResult(queryKey: readonly unknown[]) {
 				},
 			})
 		: null;
+}
+
+// SpaceLanding always reads the current Space's Inbox position so it can place
+// the unread divider. Keep this shared default at the strict query-dispatch
+// boundary so each fixture still rejects genuinely unknown queries.
+function resolveSpaceInboxUnreadTargetsQueryResult(
+	queryKey: readonly unknown[]
+) {
+	return queryKey[0] === "inbox" && queryKey[2] === "space-unread-targets"
+		? createQueryResult({
+				isSuccess: true,
+				data: {
+					hasMoreTargets: false,
+					organizationId: String(queryKey[1] ?? ""),
+					spaceId: String(queryKey[3] ?? ""),
+					targets: [],
+					totalUnreadCount: 0,
+				},
+			})
+		: null;
+}
+
+function createDomRect(input: { bottom: number; top: number }): DOMRect {
+	return {
+		bottom: input.bottom,
+		height: input.bottom - input.top,
+		left: 0,
+		right: 0,
+		top: input.top,
+		width: 0,
+		x: 0,
+		y: input.top,
+		toJSON: () => ({}),
+	};
 }
 
 function buildCompletedAgentProfileCreationRequest(

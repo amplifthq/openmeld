@@ -5,6 +5,7 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
+	GetSpaceEntryResolutionResponse,
 	GetSpaceStatusResponse,
 	SignalEnvelope,
 	SpaceAccessMode,
@@ -29,12 +30,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { z } from "zod/v4";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
 import {
 	APP_PAGE_FRAME_CLASS_NAME,
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 } from "#/components/app/shell-layout";
+import type { SpaceComposerInputRef } from "#/components/spaces/space-composer-editor";
 import { SpaceConversationPanel } from "#/components/spaces/space-conversation-panel";
+import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceFilesPanel } from "#/components/spaces/space-files-panel";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpaceThreadPanel } from "#/components/spaces/space-thread-panel";
@@ -43,6 +47,7 @@ import { SpaceViewTabs } from "#/components/spaces/space-view-tabs";
 import { useSpaceMessageReferences } from "#/components/spaces/use-space-message-references";
 import { getSession } from "#/lib/auth-session";
 import { recordProfileSpaceHistory } from "#/lib/onboarding/record-profile-space-history";
+import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import {
 	resolveActiveOrganizationHumanProfilesPath,
 	resolveActiveOrganizationSpacePath,
@@ -65,8 +70,34 @@ const EMPTY_AGENT_RECOVERY_PLANS = new Map<string, never>();
 const EMPTY_EPHEMERAL_ACTIVITY_ITEMS: readonly never[] = [];
 const EMPTY_WAKE_FAILURE_TARGET_CONTEXTS = new Map<string, never>();
 
-function buildPublicSpacePostSignInRedirect(spaceId: string): string {
-	return `/spaces/${encodeURIComponent(spaceId)}`;
+const publicSpaceRouteSearchSchema = z.object({
+	focusInteractionId: z.string().trim().min(1).optional(),
+	focusSignalId: z.string().trim().min(1).optional(),
+	focusThreadRootSignalId: z.string().trim().min(1).optional(),
+	signalId: z.string().trim().min(1).optional(),
+	threadRootSignalId: z.string().trim().min(1).optional(),
+});
+
+type PublicSpaceFocus = {
+	signalId?: string;
+	threadRootSignalId?: string;
+};
+
+function buildPublicSpacePath(
+	spaceId: string,
+	focus: PublicSpaceFocus
+): string {
+	const url = new URL(
+		`/spaces/${encodeURIComponent(spaceId)}`,
+		"http://localhost"
+	);
+	if (focus.signalId) {
+		url.searchParams.set("signalId", focus.signalId);
+	}
+	if (focus.threadRootSignalId) {
+		url.searchParams.set("threadRootSignalId", focus.threadRootSignalId);
+	}
+	return `${url.pathname}${url.search}`;
 }
 
 async function navigateToActiveOrganizationSpace(input: {
@@ -84,7 +115,30 @@ async function navigateToActiveOrganizationSpace(input: {
 	await input.navigate({ replace: true, to: target });
 }
 
+async function navigateToOrganizationSpace(input: {
+	focus: PublicSpaceFocus;
+	navigate: ReturnType<typeof useNavigate>;
+	organizationSlug: string;
+	profileId?: string;
+	spaceId: string;
+}) {
+	const target = buildOrganizationSpacePath({
+		orgSlug: input.organizationSlug,
+		search: {
+			...(input.profileId ? { profileId: input.profileId } : {}),
+			focusSignalId: input.focus.signalId,
+			focusThreadRootSignalId: input.focus.threadRootSignalId,
+		},
+		spaceId: input.spaceId,
+	});
+	await input.navigate({ replace: true, to: target });
+}
+
 export const Route = createFileRoute("/spaces/$spaceId")({
+	validateSearch: (search) => {
+		const parsed = publicSpaceRouteSearchSchema.safeParse(search);
+		return parsed.success ? parsed.data : {};
+	},
 	loader: async ({ location }) => {
 		const session = await getSession({
 			data: {
@@ -101,19 +155,67 @@ export const Route = createFileRoute("/spaces/$spaceId")({
 function PublicSpaceRoute() {
 	const { spaceId } = Route.useParams();
 	const { isAuthenticated } = Route.useLoaderData();
+	const search = Route.useSearch();
 
 	return (
-		<PublicSpacePage isAuthenticated={isAuthenticated} spaceId={spaceId} />
+		<PublicSpacePage
+			isAuthenticated={isAuthenticated}
+			signalId={search.focusSignalId ?? search.signalId}
+			spaceId={spaceId}
+			threadRootSignalId={
+				search.focusThreadRootSignalId ?? search.threadRootSignalId
+			}
+		/>
 	);
 }
 
 export function PublicSpacePage(input: {
 	isAuthenticated: boolean;
+	signalId?: string;
 	spaceId: string;
+	threadRootSignalId?: string;
+}) {
+	const focus = {
+		...(input.signalId ? { signalId: input.signalId } : {}),
+		...(input.threadRootSignalId
+			? { threadRootSignalId: input.threadRootSignalId }
+			: {}),
+	};
+	return (
+		<SpaceEntryGate
+			backHref="/"
+			renderFrame={(content) => (
+				<PublicSpaceEntryFrame>{content}</PublicSpaceEntryFrame>
+			)}
+			signalId={input.signalId}
+			signInHref={`/login?redirect=${encodeURIComponent(
+				buildPublicSpacePath(input.spaceId, focus)
+			)}`}
+			spaceId={input.spaceId}
+			threadRootSignalId={input.threadRootSignalId}
+		>
+			{(resolution) => (
+				<PublicSpaceResolvedPage
+					entryResolution={resolution}
+					isAuthenticated={input.isAuthenticated}
+					signalId={input.signalId}
+					spaceId={input.spaceId}
+					threadRootSignalId={input.threadRootSignalId}
+				/>
+			)}
+		</SpaceEntryGate>
+	);
+}
+
+function PublicSpaceResolvedPage(input: {
+	entryResolution: GetSpaceEntryResolutionResponse;
+	isAuthenticated: boolean;
+	signalId?: string;
+	spaceId: string;
+	threadRootSignalId?: string;
 }) {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
-	const browserQueriesEnabled = typeof window !== "undefined";
 	const generatedSpaceViewId = useId();
 	const spaceViewIdPrefix = `space-view-${generatedSpaceViewId}`;
 	const [spaceView, setSpaceView] = useState<SpaceView>("messages");
@@ -122,12 +224,11 @@ export function PublicSpacePage(input: {
 		requestId: string;
 		revision: number;
 	} | null>(null);
-	const [password, setPassword] = useState("");
-	const [passwordError, setPasswordError] = useState<string | null>(null);
-	const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
-	const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-	const threadTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const [selectedThreadId, setSelectedThreadId] = useState<
+		string | null | undefined
+	>(undefined);
+	const textareaRef: SpaceComposerInputRef = useRef(null);
+	const threadTextareaRef: SpaceComposerInputRef = useRef(null);
 	const openSpaceFile = (fileId: string, revision: number) => {
 		setSpaceFileToOpen({
 			fileId,
@@ -138,6 +239,179 @@ export function PublicSpacePage(input: {
 		setSpaceView("files");
 	};
 
+	const {
+		protectedFailure: spaceProtectedFailure,
+		signalsQuery,
+		statusQuery,
+		threadsQuery,
+		viewerMembershipQuery,
+	} = usePublicSpaceQueries({
+		isAuthenticated: input.isAuthenticated,
+		spaceId: input.spaceId,
+	});
+	useOpenAuthenticatedMemberSpace({
+		activeMemberCount:
+			viewerMembershipQuery.data?.activeMemberProfiles.length ?? 0,
+		navigate,
+		organizationSlug: input.entryResolution.safeContext.organizationSlug,
+		signalId: input.signalId,
+		spaceId: input.spaceId,
+		threadRootSignalId: input.threadRootSignalId,
+	});
+
+	const refetchSpace = async () => {
+		await Promise.all([
+			queryClient.invalidateQueries({
+				queryKey: publicSpaceQueryKey(input.spaceId, "status"),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: publicSpaceQueryKey(input.spaceId, "signals"),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: publicSpaceQueryKey(input.spaceId, "threads"),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: publicSpaceQueryKey(input.spaceId, "viewer-membership"),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: publicSpaceQueryKey(input.spaceId, "thread-signals"),
+			}),
+		]);
+	};
+
+	const passwordAccess = useProtectedSpacePassword({
+		onAccepted: refetchSpace,
+		spaceId: input.spaceId,
+	});
+
+	const status = statusQuery.data ?? null;
+	const spaceName = status?.name?.trim() || "Shared Space";
+	const membership = viewerMembershipQuery.data ?? null;
+	const signalEnvelopes = signalsQuery.data?.envelopes ?? EMPTY_SIGNALS;
+	const threads = threadsQuery.data?.threads ?? EMPTY_THREADS;
+	const threadPreviews = threadsQuery.data?.previews ?? EMPTY_THREAD_PREVIEWS;
+	const initialThreadId = input.threadRootSignalId
+		? (threads.find(
+				(thread) => thread.rootSignalId === input.threadRootSignalId
+			)?.threadId ?? null)
+		: null;
+	const effectiveSelectedThreadId =
+		selectedThreadId === undefined ? initialThreadId : selectedThreadId;
+	const threadSignalsQuery = usePublicThreadSignalsQuery({
+		selectedThreadId: effectiveSelectedThreadId,
+		spaceId: input.spaceId,
+		statusIsSuccess: statusQuery.isSuccess,
+	});
+	const protectedFailure = findProtectedFailure([
+		spaceProtectedFailure,
+		threadSignalsQuery.error,
+	]);
+	const threadSignals = threadSignalsQuery.data?.signals ?? EMPTY_SIGNALS;
+	const timelineItems = useMemo(
+		() =>
+			buildSpaceTimelineItems({
+				envelopes: signalEnvelopes,
+				membersSnapshot: null,
+			}),
+		[signalEnvelopes]
+	);
+	const spaceReferenceMessageTexts = useMemo(() => {
+		const threadTimelineItems = buildSpaceTimelineItems({
+			envelopes: threadSignals,
+			membersSnapshot: null,
+		});
+		return [...timelineItems, ...threadTimelineItems].map((item) => item.text);
+	}, [threadSignals, timelineItems]);
+	const spaceReferencesById = useSpaceMessageReferences({
+		accountProfileId: null,
+		currentSpace: status
+			? { name: status.name ?? null, spaceId: input.spaceId }
+			: null,
+		messageTexts: spaceReferenceMessageTexts,
+		organizationId: null,
+		organizationSlug: null,
+	});
+	const activeThread = useMemo(
+		() =>
+			effectiveSelectedThreadId === null
+				? null
+				: (threads.find(
+						(thread) => thread.threadId === effectiveSelectedThreadId
+					) ?? null),
+		[effectiveSelectedThreadId, threads]
+	);
+
+	if (protectedFailure) {
+		return (
+			<PublicSpaceChrome
+				focus={{
+					signalId: input.signalId,
+					threadRootSignalId: input.threadRootSignalId,
+				}}
+				isAuthenticated={input.isAuthenticated}
+				membership={membership}
+				passwordProtectedOverride={true}
+				spaceId={input.spaceId}
+				spaceName={spaceName}
+				status={status}
+			>
+				<ProtectedSpaceForm
+					errorMessage={resolveProtectedSpaceErrorMessage({
+						failure: protectedFailure,
+						passwordError: passwordAccess.error,
+					})}
+					isSubmitting={passwordAccess.isSubmitting}
+					onPasswordChange={passwordAccess.onChange}
+					onSubmit={passwordAccess.onSubmit}
+					password={passwordAccess.value}
+				/>
+			</PublicSpaceChrome>
+		);
+	}
+
+	const pageError = findDisplayFailure([
+		statusQuery.error,
+		signalsQuery.error,
+		threadsQuery.error,
+	]);
+
+	return (
+		<PublicSpaceOpenView
+			activeThread={activeThread}
+			historyIsPending={statusQuery.isPending || signalsQuery.isPending}
+			initialFocusSignalId={input.signalId}
+			initialFocusThreadRootSignalId={input.threadRootSignalId}
+			isAuthenticated={input.isAuthenticated}
+			membership={membership}
+			onOpenSpaceFile={openSpaceFile}
+			onRetry={refetchSpace}
+			onSelectedThreadChange={setSelectedThreadId}
+			onSpaceViewChange={setSpaceView}
+			pageError={pageError}
+			spaceFileToOpen={spaceFileToOpen}
+			spaceId={input.spaceId}
+			spaceName={spaceName}
+			spaceReferencesById={spaceReferencesById}
+			spaceView={spaceView}
+			spaceViewIdPrefix={spaceViewIdPrefix}
+			status={status}
+			textareaRef={textareaRef}
+			threadPreviews={threadPreviews}
+			threadSignals={threadSignals}
+			threadSignalsError={threadSignalsQuery.error}
+			threadSignalsIsPending={threadSignalsQuery.isPending}
+			threads={threads}
+			threadTextareaRef={threadTextareaRef}
+			timelineItems={timelineItems}
+		/>
+	);
+}
+
+function usePublicSpaceQueries(input: {
+	isAuthenticated: boolean;
+	spaceId: string;
+}) {
+	const browserQueriesEnabled = typeof window !== "undefined";
 	const statusQuery = useQuery({
 		enabled: browserQueriesEnabled,
 		queryKey: publicSpaceQueryKey(input.spaceId, "status"),
@@ -184,319 +458,340 @@ export function PublicSpacePage(input: {
 		staleTime: baseQueryOptions.staleTime,
 		refetchOnWindowFocus: false,
 	});
-	const threadSignalsQuery = useQuery({
+	return {
+		protectedFailure: findProtectedFailure([
+			statusQuery.error,
+			signalsQuery.error,
+			threadsQuery.error,
+			viewerMembershipQuery.error,
+		]),
+		signalsQuery,
+		statusQuery,
+		threadsQuery,
+		viewerMembershipQuery,
+	};
+}
+
+function usePublicThreadSignalsQuery(input: {
+	selectedThreadId: string | null;
+	spaceId: string;
+	statusIsSuccess: boolean;
+}) {
+	const browserQueriesEnabled = typeof window !== "undefined";
+	return useQuery({
 		enabled:
 			browserQueriesEnabled &&
-			selectedThreadId !== null &&
-			statusQuery.isSuccess,
+			input.selectedThreadId !== null &&
+			input.statusIsSuccess,
 		queryKey: [
 			...publicSpaceQueryKey(input.spaceId, "thread-signals"),
-			selectedThreadId,
+			input.selectedThreadId,
 		],
 		queryFn: async () =>
 			await createUnscopedWebSpaceApi().listThreadSignals({
 				spaceId: input.spaceId,
-				threadId: selectedThreadId ?? "",
+				threadId: input.selectedThreadId ?? "",
 			}),
 		gcTime: baseQueryOptions.gcTime,
 		retry: shouldRetryPublicSpaceQuery,
 		staleTime: baseQueryOptions.staleTime,
 		refetchOnWindowFocus: false,
 	});
+}
 
-	const protectedFailure = findProtectedFailure([
-		statusQuery.error,
-		signalsQuery.error,
-		threadsQuery.error,
-		viewerMembershipQuery.error,
-		threadSignalsQuery.error,
-	]);
-
+function useOpenAuthenticatedMemberSpace(input: {
+	activeMemberCount: number;
+	navigate: ReturnType<typeof useNavigate>;
+	organizationSlug?: string;
+	signalId?: string;
+	spaceId: string;
+	threadRootSignalId?: string;
+}) {
 	useEffect(() => {
-		if ((viewerMembershipQuery.data?.activeMemberProfiles.length ?? 0) === 0) {
+		if (input.activeMemberCount === 0 || !input.organizationSlug) {
 			return;
 		}
 		// Membership proves same-account access, not the browser's acting identity.
 		// Omit profileId so the app route resolves the account's current Human
 		// Profile instead of treating an Agent member as a Web viewer.
-		navigateToActiveOrganizationSpace({
-			navigate,
+		navigateToOrganizationSpace({
+			focus: {
+				signalId: input.signalId,
+				threadRootSignalId: input.threadRootSignalId,
+			},
+			navigate: input.navigate,
+			organizationSlug: input.organizationSlug,
 			spaceId: input.spaceId,
 		}).catch((error) => {
 			console.error("Failed to open the member Space view.", error);
 		});
 	}, [
+		input.activeMemberCount,
+		input.navigate,
+		input.organizationSlug,
+		input.signalId,
 		input.spaceId,
-		navigate,
-		viewerMembershipQuery.data?.activeMemberProfiles.length,
+		input.threadRootSignalId,
 	]);
+}
 
-	const refetchSpace = async () => {
-		await Promise.all([
-			queryClient.invalidateQueries({
-				queryKey: publicSpaceQueryKey(input.spaceId, "status"),
-			}),
-			queryClient.invalidateQueries({
-				queryKey: publicSpaceQueryKey(input.spaceId, "signals"),
-			}),
-			queryClient.invalidateQueries({
-				queryKey: publicSpaceQueryKey(input.spaceId, "threads"),
-			}),
-			queryClient.invalidateQueries({
-				queryKey: publicSpaceQueryKey(input.spaceId, "viewer-membership"),
-			}),
-			queryClient.invalidateQueries({
-				queryKey: publicSpaceQueryKey(input.spaceId, "thread-signals"),
-			}),
-		]);
+function useProtectedSpacePassword(input: {
+	onAccepted: () => Promise<void>;
+	spaceId: string;
+}) {
+	const [value, setValue] = useState("");
+	const [error, setError] = useState<string | null>(null);
+	const [isSubmitting, setIsSubmitting] = useState(false);
+	return {
+		error,
+		isSubmitting,
+		onChange: (nextValue: string) => {
+			setError(null);
+			setValue(nextValue);
+		},
+		onSubmit: async () => {
+			const normalizedPassword = normalizeSpacePasswordText(value);
+			if (normalizedPassword.length === 0) {
+				setError("Enter the space password.");
+				return;
+			}
+			setIsSubmitting(true);
+			setError(null);
+			try {
+				await rememberProtectedSpaceAccess({
+					data: { password: normalizedPassword, spaceId: input.spaceId },
+				});
+				await input.onAccepted();
+			} catch (submissionError) {
+				setError(
+					submissionError instanceof Error
+						? submissionError.message
+						: "OpenMeld could not store this space password right now."
+				);
+			} finally {
+				setIsSubmitting(false);
+			}
+		},
+		value,
 	};
+}
 
-	const submitPassword = async () => {
-		const normalizedPassword = normalizeSpacePasswordText(password);
-		if (normalizedPassword.length === 0) {
-			setPasswordError("Enter the space password.");
-			return;
-		}
-		setIsSubmittingPassword(true);
-		setPasswordError(null);
-		try {
-			await rememberProtectedSpaceAccess({
-				data: {
-					spaceId: input.spaceId,
-					password: normalizedPassword,
-				},
-			});
-			await refetchSpace();
-		} catch (error) {
-			setPasswordError(
-				error instanceof Error
-					? error.message
-					: "OpenMeld could not store this space password right now."
-			);
-		} finally {
-			setIsSubmittingPassword(false);
-		}
-	};
+type PublicSpaceFileSelection = {
+	fileId: string;
+	requestId: string;
+	revision: number;
+};
 
-	const status = statusQuery.data ?? null;
-	const spaceName = status?.name?.trim() || "Shared Space";
-	const membership = viewerMembershipQuery.data ?? null;
-	const signalEnvelopes = signalsQuery.data?.envelopes ?? EMPTY_SIGNALS;
-	const threads = threadsQuery.data?.threads ?? EMPTY_THREADS;
-	const threadPreviews = threadsQuery.data?.previews ?? EMPTY_THREAD_PREVIEWS;
-	const threadSignals = threadSignalsQuery.data?.signals ?? EMPTY_SIGNALS;
-	const timelineItems = useMemo(
-		() =>
-			buildSpaceTimelineItems({
-				envelopes: signalEnvelopes,
-				membersSnapshot: null,
-			}),
-		[signalEnvelopes]
-	);
-	const spaceReferenceMessageTexts = useMemo(() => {
-		const threadTimelineItems = buildSpaceTimelineItems({
-			envelopes: threadSignals,
-			membersSnapshot: null,
-		});
-		return [...timelineItems, ...threadTimelineItems].map((item) => item.text);
-	}, [threadSignals, timelineItems]);
-	const spaceReferencesById = useSpaceMessageReferences({
-		accountProfileId: null,
-		currentSpace: status
-			? { name: status.name ?? null, spaceId: input.spaceId }
-			: null,
-		messageTexts: spaceReferenceMessageTexts,
-		organizationId: null,
-		organizationSlug: null,
-	});
-	const activeThread = useMemo(
-		() =>
-			selectedThreadId === null
-				? null
-				: (threads.find((thread) => thread.threadId === selectedThreadId) ??
-					null),
-		[selectedThreadId, threads]
-	);
+type PublicSpaceOpenViewProps = {
+	activeThread: SpaceThread | null;
+	historyIsPending: boolean;
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+	isAuthenticated: boolean;
+	membership: SpaceViewerMembershipResponse | null;
+	onOpenSpaceFile: (fileId: string, revision: number) => void;
+	onRetry: () => Promise<void>;
+	onSelectedThreadChange: (threadId: string | null) => void;
+	onSpaceViewChange: (view: SpaceView) => void;
+	pageError: StructuredApiClientFailure | null;
+	spaceFileToOpen: PublicSpaceFileSelection | null;
+	spaceId: string;
+	spaceName: string;
+	spaceReferencesById: ReturnType<typeof useSpaceMessageReferences>;
+	spaceView: SpaceView;
+	spaceViewIdPrefix: string;
+	status: GetSpaceStatusResponse | null;
+	textareaRef: SpaceComposerInputRef;
+	threadPreviews: readonly SpaceThreadPreview[];
+	threads: readonly SpaceThread[];
+	threadSignals: readonly SignalEnvelope[];
+	threadSignalsError: unknown;
+	threadSignalsIsPending: boolean;
+	threadTextareaRef: SpaceComposerInputRef;
+	timelineItems: ReturnType<typeof buildSpaceTimelineItems>;
+};
 
-	if (protectedFailure) {
-		return (
-			<PublicSpaceChrome
-				isAuthenticated={input.isAuthenticated}
-				membership={membership}
-				passwordProtectedOverride={true}
-				spaceId={input.spaceId}
-				spaceName={spaceName}
-				status={status}
-			>
-				<ProtectedSpaceForm
-					errorMessage={resolveProtectedSpaceErrorMessage({
-						failure: protectedFailure,
-						passwordError,
-					})}
-					isSubmitting={isSubmittingPassword}
-					onPasswordChange={(value) => {
-						setPasswordError(null);
-						setPassword(value);
-					}}
-					onSubmit={submitPassword}
-					password={password}
-				/>
-			</PublicSpaceChrome>
-		);
-	}
-
-	const pageError = findDisplayFailure([
-		statusQuery.error,
-		signalsQuery.error,
-		threadsQuery.error,
-	]);
-
+function PublicSpaceOpenView(input: PublicSpaceOpenViewProps) {
 	return (
 		<PublicSpaceChrome
+			focus={{
+				signalId: input.initialFocusSignalId,
+				threadRootSignalId: input.initialFocusThreadRootSignalId,
+			}}
 			isAuthenticated={input.isAuthenticated}
-			membership={membership}
+			membership={input.membership}
 			spaceId={input.spaceId}
-			spaceName={spaceName}
-			status={status}
+			spaceName={input.spaceName}
+			status={input.status}
 			viewControl={
-				pageError ? null : (
+				input.pageError ? null : (
 					<SpaceViewTabs
-						activeView={spaceView}
+						activeView={input.spaceView}
 						className="shrink-0"
-						idPrefix={spaceViewIdPrefix}
-						onViewChange={setSpaceView}
+						idPrefix={input.spaceViewIdPrefix}
+						onViewChange={input.onSpaceViewChange}
 					/>
 				)
 			}
 		>
-			{pageError ? (
+			{input.pageError ? (
 				<PublicSpaceErrorState
-					error={pageError}
+					error={input.pageError}
 					onRetry={() => {
-						refetchSpace().catch((error) => {
+						input.onRetry().catch((error) => {
 							console.error("Failed to refresh public Space.", error);
 						});
 					}}
 				/>
 			) : (
-				<>
-					<SpaceConversationPanel
-						activeSpaceView={spaceView}
-						agentRecoveryPlansByProfileId={EMPTY_AGENT_RECOVERY_PLANS}
-						allowedActions={status?.allowedActions ?? []}
-						centerAgentProfileId={status?.centerAgentProfileId ?? null}
-						className="min-w-0"
-						composerBlockedWakeProfileId={null}
-						composerErrorMessage={null}
-						composerFileLimitReached={false}
-						composerFiles={[]}
-						composerReplyToSignalId={null}
-						composerText=""
-						currentOwnerUserId={null}
-						emptyStateDescription={null}
-						emptyStateTitle="No messages yet."
-						ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
-						files={
-							<SpaceFilesPanel
-								fileToOpen={spaceFileToOpen}
-								key={input.spaceId}
-								readOnly={true}
-								spaceId={input.spaceId}
-							/>
-						}
-						firstUnreadSignalId={null}
-						hasEarlierHistory={false}
-						historyActionErrorMessage={null}
-						historyErrorMessage={null}
-						historyIsPending={statusQuery.isPending || signalsQuery.isPending}
-						isAgentRecoveryPending={() => false}
-						isCenterAgentDirectMessage={false}
-						isCreatingThread={false}
-						isDiagnosticReportPending={() => false}
-						isDiagnosticReportSent={() => false}
-						isDirectMessage={false}
-						isLoadingEarlierHistory={false}
-						isSendingMessage={false}
-						membersSnapshot={null}
-						modelCatalog={null}
-						onAddComposerFiles={noopPromise}
-						onAgentRecoveryAction={noopPromise}
-						onClearComposerReplyTo={() => undefined}
-						onComposerEditorChange={() => undefined}
-						onCreateThread={noopPromise}
-						onLoadEarlierHistory={noopPromise}
-						onMentionButtonClick={() => undefined}
-						onOpenSpaceFile={openSpaceFile}
-						onOpenThread={setSelectedThreadId}
-						onRemoveComposerFile={() => undefined}
-						onReplyToMessage={() => undefined}
-						onReportMessage={noopPromise}
-						onSend={noopPromise}
-						onSendStarterPrompt={noopPromise}
-						onSpaceViewChange={setSpaceView}
-						presentedWakeProgressItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
-						readOnly={true}
-						selfProfileId={PUBLIC_VIEWER_PROFILE_ID}
-						spaceReferencesById={spaceReferencesById}
-						spaceViewIdPrefix={spaceViewIdPrefix}
-						textareaRef={textareaRef}
-						threadPreviews={threadPreviews}
-						threads={threads}
-						timelineItems={timelineItems}
-						unreadCount={0}
-						unreadStateReady={true}
-						wakeFailureTargetContextsByProfileId={
-							EMPTY_WAKE_FAILURE_TARGET_CONTEXTS
-						}
-					/>
-					<SpaceThreadPanel
-						activeThread={activeThread}
-						agentDirectConversationKind={null}
-						agentRecoveryPlansByProfileId={EMPTY_AGENT_RECOVERY_PLANS}
-						agentStreams={[]}
-						centerAgentProfileId={status?.centerAgentProfileId ?? null}
-						composerBlockedWakeProfileId={null}
-						composerErrorMessage={null}
-						composerFileLimitReached={false}
-						composerFiles={[]}
-						composerText=""
-						ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
-						isAgentRecoveryPending={() => false}
-						isDiagnosticReportPending={() => false}
-						isDiagnosticReportSent={() => false}
-						isSendingMessage={false}
-						membersSnapshot={null}
-						onAddComposerFiles={noopPromise}
-						onAgentRecoveryAction={noopPromise}
-						onClose={() => setSelectedThreadId(null)}
-						onComposerEditorChange={() => undefined}
-						onMentionButtonClick={() => undefined}
-						onOpenSpaceFile={openSpaceFile}
-						onRemoveComposerFile={() => undefined}
-						onReportMessage={noopPromise}
-						onSend={noopPromise}
-						readOnly={true}
-						selfProfileId={PUBLIC_VIEWER_PROFILE_ID}
-						signals={threadSignals}
-						signalsErrorMessage={formatOptionalFailure(
-							threadSignalsQuery.error
-						)}
-						signalsIsLoading={threadSignalsQuery.isPending}
-						spaceReferencesById={spaceReferencesById}
-						spaceTimelineItems={timelineItems}
-						textareaRef={threadTextareaRef}
-						wakeFailureTargetContextsByProfileId={
-							EMPTY_WAKE_FAILURE_TARGET_CONTEXTS
-						}
-					/>
-				</>
+				<PublicSpacePanels input={input} />
 			)}
 		</PublicSpaceChrome>
 	);
 }
 
+function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
+	return (
+		<>
+			<SpaceConversationPanel
+				activeSpaceView={input.spaceView}
+				agentRecoveryPlansByProfileId={EMPTY_AGENT_RECOVERY_PLANS}
+				allowedActions={input.status?.allowedActions ?? []}
+				centerAgentProfileId={input.status?.centerAgentProfileId ?? null}
+				className="min-w-0"
+				composerBlockedWakeProfileId={null}
+				composerErrorMessage={null}
+				composerFiles={[]}
+				composerReplyToSignalId={null}
+				composerText=""
+				currentOwnerUserId={null}
+				emptyStateDescription={null}
+				emptyStateTitle="No messages yet."
+				ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
+				files={
+					<SpaceFilesPanel
+						fileToOpen={input.spaceFileToOpen}
+						key={input.spaceId}
+						readOnly={true}
+						spaceId={input.spaceId}
+					/>
+				}
+				firstUnreadSignalId={null}
+				historyActionErrorMessage={null}
+				historyErrorMessage={null}
+				initialFocusSignalId={input.initialFocusSignalId}
+				isAgentRecoveryPending={() => false}
+				isDiagnosticReportPending={() => false}
+				isDiagnosticReportSent={() => false}
+				membersSnapshot={null}
+				modelCatalog={null}
+				onAddComposerFiles={noopPromise}
+				onAgentRecoveryAction={noopPromise}
+				onClearComposerReplyTo={() => undefined}
+				onComposerEditorChange={() => undefined}
+				onCreateThread={noopPromise}
+				onLoadEarlierHistory={noopPromise}
+				onMentionButtonClick={() => undefined}
+				onOpenSpaceFile={input.onOpenSpaceFile}
+				onOpenThread={input.onSelectedThreadChange}
+				onRemoveComposerFile={() => undefined}
+				onReplyToMessage={() => undefined}
+				onReportMessage={noopPromise}
+				onSend={noopPromise}
+				onSendStarterPrompt={noopPromise}
+				onSpaceViewChange={input.onSpaceViewChange}
+				presentedWakeProgressItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
+				selfProfileId={PUBLIC_VIEWER_PROFILE_ID}
+				spaceReferencesById={input.spaceReferencesById}
+				spaceViewIdPrefix={input.spaceViewIdPrefix}
+				textareaRef={input.textareaRef}
+				threadPreviews={input.threadPreviews}
+				threads={input.threads}
+				timelineItems={input.timelineItems}
+				unreadCount={0}
+				viewState={{
+					composerFileLimitReached: false,
+					composerHasAuthoredMentions: false,
+					hasEarlierHistory: false,
+					historyIsPending: input.historyIsPending,
+					isCenterAgentDirectMessage: false,
+					isCreatingThread: false,
+					isDirectMessage: false,
+					isLoadingEarlierHistory: false,
+					isPersonalContext: false,
+					isSendingMessage: false,
+					readOnly: true,
+					threadsIsLoading: false,
+					unreadStateReady: true,
+				}}
+				wakeFailureTargetContextsByProfileId={
+					EMPTY_WAKE_FAILURE_TARGET_CONTEXTS
+				}
+			/>
+			<SpaceThreadPanel
+				activeThread={input.activeThread}
+				agentDirectConversationKind={null}
+				agentRecoveryPlansByProfileId={EMPTY_AGENT_RECOVERY_PLANS}
+				agentStreams={[]}
+				centerAgentProfileId={input.status?.centerAgentProfileId ?? null}
+				composerBlockedWakeProfileId={null}
+				composerErrorMessage={null}
+				composerFileLimitReached={false}
+				composerFiles={[]}
+				composerText=""
+				currentOwnerUserId={null}
+				ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
+				initialFocusSignalId={input.initialFocusSignalId}
+				isAgentRecoveryPending={() => false}
+				isDiagnosticReportPending={() => false}
+				isDiagnosticReportSent={() => false}
+				isSendingMessage={false}
+				membersSnapshot={null}
+				modelCatalog={null}
+				onAddComposerFiles={noopPromise}
+				onAgentRecoveryAction={noopPromise}
+				onClose={() => input.onSelectedThreadChange(null)}
+				onComposerEditorChange={() => undefined}
+				onMentionButtonClick={() => undefined}
+				onOpenSpaceFile={input.onOpenSpaceFile}
+				onRemoveComposerFile={() => undefined}
+				onReportMessage={noopPromise}
+				onSend={noopPromise}
+				readOnly={true}
+				selfProfileId={PUBLIC_VIEWER_PROFILE_ID}
+				signals={input.threadSignals}
+				signalsErrorMessage={formatOptionalFailure(input.threadSignalsError)}
+				signalsIsLoading={input.threadSignalsIsPending}
+				spaceReferencesById={input.spaceReferencesById}
+				spaceTimelineItems={input.timelineItems}
+				textareaRef={input.threadTextareaRef}
+				wakeFailureTargetContextsByProfileId={
+					EMPTY_WAKE_FAILURE_TARGET_CONTEXTS
+				}
+			/>
+		</>
+	);
+}
+
+function PublicSpaceEntryFrame(input: { children: ReactNode }) {
+	return (
+		<div className="flex min-h-dvh flex-col bg-background text-foreground">
+			<CrossPageHeader
+				brandStatusLabel={null}
+				currentSection="space"
+				frameSection="start"
+				includeSpaces={true}
+			/>
+			<main className="flex flex-1 items-center justify-center px-6 py-10">
+				{input.children}
+			</main>
+		</div>
+	);
+}
+
 function PublicSpaceChrome(input: {
 	children: ReactNode;
+	focus?: PublicSpaceFocus;
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	passwordProtectedOverride?: boolean;
@@ -520,6 +815,7 @@ function PublicSpaceChrome(input: {
 			<main className="flex min-h-0 flex-1 overflow-hidden">
 				<PublicSpaceMainFrame
 					accessMode={accessMode}
+					focus={input.focus}
 					isAuthenticated={input.isAuthenticated}
 					membership={input.membership}
 					spaceId={input.spaceId}
@@ -536,6 +832,7 @@ function PublicSpaceChrome(input: {
 function PublicSpaceMainFrame(input: {
 	accessMode: SpaceAccessMode;
 	children: ReactNode;
+	focus?: PublicSpaceFocus;
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	spaceId: string;
@@ -549,6 +846,7 @@ function PublicSpaceMainFrame(input: {
 			>
 				<PublicSpaceContextHeader
 					accessMode={input.accessMode}
+					focus={input.focus}
 					isAuthenticated={input.isAuthenticated}
 					membership={input.membership}
 					spaceId={input.spaceId}
@@ -565,6 +863,7 @@ function PublicSpaceMainFrame(input: {
 
 function PublicSpaceContextHeader(input: {
 	accessMode: SpaceAccessMode;
+	focus?: PublicSpaceFocus;
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	spaceId: string;
@@ -576,6 +875,7 @@ function PublicSpaceContextHeader(input: {
 			actions={
 				<PublicSpaceViewerAction
 					accessMode={input.accessMode}
+					focus={input.focus}
 					isAuthenticated={input.isAuthenticated}
 					membership={input.membership}
 					spaceId={input.spaceId}
@@ -605,6 +905,7 @@ function PublicSpaceContextHeader(input: {
 
 function PublicSpaceViewerAction(input: {
 	accessMode: SpaceAccessMode;
+	focus?: PublicSpaceFocus;
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	spaceId: string;
@@ -615,7 +916,7 @@ function PublicSpaceViewerAction(input: {
 			<Link
 				className={buttonVariants({ size: "sm", variant: "outline" })}
 				search={{
-					redirect: buildPublicSpacePostSignInRedirect(input.spaceId),
+					redirect: buildPublicSpacePath(input.spaceId, input.focus ?? {}),
 				}}
 				to="/login"
 			>
@@ -797,7 +1098,7 @@ function PublicSpaceJoinAction(input: {
 				/>
 				<SelectContent className="max-h-72">
 					<SelectGroup>
-						<SelectLabel>Human Profiles</SelectLabel>
+						<SelectLabel>People</SelectLabel>
 						{humanProfiles.map((profile, index) => (
 							<SelectItem
 								icon={UserIcon}

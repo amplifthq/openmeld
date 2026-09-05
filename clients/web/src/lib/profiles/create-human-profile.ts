@@ -8,7 +8,7 @@ import { getRequiredServerEnv } from "#/env";
 export const createStartHumanProfile = createServerFn({
 	method: "POST",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = createHumanProfileBodySchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(

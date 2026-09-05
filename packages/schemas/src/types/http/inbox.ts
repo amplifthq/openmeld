@@ -41,6 +41,15 @@ export type SpaceInboxSummaryItem = z.infer<
 export type SpaceInboxSummaryResponse = z.infer<
   InboxSchemas["spaceInboxSummaryResponseSchema"]
 >;
+export type SpaceInboxUnreadTarget = z.infer<
+  InboxSchemas["spaceInboxUnreadTargetSchema"]
+>;
+export type SpaceInboxUnreadTargetsResponse = z.infer<
+  InboxSchemas["spaceInboxUnreadTargetsResponseSchema"]
+>;
+export type SpaceInboxUnreadTargetsRouteParams = z.infer<
+  InboxSchemas["spaceInboxUnreadTargetsRouteParamsSchema"]
+>;
 export type MarkCenterAgentInboxReadThroughBody = z.infer<
   InboxSchemas["markCenterAgentInboxReadThroughBodySchema"]
 >;
@@ -91,6 +100,9 @@ export type GetCenterAgentInboxSummaryRpcInput = z.infer<
 >;
 export type GetSpaceInboxSummaryRpcInput = z.infer<
   InboxSchemas["getSpaceInboxSummaryRpcInputSchema"]
+>;
+export type GetSpaceInboxUnreadTargetsRpcInput = z.infer<
+  InboxSchemas["getSpaceInboxUnreadTargetsRpcInputSchema"]
 >;
 export type MarkCenterAgentInboxReadThroughRpcInput = z.infer<
   InboxSchemas["markCenterAgentInboxReadThroughRpcInputSchema"]

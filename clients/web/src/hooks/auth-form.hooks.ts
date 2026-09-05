@@ -19,7 +19,12 @@ import {
 	resolvePostAuthRedirect,
 	sanitizeRedirectTarget,
 } from "#/lib/auth-redirect";
-import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
+import { completeAccountAuthChange } from "#/query/auth-boundary";
+import {
+	getSession as getClientSession,
+	listDeviceSessions,
+	revokeDeviceSession,
+} from "#/query/auth-query";
 import { userQueryKeys } from "#/query/query-keys";
 
 function deriveNameFromEmail(email: string): string {
@@ -98,7 +103,7 @@ export function useEmailSignIn() {
 			};
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-created");
 		},
 	});
 }
@@ -132,7 +137,7 @@ export function useEmailSignUp() {
 			};
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-created");
 		},
 	});
 }
@@ -211,7 +216,7 @@ export function useVerifyEmailToken() {
 			return { redirectTo: resolvePostAuthRedirect() };
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-created");
 		},
 	});
 }
@@ -229,7 +234,7 @@ export function useVerifyMagicLinkToken() {
 			return { redirectTo: resolvePostAuthRedirect() };
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-created");
 		},
 	});
 }
@@ -257,11 +262,40 @@ export function useLogoutAction() {
 
 	return useMutation({
 		mutationFn: async () => {
+			const [currentSession, deviceSessions] = await Promise.all([
+				getClientSession(),
+				listDeviceSessions(),
+			]);
+			const currentUserId = currentSession?.user.id;
+			const currentDeviceSession = currentUserId
+				? deviceSessions.find((item) => item.user.id === currentUserId)
+				: undefined;
+			if (currentDeviceSession) {
+				await revokeDeviceSession(currentDeviceSession.session.token);
+				return;
+			}
+
+			// Sessions created before multi-session was enabled do not have a
+			// device-session cookie. Preserve the existing logout behavior for them.
 			const result = await signOutSession();
 			assertNoAuthError(result, "Failed to sign out.");
 		},
 		onSuccess: async () => {
-			await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			await completeAccountAuthChange(queryClient, "session-revoked");
+		},
+	});
+}
+
+export function useLogoutAllAccountsAction() {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: async () => {
+			const result = await signOutSession();
+			assertNoAuthError(result, "Failed to log out of all accounts.");
+		},
+		onSuccess: async () => {
+			await completeAccountAuthChange(queryClient, "signed-out");
 		},
 	});
 }

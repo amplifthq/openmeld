@@ -95,7 +95,7 @@ describe("builtin agent controller definitions", () => {
       codex: "native",
       cursor: "unsupported",
       "grok-build": "native",
-      opencode: "unsupported",
+      opencode: "provider_scoped",
     });
   });
 

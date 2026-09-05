@@ -117,9 +117,11 @@ describe("WelcomeSpaceScreen", () => {
 		expect(addComputerIcon).toBeTruthy();
 		expect(addComputerIcon?.parentElement?.className).toContain("flex-col");
 		expect(addComputerIcon?.parentElement?.className).toContain("items-center");
-		expect(screen.getByText("Connect Computer").className).toContain(
-			"welcome-add-computer-title-breathe"
-		);
+		expect(
+			screen.getByText("Connect Computer", {
+				selector: ".welcome-add-computer-title-breathe",
+			}).className
+		).toContain("welcome-add-computer-title-breathe");
 		expect(connectComputerCard?.textContent).toContain(
 			"Or ask a Center Agent to walk you through."
 		);

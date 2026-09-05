@@ -1,7 +1,5 @@
 import {
   agentProfileCreationRequestMutationResponseSchema,
-  bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
-  bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
   createAgentProfileCreationRequestBodySchema,
@@ -9,14 +7,12 @@ import {
   decideAgentProfileCreationRequestBodySchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
-  getOrganizationBindingAuthorizationPreferenceResponseSchema,
   larkPlatformActiveRegistrationListResponseSchema,
   larkPlatformProviderSchema,
   larkPlatformRegistrationAttemptIdSchema,
   larkPlatformRegistrationBeginModeSchema,
   larkPlatformRegistrationResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
-  listOrganizationBindingAuthorizationProfilesResponseSchema,
   messageChannelConnectionListResponseSchema,
   messageChannelIdentityLinkConsumeBodySchema,
   messageChannelIdentityLinkConsumeResponseSchema,
@@ -33,14 +29,10 @@ import {
   organizationMemberOpenMeldServiceStatusesResponseSchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
-  saveOrganizationWakeAccessChoiceBodySchema,
-  saveOrganizationWakeAccessChoiceResponseSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
   setAgentProfileCreationDefaultsResponseSchema,
-  setOrganizationBindingAuthorizationPreferenceBodySchema,
-  setOrganizationBindingAuthorizationPreferenceResponseSchema,
   updateCenterAgentOrganizationMemoryPolicyBodySchema,
   updateOrganizationInformationProtectionPolicyBodySchema,
 } from "@openmeld/schemas";
@@ -70,10 +62,6 @@ import {
   buildCurrentOrganizationSpacesWithMemberCountsPath,
   buildMessageChannelIdentityLinkConsumePath,
   buildMessageChannelIdentityLinkPreviewPath,
-  buildOrganizationBindingAuthorizationPreferencePath,
-  buildOrganizationBindingAuthorizationProfilesPath,
-  buildOrganizationBindingAuthorizationsBulkPath,
-  buildOrganizationWakeAccessChoicePath,
 } from "./routes";
 import type { CreateOrganizationApi } from "./types";
 
@@ -243,55 +231,6 @@ export const createOrganizationApi: CreateOrganizationApi = (
       timeoutMs: input.timeoutMs,
       schema: organizationLogoResponseSchema,
       invalidMessage: "invalid Organization logo removal response",
-    }),
-  bulkAuthorizeAgentProfileBindings: async (input) => {
-    const body =
-      bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema.parse({
-        agentProfileIds: input.agentProfileIds,
-      });
-    return await client.requestJson({
-      url: buildOrganizationBindingAuthorizationsBulkPath(input.organizationId),
-      operation: "organization.binding_authorization.bulk_authorize",
-      method: "POST",
-      requestContext: input.requestContext,
-      signal: input.signal,
-      timeoutMs: input.timeoutMs,
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(body),
-      schema: bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
-      invalidMessage:
-        "invalid Organization Binding authorization bulk response",
-    });
-  },
-  getBindingAuthorizationPreference: async (input) =>
-    await client.requestJson({
-      url: buildOrganizationBindingAuthorizationPreferencePath(
-        input.organizationId
-      ),
-      operation: "organization.binding_authorization.preference.read",
-      method: "GET",
-      requestContext: input.requestContext,
-      signal: input.signal,
-      timeoutMs: input.timeoutMs,
-      schema: getOrganizationBindingAuthorizationPreferenceResponseSchema,
-      invalidMessage:
-        "invalid Organization Binding authorization preference response",
-    }),
-  listBindingAuthorizationProfiles: async (input) =>
-    await client.requestJson({
-      url: buildOrganizationBindingAuthorizationProfilesPath(
-        input.organizationId
-      ),
-      operation: "organization.binding_authorization.profiles.list",
-      method: "GET",
-      requestContext: input.requestContext,
-      signal: input.signal,
-      timeoutMs: input.timeoutMs,
-      schema: listOrganizationBindingAuthorizationProfilesResponseSchema,
-      invalidMessage:
-        "invalid Organization Binding authorization profile list response",
     }),
   getCurrentDirectory: async (input = {}) =>
     await client.requestJson({
@@ -567,29 +506,6 @@ export const createOrganizationApi: CreateOrganizationApi = (
         "invalid Organization information protection policy response",
     });
   },
-  setBindingAuthorizationPreference: async (input) => {
-    const body = setOrganizationBindingAuthorizationPreferenceBodySchema.parse({
-      autoAuthorizeAgentProfileBindings:
-        input.autoAuthorizeAgentProfileBindings,
-    });
-    return await client.requestJson({
-      url: buildOrganizationBindingAuthorizationPreferencePath(
-        input.organizationId
-      ),
-      operation: "organization.binding_authorization.preference.write",
-      method: "PUT",
-      requestContext: input.requestContext,
-      signal: input.signal,
-      timeoutMs: input.timeoutMs,
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(body),
-      schema: setOrganizationBindingAuthorizationPreferenceResponseSchema,
-      invalidMessage:
-        "invalid Organization Binding authorization preference response",
-    });
-  },
   setAgentProfileCreationDefaults: async (input) => {
     const body = setAgentProfileCreationDefaultsBodySchema.parse({
       agentControllerCollaborationMode: input.agentControllerCollaborationMode,
@@ -613,25 +529,6 @@ export const createOrganizationApi: CreateOrganizationApi = (
       body: JSON.stringify(body),
       schema: setAgentProfileCreationDefaultsResponseSchema,
       invalidMessage: "invalid Agent Profile creation defaults response",
-    });
-  },
-  saveWakeAccessChoice: async (input) => {
-    const body = saveOrganizationWakeAccessChoiceBodySchema.parse({
-      enableWakeAccess: input.enableWakeAccess,
-    });
-    return await client.requestJson({
-      url: buildOrganizationWakeAccessChoicePath(input.organizationId),
-      operation: "organization.wake_access_choice.write",
-      method: "PUT",
-      requestContext: input.requestContext,
-      signal: input.signal,
-      timeoutMs: input.timeoutMs,
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(body),
-      schema: saveOrganizationWakeAccessChoiceResponseSchema,
-      invalidMessage: "invalid Organization Wake access choice response",
     });
   },
 });

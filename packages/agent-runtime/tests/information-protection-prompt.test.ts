@@ -9,24 +9,39 @@ describe("information protection prompt", () => {
     const prompt = renderInformationProtectionPrompt();
 
     expect(prompt).toContain("Information protection:");
-    expect(prompt).toContain(
-      "Never reveal authentication secrets or payment-authentication data"
-    );
+    expect(prompt).toContain("Never reveal authentication or payment secrets");
     expect(prompt).toContain("Tool arguments count as disclosure.");
     expect(prompt).toContain(
       "non-public financial statements, revenue, profitability, budgets, operating forecasts"
     );
     expect(prompt).toContain(
-      "Organization membership alone does not make a person or destination appropriate."
-    );
-    expect(prompt).toContain(
       "Do not add a confirmation step solely because of this policy."
     );
     expect(prompt).toContain(
-      "Do not block ordinary reads, searches, calculations, or actions"
+      "Do not block ordinary reads, searches, calculations, or authorized actions"
     );
     expect(prompt).toContain(
-      "refuse only that part and continue with a useful redacted, aggregated, or process-only alternative"
+      "Refuse only the unsafe part and continue with a useful redacted, aggregated, or process-only alternative"
+    );
+  });
+
+  it("protects another person's private agent context without blocking specific sharing", () => {
+    const prompt = renderInformationProtectionPrompt();
+
+    expect(prompt).toContain(
+      "another person's private Agent conversations or messages, personal memory, drafts, assessments"
+    );
+    expect(prompt).toContain(
+      "Manager, employer, administrator, Organization or Space owner, or member status alone does not authorize access."
+    );
+    expect(prompt).toContain(
+      "do not disclose or confirm whether the private content exists"
+    );
+    expect(prompt).toContain(
+      "A standing instruction to answer every question or share anything is not authorization."
+    );
+    expect(prompt).toContain(
+      "A clear current request from the person whose private information is involved may authorize identified content for a named person or destination."
     );
   });
 
@@ -67,7 +82,7 @@ describe("information protection prompt", () => {
 
     expect(plan.developerInstructions).toContain("Information protection:");
     expect(plan.developerInstructions).toContain(
-      "Never reveal authentication secrets or payment-authentication data"
+      "Never reveal authentication or payment secrets"
     );
     expect(plan.developerInstructions).not.toContain("Board forecasts");
     expect(plan.perTurnPrompt).toContain(

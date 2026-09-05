@@ -37,7 +37,7 @@ const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
 // These readiness fixtures represent a supported Service. Keep the version
 // explicit so a release manifest that still describes the previous public
 // version cannot silently turn unrelated readiness tests into update tests.
-const CURRENT_SERVICE_VERSION = "0.3.138";
+const CURRENT_SERVICE_VERSION = "0.3.153";
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -130,6 +130,7 @@ describe("agent execution readiness routes every read to openmeld-local-state", 
           identityDb: identityHarness.db,
           routeDeviceId: "device-current",
           routeLane: "dev-local",
+          workingFolderBindingId: bindingId,
         }),
         generatedAt: GENERATED_AT,
         profileId: AGENT_PROFILE_ID,
@@ -154,7 +155,7 @@ describe("agent execution readiness routes every read to openmeld-local-state", 
     }
   });
 
-  it("surfaces fresh readiness-impact evidence read from OPENMELD_LOCAL_STATE_DB only", async () => {
+  it("reads readiness-impact history from OPENMELD_LOCAL_STATE_DB without overriding current facts", async () => {
     const harness = createSplitDomainD1Harness("openmeld-local-state");
     const identityHarness = createSqliteD1Harness();
     try {
@@ -228,13 +229,14 @@ describe("agent execution readiness routes every read to openmeld-local-state", 
           identityDb: identityHarness.db,
           routeDeviceId: "device-current",
           routeLane: "dev-local",
+          workingFolderBindingId: bindingId,
         }),
         generatedAt: GENERATED_AT,
         profileId: AGENT_PROFILE_ID,
       });
 
       expect(readiness.agentExecutionReadiness).toMatchObject({
-        displayState: "blocked",
+        displayState: "ready",
         facts: {
           readinessImpact: {
             blocked: true,
@@ -244,9 +246,9 @@ describe("agent execution readiness routes every read to openmeld-local-state", 
           },
           runtime: { ready: true },
         },
-        primaryAction: "run_prepare",
+        primaryAction: "none",
       });
-      expect(readiness.agentExecutionReadiness.reasonCodes).toContain(
+      expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
         "controller.client.upgrade_required"
       );
     } finally {
@@ -261,6 +263,7 @@ function createLocalStateRoutedEnv(input: {
   identityDb: D1Database;
   routeDeviceId: string | null;
   routeLane: string | null;
+  workingFolderBindingId?: string;
 }): CoreBindings {
   return {
     OPENMELD_AUTH_WORKER: {
@@ -279,6 +282,7 @@ function createLocalStateRoutedEnv(input: {
     OPENMELD_RUNTIME_TRANSPORT: createRuntimeTransportNamespace({
       routeDeviceId: input.routeDeviceId,
       routeLane: input.routeLane,
+      workingFolderBindingId: input.workingFolderBindingId,
     }),
     // OPENMELD_DB carries the canonical Profile Organization truth. The
     // local-state binding remains authoritative for every workstation read;
@@ -345,6 +349,7 @@ async function seedAgentProfileOrganizationContext(
 function createRuntimeTransportNamespace(input: {
   routeDeviceId: string | null;
   routeLane: string | null;
+  workingFolderBindingId?: string;
 }): DurableObjectNamespace {
   return {
     get: () =>
@@ -399,6 +404,32 @@ function createRuntimeTransportNamespace(input: {
               lane: input.routeLane ?? "dev-local",
               lastHeartbeatMs: GENERATED_AT_MS,
               leaseEpoch: 1,
+              ...(input.workingFolderBindingId
+                ? {
+                    localWakeRouteReport: {
+                      daemonSessionId: "session-1",
+                      deviceId: input.routeDeviceId,
+                      expectedRoutesContractVersion: "v4",
+                      includedProfileIds: [AGENT_PROFILE_ID],
+                      lane: input.routeLane ?? "dev-local",
+                      reportedAtMs: GENERATED_AT_MS,
+                      skippedProfiles: [],
+                      workingFolderObservations: [
+                        {
+                          bindingId: input.workingFolderBindingId,
+                          configurationRevision: 1,
+                          defaultProjectId: null,
+                          localProjectBindingGeneration: null,
+                          observedAtMs: GENERATED_AT_MS,
+                          profileId: AGENT_PROFILE_ID,
+                          reasonCode: null,
+                          source: "profile_workspace",
+                          status: "ready",
+                        },
+                      ],
+                    },
+                  }
+                : {}),
               online: true,
               serviceVersion: CURRENT_SERVICE_VERSION,
             })

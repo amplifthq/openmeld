@@ -1,0 +1,2 @@
+ALTER TABLE `openMeldDaemon_dispatch_ledger` ADD `source_profile_id` text;--> statement-breakpoint
+CREATE INDEX `idx_openMeldDaemon_dispatch_ledger_space_source_profile_target` ON `openMeldDaemon_dispatch_ledger` (`space_id`,`source_profile_id`,`target_profile_id`,`dispatch_id`);

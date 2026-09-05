@@ -607,6 +607,7 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     REQUIRED_SIGN_IN,
     CONFIRM_SELECTED_PROFILE
   ),
+  "space.access": buildCommandChecks(OPTIONAL_CLI_UPDATE),
   "space.status": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,
@@ -704,6 +705,11 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,
     AUTO_FIX_LOCAL_RUNTIME,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.current-session": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
   "profile.list": buildCommandChecks(

@@ -141,6 +141,9 @@ sentence.
   the result. When the visible version still needs to be saved, the same surface
   gives one concrete **Save changes** action. It does not add an approval-only
   button or a second **correct** or **discard** ritual.
+- Applied: ordinary recovery surfaces say **Connect Computer** or **Reconnect
+  Computer**. They name **OpenMeld Service** only in Computer details, version
+  checks, diagnostics, or other places where the specific component matters.
 - Violation looks like: `agent_profile_binding.primary_conflict` as the
   headline of a user-facing failure, telling a beginner that a tool catalog is
   unavailable, or copy that hedges because the developer was unsure.

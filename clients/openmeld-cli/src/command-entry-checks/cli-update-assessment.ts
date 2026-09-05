@@ -16,15 +16,16 @@ const OPENMELD_PACKAGE_NAME = "openmeld";
 const CLI_UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Result of resolving how the running CLI compares to the published npm
- * release. This is the single place that derives the forced-update signal from
- * the floor (`openmeld.minRequiredCliVersion` on the npm `latest` manifest), so the
+ * Result of resolving how the running CLI compares to its published release
+ * channel. npm installs read npm's `latest` manifest; managed binaries read the
+ * configured R2 manifest. This is the single place that derives the
+ * forced-update signal from the channel's minimum required version, so the
  * entry-check gate and `openmeld doctor` cannot drift apart.
  */
 export type CliUpdateAssessment = {
   /**
-   * True when the version check actually applies (prod lane, `openmeld` command).
-   * False short-circuits silently for dev lanes and renamed binaries.
+   * True when the version check actually applies to the current production
+   * distribution or an explicitly configured binary canary.
    */
   checked: boolean;
   currentVersion: string;
@@ -46,16 +47,18 @@ export function isCliUpdateCheckApplicable(
     manifestUrl?: string | null;
   } = {}
 ): boolean {
+  const distribution = input.distribution ?? resolveOpenMeldDistribution();
   const productionCheck =
     environmentTarget.preset === "prod" &&
-    environmentTarget.userFacingCommand === "openmeld";
+    (distribution === "binary" ||
+      environmentTarget.userFacingCommand === "openmeld");
   if (productionCheck) {
     return true;
   }
   return (
     environmentTarget.preset === "canary" &&
     environmentTarget.userFacingCommand === "openmeld-canary" &&
-    (input.distribution ?? resolveOpenMeldDistribution()) === "binary" &&
+    distribution === "binary" &&
     Boolean(
       normalizeOptionalText(
         input.manifestUrl ?? process.env.OPENMELD_CLI_BINARY_MANIFEST_URL
@@ -65,14 +68,16 @@ export function isCliUpdateCheckApplicable(
 }
 
 /**
- * Resolves the published latest version and required-update floor for the CLI.
+ * Resolves the published latest version and required-update floor for the
+ * current distribution's release channel (npm for npm installs, R2 for managed
+ * binaries).
  *
  * Reads a fresh local cache first (24h TTL) so machine-mode (`--json`) commands
  * do not pay a network probe on every invocation; only a cold/stale cache hits
- * the registry. Background maintenance and explicit update actions can bypass
+ * the channel. Background maintenance and explicit update actions can bypass
  * that cache with `forceRefresh` so a known release is never hidden by an older
  * command check. Any network or parse failure resolves to "no signal" so the
- * caller fails open and never locks a user out over a flaky registry.
+ * caller fails open and never locks a user out over a flaky release channel.
  */
 export async function assessCliUpdate(input: {
   environmentTarget: OpenMeldEnvironmentTarget;
@@ -135,7 +140,9 @@ async function resolveLatestPackageInfo(input: {
   if (cached) {
     return cached;
   }
-  const info = await fetchLatestPackageInfo(OPENMELD_PACKAGE_NAME);
+  const info = await fetchLatestPackageInfo(OPENMELD_PACKAGE_NAME, {
+    forceRefresh: input.forceRefresh,
+  });
   await persistInfo({ currentVersion: input.currentVersion, info });
   return info;
 }

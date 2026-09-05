@@ -1,4 +1,5 @@
 import {
+  createAgentControllerProcessDiscoveryDiagnosticAggregator,
   type ListAgentControllerDescendantProcessIds,
   listAgentControllerDescendantProcessIds,
   resolveAgentControllerProcessSignalId,
@@ -14,6 +15,9 @@ import { resolveUnixSignalForInterruptMode } from "./control-plane-types.js";
 import type { InflightTaskControlRegistry } from "./inflight-task-control-registry.js";
 
 type KillProcess = typeof process.kill;
+
+const localTaskSignalDiscoveryDiagnostics =
+  createAgentControllerProcessDiscoveryDiagnosticAggregator();
 
 type TrackedProcessTree = {
   descendantProcessIds: Set<number>;
@@ -41,7 +45,7 @@ export function createLocalTaskInterruptSender(input: {
     input.listDescendantProcessIds ?? listAgentControllerDescendantProcessIds;
   const trackedProcessTreeByTaskId = new Map<string, TrackedProcessTree>();
 
-  return (signal): Promise<ControlSignalResult> => {
+  return async (signal): Promise<ControlSignalResult> => {
     const resolved = resolveProcessTree({
       killProcess,
       mode: signal.mode,
@@ -50,7 +54,7 @@ export function createLocalTaskInterruptSender(input: {
       trackedProcessTreeByTaskId,
     });
     const unixSignal = resolveUnixSignalForInterruptMode(signal.mode);
-    sendProcessTreeSignal({
+    await sendProcessTreeSignal({
       killProcess,
       listDescendantProcessIds,
       mode: signal.mode,
@@ -61,13 +65,13 @@ export function createLocalTaskInterruptSender(input: {
       unixSignal,
     });
 
-    return Promise.resolve({
+    return {
       dispatchId: resolved.dispatchId,
       processId: resolved.processId,
       signalTarget: resolved.signalTarget,
       taskId: signal.taskId,
       unixSignal,
-    });
+    };
   };
 }
 
@@ -136,7 +140,7 @@ function resolveProcessTree(input: {
   };
 }
 
-function sendProcessTreeSignal(input: {
+async function sendProcessTreeSignal(input: {
   killProcess: KillProcess;
   listDescendantProcessIds: ListAgentControllerDescendantProcessIds;
   mode: "force" | "graceful";
@@ -145,23 +149,30 @@ function sendProcessTreeSignal(input: {
   taskId: string;
   trackedProcessTreeByTaskId: Map<string, TrackedProcessTree>;
   unixSignal: NodeJS.Signals;
-}): void {
+}): Promise<void> {
+  const descendantDiscovery =
+    input.resolved.processIsAlive &&
+    input.resolved.signalTarget === "process_group"
+      ? input.listDescendantProcessIds(input.resolved.processId)
+      : Promise.resolve([]);
   try {
     signalAgentControllerProcessTree({
       killProcess: input.killProcess,
-      listDescendantProcessIds: input.resolved.processIsAlive
-        ? input.listDescendantProcessIds
-        : () => [],
       processId: input.resolved.processId,
       signal: input.unixSignal,
       signalTarget: input.resolved.signalTarget,
       trackedDescendantProcessIds:
         input.resolved.trackedProcessTree.descendantProcessIds,
     });
-    if (input.mode === "force") {
-      input.trackedProcessTreeByTaskId.delete(input.taskId);
-    }
   } catch (error) {
+    descendantDiscovery.catch((discoveryError) => {
+      localTaskSignalDiscoveryDiagnostics.failure({
+        error: discoveryError,
+        processId: input.resolved.processId,
+        signal: input.unixSignal,
+        source: "descendant_tree",
+      });
+    });
     if (isNoSuchProcessError(error)) {
       clearDeadRegistryProcess(
         input.registry,
@@ -177,6 +188,42 @@ function sendProcessTreeSignal(input: {
       "signal.send_failed",
       error instanceof Error ? error.message : "failed to send local signal"
     );
+  }
+
+  let discoveredProcessIds: number[] = [];
+  try {
+    discoveredProcessIds = await descendantDiscovery;
+    localTaskSignalDiscoveryDiagnostics.recovered("descendant_tree");
+  } catch (error) {
+    localTaskSignalDiscoveryDiagnostics.failure({
+      error,
+      processId: input.resolved.processId,
+      signal: input.unixSignal,
+      source: "descendant_tree",
+    });
+  }
+
+  try {
+    for (const discoveredProcessId of discoveredProcessIds) {
+      input.resolved.trackedProcessTree.descendantProcessIds.add(
+        discoveredProcessId
+      );
+      signalAgentControllerProcessTree({
+        killProcess: input.killProcess,
+        processId: discoveredProcessId,
+        signal: input.unixSignal,
+        signalTarget: "process",
+      });
+    }
+  } catch (error) {
+    throw createLocalTaskInterruptError(
+      "signal.send_failed",
+      error instanceof Error ? error.message : "failed to send local signal"
+    );
+  }
+
+  if (input.mode === "force") {
+    input.trackedProcessTreeByTaskId.delete(input.taskId);
   }
 }
 

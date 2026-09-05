@@ -5,7 +5,7 @@ import { resolveOptionalActiveOrganizationSlug } from "#/lib/organizations/organ
 
 const ADD_TO_SLACK_PATH = "/add-to-slack";
 
-export const Route = createFileRoute(ADD_TO_SLACK_PATH)({
+export const Route = createFileRoute("/add-to-slack")({
 	beforeLoad: async ({ location }) => {
 		const activeOrganizationSlug = await resolveOptionalActiveOrganizationSlug({
 			data: { routeFamily: location.pathname },

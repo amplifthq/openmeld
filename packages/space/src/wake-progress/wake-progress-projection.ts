@@ -204,6 +204,7 @@ export function buildWakeProgressItemFromTransientSignal(
     targetProfileId,
     updatedAtMs: signal.ts,
     runtimeDeviceDisplayName,
+    ...(phase === "writing" && message ? { previewText: message } : {}),
     ...(message ? { message } : {}),
   });
 }

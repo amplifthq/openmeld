@@ -25,6 +25,8 @@ import {
   markSpaceInboxReadThroughBodySchema,
   markSpaceInboxReadThroughResponseSchema,
   spaceInboxSummaryResponseSchema,
+  spaceInboxUnreadTargetsResponseSchema,
+  spaceInboxUnreadTargetsRouteParamsSchema,
   updateInboxNotificationPreferencesBodySchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
@@ -43,6 +45,7 @@ const INBOX_SUMMARY_ROUTE = `${INBOX_ROUTE}/summary`;
 const CENTER_AGENT_INBOX_SUMMARY_ROUTE = `${INBOX_ROUTE}/center-agent/summary`;
 const CENTER_AGENT_INBOX_READ_THROUGH_ROUTE = `${INBOX_ROUTE}/center-agent/read-through`;
 const SPACE_INBOX_SUMMARY_ROUTE = `${INBOX_ROUTE}/spaces/summary`;
+const SPACE_INBOX_UNREAD_TARGETS_ROUTE = `${INBOX_ROUTE}/spaces/:spaceId/unread-targets`;
 const SPACE_INBOX_READ_THROUGH_ROUTE = `${INBOX_ROUTE}/spaces/read-through`;
 const INBOX_MARK_ALL_READ_ROUTE = `${INBOX_ROUTE}/mark-all-read`;
 const INBOX_PREFERENCES_ROUTE = `${INBOX_ROUTE}/preferences`;
@@ -99,6 +102,31 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       route: SPACE_INBOX_SUMMARY_ROUTE,
     })
   );
+
+  app.get(SPACE_INBOX_UNREAD_TARGETS_ROUTE, (c) => {
+    const params = spaceInboxUnreadTargetsRouteParamsSchema.safeParse(
+      c.req.param()
+    );
+    if (!params.success) {
+      return invalidPayloadResponse(
+        c,
+        SPACE_INBOX_UNREAD_TARGETS_ROUTE,
+        "GET",
+        params.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getSpaceInboxUnreadTargets({
+          context: buildCoreRpcContext(c),
+          spaceId: params.data.spaceId,
+        }),
+      method: "GET",
+      responseSchema: spaceInboxUnreadTargetsResponseSchema,
+      route: SPACE_INBOX_UNREAD_TARGETS_ROUTE,
+    });
+  });
 
   app.post(SPACE_INBOX_READ_THROUGH_ROUTE, async (c) => {
     const body = await parseBody(

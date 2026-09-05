@@ -528,6 +528,96 @@ describe("Agent Profile creation request service", () => {
     });
   });
 
+  it("keeps a committed Profile retryable after a transient identity checkpoint storage failure", async () => {
+    repository.preference = {
+      existingSessionPolicy: "ask_every_time",
+      newSessionPolicy: "automatically_allow",
+    };
+    const agentProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    repository.identityCheckpointError = new Error(
+      "checkpoint storage connection interrupted"
+    );
+    createAgentProfile.mockImplementationOnce(async (_request, checkpoint) => {
+      await checkpoint.checkpointCreatedAgentProfileId(agentProfileId);
+      return agentProfileId;
+    });
+    const errorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const service = createService();
+    const created = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+
+    expect(created.request).toMatchObject({
+      createdAgentProfileId: agentProfileId,
+      failureMessage:
+        "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely.",
+      status: "failed",
+      statusReason: "profile_created",
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      "[core.agent_profile_creation_request.execution_failed]",
+      expect.objectContaining({
+        error: "checkpoint storage connection interrupted",
+        requestId: created.request.id,
+      })
+    );
+
+    // Retry is valid once migration 0149+ provides the current request-state contract.
+    await expect(
+      service.retry({
+        organizationId: "org-1",
+        requestId: created.request.id,
+        userId: "user-requester",
+      })
+    ).resolves.toMatchObject({
+      createdAgentProfileId: agentProfileId,
+      failureMessage: null,
+      status: "completed",
+      statusReason: "profile_created",
+    });
+    expect(createAgentProfile).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ createdAgentProfileId: agentProfileId }),
+      expect.any(Object)
+    );
+    errorLog.mockRestore();
+  });
+
+  it("does not redact ordinary non-checkpoint execution errors based on their message", async () => {
+    repository.preference = {
+      existingSessionPolicy: "ask_every_time",
+      newSessionPolicy: "automatically_allow",
+    };
+    createAgentProfile.mockRejectedValueOnce(
+      new Error("OpenCode model constraint failed during provider setup.")
+    );
+    const errorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const result = await createService().create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+
+    expect(result.request).toMatchObject({
+      createdAgentProfileId: null,
+      failureMessage: "OpenCode model constraint failed during provider setup.",
+      status: "failed",
+      statusReason: "profile_creation_failed",
+    });
+    expect(errorLog).not.toHaveBeenCalled();
+    errorLog.mockRestore();
+  });
+
   function createService() {
     const inboxProjection =
       createAgentProfileCreationRequestInboxProjectionService({
@@ -570,6 +660,7 @@ function deferred<T>() {
 }
 
 class InMemoryRepository implements AgentProfileCreationRequestRepository {
+  identityCheckpointError: Error | null = null;
   preference: {
     existingSessionPolicy: AgentProfileCreationApprovalPolicy;
     newSessionPolicy: AgentProfileCreationApprovalPolicy;
@@ -787,7 +878,16 @@ class InMemoryRepository implements AgentProfileCreationRequestRepository {
     inboxProjection?: AgentProfileCreationRequestInboxProjectionOperation;
     requestId: string;
     update: Partial<AgentProfileCreationRequestRecord>;
-  }) {
+  }): Promise<AgentProfileCreationRequestRecord | null> {
+    if (
+      this.identityCheckpointError &&
+      input.update.createdAgentProfileId &&
+      input.update.status === undefined
+    ) {
+      const error = this.identityCheckpointError;
+      this.identityCheckpointError = null;
+      return Promise.reject(error);
+    }
     const index = this.records.findIndex(
       (record) =>
         record.id === input.requestId &&

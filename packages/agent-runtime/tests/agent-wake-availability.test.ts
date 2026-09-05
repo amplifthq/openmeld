@@ -174,8 +174,234 @@ describe("agent wake availability", () => {
       phase: "available",
       reasonCode: "agent_execution.ready",
       status: "available_for_wake",
-      summary: "Can reply from this computer in Spaces.",
+      summary: "Available for Wake",
       tooltip: "Available for Wake",
+    });
+  });
+
+  it("requires the canonical ready verdict even when partial route facts look healthy", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      localService: {
+        reachable: true,
+        reasonCodes: [],
+        refreshable: true,
+        source: "runtime_transport",
+      },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "unknown",
+        ready: false,
+        reasonCodes: [],
+      },
+    });
+
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "agent_execution.readiness_unconfirmed"
+    );
+  });
+
+  it.each([
+    {
+      evidence: {
+        providerAccount: {
+          blocked: true,
+          expiresAtMs: 1_770_003_600_000,
+          observedAtMs: 1_770_000_000_000,
+          provider: "codex" as const,
+          reasonCodes: ["provider_account.subscription_access_unavailable"],
+          source: "wake_failure" as const,
+        },
+      },
+      label: "provider account",
+    },
+    {
+      evidence: {
+        readinessImpact: {
+          blocked: true,
+          expiresAtMs: 1_770_003_600_000,
+          impactKind: "local_execution" as const,
+          observedAtMs: 1_770_000_000_000,
+          reasonCodes: ["workspace.missing"],
+          source: "wake_failure" as const,
+        },
+      },
+      label: "readiness impact",
+    },
+  ])("keeps historical $label evidence diagnostic when current facts are ready", ({
+    evidence,
+  }) => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      ...evidence,
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "ready",
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+    });
+
+    expect(
+      resolveAgentWakeAvailability({
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+        readiness,
+      })
+    ).toMatchObject({
+      category: "available",
+      status: "available_for_wake",
+    });
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBeNull();
+  });
+
+  it.each([
+    {
+      expectedCategory: "checking",
+      runtimeReadiness: {
+        displayState: "unknown" as const,
+        ready: false,
+        reasonCodes: ["usage_checking"],
+      },
+      wakeRouteStatus: createReadyWakeRouteStatus(),
+    },
+    {
+      expectedCategory: "offline",
+      runtimeReadiness: {
+        displayState: "ready" as const,
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+      wakeRouteStatus: { status: "offline" as const },
+    },
+  ])("does not let historical failures overwrite a current $expectedCategory verdict", ({
+    expectedCategory,
+    runtimeReadiness,
+    wakeRouteStatus,
+  }) => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      readinessImpact: {
+        blocked: true,
+        expiresAtMs: 1_770_003_600_000,
+        impactKind: "local_execution",
+        observedAtMs: 1_770_000_000_000,
+        reasonCodes: ["controller.launch.needs_repair"],
+        source: "wake_failure",
+      },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        reasonCodes:
+          wakeRouteStatus.status === "offline" ? ["route.offline"] : [],
+        status: wakeRouteStatus.status === "offline" ? "offline" : "online",
+      },
+      runtimeReadiness,
+    });
+
+    expect(
+      resolveAgentWakeAvailability({ wakeRouteStatus, readiness })
+    ).toMatchObject({ category: expectedCategory });
+  });
+
+  it.each([
+    ["working_folder.current_report_missing", "checking"],
+    ["working_folder.expected_routes_unavailable", "checking"],
+    ["profile.workspace.missing", "unavailable"],
+    ["profile.workspace.invalid", "unavailable"],
+    ["project.local_connection.missing", "unavailable"],
+    ["project.local_connection.folder_missing", "unavailable"],
+    ["project.local_connection.invalid", "unavailable"],
+  ] as const)("fails closed for current working-folder reason %s", (reasonCode, category) => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      localService: {
+        reachable: true,
+        refreshable: true,
+        reasonCodes: [],
+        source: "runtime_transport",
+      },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: category === "checking" ? "unknown" : "unavailable",
+        ready: false,
+        reasonCodes: [reasonCode],
+      },
+    });
+
+    expect(
+      resolveAgentWakeAvailability({
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+        readiness,
+      })
+    ).toMatchObject({
+      category,
+      reasonCode,
+      status:
+        category === "checking"
+          ? "checking_connection"
+          : "unavailable_for_wake",
+    });
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      reasonCode
+    );
+    expect(resolveAgentWakeAdmissionTerminalDecision(reasonCode)).toMatchObject(
+      {
+        publicationCategory: "workspace_unavailable",
+        userRecoveryAction:
+          category === "checking" ? "check_status" : "review_agent_settings",
+      }
+    );
+  });
+
+  it("keeps a missing working folder more specific than a derived unbound reason", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      localService: {
+        reachable: true,
+        refreshable: true,
+        reasonCodes: [],
+        source: "runtime_transport",
+      },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "needs_prepare",
+        ready: false,
+        reasonCodes: ["profile.workspace.missing", "profile.unbound"],
+      },
+    });
+
+    expect(
+      resolveAgentWakeAvailability({
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+        readiness,
+      })
+    ).toMatchObject({
+      badgeLabel: "Working folder missing",
+      label: "Working folder missing",
+      reasonCode: "profile.workspace.missing",
+      summary: "Choose a working folder for this Agent.",
+      tooltip: "Working folder missing",
     });
   });
 
@@ -229,6 +455,48 @@ describe("agent wake availability", () => {
       status: "unavailable_for_wake",
       summary,
       tooltip,
+    });
+  });
+
+  it("prioritizes current Codex sign-in guidance while Usage is checking", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-07-13T06:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "needs_prepare",
+        ready: false,
+        reasonCodes: ["controller.auth.unauthenticated", "usage_checking"],
+      },
+    });
+
+    expect(readiness.primaryAction).toBe("check_status");
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "usage_checking"
+    );
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: "builtin:codex",
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+        readiness,
+      })
+    ).toEqual({
+      action: "none",
+      badgeLabel: "Sign-in needed",
+      category: "unavailable",
+      isRefreshing: false,
+      label: "Sign-in needed",
+      phase: "provider_sign_in_needed",
+      reasonCode: "controller.auth.unauthenticated",
+      status: "unavailable_for_wake",
+      summary:
+        "Run codex login in a terminal on this computer to sign in to Codex.",
+      tooltip:
+        "Codex is not signed in. Run codex login in a terminal on this computer.",
     });
   });
 
@@ -488,7 +756,7 @@ describe("agent wake availability", () => {
       phase: "available",
       reasonCode: "agent_execution.ready",
       status: "available_for_wake",
-      summary: "Can reply from this computer in Spaces.",
+      summary: "Available for Wake",
       tooltip: "Available for Wake",
     });
   });
@@ -647,10 +915,8 @@ describe("agent wake availability", () => {
       phase: "offline",
       reasonCode: "wake_route.registration_expired",
       status: "offline_for_wake",
-      summary:
-        "This agent's connection is offline. Check OpenMeld Service on its computer.",
-      tooltip:
-        "Agent connection is offline. Check OpenMeld Service on its computer.",
+      summary: "This Agent's computer is offline.",
+      tooltip: "Agent computer is offline",
     });
   });
 
@@ -720,9 +986,8 @@ describe("agent wake availability", () => {
       phase: "service_not_connected",
       reasonCode: "service.not_running",
       status: "offline_for_wake",
-      summary:
-        "Connect OpenMeld Service on this computer before this agent can reply.",
-      tooltip: "OpenMeld Service is not connected on this computer.",
+      summary: "Connect your computer before this Agent can reply.",
+      tooltip: "Computer not connected",
     });
   });
 
@@ -754,10 +1019,8 @@ describe("agent wake availability", () => {
       phase: "unavailable",
       reasonCode: "lookup_failed",
       status: "unavailable_for_wake",
-      summary:
-        "This agent's Wake route is unavailable right now. Check OpenMeld Service on its computer.",
-      tooltip:
-        "Wake route unavailable. Check OpenMeld Service on its computer.",
+      summary: "This Agent's computer connection is unavailable right now.",
+      tooltip: "Computer connection unavailable",
     });
   });
 
@@ -796,14 +1059,12 @@ describe("agent wake availability", () => {
       phase: "offline",
       reasonCode: "route.offline",
       status: "offline_for_wake",
-      summary:
-        "This agent's connection is offline. Check OpenMeld Service on its computer.",
-      tooltip:
-        "Agent connection is offline. Check OpenMeld Service on its computer.",
+      summary: "This Agent's computer is offline.",
+      tooltip: "Agent computer is offline",
     });
   });
 
-  it("keeps a registered Wake route available when local service diagnostics are stale", () => {
+  it("does not let a registered Wake route override current offline service facts", () => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,
       binding: createPrimaryBinding(),
@@ -831,16 +1092,16 @@ describe("agent wake availability", () => {
         readiness,
       })
     ).toEqual({
-      action: "none",
-      badgeLabel: "Available",
-      category: "available",
+      action: "check_status",
+      badgeLabel: "Offline",
+      category: "offline",
       isRefreshing: false,
-      label: "Available for Wake",
-      phase: "available",
-      reasonCode: "agent_execution.ready",
-      status: "available_for_wake",
-      summary: "Can reply from this computer in Spaces.",
-      tooltip: "Available for Wake",
+      label: "Offline for Wake",
+      phase: "service_not_connected",
+      reasonCode: "service.not_running",
+      status: "offline_for_wake",
+      summary: "Connect your computer before this Agent can reply.",
+      tooltip: "Computer not connected",
     });
   });
 
@@ -1003,7 +1264,7 @@ describe("agent wake availability", () => {
     ).toBeNull();
   });
 
-  it("keeps a registered Wake route available when local controller evidence is stale", () => {
+  it("does not let a registered Wake route override stale controller evidence", () => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,
       binding: createPrimaryBinding(),
@@ -1031,16 +1292,16 @@ describe("agent wake availability", () => {
         readiness,
       })
     ).toEqual({
-      action: "none",
-      badgeLabel: "Available",
-      category: "available",
-      isRefreshing: false,
-      label: "Available for Wake",
-      phase: "available",
-      reasonCode: "agent_execution.ready",
-      status: "available_for_wake",
-      summary: "Can reply from this computer in Spaces.",
-      tooltip: "Available for Wake",
+      action: "check_status",
+      badgeLabel: "Checking",
+      category: "checking",
+      isRefreshing: true,
+      label: "Checking connection",
+      phase: "checking_service",
+      reasonCode: "agent_profile_binding.enabled_primary",
+      status: "checking_connection",
+      summary: "Checking this agent's Wake availability.",
+      tooltip: "Checking Wake availability",
     });
   });
 
@@ -1131,12 +1392,12 @@ describe("agent wake availability", () => {
       badgeLabel: "Update",
       category: "unavailable",
       isRefreshing: false,
-      label: "Update OpenMeld Service",
+      label: "Update OpenMeld on Computer",
       phase: "service_update_required",
       reasonCode: "service.update_required",
       status: "unavailable_for_wake",
-      summary: "Update OpenMeld Service before this agent can reply.",
-      tooltip: "Update OpenMeld Service",
+      summary: "Update OpenMeld on your computer before this Agent can reply.",
+      tooltip: "Update OpenMeld on Computer",
     });
   });
 });
@@ -1197,12 +1458,12 @@ describe("delivery reconnect availability", () => {
       badgeLabel: "Reconnecting",
       category: "checking",
       isRefreshing: true,
-      label: "Reconnecting OpenMeld Service",
+      label: "Reconnecting Computer",
       phase: "checking_route",
       reasonCode: "local_service.reconnecting",
       status: "checking_connection",
-      summary: "OpenMeld Service is reconnecting on this computer.",
-      tooltip: "Reconnecting OpenMeld Service",
+      summary: "Computer is reconnecting.",
+      tooltip: "Reconnecting Computer",
     });
   });
 });

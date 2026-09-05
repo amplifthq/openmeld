@@ -3,12 +3,100 @@ export const SPACE_WAKE_COMPOSER_HINT =
 export const SPACE_COMPOSER_ACCESSIBLE_NAME = "Message this space";
 export type SpaceAgentDirectConversationComposerHintKind = "direct_message";
 
-export type SpaceComposerPlaceholderContext =
+export type SpaceComposerConversationKind =
 	| "space"
 	| "human_direct_message"
 	| "agent_direct_message"
-	| "center_agent_direct_message"
+	| "center_agent_direct_message";
+
+export type SpaceComposerPlacement = "conversation" | "thread";
+
+export type SpaceComposerPlaceholderContext =
+	| SpaceComposerConversationKind
 	| "thread";
+
+export type SpaceComposerPolicy = {
+	accessibleName: string;
+	placeholder: string;
+	sendButtonLabel: "Send message" | "Send reply" | "Sending…";
+	sendButtonTooltip: "Send message" | "Send reply" | "Sending…";
+	showMentionButton: boolean;
+	wakeTextHint: string | null;
+};
+
+export function resolveSpaceComposerConversationKind(input: {
+	isAgentDirectMessage: boolean;
+	isCenterAgentDirectMessage: boolean;
+	isDirectMessage: boolean;
+}): SpaceComposerConversationKind {
+	if (input.isCenterAgentDirectMessage) {
+		return "center_agent_direct_message";
+	}
+	if (input.isAgentDirectMessage) {
+		return "agent_direct_message";
+	}
+	if (input.isDirectMessage) {
+		return "human_direct_message";
+	}
+	return "space";
+}
+
+export function resolveSpaceComposerPolicy(input: {
+	canSendMessage: boolean;
+	conversationKind: SpaceComposerConversationKind;
+	hasAuthoredMentions?: boolean;
+	placement: SpaceComposerPlacement;
+	readOnlyPlaceholder?: string;
+	targetName?: string | null;
+	text: string;
+	isSendingMessage?: boolean;
+}): SpaceComposerPolicy {
+	const placeholderContext =
+		input.placement === "thread" ? "thread" : input.conversationKind;
+	const agentDirectConversation =
+		input.conversationKind === "agent_direct_message" ||
+		input.conversationKind === "center_agent_direct_message";
+	const sendButtonLabel = resolveSpaceComposerSendButtonLabel({
+		isSendingMessage: input.isSendingMessage === true,
+		placement: input.placement,
+	});
+
+	return {
+		accessibleName: resolveSpaceComposerAccessibleName({
+			context: placeholderContext,
+			targetName: input.targetName,
+		}),
+		placeholder: resolveSpaceComposerPlaceholder({
+			canSendMessage: input.canSendMessage,
+			context: placeholderContext,
+			readOnlyPlaceholder: input.readOnlyPlaceholder,
+			targetName: input.targetName,
+		}),
+		sendButtonLabel,
+		sendButtonTooltip: input.isSendingMessage
+			? "Sending…"
+			: resolveSpaceComposerSendButtonLabel({
+					isSendingMessage: false,
+					placement: input.placement,
+				}),
+		showMentionButton: !agentDirectConversation,
+		wakeTextHint: agentDirectConversation
+			? null
+			: resolveSpaceComposerWakeTextHint(input.text, {
+					hasAuthoredMentions: input.hasAuthoredMentions,
+				}),
+	};
+}
+
+function resolveSpaceComposerSendButtonLabel(input: {
+	isSendingMessage: boolean;
+	placement: SpaceComposerPlacement;
+}): SpaceComposerPolicy["sendButtonLabel"] {
+	if (input.placement === "thread") {
+		return "Send reply";
+	}
+	return input.isSendingMessage ? "Sending…" : "Send message";
+}
 
 export function resolveSpaceComposerPlaceholder(input: {
 	canSendMessage: boolean;

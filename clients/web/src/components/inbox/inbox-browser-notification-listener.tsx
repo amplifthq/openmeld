@@ -517,6 +517,7 @@ function processInboxBrowserNotificationItems(input: {
 				item,
 				orgSlug: input.organizationSlug,
 			}).href,
+			userId: input.userId,
 			viewingSourceSession: isInboxItemSourceLocation({
 				item,
 				orgSlug: input.organizationSlug,

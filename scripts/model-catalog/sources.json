@@ -1,0 +1,39 @@
+{
+  "codex": {
+    "discoverySince": "2026-09-01",
+    "releaseRepository": "openai/codex",
+    "catalogPath": "codex-rs/models-manager/models.json",
+    "documents": ["https://learn.chatgpt.com/docs/models.md"],
+    "providers": ["openai"],
+    "verification": "Use the installed Codex app-server model/list on a dedicated test account; verify the exact model and effort through an OpenMeld Wake. A bundled release catalog is not account entitlement evidence."
+  },
+  "claude-code": {
+    "discoverySince": "2026-09-01",
+    "releaseRepository": "anthropics/claude-code",
+    "documents": ["https://code.claude.com/docs/en/model-config.md"],
+    "providers": ["anthropic"],
+    "verification": "Verify the exact Claude Code model ID, --effort values, provider and login method. API model metadata does not establish Claude Code support or alias resolution."
+  },
+  "cursor": {
+    "discoverySince": "2026-09-01",
+    "documents": ["https://cursor.com/docs/cli/reference/parameters.md"],
+    "providers": ["openai", "anthropic", "google", "xai"],
+    "verification": "Capture authenticated Cursor ACP session models. Copy exact compound IDs, including their embedded parameters; do not synthesize them from API model names. Independent reasoning is not supported by the current OpenMeld Cursor adapter."
+  },
+  "grok-build": {
+    "discoverySince": "2026-09-01",
+    "documents": [
+      "https://docs.x.ai/build/overview.md",
+      "https://docs.x.ai/build/settings.md"
+    ],
+    "providers": ["xai"],
+    "verification": "Capture authenticated Grok Build ACP models and reasoning options using the selected executable. xAI API model availability alone does not prove Grok Build availability."
+  },
+  "opencode": {
+    "discoverySince": "2026-09-01",
+    "releaseRepository": "anomalyco/opencode",
+    "documents": [],
+    "providers": ["opencode", "opencode-go", "openai"],
+    "verification": "Capture opencode models <provider> --verbose for the curated providers. Copy exact variant keys, not API reasoning values. Confirm account access and the exact executable version."
+  }
+}

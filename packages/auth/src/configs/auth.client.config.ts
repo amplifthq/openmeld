@@ -2,6 +2,7 @@ import { passkeyClient } from "@better-auth/passkey/client";
 import type { BetterAuthClientOptions } from "better-auth";
 import {
   lastLoginMethodClient,
+  multiSessionClient,
   organizationClient,
 } from "better-auth/client/plugins";
 import {
@@ -19,11 +20,13 @@ const DEFAULT_AUTH_BASE_PATH = "/api/auth";
 
 type OpenMeldAuthClientPlugins = [
   OpenMeldPasskeyClientPlugin,
+  OpenMeldMultiSessionClientPlugin,
   OpenMeldOrganizationClientPlugin,
   OpenMeldLastLoginMethodClientPlugin,
 ];
 
 type OpenMeldPasskeyClientPlugin = ReturnType<typeof passkeyClient>;
+type OpenMeldMultiSessionClientPlugin = ReturnType<typeof multiSessionClient>;
 type OpenMeldOrganizationClientOptions = {
   ac: typeof organizationAccessControl;
   roles: typeof organizationRoles;
@@ -37,6 +40,8 @@ type OpenMeldLastLoginMethodClientPlugin = ReturnType<
 
 function createOpenMeldAuthClientPlugins(): OpenMeldAuthClientPlugins {
   const passkeyPlugin: OpenMeldPasskeyClientPlugin = passkeyClient();
+  const multiSessionPlugin: OpenMeldMultiSessionClientPlugin =
+    multiSessionClient();
   const organizationPlugin: OpenMeldOrganizationClientPlugin =
     organizationClient({
       ac: organizationAccessControl,
@@ -47,7 +52,12 @@ function createOpenMeldAuthClientPlugins(): OpenMeldAuthClientPlugins {
       cookieName: LAST_USED_LOGIN_METHOD_COOKIE_NAME,
     });
 
-  return [passkeyPlugin, organizationPlugin, lastLoginMethodPlugin];
+  return [
+    passkeyPlugin,
+    multiSessionPlugin,
+    organizationPlugin,
+    lastLoginMethodPlugin,
+  ];
 }
 
 export type OpenMeldAuthClientConfig = Omit<

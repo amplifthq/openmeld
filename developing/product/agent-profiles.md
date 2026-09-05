@@ -34,16 +34,22 @@ An Agent Profile owns product identity and collaboration meaning:
 - visible teammate identity
 - Space membership meaning
 
-An Agent Profile name should describe the AI teammate's practical role, not
-the Runtime, provider, or Agent Controller behind it. When an assistant creates
-an Agent Profile and the user did not supply a name, it should infer a short,
-plain name from the user's current goal and Space context, usually two to four
-words such as `Release Reviewer`, `API Debugger`, or `Docs Editor`. Bare
-infrastructure names such as `Codex`, `Claude`, `Claude Code`, `Cursor`, `Grok Build`, or `OpenCode`,
-and vague names such as `Assistant`, `Agent`, or `Helper`, are not meaningful
-teammate identities. Preserve an explicit user-provided name. If the available
-context does not support a meaningful role, ask for a name before creating the
-profile.
+An Agent Profile name is a practical label for distinguishing the member,
+Session, and execution configuration. Ordinary interactive creation must not
+make a user invent a role or create one profile per task. It proposes a factual,
+editable template name from the owner, selected Agent Controller, model, and,
+when useful, reasoning level, for example `Felix Lu Codex GPT-5.6 Sol Xhigh`.
+The template uses plain spaces rather than possessives or decorative separators.
+If the proposed visible name already exists for that owner, the creation surface
+adds the first available numeric suffix such as `(1)` or `(2)`.
+
+The name field appears at the final review rather than blocking the first
+decision. While the name still matches the managed template, configuration
+changes update it automatically. Once the user edits the name, later
+configuration changes must preserve the user's text. When the Center Agent or
+another assistant creates an Agent from an explicit work goal, it may instead
+infer a short practical role name such as `Release Reviewer` or `API Debugger`.
+An explicit user-provided name always wins.
 
 It does not own local execution truth.
 
@@ -108,6 +114,26 @@ Profile that acted and the surface that initiated the action (`web`, `cli`,
 Center Agent or Local Agent may act for a human requester without becoming the
 new Agent Profile's owner. Profile Details shows the human-readable creator and
 source; exact internal identifiers remain an Advanced detail.
+
+When a supported local Agent asks to add itself to a Space, that intent creates
+a new Agent Profile by default. A client must not enumerate the account's
+profiles or inspect unrelated Bindings to guess which identity to reuse. Reuse
+is allowed only when the caller supplies the exact Agent Profile ID it remembers
+creating for the same controller Session; the client validates only that
+Profile's ownership, Organization, Binding, and Project folder. An exact active
+Profile with a confirmed missing Binding is a resumable partial creation: the
+client completes that Profile instead of creating a duplicate. A Profile already
+bound to another controller Session is not repurposed; the default new-Profile
+path remains authoritative. Ambiguous ownership, an unavailable Binding read, or
+an ambiguous session identity fails closed instead of selecting a nearby match.
+
+Clients may expose an explicit owner-scoped lookup from an exact controller ref
+and exact controller Session ID to the one bound Agent Profile. This is a
+recovery aid for a caller that remembers creating a same-session identity but
+lost its Profile ID; it is not a discovery step in the default self-add flow.
+The lookup performs one Binding reverse read and reports whether the result
+belongs to the active Organization. It must not enumerate Profiles, inspect
+unrelated Bindings, or silently choose a Profile from another Organization.
 
 ## Agent Profile Creation Requests
 
@@ -264,6 +290,17 @@ model.
 
 It can make the Agent Profile visible, addressable, and available as a
 conversation participant. It does not prove the Agent Profile can reply now.
+
+An ordinary human-owned Agent Profile joins an ordinary Space together with its
+authoritative owner Human Profile. This is one atomic Core-resolved membership
+operation, not a client convention. The owner remains a member after the Agent
+is removed and cannot leave while that Agent remains. An unconverted
+one-Human/one-Agent Direct Message is the exception: the Agent owner's Human
+Profile is a derived read-only observer until that owner explicitly joins and
+irreversibly converts the DM into an ordinary Space. Managed Agents, including
+the Center Agent, do not use this owner-participation rule. The full membership,
+negative-surface, and reconciliation contract belongs to
+`developing/product/space-collaboration.md`.
 
 Agent Profile Binding is the execution connection from an Agent Profile to a
 local OpenMeld Service Runtime and Agent Controller:
@@ -507,9 +544,9 @@ grants. OpenMeld must never loosen permissions automatically.
 Keep these product facts separate:
 
 ```text
-Space membership does not equal Available for Wake.
-Binding existence does not equal Available for Wake.
-Agent Controller Permission Mode does not equal Available for Wake.
+Space membership does not make Wakeability `Available`.
+Binding existence does not make Wakeability `Available`.
+Agent Controller Permission Mode does not make Wakeability `Available`.
 Codex Collaboration Mode does not equal Agent Controller Permission Mode.
 Space Thread placement does not equal Agent Controller conversation continuity.
 ```
@@ -640,6 +677,21 @@ different Agent Controller's choices. Failed or cancelled creation does not
 replace the remembered values, and dangerous permission confirmations are
 never remembered as approved.
 
+Web may also keep an unfinished creation journey as a browser-local draft so a
+member can leave the flow and return without rebuilding ordinary selections.
+This draft is scoped by Organization and user, is advisory rather than
+authoritative, and may contain only the selected Agent Controller, supported
+model and reasoning choice, supported controller settings, and a cloud Project
+id. It never stores a custom absolute folder path or a dangerous-permission
+confirmation. Web restores the draft only after validating every value against
+the current local-agent catalog, model catalog, permission options, and Project
+list; otherwise it discards the stale draft and uses current defaults. A
+successful creation clears the journey draft. Restoring or abandoning this
+browser draft never writes or replaces the Core-owned remembered creation
+defaults. Once the member changes the selected local Agent or execution target,
+that direct choice ends draft restoration for the current open creation flow;
+later renders must not restore an older choice over the member's input.
+
 The Center Agent can read every saved controller-specific row for the
 represented member before creating a local Agent Profile. These values are
 concrete user preferences, not a rules engine or a forced configuration: the
@@ -672,8 +724,10 @@ payload. Agent Activity still owns provider-observed coding-session awareness.
 The Coordinator must not duplicate any of those truths.
 
 Before a fresh workstation Wake can become the current or a queued Work
-Coordinator item, Core consumes the canonical `AgentExecutionReadiness` for
-that Profile. A blocking current fact rejects the Wake before Coordinator
+Coordinator item, Core consumes the canonical Wakeability projection for that
+Profile. The current compatibility API and schema call this projection
+`AgentExecutionReadiness`; that name does not define a second product concept.
+A blocking current fact rejects the Wake before Coordinator
 admission and produces a visible no-execution outcome with one recovery action.
 In particular, disabling the selected Local Agent means no new work: rejected
 Wakes are not retained as a hidden backlog that can start after the Local Agent
@@ -695,6 +749,18 @@ version. A source message is visible in its conversation immediately; its Wake
 may show that it is queued, but Web does not hide or stack the message above the
 Composer until execution starts. Different Agent Profiles remain independently
 admissible and may work in parallel.
+
+The first accepted Wake request remains frozen while it waits, moves to the
+front, or is redriven after transport recovery. Prompt, attachments, source
+message, reply destination, target Profile, Binding/configuration revision, and
+execution identity belong to that Wake. A refreshed queue timestamp, recovery
+reason, or later display-name snapshot does not create a different request. A
+real immutable-content mismatch fails that exact pre-execution Wake visibly, or
+stays retryable if RuntimeCoordinator cannot safely settle it; it is never
+treated as a duplicate, a Computer-offline verdict, or permission to execute
+the changed content. Its failure tells the user to send the request again and
+open Diagnostics if needed; it does not expose a Check status/Recovery action
+or change current Wakeability.
 
 `Queued` means another Wake owns this Profile's work slot. It is not the
 existing RuntimeCoordinator `waiting` state used after a Wake reaches the head
@@ -724,10 +790,11 @@ passive or not evaluated, does not use Usage as an admission condition. Once a
 Local Agent's versioned capability matrix declares native Usage support, a
 missing, stale, expired, or currently unavailable observation projects
 `Checking` and rejects a new Wake; OpenMeld must not promise acceptance while
-the required fact is unknown. During a mixed-version rollout, a legacy Local
-Agent that does not declare its Usage support-matrix version remains outside
-this admission condition; a newer Core must not reinterpret that omission as
-`Checking`. A
+the required fact is unknown. During a mixed-version rollout, Core continues
+to parse a legacy Local Agent report that omits the Usage support-matrix
+version, but that report cannot prove current capacity for a controller whose
+reviewed matrix requires native Usage. The public verdict remains bounded
+`Checking` and new Wake admission stays closed until a current report arrives. A
 fresh exhausted Usage Limit projects `Unavailable` and blocks the Wake before
 admission. These decisions use the current report already held by Core and must
 not add a provider call to the Wake hot path. Core and the Local Service consume
@@ -750,6 +817,10 @@ deterministic, idempotent new execution. A legacy or mismatched Service report
 cannot authorize that retry. OpenMeld does not claim that the terminal provider
 turn reopened. After that continuation succeeds, the owner receives the
 separate urgent Inbox and email approval for the held queue.
+This automatic continuation is an internal Coordinator command authorized by
+the frozen interrupted Wake identity and owner-shard Binding/configuration
+fence. It does not inspect or execute the public Execution Recovery
+`retry_as_new_execution` action, which remains unavailable.
 If the user explicitly Stops the continuation, OpenMeld never starts it again;
 later queued work still requires the same owner approval, while an empty queue
 clears recovery immediately. Wakes submitted after recovery remain behind the
@@ -771,7 +842,13 @@ failure-to-recovery smoke test.
 For Space and Direct Message Wakes, that automatic continuation uses the exact
 interrupted dispatch and source message as its internal continuation authority.
 The new Wake keeps the original source message's author; the Agent owner's Human
-Profile authorizes recovery but is not shown as the original sender.
+Profile authorizes recovery but is not shown as the original sender. Space File
+references keep their exact immutable revisions and Agent References keep their
+structured targets through the ordinary Space message writer. If that writer
+proves a preserved file revision, Wake, Reference, or Human Mention is no longer
+valid, the interrupted work moves to `Needs attention` once and keeps later work
+held for owner review. Temporary writer or storage failures retry the same
+continuation identity instead of producing a partial continuation.
 
 Owners may keep editing settings while work is queued or running under the
 existing capability rules. A running Wake keeps its accepted Binding and
@@ -779,17 +856,17 @@ configuration revision. Saved model, reasoning, controller, and launch-only
 permission changes apply to future work. A native live permission update is
 shown as applied only after the provider acknowledges it.
 
-An approved Usage continuation rechecks its exact Binding, controller, and
-configuration revision before it can continue, not only when Usage first
-recovers. Continuation authorization, head admission, and every cloud-owned
-future-work settings change share one owner-shard ordering boundary. If the
-continuation becomes running first, the current Wake keeps its accepted
-settings and the saved change applies to later work. If the setting change wins
-while the continuation is pending or authorized, the continuation moves to
-`Needs attention` without executing. During a rolling deployment, an older
-owner shard that cannot coordinate future-work settings rejects that settings
-save before changing the Binding; ordinary Wakes keep using the unchanged fast
-path.
+An approved Usage continuation rechecks its exact Binding, controller,
+configuration revision, and nullable Default Project before it can continue,
+not only when Usage first recovers. Continuation authorization, head admission,
+and every cloud-owned future-work settings change share one owner-shard ordering
+boundary. If the continuation becomes running first, the current Wake keeps its
+accepted settings and the saved change applies to later work. If the setting
+change wins while the continuation is pending or authorized, the continuation
+moves to `Needs attention` without executing. During a rolling deployment, an
+older owner shard that cannot coordinate future-work settings rejects that
+settings save before changing the preference; ordinary Wakes keep using the
+unchanged fast path.
 
 ## Agent Profile Operational Context
 
@@ -813,6 +890,16 @@ controller conversation identifiers, local paths, or other owner diagnostics.
 This projection belongs in the existing Profile Details surface, not a separate
 status product.
 
+Organization-member Agent details may also include one explicit public display
+configuration: the friendly Agent Controller, model, reasoning level,
+collaboration mode, and permission mode already used to identify how the
+teammate works. Core projects that allowlisted display object independently of
+owner-only readiness diagnostics. It never includes a Computer identity, local
+path, controller conversation identifier, runtime identifier, raw provider
+account data, or mutation authority. Offline, unavailable, and checking Agents
+keep this stable identity and configuration visible; temporary readiness does
+not blank the Profile Details surface.
+
 The non-owner readiness projection keeps the public four-state Wakeability
 status and may additionally name one exact, structured `usage_exhausted` fact
 as **Usage Limit reached**. That fact helps teammates avoid assigning work that
@@ -830,36 +917,43 @@ order before applying the same privacy projection. This is a read-only Profile
 Details path, never Wake admission work; the storage limits must not become a
 user-visible partial result or slow a new Wake.
 
-## Readiness And Recovery Surfaces
+## Wakeability And Recovery Surfaces
 
-Readiness may appear on Agent Profile surfaces because users need to know
-whether an AI teammate can reply now.
+Wakeability may appear on Agent Profile surfaces because users need to know
+whether an AI teammate can accept a new Wake now.
 
 The user-facing question is:
 
 ```text
-Can this Agent Profile reply from this computer in this Space right now?
+Can this Agent accept a new Wake here right now?
 ```
 
 Agent Profile identity does not own the answer.
 
-Final user-facing readiness comes from transport-owned evidence, not from Agent
+Final user-facing Wakeability comes from transport-owned evidence, not from Agent
 Profile identity. Route online is not enough. Binding existence is not enough.
 Completed Prepare evidence is not enough. Local process health is not enough.
 For an Organization Space, readiness must verify that the Agent Profile's
 canonical `organizationId` equals the Space's Organization. Missing or
 unverifiable Organization identity, or any mismatch, is `Unavailable`, never
-`Available for Wake`, even when the Binding, Runtime, and route are otherwise
+`Available`, even when the Binding, Runtime, and route are otherwise
 healthy. Legacy authorization records never satisfy or override this check.
 
-Agent Profile surfaces may display `Available for Wake` only when the
-Core-owned readiness projection says the full reply path is aligned for the
+Agent Profile surfaces may display `Available` only when the Core-owned
+Wakeability projection says the full reply path is aligned for the
 target profile, intended account, OpenMeld Service Runtime, Agent Controller, OpenMeld
 Service compatibility, and claim eligibility.
 
-Public availability uses four states only: `Available for Wake`, `Checking`,
+A retained Wake failure, provider-access failure row, or persisted
+`readinessImpact` remains outcome and diagnostic history for that exact Wake.
+It does not block a later Wake or choose a later recovery action. A lasting
+problem changes current Wakeability only after its owning current fact is read
+again—for example, a current Usage report, current Service compatibility fact,
+or current path-free working-folder observation.
+
+Public Wakeability uses four verdicts only: `Available`, `Checking`,
 `Offline`, and `Unavailable`. Concrete repair actions such as `Update OpenMeld
-Service`, `Reconnect OpenMeld Service`, or `Connect local agent` are owner guidance,
+on Computer`, `Reconnect Computer`, or `Connect local agent` are owner guidance,
 not separate public states.
 
 `Offline` is reserved for stable Computer, OpenMeld Service, or route liveness
@@ -892,9 +986,11 @@ not send the user through setup or reinterpret diagnostic reason codes into a
 second recovery verdict. Ready controllers do not change that decision merely
 because they carry additional non-blocking diagnostic reason codes.
 
-Concrete setup failures name the controller and computer, such as `OpenCode
-needs setup on Felix's MacBook Pro`, while a healthy Binding describes where the
-profile runs.
+Concrete blockers name the affected object and place one verb-first action next
+to the explanation. For example, `Felix's MacBook Pro is not connected.` uses
+`Connect computer`, while `Felix's MacBook Pro needs an update.` uses `Update`.
+Primary blocker copy must not collapse a known problem into `needs setup` or
+`Review setup`. A healthy Binding may still describe where the profile runs.
 
 Reply recovery answers:
 
@@ -955,13 +1051,16 @@ exception grants no local diagnostics or computer-management authority.
 
 The Agents home and compact About dialog are two presentations of the same
 Profile Details and edit contract, not separate Agent-management systems. The
-Agents home renders the selected Agent as persistent read-only detail and may
-enter owner-authorized editing in place with explicit save and cancel actions.
-It must reuse the existing mutations, execution-target locks, permissions, and
-failure diagnostics. A failed save preserves both the draft and the error
-instead of falling back to stale read-only state. Space Members continues to
-use the compact About dialog for quick preview. Presentation choice does not
-create another Profile, Binding, readiness, request, or edit source of truth.
+Agents home renders the selected Agent as persistent detail. Owner-authorized
+fields edit from their own anchored card or value; the page must not switch into
+a separate all-fields edit mode. Read-only facts such as Owner have no edit
+affordance. Each editable field keeps explicit save and cancel actions and reuses
+the existing mutations, execution-target locks, permissions, and failure
+diagnostics. A failed save preserves that field's draft and error instead of
+replacing the whole detail surface or falling back to stale state. Space Members
+continues to use the compact About dialog for quick preview. Presentation choice
+does not create another Profile, Binding, readiness, request, or edit source of
+truth.
 
 ## Owner Boundaries
 
@@ -985,14 +1084,14 @@ Use scoped owner documents for detailed rules:
 - An Agent Profile is an AI teammate identity.
 - An Agent Profile is not Runtime, computer, OpenMeld Service, controller, or local
   process.
-- Space membership does not equal `Available for Wake`.
+- Space membership does not make Wakeability `Available`.
 - Binding is the execution connection from an Agent Profile to an OpenMeld Service
   Runtime and Agent Controller.
 - Controller-native permission settings are Binding-level launch intent, not
   Agent Profile identity, Space permission, or readiness truth.
 - A pending local-agent request is RuntimeCoordinator execution state, not
   Binding configuration, Space message history, or durable approval truth.
-- Binding existence does not equal `Available for Wake`.
+- Binding existence does not make Wakeability `Available`.
 - Agent Profile identity does not own readiness truth.
 - Working-folder mode is a device-scoped local execution fact with only
   `openmeld_managed` and `custom` states.

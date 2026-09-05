@@ -321,6 +321,127 @@ describe("runtime reporting Core RPC write", () => {
     }
   });
 
+  it("marks a definitive continuation source mismatch once and leaves queued work behind the review gate", async () => {
+    const harness = createSqliteD1Harness();
+    applyRuntimeReportingMigrations(harness);
+    try {
+      const agentProfileId = buildTestAgentProfileId(1);
+      const markUsageAvailable = vi
+        .fn()
+        .mockResolvedValueOnce({
+          changedProfileIds: [agentProfileId],
+          continuationProfileIds: [agentProfileId],
+          status: "updated",
+        })
+        .mockResolvedValue({
+          changedProfileIds: [],
+          continuationProfileIds: [],
+          status: "updated",
+        });
+      const readRecovery = vi.fn().mockResolvedValue({
+        action: "continue_interrupted_work",
+        authorizedContinuationClientMessageId: "continuation-client-1",
+        interruptedClientMessageId: "client-interrupted",
+        interruptedDispatchId: "dispatch-interrupted",
+        interruptedSourceSignalId: "signal-interrupted",
+        interruptedTargetWakeLifecycleId: "twl-interrupted",
+        spaceId: "a".repeat(64),
+        status: "available",
+      });
+      const markContinuationNeedsAttention = vi.fn().mockResolvedValue({
+        status: "marked",
+      });
+      const approveQueuedWork = vi.fn();
+      const skipInterruptedWork = vi.fn();
+      const ownerShard = {
+        rpcApproveAgentProfileWorkQueue: approveQueuedWork,
+        rpcMarkAgentProfileWorkContinuationNeedsAttention:
+          markContinuationNeedsAttention,
+        rpcMarkAgentProfileWorkUsageAvailable: markUsageAvailable,
+        rpcReadAgentProfileWorkRecovery: readRecovery,
+        rpcSkipAgentProfileInterruptedWork: skipInterruptedWork,
+      };
+      const startContinuation = vi
+        .fn()
+        .mockRejectedValue(
+          new Error("agent_profile_work_recovery.continuation_source_mismatch")
+        );
+      const spaceGet = vi.fn(() => ({
+        rpcStartUsageExhaustedContinuation: startContinuation,
+      }));
+      const env = {
+        ...coreEnv(harness.db),
+        OPENMELD_RUNTIME_TRANSPORT: {
+          get: vi.fn(() => ownerShard),
+          idFromName: vi.fn((name: string) => name),
+        },
+        OPENMELD_SPACES: {
+          get: spaceGet,
+          idFromString: vi.fn((value: string) => value),
+        },
+      } as unknown as CoreBindings;
+      const registration = await rpcSubmitRuntimeRegistration(env, {
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+      });
+      if (!registration.openMeldServiceRuntimeId) {
+        throw new Error(
+          "test registration did not return openMeldServiceRuntimeId"
+        );
+      }
+      const observedAtMs = Date.now();
+      insertPrimaryAgentProfileBinding(harness, {
+        agentControllerConversationId: "conversation-source-mismatch",
+        agentControllerRef: "builtin:codex",
+        agentProfileId,
+        bindingId: "binding-source-mismatch",
+        nowMs: observedAtMs,
+        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId.value,
+        ownerId: "owner-1",
+      });
+      const createReport = (offsetMs: number) => ({
+        agentControllerInterface: createAvailableUsageInterface(),
+        agentControllerRef: "builtin:codex",
+        expiresAtMs: observedAtMs + 60_000 + offsetMs,
+        observedAtMs: observedAtMs + offsetMs,
+        reasonCodes: ["runtime.agent_controller_report.ready"],
+        status: "ready" as const,
+      });
+
+      const first = await rpcSubmitRuntimeAgentControllerReports(env, {
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        reports: [createReport(0)],
+        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
+      });
+      const retry = await rpcSubmitRuntimeAgentControllerReports(env, {
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        reports: [createReport(1)],
+        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
+      });
+
+      expect(first.reports[0]).toMatchObject({ status: "accepted" });
+      expect(retry.reports[0]).toMatchObject({ status: "accepted" });
+      expect(markUsageAvailable).toHaveBeenCalledTimes(2);
+      expect(readRecovery).toHaveBeenCalledOnce();
+      expect(startContinuation).toHaveBeenCalledOnce();
+      expect(markContinuationNeedsAttention).toHaveBeenCalledOnce();
+      expect(markContinuationNeedsAttention).toHaveBeenCalledWith({
+        expectedInterruptedTargetWakeLifecycleId: "twl-interrupted",
+        ownerUserId: "owner-1",
+        targetProfileId: agentProfileId,
+      });
+      expect(approveQueuedWork).not.toHaveBeenCalled();
+      expect(skipInterruptedWork).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("keeps recovery reads without an exact lifecycle retryable while isolating later reports", async () => {
     const harness = createSqliteD1Harness();
     applyRuntimeReportingMigrations(harness);

@@ -26,19 +26,21 @@ import {
 } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
-	BookOpenTextIcon,
+	ArrowLeftIcon,
 	BuildingsIcon,
 	CaretDownIcon,
+	CaretRightIcon,
 	ChatCircleTextIcon,
-	FilesIcon,
-	FolderOpenIcon,
+	CheckIcon,
 	GearSixIcon,
 	HashIcon,
 	HouseIcon,
 	PlusIcon,
 	RobotIcon,
 	SidebarSimpleIcon,
+	SignOutIcon,
 	UserIcon,
+	UserPlusIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -79,18 +81,19 @@ import {
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useAccountAvatar } from "#/hooks/account.hooks";
+import { useDeviceSessions, useSwitchAccount } from "#/hooks/auth.hooks";
+import { useLogoutAllAccountsAction } from "#/hooks/auth-form.hooks";
+import type { AuthDeviceSession } from "#/lib/auth-client-types";
 import { selectLastSelectedOrganization } from "#/lib/organizations/account-organization-preference";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAccountSettingsPath,
-	buildOrganizationAgentActivityPath,
+	buildOrganizationAgentCreationPath,
 	buildOrganizationAgentsPath,
 	buildOrganizationDirectMessagesPath,
-	buildOrganizationDocumentsPath,
 	buildOrganizationNewOrganizationPath,
 	buildOrganizationOrganizationsPath,
 	buildOrganizationPeoplePath,
-	buildOrganizationProjectsPath,
 	buildOrganizationRootPath,
 	buildOrganizationSpacesPath,
 	resolveOrganizationSwitchPath,
@@ -115,11 +118,13 @@ type AppOuterRailAccount = {
 	name?: string | null;
 };
 
+type AppRailDestinationId = AppOuterRailDestination;
+
 type AppRailDestination = {
 	attentionCount?: number;
 	compactLabel?: string;
 	icon: ReactNode;
-	id: AppOuterRailDestination;
+	id: AppRailDestinationId;
 	label: string;
 	onIntentPrefetch?: () => void;
 	to: string;
@@ -161,9 +166,15 @@ function buildAppRailGroups(input: {
 }): readonly AppRailGroup[] {
 	return [
 		{
-			id: "home",
+			id: "primary",
 			label: null,
 			destinations: [
+				{
+					id: "newAgent",
+					label: "New Agent",
+					to: buildOrganizationAgentCreationPath(input.orgSlug),
+					icon: <PlusIcon aria-hidden="true" className="size-4" />,
+				},
 				{
 					id: "home",
 					label: "Home",
@@ -172,12 +183,6 @@ function buildAppRailGroups(input: {
 					icon: <HouseIcon aria-hidden="true" className="size-4" />,
 					unreadCount: input.centerAgentUnreadCount,
 				},
-			],
-		},
-		{
-			id: "work",
-			label: "Work",
-			destinations: [
 				{
 					id: "spaces",
 					label: "Spaces",
@@ -194,7 +199,7 @@ function buildAppRailGroups(input: {
 				{
 					compactLabel: "DMs",
 					id: "directMessages",
-					label: "Direct Messages",
+					label: "Messages",
 					to: buildOrganizationDirectMessagesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-4" />,
 				},
@@ -215,30 +220,6 @@ function buildAppRailGroups(input: {
 					label: "Agents",
 					to: buildOrganizationAgentsPath(input.orgSlug),
 					icon: <RobotIcon aria-hidden="true" className="size-4" />,
-				},
-			],
-		},
-		{
-			id: "resources",
-			label: "Resources",
-			destinations: [
-				{
-					id: "projects",
-					label: "Projects",
-					to: buildOrganizationProjectsPath(input.orgSlug),
-					icon: <FolderOpenIcon aria-hidden="true" className="size-4" />,
-				},
-				{
-					id: "documents",
-					label: "Documents",
-					to: buildOrganizationDocumentsPath(input.orgSlug),
-					icon: <FilesIcon aria-hidden="true" className="size-4" />,
-				},
-				{
-					id: "agentActivity",
-					label: "Agent Activity",
-					to: buildOrganizationAgentActivityPath(input.orgSlug),
-					icon: <BookOpenTextIcon aria-hidden="true" className="size-4" />,
 				},
 			],
 		},
@@ -457,7 +438,7 @@ function AppRailNavigationGroup(input: {
 		<FluidNavMenu
 			activeIndicatorClassName="bg-sidebar-accent"
 			activeValue={input.activeDestination}
-			aria-label={input.group.label ?? "Home"}
+			aria-label={input.group.label ?? "Primary navigation"}
 			focusIndicatorClassName="border-sidebar-ring"
 			hoverIndicatorClassName="bg-sidebar-accent"
 		>
@@ -575,16 +556,26 @@ function OrganizationSwitcher(input: {
 		select: (state) => state.location.pathname,
 	});
 	const [open, setOpen] = useState(false);
+	const [view, setView] = useState<"accounts" | "organizations">(
+		"organizations"
+	);
 	const [isSwitching, setIsSwitching] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const deviceSessionsQuery = useDeviceSessions(open && view === "accounts");
+	const switchAccount = useSwitchAccount();
+	const logoutAllAccounts = useLogoutAllAccountsAction();
+	const isAccountActionPending =
+		switchAccount.isPending || logoutAllAccounts.isPending;
+	const isBusy = isSwitching || isAccountActionPending;
 	const organizationTooltipLabel = `${currentOrganizationDisplay.name} organization`;
 	const handleOpenChange = (nextOpen: boolean) => {
-		if (isSwitching && !nextOpen) {
+		if (isBusy && !nextOpen) {
 			return;
 		}
 		setOpen(nextOpen);
 		if (!nextOpen) {
 			setErrorMessage(null);
+			setView("organizations");
 		}
 	};
 
@@ -662,6 +653,48 @@ function OrganizationSwitcher(input: {
 			"OpenMeld could not open Settings."
 		);
 	};
+	const openAccounts = () => {
+		setErrorMessage(null);
+		setView("accounts");
+	};
+	const switchToAccount = async (deviceSession: AuthDeviceSession) => {
+		if (
+			isBusy ||
+			normalizeAccountEmail(deviceSession.user.email) ===
+				normalizeAccountEmail(input.account.email)
+		) {
+			return;
+		}
+
+		setErrorMessage(null);
+		try {
+			await switchAccount.mutateAsync(deviceSession.session.token);
+			window.location.assign("/");
+		} catch (error) {
+			setErrorMessage(
+				error instanceof Error
+					? error.message
+					: "Unable to switch accounts. Try again."
+			);
+		}
+	};
+	const logOutAllAccounts = async () => {
+		if (isBusy) {
+			return;
+		}
+
+		setErrorMessage(null);
+		try {
+			await logoutAllAccounts.mutateAsync();
+			window.location.assign("/");
+		} catch (error) {
+			setErrorMessage(
+				error instanceof Error
+					? error.message
+					: "Unable to log out of all accounts. Try again."
+			);
+		}
+	};
 	const popoverTrigger = (
 		<Popover.Trigger
 			render={
@@ -673,7 +706,7 @@ function OrganizationSwitcher(input: {
 						"flex min-w-0 items-center rounded-md bg-transparent text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70",
 						isAvatarOnly ? "size-9 justify-center" : "h-9 w-full gap-2 px-2"
 					)}
-					disabled={isSwitching}
+					disabled={isBusy}
 					type="button"
 				/>
 			}
@@ -718,12 +751,29 @@ function OrganizationSwitcher(input: {
 					currentOrganization={currentOrganization}
 					errorMessage={errorMessage}
 					humanProfileAvatar={input.humanProfileAvatar}
+					isAccountActionPending={isAccountActionPending}
+					isAccountsError={deviceSessionsQuery.isError}
+					isAccountsLoading={deviceSessionsQuery.isPending}
 					isSwitching={isSwitching}
+					onAddAccount={() =>
+						window.location.assign("/login?intent=add-account&redirect=%2F")
+					}
+					onBackToOrganizations={() => {
+						setErrorMessage(null);
+						setView("organizations");
+					}}
 					onCreateOrganization={openCreateOrganization}
+					onLogOutAllAccounts={logOutAllAccounts}
+					onLogOutCurrentAccount={() => window.location.assign("/logout")}
 					onManageOrganizations={openManageOrganizations}
+					onOpenAccounts={openAccounts}
 					onOpenSettings={openSettings}
+					onRetryAccounts={() => deviceSessionsQuery.refetch()}
+					onSwitchAccount={switchToAccount}
 					onSwitchOrganization={switchOrganization}
 					organizations={orderedOrganizations}
+					sessions={deviceSessionsQuery.data ?? []}
+					view={view}
 				/>
 			</Popover.Root>
 		</div>
@@ -735,12 +785,24 @@ function OrganizationSwitcherPopover(input: {
 	currentOrganization: OrganizationSummary;
 	errorMessage: string | null;
 	humanProfileAvatar: HumanProfileAvatarIdentity | null;
+	isAccountActionPending: boolean;
+	isAccountsError: boolean;
+	isAccountsLoading: boolean;
 	isSwitching: boolean;
+	onAddAccount: () => void;
+	onBackToOrganizations: () => void;
 	onCreateOrganization: () => void;
+	onLogOutAllAccounts: () => void;
+	onLogOutCurrentAccount: () => void;
 	onManageOrganizations: () => void;
+	onOpenAccounts: () => void;
 	onOpenSettings: () => void;
+	onRetryAccounts: () => void;
+	onSwitchAccount: (session: AuthDeviceSession) => void;
 	onSwitchOrganization: (organization: OrganizationSummary) => void;
 	organizations: readonly OrganizationSummary[];
+	sessions: readonly AuthDeviceSession[];
+	view: "accounts" | "organizations";
 }) {
 	return (
 		<Popover.Portal>
@@ -761,82 +823,312 @@ function OrganizationSwitcherPopover(input: {
 					finalFocus={false}
 					role="menu"
 				>
-					<div className="px-2 py-2">
-						<p className="font-medium text-foreground text-xs">Organization</p>
-					</div>
-					<output
-						aria-atomic="true"
-						aria-live="polite"
-						className={cn(
-							input.errorMessage
-								? "mx-2 mb-2 block rounded-sm bg-destructive/10 px-2.5 py-2 text-destructive text-xs leading-snug"
-								: "sr-only"
-						)}
-					>
-						{input.errorMessage ?? ""}
-					</output>
-					<FluidActionList
-						aria-label="Organizations"
-						className="max-h-72 overflow-y-auto"
-						hoverIndicatorClassName="bg-muted"
-					>
-						{input.organizations.map((organization, index) => {
-							const organizationDisplay = resolveOrganizationDisplay({
-								account: input.account,
-								organization,
-							});
-							const selected = organization.id === input.currentOrganization.id;
-							return (
-								<FluidActionListItem
-									aria-checked={selected}
-									aria-current={selected ? "true" : undefined}
-									className={cn(
-										"flex min-h-11 w-full min-w-0 items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm disabled:cursor-wait disabled:opacity-70",
-										selected
-											? "bg-muted text-foreground"
-											: "text-muted-foreground"
-									)}
-									disabled={input.isSwitching}
-									index={index}
-									key={organization.id}
-									onClick={() => input.onSwitchOrganization(organization)}
-									role="menuitemradio"
-									type="button"
-								>
-									<OrganizationAvatar
-										account={input.account}
-										humanProfileAvatar={input.humanProfileAvatar}
-										organization={organization}
-										organizationDisplay={organizationDisplay}
-										placement="menu"
-									/>
-									<span className="grid min-w-0 flex-1 gap-0.5 leading-tight">
-										<span className="truncate font-medium">
-											{organizationDisplay.name}
-										</span>
-										<span className="truncate text-xs">
-											{organization.isPersonal
-												? "Personal workspace"
-												: "Organization"}
-										</span>
-									</span>
-								</FluidActionListItem>
-							);
-						})}
-					</FluidActionList>
-					<OrganizationSwitcherActions
-						disabled={input.isSwitching}
-						onCreateOrganization={input.onCreateOrganization}
-						onManageOrganizations={input.onManageOrganizations}
-					/>
-					<OrganizationSwitcherGlobalActions
-						disabled={input.isSwitching}
-						onOpenSettings={input.onOpenSettings}
-					/>
+					{input.view === "accounts" ? (
+						<AccountsSwitcherView
+							account={input.account}
+							errorMessage={input.errorMessage}
+							isError={input.isAccountsError}
+							isLoading={input.isAccountsLoading}
+							isPending={input.isAccountActionPending}
+							onAddAccount={input.onAddAccount}
+							onBack={input.onBackToOrganizations}
+							onLogOutAll={input.onLogOutAllAccounts}
+							onLogOutCurrent={input.onLogOutCurrentAccount}
+							onRetry={input.onRetryAccounts}
+							onSwitchAccount={input.onSwitchAccount}
+							sessions={input.sessions}
+						/>
+					) : (
+						<>
+							<div className="px-2 py-2">
+								<p className="font-medium text-foreground text-xs">
+									Organization
+								</p>
+							</div>
+							<output
+								aria-atomic="true"
+								aria-live="polite"
+								className={cn(
+									input.errorMessage
+										? "mx-2 mb-2 block rounded-sm bg-destructive/10 px-2.5 py-2 text-destructive text-xs leading-snug"
+										: "sr-only"
+								)}
+							>
+								{input.errorMessage ?? ""}
+							</output>
+							<FluidActionList
+								aria-label="Organizations"
+								className="max-h-72 overflow-y-auto"
+								hoverIndicatorClassName="bg-muted"
+							>
+								{input.organizations.map((organization, index) => {
+									const organizationDisplay = resolveOrganizationDisplay({
+										account: input.account,
+										organization,
+									});
+									const selected =
+										organization.id === input.currentOrganization.id;
+									return (
+										<FluidActionListItem
+											aria-checked={selected}
+											aria-current={selected ? "true" : undefined}
+											className={cn(
+												"flex min-h-11 w-full min-w-0 items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm disabled:cursor-wait disabled:opacity-70",
+												selected
+													? "bg-muted text-foreground"
+													: "text-muted-foreground"
+											)}
+											disabled={input.isSwitching}
+											index={index}
+											key={organization.id}
+											onClick={() => input.onSwitchOrganization(organization)}
+											role="menuitemradio"
+											type="button"
+										>
+											<OrganizationAvatar
+												account={input.account}
+												humanProfileAvatar={input.humanProfileAvatar}
+												organization={organization}
+												organizationDisplay={organizationDisplay}
+												placement="menu"
+											/>
+											<span className="grid min-w-0 flex-1 gap-0.5 leading-tight">
+												<span className="truncate font-medium">
+													{organizationDisplay.name}
+												</span>
+												<span className="truncate text-xs">
+													{organization.isPersonal
+														? "Personal workspace"
+														: "Organization"}
+												</span>
+											</span>
+										</FluidActionListItem>
+									);
+								})}
+							</FluidActionList>
+							<OrganizationSwitcherActions
+								disabled={input.isSwitching}
+								onCreateOrganization={input.onCreateOrganization}
+								onManageOrganizations={input.onManageOrganizations}
+							/>
+							<OrganizationSwitcherGlobalActions
+								account={input.account}
+								disabled={input.isSwitching}
+								onOpenAccounts={input.onOpenAccounts}
+								onOpenSettings={input.onOpenSettings}
+							/>
+						</>
+					)}
 				</Popover.Popup>
 			</Popover.Positioner>
 		</Popover.Portal>
 	);
+}
+
+const MAX_DEVICE_SESSIONS = 5;
+
+function AccountsSwitcherView(input: {
+	account: AppOuterRailAccount;
+	errorMessage: string | null;
+	isError: boolean;
+	isLoading: boolean;
+	isPending: boolean;
+	onAddAccount: () => void;
+	onBack: () => void;
+	onLogOutAll: () => void;
+	onLogOutCurrent: () => void;
+	onRetry: () => void;
+	onSwitchAccount: (session: AuthDeviceSession) => void;
+	sessions: readonly AuthDeviceSession[];
+}) {
+	const currentEmail = normalizeAccountEmail(input.account.email);
+	const currentSession = input.sessions.find(
+		(session) => normalizeAccountEmail(session.user.email) === currentEmail
+	);
+	const otherSessions = input.sessions.filter(
+		(session) => session !== currentSession
+	);
+	const accountCount = input.sessions.length + (currentSession ? 0 : 1);
+	const hasReachedAccountLimit = accountCount >= MAX_DEVICE_SESSIONS;
+	const visibleError =
+		input.errorMessage ??
+		(input.isError ? "Unable to load accounts. Try again." : null);
+
+	return (
+		<>
+			<div className="flex h-10 items-center gap-1 px-1">
+				<button
+					aria-label="Back to organizations"
+					className="flex size-8 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
+					disabled={input.isPending}
+					onClick={input.onBack}
+					role="menuitem"
+					type="button"
+				>
+					<ArrowLeftIcon aria-hidden="true" className="size-4" />
+				</button>
+				<p className="font-medium text-foreground text-xs">Accounts</p>
+			</div>
+			<output
+				aria-atomic="true"
+				aria-live="polite"
+				className={cn(
+					visibleError
+						? "mx-2 mb-2 block rounded-sm bg-destructive/10 px-2.5 py-2 text-destructive text-xs leading-snug"
+						: "sr-only"
+				)}
+			>
+				{visibleError ?? ""}
+			</output>
+			{input.isError ? (
+				<button
+					className="mx-2 mb-1 rounded-sm px-2 py-1 font-medium text-foreground text-xs outline-none hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring"
+					onClick={input.onRetry}
+					role="menuitem"
+					type="button"
+				>
+					Try again
+				</button>
+			) : null}
+			{input.isLoading ? (
+				<p className="px-2.5 py-3 text-muted-foreground text-xs">
+					Loading accounts…
+				</p>
+			) : (
+				<FluidActionList
+					aria-label="Accounts"
+					className="max-h-72 overflow-y-auto"
+					hoverIndicatorClassName="bg-muted"
+				>
+					<AccountSwitcherRow
+						account={currentSession?.user ?? input.account}
+						disabled={input.isPending}
+						index={0}
+						selected
+					/>
+					{otherSessions.map((session, index) => (
+						<AccountSwitcherRow
+							account={session.user}
+							disabled={input.isPending}
+							index={index + 1}
+							key={session.session.token}
+							onSelect={() => input.onSwitchAccount(session)}
+						/>
+					))}
+				</FluidActionList>
+			)}
+			<FluidActionList
+				aria-label="Account actions"
+				className="mt-1 border-border border-t pt-1"
+				hoverIndicatorClassName="bg-muted"
+			>
+				<FluidActionListItem
+					className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
+					disabled={input.isPending || hasReachedAccountLimit}
+					index={0}
+					onClick={input.onAddAccount}
+					role="menuitem"
+					type="button"
+				>
+					<UserPlusIcon aria-hidden="true" className="size-4 shrink-0" />
+					<span className="font-medium">Add account</span>
+				</FluidActionListItem>
+				<FluidActionListItem
+					className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm"
+					index={1}
+					onClick={() => window.location.assign("/invitations")}
+					role="menuitem"
+					type="button"
+				>
+					<UserPlusIcon aria-hidden="true" className="size-4 shrink-0" />
+					<span className="font-medium">Invitations</span>
+				</FluidActionListItem>
+				<FluidActionListItem
+					className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
+					disabled={input.isPending}
+					index={2}
+					onClick={input.onLogOutCurrent}
+					role="menuitem"
+					type="button"
+				>
+					<SignOutIcon aria-hidden="true" className="size-4 shrink-0" />
+					<span className="font-medium">Log out of this account</span>
+				</FluidActionListItem>
+				{accountCount > 1 ? (
+					<FluidActionListItem
+						className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
+						disabled={input.isPending}
+						index={3}
+						onClick={input.onLogOutAll}
+						role="menuitem"
+						type="button"
+					>
+						<SignOutIcon aria-hidden="true" className="size-4 shrink-0" />
+						<span className="font-medium">Log out of all accounts</span>
+					</FluidActionListItem>
+				) : null}
+			</FluidActionList>
+			{hasReachedAccountLimit ? (
+				<p className="px-2.5 py-2 text-muted-foreground text-xs leading-snug">
+					You can keep up to 5 accounts signed in on this browser.
+				</p>
+			) : null}
+		</>
+	);
+}
+
+function AccountSwitcherRow(input: {
+	account: AppOuterRailAccount;
+	disabled: boolean;
+	index: number;
+	onSelect?: () => void;
+	selected?: boolean;
+}) {
+	return (
+		<FluidActionListItem
+			aria-checked={input.selected === true}
+			aria-current={input.selected ? "true" : undefined}
+			className={cn(
+				"flex min-h-12 w-full min-w-0 items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm disabled:cursor-wait disabled:opacity-70",
+				input.selected ? "bg-muted text-foreground" : "text-muted-foreground"
+			)}
+			disabled={input.disabled}
+			index={input.index}
+			onClick={input.onSelect ?? (() => undefined)}
+			role="menuitemradio"
+			type="button"
+		>
+			<AccountFallbackAvatar account={input.account} />
+			<span className="grid min-w-0 flex-1 gap-0.5 leading-tight">
+				<span className="truncate font-medium text-foreground">
+					{input.account.name?.trim() || input.account.email || "Account"}
+				</span>
+				{input.account.email ? (
+					<span className="truncate text-xs">{input.account.email}</span>
+				) : null}
+			</span>
+			{input.selected ? (
+				<CheckIcon aria-hidden="true" className="size-4 shrink-0" />
+			) : null}
+		</FluidActionListItem>
+	);
+}
+
+function AccountFallbackAvatar(input: { account: AppOuterRailAccount }) {
+	const displayName =
+		input.account.name?.trim() || input.account.email?.trim() || "Account";
+	return (
+		<span
+			aria-hidden="true"
+			className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted font-medium text-foreground text-xs"
+		>
+			{resolveIdentityFallback(displayName)}
+		</span>
+	);
+}
+
+function normalizeAccountEmail(email: string | null | undefined): string {
+	return email?.trim().toLowerCase() ?? "";
 }
 
 function OrganizationSwitcherActions(input: {
@@ -891,7 +1183,9 @@ function OrganizationSwitcherActions(input: {
 }
 
 function OrganizationSwitcherGlobalActions(input: {
+	account: AppOuterRailAccount;
 	disabled: boolean;
+	onOpenAccounts: () => void;
 	onOpenSettings: () => void;
 }) {
 	return (
@@ -901,9 +1195,28 @@ function OrganizationSwitcherGlobalActions(input: {
 			hoverIndicatorClassName="bg-muted"
 		>
 			<FluidActionListItem
-				className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
+				className="flex min-h-12 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
 				disabled={input.disabled}
 				index={0}
+				onClick={input.onOpenAccounts}
+				role="menuitem"
+				type="button"
+			>
+				<AccountFallbackAvatar account={input.account} />
+				<span className="grid min-w-0 flex-1 gap-0.5 leading-tight">
+					<span className="truncate font-medium text-foreground">
+						{input.account.name?.trim() || input.account.email || "Account"}
+					</span>
+					{input.account.email ? (
+						<span className="truncate text-xs">{input.account.email}</span>
+					) : null}
+				</span>
+				<CaretRightIcon aria-hidden="true" className="size-3.5 shrink-0" />
+			</FluidActionListItem>
+			<FluidActionListItem
+				className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
+				disabled={input.disabled}
+				index={1}
 				onClick={input.onOpenSettings}
 				role="menuitem"
 				type="button"
@@ -1228,7 +1541,7 @@ function AppRailStatusDot(input: {
 
 function buildAppRailAccessibleLabel(input: {
 	attentionCount: number;
-	destinationId: AppOuterRailDestination;
+	destinationId: AppRailDestinationId;
 	label: string;
 	unreadCount: number;
 }): string {
@@ -1247,7 +1560,7 @@ function buildAppRailAccessibleLabel(input: {
 }
 
 function resolveAppRailUnreadIndicatorKind(
-	destinationId: AppOuterRailDestination
+	destinationId: AppRailDestinationId
 ): AppRailStatusIndicatorKind | null {
 	if (destinationId === "home") {
 		return "center-agent-unread";
@@ -1260,7 +1573,7 @@ function resolveAppRailUnreadIndicatorKind(
 
 function resolveAppRailUnreadCopy(input: {
 	count: number;
-	destinationId: AppOuterRailDestination;
+	destinationId: AppRailDestinationId;
 }): string {
 	if (input.destinationId === "home") {
 		return input.count === 1 ? "reply" : "replies";

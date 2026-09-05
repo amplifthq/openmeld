@@ -30,10 +30,7 @@ export function buildCenterAgentOptimisticReplyItem(input: {
 		.toSorted((left, right) => right.updatedAtMs - left.updatedAtMs);
 
 	for (const candidate of candidates) {
-		const optimisticState = resolveCenterAgentOptimisticReplyState(
-			candidate.phase
-		);
-		if (!optimisticState) {
+		if (candidate.terminal) {
 			continue;
 		}
 		const sourceItem = findWakeSourceItem({
@@ -57,7 +54,6 @@ export function buildCenterAgentOptimisticReplyItem(input: {
 		return createOptimisticReplyItem({
 			agent: centerAgent,
 			candidate,
-			optimisticState,
 			sourceItem,
 		});
 	}
@@ -128,7 +124,6 @@ function hasAuthoritativeAgentOutcome(input: {
 function createOptimisticReplyItem(input: {
 	agent: SpaceMemberDirectoryEntry;
 	candidate: WakeProgressItem;
-	optimisticState: "sending" | "working";
 	sourceItem: SpaceTimelineItem;
 }): SpaceTimelineItem {
 	const replyIdentity =
@@ -158,7 +153,7 @@ function createOptimisticReplyItem(input: {
 		isAgentFinalReply: true,
 		newMessagesDuringComposition: null,
 		optimisticAgentReplySourceItemId: input.sourceItem.id,
-		optimisticAgentReplyState: input.optimisticState,
+		optimisticAgentReplyProgress: input.candidate,
 		replyPreviewText: null,
 		replyToProfileName: null,
 		replyToSignalId: null,
@@ -171,29 +166,4 @@ function createOptimisticReplyItem(input: {
 		wakeSourceSignalId: null,
 		wakeTargetProfileIds: [],
 	};
-}
-
-export function resolveCenterAgentOptimisticReplyState(
-	phase: WakeProgressItem["phase"]
-): "sending" | "working" | null {
-	switch (phase) {
-		case "sending":
-		case "request_sent":
-		case "queued":
-		case "connecting":
-		case "retrying":
-		case "running":
-		case "writing":
-		case "publishing":
-			return "working";
-		case "failed":
-		case "publication_unknown":
-		case "replied":
-		case "stopped":
-			return null;
-		default: {
-			const _exhaustive: never = phase;
-			return _exhaustive;
-		}
-	}
 }

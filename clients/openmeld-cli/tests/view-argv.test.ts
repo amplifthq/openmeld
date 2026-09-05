@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   hasJsonOutputArgv,
+  isCliMetadataQueryArgv,
   isPassiveCliQueryArgv,
   parseLeadingCommandTokensFromArgv,
 } from "../src/runtime/view-argv";
@@ -100,6 +101,60 @@ describe("isPassiveCliQueryArgv", () => {
         "repair",
         "--view",
         "agent",
+      ])
+    ).toBe(false);
+  });
+
+  it("keeps Space link generation available without Service recovery", () => {
+    expect(
+      isPassiveCliQueryArgv([
+        "node",
+        "openmeld",
+        "space",
+        "--gateway-url",
+        "http://localhost:8080",
+        "link",
+        "space-id",
+      ])
+    ).toBe(true);
+    expect(
+      isPassiveCliQueryArgv(["node", "openmeld", "spaces", "link", "space-id"])
+    ).toBe(true);
+  });
+});
+
+describe("isCliMetadataQueryArgv", () => {
+  it("recognizes help and version without treating option values as metadata", () => {
+    expect(
+      isCliMetadataQueryArgv(["node", "openmeld", "space", "members", "--help"])
+    ).toBe(true);
+    expect(isCliMetadataQueryArgv(["node", "openmeld", "help", "space"])).toBe(
+      true
+    );
+    expect(isCliMetadataQueryArgv(["node", "openmeld", "--version"])).toBe(
+      true
+    );
+    expect(
+      isCliMetadataQueryArgv(["node", "openmeld", "space", "status", "help"])
+    ).toBe(false);
+    expect(
+      isCliMetadataQueryArgv([
+        "node",
+        "openmeld",
+        "--view",
+        "help",
+        "space",
+        "status",
+      ])
+    ).toBe(false);
+    expect(
+      isCliMetadataQueryArgv([
+        "node",
+        "openmeld",
+        "space",
+        "send",
+        "--",
+        "--help",
       ])
     ).toBe(false);
   });

@@ -2,6 +2,7 @@ import * as z from "zod/v4";
 import { runtimeCoordinatorExecutionRecordSchema } from "../daemon/runtime-coordinator-execution";
 import { agentInteractionPendingSummarySchema } from "../protocol/agent-interaction";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
+import { profileKindSchema } from "../protocol/profile";
 import {
   nonEmptyTrimmedStringFromUnknown,
   optionalBooleanQuerySchema,
@@ -25,6 +26,13 @@ export const wakeProgressPhaseSchema = z.enum([
   "failed",
   "stopped",
   "replied",
+]);
+
+export const WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE =
+  "runtime.agent_controller_conversation.occupied" as const;
+
+export const wakeProgressWaitReasonCodeSchema = z.enum([
+  WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
 ]);
 
 export const wakeStopEligibilityReasonCodeSchema = z.enum([
@@ -65,6 +73,16 @@ export const wakeStopEligibilityReadModelSchema = z.union([
 export const wakeProgressItemSchema = z.strictObject({
   clientMessageId: clientMessageIdSchema.nullable(),
   sourceSignalId: z.string().trim().min(1).nullable(),
+  sourceContext: z
+    .strictObject({
+      messagePreview: z.string().trim().min(1).nullable(),
+      profileId: z.string().trim().min(1),
+      profileKind: profileKindSchema,
+      profileName: z.string().trim().min(1).nullable(),
+      threadId: z.string().trim().min(1).nullable(),
+    })
+    .nullable()
+    .optional(),
   dispatchId: z.string().trim().min(1).nullable(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId
@@ -75,9 +93,11 @@ export const wakeProgressItemSchema = z.strictObject({
   phase: wakeProgressPhaseSchema,
   failureReasonCode: z.string().trim().min(1).nullable().optional(),
   message: z.string().trim().min(1),
+  previewText: z.string().trim().min(1).optional(),
   startedAtMs: z.int().min(0).optional(),
   updatedAtMs: z.int().min(0),
   terminal: z.boolean(),
+  waitReasonCode: wakeProgressWaitReasonCodeSchema.nullable().optional(),
   wakeStopEligibility: wakeStopEligibilityReadModelSchema.nullable().optional(),
   pendingInteraction: agentInteractionPendingSummarySchema
     .nullable()
@@ -87,7 +107,10 @@ export const wakeProgressItemSchema = z.strictObject({
 export const getSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
   clientMessageId: clientMessageIdSchema,
+  includePreviewText: optionalBooleanQuerySchema,
   includeTiming: optionalBooleanQuerySchema,
+  includeSourceContext: optionalBooleanQuerySchema,
+  includeWaitReason: optionalBooleanQuerySchema,
   includeWakeStopEligibility: optionalBooleanQuerySchema,
   targetProfileId: optionalSelectorSchema,
 });
@@ -103,15 +126,27 @@ export const getSpaceWakeProgressResponseSchema = z.strictObject({
 
 export const getActiveSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
+  includePageInfo: optionalBooleanQuerySchema,
+  includePreviewText: optionalBooleanQuerySchema,
   includeTiming: optionalBooleanQuerySchema,
+  includeSourceContext: optionalBooleanQuerySchema,
+  includeWaitReason: optionalBooleanQuerySchema,
   includeWakeStopEligibility: optionalBooleanQuerySchema,
+  sourceProfileId: optionalSelectorSchema,
   targetProfileId: optionalSelectorSchema,
 });
 
 export const getActiveSpaceWakeProgressResponseSchema = z.strictObject({
   query: z.strictObject({
     spaceId: z.string().trim().min(1),
+    sourceProfileId: z.string().trim().min(1).nullable().optional(),
     targetProfileId: z.string().trim().min(1).nullable(),
   }),
+  pageInfo: z
+    .strictObject({
+      hasMore: z.boolean(),
+      limit: z.int().min(1),
+    })
+    .optional(),
   items: z.array(wakeProgressItemSchema),
 });

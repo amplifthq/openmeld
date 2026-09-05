@@ -38,9 +38,11 @@ export const {
 
 export const {
   inboxCenterAgentReadWatermarks,
+  spaceInvitations,
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  inboxSpaceThreadReadWatermarks,
   organizationMessageChannelSetupRequests,
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,

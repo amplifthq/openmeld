@@ -117,7 +117,7 @@ export function UserNameCard() {
 				<CardTitle>Display Name</CardTitle>
 				<CardDescription>
 					Please enter your full name, or a display name you are comfortable
-					with. This also names your default Human Profile. Up to{" "}
+					with. This also names your default profile. Up to{" "}
 					{ACCOUNT_DISPLAY_NAME_MAX_LENGTH} characters.
 				</CardDescription>
 			</CardHeader>

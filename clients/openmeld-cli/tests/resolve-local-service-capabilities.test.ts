@@ -41,6 +41,7 @@ describe("resolve local service capabilities", () => {
         forkSession: true,
         interrupt: true,
         manageInstallations: true,
+        manageInstallationsSafely: true,
         refreshCatalog: true,
         resumeControllerConversation: true,
         setEnabled: true,
@@ -57,6 +58,7 @@ describe("resolve local service capabilities", () => {
         setDefaultConnection: true,
       },
       openMeldToolsControl: {
+        requestAutomaticUpdate: true,
         requestUpdate: true,
         setAutomaticUpdates: true,
       },
@@ -112,6 +114,7 @@ describe("resolve local service capabilities", () => {
         forkSession: true,
         interrupt: true,
         manageInstallations: true,
+        manageInstallationsSafely: true,
         refreshCatalog: true,
         resumeControllerConversation: true,
         setEnabled: true,
@@ -128,6 +131,7 @@ describe("resolve local service capabilities", () => {
         setDefaultConnection: true,
       },
       openMeldToolsControl: {
+        requestAutomaticUpdate: true,
         requestUpdate: true,
         setAutomaticUpdates: true,
       },

@@ -45,6 +45,24 @@ describe("OnboardingEntryGate", () => {
 		cleanup();
 		vi.restoreAllMocks();
 	});
+	it("preserves an explicit Space destination without marking setup complete", async () => {
+		render(
+			<OnboardingEntryGate
+				currentOrganization={currentOrganization}
+				currentSection="space"
+				hasExplicitSpaceDestination
+				organizations={[currentOrganization]}
+				storageScope={storageScope}
+			>
+				App content
+			</OnboardingEntryGate>
+		);
+		expect(await screen.findByText("App content")).toBeTruthy();
+		expect(navigateMock).not.toHaveBeenCalled();
+		expect(
+			readOnboardingProgress({ storage: window.localStorage, storageScope })
+		).toBeNull();
+	});
 
 	it("opens onboarding even when browser storage cannot be read", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);

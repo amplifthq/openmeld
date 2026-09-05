@@ -321,14 +321,34 @@ test("fails closed when an immutable npm package has the wrong required floor", 
 });
 
 test("runs npm publication when the target version does not exist", () => {
-  assert.equal(
+  assert.deepEqual(
     decideNpmPublishStage({
       status: 1,
       stderr: "npm error code E404",
       stdout: "",
       targetVersion: TARGET_VERSION,
-    }).action,
-    "RUN"
+    }),
+    {
+      action: "RUN",
+      criterion: "npm-target-version-missing",
+      reason: `npm does not publish openmeld@${TARGET_VERSION}`,
+    }
+  );
+});
+
+test("fails closed when npm returns a successful but unexpected projection", () => {
+  assert.deepEqual(
+    decideNpmPublishStage({
+      status: 0,
+      stderr: "",
+      stdout: "{}",
+      targetVersion: TARGET_VERSION,
+    }),
+    {
+      action: "RUN",
+      probeFailure: true,
+      reason: `npm completion probe failed: npm returned an unexpected version projection for openmeld@${TARGET_VERSION}`,
+    }
   );
 });
 

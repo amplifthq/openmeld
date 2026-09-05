@@ -420,7 +420,7 @@ export function createOpenMeldProfileService(
     if (isDefaultHumanProfile(existing, input.ownerUserId)) {
       if (!options.updateDefaultHumanProfileDisplayName) {
         throw new ProfileValidationError(
-          "default Human Profile name must be updated through the Account Display Name command"
+          "default profile name must be updated through the Account Display Name command"
         );
       }
       return options.updateDefaultHumanProfileDisplayName({

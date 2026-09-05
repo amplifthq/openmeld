@@ -1,0 +1,5 @@
+export const RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE =
+  "runtime_coordinator.head_authority_conflict.accepted_dispatch_payload" as const;
+
+export const RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE =
+  "runtime_coordinator.retired_terminal_head_redrive_already_recorded" as const;

@@ -21,6 +21,8 @@ import {
   markSpaceInboxReadThroughBodySchema,
   markSpaceInboxReadThroughResponseSchema,
   spaceInboxSummaryResponseSchema,
+  spaceInboxUnreadTargetsResponseSchema,
+  spaceInboxUnreadTargetsRouteParamsSchema,
   updateInboxNotificationPreferencesBodySchema,
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
@@ -36,6 +38,7 @@ import {
   buildInboxSummaryPath,
   buildSpaceInboxReadThroughPath,
   buildSpaceInboxSummaryPath,
+  buildSpaceInboxUnreadTargetsPath,
 } from "./routes";
 import type { CreateInboxApi, InboxRequestInput } from "./types";
 
@@ -174,11 +177,30 @@ export const createInboxApi: CreateInboxApi = (
       schema: spaceInboxSummaryResponseSchema,
       url: buildSpaceInboxSummaryPath(),
     }),
+  spaceUnreadTargets: async (input) => {
+    const params = requireValidInput(
+      spaceInboxUnreadTargetsRouteParamsSchema,
+      { spaceId: input.spaceId },
+      "Space Inbox unread targets request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      headers: inboxSourceTargetVersionHeaders(),
+      invalidMessage: "invalid Space Inbox unread targets response",
+      method: "GET",
+      operation: "inbox.space.unread_targets",
+      schema: spaceInboxUnreadTargetsResponseSchema,
+      url: buildSpaceInboxUnreadTargetsPath(params.spaceId),
+    });
+  },
   markSpaceReadThrough: async (input) => {
     const body = requireValidInput(
       markSpaceInboxReadThroughBodySchema,
       {
         spaceId: input.spaceId,
+        ...(input.threadRootSignalId === undefined
+          ? {}
+          : { threadRootSignalId: input.threadRootSignalId }),
         throughOccurredAtMs: input.throughOccurredAtMs,
       },
       "Space Inbox read request is invalid."

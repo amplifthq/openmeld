@@ -1,3 +1,4 @@
+import { AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION } from "@openmeld/agent-runtime";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
 
 export function createAvailableCodexAgentControllerInterface(input: {
@@ -40,6 +41,8 @@ export function createAvailableCodexAgentControllerInterface(input: {
         usedPercent: 42,
       },
     ],
+    usageLimitsSupportMatrixVersion:
+      AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
     version: "1.0.0",
   };
 }

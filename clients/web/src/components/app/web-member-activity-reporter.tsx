@@ -1,4 +1,7 @@
-import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
+import type {
+	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
+} from "@openmeld/schemas/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { recordCurrentOrganizationWebActivity } from "#/lib/organizations/organization-member-activity";
@@ -9,6 +12,7 @@ const WEB_MEMBER_ACTIVITY_INTERVAL_MS = 5 * 60_000;
 export function WebMemberActivityReporter(input: {
 	currentUserId: string;
 	organizationId: string;
+	spaceId?: string;
 }) {
 	const queryClient = useQueryClient();
 	const lastSuccessfulReportAtRef = useRef<number | null>(null);
@@ -34,6 +38,7 @@ export function WebMemberActivityReporter(input: {
 			try {
 				const activity = await recordCurrentOrganizationWebActivity({
 					organizationId: input.organizationId,
+					...(input.spaceId ? { spaceId: input.spaceId } : {}),
 				});
 				if (
 					activity.organizationId !== input.organizationId ||
@@ -46,6 +51,23 @@ export function WebMemberActivityReporter(input: {
 				lastSuccessfulReportAtRef.current = Date.now();
 				queryClient.setQueryData<OrganizationDirectoryResponse>(
 					organizationQueryKeys.directory(input.organizationId),
+					(current) =>
+						current
+							? {
+									...current,
+									members: current.members.map((member) =>
+										member.userId === input.currentUserId
+											? {
+													...member,
+													lastActiveAt: activity.lastActiveAt,
+												}
+											: member
+									),
+								}
+							: current
+				);
+				queryClient.setQueryData<OrganizationProfileDirectoryResponse>(
+					organizationQueryKeys.profileDirectory(input.organizationId),
 					(current) =>
 						current
 							? {
@@ -93,7 +115,7 @@ export function WebMemberActivityReporter(input: {
 			window.removeEventListener("focus", reportWhenVisible);
 			document.removeEventListener("visibilitychange", reportWhenVisible);
 		};
-	}, [input.currentUserId, input.organizationId, queryClient]);
+	}, [input.currentUserId, input.organizationId, input.spaceId, queryClient]);
 
 	return null;
 }

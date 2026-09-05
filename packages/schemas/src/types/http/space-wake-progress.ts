@@ -4,6 +4,8 @@ type WakeProgressPhaseSchema =
   typeof import("../../schemas/http/space-wake-progress")["wakeProgressPhaseSchema"];
 type WakeProgressItemSchema =
   typeof import("../../schemas/http/space-wake-progress")["wakeProgressItemSchema"];
+type WakeProgressWaitReasonCodeSchema =
+  typeof import("../../schemas/http/space-wake-progress")["wakeProgressWaitReasonCodeSchema"];
 type WakeStopEligibilityReadModelSchema =
   typeof import("../../schemas/http/space-wake-progress")["wakeStopEligibilityReadModelSchema"];
 type GetSpaceWakeProgressInputSchema =
@@ -17,6 +19,8 @@ type GetActiveSpaceWakeProgressResponseSchema =
 
 export type WakeProgressPhase = z.infer<WakeProgressPhaseSchema>;
 export type WakeProgressItem = z.infer<WakeProgressItemSchema>;
+export type WakeProgressWaitReasonCode =
+  z.infer<WakeProgressWaitReasonCodeSchema>;
 export type WakeStopEligibilityReadModel =
   z.infer<WakeStopEligibilityReadModelSchema>;
 export type GetSpaceWakeProgressInput =

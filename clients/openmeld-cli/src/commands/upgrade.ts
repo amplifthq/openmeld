@@ -3,6 +3,7 @@ import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
+import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
 import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import {
   buildNextVersionState,
@@ -25,6 +26,7 @@ import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon
 import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
 import { resolveVersionChangeDirection } from "../local-service/lifecycle/version-change-direction";
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
+import { resolveExternalOpenMeldToolsUpdate } from "../local-service/maintenance/openmeld-tools-update-join";
 import {
   type CliBinaryUpdatePlan,
   downloadCliBinaryUpdateArtifact,
@@ -141,6 +143,21 @@ export async function runUpgrade(input: {
       presenter,
       command: "upgrade",
     });
+  }
+
+  const currentUpdate = readOpenMeldToolsUpdateContextFromEnv();
+  if (!input.check) {
+    const existingUpdate = await resolveExternalOpenMeldToolsUpdate({
+      currentOperationId: currentUpdate?.operationId,
+    });
+    if (existingUpdate) {
+      emitUpgradeAlreadyRunning({
+        operation: existingUpdate,
+        presenter,
+        resolvedView: runtime.resolvedView,
+      });
+      return;
+    }
   }
 
   if (input.internalAlignService) {
@@ -261,6 +278,32 @@ export async function runUpgrade(input: {
     resolvedView: runtime.resolvedView,
     currentVersion,
     presenter,
+  });
+}
+
+function emitUpgradeAlreadyRunning(input: {
+  operation: OpenMeldToolsUpdateOperation;
+  presenter: ReturnType<typeof createPresenter>;
+  resolvedView: "human" | "agent";
+}): void {
+  if (input.resolvedView === "agent") {
+    input.presenter.data({
+      code: "upgrade.already_running",
+      payload: {
+        status: "already_running",
+        operation: input.operation,
+      },
+    });
+    return;
+  }
+  input.presenter.line({
+    code: "upgrade.already_running",
+    text: "An OpenMeld update is already in progress. OpenMeld will keep working in the background, so this command did not start another update. You can close this Terminal.",
+    data: {
+      operationId: input.operation.operationId,
+      phase: input.operation.phase,
+      targetVersion: input.operation.targetVersion,
+    },
   });
 }
 

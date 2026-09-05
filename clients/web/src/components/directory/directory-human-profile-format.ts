@@ -77,7 +77,7 @@ export function resolveDirectoryHumanProfileActivityLabel(input: {
 		return "Profile disabled";
 	}
 	if (input.profileStatus === null) {
-		return "Human Profile unavailable";
+		return "Person unavailable";
 	}
 	return formatDirectoryActivity(input.lastActiveAt, input.nowMs);
 }

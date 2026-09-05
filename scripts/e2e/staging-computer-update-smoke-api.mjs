@@ -7,6 +7,7 @@ import { createCurrentDeviceApi } from "../../packages/api-client/src/index.ts";
 const STAGING_AUTH_URL = "https://auth.staging.openmeld.ai";
 const STAGING_GATEWAY_URL = "https://gateway.staging.openmeld.ai";
 const COMMANDS = new Set([
+  "current-readiness",
   "enable-automatic-updates",
   "forget-current-computer",
   "request-update",
@@ -29,7 +30,9 @@ async function main() {
     createCliApiClientFoundation(STAGING_GATEWAY_URL)
   );
   let result;
-  if (command === "enable-automatic-updates") {
+  if (command === "current-readiness") {
+    result = await api.getCurrentLocalRuntimeReplyReadiness();
+  } else if (command === "enable-automatic-updates") {
     result = await api.setCurrentOpenMeldToolsMaintenance({
       automaticUpdatesEnabled: true,
     });

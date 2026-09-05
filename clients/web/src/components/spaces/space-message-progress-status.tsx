@@ -2,14 +2,17 @@ import type { ReactNode } from "react";
 import {
 	resolveSpaceMessageDeliveryPresentation,
 	resolveSpaceMessageDeliveryStatusText,
+	type SpaceMessageDeliveryPresentation,
 } from "#/lib/spaces/message-state";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
-import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
+import {
+	resolveWakeProgressThinkingEntry,
+	type SpaceMessageWakeThinkingEntry,
+} from "#/lib/spaces/wake-progress-presentation";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
-import { SpaceMessageProgressRow } from "./space-message-progress-row";
 import { SpaceMessageWakeThinkingIndicator } from "./space-message-wake-thinking-indicator";
 
 export function SpaceMessageProgressStatus(input: {
@@ -26,7 +29,16 @@ export function SpaceMessageProgressStatus(input: {
 		item: input.item,
 		nowMs,
 	});
-	if (hasLiveSpaceAgentToolActivity(input.item)) {
+	const content = resolveSpaceMessageProgressContent({
+		deliveryPresentation,
+		entries: input.entries,
+		hasControl: input.control != null,
+		item: input.item,
+	});
+	if (!content) {
+		return null;
+	}
+	if (content.kind === "tool") {
 		return wrapProgressStatus(
 			<SpaceAgentToolActivity
 				align={input.align}
@@ -37,81 +49,112 @@ export function SpaceMessageProgressStatus(input: {
 			input.containerClassName
 		);
 	}
-	if (input.item.optimisticAgentReplyState) {
-		return wrapProgressStatus(
-			<SpaceMessageProgressRow
-				align={input.align}
-				control={input.control}
-				slot="space-message-progress-row"
-				testId="space-message-progress-row"
-			>
-				<SpaceMessageDeliveryStatus
-					align={input.align}
-					presentation={deliveryPresentation}
-				/>
-			</SpaceMessageProgressRow>,
-			input.containerClassName
-		);
-	}
-	const hasWakePresentation = input.entries.length > 0;
-	if (!hasWakePresentation && deliveryPresentation === "agent_streaming") {
-		return wrapProgressStatus(
-			<SpaceMessageProgressRow
-				align={input.align}
-				control={input.control}
-				slot="space-message-progress-row"
-				testId="space-message-progress-row"
-			>
-				<SpaceMessageDeliveryStatus
-					align={input.align}
-					presentation={deliveryPresentation}
-				/>
-			</SpaceMessageProgressRow>,
-			input.containerClassName
-		);
-	}
-	const showDeliveryStatus = !(
-		hasWakePresentation &&
-		(deliveryPresentation === "sending" ||
-			deliveryPresentation === "agent_streaming")
-	);
-	const showWakeProgress = !(
-		hasWakePresentation &&
-		(deliveryPresentation === "sending_delayed" ||
-			deliveryPresentation === "agent_stream_failed" ||
-			deliveryPresentation === "agent_stream_stopped" ||
-			deliveryPresentation === "agent_stream_publish_failed")
-	);
-	const hasVisibleDeliveryStatus =
-		showDeliveryStatus &&
-		deliveryPresentation !== null &&
-		resolveSpaceMessageDeliveryStatusText(deliveryPresentation) !== null;
-	const hasVisibleWakeProgress =
-		showWakeProgress && (input.entries.length > 0 || input.control != null);
-	if (!(hasVisibleDeliveryStatus || hasVisibleWakeProgress)) {
-		return null;
-	}
 
 	return wrapProgressStatus(
 		<>
-			{hasVisibleDeliveryStatus ? (
+			{content.deliveryPresentation ? (
 				<SpaceMessageDeliveryStatus
 					align={input.align}
-					presentation={deliveryPresentation}
+					presentation={content.deliveryPresentation}
 				/>
 			) : null}
-			{hasVisibleWakeProgress ? (
+			{content.entries.length > 0 || input.control != null ? (
 				<SpaceMessageWakeThinkingIndicator
 					align={input.align}
 					control={input.control}
-					entries={input.entries}
+					entries={content.entries}
 					onOpenMessageDetails={input.onOpenMessageDetails}
-					showAgentWorkingState={deliveryPresentation === "agent_streaming"}
+					showAgentWorkingState={content.showAgentWorkingState}
 				/>
 			) : null}
 		</>,
 		input.containerClassName
 	);
+}
+
+type SpaceMessageProgressContent =
+	| { kind: "tool" }
+	| {
+			deliveryPresentation: SpaceMessageDeliveryPresentation | null;
+			entries: readonly SpaceMessageWakeThinkingEntry[];
+			kind: "status";
+			showAgentWorkingState: boolean;
+	  };
+
+function resolveSpaceMessageProgressContent(input: {
+	deliveryPresentation: SpaceMessageDeliveryPresentation | null;
+	entries: readonly SpaceMessageWakeThinkingEntry[];
+	hasControl: boolean;
+	item: SpaceTimelineItem;
+}): SpaceMessageProgressContent | null {
+	const optimisticEntries = input.item.optimisticAgentReplyProgress
+		? resolveWakeProgressThinkingEntry({
+				item: input.item.optimisticAgentReplyProgress,
+				showElapsedTime: true,
+			})
+		: [];
+	const presentedEntries =
+		optimisticEntries.length > 0 ? optimisticEntries : input.entries;
+	if (presentedEntries.some((entry) => entry.step.status === "pending")) {
+		return {
+			deliveryPresentation: null,
+			entries: presentedEntries,
+			kind: "status",
+			showAgentWorkingState: false,
+		};
+	}
+	if (hasLiveSpaceAgentToolActivity(input.item)) {
+		return { kind: "tool" };
+	}
+	if (optimisticEntries.length > 0) {
+		return {
+			deliveryPresentation: null,
+			entries: optimisticEntries,
+			kind: "status",
+			showAgentWorkingState: false,
+		};
+	}
+	const hasWakePresentation = input.entries.length > 0;
+	if (
+		!hasWakePresentation &&
+		input.deliveryPresentation === "agent_streaming"
+	) {
+		return {
+			deliveryPresentation: input.deliveryPresentation,
+			entries: [],
+			kind: "status",
+			showAgentWorkingState: false,
+		};
+	}
+	const showDeliveryStatus = !(
+		hasWakePresentation &&
+		(input.deliveryPresentation === "sending" ||
+			input.deliveryPresentation === "agent_streaming")
+	);
+	const showWakeProgress = !(
+		hasWakePresentation &&
+		(input.deliveryPresentation === "sending_delayed" ||
+			input.deliveryPresentation === "agent_stream_failed" ||
+			input.deliveryPresentation === "agent_stream_stopped" ||
+			input.deliveryPresentation === "agent_stream_publish_failed")
+	);
+	const hasVisibleDeliveryStatus =
+		showDeliveryStatus &&
+		input.deliveryPresentation !== null &&
+		resolveSpaceMessageDeliveryStatusText(input.deliveryPresentation) !== null;
+	const hasVisibleWakeProgress =
+		showWakeProgress && (input.entries.length > 0 || input.hasControl);
+	if (!(hasVisibleDeliveryStatus || hasVisibleWakeProgress)) {
+		return null;
+	}
+	return {
+		deliveryPresentation: hasVisibleDeliveryStatus
+			? input.deliveryPresentation
+			: null,
+		entries: hasVisibleWakeProgress ? input.entries : [],
+		kind: "status",
+		showAgentWorkingState: input.deliveryPresentation === "agent_streaming",
+	};
 }
 
 function wrapProgressStatus(

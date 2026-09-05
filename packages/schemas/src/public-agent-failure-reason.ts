@@ -3,10 +3,12 @@ import {
   type AgentRecoveryActionId,
   formatAgentRecoveryActionLabel,
 } from "./agent-recovery-action";
+import { RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE } from "./runtime-coordinator-reason-code";
 
 export const PROJECT_LOCAL_CONNECTION_FAILURE_REASON_CODES = [
   "project.local_connection.missing",
   "project.local_connection.folder_missing",
+  "project.local_connection.invalid",
 ] as const;
 
 export const projectLocalConnectionFailureReasonCodeSchema = z.enum(
@@ -155,7 +157,7 @@ const PUBLIC_FAILURE_CODE_CATEGORY_BY_PREFIX: ReadonlyArray<{
     ],
   },
   {
-    category: "the local OpenMeld Service had an issue",
+    category: "the computer connection had an issue",
     prefixes: [
       "daemon.",
       "service.",
@@ -428,7 +430,7 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Available",
-      availabilitySummary: "Can reply from this computer in Spaces.",
+      availabilitySummary: "Available for Wake",
       availabilityTooltip: "Available for Wake",
       patterns: ["=agent_execution.ready"],
     },
@@ -447,8 +449,8 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Checking",
-      availabilitySummary: "Checking OpenMeld Service.",
-      availabilityTooltip: "Checking OpenMeld Service",
+      availabilitySummary: "Checking computer connection.",
+      availabilityTooltip: "Checking computer connection",
       patterns: ["=local_service.not_checked", "=service.not_checked"],
     },
     {
@@ -474,17 +476,14 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     {
       availabilityBadgeLabel: "Unavailable",
       availabilitySummary:
-        "This agent's Wake route is unavailable right now. Check OpenMeld Service on its computer.",
-      availabilityTooltip:
-        "Wake route unavailable. Check OpenMeld Service on its computer.",
+        "This Agent's computer connection is unavailable right now.",
+      availabilityTooltip: "Computer connection unavailable",
       patterns: ["=wake_route.registration_unavailable"],
     },
     {
       availabilityBadgeLabel: "Offline",
-      availabilitySummary:
-        "This agent's connection is offline. Check OpenMeld Service on its computer.",
-      availabilityTooltip:
-        "Agent connection is offline. Check OpenMeld Service on its computer.",
+      availabilitySummary: "This Agent's computer is offline.",
+      availabilityTooltip: "Agent computer is offline",
       patterns: ["=wake_route.registration_expired"],
     },
   ];
@@ -964,7 +963,16 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
-        `This Wake expired before it reached ${formatObjectTargetName(targetName)}. Start or reconnect OpenMeld Service, then wake the agent again.`,
+        `OpenMeld stopped this Wake for ${formatObjectTargetName(targetName)} because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics.`,
+      kind: "system_retry",
+      patterns: [
+        `=${RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE}`,
+      ],
+      recoveryTarget: null,
+    },
+    {
+      body: (targetName) =>
+        `This Wake expired before it reached ${formatObjectTargetName(targetName)}. Reconnect the computer, then wake the Agent again.`,
       kind: "local_service",
       patterns: ["runtime_coordinator.delivery_expired"],
       primaryActionId: "reconnect_openmeld_service",
@@ -972,7 +980,7 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
-        `OpenMeld could not start ${formatObjectTargetName(targetName)} in time. Start or reconnect OpenMeld Service, then wake the agent again.`,
+        `OpenMeld could not start ${formatObjectTargetName(targetName)} in time. Reconnect the computer, then wake the Agent again.`,
       kind: "local_service",
       patterns: ["daemon.delivery.start_timeout", "delivery.start_timeout"],
       primaryActionId: "reconnect_openmeld_service",
@@ -980,7 +988,7 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
-        `${targetName} stopped making progress on this Wake. Reconnect OpenMeld Service before trying again.`,
+        `${targetName} stopped making progress on this Wake. Reconnect the computer before trying again.`,
       kind: "local_service",
       patterns: ["daemon.delivery.execution_stalled", "runtime.progress_stale"],
       primaryActionId: "reconnect_openmeld_service",
@@ -999,7 +1007,7 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
-        `${targetName} took too long to finish this Wake. Reconnect OpenMeld Service before trying again.`,
+        `${targetName} took too long to finish this Wake. Reconnect the computer before trying again.`,
       kind: "local_service",
       patterns: [
         "daemon.delivery.timeout",
@@ -1013,12 +1021,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Offline",
-      availabilitySummary:
-        "Connect OpenMeld Service on this computer before this agent can reply.",
-      availabilityTooltip:
-        "OpenMeld Service is not connected on this computer.",
+      availabilitySummary: "Connect your computer before this Agent can reply.",
+      availabilityTooltip: "Computer not connected",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld Service is not running on this computer. Start OpenMeld Service so this computer can receive local Wake work.`,
+        `${targetName}'s computer is disconnected from OpenMeld. Reconnect the computer so it can receive local Wake work.`,
       kind: "local_service",
       patterns: ["=service.not_running"],
       primaryActionId: "reconnect_openmeld_service",
@@ -1026,12 +1032,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Offline",
-      availabilitySummary:
-        "Connect OpenMeld Service on this computer before this agent can reply.",
-      availabilityTooltip:
-        "OpenMeld Service is not connected on this computer.",
+      availabilitySummary: "Connect your computer before this Agent can reply.",
+      availabilityTooltip: "Computer not connected",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld Service is not installed on this computer. Install OpenMeld Service so this computer can receive local Wake work.`,
+        `OpenMeld is not set up on ${formatPossessiveTargetName(targetName)} computer. Connect the computer so it can receive local Wake work.`,
       kind: "local_service",
       patterns: ["=service.not_installed"],
       primaryActionId: "connect_openmeld_service",
@@ -1040,10 +1044,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     {
       availabilityBadgeLabel: "Update",
       availabilitySummary:
-        "Update OpenMeld Service before this agent can reply.",
-      availabilityTooltip: "Update OpenMeld Service",
+        "Update OpenMeld on your computer before this Agent can reply.",
+      availabilityTooltip: "Update OpenMeld on Computer",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld Service on this computer needs repair before it can receive local Wake work.`,
+        `OpenMeld on ${formatPossessiveTargetName(targetName)} computer needs an update before it can receive local Wake work.`,
       kind: "local_service",
       patterns: ["=service.drifted"],
       primaryActionId: "update_openmeld_service",
@@ -1051,12 +1055,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Offline",
-      availabilitySummary:
-        "Connect OpenMeld Service on this computer before this agent can reply.",
-      availabilityTooltip:
-        "OpenMeld Service is not connected on this computer.",
+      availabilitySummary: "Connect your computer before this Agent can reply.",
+      availabilityTooltip: "Computer not connected",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld Service is not connected for this OpenMeld account on this computer. Reconnect OpenMeld Service for this account.`,
+        `${targetName}'s computer is not connected to the current OpenMeld account. Reconnect the computer.`,
       kind: "local_service",
       patterns: ["=local_service.not_connected_for_account"],
       primaryActionId: "reconnect_openmeld_service",
@@ -1064,12 +1066,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Offline",
-      availabilitySummary:
-        "Connect OpenMeld Service on this computer before this agent can reply.",
-      availabilityTooltip:
-        "OpenMeld Service is not connected on this computer.",
+      availabilitySummary: "Connect your computer before this Agent can reply.",
+      availabilityTooltip: "Computer not connected",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld Service is using a different local runtime than this agent expects. Reconnect OpenMeld Service on this computer.`,
+        `${targetName}'s computer connection does not match this Agent. Reconnect the computer.`,
       kind: "local_service",
       patterns: ["=local_service.identity_mismatch"],
       primaryActionId: "reconnect_openmeld_service",
@@ -1077,12 +1077,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Offline",
-      availabilitySummary:
-        "Connect OpenMeld Service on this computer before this agent can reply.",
-      availabilityTooltip:
-        "OpenMeld Service is not connected on this computer.",
+      availabilitySummary: "Connect your computer before this Agent can reply.",
+      availabilityTooltip: "Computer not connected",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld could not check OpenMeld Service for this account. Reconnect OpenMeld Service and try again.`,
+        `OpenMeld could not check ${formatPossessiveTargetName(targetName)} computer connection. Reconnect the computer and try again.`,
       kind: "local_service",
       patterns: ["=local_service.unavailable"],
       primaryActionId: "reconnect_openmeld_service",
@@ -1090,8 +1088,8 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Reconnecting",
-      availabilitySummary: "OpenMeld Service is reconnecting on this computer.",
-      availabilityTooltip: "Reconnecting OpenMeld Service",
+      availabilitySummary: "Computer is reconnecting.",
+      availabilityTooltip: "Reconnecting Computer",
       body: (targetName) =>
         `${targetName} is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.`,
       kind: "local_service",
@@ -1112,10 +1110,8 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Offline",
-      availabilitySummary:
-        "This agent's connection is offline. Check OpenMeld Service on its computer.",
-      availabilityTooltip:
-        "Agent connection is offline. Check OpenMeld Service on its computer.",
+      availabilitySummary: "This Agent's computer is offline.",
+      availabilityTooltip: "Agent computer is offline",
       body: (targetName) =>
         `${targetName} is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.`,
       kind: "local_service",
@@ -1126,9 +1122,8 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     {
       availabilityBadgeLabel: "Unavailable",
       availabilitySummary:
-        "This agent's Wake route is unavailable right now. Check OpenMeld Service on its computer.",
-      availabilityTooltip:
-        "Wake route unavailable. Check OpenMeld Service on its computer.",
+        "This Agent's computer connection is unavailable right now.",
+      availabilityTooltip: "Computer connection unavailable",
       body: (targetName) =>
         `${targetName} is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.`,
       kind: "local_service",
@@ -1139,9 +1134,9 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     {
       availabilityBadgeLabel: "Update",
       availabilitySummary:
-        "Update OpenMeld Service before this agent can reply.",
-      availabilityTooltip: "Update OpenMeld Service",
-      body: "OpenMeld Service must be updated before this computer can receive local Wake work.",
+        "Update OpenMeld on your computer before this Agent can reply.",
+      availabilityTooltip: "Update OpenMeld on Computer",
+      body: "Update OpenMeld on this computer before it can receive local Wake work.",
       kind: "local_service",
       patterns: [
         "background_helper.installed_outdated",
@@ -1152,7 +1147,7 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
-      body: "OpenMeld Service is not installed on this computer.",
+      body: "OpenMeld is not set up on this computer.",
       kind: "local_service",
       patterns: ["background_helper.not_installed"],
       primaryActionId: "connect_openmeld_service",
@@ -1160,14 +1155,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
-        `OpenMeld Service is connected, but ${formatObjectTargetName(targetName)} did not become ready in time for this Wake. Try waking the agent again in a moment.`,
+        `The computer is connected, but ${formatObjectTargetName(targetName)} did not become ready in time for this Wake. Try waking the Agent again in a moment.`,
       kind: "system_retry",
       patterns: ["=daemon.profile.pending_first_report"],
       recoveryTarget: null,
     },
     {
       body: (targetName) =>
-        `OpenMeld could not reach ${formatObjectTargetName(targetName)} on this computer for this Wake. Reconnect OpenMeld Service, then try again.`,
+        `OpenMeld could not reach ${formatObjectTargetName(targetName)} on this computer for this Wake. Reconnect the computer, then try again.`,
       kind: "local_service",
       patterns: [
         "daemon.profile.offline",
@@ -1565,6 +1560,13 @@ function normalizeOptionalText(value: unknown): string | null {
 
 function formatObjectTargetName(targetName: string): string {
   return targetName === "This agent" ? "this agent" : targetName;
+}
+
+function formatPossessiveTargetName(targetName: string): string {
+  const objectTargetName = formatObjectTargetName(targetName);
+  return objectTargetName.endsWith("s")
+    ? `${objectTargetName}'`
+    : `${objectTargetName}'s`;
 }
 
 function matchesPublicFailureReasonPattern(

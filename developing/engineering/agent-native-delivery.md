@@ -23,12 +23,23 @@ develop and run focused tests
   -> inspect the change and evidence required by the task
   -> commit and push one exact candidate
   -> sync current main
-  -> run one Final Candidate
+  -> run one lightweight Final Candidate
   -> merge the still-current candidate
   -> release only affected production scopes
   -> health check
   -> smallest real-user smoke for the changed path
 ```
+
+For a coordinated train of compatible changes, integrate the ready leaf
+branches into one batch branch, sync `main` once, and run one Final Candidate
+on the combined batch PR. Leaf PRs keep their focused evidence but do not each
+pay for an immediately stale Final Candidate or merge to `main` first. The
+combined candidate is the merge unit and proves the interactions users will
+actually receive.
+
+Batch integration must also check directional release dependencies. For example,
+Space invitations require Core and Auth receivers before the new CLI; follow
+the staged order in `production-release.md`, not the default fleet order.
 
 This is not a central-coordinator process. CI/CD reports facts; the responsible
 agent uses those facts, the task, and the relevant owner documents to decide
@@ -39,15 +50,20 @@ unrelated agents to wait.
 
 1. Ordinary branch pushes do not trigger broad paid CI. An agent requests one
    Final Candidate only when one committed PR head is ready for final
-   evaluation. Final Candidate is paid, potentially high-latency merge
-   certification, not a development, debugging, or review-discovery loop. Use
+   evaluation. Standard Final Candidate is bounded merge certification, not a
+   second unit/integration test run and not a development, debugging, or
+   review-discovery loop. Use
    one practical test: if a green result would not make merge the next action,
    keep using the smallest focused or affected checks that prove the work.
    When known predecessor pull requests still need to enter `main`, wait for
    that merge order instead of starting a paid run that cannot certify the
    eventual merge. Keep the branch moving with focused or affected checks,
    then sync current `main` once and run the one Final Candidate that can lead
-   directly to merge.
+   directly to merge. When two or more compatible ready changes share one
+   delivery window, prefer one batch integration PR and one combined Final
+   Candidate. If that candidate fails, use the leaf commit boundaries and the
+   smallest failing command to locate the responsible change; do not pay the
+   per-leaf cost in advance merely to make diagnosis easier.
 2. Candidate evidence identifies one exact `head SHA + validation base SHA +
    tree SHA`, plus candidate kind (`pull-request` or `merge-group`). Evidence
    never transfers to another identity.
@@ -62,9 +78,12 @@ unrelated agents to wait.
    current-main merge evidence. When the branch reaches the front of its merge
    order, sync current `main` once and form one new exact-current-main
    candidate; do not rerun or relabel the old-base result as merge-valid.
-5. Test selection follows changed risk. Unit, integration, database, contract,
-   local-component, signing, migration, health, and smoke checks run only where
-   their boundary makes them useful.
+5. Test selection follows changed risk. Focused, affected, and integration
+   checks run while the responsible agent develops and reviews the change.
+   Standard Final Candidate does not repeat broad workspace unit or integration
+   lanes; it certifies exact identity, trusted control, repository contracts,
+   and path-owned database or release readiness. Explicit full confidence is
+   available when repository-wide reruns are worth their latency.
 6. Merge, release, health, and smoke are separate facts. Do not report one as
    proof of another.
 7. Production releases use one explicit 40-character first-parent `main` SHA.
@@ -76,14 +95,24 @@ unrelated agents to wait.
 
 ## Develop, Review, And Prepare
 
+The scheduled model-catalog collector prepares draft evidence PRs, not delivery
+candidates. Its twelve-hour collection, source contracts, and coding-agent
+handoff are defined in
+[Agent Profile Model Selection](../product/agent-model-selection.md#automatic-evidence-handoff).
+It does not request Final Candidate or merge/release. The agent who explicitly
+takes over its PR owns product decisions, missing compatibility evidence, real
+validation, and the normal authorized lifecycle below. An open collector PR is
+left untouched by later bot runs.
+
 Use focused tests while developing. The responsible agent chooses the smallest
 real checks that prove the change, performs the review required by the task,
 and may ask for more confidence when the risk justifies it. No reviewer
 identity, reviewer count, approval count, or specific review style is required
 by CI/CD.
 
-Broad affected, integration, release-ready, and Final Candidate runs are
-closeout evidence. Before the first broad closeout run, finish the review that
+Broad affected and integration runs are agent-chosen development or review
+evidence. Release-ready and Final Candidate are delivery evidence. Before the
+first broad run, finish the review that
 is reasonably likely to change product behavior, contracts, compatibility, or
 scope, and settle its practical blockers. An earlier broad run is appropriate
 when the responsible agent genuinely needs it to locate a cross-boundary bug;
@@ -117,16 +146,21 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 
 The plan prints changed paths, selected and skipped checks, reasons, and exact
 commands. It is evidence for engineering judgment, not a command to merge or a
-substitute for understanding the task. Add `--full` when uncertainty warrants
-repository-wide checks.
+substitute for understanding the task. Standard plans must not select
+`verify:pr`, `verify:pr:full`, or `test:integration:affected`; those broad lanes
+belong to development/review or explicit full confidence. Add `--full` only
+when uncertainty or material risk makes the repository-wide rerun worth its
+latency.
 
 Before requesting Final Candidate:
 
 1. finish the scoped implementation, focused tests, and task-required review;
-2. commit and push the exact tree;
-3. fetch current `origin/main` and sync it into the branch;
-4. resolve conflicts and rerun checks affected by the sync; and
-5. confirm a clean worktree and an open, non-draft PR targeting `main`.
+2. for a coordinated train, integrate every ready compatible leaf into the
+   batch branch and freeze that combined scope;
+3. commit and push the exact single-PR or batch tree;
+4. fetch current `origin/main` and sync it into the candidate branch once;
+5. resolve conflicts and rerun checks affected by the sync; and
+6. confirm a clean worktree and an open, non-draft PR targeting `main`.
 
 These are engineering facts, not an approval form. Final Candidate does not
 require a waiting period, a fixed reviewer count, or permission from a central
@@ -187,8 +221,10 @@ candidate check failure and reports whether candidate checks ever started. A
 later hosted budget refusal does not invalidate an existing successful exact
 status for the same head.
 
-Use `--full` only when the responsible agent wants full confidence. Standard
-and full requests use distinct labels but publish the same required status:
+Use `--full` only when the responsible agent wants repository-wide confidence.
+Standard requests remain intentionally lightweight; full requests may be slow
+and must not become the default for ordinary pull requests. Standard and full
+requests use distinct labels but publish the same required status:
 
 ```text
 OpenMeld Final Candidate
@@ -207,19 +243,13 @@ execution mode, conclusion, publication errors, and whether a check executed
 or reused an earlier exact input fingerprint. The schema owner is
 `packages/schemas/src/schemas/ci/final-candidate.ts`.
 
-Hosted Final Candidate may reuse deterministic affected workspace checks, unit
-tests, and integration tests from an earlier completed run of the same PR and
-branch when that exact check passed. Reuse requires the earlier validation base to be an ancestor of the
-current base, identical changed paths, confidence, command, reason, runtime,
-and exact Turborepo task IDs and task hashes. Checks and unit tests fingerprint
-the changed workspaces; integration tests fingerprint the affected workspaces
-and dependents that the real integration command executes. Trusted control
-still rechecks the current candidate identity and records the prior exact
-head/base/tree in new evidence. Missing, invalid, stale, differently scoped, or
-unprovable evidence simply causes the check to run normally. Database,
-release-ready, signing, deploy, health, and smoke evidence is never reused by
-this optimization. This is compute reuse, not merge advice, approval, or a
-manual bypass.
+The evidence engine retains exact-fingerprint reuse support for affected
+workspace checks and integration checks selected by an older or specialized
+plan. Standard Final Candidate no longer selects those broad lanes, and full
+confidence intentionally runs its full repository gate. Trusted control still
+rechecks current candidate identity. Database, release-ready, signing, deploy,
+health, and smoke evidence is never reused. Reuse is compute optimization, not
+merge advice, approval, or a manual bypass.
 
 ### Actions-unavailable fallback
 
@@ -284,6 +314,20 @@ mergeability, and active Ruleset. If the head changed, create a new candidate.
 If only `main` changed, let merge queue validate the new merge group or sync and
 run one new current-base candidate. Do not rerun completed checks merely to
 produce ceremonial evidence.
+
+From an isolated worktree, merge the remote pull request without coupling that
+operation to local branch deletion:
+
+```sh
+gh pr merge <pr-number> --merge
+gh pr view <pr-number> --json state,mergedAt,mergeCommit
+```
+
+Do not pass `--delete-branch` to the merge command. GitHub can merge the pull
+request successfully and then report a local cleanup failure when `main` is
+checked out in another worktree, making a successful remote merge look failed.
+Treat worktree and branch cleanup as a separate, explicitly authorized step
+after the remote merged state and merge commit are proven.
 
 ## Release
 

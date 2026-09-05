@@ -44,6 +44,36 @@ export function formatObservedAt(value: number | string | null): string {
 	}).format(date);
 }
 
+export function formatCheckedAt(
+	value: string | null | undefined,
+	nowMs = Date.now()
+): string | null {
+	if (!value) {
+		return null;
+	}
+	const checkedAtMs = new Date(value).getTime();
+	if (!Number.isFinite(checkedAtMs)) {
+		return null;
+	}
+	const elapsedMs = Math.max(0, nowMs - checkedAtMs);
+	const minuteMs = 60_000;
+	const hourMs = 60 * minuteMs;
+	const dayMs = 24 * hourMs;
+	if (elapsedMs < minuteMs) {
+		return "Checked just now";
+	}
+	if (elapsedMs < hourMs) {
+		const minutes = Math.floor(elapsedMs / minuteMs);
+		return `Checked ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+	}
+	if (elapsedMs < dayMs) {
+		const hours = Math.floor(elapsedMs / hourMs);
+		return `Checked ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+	}
+	const days = Math.floor(elapsedMs / dayMs);
+	return `Checked ${days} ${days === 1 ? "day" : "days"} ago`;
+}
+
 export function formatRuntimeLane(runtimeLane: string): string {
 	if (runtimeLane === "dev-local") {
 		return "Dev";

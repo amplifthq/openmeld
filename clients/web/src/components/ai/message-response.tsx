@@ -8,13 +8,19 @@ import { defaultRemarkPlugins, Streamdown } from "streamdown";
 const ALLOWED_MARKDOWN_PROTOCOLS = new Set(["https:", "mailto:"]);
 const ALLOWED_INTERNAL_SPACE_PATH_PATTERN = /^\/spaces\/[0-9a-f]{64}$/;
 const ALLOWED_INTERNAL_AGENT_MENTION_PATH_PATTERN =
-	/^\/__openmeld\/message-agent-mentions\/[^/?#]+$/;
+	/^\/__openmeld\/message-agent-mentions\/[^/?#]+(?:\?relation=(?:wake|reference))?$/;
 const MESSAGE_RESPONSE_STYLE = { overflowWrap: "anywhere" } as const;
 const STREAMDOWN_ANIMATION = { animation: "blurIn" } as const;
 const STREAMDOWN_DISALLOWED_ELEMENTS = ["img"];
 const STREAMDOWN_LINK_SAFETY = { enabled: false };
 const STREAMDOWN_PLUGINS = { cjk };
 const STREAMDOWN_REHYPE_PLUGINS = [rehypeSanitize];
+const TYPESET_VARIANT_CLASS_NAMES = {
+	changelog: "typeset-changelog",
+	"space-message": "typeset-space-message",
+} as const;
+
+export type MessageResponseVariant = keyof typeof TYPESET_VARIANT_CLASS_NAMES;
 
 type InternalMarkdownLinkRenderer = (input: {
 	children: ReactNode;
@@ -49,6 +55,7 @@ type MessageResponseProps = Omit<
 	className?: string;
 	isStreaming?: boolean;
 	renderInternalLink?: InternalMarkdownLinkRenderer;
+	variant: MessageResponseVariant;
 };
 
 // Local AI Elements-compatible MessageResponse wrapper.
@@ -60,6 +67,7 @@ export const MessageResponse = memo(function MessageResponse({
 	className,
 	isStreaming = false,
 	renderInternalLink,
+	variant,
 	...props
 }: MessageResponseProps) {
 	const components = useMemo<
@@ -90,8 +98,10 @@ export const MessageResponse = memo(function MessageResponse({
 		<div
 			className={cn(
 				className,
-				"typeset typeset-chat break-words text-sm leading-[var(--typeset-leading)] [overflow-wrap:anywhere]"
+				"typeset break-words [overflow-wrap:anywhere]",
+				TYPESET_VARIANT_CLASS_NAMES[variant]
 			)}
+			data-typeset-variant={variant}
 			style={MESSAGE_RESPONSE_STYLE}
 		>
 			<Streamdown

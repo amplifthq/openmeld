@@ -733,6 +733,7 @@ describe("openMeldDaemon dispatch outbox sql store", () => {
     const sql = { exec } as unknown as SqlStorage;
 
     const records = listActiveDispatchOutboxRecordsBySpace(sql, {
+      sourceProfileId: "usr-1",
       spaceId: "space-1",
       targetProfileId: "agt-1",
     });
@@ -745,7 +746,13 @@ describe("openMeldDaemon dispatch outbox sql store", () => {
       expect.stringContaining("FROM openMeldDaemon_outbox"),
       "pending",
       "queued",
+      "space-1",
+      "agt-1",
+      "usr-1",
       500
+    );
+    expect(String(exec.mock.calls[0]?.[0])).toContain(
+      "sourceSignalSnapshot.profileId"
     );
   });
 

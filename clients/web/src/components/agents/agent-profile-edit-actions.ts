@@ -7,6 +7,7 @@ import type {
 	GetAgentProfilePrimaryBindingResponse,
 	LocalRuntimeExecutionTarget,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
 import {
@@ -25,7 +26,10 @@ import {
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { renameOpenMeldProfile } from "#/lib/profiles/rename-profile";
 import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readiness";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import {
+	organizationDirectoryQueryFilters,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
 import {
 	agentProfilePrimaryBindingQueryKeys,
 	agentProfilePrimaryBindingQueryOptions,
@@ -66,9 +70,9 @@ type AgentProfileBindingUpdateResult = {
 };
 
 export function formatAgentProfileRuntimeSettingsSavedMessage(
-	profileName: string
+	_profileName: string
 ): string {
-	return `Settings saved for ${profileName}. This computer must sync the changes before new work starts. Permission mode changes can also reach running sessions when the local agent supports live updates.`;
+	return "Agent settings saved.";
 }
 
 export async function changeAgentProfileController(input: {
@@ -80,9 +84,7 @@ export async function changeAgentProfileController(input: {
 	const runtimeLane =
 		input.context.executionTarget?.runtimeLane ?? input.context.runtimeLane;
 	if (!(deviceId && runtimeLane)) {
-		throw new Error(
-			"Connect OpenMeld Service on this computer before changing the controller."
-		);
+		throw new Error("Connect your computer before changing the local agent.");
 	}
 	const bindingResult = await ensureWebAgentProfileRuntimeBinding({
 		actorProfileId: input.context.actorProfileId,
@@ -246,7 +248,9 @@ export async function renameAgentProfile(input: {
 			),
 		}),
 		input.context.queryClient.cancelQueries({
-			queryKey: organizationQueryKeys.directory(input.context.organizationId),
+			...organizationDirectoryQueryFilters({
+				organizationId: input.context.organizationId,
+			}),
 		}),
 	]);
 	updateAgentProfileListCaches({
@@ -263,7 +267,9 @@ export async function renameAgentProfile(input: {
 			refetchType: "none",
 		}),
 		input.context.queryClient.invalidateQueries({
-			queryKey: organizationQueryKeys.directory(input.context.organizationId),
+			...organizationDirectoryQueryFilters({
+				organizationId: input.context.organizationId,
+			}),
 			refetchType: "none",
 		}),
 	]);
@@ -306,6 +312,25 @@ export function updateAgentProfileListCaches(input: {
 					}
 				: current
 	);
+	input.queryClient.setQueryData<OrganizationProfileDirectoryResponse>(
+		organizationQueryKeys.profileDirectory(input.organizationId),
+		(current) =>
+			current
+				? {
+						...current,
+						agentProfiles: current.agentProfiles.map((profile) =>
+							profile.profileId === input.profile.openMeldProfileId
+								? {
+										...profile,
+										profileHandle: input.profile.profileHandle,
+										profileName: input.profile.profileName,
+										updatedAt: input.profile.updatedAt,
+									}
+								: profile
+						),
+					}
+				: current
+	);
 }
 
 export async function invalidateAgentProfilePrimaryBindingEditQueries(input: {
@@ -313,15 +338,7 @@ export async function invalidateAgentProfilePrimaryBindingEditQueries(input: {
 	queryKey: ReturnType<typeof agentProfilePrimaryBindingQueryKeys.profile>;
 	storageScope: string;
 }) {
-	await Promise.all([
-		input.queryClient.invalidateQueries({ queryKey: input.queryKey }),
-		input.queryClient.invalidateQueries({
-			queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
-		}),
-		input.queryClient.invalidateQueries({
-			queryKey: organizationQueryKeys.all,
-		}),
-	]);
+	await input.queryClient.invalidateQueries({ queryKey: input.queryKey });
 }
 
 async function runAgentProfileBindingUpdate(input: {

@@ -1,4 +1,9 @@
 import type { InboxItem } from "@openmeld/schemas/types";
+import {
+	queueInboxBrowserNotificationSound,
+	readInboxBrowserNotificationSoundEnabled,
+	writeInboxBrowserNotificationSoundEnabled,
+} from "./browser-notification-sound";
 
 export type InboxBrowserNotificationPermission =
 	| NotificationPermission
@@ -7,6 +12,7 @@ export type InboxBrowserNotificationPermission =
 export type InboxBrowserNotificationSettings = {
 	enabled: boolean;
 	permission: InboxBrowserNotificationPermission;
+	soundEnabled: boolean;
 };
 
 export function resolveBrowserNotificationDescription(
@@ -67,6 +73,7 @@ export function readInboxBrowserNotificationSettings(input: {
 	return {
 		enabled: permission === "granted" && preference !== false,
 		permission,
+		soundEnabled: readInboxBrowserNotificationSoundEnabled(input),
 	};
 }
 
@@ -134,6 +141,14 @@ export function disableInboxBrowserNotifications(input: {
 	return readInboxBrowserNotificationSettings(input);
 }
 
+export function setInboxBrowserNotificationSoundEnabled(input: {
+	enabled: boolean;
+	userId: string;
+}): InboxBrowserNotificationSettings {
+	writeInboxBrowserNotificationSoundEnabled(input);
+	return readInboxBrowserNotificationSettings(input);
+}
+
 export function readInboxBrowserNotificationPermission(): InboxBrowserNotificationPermission {
 	if (typeof window === "undefined" || !("Notification" in window)) {
 		return "unsupported";
@@ -180,6 +195,7 @@ export async function showInboxBrowserNotification(input: {
 		| InboxBrowserNotificationDeliveryReadiness
 		| Promise<InboxBrowserNotificationDeliveryReadiness>;
 	sourcePath: string;
+	userId: string;
 	viewingSourceSession: boolean;
 }): Promise<InboxBrowserNotificationDeliveryResult> {
 	if (typeof window === "undefined" || typeof document === "undefined") {
@@ -225,6 +241,20 @@ export async function showInboxBrowserNotification(input: {
 			notification.close();
 		};
 		recordInboxBrowserNotificationDelivered(currentItem.id);
+		try {
+			queueInboxBrowserNotificationSound({
+				item: currentItem,
+				userId: input.userId,
+			});
+		} catch (error) {
+			console.warn(
+				"[openmeld.web.inbox.browser_notification_sound_queue_failed]",
+				{
+					error: error instanceof Error ? error.message : String(error),
+					itemId: currentItem.id,
+				}
+			);
+		}
 		return { notification, status: "delivered" };
 	});
 }

@@ -108,6 +108,13 @@ jobs:
           control_directory: release-control
           working_directory: release-source
 
+      - name: Require production database migrations current
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD"
+        working-directory: release-source
+
       - name: Acquire shared CLI publication lease
         id: cli_scope_lease
         uses: ./release-control/.github/actions/production-scope-lease

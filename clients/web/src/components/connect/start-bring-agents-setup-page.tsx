@@ -273,7 +273,7 @@ function ExistingComputerConnectionGate(input: {
 					weight="fill"
 				/>
 				<div className="min-w-0 flex-1">
-					<p className="font-medium text-sm">OpenMeld Service is connected</p>
+					<p className="font-medium text-sm">Computer connected</p>
 					<p className="mt-1 truncate text-muted-foreground text-xs">
 						{connectionState.readiness.runtime.deviceDisplayName ??
 							"This computer"}
@@ -2177,7 +2177,7 @@ function usePrepareSession(input: {
 	const startOver = useCallback(async () => {
 		if (humanProfileId === null) {
 			setState({
-				error: new Error("Choose a human profile before setup."),
+				error: new Error("Choose a profile before setup."),
 				opaqueToken: null,
 				opaqueTokenExpiresAt: null,
 				snapshot: null,
@@ -2539,7 +2539,7 @@ async function createFreshPrepareSession(
 	input: PrepareSessionInput
 ): Promise<PrepareSessionLoadResult> {
 	if (input.humanProfileId === null) {
-		throw new Error("Choose a human profile before setup.");
+		throw new Error("Choose a profile before setup.");
 	}
 
 	return await createPrepareSession({

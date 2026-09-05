@@ -1,6 +1,9 @@
 "use client";
 
-import type { ProfileDetailsField } from "@openmeld/schemas/types";
+import type {
+	ModelCatalog,
+	ProfileDetailsField,
+} from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Tooltip,
@@ -24,7 +27,6 @@ import {
 	resolveDirectoryEmailLabel,
 	resolveDirectoryHumanProfileActivityLabel,
 	resolveDirectoryHumanProfileActivityTooltipLabel,
-	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
 	DirectoryHumanProfileRow,
@@ -54,6 +56,7 @@ export type DirectoryHumanProfileDetailsProps = {
 	directMessageIsPending: boolean;
 	editing: boolean;
 	member: DirectoryHumanProfileRow;
+	modelCatalog: ModelCatalog | null;
 	onConnectAccount: (account: DirectoryIdentityAccount) => void;
 	onEditingChange: (editing: boolean) => void;
 	onManageAccount: (account: DirectoryIdentityAccount) => void;
@@ -90,30 +93,12 @@ export function DirectoryHumanProfileDetails(
 				</output>
 			) : null}
 
-			<DetailSection title="Member account">
-				<DetailRow
-					label="Email"
-					value={resolveDirectoryEmailLabel(input.member.email)}
-				/>
-				{input.member.role === null ? null : (
-					<DetailRow
-						label="Organization role"
-						value={resolveDirectoryRoleLabel(input.member.role)}
-					/>
-				)}
-				<DetailRow
-					label="Joined"
-					value={formatDirectoryDate(input.member.joinedAt)}
-				/>
-			</DetailSection>
-
-			<DetailSection title="Agent Profiles">
-				<DirectoryAgentProfilesSummary
-					ownerName={input.member.name}
-					path={input.member.agentProfilesPath}
-					profiles={input.member.agentProfiles}
-				/>
-			</DetailSection>
+			<DirectoryAgentProfilesSummary
+				modelCatalog={input.modelCatalog}
+				ownerName={input.member.name}
+				path={input.member.agentProfilesPath}
+				profiles={input.member.agentProfiles}
+			/>
 
 			<DetailSection title="Computers">
 				{input.computersContent ?? (
@@ -148,6 +133,7 @@ export function DirectoryHumanProfileDetails(
 function ProfileActions(input: {
 	canEdit: boolean;
 	canOpenDirectMessage: boolean;
+	directMessageLabel: string;
 	directMessageIsPending: boolean;
 	onEdit: () => void;
 	onOpenDirectMessage: () => void;
@@ -164,14 +150,15 @@ function ProfileActions(input: {
 			<div className="flex max-w-full flex-wrap items-center justify-end gap-2">
 				{input.canOpenDirectMessage ? (
 					<Button
+						className="max-w-full"
 						disabled={input.directMessageIsPending}
 						onClick={input.onOpenDirectMessage}
 						size="sm"
 						type="button"
-						variant="outline"
+						variant="default"
 					>
 						<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-						Direct Message
+						<span className="truncate">{input.directMessageLabel}</span>
 					</Button>
 				) : null}
 				{input.researchAction ? (
@@ -259,8 +246,23 @@ function ProfileHero(input: {
 							</div>
 						</div>
 					)}
-					<p className="mt-1 select-text break-all text-muted-foreground text-sm">
-						{resolveDirectoryEmailLabel(input.member.email)}
+					<p
+						className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-sm"
+						data-testid="human-profile-metadata"
+					>
+						<span className="select-text break-all">
+							{resolveDirectoryEmailLabel(input.member.email)}
+						</span>
+						<span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+							<span
+								aria-hidden="true"
+								className="size-1 shrink-0 rounded-full bg-current opacity-60"
+								data-slot="human-profile-metadata-separator"
+							/>
+							<span className="select-text">
+								Joined {formatDirectoryDate(input.member.joinedAt)}
+							</span>
+						</span>
 					</p>
 					{activityLabel ? (
 						<p
@@ -291,6 +293,7 @@ function ProfileHero(input: {
 				canEdit={!input.editing && input.member.canEdit}
 				canOpenDirectMessage={input.canOpenDirectMessage}
 				directMessageIsPending={input.directMessageIsPending}
+				directMessageLabel={`Chat with ${input.member.name}`}
 				onEdit={() => input.onEditingChange(true)}
 				onOpenDirectMessage={input.onOpenDirectMessage}
 				researchAction={input.researchAction}
@@ -448,15 +451,6 @@ function DetailSection(input: { children: React.ReactNode; title: string }) {
 				{input.children}
 			</div>
 		</section>
-	);
-}
-
-function DetailRow(input: { label: string; value: string }) {
-	return (
-		<div className="grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] gap-3 px-4 py-3 text-sm">
-			<p className="text-muted-foreground">{input.label}</p>
-			<p className="min-w-0 select-text break-words">{input.value}</p>
-		</div>
 	);
 }
 

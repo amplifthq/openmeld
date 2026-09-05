@@ -1,4 +1,8 @@
-import { resolveAgentProfileUsageRecoveryAvailability } from "@openmeld/agent-runtime";
+import {
+  resolveAgentControllerUsageLimitSupport,
+  resolveAgentControllerUsageProviderId,
+  resolveAgentProfileUsageRecoveryAvailability,
+} from "@openmeld/agent-runtime";
 import {
   MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
   runtimeTransportAgentProfileWorkUsageAvailableResponseSchema,
@@ -7,6 +11,7 @@ import type { AcceptedRuntimeAgentControllerReport } from "../../runtime-registr
 
 type AgentProfileWorkUsageRecoveryBinding = {
   agentProfileId: string;
+  modelId?: string | null;
 };
 
 export type AgentProfileWorkUsageRecoveryBindingStore = {
@@ -35,19 +40,23 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
   ownerUserId: string;
   resumeInterruptedWork: ResumeUsageExhaustedAgentProfileWork;
 }): Promise<void> {
-  const availability = resolveAgentProfileUsageRecoveryAvailability({
+  const report = {
+    expiresAtMs: input.currentReport.expiresAtMs,
+    status: input.currentReport.status,
+    usageLimits: input.currentReport.agentControllerInterface?.usageLimits,
+    usageLimitsSupportMatrixVersion:
+      input.currentReport.agentControllerInterface
+        ?.usageLimitsSupportMatrixVersion,
+  } as const;
+  const support = resolveAgentControllerUsageLimitSupport(
+    input.currentReport.agentControllerRef
+  );
+  const controllerAvailability = resolveAgentProfileUsageRecoveryAvailability({
     agentControllerRef: input.currentReport.agentControllerRef,
     nowMs: input.nowMs,
-    report: {
-      expiresAtMs: input.currentReport.expiresAtMs,
-      status: input.currentReport.status,
-      usageLimits: input.currentReport.agentControllerInterface?.usageLimits,
-      usageLimitsSupportMatrixVersion:
-        input.currentReport.agentControllerInterface
-          ?.usageLimitsSupportMatrixVersion,
-    },
+    report,
   });
-  if (!availability.available) {
+  if (support !== "provider_scoped" && !controllerAvailability.available) {
     return;
   }
 
@@ -61,7 +70,26 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
     return;
   }
 
-  const targetProfileIds = bindings.map((binding) => binding.agentProfileId);
+  const targetProfileIds = bindings
+    .filter((binding) => {
+      if (support !== "provider_scoped") {
+        return true;
+      }
+      const providerId = resolveAgentControllerUsageProviderId({
+        agentControllerRef: input.currentReport.agentControllerRef,
+        modelId: binding.modelId,
+      });
+      return resolveAgentProfileUsageRecoveryAvailability({
+        agentControllerRef: input.currentReport.agentControllerRef,
+        nowMs: input.nowMs,
+        providerId,
+        report,
+      }).available;
+    })
+    .map((binding) => binding.agentProfileId);
+  if (targetProfileIds.length === 0) {
+    return;
+  }
   const continuationProfileIds: string[] = [];
   for (
     let offset = 0;

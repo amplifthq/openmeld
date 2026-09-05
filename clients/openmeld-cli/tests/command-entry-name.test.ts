@@ -52,6 +52,9 @@ describe("command entry name", () => {
     expect(resolveCommandEntryNameFromTokens(["space", "board"])).toBe(
       "space.board"
     );
+    expect(resolveCommandEntryNameFromTokens(["space", "access"])).toBe(
+      "space.access"
+    );
     expect(resolveCommandEntryNameFromTokens(["spaces", "board"])).toBe(
       "space.board"
     );
@@ -137,6 +140,9 @@ describe("command entry name", () => {
     expect(resolveCommandEntryNameFromTokens(["profile", "show"])).toBe(
       "profile.show"
     );
+    expect(
+      resolveCommandEntryNameFromTokens(["profiles", "current-session"])
+    ).toBe("profile.current-session");
     expect(
       resolveCommandEntryNameFromTokens(["profile", "requests", "list"])
     ).toBe("profile.requests.list");

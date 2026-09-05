@@ -7,6 +7,35 @@ if [ "$#" -gt 0 ]; then
   shift
 fi
 
+readonly local_disk_floor_bytes=$((1024 * 1024 * 1024))
+
+check_local_disk_floor() {
+  local temporary_parent="${TMPDIR:-/tmp}"
+  local available_bytes
+  if ! available_bytes="$(node -e '
+    const { statfsSync } = require("node:fs");
+    const stats = statfsSync(process.argv[1], { bigint: true });
+    process.stdout.write(String(stats.bavail * stats.bsize));
+  ' "$temporary_parent")" || ! [[ "$available_bytes" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' \
+      "Local Final Candidate could not inspect free disk before startup." \
+      "Next: verify free space for $temporary_parent, then retry or use hosted Final Candidate." >&2
+    exit 70
+  fi
+  if [ "$available_bytes" -lt "$local_disk_floor_bytes" ]; then
+    printf '%s\n' \
+      "Local Final Candidate stopped before temporary files or network access." \
+      "Available disk: $((available_bytes / 1024 / 1024)) MiB" \
+      "Required disk: $((local_disk_floor_bytes / 1024 / 1024)) MiB (1.0 GiB)" \
+      "Next: free disk space safely or use hosted Final Candidate, then retry." >&2
+    exit 75
+  fi
+}
+
+if [ "$command" = "local" ]; then
+  check_local_disk_floor
+fi
+
 trusted_git() {
   env \
     -u GIT_ALTERNATE_OBJECT_DIRECTORIES \

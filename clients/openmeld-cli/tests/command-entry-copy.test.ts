@@ -35,6 +35,15 @@ describe("command entry copy", () => {
     });
   });
 
+  it("keeps Space access resolution public-capable", () => {
+    expect(getCommandEntryCopy("space.access")).toEqual({
+      signInAction: null,
+      profileAction: null,
+      cliUpdateAction: "checking Space access",
+      serviceAction: null,
+    });
+  });
+
   it("describes the Space member directory as a read action", () => {
     expect(getCommandEntryCopy("space.members")).toEqual({
       signInAction: "reading the Space member directory",
@@ -115,6 +124,15 @@ describe("command entry copy", () => {
       signInAction: "showing a profile",
       profileAction: null,
       cliUpdateAction: "showing a profile",
+      serviceAction: null,
+    });
+  });
+
+  it("describes exact session recovery without implying a profile scan", () => {
+    expect(getCommandEntryCopy("profile.current-session")).toEqual({
+      signInAction: "finding this Agent session's profile",
+      profileAction: null,
+      cliUpdateAction: "finding this Agent session's profile",
       serviceAction: null,
     });
   });

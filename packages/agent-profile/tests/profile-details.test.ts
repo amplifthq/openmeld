@@ -3,9 +3,20 @@ import {
   buildProfileDetailsSnapshotFromAuthProfile,
   buildProfileDetailsSnapshotFromHumanProfile,
   buildProfileDetailsSnapshotFromSpaceMember,
+  formatSpaceMemberActivityTime,
 } from "../src/profile-details";
 
 describe("Profile Details snapshot", () => {
+  it("keeps Space activity time compact for profile popovers", () => {
+    expect(formatSpaceMemberActivityTime("Seen just now")).toBe("Now");
+    expect(formatSpaceMemberActivityTime("Seen 12 minutes ago")).toBe(
+      "12m ago"
+    );
+    expect(formatSpaceMemberActivityTime("7 hours ago")).toBe("7h ago");
+    expect(formatSpaceMemberActivityTime("Seen 2 days ago")).toBe("2d ago");
+    expect(formatSpaceMemberActivityTime(null)).toBeNull();
+  });
+
   it("builds Human Profile details without inventing account or Organization facts", () => {
     const snapshot = buildProfileDetailsSnapshotFromHumanProfile({
       profileId: "human-grace",
@@ -345,7 +356,7 @@ describe("Profile Details snapshot", () => {
     });
   });
 
-  it("removes owner-only local connection facts for observer Space Profile Details", () => {
+  it("shares the model while removing owner-only local connection facts for observer Space Profile Details", () => {
     const snapshot = buildProfileDetailsSnapshotFromSpaceMember({
       agentControllerPermissionModeDetail: "Approve for me",
       entry: buildSpaceMemberInput(),
@@ -357,14 +368,18 @@ describe("Profile Details snapshot", () => {
     expect(listSectionTitles(snapshot)).toEqual([
       "Profile",
       "Space membership",
+      "Connection",
       "Agent Controller Permission Mode",
       "Wake availability",
       "Advanced details",
     ]);
     expect(
       snapshot.sections.some((section) => section.id === "connection")
-    ).toBe(false);
+    ).toBe(true);
     expect(findRowValue(snapshot, "advanced", "Profile ID")).toBe("agt-1");
+    expect(findRowValue(snapshot, "connection", "Model")).toBe(
+      "Codex · gpt-5.5 · model default"
+    );
     expect(collectFieldSources(snapshot)).not.toEqual(
       expect.arrayContaining(["agent_controller", "local_runtime"])
     );

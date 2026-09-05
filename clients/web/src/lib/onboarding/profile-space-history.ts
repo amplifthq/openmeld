@@ -32,7 +32,7 @@ async function listSingleProfileSpaceHistoryServer(input: {
 export const listSingleProfileSpaceHistory = createServerFn({
 	method: "GET",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = listSingleProfileSpaceHistoryInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(

@@ -6,7 +6,12 @@ import {
 	readComposerDraft,
 	writeComposerDraft,
 } from "#/lib/composer-draft-storage";
-import { resetAccountScopedQueriesAfterAuthChange } from "./auth-boundary";
+import {
+	ACCOUNT_AUTH_CHANGE_STORAGE_KEY,
+	completeAccountAuthChange,
+	resetAccountScopedQueriesAfterAuthChange,
+	subscribeToAccountAuthChanges,
+} from "./auth-boundary";
 import type { BrowserQueryPersistenceController } from "./persistence/browser-query-persistence";
 
 describe("resetAccountScopedQueriesAfterAuthChange", () => {
@@ -84,6 +89,38 @@ describe("resetAccountScopedQueriesAfterAuthChange", () => {
 				event: "web.openmeld.browser_query_persistence.auth_cleanup_failed",
 			})
 		);
+	});
+
+	it("notifies other tabs only after local account data is cleared", async () => {
+		const queryClient = new QueryClient();
+		queryClient.setQueryData(["spaces", "list", "user-a"], { spaces: [] });
+		const setItem = vi.spyOn(Storage.prototype, "setItem");
+
+		await completeAccountAuthChange(queryClient, "account-switched");
+
+		expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+		expect(setItem).toHaveBeenCalledWith(
+			ACCOUNT_AUTH_CHANGE_STORAGE_KEY,
+			expect.stringContaining('"reason":"account-switched"')
+		);
+	});
+
+	it("subscribes to account changes from another tab", () => {
+		const listener = vi.fn();
+		const unsubscribe = subscribeToAccountAuthChanges(listener);
+
+		window.dispatchEvent(
+			new StorageEvent("storage", {
+				key: ACCOUNT_AUTH_CHANGE_STORAGE_KEY,
+				newValue: JSON.stringify({
+					id: "event-1",
+					reason: "session-created",
+				}),
+			})
+		);
+
+		expect(listener).toHaveBeenCalledTimes(1);
+		unsubscribe();
 	});
 });
 

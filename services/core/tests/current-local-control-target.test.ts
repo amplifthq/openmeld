@@ -76,6 +76,29 @@ const INVENTORY = {
     },
   ],
 } satisfies LocalRuntimesResponse;
+const RECONNECTED_SERVICE_ONLY_INVENTORY = {
+  currentConnectedComputerId: "computer-bound",
+  currentDeviceId: DEVICE_ID,
+  currentRuntimeLane: "prod",
+  legacyDeviceEvidence: [],
+  localRuntimes: [
+    {
+      connectedComputerId: "computer-bound",
+      connectionStatus: "connected",
+      deviceDisplayName: "Felix's MacBook Pro",
+      deviceDisplayNameSource: "observed",
+      deviceId: DEVICE_ID,
+      deviceType: "laptop",
+      executionTargets: [],
+      firstSeenAtMs: 1_710_000_000_000,
+      isCurrent: true,
+      lastObservedAtMs: 1_720_000_000_000,
+      legacyDeviceIds: [DEVICE_ID, "device-reconnected"],
+      osVersion: "26.0",
+      platformFamily: "macOS",
+    },
+  ],
+} satisfies LocalRuntimesResponse;
 
 const COMPATIBLE_EXECUTION = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -168,7 +191,7 @@ describe("requireCurrentLocalRuntimeExecutionTarget", () => {
 });
 
 describe("requireCurrentLocalRuntimeServiceTarget", () => {
-  it("accepts the exact live Computer even when it has no execution target", () => {
+  it("accepts the exact live Service target", () => {
     expect(
       requireCurrentLocalRuntimeServiceTarget({
         bindingTarget: {
@@ -176,10 +199,37 @@ describe("requireCurrentLocalRuntimeServiceTarget", () => {
           deviceId: DEVICE_ID,
           runtimeLane: "prod",
         },
+        inventory: INVENTORY,
         offlineError: OFFLINE_ERROR,
         ownerService: liveOwnerService(DEVICE_ID),
       })
     ).toEqual({ deviceId: DEVICE_ID, runtimeLane: "prod" });
+  });
+
+  it("follows a reconnected Computer's live Service without requiring an Agent execution target", () => {
+    const input = {
+      bindingTarget: {
+        availability: "resolved" as const,
+        deviceId: DEVICE_ID,
+        runtimeLane: "prod" as const,
+      },
+      inventory: RECONNECTED_SERVICE_ONLY_INVENTORY,
+      offlineError: OFFLINE_ERROR,
+      ownerService: liveOwnerService("device-reconnected"),
+    };
+
+    expect(requireCurrentLocalRuntimeServiceTarget(input)).toEqual({
+      deviceId: "device-reconnected",
+      runtimeLane: "prod",
+    });
+    expect(() => requireCurrentLocalRuntimeExecutionTarget(input)).toThrowError(
+      expect.objectContaining({
+        cause: expect.objectContaining({
+          code: "service_offline",
+          status: 503,
+        }),
+      })
+    );
   });
 
   it("rejects a live Service on a different device or lane", () => {
@@ -190,6 +240,7 @@ describe("requireCurrentLocalRuntimeServiceTarget", () => {
           deviceId: DEVICE_ID,
           runtimeLane: "dev-local",
         },
+        inventory: INVENTORY,
         offlineError: OFFLINE_ERROR,
         ownerService: liveOwnerService(DEVICE_ID),
       })

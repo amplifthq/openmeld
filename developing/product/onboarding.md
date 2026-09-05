@@ -152,7 +152,7 @@ forking its command, PrepareSession, or live-status behavior.
 8. **Separate membership, Service, and wakeability.** Joining an Organization
    or Space, connecting this computer, detecting Codex, and proving an Agent
    Profile can currently be woken are separate facts. Setup Studio may summarize
-   only the facts it actually reads; it never derives Wake availability from a
+   only the facts it actually reads; it never derives Wakeability from a
    connected Service.
 9. **One management home after onboarding.** Setup Studio is a guided entry to
    existing mutations. Channels, Apps, People, Agents, Settings, Computers, and
@@ -242,10 +242,10 @@ Inputs (fact families):
    context here. The slot exists in the contract now so adding Invite does
    not change the planner signature.
 
-Agent wake availability ("can this agent be woken right now":
+Wakeability ("can this agent be woken right now":
 available / checking / offline / unavailable) is deliberately NOT a planner
 input. It is the Space member badge's job, rendered directly from the
-existing `agentWakeAvailability` snapshot — Service is Service, Agent is
+existing compatibility `agentWakeAvailability` snapshot — Service is Service, Agent is
 Agent. The onboarding plan tracks two separate facts: is the computer
 connected (`connect_this_computer`), and is an agent in this Space
 (`bring_agents`). It never merges live agent wakeability into either.
@@ -312,6 +312,15 @@ Studio version is redirected from the app shell to
 `/o/:orgSlug/onboarding`. This intentionally includes existing internal users
 when the feature first ships; the migration is the absence of the new
 versioned local record.
+
+An explicit Space destination is the exception: opening a Space or a message
+link, including continuation after accepting a Space invitation, keeps that
+destination. Space access is still authorized normally; the in-Space setup
+guidance remains available. This does not mark Setup Studio complete or change
+membership. A later ordinary entry may still offer the account-level Studio.
+Email verification and magic-link sign-in preserve the invitation route before
+Space entry, so first-time recipients are not sent to workspace selection in
+the middle of accepting an invitation.
 
 Completion is account-scoped, not Organization-scoped. A person should not be
 forced through the entire Studio for every Organization. The selected
@@ -528,7 +537,7 @@ Banner content by decision:
 
 - `connect_this_computer` available — title "Connect this computer" (same copy
   whether or not the account has an agent yet); subtitle "So your local agents
-  can reply when you mention them"; and a single "Connect OpenMeld Service" button
+  can reply when you mention them"; and a single "Connect Computer" button
   that routes to the centralized setup page (the same destination as the Agents
   page). The OS-aware bootstrap command (macOS/Linux vs Windows toggle), the
   copy affordance, the command expiry + refresh, and the live "Waiting for this
@@ -539,10 +548,10 @@ Banner content by decision:
   owner for the terminal handoff and live setup status while `openmeld setup`
   runs.
 - `bring_agents` available — a single right-aligned "Add agents" control that
-  opens the Members panel AND expands its "Add members" card, then flashes the
-  card's border so a first-time user sees exactly where to act (it must not
-  just open the drawer and strand them). The card is the shipped grouped-list
-  selector backed by the shared profile-add planner in `packages/space`;
+  opens the Members panel and its "Add members" dialog so a first-time user
+  lands directly on the action (it must not just open the drawer and strand
+  them). The dialog is the shipped grouped-list selector backed by the shared
+  profile-add planner in `packages/space`;
   building a second selector is forbidden — this is an entry point only.
 - `bring_agents` done — a membership fact only: "<Agent> is in this Space".
   NEVER "can be woken" (Invariant 3). Whether it can be woken right now is
@@ -615,10 +624,10 @@ drift):
 | Empty Space connect action  | `Connect this computer` / `Make Codex, Claude Code, or another local agent available in OpenMeld.`                                              |
 | Empty Space add action      | `Add people or agents` / `Choose people or agents for this Space, or create a new agent.`                                                       |
 | Banner heading              | `Get set up` / `Optional. Dismiss anytime.`                                                                                                     |
-| Connect (banner)            | `Connect this computer` / `So your local agents can reply when you mention them` / button `Connect OpenMeld Service` (routes to the setup page) |
+| Connect (banner)            | `Connect this computer` / `So your local agents can reply when you mention them` / button `Connect Computer` (routes to the setup page) |
 | Waiting status (setup page) | `Waiting for this computer…`                                                                                                                    |
 | Connected status            | `Connected`                                                                                                                                     |
-| Bring agents (available)    | `Add agents` (opens + flashes Add members)                                                                                                      |
+| Bring agents (available)    | `Add agents` (opens the Members panel and Add members dialog)                                                                                   |
 | Bring agents (done)         | `<Agent> is in this Space` (membership only — never "can be woken")                                                                             |
 | Dismiss / Recall            | per-row `×` / header **Get set up** action                                                                                                      |
 
@@ -695,17 +704,34 @@ prints the all-set line and exits 0. It remains the receiver of the Web
 Prepare handoff (`--start-session <token>`) and the only human-facing
 machine-state verb (Invariant 7).
 
-When setup starts or verifies OpenMeld Service, its human-facing completion copy must
-say that OpenMeld Service is running in the background, that it starts automatically
-when the user signs in, how to disable that autostart, and how to stop the
-service. Keep this copy concise and do not mention unreleased clients.
+Successful Human View completion stays focused on the user outcome: this
+computer is connected, the truthful local-agent result, and one link back to
+OpenMeld Web. Its mode-independent title is `Computer connected`; it does not
+guess Setup versus Update from an existing Computer id, which can also represent
+a reconnect. The body says `Your computer is connected.`, not that the whole
+computer is ready, because local agents may still be syncing, absent, or need
+attention. It uses one sentence per line with blank lines between sentences.
+CLI and Service versions, running state, autostart controls, and stop commands
+belong to `openmeld service status`, not the success summary. A failed or partial
+completion still names the reason and one recovery action.
+
+Important completed Human View setup steps retain the existing progress history
+and add one presentation-only timestamp and elapsed duration:
+`[HH:mm:ss] ✓ Result · elapsed`. `HH:mm:ss` is the zero-padded 24-hour local
+time of the computer running the CLI. Active spinner and internal detail lines
+remain untimestamped. Timing does not participate in setup decisions or change
+execution, waiting, or Service lifecycle ordering.
 
 When a healthy running Service only needs a newer version, Setup must hand the
-prepared update to the computer's background update worker and finish without
-waiting for current Agent work to end. The user may close Web Setup or the
-Terminal after that handoff. Setup must not use this path to hide a broken or
-ambiguous Service; those states remain explicit repair work. A background update
-does not make Setup the owner of Wake completion or final Agent readiness.
+prepared update to the computer's background update worker without waiting for
+current Agent work to end. That handoff says the update started in the
+background; it is not Setup completion. Setup or Prepare may report success only
+after the operation is `updated` and both the exact target CLI and Service are
+observed. `restored` and `needs_help` remain explicit failures with one next
+action. The user may close Web Setup or the Terminal after handoff and rerun
+Setup after the background operation finishes. Setup must not use this path to
+hide a broken or ambiguous Service. A background update does not make Setup the
+owner of Wake completion or final Agent readiness.
 
 A newly connected computer keeps OpenMeld Tools up to date by default. This is
 a saved computer preference, not a condition for completing Setup. Turning it
@@ -732,6 +758,13 @@ another setup command. A controller that is already registered keeps its
 existing enabled state, so setup and background refresh never reverse a user's
 explicit Computers setting. Explicit automation may still narrow one setup run
 via `--local-agent <id>` or `--local-agents all|none`.
+
+The ordinary Web handoff represents that background catalog refresh with an
+empty terminal selection. Human completion must present that state as local
+agents syncing in the background. It must not reinterpret the empty selection
+as proof that no supported local agent is installed or show the installation
+guide. Standalone Setup may show the guide only after its own discovery found
+no supported local agent.
 
 When more than one verified installation can provide the same controller,
 setup stays non-blocking. It first honors an existing saved choice; otherwise
@@ -857,11 +890,11 @@ won and stable, and is owned entirely by Core and the daemon:
   OpenMeld Service connected" (the live service status) and "is an agent a member
   of this Space" (membership — not readiness). It does not register sessions,
   heartbeat, hold leases or tokens, or compute readiness.
-- Agent wake availability is NOT a planner input. The Space member badge
-  renders it directly from the existing `agentWakeAvailability` snapshot.
-  Any user-facing Wake availability must come from Core's
-  `AgentExecutionReadiness` (AGENTS.md Source-Of-Truth), never re-derived in a
-  wizard surface — Service is Service, Agent is Agent.
+- Wakeability is NOT a planner input. The Space member badge renders it directly
+  from the existing compatibility `agentWakeAvailability` snapshot. Any
+  user-facing Wakeability must come from Core's projection, currently exposed
+  through `AgentExecutionReadiness`; a wizard never re-derives it — Service is
+  Service, Agent is Agent.
 - Per-agent reply recovery (a member agent that cannot reply: controller
   unchosen, off, or disconnected) is readiness, not onboarding. It belongs
   to the Agents page and the drawer badge, never to the onboarding banner.
@@ -959,7 +992,7 @@ manual verification):
 18. The same account opens a second computer. Organization and Space membership
     remain intact while contextual guidance independently offers setup for that
     computer.
-19. `bring_agents` opens the existing Members panel and its Add members surface.
+19. `bring_agents` opens the existing Members panel and its Add members dialog.
     No parallel agent selector exists in onboarding.
 20. The centralized Connect page and Center Agent Direct Message render the
     same setup command and live timeline owner. The page stays a page; the

@@ -13,6 +13,10 @@ import {
 	useComboboxContext,
 	useComboboxStore,
 } from "@ariakit/react";
+import {
+	SharedLayoutGroup,
+	SharedLayoutItem,
+} from "@openmeld/ui/fluid/shared-layout-group";
 import { cn } from "@openmeld/ui/lib/utils";
 import { filterWords } from "@platejs/combobox";
 import {
@@ -277,11 +281,13 @@ const InlineComboboxInput = ({
 InlineComboboxInput.displayName = "InlineComboboxInput";
 
 const InlineComboboxContent: typeof ComboboxPopover = ({
+	children,
 	className,
 	...props
 }) => {
 	// Portal prevents CSS from leaking into popover
-	const store = useComboboxContext();
+	const store = useComboboxContext()!;
+	const activeItemId = store.useState("activeId");
 
 	function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
 		if (!store) {
@@ -315,13 +321,21 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
 				)}
 				onKeyDownCapture={handleKeyDown}
 				{...props}
-			/>
+			>
+				<SharedLayoutGroup
+					activeItemId={activeItemId}
+					className="flex flex-col p-1.5"
+					onActiveItemIdChange={(itemId) => store.setActiveId(itemId)}
+				>
+					{children}
+				</SharedLayoutGroup>
+			</ComboboxPopover>
 		</Portal>
 	);
 };
 
 const comboboxItemVariants = cva(
-	"relative mx-1 flex h-[28px] select-none items-center rounded-sm px-2 text-foreground text-sm outline-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+	"relative flex h-[28px] select-none items-center rounded-md px-2 text-foreground text-sm outline-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
 	{
 		defaultVariants: {
 			interactive: true,
@@ -329,7 +343,7 @@ const comboboxItemVariants = cva(
 		variants: {
 			interactive: {
 				false: "",
-				true: "cursor-pointer transition-colors hover:bg-accent hover:text-accent-foreground data-[active-item=true]:bg-accent data-[active-item=true]:text-accent-foreground",
+				true: "cursor-pointer data-[active-item=true]:text-accent-foreground",
 			},
 		},
 	}
@@ -355,6 +369,8 @@ const InlineComboboxItem = ({
 	const { filter, removeInput } = React.useContext(InlineComboboxContext);
 
 	const store = useComboboxContext()!;
+	const generatedItemId = React.useId();
+	const itemId = props.id ?? generatedItemId;
 
 	// Optimization: Do not subscribe to value if filter is false
 	const search = filter && store.useState("value");
@@ -370,14 +386,17 @@ const InlineComboboxItem = ({
 	}
 
 	return (
-		<ComboboxItem
-			className={cn(comboboxItemVariants(), className)}
-			onClick={(event) => {
-				removeInput(focusEditor);
-				onClick?.(event);
-			}}
-			{...props}
-		/>
+		<SharedLayoutItem indicatorClassName="bg-accent" itemId={itemId}>
+			<ComboboxItem
+				className={cn(comboboxItemVariants(), className)}
+				onClick={(event) => {
+					removeInput(focusEditor);
+					onClick?.(event);
+				}}
+				{...props}
+				id={itemId}
+			/>
+		</SharedLayoutItem>
 	);
 };
 
@@ -420,7 +439,7 @@ function InlineComboboxGroup({
 		<ComboboxGroup
 			{...props}
 			className={cn(
-				"hidden not-last:border-b py-1.5 [&:has([role=option])]:block",
+				"hidden flex-col gap-1 not-last:border-b py-1 [&:has([role=option])]:flex",
 				className
 			)}
 		/>
@@ -435,7 +454,7 @@ function InlineComboboxGroupLabel({
 		<ComboboxGroupLabel
 			{...props}
 			className={cn(
-				"mt-1.5 mb-2 px-3 font-medium text-muted-foreground text-xs",
+				"px-2 py-1 font-medium text-muted-foreground text-xs",
 				className
 			)}
 		/>

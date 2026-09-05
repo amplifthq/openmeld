@@ -5,6 +5,42 @@ import { createAgentProfileBindingApi, createOpenMeldApiClient } from "../src";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("api-client agent profile binding api", () => {
+  it("looks up one exact Agent session without listing profiles", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          currentOrganizationId: "org-1",
+          profile: {
+            profileId: AGENT_PROFILE_ID,
+            profileName: "Codex",
+            profileOrganizationId: "org-1",
+          },
+          sameOrganization: true,
+          status: "found",
+        })
+      )
+    );
+    const api = createAgentProfileBindingApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.getCurrentSession({
+        agentControllerConversationId: "thread-1",
+        agentControllerRef: "builtin:codex",
+      })
+    ).resolves.toMatchObject({ status: "found", sameOrganization: true });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "agent_profile_binding.current_session.read",
+        url: "https://gateway.openmeld.invalid/v1/agent-profiles/current-session?agentControllerConversationId=thread-1&agentControllerRef=builtin%3Acodex",
+      })
+    );
+  });
+
   it("reads primary Binding projection through the canonical Agent Profile route", async () => {
     const transport = vi.fn((_: { init?: RequestInit }) =>
       Promise.resolve(
@@ -327,148 +363,6 @@ describe("api-client agent profile binding api", () => {
     expect(JSON.stringify(body)).not.toContain("caller-1");
     expect(JSON.stringify(body)).not.toContain("owner-1");
     expect(JSON.stringify(body)).not.toContain(AGENT_PROFILE_ID);
-  });
-
-  it("authorizes, lists, and revokes primary Binding Organization authorizations", async () => {
-    const transport = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          agentProfileId: AGENT_PROFILE_ID,
-          authorizedBy: "user-1",
-          bindingId: "binding-1",
-          createdAt: "2026-07-04T00:00:00.000Z",
-          organizationId: "org-1",
-          status: "authorized",
-        })
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          organizationId: "org-1",
-          authorizations: [
-            {
-              agentProfileId: AGENT_PROFILE_ID,
-              authorizedBy: "user-1",
-              bindingId: "binding-1",
-              createdAt: "2026-07-04T00:00:00.000Z",
-            },
-          ],
-        })
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding-1",
-          organizationId: "org-1",
-          revoked: true,
-          status: "revoked",
-        })
-      );
-    const api = createAgentProfileBindingApi(
-      createOpenMeldApiClient({
-        baseUrl: "https://gateway.openmeld.invalid",
-        transport,
-      })
-    );
-
-    await expect(
-      api.authorizePrimaryBindingForOrganization({
-        agentProfileId: AGENT_PROFILE_ID,
-      })
-    ).resolves.toMatchObject({
-      agentProfileId: AGENT_PROFILE_ID,
-      organizationId: "org-1",
-      status: "authorized",
-    });
-    await expect(api.listOrganizationAuthorizations()).resolves.toMatchObject({
-      organizationId: "org-1",
-      authorizations: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          bindingId: "binding-1",
-        },
-      ],
-    });
-    await expect(
-      api.revokePrimaryBindingForOrganization({
-        agentProfileId: AGENT_PROFILE_ID,
-      })
-    ).resolves.toMatchObject({
-      agentProfileId: AGENT_PROFILE_ID,
-      organizationId: "org-1",
-      revoked: true,
-      status: "revoked",
-    });
-
-    expect(transport).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        init: expect.objectContaining({ method: "PUT" }),
-        operation: "agent_profile_binding.organization_authorization.authorize",
-        url: `https://gateway.openmeld.invalid/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/primary-binding/organization-authorization`,
-      })
-    );
-    expect(transport).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        init: expect.objectContaining({ method: "GET" }),
-        operation: "agent_profile_binding.organization_authorization.list",
-        url: "https://gateway.openmeld.invalid/v1/agent-profiles/primary-bindings/organization-authorizations",
-      })
-    );
-    expect(transport).toHaveBeenNthCalledWith(
-      3,
-      expect.objectContaining({
-        init: expect.objectContaining({ method: "DELETE" }),
-        operation: "agent_profile_binding.organization_authorization.revoke",
-        url: `https://gateway.openmeld.invalid/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/primary-binding/organization-authorization`,
-      })
-    );
-  });
-
-  it("lists the current user's Agent Profile organization Wake access through the canonical route", async () => {
-    const transport = vi.fn((_: { init?: RequestInit }) =>
-      Promise.resolve(
-        jsonResponse({
-          profiles: [
-            {
-              agentProfileId: AGENT_PROFILE_ID,
-              organizations: [
-                {
-                  organizationId: "org-1",
-                  organizationName: "Acme",
-                  organizationSlug: "acme",
-                },
-              ],
-            },
-          ],
-        })
-      )
-    );
-    const api = createAgentProfileBindingApi(
-      createOpenMeldApiClient({
-        baseUrl: "https://gateway.openmeld.invalid",
-        transport,
-      })
-    );
-
-    await expect(
-      api.listCurrentUserOrganizationWakeAccess()
-    ).resolves.toMatchObject({
-      profiles: [
-        {
-          agentProfileId: AGENT_PROFILE_ID,
-          organizations: [{ organizationId: "org-1" }],
-        },
-      ],
-    });
-    expect(transport).toHaveBeenCalledWith(
-      expect.objectContaining({
-        init: expect.objectContaining({ method: "GET" }),
-        operation: "agent_profile_binding.organization_wake_access.list",
-        url: "https://gateway.openmeld.invalid/v1/agent-profiles/primary-bindings/organization-wake-access",
-      })
-    );
   });
 
   it("disables the primary Binding through the canonical Agent Profile route", async () => {
@@ -859,7 +753,7 @@ function readyAgentWakeAvailability() {
     phase: "available",
     reasonCode: "agent_execution.ready",
     status: "available_for_wake",
-    summary: "Can reply from this computer in Spaces.",
+    summary: "Available for Wake",
     tooltip: "Available for Wake",
   };
 }

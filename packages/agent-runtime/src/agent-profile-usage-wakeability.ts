@@ -2,6 +2,7 @@ import { AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS } from "@openmeld/schemas";
 import type { AgentControllerUsageLimit } from "@openmeld/schemas/types";
 import {
   AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  resolveAgentControllerProviderUsageLimitSupport,
   resolveAgentControllerUsageLimitSupport,
 } from "./agent-controller-usage-limit-support";
 import type { RuntimeAgentControllerReportStatus } from "./runtime-registry-contract";
@@ -38,13 +39,27 @@ export type AgentProfileUsageRecoveryAvailability = {
 export function resolveAgentProfileUsageWakeability(input: {
   agentControllerRef: string;
   nowMs: number;
+  providerId?: string | null;
   report?: AgentProfileUsageWakeabilityReport | null;
 }): AgentProfileUsageWakeability {
-  if (
-    resolveAgentControllerUsageLimitSupport(input.agentControllerRef) !==
-    "native"
-  ) {
+  const support = resolveAgentControllerUsageLimitSupport(
+    input.agentControllerRef
+  );
+  if (support !== "native" && support !== "provider_scoped") {
     return ALLOWS_NEW_WORK;
+  }
+  if (support === "provider_scoped") {
+    if (!input.providerId) {
+      return ALLOWS_NEW_WORK;
+    }
+    if (
+      resolveAgentControllerProviderUsageLimitSupport({
+        agentControllerRef: input.agentControllerRef,
+        providerId: input.providerId,
+      }) !== "native"
+    ) {
+      return ALLOWS_NEW_WORK;
+    }
   }
   const report = input.report;
   if (!report) {
@@ -54,19 +69,33 @@ export function resolveAgentProfileUsageWakeability(input: {
     report.usageLimitsSupportMatrixVersion !==
     AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION
   ) {
-    return ALLOWS_NEW_WORK;
+    return CHECKING_USAGE;
+  }
+  // Usage is one current owner fact, not the owner of the entire Wakeability
+  // answer. Controllers whose reviewed matrix requires native Usage must
+  // provide the exact current contract before Core can authorize new work.
+  // Legacy reports remain parseable, but they cannot prove current capacity.
+  if (report.expiresAtMs <= input.nowMs) {
+    return CHECKING_USAGE;
   }
   const supportedUsageLimits = report.usageLimits?.filter(
-    (usageLimit) => usageLimit.status !== "unsupported"
+    (usageLimit) =>
+      usageLimit.status !== "unsupported" &&
+      (support !== "provider_scoped" ||
+        usageLimit.provider?.id === input.providerId)
   );
-  if (report.usageLimits?.length && !supportedUsageLimits?.length) {
+  if (
+    support === "native" &&
+    report.usageLimits?.length &&
+    !supportedUsageLimits?.length
+  ) {
     return ALLOWS_NEW_WORK;
   }
   if (!supportedUsageLimits?.length) {
     return CHECKING_USAGE;
   }
 
-  if (report.status !== "ready" || report.expiresAtMs <= input.nowMs) {
+  if (report.status !== "ready") {
     return CHECKING_USAGE;
   }
 
@@ -95,17 +124,31 @@ export function resolveAgentProfileUsageWakeability(input: {
 export function resolveAgentProfileUsageRecoveryAvailability(input: {
   agentControllerRef: string;
   nowMs: number;
+  providerId?: string | null;
   report?: AgentProfileUsageWakeabilityReport | null;
 }): AgentProfileUsageRecoveryAvailability {
+  const support = resolveAgentControllerUsageLimitSupport(
+    input.agentControllerRef
+  );
+  if (support !== "native" && support !== "provider_scoped") {
+    return USAGE_RECOVERY_UNAVAILABLE;
+  }
   if (
-    resolveAgentControllerUsageLimitSupport(input.agentControllerRef) !==
-    "native"
+    support === "provider_scoped" &&
+    (!input.providerId ||
+      resolveAgentControllerProviderUsageLimitSupport({
+        agentControllerRef: input.agentControllerRef,
+        providerId: input.providerId,
+      }) !== "native")
   ) {
     return USAGE_RECOVERY_UNAVAILABLE;
   }
   const report = input.report;
   const supportedUsageLimits = report?.usageLimits?.filter(
-    (usageLimit) => usageLimit.status !== "unsupported"
+    (usageLimit) =>
+      usageLimit.status !== "unsupported" &&
+      (support !== "provider_scoped" ||
+        usageLimit.provider?.id === input.providerId)
   );
   if (
     !report ||

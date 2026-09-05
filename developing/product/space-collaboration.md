@@ -40,6 +40,14 @@ mention and addressing labels needed by clients and dispatch prompts. It helps
 users and agents choose valid send targets; it does not create membership,
 prove Wake readiness, or decide execution authority.
 
+A focused Agent read may combine one resolved directory member with that
+member's Core-owned current Agent Wake Availability projection. This avoids
+returning the complete directory and unrelated runtime diagnostics when the
+caller only needs one teammate's exact addressing and current preflight state.
+The convenience read must preserve Core's readiness status and reason codes; it
+must not reconstruct readiness from membership, Binding existence, or route
+presence, and it does not prove that a later Wake will complete.
+
 An ordinary Organization Space may add the Organization's currently designated
 Center Agent through a dedicated server-authorized membership mutation. The
 Organization directory candidate is presentation only: the mutation must fail
@@ -48,6 +56,94 @@ selected. Once added, the Center Agent follows ordinary Agent Profile member
 semantics for listing, addressing, Wake, removal, and degraded Direct Message
 behavior. This does not create another Space kind or apply the locked Center
 Agent Direct Message mutation rules to an ordinary Space.
+
+## Email Invitations Into A Space
+
+An Organization owner or admin who is an active member of an ordinary team
+Space can invite a person by email from **Add People or Agents > Invite**.
+Personal Organizations and unconverted Direct Messages do not support this
+action. Existing directory additions remain a separate, immediate operation.
+
+An invitation is bound to one verified account email and one Space. Opening
+the link never accepts it. The recipient reviews the sender, Organization,
+Space, and ordinary Organization-member role, then explicitly accepts. Login
+and verification preserve the destination; successful acceptance uses shared
+Space entry. Wrong-account, expired, revoked, and unavailable invitations fail
+visibly. An invitation is not a guest role or a computer connection request.
+
+Better Auth remains the Organization invitation and membership writer. Core
+owns the Space invitation intent and policy; the Space owns the membership
+grant and an atomic accepted-or-revoked receipt. D1 status projects that receipt.
+Acceptance can retry after Organization joining or an acknowledgement failure;
+it cannot use an old accepted invitation to re-add a removed Space member.
+Acceptance rechecks the sender's current authority. Revoke never removes an
+already accepted membership. It cancels an unused native Organization invite
+only when this workflow created it and no other live Space invite needs it.
+
+Pending invites stay separate from members. Senders can resend or revoke them;
+the initial expiry matches Better Auth's 48-hour invitation lifetime. A recipient
+can find pending invitations at account-level `/invitations`, without already
+belonging to the Organization. This is not Organization Inbox membership.
+Web and CLI use the same authenticated `POST /api/auth/space-invitations`
+contract in `packages/schemas`; clients do not derive authorization from UI.
+
+## Agent Owner Participation
+
+The Add People or Agents picker shows the effective membership selection:
+selecting an ordinary Agent also checks its owner. The count and checkmarks
+agree before submission. Deselecting the last Agent removes an implicitly
+selected owner; an explicitly selected owner remains selected. Deselecting an
+owner also clears their selected Agents. Search filtering must not erase the
+effective selection. Core still resolves the authoritative owner at mutation
+time; these checkmarks are not permission facts.
+
+An ordinary human-owned Agent Profile participates in an ordinary Space with
+its owner. When a caller adds such an Agent, Core resolves the Agent's current
+authoritative `ownerUserId` and that Organization member's active default Human
+Profile, then submits the Agent and Human through one atomic Space membership
+mutation. A cached owner name or caller-supplied Human Profile is never enough.
+If the owner is already an active member, the Human addition is an idempotent
+no-op. If Core cannot resolve the current owner and Human Profile, the whole add
+fails instead of admitting an ownerless ordinary Agent.
+
+Managed Agents, including the designated Center Agent, do not inherit this
+rule. Their Organization-managed identity and existing specialized membership
+contracts remain authoritative.
+
+In an ordinary Space, the resolved owner is an ordinary active Human member
+with the same collaboration rights as other members. The owner cannot leave or
+be removed while one of their ordinary Agent Profiles remains active in that
+Space; remove the Agent first. Removing the Agent never silently removes its
+owner. This order keeps both actions explicit and prevents a membership cleanup
+from unexpectedly removing a person.
+
+Existing ordinary Spaces reconcile this invariant once inside the owning Space
+when a current member/status snapshot is first read after the policy ships. The
+Space checks each unmatched Agent against canonical Organization identity,
+adds only missing ordinary-Agent owners, then records a local completion
+marker. An unavailable owner identity leaves the marker unset so a later read
+can retry. This bounded compatibility step updates the Space member projection
+and live membership invalidation only; it does not rebuild unread state, replay
+history, or emit historical new-member notifications.
+
+A current one-Human/one-Agent Direct Message is the deliberate exception. The
+ordinary Agent owner's Human Profile is a derived read-only observer, not a
+third persisted member. Both DM participants see that the named owner can view
+the conversation. The observer may read the shared conversation and advance
+their own read position, but generic collaboration writes remain unavailable:
+the observer cannot publish messages, create or reply to threads, write Space
+Files, add or remove members, or change Space metadata, lifecycle, publication,
+visibility, access, or password settings.
+
+The observer may explicitly choose **Join conversation**. Core accepts only the
+owner's exact active default Human Profile and uses the existing irreversible
+Direct Message conversion transaction to add that Profile, set
+`directMessage.convertedAt`, and turn the conversation into an ordinary Space.
+After conversion, the owner is a normal member and may participate. This
+observer and join behavior must not appear or succeed for Human-to-Human DMs,
+Center Agent DMs, managed Agents, a different Agent owner, anonymous viewers,
+or ordinary Spaces where the owner is already represented by an active Human
+member.
 
 A Space does not own local execution readiness or in-flight execution truth.
 Those are transport concerns. The Space owns what the user said, who it was
@@ -119,6 +215,14 @@ now` may be shown only from a current RuntimeCoordinator projection with
 explicit freshness; a durable `running` row by itself is insufficient. Missing,
 stale, or unavailable execution evidence must stay visible instead of being
 presented as live work.
+
+Wake progress may expose a bounded public source context so Human View, Agent
+View, and the Center Agent can identify the requester's Profile, kind, display
+name, sanitized source-message preview, and thread. Space supplies those facts
+at read time; execution owners continue to supply lifecycle and freshness. This
+projection does not expose or retain private agent context. Future opt-in
+private streaming requires its own transient transport and privacy contract and
+is not part of this read model.
 
 An ambient `Working` indicator identifies current Wake activity in that Space,
 not the author of an older reply or a historical **Work summary**. When Core has
@@ -288,15 +392,20 @@ used by navigation, headers, and dispatch planning. Do not reimplement local
 "looks like a DM" checks from name, visibility, member types, or route shape.
 
 Every DM is created with `members_only` access. Only its creator, an active
-member, or another active Profile owned by the same account may open it; the
-route, its name, and cached history do not grant access. While current DM state
-holds, the server rejects generic third-member addition, member removal, leave,
-delete, lifecycle, name, visibility, access-mode, and password mutations.
-Clients hide those rejected controls. This keeps a one-to-one conversation
-one-to-one and private until a member deliberately changes the product object.
+member, another active Profile owned by the same account, or the derived Human
+owner observer of an ordinary Agent participant may open it; the route, its
+name, and cached history do not grant access. While current DM state holds, the
+server rejects generic third-member addition, member removal, leave, delete,
+lifecycle, name, visibility, access-mode, and password mutations. It also
+rejects collaboration writes from a derived Agent owner observer until that
+person explicitly joins through conversion. Clients hide those rejected
+controls. This keeps a one-to-one conversation one-to-one and private until a
+member or the Agent owner deliberately changes the product object.
 
 A human member may select one or more new Organization Directory Profiles and
-explicitly confirm **Turn this Direct Message into a Space**. The confirmation
+explicitly confirm **Turn this Direct Message into a Space**. A derived ordinary
+Agent owner observer may invoke the same transaction only to add their own
+active default Human Profile. The confirmation
 names the selected people or agents, explains that they will see the existing
 messages and files, allows a valid Space name, and states that the change cannot
 be undone. One Space-owned transaction records `directMessage.convertedAt`,
@@ -452,6 +561,13 @@ room; it does not describe whether the caller is a human viewer, an agent/system
 continuation of an existing Wake, or another actor class. The structured access
 model belongs in the shared contract layer.
 
+A Space link carries a destination, not authority. The canonical public link
+may identify only the Space, or preserve one message Signal plus its Thread-root
+Signal. Creating, copying, or receiving that link never changes membership,
+grants access, or proves that its target is readable. Web and CLI must preserve
+the same target through the Space Access decision, and every eventual content
+read still performs its normal authorization.
+
 ## Addressing Relations
 
 Space Message Addressing is the product model for targeting a Space message.
@@ -488,17 +604,26 @@ target remains readable through the compatibility projection even if its
 membership later changes.
 
 Composer authoring keeps these relations explicit without imposing a required
-confirmation step after every `@` selection. Agent Profiles default to Wake and
-may be changed to Reference. Human Profiles always create Human Mention, so Web
+confirmation step after every `@` selection. An Agent Profile defaults to Wake
+only when the current Core-owned Wakeability projection is `ready`; an
+unavailable or checking Agent defaults to Reference. Human Profiles always
+create Human Mention, so Web
 shows a fixed `@Name` mark instead of a meaningless Wake/Reference selector.
-The bottom summary counts only Agent relations (`Waking N agents` and
-`Referencing N agents`); Human Mentions stay visible in the message itself.
+Each inline Agent token shows its own Wake or Reference relation, so Web does
+not repeat those relations in a bottom count summary. Human Mentions stay
+visible in the message itself without an Agent relation label. Every Composer
+inline target provides a direct remove action in addition to keyboard deletion.
 The system may warn about a possible semantic mismatch, but it must not silently
-convert one structured Agent relation into another. Repeating the same Agent mention in one message is not a second
-structured relation: the first occurrence owns the selected Wake or Reference,
-and later occurrences remain ordinary visible text. Web preserves the authored
-visible text. The generic CLI accepts an exact current mention label or stable
-Profile ID inside `@target(wake)`, `@target(reference)`, or
+convert one structured Agent relation into another. An existing or restored
+Wake draft remains a Wake while the user edits it, but every send attempt checks
+the current Core-owned Wakeability before publishing the message or files.
+Reference authoring and ordinary text input remain usable while Wake is blocked.
+Repeating the same Agent
+mention in one message keeps every occurrence explicit: the first token owns
+the selected Wake or Reference, while later tokens resolve to Reference and
+never create another Wake. Web preserves the authored visible text. The generic
+CLI accepts an exact current mention label or stable Profile ID inside
+`@target(wake)`, `@target(reference)`, or
 `@target(mention)`. It resolves that private selector against one current member
 snapshot, publishes `@primaryMentionLabel` without the relation suffix or raw
 machine ID, and retains the exact Profile ID and relation in the structured
@@ -508,14 +633,14 @@ stale name fails closed and the sender must use the fresh label or stable ID.
 Profile appears only once in the structured target set and therefore can be
 woken only once.
 
-Web may enrich the first visible `@Name` owned by a structured Agent Wake with
-the Agent Profile icon and stronger name emphasis. This is presentation of the
-existing structured relation, not inference from message text; an ordinary
-bare `@Agent Name` remains ordinary prose.
-
-When a message has multiple structured targets, the composer shows a quiet
-summary of the exact unique target set. The summary is a preview of structured
-addressing, not an AI inference from prose.
+Web presents the first visible `@Name` owned by each structured Agent Wake or
+Reference as one inline Agent token. The token includes the Agent Profile icon,
+canonical name, and exact relation. If the same structured Agent appears again
+in that message, the later appearance remains an explicit Reference token,
+matching the Composer's duplicate rule without creating a second Wake target.
+This is presentation of existing structured authoring, not inference from an
+otherwise unstructured message; a message with no structured target keeps a
+bare `@Agent Name` as ordinary prose.
 
 Delivery intent matters. If a human or agent asks one Agent Profile to deliver
 work to another Agent Profile, the publishing agent must use Wake or Reply +
@@ -679,14 +804,12 @@ the outcome must name the Workspace mismatch and offer no authorization or
 reuse action. This is an identity boundary, not a configurable warning. The
 user creates or selects an Agent Profile that belongs to the current Workspace.
 
-One terminal execution failure may offer **Retry as new execution** beside its
-compact outcome only when Space can recover the exact source message text and
-the one exact target Agent Profile. It creates a fresh Wake with a new
-client-message identity; it never resumes or mutates the terminal execution.
-Grouped failures, stopped outcomes, publication failures, and outcomes without
-recoverable source or target identity do not show this inline action. Message
-details remains the full recovery and diagnostics surface for every terminal
-outcome.
+A terminal execution outcome never authorizes another execution. When the user
+wants the Agent to run the request again, they start a new Wake through the
+ordinary Space composer, where current Wakeability, message identity, target,
+and authorization are checked again. Message details remains the recovery and
+diagnostics surface for the terminal outcome; it does not turn retained source
+text into a retry capability.
 
 An exact retained local result changes that action state. Space keeps the
 original `terminal_failure` as execution truth and may receive a separate,
@@ -702,16 +825,16 @@ Controller conversation is safely resumable, the primary action is **Recover
 reply**. Its warning must say that OpenMeld asks the same Agent
 conversation to post the reply it already finished and does not run the task
 again. A reconnect/setup link must not be labeled as either recovery action.
-If neither recovery tier is available, a genuine terminal execution failure
-may offer **Retry as new execution**, and its copy must make clear that it runs
-the request again.
+If neither recovery tier is available, the outcome has no recovery action. A
+new Wake remains a separate user request through the normal composer.
 
 Each failed target presents one primary next step chosen from the specific
 cause and available recovery evidence. For example, a Cursor plan limit offers
 **Manage Cursor plan**, an unavailable local Agent may offer its relevant setup
 action, and an exact retained reply offers recovery. Unrelated actions must not
-appear beside that primary step. Diagnostics remains available as the separate
-explanation path.
+appear beside that primary step. Message details is the separate diagnostic
+path and keeps its technical evidence available without a duplicate diagnostics
+button.
 
 For one exact failed target, Space renders one recovery control, not separate
 timeline and Message details controls with different operation ids. Opening
@@ -719,10 +842,11 @@ Message details transfers the visible CTA from the outcome row to the drawer;
 closing it returns the CTA to the row. Both surfaces share the exact
 dispatch/target/result identity and the same idempotent operation fence.
 
-Once that Retry action creates its fresh client-message identity, every
-outcome-unknown transport redrive must keep the same identity until Space
-accepts or definitively rejects it. The UI must not call an outcome-unknown
-Retry failed or invite a second logical Wake under a new identity.
+Once the ordinary Composer creates a new Wake with a fresh client-message
+identity, every outcome-unknown transport redrive must keep that same identity
+until Space accepts or definitively rejects it. The UI must not call an
+outcome-unknown delivery failed or invite a second logical Wake under another
+identity.
 
 Live previews may help while work is happening, but they are transient
 projections, not Space messages, execution truth, or final history. The durable
@@ -761,7 +885,7 @@ outcome and must not become a Work summary row. Unknown work has no generic
 fallback.
 
 The Work summary replaces the existing progress row while visible instead of
-adding a second status row, defaults open while work is active, groups
+adding a second status row, defaults closed while work is active, groups
 consecutive identical work, and stays inside a bounded scroll viewport. A user
 who scrolls up controls their reading position until they explicitly jump to
 the latest step. A single failed admitted step is named explicitly in the final
@@ -787,7 +911,7 @@ model. The drawer always begins with the actual message preview, author, and
 sent time, then represents each Wake target with one Activity row. Live work
 updates that row in place. A recorded reply or terminal outcome replaces the
 transient work in the same row and keeps its final status, content, explanation,
-recovery action, and diagnostic action together. The drawer must not create a
+recovery action, and diagnostic context together. The drawer must not create a
 separate Replies section, detached failure summary, or redundant `replied`
 event for the same target. Web must not create a second "work message" details
 UI or derive an alternate final status from component-local state. Live
@@ -919,12 +1043,15 @@ An Agent-authored action may opt out of result archiving, but it must not
 escalate the Space owner's archive policy to a broader private-output archive.
 
 OpenMeld metadata is infrastructure context: profile identity, addressing, setup,
-routing, and Wake availability. It is not proof of what a human or agent is
+routing, and Wakeability. It is not proof of what a human or agent is
 currently doing. Agents may answer from Space context, their own private context,
 memory, and tools when appropriate. In ordinary trusted Space collaboration,
 agents should be helpful and direct. They should avoid exposing secrets,
-credentials, private files, or high-risk sensitive information unless the owner
-clearly authorizes that disclosure.
+credentials, private files, another person's private Agent context, or high-risk
+sensitive information unless the person whose private information is involved
+clearly identifies the content and intended recipient or destination. A person's
+role or Organization membership is not enough, and a broad standing instruction
+to answer every question or share anything does not authorize disclosure.
 
 ## Owner Boundaries
 

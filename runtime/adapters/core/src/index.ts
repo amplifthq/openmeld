@@ -72,6 +72,7 @@ export {
   type AgentControllerProcessCleanupResult,
   type AgentControllerProcessDiscoveryFailure,
   type AgentControllerProcessSignalTarget,
+  createAgentControllerProcessDiscoveryDiagnosticAggregator,
   type ListAgentControllerDescendantProcessIds,
   type ListAgentControllerSupervisedProcessIds,
   listAgentControllerDescendantProcessIds,

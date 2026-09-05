@@ -5,7 +5,9 @@ import {
 import type {
 	AuthProfileView,
 	MessageChannelConnectionProjection,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { resolveOrganizationComputerGroups } from "#/components/computers/organization-computers";
@@ -365,16 +367,22 @@ describe("directory Human Profile model", () => {
 
 		expect(rows.find((row) => row.userId === "user-a")?.agentProfiles).toEqual([
 			{
-				agentId: "claude-code",
+				agentControllerRef: "builtin:claude-code",
 				avatarImageUrl: null,
 				id: "agent-claude",
+				modelSelection: null,
+				modelSelectionIsKnown: true,
 				name: "Ari Claude",
+				path: "/o/acme/agents?profileId=agent-claude",
 			},
 			{
-				agentId: "codex",
+				agentControllerRef: "builtin:codex",
 				avatarImageUrl: null,
 				id: "agent-codex",
+				modelSelection: null,
+				modelSelectionIsKnown: true,
 				name: "Ari Codex",
+				path: "/o/acme/agents?profileId=agent-codex",
 			},
 		]);
 		expect(rows.find((row) => row.userId === "user-a")?.agentProfilesPath).toBe(
@@ -382,10 +390,94 @@ describe("directory Human Profile model", () => {
 		);
 		expect(rows.find((row) => row.userId === "user-b")?.agentProfiles).toEqual([
 			{
-				agentId: "grok-build",
+				agentControllerRef: "builtin:grok-build",
 				avatarImageUrl: null,
 				id: "agent-grok",
+				modelSelection: null,
+				modelSelectionIsKnown: true,
 				name: "Builder",
+				path: "/o/acme/agents?profileId=agent-grok",
+			},
+		]);
+	});
+
+	it("orders an owner's Agent Profiles by recent use before creation time", () => {
+		const rows = buildOrganizationRows({
+			agentProfiles: [
+				buildAgentProfile({
+					agentControllerRef: "builtin:codex",
+					createdAt: "2026-09-04T12:00:00.000Z",
+					ownerUserId: "user-a",
+					profileId: "agent-new",
+					profileName: "New Agent",
+				}),
+				buildAgentProfile({
+					agentControllerRef: "builtin:claude-code",
+					createdAt: "2026-08-01T12:00:00.000Z",
+					lastUsedAt: "2026-09-05T12:00:00.000Z",
+					ownerUserId: "user-a",
+					profileId: "agent-recent",
+					profileName: "Recently Used Agent",
+				}),
+			],
+			messageChannels: buildMessageChannels({
+				connections: [],
+				identityLinks: [],
+			}),
+			messageChannelsStatus: "ready",
+		});
+
+		expect(
+			rows
+				.find((row) => row.userId === "user-a")
+				?.agentProfiles.map((profile) => profile.id)
+		).toEqual(["agent-recent", "agent-new"]);
+	});
+
+	it("adds a team-safe Controller and model selection after runtime data arrives", () => {
+		const rows = buildOrganizationRows({
+			agentProfiles: [
+				{
+					agentControllerRef: null,
+					avatarUrl: undefined,
+					isCenterAgent: false,
+					ownerUserId: "user-b",
+					profileId: "agent-team",
+					profileName: "Team Agent",
+					status: "active",
+				} as OrganizationProfileDirectoryResponse["agentProfiles"][number],
+			],
+			messageChannels: buildMessageChannels({
+				connections: [],
+				identityLinks: [],
+			}),
+			messageChannelsStatus: "ready",
+			runtimeOverview: {
+				agentProfiles: [
+					{
+						profileId: "agent-team",
+						readiness: {
+							publicProfileConfiguration: {
+								agentControllerRef: "builtin:codex",
+								modelSelection: { modelId: "gpt-5.6-sol" },
+							},
+						},
+					},
+				],
+				generatedAt: "2026-09-03T00:00:00.000Z",
+				organizationId: "org-a",
+			} as OrganizationAgentRuntimeOverviewResponse,
+		});
+
+		expect(rows.find((row) => row.userId === "user-b")?.agentProfiles).toEqual([
+			{
+				agentControllerRef: "builtin:codex",
+				avatarImageUrl: null,
+				id: "agent-team",
+				modelSelection: { modelId: "gpt-5.6-sol" },
+				modelSelectionIsKnown: true,
+				name: "Team Agent",
+				path: "/o/acme/agents?profileId=agent-team",
 			},
 		]);
 	});
@@ -410,10 +502,13 @@ describe("directory Human Profile model", () => {
 
 		expect(member?.agentProfiles).toEqual([
 			{
-				agentId: null,
+				agentControllerRef: null,
 				avatarImageUrl: "https://example.com/ari-agent.png",
 				id: "agent-ari",
+				modelSelection: null,
+				modelSelectionIsKnown: false,
 				name: "Ari Agent",
+				path: "/o/ari/agents?profileId=agent-ari",
 			},
 		]);
 		expect(member?.agentProfilesPath).toBe("/o/ari/agents?profileId=agent-ari");
@@ -421,10 +516,14 @@ describe("directory Human Profile model", () => {
 });
 
 function buildOrganizationRows(input: {
-	agentProfiles?: OrganizationDirectoryResponse["agentProfiles"];
+	agentProfiles?: readonly (
+		| OrganizationDirectoryResponse["agentProfiles"][number]
+		| OrganizationProfileDirectoryResponse["agentProfiles"][number]
+	)[];
 	documentsStatus?: "failed" | "loading" | "ready";
 	messageChannels: ReturnType<typeof buildMessageChannels>;
 	messageChannelsStatus: "failed" | "loading" | "ready";
+	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }) {
 	const directory = organizationDirectoryResponseSchema.parse({
 		agentProfiles: [],
@@ -461,19 +560,24 @@ function buildOrganizationRows(input: {
 		messageChannels: input.messageChannels,
 		messageChannelsStatus: input.messageChannelsStatus,
 		orgSlug: "acme",
+		runtimeOverview: input.runtimeOverview,
 	});
 }
 
 function buildAgentProfile(input: {
 	agentControllerRef: string;
+	createdAt?: string;
 	isCenterAgent?: boolean;
+	lastUsedAt?: string | null;
 	ownerUserId: string;
 	profileId: string;
 	profileName: string;
 }): OrganizationDirectoryResponse["agentProfiles"][number] {
 	return {
 		avatarUrl: undefined,
+		createdAt: input.createdAt ?? "2026-08-20T00:00:00.000Z",
 		isCenterAgent: input.isCenterAgent,
+		lastUsedAt: input.lastUsedAt ?? null,
 		ownerUserId: input.ownerUserId,
 		profileId: input.profileId,
 		profileName: input.profileName,

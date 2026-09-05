@@ -54,7 +54,9 @@ export {
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
   type AgentControllerUsageLimitSupport,
+  resolveAgentControllerProviderUsageLimitSupport,
   resolveAgentControllerUsageLimitSupport,
+  resolveAgentControllerUsageProviderId,
 } from "./agent-controller-usage-limit-support";
 export {
   DUPLICATE_REPLY_CONVERSATION_CONTEXT,

@@ -171,8 +171,8 @@ describe("ProjectComputerSection", () => {
 		[
 			"service_unavailable",
 			null,
-			"OpenMeld Service unavailable",
-			"This computer isn't reachable for OpenMeld right now. Make sure OpenMeld Service is running, then try again.",
+			"Computer unavailable",
+			"This computer isn't connected to OpenMeld right now. Reconnect it, then try again.",
 		],
 		[
 			"ready",
@@ -240,7 +240,7 @@ describe("ProjectComputerSection", () => {
 
 		expect(
 			screen.getByText(
-				"This computer isn't reachable for OpenMeld right now. Make sure OpenMeld Service is running, then try again."
+				"This computer isn't connected to OpenMeld right now. Reconnect it, then try again."
 			)
 		).toBeTruthy();
 		expect(
@@ -267,7 +267,7 @@ describe("ProjectComputerSection", () => {
 			/>
 		);
 
-		expect(screen.getByText("OpenMeld Service connected")).toBeTruthy();
+		expect(screen.getByText("Computer connected")).toBeTruthy();
 		expect(
 			screen.getByRole("heading", { name: "Couldn’t check this computer" })
 		).toBeTruthy();
@@ -292,7 +292,7 @@ describe("ProjectComputerSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Check again" }));
 		expect(discoveryController.refresh).toHaveBeenCalledOnce();
 		expect(screen.getAllByText("Connected")).toHaveLength(1);
-		expect(screen.queryByText("OpenMeld Service connected")).toBeNull();
+		expect(screen.queryByText("Computer connected")).toBeNull();
 	});
 
 	it("keeps Service state visible until the Project is connected", () => {
@@ -309,7 +309,7 @@ describe("ProjectComputerSection", () => {
 			/>
 		);
 
-		expect(screen.getByText("OpenMeld Service connected")).toBeTruthy();
+		expect(screen.getByText("Computer connected")).toBeTruthy();
 	});
 
 	it("retries a non-Git folder only after explicit Connect anyway confirmation", async () => {

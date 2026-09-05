@@ -6,6 +6,7 @@ export {
   buildProfileDetailsSnapshotFromSpaceMember,
   formatProfileKind,
   formatSpaceMemberActivityLabel,
+  formatSpaceMemberActivityTime,
   type HumanProfileDetailsInput,
   type ProfileDetailsSpaceMemberInput,
 } from "./profile-details";

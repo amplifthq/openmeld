@@ -88,6 +88,10 @@ export {
   invokeOpenCodeServerTransport,
   OpenCodeServerTransportError,
 } from "./transport/opencode-server-transport.js";
+export {
+  type OpenCodeGoUsageResponse,
+  parseOpenCodeGoUsageResponse,
+} from "./usage/opencode-go-usage-limits.js";
 
 const OPENCODE_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("opencode");
