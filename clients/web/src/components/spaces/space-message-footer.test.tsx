@@ -97,10 +97,8 @@ describe("SpaceMessageFooter", () => {
 
 		const footer = view.container.querySelector('[data-slot="message-footer"]');
 		expect(footer?.getAttribute("data-persistent")).toBe("true");
-		expect(footer?.className).toContain("before:flex-1");
-		expect(footer?.className).toContain("before:min-w-0");
-		expect(footer?.className).toContain("after:flex-1");
-		expect(footer?.className).toContain("after:min-w-0");
+		expect(footer?.className).not.toContain("before:");
+		expect(footer?.className).not.toContain("after:");
 		const failureAction = screen.getByRole("button", {
 			name: "Open message details: Review Codex couldn’t reply",
 		});

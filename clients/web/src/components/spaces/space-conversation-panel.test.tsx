@@ -2137,10 +2137,14 @@ describe("SpaceConversationPanel", () => {
 
 		expect(
 			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
-		).toHaveProperty("disabled", true);
+		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
+			"disabled",
+			true
+		);
 	});
 
 	it("uses the Agent name as the Agent DM placeholder", () => {
@@ -3647,10 +3651,10 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
+		expect(screen.getByText(detailedFailure)).toBeTruthy();
 		expect(
-			screen.getByText("Codex 5.6 Sol could not complete this Wake.")
-		).toBeTruthy();
-		expect(screen.queryByText(detailedFailure)).toBeNull();
+			screen.queryByText("Codex 5.6 Sol could not complete this Wake.")
+		).toBeNull();
 	});
 
 	it("does not execute a fresh Wake through Message details recovery", async () => {
