@@ -29,10 +29,13 @@ Release only what changed.
 - A database migration plus Core change releases Database, then Core.
 - A CLI patch publishes CLI and updates its required Core projection.
 - Any change to a file that feeds the packaged CLI or OpenMeld Service bundle,
-  including embedded data such as `release/vendor-models.json`, is a
+  including the CLI's `src/model-catalog/offline-catalog.json` snapshot, is a
   local-component release even when no runtime behavior changes: stamp from a
   clean `main` worktree and publish through the CLI lane. A Core-only deploy
   fails closed on the stale bundle hash.
+- Changes to the live `release/vendor-models.json` catalog select Core. The CLI
+  reads that catalog online and no longer embeds it; data edits within the
+  existing schema do not require a CLI release.
 - `cloud` and `full` are explicit coordinated rollouts, not defaults.
 
 Do not redeploy unrelated services for ceremony. Broader validation may be

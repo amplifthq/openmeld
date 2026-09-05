@@ -64,7 +64,7 @@ describe("local components status", () => {
     vi.doMock("../src/skills/content-hash", () => ({
       computeDirectoryContentHash: vi.fn(async () => LIVE_SKILLS_BUNDLE_HASH),
     }));
-    vi.doMock("../src/commands/skills", () => ({
+    vi.doMock("../src/skills/installation-inventory", () => ({
       collectSkillsReadinessSnapshot: vi.fn(async () => ({
         status: "up_to_date",
         targetCount: 1,
@@ -79,11 +79,14 @@ describe("local components status", () => {
     vi.doMock("../src/local-service/lifecycle/current-daemon-version", () => ({
       resolveCurrentDaemonExpectedVersion: () => "0.0.0-test",
     }));
-    vi.doMock("../src/system/local-service-participation-gate", () => ({
-      resolveDaemonServiceParticipationStatus: vi.fn(async () => ({
-        kind: "missing",
-      })),
-    }));
+    vi.doMock(
+      "../src/local-service/status/service-participation-status",
+      () => ({
+        resolveDaemonServiceParticipationStatus: vi.fn(async () => ({
+          kind: "missing",
+        })),
+      })
+    );
     vi.doMock(
       "../src/local-service/lifecycle/daemon-service-inventory",
       () => ({
@@ -141,7 +144,7 @@ describe("local components status", () => {
         return Promise.resolve(LIVE_SKILLS_BUNDLE_HASH);
       }),
     }));
-    vi.doMock("../src/commands/skills", () => ({
+    vi.doMock("../src/skills/installation-inventory", () => ({
       collectSkillsReadinessSnapshot: vi.fn(async () => ({
         status: "up_to_date",
         targetCount: 36,
@@ -156,11 +159,14 @@ describe("local components status", () => {
     vi.doMock("../src/local-service/lifecycle/current-daemon-version", () => ({
       resolveCurrentDaemonExpectedVersion: () => "0.0.0-test",
     }));
-    vi.doMock("../src/system/local-service-participation-gate", () => ({
-      resolveDaemonServiceParticipationStatus: vi.fn(async () => ({
-        kind: "missing",
-      })),
-    }));
+    vi.doMock(
+      "../src/local-service/status/service-participation-status",
+      () => ({
+        resolveDaemonServiceParticipationStatus: vi.fn(async () => ({
+          kind: "missing",
+        })),
+      })
+    );
     vi.doMock(
       "../src/local-service/lifecycle/daemon-service-inventory",
       () => ({
@@ -210,7 +216,7 @@ describe("local components status", () => {
     vi.doMock("../src/skills/content-hash", () => ({
       computeDirectoryContentHash: vi.fn(async () => LIVE_SKILLS_BUNDLE_HASH),
     }));
-    vi.doMock("../src/commands/skills", () => ({
+    vi.doMock("../src/skills/installation-inventory", () => ({
       collectSkillsReadinessSnapshot: vi.fn(async () => ({
         status: "up_to_date",
         targetCount: 1,
@@ -225,14 +231,17 @@ describe("local components status", () => {
     vi.doMock("../src/local-service/lifecycle/current-daemon-version", () => ({
       resolveCurrentDaemonExpectedVersion: () => "0.0.0-test",
     }));
-    vi.doMock("../src/system/local-service-participation-gate", () => ({
-      resolveDaemonServiceParticipationStatus: vi.fn(async () => ({
-        expectedVersion: "0.0.0-test",
-        installedVersion: "0.0.0-test",
-        kind: "ready",
-        runtimeStatus: "running",
-      })),
-    }));
+    vi.doMock(
+      "../src/local-service/status/service-participation-status",
+      () => ({
+        resolveDaemonServiceParticipationStatus: vi.fn(async () => ({
+          expectedVersion: "0.0.0-test",
+          installedVersion: "0.0.0-test",
+          kind: "ready",
+          runtimeStatus: "running",
+        })),
+      })
+    );
     vi.doMock(
       "../src/local-service/lifecycle/daemon-service-inventory",
       () => ({

@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { daemonRuntimeRootPath } from "../../config/daemon-state";
 import { formatOpenMeldCliTextBlock } from "../../runtime/cli-entry-command";
 import {
-  DAEMON_RUNTIME_CONTRACT_EPOCH,
   DAEMON_RUNTIME_CONTRACT_META_FILE,
   DAEMON_RUNTIME_CONTRACT_REPAIR_REPORT_FILE,
 } from "../core/constants";
@@ -27,6 +26,7 @@ import type {
   DaemonRuntimePaths,
 } from "../core/types";
 import { DaemonServiceRunError } from "../core/types";
+import { DAEMON_LOCAL_STATE_EPOCH } from "./local-state-version";
 
 const RUNTIME_CONTRACT_META_SCHEMA = "daemon.runtime.contract.meta" as const;
 const RUNTIME_CONTRACT_REPAIR_REPORT_SCHEMA =
@@ -92,6 +92,11 @@ const parseRuntimeContractMeta = (
 ): DaemonRuntimeContractMeta | null => {
   if (!isRecord(value)) {
     return null;
+  }
+  if (typeof value.v === "number" && value.v > 1) {
+    throw new Error(
+      "This OpenMeld version cannot read the newer local runtime state. Update OpenMeld to continue. Your local data has been preserved."
+    );
   }
   if (value.schema !== RUNTIME_CONTRACT_META_SCHEMA || value.v !== 1) {
     return null;
@@ -180,7 +185,14 @@ const readParsedJsonFile = async <T>(input: {
   parse: (value: unknown) => T | null;
   path: string;
 }): Promise<T | null> => {
-  const raw = await readFile(input.path, "utf8").catch(() => null);
+  const raw = await readFile(input.path, "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    }
+  );
   if (!raw) {
     return null;
   }
@@ -356,7 +368,7 @@ export const ensureDaemonRuntimeContractState = async (
   input: GuardInput
 ): Promise<DaemonRuntimeContractGuardResult> => {
   const contractEpoch =
-    normalizeOptionalText(input.contractEpoch) ?? DAEMON_RUNTIME_CONTRACT_EPOCH;
+    normalizeOptionalText(input.contractEpoch) ?? DAEMON_LOCAL_STATE_EPOCH;
   const nowIso =
     normalizeOptionalText(input.nowIso) ?? new Date().toISOString();
 

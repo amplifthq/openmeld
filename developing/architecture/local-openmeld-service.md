@@ -1567,6 +1567,26 @@ running, that it starts automatically when the user signs in, and that
 that `openmeld service stop` stops OpenMeld Service and local agents cannot be activated
 until OpenMeld Service starts again.
 
+On Windows, native Task Scheduler tasks run with the current user's interactive
+token and ordinary privileges. They start at that user's sign-in, run on battery,
+do not require network availability, have no total execution deadline, and restart
+after process failure. The maintenance task also has an hourly trigger. Task names
+include the user's SID and lane; passwords and administrator privileges are not
+required for new installs. Logging out ends local availability, as does logging out
+of the macOS LaunchAgent session. Locking the screen does not mean logging out.
+Task registration is process supervision, not Service readiness: startup still
+requires the current Service lease, account/lane alignment, and Core connection.
+
+The Windows adapter retains the serialized `windows-service` controller identifier
+for supported local-state and wire readers; that identifier does not imply SCM.
+New installations do not register batch files as SCM executables. A legacy SCM
+registration is migrated only after it stops and only when its executable matches
+this lane's exact legacy script. A different installation or insufficient migration
+permissions fails visibly. The replacement task stays disabled until the old
+registration is removed, so migration cannot create two execution owners. Task
+Scheduler's registered action is the source for command and environment diagnostics;
+new installs do not maintain a parallel batch-file configuration.
+
 On macOS, the managed LaunchAgent uses `RunAtLoad=true` and `KeepAlive=true`.
 The npm distribution invokes its generated OpenMeld-owned wrapper through
 `/bin/sh`. The binary distribution keeps its versioned, signed managed binaries
@@ -1880,12 +1900,46 @@ New Core accepts older Services that omit it; rollback removes the new local
 Service before rolling Core back.
 
 OpenMeld Tools maintenance uses the same operation identity across both stages:
-the running Service first records the CLI download/install attempt, then the
-new CLI hands that operation to the Service update job above. The Service job
+the CLI or running Service records a durable download/install request and wakes
+the OS-owned maintenance worker. That worker alone executes the attempt; the
+new CLI hands the same operation to the Service update job above. The Service job
 becomes the projection owner as soon as the handoff exists. A computer with no
 saved preference enables automatic OpenMeld Tools updates; an invalid preference
 fails closed and reports maintenance attention. Automatic requests obey that
 preference, while an explicit user request still runs when automation is off.
+Maintenance reads only the owning device preferences file (or the supported
+legacy preference before migration). Broken Skills or controller state cannot
+disable that read. Local configuration mutations hold the existing configuration
+lock and modify only their owned fields and files, preserving unrelated fields.
+Unknown file versions and malformed owned files cannot be overwritten by a
+setter. Legacy migration fills missing split files, never replaces an existing
+split file, and removes its source only after all split files are supported.
+Empty owned files remain explicit so an interrupted migration cannot resurrect
+deleted settings. The filesystem layout marker likewise rejects a newer version
+without modifying it. This release continues writing v1; it adds no new local
+format or minimum-version requirement.
+
+Maintenance is installed alongside the Service, rather than only after the first
+update request. Its separate CLI entry does not initialize the business command
+graph, filesystem-layout migration, account selection, or Skills inventory.
+Sign-in and hourly OS triggers can discover a release even when business startup
+fails and no update request exists. The Service no longer owns a parallel hourly
+update loop. The persisted background/stopped intent and automatic-update
+preference remain authoritative; maintenance does not override an explicit stop.
+One cross-process request lock preserves the operation identity across CLI, Web,
+and scheduled requests; a separate worker execution lock prevents concurrent
+installers without holding the request lock throughout downloads or active work.
+Maintenance verifies the OS registration belongs to its installation before
+downloading, then rechecks under the lifecycle lock before switching the Service.
+A worker left behind after another installation claims the same lane must stop
+without changing that installation. Windows ownership comes from the registered
+task action and its environment, not from an obsolete batch file.
+
+Local runtime metadata uses a pinned disk-format epoch, independent of the
+Runtime Transport epoch. A protocol change alone must not erase runtime data.
+Supported v1 legacy repair remains available; a future incompatible local format
+requires versioned readers before new writers. Newer metadata versions and actual
+read errors stop migration without changing the data.
 For a Service that supports release-triggered maintenance, Core uses the
 existing Runtime Transport connection to request one automatic recheck when
 Core's stable-channel release manifest first becomes actionable for that
@@ -1966,16 +2020,19 @@ not create a process that appears healthy locally but is known to be rejected
 by Core.
 
 The binary update worker runs from a stable lane-owned carrier, not from a
-version directory. A self-contained npm update worker runs from the prepared
-bundle named by its OS registration. Bundle cleanup treats both that
-registration and the durable pending job as recovery references, so neither the
+version directory. A self-contained npm update worker uses a stable lane-owned
+launcher that imports one verified bundle. Successful Service verification may
+atomically replace the carrier or launcher; the running worker must never unload
+its own OS registration as part of that replacement. Bundle cleanup treats the
+launcher, OS registration, and durable pending job as recovery references, so neither the
 registered carrier nor the replacement target can be removed while the handoff
 is recoverable. Migration may likewise protect a legacy worker's pinned managed
 version in addition to the current and rollback versions.
 
-The update transaction must copy and verify the stable binary worker and
-rewrite and verify the OS registration before publishing the initial pending
-job. When replacing a pending target, every resource referenced by the current
+An installation without independent maintenance must copy and verify its worker
+and establish the OS registration before publishing the initial pending job.
+An existing independent worker stays in place until the target Service is verified.
+When replacing a pending target, every resource referenced by the current
 durable job remains recoverable until the replacement job is atomically
 committed; replacement must not disruptively re-register the already-owned OS
 worker before that commit. Preparing the stable binary worker carrier and

@@ -7,8 +7,8 @@ import {
   renderPromptGuideText,
 } from "../prompt/guide-output";
 import { readBundledOpenMeldCliSkillDocumentByPath } from "../skills/bundled-assets";
+import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory";
 import { outJsonLine } from "../ui/io";
-import { collectSkillsReadinessSnapshot } from "./skills";
 
 export async function runPrompt(input?: {
   topic?: string;

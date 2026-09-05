@@ -4100,9 +4100,12 @@ describe("SpaceConversationPanel", () => {
 		);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.getByText("Check this Profile")).toBeTruthy();
+		expect(dialog.queryByText("Check this Profile")).toBeNull();
 		expect(dialog.getAllByText("Felix").length).toBeGreaterThan(0);
-		expect(dialog.getByText("human-profile-1")).toBeTruthy();
+		expect(dialog.queryByText("human-profile-1")).toBeNull();
+		expect(dialog.queryByText("Profile type")).toBeNull();
+		expect(dialog.queryByText("Advanced details")).toBeNull();
+		expect(dialog.queryByText("Now")).toBeNull();
 	});
 
 	it("shows agent controller metadata without owner repetition", () => {
