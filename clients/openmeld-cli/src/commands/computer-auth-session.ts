@@ -34,7 +34,7 @@ export async function exchangeComputerAuthorizationGrant(input: {
       `computer authorization failed: ${extractAuthApiErrorMessage(
         tokenResult.error,
         tokenResult.status
-      )}`
+      )}. Return to OpenMeld Web and get a new setup command to try again.`
     );
   }
 

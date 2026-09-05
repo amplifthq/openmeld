@@ -33,6 +33,9 @@ export function SelectedComputerPanel(input: {
 	recovery: LocalAgentRecoveryController;
 	setupCompleteRefreshPending: boolean;
 }) {
+	const [checkingComputerId, setCheckingComputerId] = useState<string | null>(
+		null
+	);
 	const isCurrentComputer = isSelectedCurrentComputer({
 		computer: input.computer,
 		recovery: input.recovery,
@@ -72,6 +75,15 @@ export function SelectedComputerPanel(input: {
 				focusService={input.focusService}
 				isCurrentComputer={isCurrentComputer}
 				isReconcilingStatus={input.isReconcilingStatus}
+				onCheckingStatusChange={(checking) => {
+					const deviceId = input.computer.deviceId;
+					setCheckingComputerId((current) => {
+						if (checking) {
+							return deviceId;
+						}
+						return current === deviceId ? null : current;
+					});
+				}}
 				onFocusConsumed={input.onFocusConsumed}
 				organizationId={input.organizationId}
 				queryClient={input.queryClient}
@@ -82,6 +94,11 @@ export function SelectedComputerPanel(input: {
 			<LocalAgentsCard
 				computer={input.computer}
 				isCurrentComputer={isCurrentComputer}
+				isReconcilingStatus={
+					input.isReconcilingStatus ||
+					input.setupCompleteRefreshPending ||
+					checkingComputerId === input.computer.deviceId
+				}
 				recovery={input.recovery}
 				replyReadiness={effectiveReplyReadiness}
 			/>

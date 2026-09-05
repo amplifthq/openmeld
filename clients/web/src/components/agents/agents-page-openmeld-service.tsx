@@ -126,6 +126,7 @@ export type OpenMeldServiceCardOwnerProps = {
 	focusService: boolean;
 	isCurrentComputer: boolean;
 	isReconcilingStatus: boolean;
+	onCheckingStatusChange?: (checking: boolean) => void;
 	onFocusConsumed?: () => void;
 	organizationId: string;
 	queryClient: QueryClient;
@@ -292,6 +293,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 
 	const checkServiceStatus = async () => {
 		setIsCheckingStatus(true);
+		input.onCheckingStatusChange?.(true);
 		try {
 			await refreshWebAgentReadinessSharedCaches({
 				organizationId: input.organizationId,
@@ -308,6 +310,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			);
 		} finally {
 			setIsCheckingStatus(false);
+			input.onCheckingStatusChange?.(false);
 		}
 	};
 	const refreshServiceStatus = useCallback(async () => {
@@ -1028,8 +1031,8 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 				label: RECONNECT_MANUALLY_LABEL,
 				path: input.setupPath,
 			},
-			statusLabel: "OpenMeld Service is not connected",
-			tone: "danger",
+			statusLabel: "Computer not connected",
+			tone: "muted",
 		};
 	}
 
@@ -1044,7 +1047,7 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 			hideVersionDetails: false,
 			primaryAction: buildOpenMeldToolsLinkAction(input.serviceUpdatePath),
 			statusLabel: "OpenMeld Tools need an update",
-			tone: "danger",
+			tone: "warning",
 		};
 	}
 
@@ -1077,7 +1080,7 @@ function resolveOpenMeldToolsUpdateDisplay(
 		statusLabel: hasRequiredToolsUpdate
 			? "OpenMeld Tools need an update"
 			: "OpenMeld Tools update available",
-		tone: hasRequiredToolsUpdate ? "danger" : "warning",
+		tone: "warning",
 	};
 }
 

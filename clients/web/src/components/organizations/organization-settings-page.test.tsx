@@ -70,6 +70,7 @@ vi.mock("@tanstack/react-router", () => ({
 		<a href={to}>{children}</a>
 	),
 	useNavigate: () => navigateMock,
+	useLocation: () => ({}),
 	useRouter: () => ({ invalidate: routerInvalidateMock }),
 }));
 
@@ -431,7 +432,7 @@ describe("OrganizationSettingsPage", () => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("member");
 		const memberView = render(
 			<TestQueryClientProvider>
-				<OrganizationSettingsPage />
+				<OrganizationSettingsPage section="members" />
 			</TestQueryClientProvider>
 		);
 
@@ -448,7 +449,7 @@ describe("OrganizationSettingsPage", () => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("admin");
 		const adminView = render(
 			<TestQueryClientProvider>
-				<OrganizationSettingsPage />
+				<OrganizationSettingsPage section="members" />
 			</TestQueryClientProvider>
 		);
 
@@ -474,11 +475,11 @@ describe("OrganizationSettingsPage", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<OrganizationSettingsPage />
+				<OrganizationSettingsPage section="security" />
 			</TestQueryClientProvider>
 		);
 
-		await screen.findByRole("heading", { name: "General" });
+		await screen.findByRole("heading", { name: "Security" });
 		await waitFor(() => {
 			expect(getActiveOrganizationMemberRoleMock).toHaveBeenCalled();
 		});
@@ -495,7 +496,7 @@ describe("OrganizationSettingsPage", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<OrganizationSettingsPage />
+				<OrganizationSettingsPage section="security" />
 			</TestQueryClientProvider>
 		);
 
@@ -573,7 +574,7 @@ describe("OrganizationSettingsPage", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<OrganizationSettingsPage />
+				<OrganizationSettingsPage section="members" />
 			</TestQueryClientProvider>
 		);
 
@@ -604,7 +605,7 @@ describe("OrganizationSettingsPage", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<OrganizationSettingsPage />
+				<OrganizationSettingsPage section="members" />
 			</TestQueryClientProvider>
 		);
 
@@ -653,7 +654,7 @@ describe("OrganizationSettingsPage", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<OrganizationSettingsPage />
+				<OrganizationSettingsPage section="members" />
 			</TestQueryClientProvider>
 		);
 
@@ -672,7 +673,7 @@ describe("OrganizationSettingsPage", () => {
 	it("explains the three organization roles with the managed capability copy", async () => {
 		render(
 			<TestQueryClientProvider>
-				<OrganizationSettingsPage />
+				<OrganizationSettingsPage section="members" />
 			</TestQueryClientProvider>
 		);
 
@@ -761,7 +762,7 @@ describe("OrganizationSettingsPage", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<OrganizationSettingsPage />
+				<OrganizationSettingsPage section="invitations" />
 			</TestQueryClientProvider>
 		);
 
@@ -781,10 +782,12 @@ describe("OrganizationSettingsPage", () => {
 		await waitFor(() => {
 			expect(listOrganizationInvitationsMock).toHaveBeenCalledTimes(3);
 		});
-		expect(await screen.findByText("No pending invitations.")).toBeTruthy();
+		expect(
+			await screen.findByText("No invitations awaiting acceptance")
+		).toBeTruthy();
 	});
 
-	it("keeps personal identity editable and replaces invitation controls with guidance", async () => {
+	it("keeps personal identity editable without organization invitation controls", async () => {
 		currentOrganization = {
 			id: "org-personal",
 			isPersonal: true,
@@ -814,21 +817,7 @@ describe("OrganizationSettingsPage", () => {
 		expect(
 			screen.queryByRole("button", { name: REMOVE_BUTTON_NAME })
 		).toBeNull();
-		expect(screen.getByRole("heading", { name: "Invitations" })).toBeTruthy();
-		expect(screen.getByText("Invite members")).toBeTruthy();
-		expect(screen.getByText("Invite link")).toBeTruthy();
-		expect(
-			screen.getAllByText(
-				"Personal workspaces are just for you. Create or switch to an organization when you want to invite teammates and work together."
-			)
-		).toHaveLength(2);
-		const createOrganizationLinks = screen.getAllByRole("link", {
-			name: "Create organization",
-		});
-		expect(createOrganizationLinks).toHaveLength(2);
-		expect(
-			createOrganizationLinks.map((link) => link.getAttribute("href"))
-		).toEqual(["/o/owner/new-organization", "/o/owner/new-organization"]);
+		expect(screen.queryByRole("heading", { name: "Invitations" })).toBeNull();
 		expect(screen.queryByText("Invite form")).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: "Generate invite link" })

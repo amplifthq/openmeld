@@ -399,12 +399,44 @@ the new CLI command or Web invitation entry points become available. Auth calls
 the new Core RPC; publishing CLI first would expose a command whose Auth
 endpoint does not yet exist.
 
+Invitation approval rollout has a first-release precondition: before new Core
+is active against old Auth, there must be no existing join requests or their
+Inbox projections. The only public producers call `organizationJoinRequest`
+from the new Auth `/organization/join-requests` and `/organization/join-link/request`
+routes; old Auth has neither producer. Core does not create requests on startup
+or migrate existing invitations into requests. Core reuses existing Auth identity
+and directory RPCs; native invitation delivery remains Auth-owned.
+
+After the additive migrations, the release owner must verify both counts are
+zero through the authorized read-only production D1 diagnostic path:
+
+```sql
+SELECT count(*) AS join_requests FROM organization_join_requests;
+SELECT count(*) AS review_items FROM inbox_items
+WHERE json_extract(source_target_json, '$.kind') = 'organization_join_request';
+```
+
+Old Auth strictly rejects the new review-email `purpose` and `invitationRequestId`
+fields with a non-retryable validation error. Therefore the first-release order
+is not a safe Auth-only rollback after requests exist. Keep compatible Auth in
+place during recovery; do not rely on mail retries or restore bearer enrollment.
+
+Legacy organization link get/create responses keep their original strict shape.
+Space-scoped management requests explicitly select Space scope. Link preview
+exposes Space context only with `responseVersion=2`, which new Web sends after
+Auth is updated. Old clients can still read links, but legacy nonmember accept
+intentionally fails closed; update Web promptly so recipients can request approval.
+
 When the shared invitation schema, Core owner, and Auth route change together,
 `space-invitation-receivers-first` orders Database, Core, Auth, Gateway, Web,
 Remote Agent, then CLI. It rejects Auth or CLI selection without both receivers,
-and fails closed if another directional profile also applies until their order
-is reviewed. Ordinary Core-only deployments retain their channel compatibility
-guard.
+and composes with `local-service-runtime-receiver-first`: Core accepts the new
+Service capability before CLI publication, while Core and Gateway also precede
+new Web callers. The independent Skill bridge additionally requires its public
+Web content before CLI publication. Other directional profiles still fail
+closed; in particular a Core writer requiring new Inbox readers cannot use this
+Core-first order. Ordinary Core-only deployments retain their channel
+compatibility guard.
 
 For the signed GitHub CLI lane, use the same approved main SHA for both stages:
 first run guarded local `release:deploy:local -- --scope db,core,auth --base
@@ -412,7 +444,10 @@ first run guarded local `release:deploy:local -- --scope db,core,auth --base
 stable CLI projection, verified by the existing receiver deployment helper;
 it does not advertise the future CLI version. Then run the normal GitHub CLI
 release, which publishes the new artifact and its Core projection. Deploy the
-remaining affected scopes afterward. The normal static hosted `full` order is
+remaining affected scopes afterward. When the same release includes the
+independent Skill bridge, include Gateway and Web in the first guarded local
+stage so its public content and report receivers are ready before the GitHub
+CLI publication. The normal static hosted `full` order is
 not valid for this first rollout. This staged receiver path is not startup
 recovery and never bypasses tag, channel, source, lease, or deployment health
 checks.

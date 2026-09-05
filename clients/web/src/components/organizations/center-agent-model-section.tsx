@@ -23,6 +23,7 @@ import { InfoIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { ModelBadge } from "#/components/models/model-badge";
 import {
 	isCenterAgentModelConfigurationChanged,
 	resolveCenterAgentErrorMessage,
@@ -288,17 +289,6 @@ function modelChoicePresentation(choice: CenterAgentModelChoice) {
 			<span className="min-w-0 truncate">{modelChoiceLabel(choice)}</span>
 			{choice.badgeLabel ? <ModelBadge label={choice.badgeLabel} /> : null}
 		</span>
-	);
-}
-
-function ModelBadge({ label }: { label: string }) {
-	return (
-		<Badge
-			className="h-4 px-1.5 py-0 text-[10px] leading-none"
-			variant="secondary"
-		>
-			{label}
-		</Badge>
 	);
 }
 

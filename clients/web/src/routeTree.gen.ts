@@ -22,6 +22,7 @@ import { Route as DesktopRouteImport } from './routes/desktop'
 import { Route as DeviceRouteImport } from './routes/device'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as GuideDotmdRouteImport } from './routes/guide[.md]'
+import { Route as InvitationRequestsRouteImport } from './routes/invitation-requests'
 import { Route as InvitationsRouteImport } from './routes/invitations'
 import { Route as JoinOrganizationRouteImport } from './routes/join-organization'
 import { Route as LinkMessageChannelRouteImport } from './routes/link-message-channel'
@@ -95,8 +96,11 @@ import { Route as OOrgSlugSettingsAppearanceRouteImport } from './routes/o/$orgS
 import { Route as OOrgSlugSettingsComputersRouteImport } from './routes/o/$orgSlug/settings/computers'
 import { Route as OOrgSlugSettingsConnectedAppsRouteImport } from './routes/o/$orgSlug/settings/connected-apps'
 import { Route as OOrgSlugSettingsGeneralRouteImport } from './routes/o/$orgSlug/settings/general'
+import { Route as OOrgSlugSettingsInvitationsRouteImport } from './routes/o/$orgSlug/settings/invitations'
+import { Route as OOrgSlugSettingsMembersRouteImport } from './routes/o/$orgSlug/settings/members'
 import { Route as OOrgSlugSettingsNotificationsRouteImport } from './routes/o/$orgSlug/settings/notifications'
 import { Route as OOrgSlugSettingsPrivacyRouteImport } from './routes/o/$orgSlug/settings/privacy'
+import { Route as OOrgSlugSettingsSecurityRouteImport } from './routes/o/$orgSlug/settings/security'
 import { Route as OOrgSlugSettingsServiceRouteImport } from './routes/o/$orgSlug/settings/service'
 import { Route as OOrgSlugSpacesIndexRouteImport } from './routes/o/$orgSlug/spaces/index'
 import { Route as OOrgSlugSpacesSpaceIdRouteImport } from './routes/o/$orgSlug/spaces/$spaceId'
@@ -181,6 +185,11 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
 const GuideDotmdRoute = GuideDotmdRouteImport.update({
   id: '/guide.md',
   path: '/guide.md',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InvitationRequestsRoute = InvitationRequestsRouteImport.update({
+  id: '/invitation-requests',
+  path: '/invitation-requests',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InvitationsRoute = InvitationsRouteImport.update({
@@ -565,6 +574,17 @@ const OOrgSlugSettingsGeneralRoute = OOrgSlugSettingsGeneralRouteImport.update({
   path: '/general',
   getParentRoute: () => OOrgSlugSettingsRoute,
 } as any)
+const OOrgSlugSettingsInvitationsRoute =
+  OOrgSlugSettingsInvitationsRouteImport.update({
+    id: '/invitations',
+    path: '/invitations',
+    getParentRoute: () => OOrgSlugSettingsRoute,
+  } as any)
+const OOrgSlugSettingsMembersRoute = OOrgSlugSettingsMembersRouteImport.update({
+  id: '/members',
+  path: '/members',
+  getParentRoute: () => OOrgSlugSettingsRoute,
+} as any)
 const OOrgSlugSettingsNotificationsRoute =
   OOrgSlugSettingsNotificationsRouteImport.update({
     id: '/notifications',
@@ -576,6 +596,12 @@ const OOrgSlugSettingsPrivacyRoute = OOrgSlugSettingsPrivacyRouteImport.update({
   path: '/privacy',
   getParentRoute: () => OOrgSlugSettingsRoute,
 } as any)
+const OOrgSlugSettingsSecurityRoute =
+  OOrgSlugSettingsSecurityRouteImport.update({
+    id: '/security',
+    path: '/security',
+    getParentRoute: () => OOrgSlugSettingsRoute,
+  } as any)
 const OOrgSlugSettingsServiceRoute = OOrgSlugSettingsServiceRouteImport.update({
   id: '/service',
   path: '/service',
@@ -707,6 +733,7 @@ export interface FileRoutesByFullPath {
   '/device': typeof DeviceRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
+  '/invitation-requests': typeof InvitationRequestsRoute
   '/invitations': typeof InvitationsRoute
   '/join-organization': typeof JoinOrganizationRoute
   '/link-message-channel': typeof LinkMessageChannelRoute
@@ -771,8 +798,11 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/computers': typeof OOrgSlugSettingsComputersRouteWithChildren
   '/o/$orgSlug/settings/connected-apps': typeof OOrgSlugSettingsConnectedAppsRoute
   '/o/$orgSlug/settings/general': typeof OOrgSlugSettingsGeneralRoute
+  '/o/$orgSlug/settings/invitations': typeof OOrgSlugSettingsInvitationsRoute
+  '/o/$orgSlug/settings/members': typeof OOrgSlugSettingsMembersRoute
   '/o/$orgSlug/settings/notifications': typeof OOrgSlugSettingsNotificationsRoute
   '/o/$orgSlug/settings/privacy': typeof OOrgSlugSettingsPrivacyRoute
+  '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
@@ -816,6 +846,7 @@ export interface FileRoutesByTo {
   '/device': typeof DeviceRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
+  '/invitation-requests': typeof InvitationRequestsRoute
   '/invitations': typeof InvitationsRoute
   '/join-organization': typeof JoinOrganizationRoute
   '/link-message-channel': typeof LinkMessageChannelRoute
@@ -873,8 +904,11 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/settings/computers': typeof OOrgSlugSettingsComputersRouteWithChildren
   '/o/$orgSlug/settings/connected-apps': typeof OOrgSlugSettingsConnectedAppsRoute
   '/o/$orgSlug/settings/general': typeof OOrgSlugSettingsGeneralRoute
+  '/o/$orgSlug/settings/invitations': typeof OOrgSlugSettingsInvitationsRoute
+  '/o/$orgSlug/settings/members': typeof OOrgSlugSettingsMembersRoute
   '/o/$orgSlug/settings/notifications': typeof OOrgSlugSettingsNotificationsRoute
   '/o/$orgSlug/settings/privacy': typeof OOrgSlugSettingsPrivacyRoute
+  '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
@@ -916,6 +950,7 @@ export interface FileRoutesById {
   '/device': typeof DeviceRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
+  '/invitation-requests': typeof InvitationRequestsRoute
   '/invitations': typeof InvitationsRoute
   '/join-organization': typeof JoinOrganizationRoute
   '/link-message-channel': typeof LinkMessageChannelRoute
@@ -981,8 +1016,11 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/computers': typeof OOrgSlugSettingsComputersRouteWithChildren
   '/o/$orgSlug/settings/connected-apps': typeof OOrgSlugSettingsConnectedAppsRoute
   '/o/$orgSlug/settings/general': typeof OOrgSlugSettingsGeneralRoute
+  '/o/$orgSlug/settings/invitations': typeof OOrgSlugSettingsInvitationsRoute
+  '/o/$orgSlug/settings/members': typeof OOrgSlugSettingsMembersRoute
   '/o/$orgSlug/settings/notifications': typeof OOrgSlugSettingsNotificationsRoute
   '/o/$orgSlug/settings/privacy': typeof OOrgSlugSettingsPrivacyRoute
+  '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
@@ -1028,6 +1066,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/forgot-password'
     | '/guide.md'
+    | '/invitation-requests'
     | '/invitations'
     | '/join-organization'
     | '/link-message-channel'
@@ -1092,8 +1131,11 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/computers'
     | '/o/$orgSlug/settings/connected-apps'
     | '/o/$orgSlug/settings/general'
+    | '/o/$orgSlug/settings/invitations'
+    | '/o/$orgSlug/settings/members'
     | '/o/$orgSlug/settings/notifications'
     | '/o/$orgSlug/settings/privacy'
+    | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/spaces/$spaceId/stream'
@@ -1137,6 +1179,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/forgot-password'
     | '/guide.md'
+    | '/invitation-requests'
     | '/invitations'
     | '/join-organization'
     | '/link-message-channel'
@@ -1194,8 +1237,11 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/computers'
     | '/o/$orgSlug/settings/connected-apps'
     | '/o/$orgSlug/settings/general'
+    | '/o/$orgSlug/settings/invitations'
+    | '/o/$orgSlug/settings/members'
     | '/o/$orgSlug/settings/notifications'
     | '/o/$orgSlug/settings/privacy'
+    | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/spaces/$spaceId/stream'
@@ -1236,6 +1282,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/forgot-password'
     | '/guide.md'
+    | '/invitation-requests'
     | '/invitations'
     | '/join-organization'
     | '/link-message-channel'
@@ -1301,8 +1348,11 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/computers'
     | '/o/$orgSlug/settings/connected-apps'
     | '/o/$orgSlug/settings/general'
+    | '/o/$orgSlug/settings/invitations'
+    | '/o/$orgSlug/settings/members'
     | '/o/$orgSlug/settings/notifications'
     | '/o/$orgSlug/settings/privacy'
+    | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/spaces/$spaceId/stream'
@@ -1347,6 +1397,7 @@ export interface RootRouteChildren {
   DeviceRoute: typeof DeviceRouteWithChildren
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   GuideDotmdRoute: typeof GuideDotmdRoute
+  InvitationRequestsRoute: typeof InvitationRequestsRoute
   InvitationsRoute: typeof InvitationsRoute
   JoinOrganizationRoute: typeof JoinOrganizationRoute
   LinkMessageChannelRoute: typeof LinkMessageChannelRoute
@@ -1470,6 +1521,13 @@ declare module '@tanstack/react-router' {
       path: '/guide.md'
       fullPath: '/guide.md'
       preLoaderRoute: typeof GuideDotmdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invitation-requests': {
+      id: '/invitation-requests'
+      path: '/invitation-requests'
+      fullPath: '/invitation-requests'
+      preLoaderRoute: typeof InvitationRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invitations': {
@@ -1983,6 +2041,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugSettingsGeneralRouteImport
       parentRoute: typeof OOrgSlugSettingsRoute
     }
+    '/o/$orgSlug/settings/invitations': {
+      id: '/o/$orgSlug/settings/invitations'
+      path: '/invitations'
+      fullPath: '/o/$orgSlug/settings/invitations'
+      preLoaderRoute: typeof OOrgSlugSettingsInvitationsRouteImport
+      parentRoute: typeof OOrgSlugSettingsRoute
+    }
+    '/o/$orgSlug/settings/members': {
+      id: '/o/$orgSlug/settings/members'
+      path: '/members'
+      fullPath: '/o/$orgSlug/settings/members'
+      preLoaderRoute: typeof OOrgSlugSettingsMembersRouteImport
+      parentRoute: typeof OOrgSlugSettingsRoute
+    }
     '/o/$orgSlug/settings/notifications': {
       id: '/o/$orgSlug/settings/notifications'
       path: '/notifications'
@@ -1995,6 +2067,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/o/$orgSlug/settings/privacy'
       preLoaderRoute: typeof OOrgSlugSettingsPrivacyRouteImport
+      parentRoute: typeof OOrgSlugSettingsRoute
+    }
+    '/o/$orgSlug/settings/security': {
+      id: '/o/$orgSlug/settings/security'
+      path: '/security'
+      fullPath: '/o/$orgSlug/settings/security'
+      preLoaderRoute: typeof OOrgSlugSettingsSecurityRouteImport
       parentRoute: typeof OOrgSlugSettingsRoute
     }
     '/o/$orgSlug/settings/service': {
@@ -2397,8 +2476,11 @@ interface OOrgSlugSettingsRouteChildren {
   OOrgSlugSettingsComputersRoute: typeof OOrgSlugSettingsComputersRouteWithChildren
   OOrgSlugSettingsConnectedAppsRoute: typeof OOrgSlugSettingsConnectedAppsRoute
   OOrgSlugSettingsGeneralRoute: typeof OOrgSlugSettingsGeneralRoute
+  OOrgSlugSettingsInvitationsRoute: typeof OOrgSlugSettingsInvitationsRoute
+  OOrgSlugSettingsMembersRoute: typeof OOrgSlugSettingsMembersRoute
   OOrgSlugSettingsNotificationsRoute: typeof OOrgSlugSettingsNotificationsRoute
   OOrgSlugSettingsPrivacyRoute: typeof OOrgSlugSettingsPrivacyRoute
+  OOrgSlugSettingsSecurityRoute: typeof OOrgSlugSettingsSecurityRoute
   OOrgSlugSettingsServiceRoute: typeof OOrgSlugSettingsServiceRoute
   OOrgSlugSettingsIndexRoute: typeof OOrgSlugSettingsIndexRoute
 }
@@ -2409,8 +2491,11 @@ const OOrgSlugSettingsRouteChildren: OOrgSlugSettingsRouteChildren = {
   OOrgSlugSettingsComputersRoute: OOrgSlugSettingsComputersRouteWithChildren,
   OOrgSlugSettingsConnectedAppsRoute: OOrgSlugSettingsConnectedAppsRoute,
   OOrgSlugSettingsGeneralRoute: OOrgSlugSettingsGeneralRoute,
+  OOrgSlugSettingsInvitationsRoute: OOrgSlugSettingsInvitationsRoute,
+  OOrgSlugSettingsMembersRoute: OOrgSlugSettingsMembersRoute,
   OOrgSlugSettingsNotificationsRoute: OOrgSlugSettingsNotificationsRoute,
   OOrgSlugSettingsPrivacyRoute: OOrgSlugSettingsPrivacyRoute,
+  OOrgSlugSettingsSecurityRoute: OOrgSlugSettingsSecurityRoute,
   OOrgSlugSettingsServiceRoute: OOrgSlugSettingsServiceRoute,
   OOrgSlugSettingsIndexRoute: OOrgSlugSettingsIndexRoute,
 }
@@ -2482,6 +2567,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeviceRoute: DeviceRouteWithChildren,
   ForgotPasswordRoute: ForgotPasswordRoute,
   GuideDotmdRoute: GuideDotmdRoute,
+  InvitationRequestsRoute: InvitationRequestsRoute,
   InvitationsRoute: InvitationsRoute,
   JoinOrganizationRoute: JoinOrganizationRoute,
   LinkMessageChannelRoute: LinkMessageChannelRoute,

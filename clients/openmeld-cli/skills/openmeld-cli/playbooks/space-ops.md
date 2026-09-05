@@ -133,6 +133,14 @@ Run `openmeld service status`, then retry the same command.
 
 ## Email Invitations
 
+Ordinary members request invitations through
+`openmeld org invitation-requests create --space <space-id> --email <email> --view agent`.
+Use `org invitation-requests link --space <space-id> --view agent` to share an
+approval-required link. Owners/admins review with `approve --request <id>` or
+`reject --request <id>`. Both paths use the same request owner as Web; neither
+request creation nor approval adds a member. See `references/commands.md` for
+status, cancellation, and received-link commands.
+
 Use the current signed-in account, not a speaking Profile. No local Service or
 computer connection is required. Switch to the target Organization before
 sending or listing; only an Organization owner/admin who belongs to the Space

@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `creation_request_signature` text;

@@ -5,10 +5,12 @@ import {
   isOpenMeldOrphanedLockError,
   runWithHeldLock,
 } from "../../config/lock";
+import { maintainOfficialCliSkill } from "../../skills/maintenance";
 import { assertDaemonMaintenanceInstallationOwnership } from "../lifecycle/daemon-service-manager-command-match";
 import { runPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-coordinator";
 import { readPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-state";
 import { prepareDaemonServiceUpdateWorkerCarrier } from "../lifecycle/daemon-service-update-worker-manager";
+import { readOpenMeldToolsMaintenancePolicy } from "./openmeld-tools-maintenance-policy";
 import { readPendingOpenMeldToolsUpdateAttempt } from "./openmeld-tools-update-attempt-state";
 import { createOpenMeldToolsUpdateCoordinator } from "./openmeld-tools-update-coordinator";
 
@@ -49,6 +51,15 @@ async function runMaintenancePass(): Promise<boolean> {
     }
   }
   await assertDaemonMaintenanceInstallationOwnership();
+  if ((await readOpenMeldToolsMaintenancePolicy()).automaticUpdatesEnabled) {
+    try {
+      await maintainOfficialCliSkill();
+    } catch (error) {
+      process.stderr.write(
+        `[openmeld] Skill maintenance deferred: ${error instanceof Error ? error.message : String(error)}\n`
+      );
+    }
+  }
   const coordinator = createOpenMeldToolsUpdateCoordinator();
   if (!pendingJob) {
     if (pendingAttempt) {

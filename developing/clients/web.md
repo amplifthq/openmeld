@@ -751,19 +751,35 @@ The Settings secondary sidebar always shows these two groups:
 
 - **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
   Safety**, and **Send feedback**.
-  The routed settings are account-scoped surfaces and do not change when the
-  selected Organization changes. Privacy & Safety links to **Center Agent →
+  Account preferences do not change when the selected Organization changes.
+  Privacy & Safety also shows **Agent creation permissions** for the signed-in
+  member in the current Organization, explicitly naming that scope. It links to **Center Agent →
   Memory** for the current workspace's member-memory erase action and lists the
   signed-in member's Computers for Computer file access. Both operations stay
   on their canonical product surfaces rather than creating duplicate settings
   state. Send feedback is an account-level utility action immediately after
   Privacy & Safety. It opens the existing feedback dialog rather than creating
   a route or a second submission contract.
-- **Current Organization name** — **General**. The visible group label is the selected
+- **Current Organization name** — **General**, **Members**, **Invitations**,
+  and **Security**. General owns identity and lifecycle, Members owns roles,
+  Invitations owns requests and invitation delivery, and Security owns information
+  protection. Security is visible only to owners and admins. A personal workspace
+  shows General only: organization membership and invitation management do not
+  apply there. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
   never the generic label `Workspace`. Every member can see these surfaces;
   each mutation is shown and enforced according to the member's role. The group
   label also displays the current `member`, `admin`, or `owner` role badge.
+
+Invitation review lives at `/o/{orgSlug}/settings/invitations?requestId={id}`
+inside the app shell. Email and Inbox use the same destination; a focused request
+scrolls into view. The legacy external request URL redirects current organization
+members here while preserving the external applicant status surface. Needs review
+is separate from sent invitations awaiting acceptance. Both empty states use the
+shared restrained dashed-border presentation. A Core-owned actionable request count
+drives the amber Invitations badge and the outer Settings dot; it is not an unread
+count. Approval, delivery, and membership remain separate facts. Clients refresh
+the shared request, invitation, and Inbox projections after a decision.
 
 **Settings → Personal → Appearance** owns the browser-local interface corner
 style. The two current choices are **Square** and **Rounded**. Rounded is the
@@ -1056,7 +1072,7 @@ workspace switcher update immediately without maintaining another avatar state.
 The personal workspace does not render this section and continues to use the
 current account avatar.
 
-For a non-personal Organization, **Settings → General → Information
+For a non-personal Organization, **Settings → Security → Information
 protection** is visible only to an owner or admin. Web must resolve the shared
 Better Auth role permission before mounting the section; members do not render
 the section and do not issue its read request. The bounded textarea describes
@@ -1153,7 +1169,10 @@ danger copy and actions.
 Personal-only route guards and hard redirects, including the current
 `allowPersonalAgentActivity` pattern, are retired in the target state. A role or
 workspace kind may gate an action, but it must not remove a destination or send
-the user to a different feature home.
+the user to a different feature home. Organization-only Settings management leaves
+(Members, Invitations, and Security) are the bounded exception: personal workspaces
+have no team membership to manage, and direct links explain that scope rather than
+redirecting to an unrelated feature.
 
 ### Navigation delivery history
 
@@ -2335,7 +2354,10 @@ as images and deferred layout settle, until deliberate user scrolling takes
 ownership. Reaching the bottom resumes normal following. Different Spaces
 remain independent; explicit message-focus navigation takes priority over the
 remembered position.
-Both layers use session storage. This view-local presentation state does not
+The coarse fallback uses session storage. The semantic anchor keeps each tab's
+session position and also saves a seven-day local-storage copy for a new tab or
+browser restart. An existing tab's position wins over another tab's last saved
+position. Auth cleanup removes both copies. This view-local presentation state does not
 belong in the IndexedDB Query cache and is never message, read-cursor, or access
 authority.
 
@@ -2364,8 +2386,9 @@ The persistence allowlist contains exactly seven successful query families:
   safe canonical Center Agent DM identity returned by the read-only projection;
 - `spaceQueryKeys.history(spaceId, openMeldProfileId)` for one confirmed
   account, Organization, Space, and acting Human Profile. This is the same
-  recent main-timeline snapshot consumed by the conversation and is capped at
-  30 validated recorded signal envelopes; and
+  main-timeline snapshot consumed by the conversation and retains loaded pages
+  within a 2 MiB signal-payload budget; the initial server page remains 30
+  recorded signals; and
 - `spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)` for a versioned,
   validated Space identity and presentation snapshot with current actions and
   latest-message preview removed.
@@ -2412,7 +2435,7 @@ snapshot and the bounded history may render immediately while current access is
 checked. The composer remains available for browser-local text authoring with
 **Write a message while OpenMeld checks access…**, but Send, file actions, and
 every other mutation or authority-bearing secondary surface stay unavailable
-until the current status succeeds. Pressing Enter during confirmation must not
+until the current entry resolver and status both succeed. Pressing Enter during confirmation must not
 bypass that mutation boundary. Background `isFetching` and a transient refresh
 failure do not erase an already visible conversation. An explicit access
 rejection immediately hides the private content and clears only that
@@ -2462,6 +2485,14 @@ current successful read completes. A paused offline refresh does not count as a
 current read. Open navigation may remain available because the destination's
 server read still decides access. With no usable saved data, the ordinary
 skeleton and error behavior remains unchanged.
+
+Saved conversation records share a 32 MiB browser budget. Expired records leave
+first, then the least recently written Space records. Eviction never removes
+messages from an already mounted reader. IndexedDB transactions merge loaded
+history from concurrent tabs, retaining newer duplicate signals. BroadcastChannel
+only requests rereading these saved views or server-owned facts; it never carries
+private content or authorizes access. Scoped storage generations prevent an old
+tab's delayed save from resurrecting content after account or Space cleanup.
 
 IndexedDB unavailable, corrupt, over quota, expired, or blocked is an
 observable acceleration failure, not an app failure. The network path continues,
@@ -2631,9 +2662,13 @@ the authorized Agent Activity Session surface once that projection is ready;
 Web must pass its exact provider-native Session ID and chosen `resume` or `fork`
 strategy without creating a browser-local Session identity.
 
-**Settings → General → Agent creation approvals** gives every member separate
-**New sessions** and **Existing sessions** policies with **Ask every time**,
-**Automatically allow**, and **Never allow** choices. Web reads and writes the
+**Settings → Personal → Privacy & Safety → Agent creation permissions** gives
+every member separate **Start new conversations** and **Continue or copy existing
+conversations** policies with **Ask me each time**, **Allow without asking**, and
+**Don’t allow** choices. The preference is personal within the named Organization,
+not an Organization-wide rule. The copy explains history inheritance without
+implying approval of every Agent action or access to all local conversations.
+Existing defaults and saved policies remain unchanged. Web reads and writes the
 Core preference; it does not infer approval from role, friendship, request
 source, or prior decisions.
 
@@ -2766,7 +2801,11 @@ performs the same targeted status and index refresh in other open clients; it
 does not carry a replacement name or require a members refresh.
 
 Every direct Space entry uses the shared Core Space entry resolution before it
-mounts a member or public conversation. The Web entry gate consumes that
+enables a member or public conversation. After current account and Organization
+confirmation, a returning app route may mount its scoped saved display and
+history read-only while entry resolution runs. Public routes and routes without
+that saved pair keep the ordinary entry gate. Explicit rejection removes the
+saved view; transient failures retain it with retry. The Web entry gate consumes that
 resolution as the only routing decision: it opens the member experience, opens
 the public read-only experience, asks for sign-in or a protected-Space password,
 shows the same-Organization membership block with the safe Space name and owner,
@@ -2898,7 +2937,13 @@ Members header descriptions own a full-width row below the title and actions.
 The header Add People or Agents action and the one-member empty-state card both
 open the same Add People or Agents dialog. New Agent is a compact primary action
 below the dialog description; the title row is reserved for the title and close
-action.
+action. Invite sits beside New Agent for organization members and stays stable
+while role information loads; an unresolved role cannot enable a direct invitation.
+New Agent replaces the content inside this same dialog, with Back returning to
+the picker and preserving selection. Creation does not grant Space membership:
+the new Agent returns selected in the picker, and the user can create another
+before the final Add selected operation. Pending teammate requests are not presented
+as created Agents. Only the final membership operation closes the picker.
 The picker presents People as the primary hierarchy, expanded by default, with
 each person's addable Agent Profiles indented below their People row. A person
 who is already in the Space remains visible when one of their Agents can still
@@ -3327,6 +3372,13 @@ required second dialog: Wake uses `@`, and Reference uses a link-style symbol.
 Selecting a Human Profile creates a fixed Human Mention mark; people never
 receive an Agent relation selector.
 
+Agent picker rows reuse the Members availability dot after the name, from the
+same Core-owned member projection. The inline relation control uses the compact
+shared Fluid Select. Disabled Wake choices show the short availability label
+(with action-only `Connect` rendered as `Unavailable`), never owner-assuming
+computer instructions. Choosing a relation preserves the editing selection;
+menu keyboard events must not send the message.
+
 After selection, Web renders one persistent editable semantic control per
 structured target. An Agent control places `@`, the Agent Profile icon,
 canonical name, and the current Wake or Reference relation in that order. The
@@ -3561,8 +3613,25 @@ start order. Other active Spaces in the selected Organization reuse the same
 authenticated active-progress query and cache on the ambient 15-second refresh
 cadence; this does not claim open-Space WebSocket latency. A failed read retains
 only the account summary's generic active indication, not a guessed phase.
-Bounded summaries disclose additional active tasks. Progress is placed before
-message actions; reduced-motion and input-waiting Orbs are paused.
+Bounded summaries disclose additional active tasks. Reduced-motion and
+input-waiting Orbs are paused.
+
+Unfinished Agent replies follow the latest message in their owning conversation.
+Main Space and Thread use the same presentation-only ordering: published history
+keeps its server order, followed by active Wakes in request order. A public reply
+stream replaces its matching placeholder; it does not add another status row.
+The final durable reply takes its published position. Failures and stopped
+outcomes keep their original request context. Active rows expose a request link
+and reuse the shared status, Orb, preview, and Stop controls, without message
+timestamps or publication actions. Missing source history does not hide a Wake
+whose authoritative source context proves its conversation scope.
+All Web progress reads request `includeSourceContext=true`. Thread rendering
+uses the same recovered presentation snapshot as the main conversation, filtered
+to its own Thread; the root message does not import main-conversation controls.
+
+Stop confirmation is owned by the conversation rather than a movable message
+row, so progress updates and streaming replacement do not dismiss an open
+confirmation. The existing selector and Core eligibility remain authoritative.
 
 Web derives message-level progress, the details drawer, and Space-level current
 work from the same shared Wake progress item. It must not introduce a second
@@ -3624,6 +3693,8 @@ OpenMeld Service syncs it and whether an active local Agent accepts a live
 update. Web does not invent a generic mode for controllers such as OpenCode that
 own a different permission contract, and it never offers a dangerous mode
 through this shortcut.
+The ordinary approval card does not include a separate Profile settings button
+or a standing explanation of permission synchronization.
 
 Only `canRespond=true` plus a non-null private request may render details or
 controls. A content-free summary renders only that the Agent Profile is waiting

@@ -14,6 +14,28 @@ const REPOSITORY_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 afterEach(cleanup);
 
 describe("ProjectFormDialog", () => {
+	it("creates a project without submitting an enclosing Agent form through the portal", async () => {
+		const createAgent = vi.fn();
+		const createProject = vi.fn();
+		render(
+			<form onSubmit={createAgent}>
+				<ProjectFormDialog
+					errorMessage={null}
+					onOpenChange={vi.fn()}
+					onSubmit={createProject}
+					open
+					project={null}
+					submitting={false}
+				/>
+			</form>
+		);
+		fireEvent.change(screen.getByLabelText("Project name"), {
+			target: { value: "Customer Portal" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+		await waitFor(() => expect(createProject).toHaveBeenCalledOnce());
+		expect(createAgent).not.toHaveBeenCalled();
+	});
 	it("previews the shared slug but omits it until Advanced is explicitly edited", async () => {
 		const onSubmit = vi.fn();
 		renderDialog({ onSubmit });
@@ -22,7 +44,7 @@ describe("ProjectFormDialog", () => {
 			target: { value: "Café Tools" },
 		});
 		expect(screen.getByText("cafe-tools")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+		fireEvent.click(screen.getByRole("button", { name: "Create project" }));
 
 		await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
 		expect(onSubmit.mock.calls[0]?.[0]).toEqual({ name: "Café Tools" });
@@ -40,7 +62,7 @@ describe("ProjectFormDialog", () => {
 		expect(
 			screen.getByText("This will be recognized as github.com/openai/openmeld.")
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+		fireEvent.click(screen.getByRole("button", { name: "Create project" }));
 
 		await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
 		const submission = onSubmit.mock.calls[0]?.[0];
@@ -72,7 +94,7 @@ describe("ProjectFormDialog", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps an unsupported local URL out of the request without blocking creation", async () => {
+	it("requires clearing an unsupported local URL before creating without a repository", async () => {
 		const onSubmit = vi.fn();
 		renderDialog({ onSubmit });
 		fireEvent.change(screen.getByLabelText("Project name"), {
@@ -86,14 +108,24 @@ describe("ProjectFormDialog", () => {
 				"OpenMeld can’t use a local path or file URL as a repository identity. You can still create this Project without one."
 			)
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
-
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create project",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(onSubmit).not.toHaveBeenCalled();
+		fireEvent.change(screen.getByLabelText("Repository URL (optional)"), {
+			target: { value: "" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Create project" }));
 		await waitFor(() =>
 			expect(onSubmit).toHaveBeenCalledWith({ name: "Local notes" })
 		);
 	});
 
-	it("explains unsupported remote protocols without blocking creation", async () => {
+	it("rejects unsupported repository protocols without silently dropping intent", async () => {
 		const onSubmit = vi.fn();
 		renderDialog({ onSubmit });
 		fireEvent.change(screen.getByLabelText("Project name"), {
@@ -108,8 +140,18 @@ describe("ProjectFormDialog", () => {
 				"OpenMeld can’t use that Repository URL. Use a Git, HTTP, HTTPS, or SSH remote. You can still create this Project without one."
 			)
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
-
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create project",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(onSubmit).not.toHaveBeenCalled();
+		fireEvent.change(screen.getByLabelText("Repository URL (optional)"), {
+			target: { value: "" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Create project" }));
 		await waitFor(() =>
 			expect(onSubmit).toHaveBeenCalledWith({ name: "Legacy mirror" })
 		);
@@ -125,7 +167,7 @@ describe("ProjectFormDialog", () => {
 		fireEvent.change(screen.getByLabelText("CLI slug"), {
 			target: { value: "openmeld-app" },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+		fireEvent.click(screen.getByRole("button", { name: "Create project" }));
 		await waitFor(() =>
 			expect(createSubmit).toHaveBeenCalledWith({
 				name: "OpenMeld Web",

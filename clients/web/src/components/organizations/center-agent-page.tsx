@@ -122,6 +122,7 @@ function CenterAgentDirectMessageEntry(input: {
 	organizationSlug: string;
 	presentation?: "compact" | "full";
 }) {
+	const { currentOrganization } = useAppOrganization();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { storageScope } = useStartFlowState();
@@ -218,6 +219,7 @@ function CenterAgentDirectMessageEntry(input: {
 				initialPendingMessage={pendingMessage}
 				initialSpaceView={input.initialSpaceView}
 				isCenterAgentDirectMessage
+				isPersonalContext={currentOrganization.isPersonal === true}
 				loadingFallback={optimisticConversation}
 				onInitialPendingMessageConsumed={() => {
 					clearCenterAgentPendingMessage(queryClient, pendingScope);

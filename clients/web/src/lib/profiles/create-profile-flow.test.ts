@@ -40,7 +40,7 @@ describe("new Agent Profile local setup", () => {
 			.mockResolvedValue(profileFixture({ defaultProjectId: "project-1" }));
 	});
 
-	it("saves the connected folder before the cloud Default Project preference", async () => {
+	it("saves Project intent without copying its path into custom workspace preferences", async () => {
 		const result = await createAndSetupAgent({
 			boundAgentId: "codex",
 			defaultProjectId: "project-1",
@@ -59,22 +59,13 @@ describe("new Agent Profile local setup", () => {
 			},
 		});
 
-		expect(updateWorkspaceMock).toHaveBeenCalledWith({
-			actorProfileId: "profile-human",
-			organizationId: "organization-1",
-			profileId: "profile-agent",
-			workspaceMode: "custom",
-			workspacePath: "/repo",
-		});
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 		expect(updateDefaultProjectMock).toHaveBeenCalledWith({
 			actorProfileId: "profile-human",
 			defaultProjectId: "project-1",
 			organizationId: "organization-1",
 			profileId: "profile-agent",
 		});
-		expect(updateWorkspaceMock.mock.invocationCallOrder[0]).toBeLessThan(
-			updateDefaultProjectMock.mock.invocationCallOrder[0] ?? 0
-		);
 		expect(result.defaultProjectId).toBe("project-1");
 	});
 

@@ -149,6 +149,16 @@ isolation, and CI/release workflow belong in
 
 ## Command Model
 
+`openmeld org invitation-requests` uses the signed-in account and the same Auth
+contract as Web. `create --email ... [--space ...]` proposes an invitation;
+`link [--space ...]` ensures an approval-required share link; `request --token ...`
+submits the verified account behind a received link. `list`, `get --request ...`,
+`approve`, `reject`, and `cancel` expose current owner decisions. Agent View
+returns request IDs, status, delivery evidence, and next-action guidance; errors
+retain server codes and exit nonzero. No local Service or speaking Profile is
+required. Approval is not membership. Native email invitation acceptance remains
+the membership boundary.
+
 Keep the command model stable across terminal use, Web handoff, and docs.
 
 ### Local Agent to Center Agent
@@ -514,6 +524,12 @@ compatibility, claim eligibility, and RuntimeCoordinator evidence.
 of local component alignment because they are the instructions agents use after
 setup. In the current hard-cut phase, stale OpenMeld-managed skills are treated as a
 required update, not an advisory update.
+
+The offline baseline and independently maintained official guide have separate
+release lifecycles. Installation, prompt reads, and local readiness use the
+same compatible content selection. See
+[Official CLI Skill delivery](../engineering/official-cli-skill.md) for
+publication, automatic maintenance, discovery, and bridge rollout ordering.
 
 During the one-window compatibility period, the deprecated
 `openmeld skills ensure --all --view agent` alias remains a diagnostic and

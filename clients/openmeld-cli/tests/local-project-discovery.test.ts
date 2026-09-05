@@ -19,6 +19,63 @@ afterEach(async () => {
 });
 
 describe("local Project discovery", () => {
+  it("reads durable connections without invoking Git or session discovery", async () => {
+    const rootDir = await tempRoot();
+    const folder = join(rootDir, "work");
+    await mkdir(folder);
+    await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "work",
+      repositoryFingerprint: FINGERPRINT_A,
+      repositoryPath: folder,
+      rootDir,
+    });
+    const forbidden = () => {
+      throw new Error("Connection reads must not discover repositories");
+    };
+    const result = await discoverLocalProjects(
+      {
+        ...discoveryInput(rootDir, [
+          { projectId: "project-1", repositoryFingerprint: FINGERPRINT_A },
+          { projectId: "project-2", repositoryFingerprint: null },
+        ]),
+        includeCandidates: false,
+      },
+      {
+        createVerifier: forbidden,
+        collectProfileWorkspacePaths: forbidden,
+        collectSessionWorkingDirectories: forbidden,
+      }
+    );
+    expect(result.gitStatus).toBe("not_checked");
+    expect(result.projects[0]).toMatchObject({
+      status: "connected",
+      connections: [
+        { path: await realpath(folder), isDefault: true, status: "available" },
+      ],
+      candidates: [],
+    });
+    expect(result.projects[1]).toMatchObject({
+      status: "not_connected",
+      connections: [],
+      candidates: [],
+    });
+    await rm(folder, { recursive: true });
+    const missing = await discoverLocalProjects(
+      {
+        ...discoveryInput(rootDir, [
+          { projectId: "project-1", repositoryFingerprint: FINGERPRINT_A },
+        ]),
+        includeCandidates: false,
+      },
+      { createVerifier: forbidden }
+    );
+    expect(missing.projects[0]).toMatchObject({
+      status: "connected_folder_missing",
+      connections: [{ isDefault: true, status: "missing" }],
+    });
+  });
   it("deduplicates candidate subdirectories after Git toplevel normalization", async () => {
     const rootDir = await tempRoot();
     const repositoryPath = join(rootDir, "openmeld");

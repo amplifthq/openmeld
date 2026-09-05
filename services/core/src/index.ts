@@ -470,6 +470,7 @@ import {
 } from "./organizations/center-agent-organization-invite-link-rpc";
 import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/center-agent-working-language-rpc";
 import { resolveOrganizationMembershipById } from "./organizations/organization-context";
+import { organizationJoinRequest } from "./organizations/organization-join-requests";
 import { spaceInvitation } from "./organizations/space-invitations";
 import { PrepareSessionHub } from "./prepare-session/transport/do/prepare-session-hub";
 import {
@@ -1038,6 +1039,11 @@ import { listMembershipSpaceIdsForProfilesFromSpaceIndex } from "./space-index/s
 // fan-out. Kept separate from GatewayRpcEntrypoint so auth only gets the
 // reconcile surface instead of the whole gateway RPC surface.
 export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
+  organizationJoinRequest(
+    input: import("@openmeld/schemas").OrganizationJoinRequestRpcInput
+  ) {
+    return organizationJoinRequest(this.env, input);
+  }
   spaceInvitation(
     input: import("@openmeld/schemas").SpaceInvitationRpcInput
   ): Promise<import("@openmeld/schemas").SpaceInvitationRpcResult> {

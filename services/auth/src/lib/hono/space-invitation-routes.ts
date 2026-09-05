@@ -67,32 +67,7 @@ export function registerSpaceInvitationRoutes(app: Hono<AppContext>) {
             request,
           })
         );
-      const native = async (
-        path: string,
-        body: unknown,
-        spaceInvitationId?: string,
-        ownsOrganizationInvitation = false
-      ) => {
-        const headers = new Headers(c.req.raw.headers);
-        headers.set("content-type", "application/json");
-        headers.delete("content-length");
-        headers.delete("x-openmeld-space-invitation-id");
-        headers.delete("x-openmeld-space-invitation-owns-organization");
-        if (spaceInvitationId) {
-          headers.set("x-openmeld-space-invitation-id", spaceInvitationId);
-        }
-        if (ownsOrganizationInvitation) {
-          headers.set("x-openmeld-space-invitation-owns-organization", "true");
-        }
-        const url = new URL(`/api/auth/organization/${path}`, c.req.url);
-        return await c.var.betterAuth.handler(
-          new Request(url, {
-            method: "POST",
-            headers,
-            body: JSON.stringify(body),
-          })
-        );
-      };
+      const native = createNativeInvitationCaller(c);
       const request = parsed.data;
       if (request.action === "accept") {
         return acceptSpaceInvitation(c, call, native, request.invitationId);
@@ -207,7 +182,7 @@ async function cancelUnusedOrganizationInvitation(
   }
   return null;
 }
-async function sendSpaceInvitation(
+export async function sendSpaceInvitation(
   c: Context<AppContext>,
   native: CallNative,
   result: SpaceInvitationRpcResult
@@ -273,6 +248,36 @@ async function sendSpaceInvitation(
     );
   }
   return c.json(result.result);
+}
+
+export function createNativeInvitationCaller(
+  c: Context<AppContext>
+): CallNative {
+  return (
+    path,
+    body,
+    spaceInvitationId,
+    ownsOrganizationInvitation = false
+  ) => {
+    const headers = new Headers(c.req.raw.headers);
+    headers.set("content-type", "application/json");
+    headers.delete("content-length");
+    headers.delete("x-openmeld-space-invitation-id");
+    headers.delete("x-openmeld-space-invitation-owns-organization");
+    if (spaceInvitationId) {
+      headers.set("x-openmeld-space-invitation-id", spaceInvitationId);
+    }
+    if (ownsOrganizationInvitation) {
+      headers.set("x-openmeld-space-invitation-owns-organization", "true");
+    }
+    return c.var.betterAuth.handler(
+      new Request(new URL(`/api/auth/organization/${path}`, c.req.url), {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      })
+    );
+  };
 }
 
 async function sendInvitationEmail(

@@ -20,6 +20,7 @@ export const organizationJoinLinks = sqliteTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     token: text("token").notNull(),
+    spaceId: text("space_id"),
     role: text("role")
       .$type<OrganizationJoinLinkRole>()
       .default("member")
@@ -36,7 +37,10 @@ export const organizationJoinLinks = sqliteTable(
     uniqueIndex("organization_join_links_token_uidx").on(table.token),
     uniqueIndex("organization_join_links_active_organization_uidx")
       .on(table.organizationId)
-      .where(sql`"revoked_at" is null`),
+      .where(sql`"revoked_at" is null AND "space_id" is null`),
+    uniqueIndex("organization_join_links_active_space_uidx")
+      .on(table.organizationId, table.spaceId)
+      .where(sql`"revoked_at" is null AND "space_id" is not null`),
     index("organization_join_links_created_by_idx").on(table.createdBy),
   ]
 );

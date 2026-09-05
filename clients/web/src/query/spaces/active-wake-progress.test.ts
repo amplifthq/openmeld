@@ -51,7 +51,9 @@ describe("spaceActiveWakeProgressSummaryQueryOptions", () => {
 			openMeldProfileId: "profile-123",
 		});
 		expect(getActiveWakeProgressMock).toHaveBeenCalledWith({
+			includePageInfo: true,
 			includePreviewText: true,
+			includeSourceContext: true,
 			includeTiming: true,
 			includeWaitReason: true,
 			includeWakeStopEligibility: true,

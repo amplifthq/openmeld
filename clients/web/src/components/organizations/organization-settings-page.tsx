@@ -34,10 +34,9 @@ import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { InvitationForm } from "#/components/directory/directory-members-overview";
 import { OrganizationInformationProtectionSection } from "#/components/organizations/organization-information-protection-section";
+import { OrganizationInvitationRequestForm } from "#/components/organizations/organization-invitation-request-form";
 import { OrganizationInviteLink } from "#/components/organizations/organization-invite-link";
 import { OrganizationLogoSection } from "#/components/organizations/organization-logo-section";
-import { PersonalWorkspaceInvitationGuidance } from "#/components/organizations/personal-workspace-invitation-guidance";
-import { AgentProfileCreationApprovalSettings } from "#/components/settings/agent-profile-creation-approval-settings";
 import {
 	cancelOrganizationInvitation,
 	deleteOrganization,
@@ -51,7 +50,6 @@ import {
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import {
-	buildOrganizationNewOrganizationPath,
 	buildOrganizationOrgSettingsPath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
@@ -64,6 +62,7 @@ import {
 } from "#/query/organizations/organization-directory";
 import { applyOrganizationDeletionToScopeCache } from "#/query/organizations/organization-scope";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
+import { OrganizationInvitationRequests } from "./organization-invitation-requests";
 
 const MEMBER_ROLE_OPTIONS = [
 	{ label: "Member", value: "member" },
@@ -75,7 +74,11 @@ const MEMBER_ROLE_OPTIONS = [
 
 type DirectoryMember = OrganizationDirectoryResponse["members"][number];
 
-export function OrganizationSettingsPage() {
+export function OrganizationSettingsPage({
+	section = "general",
+}: {
+	section?: "general" | "members" | "invitations" | "security";
+}) {
 	const { currentOrganization, currentUserId, organizations } =
 		useAppOrganization();
 	return (
@@ -83,118 +86,184 @@ export function OrganizationSettingsPage() {
 			currentOrganization={currentOrganization}
 			currentUserId={currentUserId}
 			organizations={organizations}
+			section={section}
 		/>
 	);
 }
 
 function OrganizationSettingsContent(input: {
+	section: "general" | "members" | "invitations" | "security";
 	currentOrganization: OrganizationSummary;
 	currentUserId: string;
 	organizations: OrganizationSummary[];
 }) {
-	const { currentOrganization } = input;
-	const isPersonalWorkspace = currentOrganization.isPersonal === true;
-	const personalOrganization =
-		input.organizations.find(
-			(organization) => organization.isPersonal === true
-		) ?? null;
-	const directoryQuery = useQuery(
-		organizationDirectoryQueryOptions({
-			enabled: !isPersonalWorkspace,
-			organizationId: currentOrganization.id,
-		})
-	);
-	const roleQuery = useQuery(
+	const organization = input.currentOrganization;
+	const personal = organization.isPersonal === true;
+	const role = useQuery(
 		organizationMemberRoleQueryOptions({
-			enabled: !isPersonalWorkspace,
-			organizationId: currentOrganization.id,
+			enabled: !personal,
+			organizationId: organization.id,
 			userId: input.currentUserId,
 		})
 	);
 	const canManage =
-		isPersonalWorkspace ||
-		canManageOrganizationArea(roleQuery.data, {
-			organization: ["update"],
-		});
-	const canRemoveMembers = canManageOrganizationArea(roleQuery.data, {
-		member: ["delete"],
-	});
-	const canManageInformationProtection = canManageOrganizationArea(
-		roleQuery.data,
-		{ informationProtection: ["manage"] }
-	);
-
+		personal ||
+		canManageOrganizationArea(role.data, { organization: ["update"] });
+	const titles = {
+		general: "General",
+		members: "Members",
+		invitations: "Invitations",
+		security: "Security",
+	};
+	const descriptions = {
+		general: "Manage your organization’s name, logo, and URL.",
+		members: "Manage members and their roles.",
+		invitations: "Invite people and review requests to join your organization.",
+		security: "Manage information protection for your organization.",
+	};
+	let content: ReactNode;
+	if (!personal && role.isPending) {
+		content = (
+			<p className="text-muted-foreground text-sm">Loading settings…</p>
+		);
+	} else if (!personal && role.error) {
+		content = <p role="alert">{role.error.message}</p>;
+	} else if (personal && input.section !== "general") {
+		content = <p>This setting is available in team organizations.</p>;
+	} else {
+		switch (input.section) {
+			case "members":
+				content = (
+					<OrganizationMembersSettings
+						canManage={canManage}
+						canRemoveMembers={canManageOrganizationArea(role.data, {
+							member: ["delete"],
+						})}
+						currentUserId={input.currentUserId}
+						organizationId={organization.id}
+					/>
+				);
+				break;
+			case "invitations":
+				content = (
+					<>
+						<OrganizationInvitationRequests
+							canReview={canManage}
+							organizationId={organization.id}
+						/>
+						<OrganizationInvitationsSection
+							canManage={canManage}
+							organizationId={organization.id}
+						/>
+					</>
+				);
+				break;
+			case "security":
+				content = canManageOrganizationArea(role.data, {
+					informationProtection: ["manage"],
+				}) ? (
+					<OrganizationInformationProtectionSection
+						organizationId={organization.id}
+					/>
+				) : (
+					<p>Only organization owners and admins can manage these settings.</p>
+				);
+				break;
+			default:
+				content = (
+					<OrganizationGeneralSettings
+						{...input}
+						canDelete={canManageOrganizationArea(role.data, {
+							organization: ["delete"],
+						})}
+						canManage={canManage}
+						canManageLogo={
+							role.isSuccess
+								? canManageOrganizationArea(role.data, {
+										organizationLogo: ["update"],
+									})
+								: null
+						}
+						roleError={role.error?.message ?? null}
+					/>
+				);
+		}
+	}
 	return (
 		<>
 			<section className="flex flex-col gap-1">
-				<p className="font-medium text-muted-foreground text-xs">Workspace</p>
-				<h1 className="font-medium text-2xl text-foreground">General</h1>
+				<p className="font-medium text-muted-foreground text-xs">
+					{organization.name}
+				</p>
+				<h1 className="font-medium text-2xl text-foreground">
+					{titles[input.section]}
+				</h1>
 				<p className="max-w-2xl text-muted-foreground text-sm leading-6">
-					{isPersonalWorkspace
-						? "Manage the name and URL for your personal workspace."
-						: "Manage workspace identity, members, invitations, and policies."}
+					{descriptions[input.section]}
 				</p>
 			</section>
-			{isPersonalWorkspace ? null : (
+			{content}
+		</>
+	);
+}
+
+function OrganizationMembersSettings(input: {
+	organizationId: string;
+	currentUserId: string;
+	canManage: boolean;
+	canRemoveMembers: boolean;
+}) {
+	const directory = useQuery(
+		organizationDirectoryQueryOptions({
+			enabled: true,
+			organizationId: input.organizationId,
+		})
+	);
+	return (
+		<OrganizationMembersSection
+			{...input}
+			directory={directory.data ?? null}
+			errorMessage={directory.error?.message ?? null}
+			isPending={directory.isPending}
+		/>
+	);
+}
+
+function OrganizationGeneralSettings(input: {
+	currentOrganization: OrganizationSummary;
+	currentUserId: string;
+	organizations: OrganizationSummary[];
+	canManage: boolean;
+	canDelete: boolean;
+	canManageLogo: boolean | null;
+	roleError: string | null;
+}) {
+	const organization = input.currentOrganization;
+	return (
+		<>
+			{organization.isPersonal ? null : (
 				<OrganizationLogoSection
-					canManage={
-						roleQuery.isSuccess
-							? canManageOrganizationArea(roleQuery.data, {
-									organizationLogo: ["update"],
-								})
-							: null
-					}
-					organization={currentOrganization}
-					roleError={roleQuery.isError ? roleQuery.error.message : null}
+					canManage={input.canManageLogo}
+					organization={organization}
+					roleError={input.roleError}
 				/>
 			)}
 			<OrganizationIdentitySection
-				canManage={canManage}
-				organization={currentOrganization}
+				canManage={input.canManage}
+				organization={organization}
 				ownerAccountId={input.currentUserId}
 			/>
-			{isPersonalWorkspace ? null : (
-				<OrganizationMembersSection
-					canManage={canManage}
-					canRemoveMembers={canRemoveMembers}
-					currentUserId={input.currentUserId}
-					directory={directoryQuery.data ?? null}
-					errorMessage={
-						directoryQuery.isError ? directoryQuery.error.message : null
-					}
-					isPending={directoryQuery.isPending}
-					organizationId={currentOrganization.id}
-				/>
-			)}
-			<OrganizationInvitationsSection
-				canManage={canManage}
-				createOrganizationPath={buildOrganizationNewOrganizationPath(
-					currentOrganization.slug
-				)}
-				isPersonalWorkspace={isPersonalWorkspace}
-				organizationId={currentOrganization.id}
-			/>
-			{isPersonalWorkspace ? (
+			{organization.isPersonal ? (
 				<PersonalWorkspaceLifecycleSection />
 			) : (
-				<>
-					<AgentProfileCreationApprovalSettings
-						organizationId={currentOrganization.id}
-					/>
-					{canManageInformationProtection ? (
-						<OrganizationInformationProtectionSection
-							organizationId={currentOrganization.id}
-						/>
-					) : null}
-					<DeleteOrganizationSection
-						canDelete={canManageOrganizationArea(roleQuery.data, {
-							organization: ["delete"],
-						})}
-						organization={currentOrganization}
-						ownerAccountId={input.currentUserId}
-						personalOrganization={personalOrganization}
-					/>
-				</>
+				<DeleteOrganizationSection
+					canDelete={input.canDelete}
+					organization={organization}
+					ownerAccountId={input.currentUserId}
+					personalOrganization={
+						input.organizations.find((item) => item.isPersonal) ?? null
+					}
+				/>
 			)}
 		</>
 	);
@@ -736,12 +805,10 @@ function OrganizationMemberRoleRow(input: {
 
 function OrganizationInvitationsSection(input: {
 	canManage: boolean;
-	createOrganizationPath: string;
-	isPersonalWorkspace: boolean;
 	organizationId: string;
 }) {
 	const invitationsQuery = useQuery({
-		enabled: input.canManage && !input.isPersonalWorkspace,
+		enabled: input.canManage,
 		queryFn: async () =>
 			await listOrganizationInvitations({
 				organizationId: input.organizationId,
@@ -752,53 +819,39 @@ function OrganizationInvitationsSection(input: {
 		staleTime: 10_000,
 	});
 	let invitationsContent: ReactNode;
-	if (input.isPersonalWorkspace) {
+	if (input.canManage) {
 		invitationsContent = (
 			<div className="space-y-4">
-				<PersonalWorkspaceInvitationGuidance
-					createOrganizationPath={input.createOrganizationPath}
-					title="Invite members"
-				/>
-				<PersonalWorkspaceInvitationGuidance
-					createOrganizationPath={input.createOrganizationPath}
-					title="Invite link"
-				/>
-			</div>
-		);
-	} else if (input.canManage) {
-		invitationsContent = (
-			<div className="space-y-4">
-				<InvitationForm organizationId={input.organizationId} />
-				<OrganizationInviteLink organizationId={input.organizationId} />
+				<h3 className="font-medium text-sm">Awaiting acceptance</h3>
 				<PendingInvitationsList
 					errorMessage={
 						invitationsQuery.isError ? invitationsQuery.error.message : null
 					}
-					invitations={invitationsQuery.data ?? []}
+					invitations={(invitationsQuery.data ?? []).filter(
+						(invitation) => (invitation.status ?? "pending") === "pending"
+					)}
 					isPending={invitationsQuery.isPending}
 					isRetrying={invitationsQuery.isRefetching}
 					onRetry={() => invitationsQuery.refetch()}
 					organizationId={input.organizationId}
 				/>
+				<InvitationForm organizationId={input.organizationId} />
+				<OrganizationInviteLink organizationId={input.organizationId} />
 			</div>
 		);
 	} else {
 		invitationsContent = (
-			<p className="text-muted-foreground text-sm">
-				Only organization owners and admins can manage invitations.
-			</p>
+			<OrganizationInvitationRequestForm
+				organizationId={input.organizationId}
+			/>
 		);
 	}
 
 	return (
 		<SettingsSection
-			description={
-				input.isPersonalWorkspace
-					? "Collaboration starts in an organization."
-					: "Send invitations, review pending invitations, and cancel invitations that should no longer be used."
-			}
+			description="Send invitations by email or share a link. Link recipients need approval before joining."
 			id="organization-invitations"
-			title="Invitations"
+			title="Invite people"
 		>
 			{invitationsContent}
 		</SettingsSection>
@@ -840,9 +893,15 @@ function PendingInvitationsList(input: {
 	}
 	if (input.invitations.length === 0) {
 		return (
-			<p className="rounded-md border border-border/70 px-4 py-3 text-muted-foreground text-sm">
-				No pending invitations.
-			</p>
+			<div className="grid min-h-36 place-content-center gap-1 rounded-md border border-border/70 border-dashed px-6 py-8 text-center">
+				<p className="font-medium text-sm">
+					No invitations awaiting acceptance
+				</p>
+				<p className="text-muted-foreground text-sm">
+					Invitations you send will appear here until they’re accepted or no
+					longer active.
+				</p>
+			</div>
 		);
 	}
 	return (

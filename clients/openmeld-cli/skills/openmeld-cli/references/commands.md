@@ -219,6 +219,9 @@ account identities, launch commands, and private skills are not exposed.
 
 ### `openmeld org invite-link`
 
+Links now request individual approval; they never grant access by possession.
+Members can read existing links. Reset and revoke remain owner/admin actions.
+
 Read, create or reset, and revoke the active Organization invite link. OpenMeld
 enforces the current Organization role; do not turn a permission refusal into
 local success.
@@ -230,7 +233,30 @@ openmeld org invite-link revoke --view agent
 openmeld org invite-link get --json
 ```
 
+### `openmeld org invitation-requests`
+
+Use the active Organization for creation and listing. Ordinary members propose
+invitations; only owners/admins approve or decline them. Add `--space` to preserve
+the destination after recipient acceptance. Links always require individual
+approval, including links created by owners.
+
+```bash
+openmeld org invitation-requests create --email person@example.com --space <space-id> --view agent
+openmeld org invitation-requests link --space <space-id> --view agent
+openmeld org invitation-requests request --token <link-token> --view agent
+openmeld org invitation-requests list --view agent
+openmeld org invitation-requests get --request <request-id> --view agent
+openmeld org invitation-requests approve --request <request-id> --view agent
+openmeld org invitation-requests reject --request <request-id> --view agent
+openmeld org invitation-requests cancel --request <request-id> --view agent
+```
+
+An approved request is not membership. If delivery failed, repeat `approve` as
+the approving administrator to send it again. Recipients accept the emailed
+invitation; an agent must not treat `pending` or `approved` as access granted.
+
 ### `openmeld center-agent`
+
 
 Consult the active Organization Center Agent, read its status and audit trail,
 or change its reversible operating state. Only the Organization creator can

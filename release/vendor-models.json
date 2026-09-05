@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T00:00:00.000Z",
+  "updatedAt": "2026-09-05T07:30:14.654Z",
   "agentControllers": {
     "codex": {
       "defaultModelId": "gpt-5.6-sol",
@@ -71,12 +71,39 @@
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
           "minCliVersion": null
+        },
+        {
+          "id": "gpt-6-astra",
+          "displayName": "GPT-6 Astra",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.153.0"
         }
       ]
     },
     "claude-code": {
-      "defaultModelId": "claude-opus-4-8",
+      "defaultModelId": "claude-opus-5",
+      "creationDefaults": {
+        "modelId": "claude-opus-5",
+        "reasoningLevel": null
+      },
       "models": [
+        {
+          "id": "claude-fable-5-1",
+          "displayName": "Claude Fable 5.1",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "2.1.255"
+        },
         {
           "id": "claude-opus-5",
           "displayName": "Claude Opus 5",
@@ -143,6 +170,22 @@
     "cursor": {
       "defaultModelId": "default[]",
       "models": [
+        {
+          "id": "claude-fable-5-1[thinking=true,context=300k,effort=high]",
+          "displayName": "Claude Fable 5.1",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "gemini-3.8-flash[reasoning_effort=high]",
+          "displayName": "Gemini 3.8 Flash",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
         {
           "id": "default[]",
           "displayName": "Auto",
@@ -379,6 +422,58 @@
     "opencode": {
       "defaultModelId": "opencode/mimo-v2.5-free",
       "models": [
+        {
+          "id": "openai/gpt-6-astra",
+          "displayName": "GPT-6 Astra",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-astra-fast",
+          "displayName": "GPT-6 Astra Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode/muse-spark-1.3-contributor-free",
+          "displayName": "OpenCode Muse Spark 1.3 Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/muse-spark-1.3-contributor",
+          "displayName": "Muse Spark 1.3 Contributor",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/omen-alpha",
+          "displayName": "Omen Alpha",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "high"],
+          "minCliVersion": null
+        },
         {
           "id": "opencode/big-pickle",
           "displayName": "OpenCode Big Pickle",
