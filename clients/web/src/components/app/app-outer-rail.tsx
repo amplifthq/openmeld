@@ -118,7 +118,7 @@ type AppOuterRailAccount = {
 	name?: string | null;
 };
 
-type AppRailDestinationId = AppOuterRailDestination | "newAgent";
+type AppRailDestinationId = AppOuterRailDestination;
 
 type AppRailDestination = {
 	attentionCount?: number;

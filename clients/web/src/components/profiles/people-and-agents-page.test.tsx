@@ -223,13 +223,12 @@ vi.mock("#/components/agents/agent-profile-creation-requests-panel", () => ({
 
 vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 	AgentProfilesWorkspace: (props: {
-		activeView: "agents" | "create" | "requests";
-		createPanel?: ReactNode;
+		activeView: "agents" | "requests";
 		filterControl?: ReactNode;
 		isSearchActive?: boolean;
 		onCreateAgent: () => void;
 		onSelectProfile: (profileId: string) => void;
-		onViewChange: (view: "agents" | "create" | "requests") => void;
+		onViewChange: (view: "agents" | "requests") => void;
 		pendingRequestCount: number;
 		profiles: readonly AuthProfileView[];
 		renderProfilesController: () => ReactNode;
@@ -250,8 +249,6 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 			: props.renderProfilesController();
 		if (props.activeView === "requests") {
 			content = props.requestPanel;
-		} else if (props.activeView === "create") {
-			content = props.createPanel;
 		}
 		return (
 			<section>
@@ -782,6 +779,23 @@ describe("PeopleAndAgentsPage", () => {
 				ownerUserId: "another-user",
 			})
 		).toBe(false);
+	});
+
+	it.each([
+		"agents",
+		"requests",
+	] as const)("loads status for the visible Agent sidebar in the %s view", (activeAgentView) => {
+		render(
+			<PeopleAndAgentsPage
+				activeAgentView={activeAgentView}
+				activeSectionId="agents"
+				focusProfileId={null}
+			/>
+		);
+		const runtimeQueryOptions = useQueryMock.mock.calls.find(([options]) =>
+			options.queryKey?.includes("agent-runtime-overview")
+		)?.[0];
+		expect(runtimeQueryOptions?.enabled).toBe(true);
 	});
 
 	it("loads Agent runtime display data independently on People", () => {
@@ -1329,7 +1343,7 @@ describe("PeopleAndAgentsPage", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 
-		expect(onAgentViewChange).toHaveBeenCalledWith("create");
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/personal/agents/new" });
 		expect(screen.queryByRole("button", { name: "Agent requests" })).toBeNull();
 	});
 
@@ -1393,21 +1407,14 @@ describe("PeopleAndAgentsPage", () => {
 		).toBeTruthy();
 	});
 
-	it("creates organization Agents directly in the active workspace", () => {
+	it("opens Agent creation in its own route in the active workspace", () => {
 		render(
-			<PeopleAndAgentsPage
-				activeAgentView="create"
-				activeSectionId="agents"
-				focusProfileId={null}
-			/>
+			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
 
-		expect(createAgentProfilePageSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ organizationId: "org-123" })
-		);
-		expect(
-			screen.getByRole("button", { name: "Create agent profile" })
-		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/acme/agents/new" });
+		expect(createAgentProfilePageSpy).not.toHaveBeenCalled();
 	});
 
 	it("creates Human Profiles directly in the active workspace", () => {
@@ -1632,27 +1639,5 @@ describe("PeopleAndAgentsPage", () => {
 				storageScope: "user-123",
 			})
 		);
-	});
-
-	it("opens the created Agent on the Agents home", () => {
-		render(
-			<PeopleAndAgentsPage
-				activeAgentView="create"
-				activeSectionId="agents"
-				focusProfileId={null}
-			/>
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "Create agent profile" })
-		);
-
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
-			queryKey: ["start", "profiles", "user-123"],
-		});
-		expect(navigateMock).toHaveBeenCalledWith({
-			search: { profileId: "agent-new" },
-			to: "/o/acme/agents",
-		});
 	});
 });

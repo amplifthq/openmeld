@@ -72,6 +72,7 @@ import { Route as OOrgSlugCenterAgentCenterAgentRouteImport } from './routes/o/$
 import { Route as OOrgSlugAgentActivityIndexRouteImport } from './routes/o/$orgSlug/agent-activity/index'
 import { Route as OOrgSlugAgentActivityChangesRouteImport } from './routes/o/$orgSlug/agent-activity/changes'
 import { Route as OOrgSlugAgentActivitySessionsRouteImport } from './routes/o/$orgSlug/agent-activity/sessions'
+import { Route as OOrgSlugAgentsNewRouteImport } from './routes/o/$orgSlug/agents_.new'
 import { Route as OOrgSlugComputersDeviceIdRouteImport } from './routes/o/$orgSlug/computers.$deviceId'
 import { Route as OOrgSlugDirectMessagesIndexRouteImport } from './routes/o/$orgSlug/direct-messages/index'
 import { Route as OOrgSlugDirectMessagesSpaceIdRouteImport } from './routes/o/$orgSlug/direct-messages/$spaceId'
@@ -436,6 +437,11 @@ const OOrgSlugAgentActivitySessionsRoute =
     path: '/sessions',
     getParentRoute: () => OOrgSlugAgentActivityRoute,
   } as any)
+const OOrgSlugAgentsNewRoute = OOrgSlugAgentsNewRouteImport.update({
+  id: '/agents_/new',
+  path: '/agents/new',
+  getParentRoute: () => OOrgSlugRoute,
+} as any)
 const OOrgSlugComputersDeviceIdRoute =
   OOrgSlugComputersDeviceIdRouteImport.update({
     id: '/$deviceId',
@@ -729,6 +735,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
+  '/o/$orgSlug/agents/new': typeof OOrgSlugAgentsNewRoute
   '/o/$orgSlug/computers/$deviceId': typeof OOrgSlugComputersDeviceIdRoute
   '/o/$orgSlug/direct-messages/$spaceId': typeof OOrgSlugDirectMessagesSpaceIdRoute
   '/o/$orgSlug/directory/agents': typeof OOrgSlugDirectoryAgentsRoute
@@ -827,6 +834,7 @@ export interface FileRoutesByTo {
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
+  '/o/$orgSlug/agents/new': typeof OOrgSlugAgentsNewRoute
   '/o/$orgSlug/computers/$deviceId': typeof OOrgSlugComputersDeviceIdRoute
   '/o/$orgSlug/direct-messages/$spaceId': typeof OOrgSlugDirectMessagesSpaceIdRoute
   '/o/$orgSlug/directory/agents': typeof OOrgSlugDirectoryAgentsRoute
@@ -931,6 +939,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
+  '/o/$orgSlug/agents_/new': typeof OOrgSlugAgentsNewRoute
   '/o/$orgSlug/computers/$deviceId': typeof OOrgSlugComputersDeviceIdRoute
   '/o/$orgSlug/direct-messages/$spaceId': typeof OOrgSlugDirectMessagesSpaceIdRoute
   '/o/$orgSlug/directory/agents': typeof OOrgSlugDirectoryAgentsRoute
@@ -1038,6 +1047,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
+    | '/o/$orgSlug/agents/new'
     | '/o/$orgSlug/computers/$deviceId'
     | '/o/$orgSlug/direct-messages/$spaceId'
     | '/o/$orgSlug/directory/agents'
@@ -1136,6 +1146,7 @@ export interface FileRouteTypes {
     | '/v1/profiles/$profileId'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
+    | '/o/$orgSlug/agents/new'
     | '/o/$orgSlug/computers/$deviceId'
     | '/o/$orgSlug/direct-messages/$spaceId'
     | '/o/$orgSlug/directory/agents'
@@ -1239,6 +1250,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/_center-agent/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
+    | '/o/$orgSlug/agents_/new'
     | '/o/$orgSlug/computers/$deviceId'
     | '/o/$orgSlug/direct-messages/$spaceId'
     | '/o/$orgSlug/directory/agents'
@@ -1769,6 +1781,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/o/$orgSlug/agent-activity/sessions'
       preLoaderRoute: typeof OOrgSlugAgentActivitySessionsRouteImport
       parentRoute: typeof OOrgSlugAgentActivityRoute
+    }
+    '/o/$orgSlug/agents_/new': {
+      id: '/o/$orgSlug/agents_/new'
+      path: '/agents/new'
+      fullPath: '/o/$orgSlug/agents/new'
+      preLoaderRoute: typeof OOrgSlugAgentsNewRouteImport
+      parentRoute: typeof OOrgSlugRoute
     }
     '/o/$orgSlug/computers/$deviceId': {
       id: '/o/$orgSlug/computers/$deviceId'
@@ -2354,6 +2373,7 @@ interface OOrgSlugRouteChildren {
   OOrgSlugPeopleRoute: typeof OOrgSlugPeopleRoute
   OOrgSlugProjectsRoute: typeof OOrgSlugProjectsRouteWithChildren
   OOrgSlugSettingsRoute: typeof OOrgSlugSettingsRouteWithChildren
+  OOrgSlugAgentsNewRoute: typeof OOrgSlugAgentsNewRoute
   OOrgSlugDirectMessagesSpaceIdRoute: typeof OOrgSlugDirectMessagesSpaceIdRoute
   OOrgSlugSpacesSpaceIdRoute: typeof OOrgSlugSpacesSpaceIdRoute
   OOrgSlugDirectMessagesIndexRoute: typeof OOrgSlugDirectMessagesIndexRoute
@@ -2376,6 +2396,7 @@ const OOrgSlugRouteChildren: OOrgSlugRouteChildren = {
   OOrgSlugPeopleRoute: OOrgSlugPeopleRoute,
   OOrgSlugProjectsRoute: OOrgSlugProjectsRouteWithChildren,
   OOrgSlugSettingsRoute: OOrgSlugSettingsRouteWithChildren,
+  OOrgSlugAgentsNewRoute: OOrgSlugAgentsNewRoute,
   OOrgSlugDirectMessagesSpaceIdRoute: OOrgSlugDirectMessagesSpaceIdRoute,
   OOrgSlugSpacesSpaceIdRoute: OOrgSlugSpacesSpaceIdRoute,
   OOrgSlugDirectMessagesIndexRoute: OOrgSlugDirectMessagesIndexRoute,
