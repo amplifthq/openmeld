@@ -26,6 +26,15 @@ when a local agent needs sign-in.
 
 Evidence: pr:638, commit:0413ec38f72a8185c13c53166df4b062a68f3e0d, tag:v0.3.156, worker-version:efe5f224-b75a-4744-a08f-220475c34e7e, smoke:chrome:focused-agent-status-20260905
 
+### Keep OpenMeld Tools status clear
+
+Fixed · computers · web
+
+The OpenMeld Tools status no longer displays a local agent's logo. Each agent's
+readiness and sign-in status remain in the Local agents section.
+
+Evidence: pr:648, commit:7f2b736fd110f08f12c9562e0a7a181a4283fcff, worker-version:516fec14-7e67-45b4-90c2-eedaf6e9840d, smoke:chrome:openmeld-tools-status-20260905
+
 ### Link directly to Space messages
 
 New · v0.3.157 · spaces · cli

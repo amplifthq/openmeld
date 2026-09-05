@@ -48,6 +48,26 @@
       "body": "Agent availability refreshes now stay on the affected Agent, keep names and\nstable status labels still, and point missing working folders to one clear\nrecovery action. Computers also keep an available OpenMeld Tools update visible\nwhen a local agent needs sign-in."
     },
     {
+      "id": "remove-agent-logo-from-tools-status",
+      "title": "Keep OpenMeld Tools status clear",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "evidence": [
+        "pr:648",
+        "commit:7f2b736fd110f08f12c9562e0a7a181a4283fcff",
+        "worker-version:516fec14-7e67-45b4-90c2-eedaf6e9840d",
+        "smoke:chrome:openmeld-tools-status-20260905"
+      ],
+      "body": "The OpenMeld Tools status no longer displays a local agent's logo. Each agent's\nreadiness and sign-in status remain in the Local agents section."
+    },
+    {
       "id": "link-directly-to-space-messages",
       "title": "Link directly to Space messages",
       "kind": "new",
