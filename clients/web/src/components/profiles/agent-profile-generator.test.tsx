@@ -106,16 +106,21 @@ describe("AgentProfileGenerator", () => {
 	});
 
 	it("allows an explicit unbound Agent without inventing an available local agent", async () => {
-		render(<GeneratorHarness availableLocalAgentIds={[]} initialAgentId="" />);
+		const onSubmit = vi.fn();
+		render(
+			<GeneratorHarness
+				availableLocalAgentIds={[]}
+				initialAgentId=""
+				onSubmit={onSubmit}
+			/>
+		);
 
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Edit Runs on" }));
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Create and connect later" })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		expect(screen.queryByRole("button", { name: "Edit Runs on" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Connect later" }));
 
 		expect(await screen.findByText("Connect a local agent later")).toBeTruthy();
+		expect(onSubmit).not.toHaveBeenCalled();
 	});
 
 	it("submits through the existing creation contract", () => {

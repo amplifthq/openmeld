@@ -1809,14 +1809,8 @@ describe("SpaceLanding", () => {
 			name: "Create a new Agent",
 		});
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Edit Runs on" })
+			within(dialog).getByRole("button", { name: "Connect later" })
 		);
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Create and connect later",
-			})
-		);
-		fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
 		fireEvent.change(await within(dialog).findByLabelText("Agent name"), {
 			target: { value: "Scout" },
 		});
