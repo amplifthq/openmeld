@@ -16,3 +16,6 @@ reading. The control for messages above now sits just below the date pill.
 
 Messages sent through the CLI using your own profile now appear as unread until
 you read them. Messages you send in Web do not create a reminder for yourself.
+
+Spaces remember dismissed setup suggestions across refreshes and browser
+restarts. Use **Get set up** to bring them back when you need them.
