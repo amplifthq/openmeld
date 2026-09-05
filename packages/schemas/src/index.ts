@@ -82,6 +82,17 @@ export {
   openMeldNavigationTargetSchema,
   openMeldWebUrlSchema,
 } from "./navigation-action";
+export {
+  OFFICIAL_CLI_SKILL_CONTRACT,
+  OFFICIAL_CLI_SKILL_MAX_BYTES,
+  OFFICIAL_CLI_SKILL_PUBLIC_KEY,
+  OFFICIAL_CLI_SKILL_URL,
+  type OfficialCliSkillPayload,
+  type OfficialCliSkillRelease,
+  officialCliSkillChannelSchema,
+  officialCliSkillPayloadSchema,
+  officialCliSkillReleaseSchema,
+} from "./official-cli-skill";
 export { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "./organization-request-context";
 export {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
