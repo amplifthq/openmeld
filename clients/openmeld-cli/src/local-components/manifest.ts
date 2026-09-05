@@ -14,7 +14,6 @@ import {
   type LocalSetupAction,
 } from "@openmeld/schemas";
 import type { InstalledLocalComponentsSnapshot } from "@openmeld/schemas/types";
-import { collectSkillsReadinessSnapshot } from "../commands/skills";
 import { openMeldRootDir } from "../config/paths";
 import { compareSemver } from "../config/version-state";
 import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
@@ -25,13 +24,14 @@ import {
 } from "../local-service/lifecycle/daemon-service-inventory";
 import { resolveOpenMeldToolsMaintenanceProjection } from "../local-service/maintenance/openmeld-tools-maintenance-policy";
 import { resolveOpenMeldToolsUpdateOperation } from "../local-service/maintenance/openmeld-tools-update-operation";
+import { resolveDaemonServiceParticipationStatus } from "../local-service/status/service-participation-status";
 import { OPENMELD_VERSION } from "../runtime/version";
 import {
   hashBundledSkillAssets,
   loadBundledSkillAssets,
 } from "../skills/bundled-assets";
 import { computeDirectoryContentHash } from "../skills/content-hash";
-import { resolveDaemonServiceParticipationStatus } from "../system/local-service-participation-gate";
+import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory";
 
 export const OPENMELD_CLI_COMMAND_CONTRACT_VERSION =
   "openmeld-cli-command-contract-2026-05-local-components-v1";

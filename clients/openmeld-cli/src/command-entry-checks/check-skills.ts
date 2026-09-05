@@ -1,5 +1,5 @@
-import { collectSkillsReadinessSnapshot } from "../commands/skills";
 import { formatOpenMeldCliCommands } from "../runtime/cli-entry-command";
+import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory";
 import { buildAgentCheckResult } from "./build-agent-check-result";
 import type {
   CommandCheckRequirement,
