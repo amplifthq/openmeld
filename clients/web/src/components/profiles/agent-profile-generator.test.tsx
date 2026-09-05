@@ -46,16 +46,12 @@ describe("AgentProfileGenerator", () => {
 	it.each([
 		"dialog",
 		"page",
-	] as const)("starts customization collapsed on the %s surface and opens only the selected editor", async (surface) => {
+	] as const)("starts customization expanded on the %s surface and opens only the selected editor", async (surface) => {
 		render(<GeneratorHarness initialAgentId="codex" surface={surface} />);
 
 		const customizeTrigger = screen.getByRole("button", {
 			name: CUSTOMIZE_AGENT_BUTTON_NAME,
 		});
-		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("false");
-		expect(screen.queryByRole("button", { name: "Edit Owner" })).toBeNull();
-
-		fireEvent.click(customizeTrigger);
 		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("true");
 		fireEvent.click(screen.getByRole("button", { name: "Edit Owner" }));
 
@@ -67,9 +63,6 @@ describe("AgentProfileGenerator", () => {
 	it("keeps customization expanded when returning from review", async () => {
 		render(<GeneratorHarness initialAgentId="codex" />);
 
-		fireEvent.click(
-			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
-		);
 		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		fireEvent.click(await screen.findByRole("button", { name: "Back" }));
 
@@ -94,9 +87,6 @@ describe("AgentProfileGenerator", () => {
 				.textContent
 		).toContain(
 			"New session · openmeld · GPT-5.6 Sol (default) · Model default · Ask for approval"
-		);
-		fireEvent.click(
-			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
 		);
 		expect(
 			screen.getByText("GPT-5.6 Sol (default) · Model default")

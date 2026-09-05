@@ -29,6 +29,7 @@ function NewAgentRoute() {
 		<AppFullWidthLayout
 			contentLayout="flush"
 			initialOuterSidebarState={sidebarStates.outer}
+			scroll={false}
 		>
 			<CreateAgentProfilePage
 				allowTeammateRequests={currentOrganization.isPersonal !== true}

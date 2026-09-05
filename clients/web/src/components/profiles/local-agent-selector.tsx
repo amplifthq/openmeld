@@ -35,7 +35,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 	const selectedChoice = choices.find((choice) => choice.value === input.value);
 	const selectedDescription = resolveSelectedChoiceDescription(selectedChoice);
 	const selectionDisabled = input.disabled || input.locked === true;
-	let heading = "Choose an agent on your computer";
+	let heading = "Choose a local agent";
 	if (input.locked) {
 		heading = "Agent connected to this Session";
 	} else if (input.emptyState?.kind === "connect_computer") {
@@ -49,7 +49,10 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			disabled={input.disabled}
 		>
 			<legend
-				className="mb-4 w-full text-left font-medium text-base"
+				className={cn(
+					"w-full text-left font-medium text-base",
+					choices.length > 0 ? "mb-1" : "mb-4"
+				)}
 				id={headingId}
 			>
 				{heading}
@@ -65,16 +68,16 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 					aria-label="Checking available local agents"
 					className="flex min-h-24 items-center justify-start gap-3"
 				>
-					<Skeleton className="size-14 rounded-2xl" />
-					<Skeleton className="size-14 rounded-2xl" />
-					<Skeleton className="size-14 rounded-2xl" />
+					<Skeleton className="size-16 rounded-lg" />
+					<Skeleton className="size-16 rounded-lg" />
+					<Skeleton className="size-16 rounded-lg" />
 				</output>
 			) : null}
 
 			{!input.isResolving && choices.length > 0 ? (
 				<MagnifyingDock
 					aria-labelledby={headingId}
-					className="min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-6 pb-4"
+					className="-mx-3 min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-5 pb-1"
 				>
 					{choices.map((choice) => {
 						const selected = choice.value === input.value;
@@ -89,7 +92,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 							>
 								<label
 									className={cn(
-										"relative grid size-14 place-items-center rounded-lg outline-none has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-2",
+										"relative grid size-16 place-items-center rounded-lg outline-none has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-2",
 										selectionDisabled && "cursor-default"
 									)}
 								>
@@ -217,7 +220,7 @@ function LocalAgentChoiceIcon(input: { agentId: string }) {
 	return (
 		<LocalAgentLogo
 			agentId={input.agentId}
-			className="size-14"
+			className="size-16"
 			size="md"
 			variant="tile"
 		/>

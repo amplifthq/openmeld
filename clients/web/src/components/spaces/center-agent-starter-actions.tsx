@@ -1,3 +1,4 @@
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	CompassIcon,
@@ -55,6 +56,7 @@ async function sendStarterPrompt(input: {
 
 export function CenterAgentStarterActions(input: {
 	disabled: boolean;
+	showAgentLogos?: boolean;
 	onConnectComputer: () => void;
 	onSelect: (prompt: string) => Promise<void>;
 }) {
@@ -101,7 +103,38 @@ export function CenterAgentStarterActions(input: {
 									{action.title}
 								</span>
 								<span className="mt-0.5 block text-muted-foreground text-xs leading-5">
-									{action.description}
+									{input.showAgentLogos && action.kind === "computer_setup" ? (
+										<>
+											<span className="sr-only">{action.description}</span>
+											<span aria-hidden="true">
+												Bring your{" "}
+												<span className="isolate inline-flex items-center -space-x-1.5 align-middle">
+													{[
+														"codex",
+														"claude-code",
+														"grok-build",
+														"opencode",
+														"cursor",
+													].map((agentId, index) => (
+														<span
+															className="relative inline-flex"
+															key={agentId}
+															style={{ zIndex: 5 - index }}
+														>
+															<LocalAgentLogo
+																agentId={agentId}
+																className="size-6 rounded-sm"
+																variant="tile"
+															/>
+														</span>
+													))}
+												</span>{" "}
+												into OpenMeld.
+											</span>
+										</>
+									) : (
+										action.description
+									)}
 								</span>
 							</span>
 						</button>

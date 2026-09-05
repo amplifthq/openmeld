@@ -7,6 +7,10 @@ audiences: ["users"]
 ---
 
 Home now welcomes you with a centered logo and a workspace-specific question.
-Three compact cards put connecting your computer first, followed by a tour and
-starting something new. Personal workspaces show the familiar local-agent logos.
-The overlapping logos use opaque, rounded tiles so their artwork stays clear.
+Three compact cards put connecting your computer first, followed by creating a
+Space and taking a tour. Personal workspaces show named local-agent logos;
+organization workspaces show them in the connection card. Shared theme-aware
+tiles keep their artwork clear, with Claude's starburst and OpenCode before Cursor.
+
+New Agent setup opens its compact customization section by default, puts
+Permissions first, and keeps the bottom actions visible while options scroll.

@@ -19,6 +19,11 @@ import {
 } from "@openmeld/ui/components/magnifying-dock";
 import { OpenMeldLetterLogoStrong } from "@openmeld/ui/components/openmeld-letter-logo-strong";
 import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowUpIcon,
@@ -49,6 +54,7 @@ import {
 	useState,
 } from "react";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
+import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -2415,6 +2421,7 @@ function CenterAgentDirectMessageIntro(input: {
 				disabled={input.disabled}
 				onConnectComputer={input.onStartComputerSetup}
 				onSelect={input.onSelectStarterAction}
+				showAgentLogos={!input.isPersonalContext}
 			/>
 		);
 	}
@@ -2439,8 +2446,8 @@ function CenterAgentDirectMessageIntro(input: {
 							<MagnifyingDock
 								aria-label="Codex, Claude Code, Grok Build, OpenCode, and Cursor"
 								className="items-center gap-0 -space-x-3 px-1"
-								magnification={1.16}
-								role="img"
+								magnification={1.3}
+								role="group"
 							>
 								{[
 									"codex",
@@ -2448,16 +2455,28 @@ function CenterAgentDirectMessageIntro(input: {
 									"grok-build",
 									"opencode",
 									"cursor",
-								].map((agentId) => (
+								].map((agentId, index) => (
 									<MagnifyingDockItem
-										className="min-h-9 min-w-9 hover:z-10"
+										className="h-9 min-h-9 w-9 min-w-9 justify-center"
 										key={agentId}
+										style={{ zIndex: 5 - index }}
+										visualClassName="origin-center"
 									>
-										<LocalAgentLogo
-											agentId={agentId}
-											className="size-9"
-											variant="tile"
-										/>
+										<Tooltip>
+											<TooltipTrigger
+												aria-label={formatLocalAgentDisplayName(agentId)}
+												className="flex size-9 items-center justify-center rounded-sm p-0 leading-none outline-none focus-visible:ring-2 focus-visible:ring-ring"
+											>
+												<LocalAgentLogo
+													agentId={agentId}
+													className="size-9 rounded-sm"
+													variant="tile"
+												/>
+											</TooltipTrigger>
+											<TooltipContent>
+												{formatLocalAgentDisplayName(agentId)}
+											</TooltipContent>
+										</Tooltip>
 									</MagnifyingDockItem>
 								))}
 							</MagnifyingDock>

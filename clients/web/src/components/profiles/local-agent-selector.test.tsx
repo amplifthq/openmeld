@@ -37,7 +37,7 @@ describe("LocalAgentSelector", () => {
 
 		expect(
 			screen.getByRole("group", {
-				name: "Choose an agent on your computer",
+				name: "Choose a local agent",
 			})
 		).toBeTruthy();
 		expect(
