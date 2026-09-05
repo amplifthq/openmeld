@@ -169,7 +169,7 @@ function GeneratorStepContent(input: {
 	step: GeneratorStep;
 }) {
 	return input.step === "configure" ? (
-		<div className="grid min-w-0 gap-5 pb-5">
+		<div className="grid min-w-0 gap-5 pb-2">
 			<LocalAgentSelector
 				choices={input.bindingChoices}
 				disabled={input.form.isSubmitting}
@@ -192,10 +192,11 @@ function GeneratorStepContent(input: {
 			/>
 		</div>
 	) : (
-		<div className="grid min-w-0 gap-5 pb-5">
+		<div className="grid min-w-0 gap-5 pb-2">
 			<GeneratorReview
 				form={input.form}
 				selectedBinding={input.selectedBinding}
+				surface={input.surface}
 			/>
 			<CreateProfileErrorNotice
 				errorState={input.form.errorState}
@@ -214,7 +215,7 @@ function GeneratorActions(input: {
 }) {
 	return (
 		<div
-			className="mx-3 shrink-0 border-border border-t bg-background pt-4"
+			className="mx-3 shrink-0 bg-background pt-2"
 			data-testid="create-profile-actions"
 		>
 			{input.step === "configure" ? (
@@ -354,6 +355,7 @@ function AdvancedSetup(input: {
 function GeneratorReview(input: {
 	form: CreateProfileFormProps;
 	selectedBinding: AgentProfileBindingChoice | null;
+	surface: "dialog" | "page";
 }) {
 	const modelName = resolveAgentProfileTemplateModelName({
 		agentId: input.form.boundAgentId,
@@ -366,7 +368,13 @@ function GeneratorReview(input: {
 	return (
 		<div className="grid gap-5">
 			<div className="grid gap-1">
-				<h2 className="font-medium text-lg">Ready to create</h2>
+				{input.surface === "page" ? (
+					<h1 className="font-medium text-2xl tracking-tight">
+						Ready to create
+					</h1>
+				) : (
+					<h2 className="font-medium text-lg">Ready to create</h2>
+				)}
 				<p className="text-pretty text-muted-foreground text-sm leading-5">
 					Review the setup and change the suggested name if you want.
 				</p>

@@ -1852,6 +1852,10 @@ entry points use the dialog composition. Both surfaces use the same creation
 controller and generator components: local-Agent selection is the first
 decision, lower-frequency configuration stays under an inline **Advanced**
 disclosure, and the editable generated name appears only in the final review.
+The standalone page uses the current step as its main heading rather than
+repeating a generic creation title. While local agents are loading, the heading
+reports checking instead of prematurely asking the user to connect a computer.
+Both steps keep their actions separate through spacing without a footer divider.
 An unfinished browser-local draft may prefill that first decision, but the first
 new local-Agent or execution-target choice dismisses restoration for the current
 open flow so later renders cannot reverse the user's click.
