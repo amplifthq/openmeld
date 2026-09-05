@@ -66,6 +66,49 @@
       "body": "Agent progress uses consistent status orbs for connecting, waiting, working,\nreplying, and requests that need your response. Space sidebar indicators give\nrequests needing your input priority over ongoing work.\n\nProgress stays next to the message, above its actions. Pending requests remain\nabove the Composer, and sending a response no longer implies that the Agent\nhas already resumed. Plan reviews render formatted Markdown."
     },
     {
+      "id": "computer-connection-recovery",
+      "title": "Clearer computer status and setup retries",
+      "kind": "fixed",
+      "areas": [
+        "web",
+        "cli"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.160",
+      "evidence": [
+        "pr:681",
+        "pr:682",
+        "commit:36167456e3b8808331ef5d41c0807a3fd45c8b8d",
+        "workflow:33972709677",
+        "https://github.com/amplifthq/openmeld/pull/681#issuecomment-5553165264"
+      ],
+      "body": "Disconnected computers no longer make every local Agent look broken. Agent\ncards show when the computer is disconnected or its status is being checked,\nwhile preserving your saved on/off settings.\n\nCanceling an account switch leaves the existing computer account unchanged and\nupdates the setup page. If computer authorization fails, the CLI explains how\nto get a new command, and Web offers a fresh attempt without a page reload."
+    },
+    {
+      "id": "local-model-discoveries-and-new-badges",
+      "title": "Find new models when configuring local Agents",
+      "kind": "improved",
+      "areas": [
+        "agent-profiles"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.160",
+      "evidence": [
+        "pr:681",
+        "pr:682",
+        "commit:36167456e3b8808331ef5d41c0807a3fd45c8b8d",
+        "workflow:33972709677",
+        "https://github.com/amplifthq/openmeld/pull/681#issuecomment-5553165264"
+      ],
+      "body": "Local Agent model selectors show a small New badge beside newly added options,\nincluding GPT-6 Astra, Claude Fable 5.1 and supported Cursor and OpenCode models.\nThe badge also appears on the selected model when creating or editing a Profile.\n\nCodex keeps GPT-5.6 Sol with High reasoning as its new-Profile recommendation.\nClaude recommends Opus 5 with model-default reasoning. Existing explicit model\nselections and remembered creation preferences are preserved; Claude Profiles\nthat rely on the runtime default use Opus 5 instead of Opus 4.8."
+    },
+    {
       "id": "agent-sidebar-status-in-creation",
       "title": "Give Agent creation its own page and reduce status reads",
       "kind": "fixed",
@@ -169,6 +212,29 @@
         "smoke:chrome:openmeld-tools-status-20260905"
       ],
       "body": "The OpenMeld Tools status no longer displays a local agent's logo. Each agent's\nreadiness and sign-in status remain in the Local agents section."
+    },
+    {
+      "id": "independent-cli-skill-updates",
+      "title": "Keep the OpenMeld guide current without another CLI upgrade",
+      "kind": "improved",
+      "areas": [
+        "cli",
+        "service"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.160",
+      "evidence": [
+        "pr:681",
+        "pr:682",
+        "commit:36167456e3b8808331ef5d41c0807a3fd45c8b8d",
+        "workflow:33972709677",
+        "https://github.com/amplifthq/openmeld/pull/681#issuecomment-5553165264"
+      ],
+      "body": "OpenMeld can maintain its local Agent guide independently of the CLI, keeping\nthe last working copy when a download or installation fails. Before a local\ntask, Service checks the selected Agent's guide and supplies a public reading\nlink when the installed copy is unavailable.\n\nThe public guide starts with a short entry and loads detailed topics only as\nneeded. New instructions are installed only when the local CLI supports them.\nExisting installations need the bridge CLI/Service update once to enable this\nmaintenance path."
     },
     {
       "id": "link-directly-to-space-messages",
