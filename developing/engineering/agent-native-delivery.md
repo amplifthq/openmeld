@@ -91,6 +91,15 @@ unrelated agents to wait.
 
 ## Develop, Review, And Prepare
 
+The scheduled model-catalog collector prepares draft evidence PRs, not delivery
+candidates. Its twelve-hour collection, source contracts, and coding-agent
+handoff are defined in
+[Agent Profile Model Selection](../product/agent-model-selection.md#automatic-evidence-handoff).
+It does not request Final Candidate or merge/release. The agent who explicitly
+takes over its PR owns product decisions, missing compatibility evidence, real
+validation, and the normal authorized lifecycle below. An open collector PR is
+left untouched by later bot runs.
+
 Use focused tests while developing. The responsible agent chooses the smallest
 real checks that prove the change, performs the review required by the task,
 and may ask for more confidence when the risk justifies it. No reviewer

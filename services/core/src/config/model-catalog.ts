@@ -2,7 +2,7 @@ import { modelCatalogSchema } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import vendorModelCatalog from "../../../../release/vendor-models.json";
 
-export function readModelCatalog(): ModelCatalog {
+export function readAuthoredModelCatalog(): ModelCatalog {
   const parsed = modelCatalogSchema.safeParse(vendorModelCatalog);
   if (!parsed.success) {
     throw new Error(
@@ -10,4 +10,19 @@ export function readModelCatalog(): ModelCatalog {
     );
   }
   return parsed.data;
+}
+
+/** Keep creation policy inside Core; old clients validate this response strictly. */
+export function readModelCatalog(): ModelCatalog {
+  const catalog = readAuthoredModelCatalog();
+  return {
+    ...catalog,
+    agentControllers: Object.fromEntries(
+      Object.entries(catalog.agentControllers).map(([id, controller]) => {
+        const { creationDefaults: _creationDefaults, ...publicController } =
+          controller;
+        return [id, publicController];
+      })
+    ),
+  };
 }

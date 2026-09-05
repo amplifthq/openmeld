@@ -43,6 +43,18 @@ and shared policy define common language and eligibility projections. They do
 not reserve leases, start execution, accept results, publish replies, or decide
 final Wake outcomes.
 
+### Model Catalog Creation Policy
+
+`packages/schemas` owns the authored catalog and Git-backed update-evidence
+schemas. The optional local-controller `creationDefaults` is Core-owned
+creation policy, not runtime selection or availability evidence. Core's
+`readAuthoredModelCatalog` reads it for first-use creation preferences;
+`readModelCatalog` omits it from all public/catalog projections so existing
+strict clients continue to read the version-1 response. The existing resolved
+creation-preferences response remains unchanged. Remembered user choices take
+precedence, including explicit model-default reasoning. No Binding, Wake,
+Service lifecycle, or dispatch contract changes.
+
 ### Organization Working Language Contracts
 
 `packages/schemas` owns the canonical BCP 47 language tag, `automatic` and

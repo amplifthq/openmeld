@@ -858,7 +858,10 @@ import { rpcCenterAgentReadChangelog as centerAgentReadChangelog } from "../chan
 import { rpcReadChangelog as readChangelog } from "../changelog/changelog-read-rpc";
 import { createComputerFileAccessRpc } from "../computers/computer-file-access-rpc";
 import { createLocalFolderPickerRpc } from "../computers/local-folder-picker-rpc";
-import { readModelCatalog } from "../config/model-catalog";
+import {
+  readAuthoredModelCatalog,
+  readModelCatalog,
+} from "../config/model-catalog";
 import {
   listConnectorAppRequestsForRequester,
   upsertConnectorAppRequest,
@@ -5445,7 +5448,7 @@ export async function rpcGetAgentProfileCreationDefaults(
     ? null
     : resolveFirstUseAgentProfileCreationDefaults({
         agentControllerRef,
-        modelCatalog: readModelCatalog(),
+        modelCatalog: readAuthoredModelCatalog(),
       });
 
   return buildAgentProfileCreationDefaultsResponse({
