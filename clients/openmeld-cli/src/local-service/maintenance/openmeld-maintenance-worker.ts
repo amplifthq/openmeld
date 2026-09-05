@@ -5,6 +5,7 @@ import {
   isOpenMeldOrphanedLockError,
   runWithHeldLock,
 } from "../../config/lock";
+import { assertDaemonMaintenanceInstallationOwnership } from "../lifecycle/daemon-service-manager-command-match";
 import { runPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-coordinator";
 import { readPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-state";
 import { prepareDaemonServiceUpdateWorkerCarrier } from "../lifecycle/daemon-service-update-worker-manager";
@@ -39,15 +40,20 @@ async function runMaintenanceWithLock(): Promise<boolean> {
 }
 
 async function runMaintenancePass(): Promise<boolean> {
+  const pendingJob = await readPendingDaemonServiceUpdate();
+  const pendingAttempt = await readPendingOpenMeldToolsUpdateAttempt();
+  if (!(pendingJob || pendingAttempt)) {
+    const contract = await readDaemonServiceContract();
+    if (!contract || contract.desiredState !== "background") {
+      return false;
+    }
+  }
+  await assertDaemonMaintenanceInstallationOwnership();
   const coordinator = createOpenMeldToolsUpdateCoordinator();
-  if (!(await readPendingDaemonServiceUpdate())) {
-    if (await readPendingOpenMeldToolsUpdateAttempt()) {
+  if (!pendingJob) {
+    if (pendingAttempt) {
       await coordinator.resumePendingUpdate();
     } else {
-      const contract = await readDaemonServiceContract();
-      if (!contract || contract.desiredState !== "background") {
-        return false;
-      }
       await coordinator.requestUpdate({ requestSource: "automatic" });
     }
     await coordinator.waitForIdle();

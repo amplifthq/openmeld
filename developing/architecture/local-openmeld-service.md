@@ -1929,6 +1929,11 @@ preference remain authoritative; maintenance does not override an explicit stop.
 One cross-process request lock preserves the operation identity across CLI, Web,
 and scheduled requests; a separate worker execution lock prevents concurrent
 installers without holding the request lock throughout downloads or active work.
+Maintenance verifies the OS registration belongs to its installation before
+downloading, then rechecks under the lifecycle lock before switching the Service.
+A worker left behind after another installation claims the same lane must stop
+without changing that installation. Windows ownership comes from the registered
+task action and its environment, not from an obsolete batch file.
 
 Local runtime metadata uses a pinned disk-format epoch, independent of the
 Runtime Transport epoch. A protocol change alone must not erase runtime data.

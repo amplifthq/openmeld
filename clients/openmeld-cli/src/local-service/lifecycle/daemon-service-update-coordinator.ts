@@ -17,6 +17,7 @@ import type {
   DaemonServiceLifecycleRecoveryStatus,
 } from "./daemon-service-lifecycle";
 import { runDaemonServiceLifecycle } from "./daemon-service-lifecycle";
+import { assertDaemonMaintenanceInstallationOwnership } from "./daemon-service-manager-command-match";
 import { readCurrentObservedDaemonRuntimeStatus } from "./daemon-service-runtime";
 import {
   completePendingDaemonServiceUpdate,
@@ -449,7 +450,14 @@ function resolveRunDependencies(
     persistPendingJob:
       overrides.persistPendingJob ?? persistPendingDaemonServiceUpdate,
     readPendingJob: overrides.readPendingJob ?? readPendingDaemonServiceUpdate,
-    runLifecycle: overrides.runLifecycle ?? runDaemonServiceLifecycle,
+    runLifecycle:
+      overrides.runLifecycle ??
+      (async (input) => {
+        // Recheck under the lifecycle lock: another setup may have claimed the
+        // lane while this worker was downloading or waiting for active work.
+        await assertDaemonMaintenanceInstallationOwnership();
+        return await runDaemonServiceLifecycle(input);
+      }),
     waitUntilSafeToSwitch:
       overrides.waitUntilSafeToSwitch ?? waitUntilDaemonServiceSafeSwitch,
     withReconcileLock:

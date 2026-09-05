@@ -7,6 +7,7 @@ import { daemonRuntimeRootPath } from "./daemon-state";
 import {
   type OpenMeldPathResolutionInput,
   resolveOpenMeldEnvPreset,
+  resolveOpenMeldRootDir,
 } from "./paths";
 
 const MANAGED_VERSION_FROM_EXECUTABLE_PATTERN =
@@ -24,23 +25,45 @@ export function daemonServiceUpdateWorkerNpmEntryPath(
   return join(daemonRuntimeRootPath(pathInput), "service-update-worker.mjs");
 }
 
-export async function hasIndependentMaintenanceRegistration(): Promise<boolean> {
-  if (process.platform === "win32") {
-    const { runWindowsUserTask } = await import(
+export async function hasIndependentMaintenanceRegistration(
+  pathInput: OpenMeldPathResolutionInput = {},
+  platform: NodeJS.Platform = process.platform
+): Promise<boolean> {
+  if (platform === "win32") {
+    const { runWindowsUserTask, readWindowsTaskAction } = await import(
       "../local-service/lifecycle/windows-user-task"
     );
     const task = await runWindowsUserTask({
-      name: resolveDaemonServiceUpdateWorkerIdentity().windowsServiceName,
-      legacyScript: resolveDaemonServiceUpdateWorkerWindowsScriptPath(),
+      name: resolveDaemonServiceUpdateWorkerIdentity(pathInput)
+        .windowsServiceName,
+      legacyScript:
+        resolveDaemonServiceUpdateWorkerWindowsScriptPath(pathInput),
       operation: "status",
     });
-    return task.installed && !task.legacy;
+    return Boolean(
+      task.installed &&
+        !task.legacy &&
+        task.actionArguments &&
+        resolveOpenMeldRootDir({
+          env: readWindowsTaskAction(task.actionArguments).env,
+        }) === resolveOpenMeldRootDir(pathInput)
+    );
   }
   const registration = await readDaemonServiceUpdateWorkerRegistration(
-    {},
-    process.platform
+    pathInput,
+    platform
   );
-  return registration?.includes(INDEPENDENT_MAINTENANCE_REGISTRATION) === true;
+  if (!registration?.includes(INDEPENDENT_MAINTENANCE_REGISTRATION)) {
+    return false;
+  }
+  const { parseDaemonServiceEnvironmentFromDefinition } = await import(
+    "../local-service/lifecycle/daemon-service-manager"
+  );
+  const env = parseDaemonServiceEnvironmentFromDefinition({
+    controller: platform === "darwin" ? "launchd" : "systemd",
+    definition: registration,
+  });
+  return resolveOpenMeldRootDir({ env }) === resolveOpenMeldRootDir(pathInput);
 }
 
 export type DaemonServiceUpdateWorkerIdentity = {

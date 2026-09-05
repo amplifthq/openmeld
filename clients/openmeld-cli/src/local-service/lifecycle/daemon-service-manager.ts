@@ -51,6 +51,8 @@ export type DaemonServiceManagerRuntimeStatus = {
   enabled: boolean;
   definitionPath?: string | null;
   commandSummary?: string | null;
+  /** Native launch action when the supervisor does not use a definition file. */
+  commandSpec?: DaemonServiceCommandSpec;
   /**
    * The OpenMeld backend target persisted in the OS service definition.
    * `undefined` is reserved for older/custom manager implementations that do
@@ -1234,6 +1236,7 @@ function buildWindowsManager(
           quoteWindowsArg(action.executable),
           ...action.args.map(quoteWindowsArg),
         ].join(" "),
+        commandSpec: action,
         environmentTarget: serviceEnvironmentTarget(action.env),
       };
     }
@@ -1396,15 +1399,22 @@ export function parseDaemonServiceEnvironmentTargetFromDefinition(input: {
   controller: DaemonServiceController;
   definition: string;
 }): OpenMeldEnvironmentTarget | null {
-  let environment: Record<string, string>;
+  return serviceEnvironmentTarget(
+    parseDaemonServiceEnvironmentFromDefinition(input)
+  );
+}
+
+export function parseDaemonServiceEnvironmentFromDefinition(input: {
+  controller: DaemonServiceController;
+  definition: string;
+}): Record<string, string> {
   if (input.controller === SYSTEMD_CONTROLLER) {
-    environment = parseSystemdEnvironment(input.definition);
-  } else if (input.controller === LAUNCHD_CONTROLLER) {
-    environment = parseLaunchdEnvironment(input.definition);
-  } else {
-    environment = parseWindowsEnvironment(input.definition);
+    return parseSystemdEnvironment(input.definition);
   }
-  return serviceEnvironmentTarget(environment);
+  if (input.controller === LAUNCHD_CONTROLLER) {
+    return parseLaunchdEnvironment(input.definition);
+  }
+  return parseWindowsEnvironment(input.definition);
 }
 
 function serviceEnvironmentTarget(

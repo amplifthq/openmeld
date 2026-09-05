@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  hasIndependentMaintenanceRegistration,
+  INDEPENDENT_MAINTENANCE_REGISTRATION,
   readBundleIdsFromUpdateWorkerRegistration,
   readDaemonServiceUpdateWorkerProtectedManagedVersions,
   readManagedVersionsFromUpdateWorkerRegistration,
@@ -22,6 +24,34 @@ describe("daemon service update worker registration", () => {
         .splice(0)
         .map((home) => rm(home, { force: true, recursive: true }))
     );
+  });
+
+  it("does not reuse a maintenance registration left by another home in the same lane", async () => {
+    const homeDir = join(tmpdir(), `openmeld-worker-${randomUUID()}`);
+    temporaryHomes.push(homeDir);
+    const root = join(homeDir, "first-install");
+    const input = {
+      homeDir,
+      env: { OPENMELD_ENV_PRESET: "dev-local", OPENMELD_HOME: root },
+    };
+    const plistPath = resolveDaemonServiceUpdateWorkerLaunchdPlistPath(input);
+    await mkdir(dirname(plistPath), { recursive: true });
+    await writeFile(
+      plistPath,
+      `<!-- ${INDEPENDENT_MAINTENANCE_REGISTRATION} --><plist><dict><key>EnvironmentVariables</key><dict><key>OPENMELD_HOME</key><string>${root}</string></dict></dict></plist>`
+    );
+    await expect(
+      hasIndependentMaintenanceRegistration(input, "darwin")
+    ).resolves.toBe(true);
+    await expect(
+      hasIndependentMaintenanceRegistration(
+        {
+          ...input,
+          env: { ...input.env, OPENMELD_HOME: join(homeDir, "second-install") },
+        },
+        "darwin"
+      )
+    ).resolves.toBe(false);
   });
 
   it("recognizes a versioned worker executable that must survive migration", async () => {
