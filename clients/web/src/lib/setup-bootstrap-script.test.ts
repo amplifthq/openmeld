@@ -1497,6 +1497,26 @@ describe("setup-bootstrap-script", () => {
 		});
 	});
 
+	it("allows worktree setup with its isolated Auth and Gateway", () => {
+		expect(
+			resolveOpenMeldSetupBootstrapScriptConfig({
+				authUrl: "http://wt-example.localhost:31002",
+				gatewayUrl: "http://wt-example.localhost:31001",
+				platform: "posix",
+				requestUrl:
+					"http://wt-example.localhost:31000/setup?lane=dev-local&dist=npm",
+				webAppUrl: "http://wt-example.localhost:31000",
+			})
+		).toMatchObject({
+			status: "ok",
+			config: {
+				lane: "dev-local",
+				authUrl: "http://wt-example.localhost:31002",
+				gatewayUrl: "http://wt-example.localhost:31001",
+			},
+		});
+	});
+
 	it("allows the isolated binary canary lane from the official staging app", () => {
 		const result = resolveOpenMeldSetupBootstrapScriptConfig({
 			authUrl: "https://auth.staging.openmeld.ai",
@@ -1522,6 +1542,8 @@ describe("setup-bootstrap-script", () => {
 		for (const requestUrl of [
 			"https://staging.openmeld.ai/setup?lane=dev-local",
 			"https://staging.openmeld.invalid/setup?lane=canary&dist=binary",
+			"https://wt-example.localhost.example.com/setup?lane=dev-local",
+			"https://notlocalhost/setup?lane=dev-local",
 		]) {
 			const result = resolveOpenMeldSetupBootstrapScriptConfig({
 				authUrl: "https://auth.staging.openmeld.ai",
