@@ -751,19 +751,35 @@ The Settings secondary sidebar always shows these two groups:
 
 - **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
   Safety**, and **Send feedback**.
-  The routed settings are account-scoped surfaces and do not change when the
-  selected Organization changes. Privacy & Safety links to **Center Agent →
+  Account preferences do not change when the selected Organization changes.
+  Privacy & Safety also shows **Agent creation permissions** for the signed-in
+  member in the current Organization, explicitly naming that scope. It links to **Center Agent →
   Memory** for the current workspace's member-memory erase action and lists the
   signed-in member's Computers for Computer file access. Both operations stay
   on their canonical product surfaces rather than creating duplicate settings
   state. Send feedback is an account-level utility action immediately after
   Privacy & Safety. It opens the existing feedback dialog rather than creating
   a route or a second submission contract.
-- **Current Organization name** — **General**. The visible group label is the selected
+- **Current Organization name** — **General**, **Members**, **Invitations**,
+  and **Security**. General owns identity and lifecycle, Members owns roles,
+  Invitations owns requests and invitation delivery, and Security owns information
+  protection. Security is visible only to owners and admins. A personal workspace
+  shows General only: organization membership and invitation management do not
+  apply there. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
   never the generic label `Workspace`. Every member can see these surfaces;
   each mutation is shown and enforced according to the member's role. The group
   label also displays the current `member`, `admin`, or `owner` role badge.
+
+Invitation review lives at `/o/{orgSlug}/settings/invitations?requestId={id}`
+inside the app shell. Email and Inbox use the same destination; a focused request
+scrolls into view. The legacy external request URL redirects current organization
+members here while preserving the external applicant status surface. Needs review
+is separate from sent invitations awaiting acceptance. Both empty states use the
+shared restrained dashed-border presentation. A Core-owned actionable request count
+drives the amber Invitations badge and the outer Settings dot; it is not an unread
+count. Approval, delivery, and membership remain separate facts. Clients refresh
+the shared request, invitation, and Inbox projections after a decision.
 
 **Settings → Personal → Appearance** owns the browser-local interface corner
 style. The two current choices are **Square** and **Rounded**. Rounded is the
@@ -1056,7 +1072,7 @@ workspace switcher update immediately without maintaining another avatar state.
 The personal workspace does not render this section and continues to use the
 current account avatar.
 
-For a non-personal Organization, **Settings → General → Information
+For a non-personal Organization, **Settings → Security → Information
 protection** is visible only to an owner or admin. Web must resolve the shared
 Better Auth role permission before mounting the section; members do not render
 the section and do not issue its read request. The bounded textarea describes
@@ -1153,7 +1169,10 @@ danger copy and actions.
 Personal-only route guards and hard redirects, including the current
 `allowPersonalAgentActivity` pattern, are retired in the target state. A role or
 workspace kind may gate an action, but it must not remove a destination or send
-the user to a different feature home.
+the user to a different feature home. Organization-only Settings management leaves
+(Members, Invitations, and Security) are the bounded exception: personal workspaces
+have no team membership to manage, and direct links explain that scope rather than
+redirecting to an unrelated feature.
 
 ### Navigation delivery history
 
@@ -2631,9 +2650,13 @@ the authorized Agent Activity Session surface once that projection is ready;
 Web must pass its exact provider-native Session ID and chosen `resume` or `fork`
 strategy without creating a browser-local Session identity.
 
-**Settings → General → Agent creation approvals** gives every member separate
-**New sessions** and **Existing sessions** policies with **Ask every time**,
-**Automatically allow**, and **Never allow** choices. Web reads and writes the
+**Settings → Personal → Privacy & Safety → Agent creation permissions** gives
+every member separate **Start new conversations** and **Continue or copy existing
+conversations** policies with **Ask me each time**, **Allow without asking**, and
+**Don’t allow** choices. The preference is personal within the named Organization,
+not an Organization-wide rule. The copy explains history inheritance without
+implying approval of every Agent action or access to all local conversations.
+Existing defaults and saved policies remain unchanged. Web reads and writes the
 Core preference; it does not infer approval from role, friendship, request
 source, or prior decisions.
 
@@ -2898,7 +2921,13 @@ Members header descriptions own a full-width row below the title and actions.
 The header Add People or Agents action and the one-member empty-state card both
 open the same Add People or Agents dialog. New Agent is a compact primary action
 below the dialog description; the title row is reserved for the title and close
-action.
+action. Invite sits beside New Agent for organization members and stays stable
+while role information loads; an unresolved role cannot enable a direct invitation.
+New Agent replaces the content inside this same dialog, with Back returning to
+the picker and preserving selection. Creation does not grant Space membership:
+the new Agent returns selected in the picker, and the user can create another
+before the final Add selected operation. Pending teammate requests are not presented
+as created Agents. Only the final membership operation closes the picker.
 The picker presents People as the primary hierarchy, expanded by default, with
 each person's addable Agent Profiles indented below their People row. A person
 who is already in the Space remains visible when one of their Agents can still
