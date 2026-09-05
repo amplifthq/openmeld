@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-04T18:41:48.452Z",
+  "updatedAt": "2026-09-05T03:27:01.529Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.156",
+      "packageVersion": "0.3.157",
       "updatePolicy": "available",
-      "reason": "Existing setup, Space access, and Wake commands remain compatible; the CLI now distinguishes durable update handoff from verified completion."
+      "reason": "The new space link command is additive, and existing commands remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "0da8ca5987affb3d92f82882a8c2f4f083b4afb3257a62e04facbefe8783ebfc",
-      "bundleVersion": "0.3.156",
+      "bundleHash": "2b12ace38d81f19d310192b97df4364688e3df3d45bb6044b832535483edfff8",
+      "bundleVersion": "0.3.157",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing Core and Runtime Transport schemas remain compatible; the Service now requires a positive safe-switch fact and verifies the full lifecycle before reporting success."
+      "reason": "Only additive optional shared schema fields changed the packaged bundle; existing Services keep current Wake, setup, trace, and recovery behavior."
     },
     "skills": {
-      "bundleHash": "3325032d3751ec34a678182fd5a7d656d5269ab8a1db3f0345e65fc97559db61",
+      "bundleHash": "95260cd703b998dcca9b9baba9e170ef8a2dc340cb116cacda27875fe03b2475",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Existing OpenMeld CLI skills remain usable; Space access preflight and read guidance preserve existing tool contracts."
+      "reason": "The managed Skill adds optional space link guidance, while existing installed commands and workflows remain valid."
     }
   }
 }
