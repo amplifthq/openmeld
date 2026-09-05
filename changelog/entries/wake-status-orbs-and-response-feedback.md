@@ -4,6 +4,9 @@ title: Clearer Agent progress and response feedback
 kind: improved
 areas: ["spaces", "agents", "web"]
 audiences: ["members"]
+publishedAt: 2026-09-05
+release: v0.3.158
+evidence: ["pr:652", "pr:658", "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"]
 ---
 
 Agent progress uses consistent status orbs for connecting, waiting, working,
