@@ -271,23 +271,31 @@ is treated as an automatic catalog edit.
 Run the identical collector locally without modifying the catalog:
 
 ```sh
-node scripts/model-catalog/catalog-update.mjs codex dev-tmp/catalog-update
+node scripts/model-catalog/collect-update.mjs dev-tmp/catalog-update
 ```
 
 It writes a proposed catalog, schema-validated evidence, and a ready-to-read PR
 brief. `scripts/model-catalog/publish-update.mjs <output-directory>` publishes
 only from a clean `origin/main` checkout and only the recorded additions plus
-`release/model-catalog-evidence/<controller>.json`. In Actions, each controller
-has an independent job so a broken source cannot erase another's evidence.
-Source failures fail their job; they never mean model retirement.
+`release/model-catalog-evidence/<controller>.json` for all configured harnesses.
+One Actions job collects the harnesses independently and prepares one combined
+draft PR, with a section for each harness. A failed source preserves successful
+collection artifacts but prevents publication of an incomplete scan. Source
+failures never mean model retirement. The brief lists uncataloged discovery
+candidates, exact automatic additions, source discrepancies and bounded official
+excerpts; full snapshots remain available for review. The repository formatter
+keeps unrelated catalog formatting out of the diff.
+Actions uses its existing token only for `api.github.com` requests to avoid
+shared anonymous rate limits. Local collectors may supply `GH_TOKEN`; the token
+is never sent to model discovery or vendor documentation hosts.
 
 Run `pnpm verify:model-catalog` for the collector and real disposable-Git
 publication/recovery tests. A pushed branch whose PR creation failed is recovered
 without rewriting it; external branch changes stop automatic recovery.
 
-One open bot PR per controller is a review handoff: subsequent runs leave its
+One open catalog bot PR is a review handoff: subsequent runs leave its
 branch and body untouched so a coding agent can safely continue there. A closed
-PR suppresses the same source fingerprint; changed facts may produce a new
+PR suppresses the same combined source fingerprint; changed facts may produce a new
 proposal. Merging the evidence snapshot acknowledges that revision, including
 when the reviewer elects to make no product change. Collection timestamps alone
 do not trigger another proposal. There is no bot force-push or auto-merge.
