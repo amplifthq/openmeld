@@ -17,13 +17,13 @@ export function formatMemberActivityTime(
 		return "Now";
 	}
 	if (minutes < 60) {
-		return `${minutes}m ago`;
+		return `Here ${minutes}m ago`;
 	}
 	const hours = Math.floor(minutes / 60);
 	if (hours < 24) {
-		return `${hours}h ago`;
+		return `Here ${hours}h ago`;
 	}
-	return `${Math.floor(hours / 24)}d ago`;
+	return `Here ${Math.floor(hours / 24)}d ago`;
 }
 
 export function useMemberActivityTime(
