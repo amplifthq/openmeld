@@ -300,7 +300,7 @@ For a localhost Routine smoke, start the Worker stack with
 then run the printed command to trigger one Core minute-scheduler tick:
 
 ```bash
-curl -X POST "http://localhost:<isolated-gateway-port>/__dev/routines/tick"
+curl -X POST "http://<lane-id>.localhost:<isolated-gateway-port>/__dev/routines/tick"
 ```
 
 The route exists only when the Gateway is running with
@@ -353,6 +353,15 @@ launcher also sets the passkey relying-party ID to this worktree hostname.
 Existing plain-localhost sessions and passkeys do not migrate to the new host;
 sign in and register any test passkeys again in the isolated environment.
 The fixed-port lane remains unchanged.
+
+Web's local CLI guidance, setup bootstrap lane selection, and local activity
+preview share one local-origin check, including `.localhost` subdomains. An
+external hostname that merely contains `localhost` is not a local origin.
+
+Third-party OAuth providers still require an allowed callback URL matching the
+chosen development origin. Automatic local hostnames do not register callbacks
+with GitHub, Google, or other providers. Use disposable local accounts for
+parallel authentication smoke unless that provider's callback is configured.
 
 Do not start or set up OpenMeld Service for a Web-only smoke that does not need
 local Agent execution. When Service validation is required, diagnose ownership
