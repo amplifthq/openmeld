@@ -19,3 +19,7 @@ you read them. Messages you send in Web do not create a reminder for yourself.
 
 Spaces remember dismissed setup suggestions across refreshes and browser
 restarts. Use **Get set up** to bring them back when you need them.
+
+The message composer shows Agent availability beside each name. A compact
+Wake/Reference menu explains unavailable Wake choices without asking you to
+connect someone else's computer, while keeping Reference available.

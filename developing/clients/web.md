@@ -3343,6 +3343,13 @@ required second dialog: Wake uses `@`, and Reference uses a link-style symbol.
 Selecting a Human Profile creates a fixed Human Mention mark; people never
 receive an Agent relation selector.
 
+Agent picker rows reuse the Members availability dot after the name, from the
+same Core-owned member projection. The inline relation control uses the compact
+shared Fluid Select. Disabled Wake choices show the short availability label
+(with action-only `Connect` rendered as `Unavailable`), never owner-assuming
+computer instructions. Choosing a relation preserves the editing selection;
+menu keyboard events must not send the message.
+
 After selection, Web renders one persistent editable semantic control per
 structured target. An Agent control places `@`, the Agent Profile icon,
 canonical name, and the current Wake or Reference relation in that order. The

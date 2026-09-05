@@ -8876,7 +8876,7 @@ describe("SpaceLanding", () => {
 		const relation = within(token).getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
-		expect(relation).toHaveProperty("value", "wake");
+		expect(relation.textContent).toBe("Wake");
 		expect(screen.queryByText("Waking 1 agent")).toBeNull();
 	});
 
@@ -8995,7 +8995,8 @@ describe("SpaceLanding", () => {
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
-		fireEvent.change(relationControl, { target: { value: "reference" } });
+		fireEvent.click(relationControl);
+		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
 		const sendButton = screen.getByRole("button", { name: "Send message" });
 		await waitFor(() => {
 			expect((sendButton as HTMLButtonElement).disabled).toBe(false);
@@ -9107,8 +9108,8 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByRole("combobox", {
 				name: "Change relation for Runner",
-			})
-		).toHaveProperty("value", "wake");
+			}).textContent
+		).toBe("Wake");
 		expect(screen.getAllByTestId("space-composer-profile-token")).toHaveLength(
 			1
 		);
@@ -9189,12 +9190,10 @@ describe("SpaceLanding", () => {
 		const relationControl = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
-		if (!(relationControl instanceof HTMLSelectElement)) {
-			throw new Error("Expected the Runner relation control to be a select");
-		}
-		fireEvent.change(relationControl, { target: { value: "reference" } });
+		fireEvent.click(relationControl);
+		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
 		await waitFor(() => {
-			expect(relationControl.value).toBe("reference");
+			expect(relationControl.textContent).toBe("Reference");
 		});
 		await appendComposerText(textarea, "for context", "@Runner for context");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -9248,12 +9247,12 @@ describe("SpaceLanding", () => {
 			name: "Message this space",
 		});
 		await insertComposerMember(RUNNER_OPTION_NAME);
-		fireEvent.change(
+		fireEvent.click(
 			screen.getByRole("combobox", {
 				name: "Change relation for Runner",
-			}),
-			{ target: { value: "reference" } }
+			})
 		);
+		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
 		await appendComposerText(
 			textarea,
 			"for context, then ",
