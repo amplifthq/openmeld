@@ -592,7 +592,7 @@ test("treats local component product changes as a CLI release", () => {
   );
 });
 
-test("treats embedded CLI data changes as a CLI release without package changes", () => {
+test("releases the live model catalog through Core without a CLI release", () => {
   assert.deepEqual(
     resolveAutomaticReleaseScopes({
       affectedPackages: [],
@@ -602,7 +602,7 @@ test("treats embedded CLI data changes as a CLI release without package changes"
         "release/vendor-models.json",
       ],
     }),
-    ["cli"]
+    ["core"]
   );
 });
 

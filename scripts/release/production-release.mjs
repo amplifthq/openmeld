@@ -339,6 +339,9 @@ export function expandRequestedReleaseScopes(scope) {
 
 export function resolveAutomaticReleaseScopes(input) {
   const scopes = new Set();
+  if (input.changedPaths.includes("release/vendor-models.json")) {
+    scopes.add("core");
+  }
   for (const packageName of input.affectedPackages) {
     const scope = PACKAGE_SCOPE.get(packageName);
     if (scope) {

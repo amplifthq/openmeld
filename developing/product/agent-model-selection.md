@@ -199,47 +199,33 @@ The top-level key is `agentControllers` (keyed by controller id).
 
 ### 5.2 Delivery
 
-This mirrors the existing `release/local-components.json` pattern
-([update-projection.ts](../../services/core/src/local-components/update-projection.ts)
-build-embeds the manifest and core serves a projection of it):
+The online policy owner is `release/vendor-models.json`, reviewed in Git and
+embedded only by Core. Core serves `GET /v1/config/model-catalog`; online CLI,
+Web, and Desktop read this projection.
 
-```
-release/vendor-models.json   (repo, PR-reviewed)
-        │ build-time embed
-        ▼
-  core serves  GET /v1/config/model-catalog   ← Web / online CLI / future Desktop read live
-        │
-  CLI carries a build-time embedded snapshot   ← offline fallback only
-```
+The CLI carries a deliberately fixed offline snapshot in
+`clients/openmeld-cli/src/model-catalog/offline-catalog.json`. It is a fallback
+for an unavailable or incompatible response, not a second live policy source.
+Normal online catalog edits do not update this snapshot or change CLI/Service
+bundle hashes. Existing saved profile selections remain unchanged.
 
-A catalog change is **not** a direct DB edit (see §9 for why DB editing was
-rejected). Because the packaged CLI embeds this catalog, the edit also moves
-the OpenMeld Service bundle hash, and a Core-only deploy fails closed on the
-stale `release/local-components.json` hash. Publish a catalog change through
-the CLI release lane: its Core projection deploy is what brings the new
-catalog to Web and online CLI.
+### 5.3 Maintenance Workflow
 
-### 5.3 Maintenance Workflow (must be documented in-repo)
+1. Edit `release/vendor-models.json` to add or retire a model, change availability,
+   defaults, or reasoning options within the supported catalog schema.
+2. Review the PR and validate it against `packages/schemas`. In particular,
+   default changes affect many users and must be reviewed explicitly.
+3. Deploy the catalog through the guarded Core release scope. Existing online
+   CLIs receive the new catalog without a local-component release.
+4. A change to the offline fallback, schema readers, or local controller execution
+   still requires the appropriate CLI release. Deploy accepting readers before
+   new incompatible fields; current catalog schemas are strict. A remote catalog
+   cannot add a missing local adapter or make an unsupported controller executable
+   capable of running a model.
 
-1. Edit `release/vendor-models.json` (add/retire a model, flip `unavailable`,
-   change a controller default, update reasoning options).
-2. Open a PR. Review is the safety gate for the high-blast-radius default-model
-   value. CI validates against the catalog schema in `packages/schemas`.
-3. Merge to main, inspect the local-component release facts on a clean release
-   worktree with `pnpm release:local-components plan --next`, then stamp the
-   exact touched components with the explicit policy and reason required by
-   `developing/engineering/production-release.md`. Land the stamp through its
-   versioned release PR. Feature and ordinary PR branches must keep the base
-   package version and manifest unchanged; the pre-push gate enforces this with
-   deferred-release verification against the PR base.
-4. Dispatch the CLI Release workflow at that commit. It publishes npm, R2, the
-   release tag, and the Core projection. The projection serves the new catalog to
-   Web and online CLI, and the CLI's embedded snapshot ships in the same published
-   version — there is no separate "refresh later" cadence to wait for.
-
-A short maintenance guide (how to add/retire a model, change a default, source
-the exact reasoning option strings, run the owner-doc check, deploy) ships as
-part of this feature, alongside `config/agents/README.md`.
+The release gate follows actual build inputs: the live catalog selects Core;
+the offline snapshot remains part of the packaged CLI source. Do not refresh
+both files mechanically on every model catalog edit.
 
 ### 5.4 Claude Opus 5 vendor verification
 

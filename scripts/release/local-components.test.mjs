@@ -985,8 +985,14 @@ test("classifies release-sensitive paths narrowly", () => {
     ),
     false
   );
-  assert.equal(isCliReleasePath("release/vendor-models.json"), true);
-  assert.equal(isServiceReleasePath("release/vendor-models.json"), true);
+  assert.equal(isCliReleasePath("release/vendor-models.json"), false);
+  assert.equal(isServiceReleasePath("release/vendor-models.json"), false);
+  assert.equal(
+    isCliReleasePath(
+      "clients/openmeld-cli/src/model-catalog/offline-catalog.json"
+    ),
+    true
+  );
   assert.equal(isServiceReleasePath("release/local-components.json"), false);
   assert.equal(
     isCliReleasePath("runtime/adapters/core/src/launch-contract.ts"),
