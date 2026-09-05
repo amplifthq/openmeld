@@ -1,4 +1,3 @@
-import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type { ExecutionRecoveryAction } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -10,24 +9,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { isSpaceComposerSendOutcomeUnknown } from "#/lib/spaces/errors";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
-import { createClientMessageId } from "./use-space-landing-controller-helpers";
-
-export type SpaceWakeRetryRequest = {
-	sourceText: string;
-	targetProfileId: string;
-	threadContext?: SpaceWakeRetryThreadContext;
-};
-
-export type SpaceWakeRetryThreadContext = {
-	rootSignalId: string;
-	threadId: string;
-};
-
-export type SpaceWakeRetryAttempt = SpaceWakeRetryRequest & {
-	clientMessageId: string;
-};
 
 export type SpaceExecutionRecoveryRequest = {
 	dispatchId: string;
@@ -65,85 +47,6 @@ export type SpaceExecutionRecoveryResolution = {
 export type SpaceExecutionRecoveryHandler = (
 	input: SpaceExecutionRecoveryAttempt
 ) => Promise<SpaceExecutionRecoveryResolution>;
-
-export type SpaceWakeRetryHandler = (
-	input: SpaceWakeRetryAttempt
-) => Promise<void>;
-
-export function resolveSpaceWakeRetryRequest(input: {
-	notice?: SpaceTimelineItem;
-	retrySourceText: string | null;
-}): SpaceWakeRetryRequest | null {
-	if (
-		!input.retrySourceText ||
-		input.notice?.systemNoticeType !== "terminal_failure" ||
-		input.notice.systemNoticeReasonCode ===
-			"runtime_coordinator.late_result_available" ||
-		input.notice.systemNoticeFailureStage === "publication"
-	) {
-		return null;
-	}
-	const targetProfileId =
-		input.notice.systemNoticeTargetProfileId?.trim() ?? "";
-	if (!targetProfileId) {
-		return null;
-	}
-	return {
-		sourceText: input.retrySourceText,
-		targetProfileId,
-	};
-}
-
-function resolveSpaceWakeRetrySourceText(
-	item: SpaceTimelineItem
-): string | null {
-	if (item.signalType !== "signal.text") {
-		return null;
-	}
-	const sourceText = item.text.trim();
-	return sourceText.length > 0 ? sourceText : null;
-}
-
-export function resolveAnchoredSpaceWakeRetryRequest(input: {
-	notices: readonly SpaceTimelineItem[];
-	outcomeNotice: SpaceTimelineItem;
-	sourceItem: SpaceTimelineItem;
-}): SpaceWakeRetryRequest | null {
-	if (input.sourceItem.attachments.length > 0) {
-		return null;
-	}
-	const notice = input.outcomeNotice;
-	const sourceTargetProfileId =
-		notice.systemNoticeTargetProfileId?.trim() ?? "";
-	if (
-		notice.systemNoticeType !== "terminal_failure" ||
-		!sourceTargetProfileId ||
-		!input.sourceItem.wakeTargetProfileIds.includes(sourceTargetProfileId)
-	) {
-		return null;
-	}
-	// Modern terminal failures always re-enter through the Core-owned recovery
-	// control plane. This legacy direct Wake fallback is reserved for historical
-	// notices that predate durable dispatch identity.
-	if (notice.systemNoticeDispatchId?.trim()) {
-		return null;
-	}
-	if (input.sourceItem.wakeTargetProfileIds.length !== 1) {
-		return null;
-	}
-	if (
-		resolveAnchoredExecutionRecoveryEvidence({
-			notices: input.notices,
-			outcomeNotice: notice,
-		})
-	) {
-		return null;
-	}
-	return resolveSpaceWakeRetryRequest({
-		notice,
-		retrySourceText: resolveSpaceWakeRetrySourceText(input.sourceItem),
-	});
-}
 
 export function resolveAnchoredSpaceExecutionRecoveryRequest(input: {
 	notices: readonly SpaceTimelineItem[];
@@ -204,130 +107,6 @@ export function resolveAnchoredSpaceExecutionRecoveryState(input: {
 		},
 		status: "inspect",
 	};
-}
-
-function resolveAnchoredExecutionRecoveryEvidence(input: {
-	notices: readonly SpaceTimelineItem[];
-	outcomeNotice: SpaceTimelineItem;
-}): {
-	completed: boolean;
-	request: SpaceExecutionRecoveryRequest;
-} | null {
-	const terminalFailure = input.outcomeNotice;
-	if (terminalFailure.systemNoticeType !== "terminal_failure") {
-		return null;
-	}
-	const dispatchId = terminalFailure?.systemNoticeDispatchId?.trim() ?? "";
-	const targetProfileId =
-		terminalFailure?.systemNoticeTargetProfileId?.trim() ?? "";
-	if (!(dispatchId && targetProfileId)) {
-		return null;
-	}
-	const exactRecoveryNotices = input.notices.filter(
-		(notice) =>
-			notice.systemNoticeType === "execution_recovery_available" &&
-			notice.systemNoticeDispatchId?.trim() === dispatchId &&
-			notice.systemNoticeTargetProfileId?.trim() === targetProfileId &&
-			Boolean(notice.systemNoticeResultRef?.trim())
-	);
-	if (exactRecoveryNotices.length !== 1) {
-		return null;
-	}
-	const resultRef = exactRecoveryNotices[0]?.systemNoticeResultRef?.trim();
-	if (!resultRef) {
-		return null;
-	}
-	const completed = input.notices.some(
-		(notice) =>
-			notice.systemNoticeType === "execution_recovery_completed" &&
-			notice.systemNoticeDispatchId?.trim() === dispatchId &&
-			notice.systemNoticeTargetProfileId?.trim() === targetProfileId &&
-			notice.systemNoticeResultRef?.trim() === resultRef
-	);
-	return {
-		completed,
-		request: { dispatchId, resultRef, targetProfileId },
-	};
-}
-
-export function SpaceWakeRetryButton(input: {
-	className?: string;
-	onRetryWakeTarget: SpaceWakeRetryHandler;
-	request: SpaceWakeRetryRequest;
-	warning?: string | null;
-}) {
-	const warningId = useId();
-	const warning =
-		input.warning ??
-		"This starts a new execution and may run the task and its side effects again.";
-	const clientMessageIdRef = useRef<string | null>(null);
-	const pendingRef = useRef(false);
-	const [didFail, setDidFail] = useState(false);
-	const [isPending, setIsPending] = useState(false);
-	const [wasOutcomeUnknown, setWasOutcomeUnknown] = useState(false);
-	const retryWake = async () => {
-		if (pendingRef.current) {
-			return;
-		}
-		const clientMessageId =
-			clientMessageIdRef.current ?? createClientMessageId();
-		clientMessageIdRef.current = clientMessageId;
-		pendingRef.current = true;
-		setDidFail(false);
-		setIsPending(true);
-		setWasOutcomeUnknown(false);
-		try {
-			await input.onRetryWakeTarget({
-				...input.request,
-				clientMessageId,
-			});
-			clientMessageIdRef.current = null;
-		} catch (error) {
-			const failure = toStructuredApiClientFailure(error);
-			if (isSpaceComposerSendOutcomeUnknown(failure)) {
-				setWasOutcomeUnknown(true);
-			} else {
-				clientMessageIdRef.current = null;
-				setDidFail(true);
-				console.error("Failed to retry the Wake.", error);
-			}
-		} finally {
-			pendingRef.current = false;
-			setIsPending(false);
-		}
-	};
-	let retryLabel = "Retry as new execution";
-	if (isPending) {
-		retryLabel = "Starting new execution...";
-	} else if (wasOutcomeUnknown) {
-		retryLabel = "New execution not confirmed. Try again";
-	} else if (didFail) {
-		retryLabel = "New execution failed. Try again";
-	}
-
-	return (
-		<div className="flex max-w-sm flex-col items-start gap-1.5">
-			<p className="text-muted-foreground text-xs leading-5" id={warningId}>
-				{warning}
-			</p>
-			<Button
-				aria-describedby={warningId}
-				aria-live="polite"
-				className={input.className}
-				disabled={isPending}
-				onClick={() => {
-					retryWake().catch((error) => {
-						console.error("Unexpected Wake retry failure.", error);
-					});
-				}}
-				size="sm"
-				type="button"
-				variant="outline"
-			>
-				{retryLabel}
-			</Button>
-		</div>
-	);
 }
 
 export function SpaceExecutionRecoveryButton(input: {

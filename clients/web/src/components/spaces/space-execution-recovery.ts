@@ -1,5 +1,5 @@
 import type { ExecutionRecoveryProjection } from "@openmeld/schemas/types";
-import type { SpaceExecutionRecoveryResolution } from "./space-wake-retry";
+import type { SpaceExecutionRecoveryResolution } from "./space-execution-recovery-actions";
 
 export function projectSpaceExecutionRecoveryResolution(
 	recovery: ExecutionRecoveryProjection

@@ -132,6 +132,10 @@ import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
 import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
+import {
+	resolveAnchoredSpaceExecutionRecoveryRequest,
+	type SpaceExecutionRecoveryHandler,
+} from "./space-execution-recovery-actions";
 import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceMessageBody } from "./space-message-body";
@@ -175,12 +179,6 @@ import {
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
-import {
-	resolveAnchoredSpaceExecutionRecoveryRequest,
-	resolveAnchoredSpaceWakeRetryRequest,
-	type SpaceExecutionRecoveryHandler,
-	type SpaceWakeRetryHandler,
-} from "./space-wake-retry";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -272,7 +270,6 @@ type SpaceConversationPanelResolvedProps = {
 	onRemoveComposerFile: (localId: string) => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	onMentionButtonClick: () => void;
 	onSend: () => Promise<void>;
@@ -722,10 +719,6 @@ export function SpaceConversationPanel(
 						input.onRecoverExecution
 					)}
 					onReportMessage={onReportMessage}
-					onRetryWakeTarget={resolveWritableSpaceAction(
-						isReadOnly,
-						input.onRetryWakeTarget
-					)}
 					onViewInGraph={onViewMessageInGraph}
 					onWakeStopRequest={input.onWakeStopRequest}
 					open={true}
@@ -804,7 +797,6 @@ function renderPanelConversationBody(input: {
 		onRecoverExecution: presentation.messageDetailsItem
 			? undefined
 			: panel.onRecoverExecution,
-		onRetryWakeTarget: panel.onRetryWakeTarget,
 		onSendStarterPrompt: panel.onSendStarterPrompt,
 		onStartComputerSetup: () => presentation.setStarterComputerSetupOpen(true),
 		onWakeStopRequest: panel.onWakeStopRequest
@@ -2069,7 +2061,6 @@ function renderConversationBody(input: {
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onStartComputerSetup: () => void;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
@@ -2292,7 +2283,6 @@ function renderConversationBody(input: {
 						onOpenThread={input.onOpenThread}
 						onRecoverExecution={input.onRecoverExecution}
 						onReplyToMessage={input.onReplyToMessage}
-						onRetryWakeTarget={input.onRetryWakeTarget}
 						onSendStarterPrompt={input.onSendStarterPrompt}
 						onWakeStopRequest={input.onWakeStopRequest}
 						orgSlug={input.orgSlug}
@@ -2481,7 +2471,6 @@ type ConversationBubbleRunInput = {
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
@@ -2873,7 +2862,6 @@ function ConversationBubbleContent(input: {
 				notices: input.anchoredOutcomeNotices,
 				onOpenMessageDetails: parent.onOpenMessageDetails,
 				onRecoverExecution: parent.onRecoverExecution,
-				onRetryWakeTarget: parent.onRetryWakeTarget,
 				profileEntriesById: parent.profileEntriesById,
 				readOnly: parent.readOnly,
 				sourceItem: input.item,
@@ -3667,7 +3655,6 @@ function renderAnchoredSpaceOutcomeRows(input: {
 	notices: readonly SpaceTimelineItem[];
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 	readOnly: boolean;
 	sourceItem: SpaceTimelineItem;
@@ -3698,13 +3685,6 @@ function renderAnchoredSpaceOutcomeRows(input: {
 							outcomeNotice,
 						})
 					: null;
-				const retryRequest = outcomeNotice
-					? resolveAnchoredSpaceWakeRetryRequest({
-							notices: input.notices,
-							outcomeNotice,
-							sourceItem: input.sourceItem,
-						})
-					: null;
 				return (
 					<SpaceOutcomeRow
 						align={input.align}
@@ -3717,11 +3697,7 @@ function renderAnchoredSpaceOutcomeRows(input: {
 						onRecoverExecution={
 							input.readOnly ? undefined : input.onRecoverExecution
 						}
-						onRetryWakeTarget={
-							input.readOnly ? undefined : input.onRetryWakeTarget
-						}
 						recoveryRequest={recoveryRequest}
-						retryRequest={retryRequest}
 						spaceReferencesById={input.spaceReferencesById}
 						text={resolveGroupedOutcomeRowText({
 							notices: group.notices,

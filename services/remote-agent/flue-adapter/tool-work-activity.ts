@@ -145,10 +145,6 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
     "openmeld_resume_controller_conversation",
     "execution.recovery.conversation.resume",
   ],
-  [
-    "openmeld_retry_as_new_execution",
-    "execution.recovery.retry_as_new_execution",
-  ],
   ["openmeld_resume_routine", "routine.resume"],
   ["openmeld_search_slack_messages", "slack.messages.search"],
   ["openmeld_set_agent_profile_default_project", "project.default.set"],

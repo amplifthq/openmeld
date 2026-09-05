@@ -32,9 +32,9 @@ import {
 	SPACE_WAKE_COMPOSER_HINT,
 } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
+import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
-import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 
 type SpaceConversationPanelInput = ComponentProps<
 	typeof SpaceConversationPanel
