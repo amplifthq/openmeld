@@ -900,7 +900,10 @@ members, messages, or cursors.
 
 Deploy Core, then Gateway, then Web for this additive route. Existing callers,
 responses, CLI, Service, and Skills remain compatible; old Web tabs do not gain
-foreground reporting until refreshed. No new local-component release is needed.
+foreground reporting until refreshed. The shared schema is included in the
+packaged Service, so release it through the normal compatible CLI/Service patch
+lane before Gateway and Web. Runtime compatibility does not exempt packaged
+shared files from the local-component version and bundle-hash release rules.
 
 `organization-computers.ts` owns the strict team-safe Organization Computer
 projection. Core authorizes the active Organization, resolves its current
