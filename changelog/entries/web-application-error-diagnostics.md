@@ -4,6 +4,8 @@ title: Keep diagnostic records for Web application errors
 kind: improved
 areas: ["web", "observability"]
 audiences: ["operators"]
+publishedAt: 2026-09-05
+evidence: ["pr:667", "commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f", "workflow:33953073945"]
 ---
 
 Web application errors now produce searchable Cloudflare logs with build
