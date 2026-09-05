@@ -16,13 +16,13 @@ describe("SpaceAgentOrb", () => {
 			'[data-slot="space-agent-orb"]'
 		);
 
-		expect(DEFAULT_SPACE_AGENT_ORB_STATE).toBe("working");
+		expect(DEFAULT_SPACE_AGENT_ORB_STATE).toBe("solving");
 		expect(orbSlot?.className).toContain("size-4");
 		expect(orb?.className).toContain("scale-80");
 		expect(orb?.style.width).toBe("20px");
 		expect(orb?.style.height).toBe("20px");
 		expect(orb?.getAttribute("aria-hidden")).toBe("true");
-		expect(orb?.dataset.spaceAgentOrbState).toBe("working");
+		expect(orb?.dataset.spaceAgentOrbState).toBe("solving");
 	});
 
 	it("renders a prominent 32 pixel orb without the compact scale", () => {
@@ -73,6 +73,6 @@ describe("SpaceAgentOrb", () => {
 				state: "output-available",
 				work: { key: "source.search", v: 1 },
 			})
-		).toBe("working");
+		).toBe("solving");
 	});
 });

@@ -185,6 +185,41 @@ describe("assessCliUpdate", () => {
     ).toBe(false);
   });
 
+  it("allows local binary maintenance only with an explicit loopback HTTP manifest", () => {
+    for (const manifestUrl of [
+      "http://127.0.0.1:3197/cli/manifest.json",
+      "https://localhost:3197/cli/manifest.json",
+      "http://[::1]:3197/cli/manifest.json",
+    ]) {
+      expect(
+        isCliUpdateCheckApplicable(DEV_TARGET, {
+          distribution: "binary",
+          manifestUrl,
+        })
+      ).toBe(true);
+      expect(
+        isCliUpdateCheckApplicable(DEV_TARGET, {
+          distribution: "npm",
+          manifestUrl,
+        })
+      ).toBe(false);
+    }
+    for (const manifestUrl of [
+      "",
+      "invalid",
+      "file:///tmp/manifest.json",
+      "https://openmeld.ai/cli/manifest.json",
+      "https://localhost.example/cli/manifest.json",
+    ]) {
+      expect(
+        isCliUpdateCheckApplicable(DEV_TARGET, {
+          distribution: "binary",
+          manifestUrl,
+        })
+      ).toBe(false);
+    }
+  });
+
   // A floor must be a plain published release version. Anything else — garbage,
   // build metadata (which `compareSemver` ignores, so it could wrongly gate),
   // or a prerelease — is treated as no signal so it fails open.

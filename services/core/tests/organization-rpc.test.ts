@@ -8247,7 +8247,7 @@ describe("organization Core RPC", () => {
           profileName: "Codex",
         }),
         spaceId: first.spaceId,
-        text: "👋 Hi Ava — I'm the Center Agent for Acme Labs. Pick a starting point below, or tell me what you'd like to get done.",
+        text: "👋 Hi Ava — I'm the Center Agent for Acme Labs. Choose a starting point, or tell me what you'd like to get done.",
       })
     );
     expect(spaceStub.rpcInitializeDirectMessageMeta).toHaveBeenCalledTimes(1);
@@ -8423,7 +8423,7 @@ describe("organization Core RPC", () => {
           profileName: "Center Agent",
         }),
         spaceId: inviteeOpen.spaceId,
-        text: "👋 Hi Ava — I'm the Center Agent for Acme Labs. Pick a starting point below, or tell me what you'd like to get done.",
+        text: "👋 Hi Ava — I'm the Center Agent for Acme Labs. Choose a starting point, or tell me what you'd like to get done.",
       })
     );
   });
@@ -8834,7 +8834,7 @@ describe("organization Core RPC", () => {
           profileName: "Center Agent",
         }),
         spaceId: first.spaceId,
-        text: "👋 Hi Ava — I'm your Center Agent. Pick a starting point below, or tell me what you'd like to get done.",
+        text: "👋 Hi Ava — I'm your Center Agent. Choose a starting point, or tell me what you'd like to get done.",
       })
     );
   });
@@ -8985,7 +8985,7 @@ describe("organization Core RPC", () => {
           purpose: "center_agent_dm_welcome",
         }),
         spaceId: opened.spaceId,
-        text: "👋 I'm your Center Agent. Pick a starting point below, or tell me what you'd like to get done.",
+        text: "👋 I'm your Center Agent. Choose a starting point, or tell me what you'd like to get done.",
       })
     );
   });

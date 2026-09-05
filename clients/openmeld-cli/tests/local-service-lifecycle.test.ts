@@ -9,6 +9,17 @@ import type { DaemonServiceManager } from "../src/local-service/lifecycle/daemon
 const EXPECTED_VERSION = "0.3.6";
 const PREVIOUS_VERSION = "0.3.3";
 
+// OS registration is covered by the isolated native smoke; this suite exercises
+// lifecycle drain, preservation, and rollback with an injected service manager.
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-worker-manager",
+  () => ({
+    ensureDaemonServiceMaintenanceInstalled: vi
+      .fn()
+      .mockResolvedValue(undefined),
+  })
+);
+
 const {
   activateDaemonServiceBundleMock,
   backupDaemonRuntimeDataForReinstallMock,

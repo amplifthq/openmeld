@@ -84,6 +84,10 @@ export function resolveProjectErrorMessage(
 	const failure = toStructuredApiClientFailure(error);
 	const code = failure.upstreamCode ?? failure.code;
 	switch (code) {
+		case "project.repository_exists":
+			return "This repository already has a project. Try again to choose the existing project.";
+		case "project.operation_conflict":
+			return "This creation request has changed. Close this dialog and try again.";
 		case "project.forbidden":
 			return "You do not have permission to manage this Project.";
 		case "project.has_activity":

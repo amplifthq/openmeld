@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T06:20:04.714Z",
+  "updatedAt": "2026-09-05T14:41:46.435Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.158",
+      "packageVersion": "0.3.160",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible with old and new cloud; new invitation commands are published only after Core and Auth receivers are deployed."
+      "reason": "Cloud receivers are deployed first; existing CLI commands remain supported and the current required floor is unchanged."
     },
     "service": {
-      "bundleHash": "70fece55a30f63ccf4d942af0281da8188d1fe070062064ea8327130c512d185",
-      "bundleVersion": "0.3.158",
+      "bundleHash": "bda3ff3c62377df1dd94430de1f6093ac89eb891a644bca2c6f1dd43e55c3ebe",
+      "bundleVersion": "0.3.160",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Shared schema and catalog bytes change the package but existing setup, Wake, Runtime Transport, and running executions remain compatible in both directions."
+      "reason": "Existing Services remain safe for Wake work; publish compatible cloud receivers before the independent Skill bridge capability."
     },
     "skills": {
-      "bundleHash": "066654c32315419b602249322147d112da27db40d7872ccd17c0c44b8ebc20ae",
+      "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The additive invitation playbook is published after its Auth receiver; existing skill commands and Space actions remain compatible without a required floor increase."
+      "reason": "Signed compatible guide revisions update independently, retain the offline baseline, and do not require retiring existing Skills."
     }
   }
 }

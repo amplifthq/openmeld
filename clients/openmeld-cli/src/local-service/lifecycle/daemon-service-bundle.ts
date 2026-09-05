@@ -506,7 +506,7 @@ async function hashDaemonBinaryFile(filePath: string): Promise<string> {
   return hash.digest("hex");
 }
 
-async function runAuditedServiceManagerCarrierMutation<T>(input: {
+export async function runAuditedServiceManagerCarrierMutation<T>(input: {
   distribution?: OpenMeldDistribution;
   operation: string;
   pathInput?: OpenMeldPathResolutionInput;

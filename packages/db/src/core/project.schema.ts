@@ -21,6 +21,7 @@ export const projects = sqliteTable(
     slug: text("slug").notNull(),
     repositoryFingerprint: text("repository_fingerprint"),
     repositoryUrl: text("repository_url"),
+    creationRequestSignature: text("creation_request_signature"),
     createdByUserId: text("created_by_user_id").notNull(),
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),

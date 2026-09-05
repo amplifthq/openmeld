@@ -533,6 +533,7 @@ export async function pollWakeProgress(input: {
 				api.getWakeProgress({
 					clientMessageId,
 					includePreviewText: true,
+					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeWakeStopEligibility: true,

@@ -8,6 +8,10 @@ import type { AuthBindings } from "../src/lib/bindings";
 import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 import {
+  organizationJoinLinkSchema as legacyJoinLinkSchema,
+  previewOrganizationJoinLinkResponseSchema as legacyPreviewSchema,
+} from "./support/legacy-join-link-contract";
+import {
   applyDrizzleMigrations,
   createSqliteD1Harness,
   type SqliteD1Harness,
@@ -82,7 +86,7 @@ describe("organization join link HTTP API", () => {
     ).resolves.toEqual(first);
   });
 
-  it("returns structured on-behalf-of refusals for members and personal Organizations", async () => {
+  it("lets members share a request link but rejects personal Organizations", async () => {
     const context = createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
@@ -106,11 +110,7 @@ describe("organization join link HTTP API", () => {
         actorUserId: member.userId,
         organizationId,
       })
-    ).resolves.toEqual({
-      code: "organization.join_link.forbidden",
-      message: "Only an Organization owner or admin can create an invite link.",
-      ok: false,
-    });
+    ).resolves.toMatchObject({ ok: true });
 
     const personalOrganizationId = readPersonalOrganizationId(
       context.harness,
@@ -160,7 +160,7 @@ describe("organization join link HTTP API", () => {
     });
   });
 
-  it("lets owner and admin manage one active link while rejecting members", async () => {
+  it("lets members read a link while only owner and admin can reset or revoke it", async () => {
     const context = createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
@@ -201,6 +201,38 @@ describe("organization join link HTTP API", () => {
     });
     expect(createResponse.status).toBe(201);
     const created = await readJoinLink(createResponse);
+    expect(legacyJoinLinkSchema.safeParse(created).success).toBe(true);
+    const legacyPreview = await previewJoinLink(context, created.token);
+    expect(legacyPreviewSchema.safeParse(legacyPreview).success).toBe(true);
+    // The scope is stored server-side, never trusted from the preview caller.
+    await context.harness.db
+      .prepare(
+        "UPDATE organization_join_links SET space_id = ? WHERE token = ?"
+      )
+      .bind("client-launch", created.token)
+      .run();
+    const scopedLegacyPreview = await previewJoinLink(context, created.token);
+    expect(legacyPreviewSchema.safeParse(scopedLegacyPreview).success).toBe(
+      true
+    );
+    const scopedPreview = await context.app.fetch(
+      new Request(
+        `${AUTH_BASE_URL}/api/auth/organization/join-link/preview?token=${created.token}&responseVersion=2`
+      ),
+      context.env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(scopedPreview.status).toBe(200);
+    await expect(scopedPreview.json()).resolves.toMatchObject({
+      active: true,
+      spaceId: "client-launch",
+    });
+    await context.harness.db
+      .prepare(
+        "UPDATE organization_join_links SET space_id = NULL WHERE token = ?"
+      )
+      .bind(created.token)
+      .run();
     expect(created.token).toMatch(ORGANIZATION_JOIN_LINK_TOKEN_PATTERN);
     expect(created).toMatchObject({
       createdBy: owner.userId,
@@ -216,7 +248,15 @@ describe("organization join link HTTP API", () => {
     expect(adminGetResponse.status).toBe(200);
     await expect(readJoinLink(adminGetResponse)).resolves.toEqual(created);
 
-    for (const method of ["GET", "POST", "DELETE"] as const) {
+    expect(
+      (
+        await requestJoinLink(context, {
+          headers: member.headers,
+          organizationId,
+        })
+      ).status
+    ).toBe(200);
+    for (const method of ["POST", "DELETE"] as const) {
       const forbiddenResponse = await requestJoinLink(context, {
         headers: member.headers,
         method,
@@ -332,7 +372,7 @@ describe("organization join link HTTP API", () => {
     });
   });
 
-  it("accepts a link as member and remains idempotent", async () => {
+  it("never enrolls a nonmember through the legacy accept endpoint", async () => {
     const context = createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
@@ -360,33 +400,26 @@ describe("organization join link HTTP API", () => {
       created.token,
       joiningUser.headers
     );
-    expect(firstAcceptResponse.status).toBe(200);
-    await expect(firstAcceptResponse.json()).resolves.toEqual({
-      alreadyMember: false,
-      ok: true,
-      organizationId,
-      organizationName: "Acme Research",
-      organizationSlug: "acme-research",
-      role: "member",
-    });
+    expect(firstAcceptResponse.status).toBe(400);
+    await expect(readErrorCode(firstAcceptResponse)).resolves.toBe(
+      "organization.join_link.approval_required"
+    );
     expect(
       readMembershipRole(context.harness, organizationId, joiningUser.userId)
-    ).toBe("member");
+    ).toBeNull();
 
     const secondAcceptResponse = await acceptJoinLink(
       context,
       created.token,
       joiningUser.headers
     );
-    expect(secondAcceptResponse.status).toBe(200);
-    await expect(secondAcceptResponse.json()).resolves.toMatchObject({
-      alreadyMember: true,
-      ok: true,
-      role: "member",
-    });
+    expect(secondAcceptResponse.status).toBe(400);
+    await expect(readErrorCode(secondAcceptResponse)).resolves.toBe(
+      "organization.join_link.approval_required"
+    );
   });
 
-  it("allows a user with five memberships to join a sixth organization", async () => {
+  it("requires approval even when the account belongs to other organizations", async () => {
     const context = createTestContext();
     const owner = await createSignedInUser(context, {
       email: "owner@example.com",
@@ -426,13 +459,13 @@ describe("organization join link HTTP API", () => {
       joiningUser.headers
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(400);
     expect(
       readMembershipRole(context.harness, organizationId, joiningUser.userId)
-    ).toBe("member");
+    ).toBeNull();
     expect(
       readOrganizationMembershipCount(context.harness, joiningUser.userId)
-    ).toBe(6);
+    ).toBe(5);
   });
 
   it("rate limits join-link acceptance per client IP before adding a member", async () => {

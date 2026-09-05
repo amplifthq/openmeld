@@ -406,7 +406,8 @@ function InvitationManager(input: {
 					<p className="font-medium text-sm">Share an invite link</p>
 				</div>
 				<p className="mt-1 text-muted-foreground text-xs leading-5">
-					Anyone with the link can join as a member.
+					Anyone with the link can request an invitation. Each person needs
+					approval before joining.
 				</p>
 				<InviteLinkControl
 					copyStatus={input.copyStatus}

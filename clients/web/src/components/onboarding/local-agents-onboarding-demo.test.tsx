@@ -11,8 +11,8 @@ describe("LocalAgentsOnboardingDemo", () => {
 			"codex",
 			"claude-code",
 			"grok-build",
-			"cursor",
 			"opencode",
+			"cursor",
 		].map((agentId) => within(grid).getByTestId(`local-agent-logo-${agentId}`));
 
 		expect(within(grid).getByText("Grok Build")).toBeTruthy();

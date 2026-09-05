@@ -46,16 +46,12 @@ describe("AgentProfileGenerator", () => {
 	it.each([
 		"dialog",
 		"page",
-	] as const)("starts customization collapsed on the %s surface and opens only the selected editor", async (surface) => {
+	] as const)("starts customization expanded on the %s surface and opens only the selected editor", async (surface) => {
 		render(<GeneratorHarness initialAgentId="codex" surface={surface} />);
 
 		const customizeTrigger = screen.getByRole("button", {
 			name: CUSTOMIZE_AGENT_BUTTON_NAME,
 		});
-		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("false");
-		expect(screen.queryByRole("button", { name: "Edit Owner" })).toBeNull();
-
-		fireEvent.click(customizeTrigger);
 		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("true");
 		fireEvent.click(screen.getByRole("button", { name: "Edit Owner" }));
 
@@ -67,9 +63,6 @@ describe("AgentProfileGenerator", () => {
 	it("keeps customization expanded when returning from review", async () => {
 		render(<GeneratorHarness initialAgentId="codex" />);
 
-		fireEvent.click(
-			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
-		);
 		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		fireEvent.click(await screen.findByRole("button", { name: "Back" }));
 
@@ -95,9 +88,6 @@ describe("AgentProfileGenerator", () => {
 		).toContain(
 			"New session · openmeld · GPT-5.6 Sol (default) · Model default · Ask for approval"
 		);
-		fireEvent.click(
-			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
-		);
 		expect(
 			screen.getByText("GPT-5.6 Sol (default) · Model default")
 		).toBeTruthy();
@@ -106,16 +96,21 @@ describe("AgentProfileGenerator", () => {
 	});
 
 	it("allows an explicit unbound Agent without inventing an available local agent", async () => {
-		render(<GeneratorHarness availableLocalAgentIds={[]} initialAgentId="" />);
+		const onSubmit = vi.fn();
+		render(
+			<GeneratorHarness
+				availableLocalAgentIds={[]}
+				initialAgentId=""
+				onSubmit={onSubmit}
+			/>
+		);
 
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Edit Runs on" }));
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Create and connect later" })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		expect(screen.queryByRole("button", { name: "Edit Runs on" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Connect later" }));
 
 		expect(await screen.findByText("Connect a local agent later")).toBeTruthy();
+		expect(onSubmit).not.toHaveBeenCalled();
 	});
 
 	it("submits through the existing creation contract", () => {

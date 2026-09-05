@@ -12,9 +12,9 @@ describe("builtin agent controller brand registry", () => {
       "codex",
       "claude-code",
       "grok-build",
-      "cursor",
       "opencode",
       "openclaw",
+      "cursor",
     ]);
     expect(
       ["custom-z", "cursor", "grok-build", "codex", "claude-code"].sort(

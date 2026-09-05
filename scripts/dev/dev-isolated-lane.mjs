@@ -182,9 +182,9 @@ export async function releaseIsolatedDevLane(options = {}) {
 }
 
 export function buildIsolatedDevEnvironment(lane) {
-  const authUrl = buildLocalUrl(lane.ports.auth);
-  const gatewayUrl = buildLocalUrl(lane.ports.gateway);
-  const webUrl = buildLocalUrl(lane.ports.web);
+  const authUrl = buildIsolatedDevUrl(lane.laneId, lane.ports.auth);
+  const gatewayUrl = buildIsolatedDevUrl(lane.laneId, lane.ports.gateway);
+  const webUrl = buildIsolatedDevUrl(lane.laneId, lane.ports.web);
 
   return {
     AUTH_WORKER_NODE_ENV: "development",
@@ -596,8 +596,8 @@ function defaultIsPidAlive(pid) {
   }
 }
 
-function buildLocalUrl(port) {
-  return `http://localhost:${String(port)}`;
+export function buildIsolatedDevUrl(laneId, port) {
+  return `http://${laneId}.localhost:${String(port)}`;
 }
 
 function isAlreadyExistsError(error) {

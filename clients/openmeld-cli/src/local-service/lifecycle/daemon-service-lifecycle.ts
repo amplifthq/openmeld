@@ -104,6 +104,7 @@ import {
   isSystemServiceStartupTimeoutError,
   waitForSystemServiceStartup,
 } from "./daemon-service-startup-wait";
+import { ensureDaemonServiceMaintenanceInstalled } from "./daemon-service-update-worker-manager";
 import { resolveVersionChangeDirection } from "./version-change-direction";
 
 const STRICT_TEARDOWN_VERIFY_WAIT_MS = 15_000;
@@ -676,6 +677,7 @@ async function executeDaemonServiceLifecycle(input: {
       serviceCommandSpec,
       serviceManager: input.context.serviceManager,
     });
+    await ensureDaemonServiceMaintenanceInstalled();
     if (!input.context.shouldStartAfterLifecycle) {
       await input.context.serviceManager.deactivate().catch(() => undefined);
       await input.context.serviceManager.waitUntilStopped();

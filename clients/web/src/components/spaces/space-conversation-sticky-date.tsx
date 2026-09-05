@@ -1,5 +1,11 @@
 import { useReducedMotion } from "framer-motion";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { SpaceConversationDatePill } from "./space-conversation-date-marker";
 
 const DATE_MARKER_SELECTOR = "[data-conversation-date-marker]";
@@ -18,6 +24,7 @@ const EMPTY_STICKY_DATE_STATE: StickyDateState = {
 };
 
 export function SpaceConversationStickyDate(input: {
+	afterDate?: ReactNode;
 	loadedSignalCount: number;
 	onActiveDateMsChange: (dateMs: number | null) => void;
 	onJumpToDate?: (date: Date) => Promise<string | null>;
@@ -35,7 +42,7 @@ export function SpaceConversationStickyDate(input: {
 		input.onActiveDateMsChange
 	);
 
-	if (stickyDate.activeDateMs === null) {
+	if (stickyDate.activeDateMs === null && !input.afterDate) {
 		return null;
 	}
 
@@ -46,29 +53,37 @@ export function SpaceConversationStickyDate(input: {
 			className="pointer-events-none sticky top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)] z-10 -mb-8 flex h-8 w-full justify-center max-lg:-mb-11 max-lg:h-11"
 			data-slot="conversation-date-pill"
 		>
-			<div
-				className="h-[calc(100%+0.125rem)] w-full overflow-hidden pb-0.5"
-				data-slot="conversation-date-pill-viewport"
-			>
+			{stickyDate.activeDateMs !== null && (
 				<div
-					className="flex w-full flex-col items-center"
-					data-slot="conversation-date-pill-track"
-					style={{
-						transform: `translate3d(0, ${String(pushOffsetPx)}px, 0)`,
-					}}
+					className="h-[calc(100%+0.125rem)] w-full overflow-hidden pb-0.5"
+					data-slot="conversation-date-pill-viewport"
 				>
 					<div
-						className="pointer-events-auto h-8 max-lg:h-11"
-						data-slot="conversation-date-pill-surface"
-						ref={setDatePillElement}
+						className="flex w-full flex-col items-center"
+						data-slot="conversation-date-pill-track"
+						style={{
+							transform: `translate3d(0, ${String(pushOffsetPx)}px, 0)`,
+						}}
 					>
-						<SpaceConversationDatePill
-							date={new Date(stickyDate.activeDateMs)}
-							loadedSignalCount={input.loadedSignalCount}
-							onJumpToDate={input.onJumpToDate}
-						/>
+						<div
+							className="pointer-events-auto h-8 max-lg:h-11"
+							data-slot="conversation-date-pill-surface"
+							ref={setDatePillElement}
+						>
+							<SpaceConversationDatePill
+								date={new Date(stickyDate.activeDateMs)}
+								loadedSignalCount={input.loadedSignalCount}
+								onJumpToDate={input.onJumpToDate}
+							/>
+						</div>
 					</div>
 				</div>
+			)}
+			<div
+				className="pointer-events-none absolute inset-x-0 top-full mt-2 flex justify-center"
+				data-slot="conversation-after-date"
+			>
+				{input.afterDate}
 			</div>
 		</div>
 	);

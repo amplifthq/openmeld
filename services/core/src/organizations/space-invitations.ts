@@ -21,6 +21,7 @@ type InvitationRow = {
   space_id: string;
   email: string;
   inviter_user_id: string;
+  sponsor_user_id: string | null;
   organization_invitation_id: string | null;
   status: "pending" | "accepting" | "accepted" | "revoked";
   expires_at: number;
@@ -35,7 +36,7 @@ const SELECT = `SELECT i.*, o.name AS organization_name, s.space_name, u.name AS
   LEFT JOIN space_index_spaces s ON s.space_id = i.space_id`;
 const LIFETIME_MS = ORGANIZATION_INVITATION_LIFETIME_SECONDS * 1000;
 
-class InvitationError extends Error {
+export class InvitationError extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
     super(message);
@@ -97,6 +98,64 @@ async function execute(
     throw new Error("Space invitation database is unavailable");
   }
   const request = input.request;
+  if (request.action === "create_approved") {
+    const approved = await db
+      .prepare(
+        "SELECT organization_id, space_id, email, requested_by_user_id FROM organization_join_requests WHERE id = ? AND status = 'approved' AND reviewed_by_user_id = ?"
+      )
+      .bind(request.requestId, input.userId)
+      .first<{
+        organization_id: string;
+        space_id: string | null;
+        email: string;
+        requested_by_user_id: string;
+      }>();
+    if (!approved?.space_id) {
+      fail(
+        "forbidden",
+        "Approve this Space invitation request before continuing."
+      );
+    }
+    await authorizeManager(
+      env,
+      approved.organization_id,
+      approved.space_id,
+      input.userId,
+      true,
+      approved.requested_by_user_id
+    );
+    await db
+      .prepare(
+        "INSERT INTO space_invitations (id, organization_id, space_id, email, inviter_user_id, sponsor_user_id, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT DO NOTHING"
+      )
+      .bind(
+        request.requestId,
+        approved.organization_id,
+        approved.space_id,
+        approved.email,
+        input.userId,
+        approved.requested_by_user_id,
+        Date.now(),
+        Date.now() + LIFETIME_MS
+      )
+      .run();
+    const invitation = await db
+      .prepare(
+        `${SELECT} WHERE i.organization_id = ? AND i.space_id = ? AND i.email = ? AND i.status IN ('pending', 'accepting') LIMIT 1`
+      )
+      .bind(approved.organization_id, approved.space_id, approved.email)
+      .first<InvitationRow>();
+    if (!invitation) {
+      fail(
+        "inactive",
+        "This invitation has already been handled. Create a new request if needed."
+      );
+    }
+    return await manageInvitation(env, db, input.userId, invitation, {
+      action: "resend",
+      invitationId: invitation.id,
+    });
+  }
   if (request.action === "pending") {
     return await listPendingInvitations(db, input);
   }
@@ -222,7 +281,9 @@ async function manageInvitation(
     env,
     row.organization_id,
     row.space_id,
-    userId
+    userId,
+    true,
+    row.sponsor_user_id ?? userId
   );
   if (
     row.status !== "pending" &&
@@ -359,7 +420,9 @@ async function acceptInvitation(
     env,
     row.organization_id,
     row.space_id,
-    row.inviter_user_id
+    row.inviter_user_id,
+    true,
+    row.sponsor_user_id ?? row.inviter_user_id
   );
   if (request.action === "claim") {
     await db
@@ -427,7 +490,9 @@ async function authorizeManager(
   env: CoreBindings,
   organizationId: string,
   spaceId: string,
-  userId: string
+  userId: string,
+  requireInvitationPermission = true,
+  sponsorUserId = userId
 ): Promise<OpenMeldRequestContext> {
   const membership = await resolveOrganizationMembershipById({
     env,
@@ -437,9 +502,10 @@ async function authorizeManager(
   if (
     !(
       membership.ok &&
-      memberRoleHasOrganizationPermission(membership.role, {
-        invitation: ["create"],
-      })
+      (!requireInvitationPermission ||
+        memberRoleHasOrganizationPermission(membership.role, {
+          invitation: ["create"],
+        }))
     )
   ) {
     fail(
@@ -454,6 +520,19 @@ async function authorizeManager(
   if (!personal.ok || personal.personal) {
     fail("forbidden", "Invitations are only available in team organizations.");
   }
+  if (sponsorUserId !== userId) {
+    const sponsor = await resolveOrganizationMembershipById({
+      env,
+      organizationId,
+      userId: sponsorUserId,
+    });
+    if (!sponsor.ok) {
+      fail(
+        "forbidden",
+        "The person who requested this invitation no longer belongs to the organization."
+      );
+    }
+  }
   const db = identityDb(env);
   if (!db) {
     throw new Error("Space invitation database is unavailable");
@@ -461,7 +540,7 @@ async function authorizeManager(
   const profile = await readResolvedOrganizationOwnerHumanSpaceMember({
     db,
     organizationId,
-    ownerUserId: userId,
+    ownerUserId: sponsorUserId,
   });
   if (!profile) {
     fail("forbidden", "Your account cannot manage this invitation.");
@@ -472,7 +551,7 @@ async function authorizeManager(
       requestId: crypto.randomUUID(),
       openMeldProfileId: profile.profileId,
       profileKind: "human",
-      ownerUserId: userId,
+      ownerUserId: sponsorUserId,
       ...(profile.profileName ? { profileName: profile.profileName } : {}),
     },
   };
@@ -484,4 +563,15 @@ async function authorizeManager(
     fail("forbidden", "Only members of an ordinary Space can invite people.");
   }
   return context;
+}
+
+// A member can propose adding someone, but cannot authorize Organization entry.
+// The request owner checks reviewer authority separately before fulfillment.
+export function authorizeSpaceInvitationSponsor(
+  env: CoreBindings,
+  organizationId: string,
+  spaceId: string,
+  userId: string
+): Promise<OpenMeldRequestContext> {
+  return authorizeManager(env, organizationId, spaceId, userId, false);
 }

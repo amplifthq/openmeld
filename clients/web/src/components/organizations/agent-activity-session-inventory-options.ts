@@ -1,9 +1,9 @@
 export const PROVIDER_OPTIONS = [
 	{ label: "Codex", value: "codex" },
 	{ label: "Claude Code", value: "claude-code" },
-	{ label: "Cursor", value: "cursor" },
-	{ label: "OpenCode", value: "opencode" },
 	{ label: "Grok Build", value: "grok-build" },
+	{ label: "OpenCode", value: "opencode" },
+	{ label: "Cursor", value: "cursor" },
 ];
 
 export const STATUS_OPTIONS = [

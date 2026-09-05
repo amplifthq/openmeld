@@ -101,6 +101,7 @@ type PrepareSessionExecutorInput = {
   gatewayUrl: string;
   startSession: string;
   initialSnapshot?: PrepareSessionSnapshot;
+  connectedStream?: PrepareSessionStream;
   localAgentSelection?: PrepareSessionLocalAgentSelection;
   runtime: RuntimeContext;
   presenter: ReturnType<typeof createPresenter>;
@@ -158,11 +159,12 @@ export async function runPrepareSessionExecutor(
   }
 
   let reconnectAttempts = 0;
+  let connectedStream = input.connectedStream;
   let reconnectDeadlineMs: number | null = null;
   while (true) {
     try {
       return await runPrepareSessionExecutorOnce({
-        input,
+        input: { ...input, connectedStream },
         initial,
         onTerminalConnected: () => {
           reconnectAttempts = 0;
@@ -170,6 +172,7 @@ export async function runPrepareSessionExecutor(
         },
       });
     } catch (error) {
+      connectedStream = undefined;
       if (error instanceof PrepareSessionCancelledError) {
         return {
           reason: "user_cancelled",
@@ -302,11 +305,13 @@ async function runPrepareSessionExecutorOnce(input: {
 
   let stream: PrepareSessionStream | null = null;
   try {
-    stream = await connectPrepareSessionStream({
-      gatewayUrl: input.input.gatewayUrl,
-      opaqueToken: input.input.startSession,
-      prepareSessionId: input.initial.prepareSessionId,
-    });
+    stream =
+      input.input.connectedStream ??
+      (await connectPrepareSessionStream({
+        gatewayUrl: input.input.gatewayUrl,
+        opaqueToken: input.input.startSession,
+        prepareSessionId: input.initial.prepareSessionId,
+      }));
     const connected = await waitForSnapshotWithProgress({
       input: input.input,
       stream,
@@ -2131,7 +2136,41 @@ export async function waitForSnapshotWithProgress(input: {
   }
 }
 
-async function connectPrepareSessionStream(input: {
+export async function reportPrepareHandoffStopped(input: {
+  stream: PrepareSessionStream;
+  reasonCode: string;
+  message: string;
+}): Promise<void> {
+  const stream = input.stream;
+  const timeout = setTimeout(() => stream.close(), 5000);
+  try {
+    const snapshot = await stream.waitForSnapshot(
+      (current) => current.terminalConnection.status === "connected"
+    );
+    const connectionEpoch = snapshot.terminalConnection.connectionEpoch;
+    if (connectionEpoch === null) {
+      throw new Error("Terminal connection was not confirmed.");
+    }
+    stream.writeTerminalStep({
+      connectionEpoch,
+      expectedRevision: snapshot.sessionRevision,
+      stepId: "connect_terminal",
+      status: "failed",
+      reasonCode: input.reasonCode,
+      message: input.message,
+    });
+    await stream.waitForSnapshot((current) =>
+      current.blockers.some(
+        (blocker) => blocker.reasonCode === input.reasonCode
+      )
+    );
+  } finally {
+    clearTimeout(timeout);
+    stream.close();
+  }
+}
+
+export async function connectPrepareSessionStream(input: {
   gatewayUrl: string;
   opaqueToken: string;
   prepareSessionId: string;

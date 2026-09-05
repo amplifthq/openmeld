@@ -144,6 +144,7 @@ function OrganizationGlobalInboxLauncher(input: {
 												size: "icon-sm",
 												variant: "ghost",
 											})}
+											onClick={() => setOpen(false)}
 											to={buildOrganizationInboxPath(currentOrganization.slug)}
 										/>
 									}
@@ -158,6 +159,7 @@ function OrganizationGlobalInboxLauncher(input: {
 							<OrganizationInboxPreview
 								currentOrganization={currentOrganization}
 								enabled={open}
+								onOpenItem={() => setOpen(false)}
 							/>
 						</div>
 					</Popover.Popup>

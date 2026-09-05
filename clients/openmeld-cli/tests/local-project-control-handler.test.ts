@@ -363,6 +363,36 @@ describe("local Project control daemon handler", () => {
     if (!discoveredCandidateId) {
       throw new Error("Expected Project discovery to return a candidate ID.");
     }
+    // Reading a saved folder must not expire a candidate already on screen.
+    await handleLocalProjectControlFrame(
+      {
+        deviceId: "device-1",
+        frame: requestFrame("discover_projects", {
+          includeCandidates: false,
+          clientGeneration: 10,
+          expectedOrganizationId: organizationId,
+          projects: [{ projectId, repositoryFingerprint: FINGERPRINT }],
+        }),
+      },
+      {
+        discoveryEpochs,
+        discover: async (input) => ({
+          checkedAtMs: 124,
+          clientGeneration: input.clientGeneration,
+          deviceId: input.deviceId,
+          gitStatus: "not_checked",
+          projects: [
+            {
+              candidates: [],
+              connections: [],
+              projectId,
+              status: "not_connected",
+            },
+          ],
+          requestId: input.requestId,
+        }),
+      }
+    );
     expect(
       discoveryEpochs.resolveDiscoveryCandidateId({
         candidateId: discoveredCandidateId,

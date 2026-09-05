@@ -1,6 +1,6 @@
 ---
 name: react-doctor
-description: Use when finishing a feature, fixing a bug, before committing React code, or when the user wants to improve code quality or clean up a codebase. Checks for score regression. Covers lint, dead code, accessibility, bundle size, architecture diagnostics.
+description: Use when the user requests React Doctor or a React code-health audit, or when a concrete React diagnostic question would benefit from its scan. Not a default step after React changes or before committing.
 version: "1.0.0"
 ---
 
@@ -8,15 +8,15 @@ version: "1.0.0"
 
 Scans React codebases for security, performance, correctness, and architecture issues. Outputs a 0–100 health score.
 
-## After making React code changes:
+## Choose the scope
 
-Run `npx -y react-doctor@latest . --verbose --diff` and check the score did not regress.
+Use `--diff` for a changed-code diagnostic question. Omit it only when a full
+React code-health audit is requested or needed to investigate that question.
 
-If the score dropped, fix the regressions before committing.
-
-## For general cleanup or code improvement:
-
-Run `npx -y react-doctor@latest . --verbose` (without `--diff`) to scan the full codebase. Fix issues by severity — errors first, then warnings.
+Treat findings and the score as diagnostic leads, not proof of a defect or a
+commit gate. Verify a finding against actual behavior and the task's scope
+before fixing it. Address real regressions introduced by the change; keep
+unrelated findings out of the task. Do not rerun merely to raise the score.
 
 ## Command
 

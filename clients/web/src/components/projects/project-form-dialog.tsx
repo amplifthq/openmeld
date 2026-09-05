@@ -38,6 +38,8 @@ export type ProjectFormSubmission = {
 };
 
 export function ProjectFormDialog(input: {
+	existingProject?: Project | null;
+	onUseExistingProject?: (project: Project) => void;
 	errorMessage: string | null;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (values: ProjectFormSubmission) => Promise<void> | void;
@@ -74,7 +76,11 @@ export function ProjectFormDialog(input: {
 	const changed = nameChanged || slugChanged || repositoryChanged;
 	const pending = input.submitting || preparing;
 	const canSubmit =
-		!pending && normalizedName.length > 0 && slugIsValid && changed;
+		!pending &&
+		normalizedName.length > 0 &&
+		slugIsValid &&
+		!repositoryUrlIsInvalid &&
+		changed;
 	const submitLabel = resolveSubmitLabel({
 		editing: input.project !== null,
 		pending,
@@ -89,6 +95,7 @@ export function ProjectFormDialog(input: {
 
 	const submit = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
+		event.stopPropagation();
 		if (!canSubmit) {
 			return;
 		}
@@ -112,11 +119,11 @@ export function ProjectFormDialog(input: {
 			<DialogContent className="sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle>
-						{input.project ? `Edit ${input.project.name}` : "Add a Project"}
+						{input.project ? `Edit ${input.project.name}` : "Create project"}
 					</DialogTitle>
 					<DialogDescription>
-						Projects connect shared repository identity with folders on each
-						computer. Local paths stay on that computer.
+						Projects are shared with members of this workspace. Each computer
+						connects its own folder.
 					</DialogDescription>
 				</DialogHeader>
 				<form className="grid gap-4" noValidate onSubmit={submit}>
@@ -192,6 +199,27 @@ export function ProjectFormDialog(input: {
 							</p>
 						</div>
 					</details>
+					{input.existingProject ? (
+						<div
+							aria-live="polite"
+							className="grid gap-2 rounded-md border p-3 text-sm"
+						>
+							<p>
+								This repository already belongs to {input.existingProject.name}.
+							</p>
+							<Button
+								onClick={() => {
+									if (input.existingProject) {
+										input.onUseExistingProject?.(input.existingProject);
+									}
+								}}
+								type="button"
+								variant="outline"
+							>
+								Use existing project
+							</Button>
+						</div>
+					) : null}
 					{input.errorMessage ? (
 						<p
 							className={resolveStatusToneTextClassName("danger")}
@@ -268,7 +296,7 @@ function resolveRepositoryHelp(input: {
 	}
 	return input.hasSavedFingerprint
 		? "A repository identity is saved, but its URL is unavailable. Enter it once to show it here."
-		: "OpenMeld saves a safe HTTPS version so you can see which repository this Project uses.";
+		: "Optional. Helps OpenMeld find an existing folder on your computer, including private repositories. GitHub access is not required.";
 }
 
 function isLocalRepositoryReference(value: string): boolean {
@@ -288,5 +316,5 @@ function resolveSubmitLabel(input: {
 	if (input.pending) {
 		return "Saving…";
 	}
-	return input.editing ? "Save changes" : "Create Project";
+	return input.editing ? "Save changes" : "Create project";
 }
