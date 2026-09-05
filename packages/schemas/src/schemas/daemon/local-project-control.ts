@@ -13,6 +13,7 @@ const clientGenerationSchema = z.number().int().nonnegative();
 const localProjectControlAbsolutePathSchema = localFolderPathSchema;
 
 export const localProjectControlGitStatusSchema = z.enum([
+  "not_checked",
   "available",
   "not_installed",
   "command_line_tools_missing",
@@ -68,6 +69,12 @@ export const localProjectControlProjectDiscoverySchema = z
       ...localProjectControlDiscoveryBaseShape,
       candidates: z.array(localProjectControlCandidateSchema).max(0),
       connections: z.array(localProjectControlConnectionSchema).max(0),
+      status: z.literal("not_connected"),
+    }),
+    z.strictObject({
+      ...localProjectControlDiscoveryBaseShape,
+      candidates: z.array(localProjectControlCandidateSchema).max(0),
+      connections: z.array(localProjectControlConnectionSchema).max(0),
       status: z.literal("verification_unavailable"),
     }),
   ])
@@ -102,6 +109,7 @@ export const localProjectControlProjectDiscoverySchema = z
   });
 
 export const localProjectControlDiscoverProjectsRequestSchema = z.strictObject({
+  includeCandidates: z.boolean().optional(),
   expectedOrganizationId: boundedIdentifierSchema,
   clientGeneration: clientGenerationSchema,
   projectIds: z.array(boundedIdentifierSchema).min(1).max(500).optional(),
@@ -114,6 +122,7 @@ export const localProjectControlCanonicalProjectSchema = z.strictObject({
 
 export const localProjectControlDiscoverProjectsDaemonRequestSchema =
   z.strictObject({
+    includeCandidates: z.boolean().optional(),
     expectedOrganizationId: boundedIdentifierSchema,
     clientGeneration: clientGenerationSchema,
     projects: z.array(localProjectControlCanonicalProjectSchema).max(500),

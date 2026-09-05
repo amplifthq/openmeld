@@ -3,7 +3,7 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   entry: {
     // Keep output names stable for package.json bin fields.
-    openmeld: "src/openmeld.ts",
+    openmeld: "src/openmeld-entry.ts",
     "openmeld-dev": "src/openmeld-dev.ts",
   },
   outDir: "dist",

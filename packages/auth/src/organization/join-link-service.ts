@@ -20,6 +20,7 @@ export type OrganizationJoinLinkServiceErrorCode =
   | "organization.join_link.email_verification_required"
   | "organization.join_link.forbidden"
   | "organization.join_link.inactive"
+  | "organization.join_link.approval_required"
   | "organization.metadata_invalid"
   | "organization.personal_no_members";
 
@@ -64,16 +65,20 @@ export function createOrganizationJoinLinkService(input: {
 
   return {
     async getActive(
-      organizationId: string
+      organizationId: string,
+      spaceId?: string
     ): Promise<OrganizationJoinLink | null> {
-      const record =
-        await repository.findActiveByOrganizationId(organizationId);
+      const record = await repository.findActiveByOrganizationId(
+        organizationId,
+        spaceId
+      );
       return record ? toOrganizationJoinLink(record, input.webAppUrl) : null;
     },
 
     async ensure(ensureInput: {
       actorUserId: string;
       organizationId: string;
+      spaceId?: string;
     }): Promise<EnsuredOrganizationJoinLink> {
       const membership = await repository.findMembership(
         ensureInput.organizationId,
@@ -84,7 +89,7 @@ export function createOrganizationJoinLinkService(input: {
       ) {
         throw new OrganizationJoinLinkServiceError(
           "organization.join_link.forbidden",
-          "Only an Organization owner or admin can create an invite link."
+          "Join this organization before creating an invitation request link."
         );
       }
 
@@ -105,9 +110,11 @@ export function createOrganizationJoinLinkService(input: {
             createdBy: ensureInput.actorUserId,
             id: crypto.randomUUID(),
             organizationId: ensureInput.organizationId,
+            spaceId: ensureInput.spaceId,
             token: generateOrganizationJoinLinkToken(),
           }),
         organizationId: ensureInput.organizationId,
+        spaceId: ensureInput.spaceId,
         repository,
       });
       return {
@@ -119,6 +126,7 @@ export function createOrganizationJoinLinkService(input: {
     async reset(resetInput: {
       createdBy: string;
       organizationId: string;
+      spaceId?: string;
     }): Promise<OrganizationJoinLink> {
       const organization = await repository.findOrganizationById(
         resetInput.organizationId
@@ -137,16 +145,18 @@ export function createOrganizationJoinLinkService(input: {
             createdBy: resetInput.createdBy,
             id: crypto.randomUUID(),
             organizationId: resetInput.organizationId,
+            spaceId: resetInput.spaceId,
             token: generateOrganizationJoinLinkToken(),
           }),
         organizationId: resetInput.organizationId,
+        spaceId: resetInput.spaceId,
         repository,
       });
       return toOrganizationJoinLink(record, input.webAppUrl);
     },
 
-    revoke(organizationId: string): Promise<boolean> {
-      return repository.revokeActive(organizationId);
+    revoke(organizationId: string, spaceId?: string): Promise<boolean> {
+      return repository.revokeActive(organizationId, spaceId);
     },
 
     async preview(token: string): Promise<PreviewOrganizationJoinLinkResponse> {
@@ -159,6 +169,7 @@ export function createOrganizationJoinLinkService(input: {
         ok: true,
         organizationName: record.organization.name,
         organizationSlug: record.organization.slug,
+        spaceId: record.spaceId,
       };
     },
 
@@ -183,17 +194,17 @@ export function createOrganizationJoinLinkService(input: {
         );
       }
 
-      const enrollment = await enrollOrganizationMember({
-        addMember: acceptInput.addMember,
-        organizationId: record.organizationId,
-        repository,
-        userId: acceptInput.userId,
-      });
-      return toAcceptResponse(
-        record,
-        enrollment.role,
-        enrollment.alreadyMember
+      const membership = await repository.findMembership(
+        record.organizationId,
+        acceptInput.userId
       );
+      if (!membership) {
+        throw new OrganizationJoinLinkServiceError(
+          "organization.join_link.approval_required",
+          "This link now requires approval. Open it in OpenMeld to request an invitation."
+        );
+      }
+      return toAcceptResponse(record, membership.role, true);
     },
 
     async enrollVerifiedWorkspaceMember(enrollmentInput: {
@@ -278,6 +289,7 @@ async function enrollOrganizationMember(input: {
 }
 
 async function insertOrReadConcurrentActiveLink(input: {
+  spaceId?: string;
   insert: () => Promise<OrganizationJoinLinkRecord>;
   organizationId: string;
   repository: OrganizationJoinLinkRepository;
@@ -290,7 +302,8 @@ async function insertOrReadConcurrentActiveLink(input: {
     }
 
     const active = await input.repository.findActiveByOrganizationId(
-      input.organizationId
+      input.organizationId,
+      input.spaceId
     );
     if (active) {
       return active;
@@ -350,6 +363,7 @@ function toOrganizationJoinLink(
     role: "member",
     createdBy: record.createdBy,
     createdAt: record.createdAt.toISOString(),
+    ...(record.spaceId ? { spaceId: record.spaceId } : {}),
   };
 }
 

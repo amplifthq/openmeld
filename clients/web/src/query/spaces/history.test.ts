@@ -2,8 +2,11 @@ import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	boundSavedSpaceHistory,
+	mergeSpaceHistorySnapshots,
 	readSpaceUpdates,
 	SPACE_DATE_HISTORY_PAGE_MAX_MESSAGES,
+	SPACE_SAVED_HISTORY_MAX_BYTES,
 	spaceHistoryDateWindowQueryOptions,
 	spaceHistoryQueryOptions,
 } from "./history";
@@ -20,6 +23,36 @@ vi.mock("#/lib/spaces/api", () => ({
 }));
 
 describe("space history helpers", () => {
+	it("retains loaded pages when a fresh 30-message tail arrives", () => {
+		const messages = Array.from({ length: 100 }, (_, i) =>
+			createTextSignal({ id: `message-${i}`, ts: i })
+		);
+		const merged = mergeSpaceHistorySnapshots({
+			current: { envelopes: messages, nextCursor: null },
+			incoming: { envelopes: messages.slice(-30), nextCursor: "older" },
+		});
+		expect(merged.envelopes).toEqual(messages);
+	});
+	it("bounds saved history by payload size and keeps a contiguous recent suffix", () => {
+		const messages = Array.from(
+			{ length: 6 },
+			(_, i) =>
+				({
+					...createTextSignal({ id: `large-${i}`, ts: i }),
+					data: { text: "x".repeat(512 * 1024) },
+				}) as SignalEnvelope
+		);
+		const bounded = boundSavedSpaceHistory(messages);
+		expect(bounded.map((message) => message.id)).toEqual([
+			"large-3",
+			"large-4",
+			"large-5",
+		]);
+		expect(
+			new TextEncoder().encode(JSON.stringify(bounded)).byteLength
+		).toBeLessThan(SPACE_SAVED_HISTORY_MAX_BYTES);
+		expect(messages).toHaveLength(6);
+	});
 	afterEach(() => {
 		vi.clearAllMocks();
 	});

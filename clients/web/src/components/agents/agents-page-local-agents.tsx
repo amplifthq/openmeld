@@ -115,6 +115,7 @@ const LOCAL_AGENT_CHECK_COMPLETE_MESSAGE = "Local agent check complete.";
 export type LocalAgentsCardOwnerProps = {
 	computer: LocalRuntimeComputer;
 	isCurrentComputer: boolean;
+	isReconcilingStatus?: boolean;
 	recovery: AgentsPageController;
 	replyReadiness: ComputerReplyReadiness | null;
 	view?: "owner";
@@ -364,6 +365,7 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 					refreshCatalog: canRefreshCatalog,
 					setEnabled: catalogState.canSetEnabled,
 				}}
+				connectionStatus={catalogState.connectionStatus}
 				entries={catalogState.entries}
 				isCheckingAgents={isCheckingAgents}
 				muted={catalogState.rowsMuted}
@@ -579,6 +581,7 @@ type LocalAgentsCatalogNoticeModel = {
 };
 
 type LocalAgentsCatalogState = {
+	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	canManageInstallations: boolean;
 	canRefreshCatalog: boolean;
 	canSetEnabled: boolean;
@@ -593,6 +596,7 @@ type LocalAgentsCatalogState = {
 function resolveLocalAgentsCatalogState(input: {
 	computer: LocalRuntimeComputer;
 	isCurrentComputer: boolean;
+	isReconcilingStatus?: boolean;
 	recovery: AgentsPageController;
 	replyReadiness: ComputerReplyReadiness | null;
 }): LocalAgentsCatalogState {
@@ -600,6 +604,16 @@ function resolveLocalAgentsCatalogState(input: {
 	const serviceDependency = resolveLocalAgentsServiceDependency(
 		input.replyReadiness
 	);
+	const checking =
+		input.isCurrentComputer &&
+		(input.isReconcilingStatus ||
+			!input.replyReadiness ||
+			input.replyReadiness.status === "checking");
+	// Non-current computers expose historical reports, not live readiness.
+	const connectionStatus: LocalAgentCatalogRowSummaryStatus | null =
+		input.isCurrentComputer
+			? resolveLocalAgentConnectionStatus(checking, serviceDependency)
+			: { label: "Status not current", tone: "muted" };
 	const usesCatalogRowsForLocalAgentSetup =
 		input.isCurrentComputer && usesLocalAgentCatalogRowsForSetup(target);
 	const notice = resolveLocalAgentsCatalogNotice({
@@ -625,27 +639,54 @@ function resolveLocalAgentsCatalogState(input: {
 			: resolvedPrimaryActionLabel;
 
 	return {
+		connectionStatus,
 		canManageInstallations:
 			input.isCurrentComputer &&
+			!checking &&
 			!serviceDependency &&
 			target?.localAgentControl.manageInstallations === true &&
 			target.localAgentControl.manageInstallationsSafely === true,
 		canRefreshCatalog:
 			input.isCurrentComputer &&
+			!checking &&
 			!serviceDependency &&
 			target?.localAgentControl.refreshCatalog === true,
 		canSetEnabled:
 			input.isCurrentComputer &&
+			!checking &&
 			!serviceDependency &&
 			target?.localAgentControl.setEnabled === true,
 		entries: target?.localAgentCatalog.entries ?? [],
-		notice,
-		primaryActionLabel,
+		notice: checking
+			? {
+					title: "Checking local agents",
+					description:
+						"Waiting for a current local agent report from this computer.",
+					tone: "checking",
+				}
+			: notice,
+		primaryActionLabel: checking ? null : primaryActionLabel,
 		rowsMuted:
 			serviceDependency !== null && input.replyReadiness?.status !== "checking",
 		target,
 		targetStatus: target?.status ?? null,
 	};
+}
+
+function resolveLocalAgentConnectionStatus(
+	checking: boolean,
+	dependency: LocalAgentsServiceDependency
+): LocalAgentCatalogRowSummaryStatus | null {
+	if (checking) {
+		return { label: "Checking", tone: "muted" };
+	}
+	if (dependency === "not_connected") {
+		return { label: "Computer not connected", tone: "muted" };
+	}
+	if (dependency === "update_required") {
+		return { label: "Waiting for computer update", tone: "muted" };
+	}
+	return null;
 }
 
 function resolveLocalAgentsCatalogPrimaryActionLabel(input: {
@@ -876,6 +917,7 @@ function LocalAgentsCatalogNotice(input: {
 }
 
 function LocalAgentCatalogList(input: {
+	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	capabilities: {
 		manageInstallations: boolean;
 		refreshCatalog: boolean;
@@ -1020,6 +1062,7 @@ function LocalAgentCatalogList(input: {
 								entry,
 							});
 							return buildLocalAgentCatalogRow({
+								connectionStatus: input.connectionStatus,
 								accountEmailRevealed: revealedAccountEmailAgentIds.has(
 									entry.agentId
 								),
@@ -1562,6 +1605,7 @@ function shouldShowLocalAgentInstallGuideLink(
 }
 
 type BuildLocalAgentCatalogRowInput = {
+	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	accountEmailRevealed: boolean;
 	canManageInstallations: boolean;
 	canRefreshCatalog: boolean;
@@ -1641,54 +1685,82 @@ function buildLocalAgentCatalogRow(
 		snapshot: agentControllerInterface,
 	});
 
+	return applyLocalAgentConnectionStatus(
+		{
+			advisory: summaryAccessory.advisory,
+			badge: display.label ? (
+				<Badge variant={display.badgeVariant}>{display.label}</Badge>
+			) : null,
+			control: (
+				<Switch
+					aria-label={`${input.entry.displayName} local agent`}
+					checked={input.entry.enabled === true}
+					disabled={switchDisabled}
+					onCheckedChange={(enabled) => {
+						input.onSetEnabled(input.entry, enabled);
+					}}
+				/>
+			),
+			checkedAtLabel: formatAgentControllerCheckedAtLabel(
+				agentControllerInterface
+			),
+			description,
+			detail: renderLocalAgentCatalogRowDetail({
+				canChangeInstallation,
+				rowInput: input,
+				snapshot: agentControllerInterface,
+			}),
+			displayName: input.entry.displayName,
+			id: input.entry.agentId,
+			identityMuted:
+				!enabled ||
+				agentControllerInterface?.auth.status === "unauthenticated" ||
+				agentControllerInterface?.status === "unavailable",
+			logoAgentId: input.entry.agentId,
+			muted:
+				input.muted ||
+				!enabled ||
+				agentControllerInterface?.auth.status === "unauthenticated" ||
+				agentControllerInterface?.status === "unavailable",
+			summaryAccessory: summaryAccessory.usage,
+			summaryMeta:
+				enabled && agentControllerInterface
+					? renderAgentControllerInterfaceSummary({
+							agentId: input.entry.agentId,
+							emailRevealed: input.accountEmailRevealed,
+							onRevealEmail: input.onRevealAccountEmail,
+							showInstallation: canChangeInstallation,
+							snapshot: agentControllerInterface,
+						})
+					: null,
+			summaryStatuses: summaryStatuses.length > 0 ? summaryStatuses : undefined,
+		},
+		input.connectionStatus,
+		enabled
+	);
+}
+
+function applyLocalAgentConnectionStatus(
+	row: SettingsLocalAgentRow,
+	status: LocalAgentCatalogRowSummaryStatus | null,
+	enabled: boolean
+): SettingsLocalAgentRow {
+	if (!status) {
+		return row;
+	}
 	return {
-		advisory: summaryAccessory.advisory,
-		badge: display.label ? (
-			<Badge variant={display.badgeVariant}>{display.label}</Badge>
-		) : null,
-		control: (
-			<Switch
-				aria-label={`${input.entry.displayName} local agent`}
-				checked={input.entry.enabled === true}
-				disabled={switchDisabled}
-				onCheckedChange={(enabled) => {
-					input.onSetEnabled(input.entry, enabled);
-				}}
-			/>
-		),
-		checkedAtLabel: formatAgentControllerCheckedAtLabel(
-			agentControllerInterface
-		),
-		description,
-		detail: renderLocalAgentCatalogRowDetail({
-			canChangeInstallation,
-			rowInput: input,
-			snapshot: agentControllerInterface,
-		}),
-		displayName: input.entry.displayName,
-		id: input.entry.agentId,
-		identityMuted:
-			!enabled ||
-			agentControllerInterface?.auth.status === "unauthenticated" ||
-			agentControllerInterface?.status === "unavailable",
-		logoAgentId: input.entry.agentId,
-		muted:
-			input.muted ||
-			!enabled ||
-			agentControllerInterface?.auth.status === "unauthenticated" ||
-			agentControllerInterface?.status === "unavailable",
-		summaryAccessory: summaryAccessory.usage,
-		summaryMeta:
-			enabled && agentControllerInterface
-				? renderAgentControllerInterfaceSummary({
-						agentId: input.entry.agentId,
-						emailRevealed: input.accountEmailRevealed,
-						onRevealEmail: input.onRevealAccountEmail,
-						showInstallation: canChangeInstallation,
-						snapshot: agentControllerInterface,
-					})
-				: null,
-		summaryStatuses: summaryStatuses.length > 0 ? summaryStatuses : undefined,
+		...row,
+		advisory: null,
+		badge: null,
+		identityMuted: true,
+		muted: true,
+		summaryAccessory: null,
+		summaryMeta: null,
+		summaryStatuses: enabled ? [status] : row.summaryStatuses,
+		description:
+			status.label === "Checking"
+				? "Waiting for a current local agent report from this computer."
+				: "Last reported information. Local agents will refresh when this computer is ready.",
 	};
 }
 

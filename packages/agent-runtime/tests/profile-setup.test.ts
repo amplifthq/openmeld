@@ -57,8 +57,8 @@ describe("profile setup candidate selection", () => {
       "codex",
       "claude-code",
       "grok-build",
-      "cursor",
       "opencode",
+      "cursor",
       "custom-z",
     ]);
   });

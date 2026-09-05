@@ -14,7 +14,6 @@ import {
   type LocalSetupAction,
 } from "@openmeld/schemas";
 import type { InstalledLocalComponentsSnapshot } from "@openmeld/schemas/types";
-import { collectSkillsReadinessSnapshot } from "../commands/skills";
 import { openMeldRootDir } from "../config/paths";
 import { compareSemver } from "../config/version-state";
 import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
@@ -25,13 +24,12 @@ import {
 } from "../local-service/lifecycle/daemon-service-inventory";
 import { resolveOpenMeldToolsMaintenanceProjection } from "../local-service/maintenance/openmeld-tools-maintenance-policy";
 import { resolveOpenMeldToolsUpdateOperation } from "../local-service/maintenance/openmeld-tools-update-operation";
+import { resolveDaemonServiceParticipationStatus } from "../local-service/status/service-participation-status";
 import { OPENMELD_VERSION } from "../runtime/version";
-import {
-  hashBundledSkillAssets,
-  loadBundledSkillAssets,
-} from "../skills/bundled-assets";
+import { hashBundledSkillAssets } from "../skills/bundled-assets";
 import { computeDirectoryContentHash } from "../skills/content-hash";
-import { resolveDaemonServiceParticipationStatus } from "../system/local-service-participation-gate";
+import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory";
+import { loadSelectedSkillAssets } from "../skills/official-release";
 
 export const OPENMELD_CLI_COMMAND_CONTRACT_VERSION =
   "openmeld-cli-command-contract-2026-05-local-components-v1";
@@ -146,6 +144,7 @@ export async function resolveLocalComponentsStatus(
       resolveOpenMeldToolsUpdateOperation(),
     ]);
   const cli = resolveCliComponentStatus(input);
+  const selectedSkill = await loadSelectedSkillAssets();
   const setupAction = resolveLocalComponentsSetupAction({
     cliStatus: cli.status,
     serviceKind: service.kind,
@@ -182,6 +181,9 @@ export async function resolveLocalComponentsStatus(
       status: service.status,
     },
     skills: {
+      ...(selectedSkill.contentRelease
+        ? { contentRelease: selectedSkill.contentRelease }
+        : {}),
       expectedBundleHash: expectedManifest.skills.bundleHash,
       installedBundleHash: skills.installedBundleHash,
       reasonCodes: skills.reasonCodes,
@@ -388,7 +390,9 @@ async function resolveInstalledSkillsManifest(): Promise<
 async function resolveBundledSkillsManifest(): Promise<
   LocalComponentsManifest["skills"] | null
 > {
-  const assets = await loadBundledSkillAssets().catch(() => null);
+  const assets = await loadSelectedSkillAssets()
+    .then((selected) => selected.assets)
+    .catch(() => null);
   if (!assets || assets.length === 0) {
     return null;
   }

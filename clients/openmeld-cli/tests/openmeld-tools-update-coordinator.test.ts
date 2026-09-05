@@ -3,7 +3,6 @@ import type {
   OpenMeldToolsUpdateAttempt,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import { startOpenMeldToolsAutomaticUpdateLoop } from "../src/local-service/maintenance/openmeld-tools-automatic-update-loop";
 import { createOpenMeldToolsUpdateCoordinator } from "../src/local-service/maintenance/openmeld-tools-update-coordinator";
 import { resolveOpenMeldToolsUpgradeProgram } from "../src/local-service/maintenance/openmeld-tools-upgrade-process";
 
@@ -32,6 +31,8 @@ function createDependencies(input?: {
   }));
 
   return {
+    withCoordinationLock: async <T>(run: () => Promise<T>) => await run(),
+    wakeWorker: vi.fn(async () => undefined),
     assessUpdate,
     completeAttempt: vi.fn((attempt: OpenMeldToolsUpdateAttempt) => {
       lastAttempt = attempt;
@@ -69,6 +70,27 @@ function createDependencies(input?: {
 }
 
 describe("OpenMeld Tools update coordinator", () => {
+  it("hands Service requests to the worker without running an updater in the Service", async () => {
+    const dependencies = createDependencies();
+    const service = createOpenMeldToolsUpdateCoordinator(dependencies, {
+      executeUpdates: false,
+    });
+    const requested = await service.requestUpdate({ requestSource: "web" });
+    expect(requested.status).toBe("started");
+    expect(dependencies.state.pendingAttempt?.operation.operationId).toBe(
+      "update-1"
+    );
+    expect(dependencies.wakeWorker).toHaveBeenCalledOnce();
+    expect(dependencies.runUpgrade).not.toHaveBeenCalled();
+    await service.waitForIdle();
+    const worker = createOpenMeldToolsUpdateCoordinator(dependencies);
+    await worker.resumePendingUpdate();
+    await worker.waitForIdle();
+    expect(dependencies.runUpgrade).toHaveBeenCalledOnce();
+    expect(dependencies.state.lastAttempt?.operation.operationId).toBe(
+      "update-1"
+    );
+  });
   it("does nothing automatically after the user turns updates off", async () => {
     const dependencies = createDependencies({
       automaticUpdatesEnabled: false,
@@ -216,101 +238,25 @@ describe("OpenMeld Tools update coordinator", () => {
     expect(dependencies.runUpgrade).not.toHaveBeenCalled();
   });
 
-  it("resumes saved work as soon as the Service starts", async () => {
-    const resumePendingUpdate = vi.fn(async () => false);
-    const stop = startOpenMeldToolsAutomaticUpdateLoop({
-      coordinator: {
-        requestUpdate: vi.fn(),
-        resumePendingUpdate,
-        waitForIdle: vi.fn(),
-      },
-      initialDelayMs: 60_000,
-    });
-
-    await vi.waitFor(() => {
-      expect(resumePendingUpdate).toHaveBeenCalledTimes(1);
-    });
-    await stop();
-  });
-
-  it("checks for new releases every hour", async () => {
-    vi.useFakeTimers();
-    const requestUpdate = vi.fn(async () => ({ status: "disabled" as const }));
-    const stop = startOpenMeldToolsAutomaticUpdateLoop({
-      coordinator: {
-        requestUpdate,
-        resumePendingUpdate: vi.fn(async () => false),
-        waitForIdle: vi.fn(),
-      },
-      initialDelayMs: 0,
-    });
-
-    try {
-      await vi.advanceTimersByTimeAsync(0);
-      expect(requestUpdate).toHaveBeenCalledTimes(1);
-
-      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 - 1);
-      expect(requestUpdate).toHaveBeenCalledTimes(1);
-
-      await vi.advanceTimersByTimeAsync(1);
-      expect(requestUpdate).toHaveBeenCalledTimes(2);
-    } finally {
-      stop();
-      vi.useRealTimers();
-    }
-  });
-
-  it("does not keep Service shutdown waiting for an update process", () => {
-    const waitForIdle = vi.fn(
-      async () => await new Promise<void>(() => undefined)
-    );
-    const stop = startOpenMeldToolsAutomaticUpdateLoop({
-      coordinator: {
-        requestUpdate: vi.fn(),
-        resumePendingUpdate: vi.fn(async () => false),
-        waitForIdle,
-      },
-      initialDelayMs: 60_000,
-    });
-
-    expect(stop()).toBeUndefined();
-    expect(waitForIdle).not.toHaveBeenCalled();
-  });
-
-  it("updates the npm installation that created the active Service", () => {
+  it("executes the protected npm carrier without loading business bundle state", () => {
     expect(
       resolveOpenMeldToolsUpgradeProgram({
-        activeBundle: {
-          bundleFormat: "self_contained_v1",
-          sourceEntryScriptPath:
-            "/Users/member/.nvm/versions/node/v24/lib/node_modules/openmeld/dist/openmeld.js",
-        },
         binaryDistribution: false,
-        processEntryScriptPath: "/tmp/service-bundle/openmeld.js",
+        processEntryScriptPath: "/tmp/maintenance/service-update-worker.mjs",
         processExecutablePath: "/Users/member/.nvm/versions/node/v24/bin/node",
       })
     ).toEqual({
-      argsPrefix: [
-        "/Users/member/.nvm/versions/node/v24/lib/node_modules/openmeld/dist/openmeld.js",
-      ],
+      argsPrefix: ["/tmp/maintenance/service-update-worker.mjs"],
       command: "/Users/member/.nvm/versions/node/v24/bin/node",
     });
   });
 
-  it("updates the managed binary that created the active Service", () => {
+  it("executes the protected binary carrier", () => {
     expect(
       resolveOpenMeldToolsUpgradeProgram({
-        activeBundle: {
-          bundleFormat: "binary_v1",
-          sourceEntryScriptPath:
-            "/Users/member/.openmeld/bin/versions/0.3.104/openmeld",
-        },
         binaryDistribution: true,
-        processExecutablePath: "/tmp/service-bundle/openmeld",
+        processExecutablePath: "/tmp/maintenance/openmeld",
       })
-    ).toEqual({
-      argsPrefix: [],
-      command: "/Users/member/.openmeld/bin/versions/0.3.104/openmeld",
-    });
+    ).toEqual({ argsPrefix: [], command: "/tmp/maintenance/openmeld" });
   });
 });

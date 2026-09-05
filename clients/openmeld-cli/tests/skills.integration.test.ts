@@ -1,5 +1,6 @@
 import {
   chmod,
+  cp,
   mkdir,
   readFile,
   rm,
@@ -37,6 +38,7 @@ import {
   type RuntimeSkillsConfig,
   setConfiguredSkillsConfig,
 } from "../src/config/runtime-config";
+import { computeDirectoryContentHash } from "../src/skills/content-hash";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
 const CUSTOM_TARGET_ID_REGEX = /^custom-/;
@@ -304,6 +306,17 @@ describe("openmeld skills", () => {
         dir: trackedDir,
         view: "human",
       });
+      // A symlink shares its source. Detach this target to exercise selection.
+      const detached = join(home, "detached-skill");
+      await cp(join(trackedDir, "openmeld-cli"), detached, {
+        recursive: true,
+        dereference: true,
+      });
+      await rm(join(trackedDir, "openmeld-cli"), {
+        recursive: true,
+        force: true,
+      });
+      await cp(detached, join(trackedDir, "openmeld-cli"), { recursive: true });
       await writeFile(join(trackedDir, "openmeld-cli", "SKILL.md"), "STALE\n");
 
       await runSkillsEnsure({
@@ -592,7 +605,9 @@ describe("openmeld skills", () => {
             managedBy: "openmeld",
             skillId: "openmeld-cli",
             mode: "copy",
-            contentHash: "stale-hash",
+            contentHash: await computeDirectoryContentHash({
+              rootDir: skillDir,
+            }),
             version: "0.0.0",
             updatedAt: new Date().toISOString(),
           },
@@ -640,6 +655,16 @@ describe("openmeld skills", () => {
         "name: OpenMeld CLI\nold\n"
       );
       await symlink(legacySkillDir, join(customDir, "openmeld-cli"), "dir");
+      await writeFile(
+        join(legacySkillDir, ".openmeld-skill.json"),
+        JSON.stringify({
+          managedBy: "openmeld",
+          skillId: "openmeld-cli",
+          mode: "source",
+          version: "0.0.0",
+          updatedAt: new Date().toISOString(),
+        })
+      );
 
       await setConfiguredSkillsConfig({
         customTargets: [{ name: "custom-agent", dir: customDir }],
@@ -943,7 +968,9 @@ describe("openmeld skills", () => {
             managedBy: "openmeld",
             skillId: "openmeld-cli",
             mode: "copy",
-            contentHash: "stale-hash",
+            contentHash: await computeDirectoryContentHash({
+              rootDir: join(outdatedDir, "openmeld-cli"),
+            }),
             version: "0.0.0",
             updatedAt: new Date().toISOString(),
           },

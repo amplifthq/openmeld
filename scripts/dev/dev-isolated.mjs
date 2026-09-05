@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildIsolatedDevEnvironment,
+  buildIsolatedDevUrl,
   releaseIsolatedDevLane,
   reserveIsolatedDevLane,
 } from "./dev-isolated-lane.mjs";
@@ -87,7 +88,7 @@ export function resolveIsolatedDevPresentation(
 export function buildIsolatedWebStartupMessages(input) {
   const prefix = `[${input.presentation.webCommandLabel}]`;
   return [
-    `${prefix} Starting Web for worktree lane ${input.laneId}: http://localhost:${String(input.webPort)}`,
+    `${prefix} Starting Web for worktree lane ${input.laneId}: ${buildIsolatedDevUrl(input.laneId, input.webPort)}`,
     `${prefix} The first page load can take about one minute while Web and Cloudflare compile. Keep the page open; later loads should be fast.`,
   ];
 }
@@ -173,9 +174,11 @@ function printLaneSummary(lane, options, presentation) {
   const prefix = `[${presentation.commandLabel}]`;
   console.log(`${prefix} Starting worktree lane ${lane.laneId}.`);
   console.log(
-    `${prefix} Auth ${buildLocalUrl(lane.ports.auth)} | Gateway ${buildLocalUrl(lane.ports.gateway)} | Remote Agent ${buildLocalUrl(lane.ports.remoteAgent)}`
+    `${prefix} Auth ${buildIsolatedDevUrl(lane.laneId, lane.ports.auth)} | Gateway ${buildIsolatedDevUrl(lane.laneId, lane.ports.gateway)} | Remote Agent ${buildIsolatedDevUrl(lane.laneId, lane.ports.remoteAgent)}`
   );
-  console.log(`${prefix} Web ${buildLocalUrl(lane.ports.web)}`);
+  console.log(
+    `${prefix} Web ${buildIsolatedDevUrl(lane.laneId, lane.ports.web)}`
+  );
   console.log(
     `${prefix} State ${lane.wranglerStateDirectory} | OPENMELD_HOME ${lane.openMeldHome}`
   );
@@ -189,13 +192,9 @@ function printLaneSummary(lane, options, presentation) {
   }
   if (options.scheduledEventsEnabled) {
     console.log(
-      `${prefix} Trigger one local Routine scheduler tick with: curl -X POST ${buildLocalUrl(lane.ports.gateway)}/__dev/routines/tick`
+      `${prefix} Trigger one local Routine scheduler tick with: curl -X POST ${buildIsolatedDevUrl(lane.laneId, lane.ports.gateway)}/__dev/routines/tick`
     );
   }
-}
-
-function buildLocalUrl(port) {
-  return `http://localhost:${String(port)}`;
 }
 
 function toErrorMessage(error) {

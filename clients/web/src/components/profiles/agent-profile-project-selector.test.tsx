@@ -2,13 +2,18 @@ import type { Project } from "@openmeld/schemas/types";
 import {
 	cleanup,
 	fireEvent,
-	render,
 	screen,
+	render as testingRender,
 	waitFor,
 	within,
 } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { selectLocalFolders } from "#/lib/connect/local-folder-picker";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
 
 const RECOMMENDED_COPY_PATTERN = /Recommended/u;
@@ -92,7 +97,7 @@ afterEach(() => {
 });
 
 describe("AgentProfileProjectSelector folder moves", () => {
-	it("puts Project paths first in one Working folder selector", async () => {
+	it("shows three independent working-folder sources", async () => {
 		discoveryController.projectView.mockReturnValue({
 			connections: [
 				{
@@ -123,61 +128,17 @@ describe("AgentProfileProjectSelector folder moves", () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
 		const options = within(await screen.findByRole("listbox")).getAllByRole(
 			"option"
 		);
 
 		expect(options.map((option) => option.textContent)).toEqual([
-			"OpenMeld/Users/felix/Desktop/work/openmeld",
+			"On this computer",
+			"From a project",
 			"Let OpenMeld choose",
-			"Choose a folder on this computer…",
 		]);
 		expect(screen.queryByText(RECOMMENDED_COPY_PATTERN)).toBeNull();
-	});
-
-	it("contains long Project paths inside the selector instead of widening the form", () => {
-		const longPath =
-			"/workspace/projects/a-deliberately-long-project-folder-that-must-scroll-inside-the-control";
-		discoveryController.projectView.mockReturnValue({
-			connections: [
-				{
-					bindingGeneration: "binding-openmeld",
-					isDefault: true,
-					path: longPath,
-					status: "available",
-				},
-			],
-			discovery: null,
-			errorMessage: null,
-			status: "ready",
-		});
-		render(
-			<AgentProfileProjectSelector
-				disabled={false}
-				manualPath=""
-				onConnectionReady={vi.fn()}
-				onManualPathChange={vi.fn()}
-				onProjectChange={vi.fn()}
-				onUseAdvancedWorkspace={vi.fn()}
-				onUseManagedWorkspace={vi.fn()}
-				organizationId="org-1"
-				projectId="project-1"
-				projects={[project()]}
-				selectedBindingGeneration={null}
-				workspaceFallbackMode={null}
-			/>
-		);
-
-		expect(
-			screen.getByTestId("agent-profile-project-selector").className
-		).toContain("min-w-0");
-		expect(
-			screen.getByTestId("working-folder-display-value").className
-		).toContain("overflow-x-auto");
-		expect(
-			screen.getByTestId("default-working-folder-path").className
-		).toContain("overflow-x-auto");
 	});
 
 	it("fills a Project working folder from the native picker before connecting it", async () => {
@@ -277,54 +238,6 @@ describe("AgentProfileProjectSelector folder moves", () => {
 		);
 		expect(selectLocalFolders).toHaveBeenCalledWith(
 			expect.objectContaining({ purpose: "agent_profile_working_folder" })
-		);
-	});
-
-	it("fills an advanced workspace draft from the native picker", async () => {
-		discoveryController.projectView.mockReturnValueOnce({
-			connections: [],
-			discovery: {
-				candidates: [],
-				connections: [],
-				projectId: "project-1",
-				status: "not_found",
-			},
-			errorMessage: null,
-			status: "ready",
-		});
-		vi.mocked(selectLocalFolders).mockResolvedValue({
-			deviceId: "device-current",
-			paths: ["/Users/felix/Private Workspace"],
-			status: "selected",
-		});
-		const onManualPathChange = vi.fn();
-		render(
-			<AgentProfileProjectSelector
-				disabled={false}
-				manualPath=""
-				onConnectionReady={vi.fn()}
-				onManualPathChange={onManualPathChange}
-				onProjectChange={vi.fn()}
-				onUseAdvancedWorkspace={vi.fn()}
-				onUseManagedWorkspace={vi.fn()}
-				organizationId="org-1"
-				projectId="project-1"
-				projects={[project()]}
-				selectedBindingGeneration={null}
-				workspaceFallbackMode="advanced"
-			/>
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Choose folder on this computer",
-			})
-		);
-
-		await waitFor(() =>
-			expect(onManualPathChange).toHaveBeenCalledWith(
-				"/Users/felix/Private Workspace"
-			)
 		);
 	});
 
@@ -465,4 +378,12 @@ function project(): Project {
 		slug: "openmeld",
 		updatedAtMs: 1,
 	};
+}
+
+function render(ui: ReactElement) {
+	return testingRender(
+		<TestQueryClientProvider queryClient={createTestQueryClient()}>
+			{ui}
+		</TestQueryClientProvider>
+	);
 }

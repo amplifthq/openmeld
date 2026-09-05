@@ -8801,6 +8801,9 @@ export class Space extends DurableObject<CoreBindings> {
             : {}),
           meta: {
             clientMessageId: parsed.data.clientMessageId,
+            ...(parsed.data.authorHasRead
+              ? { authorHasRead: true as const }
+              : {}),
           },
         }
       );

@@ -180,13 +180,15 @@ export async function setupNewAgentProfileLocalState(
 			? { sessionInventorySelection: input.sessionInventorySelection }
 			: {}),
 	});
-	await configureNewAgentProfileWorkspace({
-		agentProfileId: input.profile.openMeldProfileId,
-		bindingEstablished: true,
-		organizationId,
-		projectFolderPath: input.projectFolderPath ?? null,
-		selectedHumanProfileId: input.selectedHumanProfileId,
-	});
+	if (!input.defaultProjectId) {
+		await configureNewAgentProfileWorkspace({
+			agentProfileId: input.profile.openMeldProfileId,
+			bindingEstablished: true,
+			organizationId,
+			projectFolderPath: input.projectFolderPath ?? null,
+			selectedHumanProfileId: input.selectedHumanProfileId,
+		});
+	}
 	if (!input.defaultProjectId) {
 		return input.profile;
 	}

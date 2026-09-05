@@ -225,7 +225,10 @@ export async function acceptOrganizationInvitation(input: {
 export async function previewOrganizationJoinLink(
 	input: PreviewOrganizationJoinLinkQuery
 ): Promise<PreviewOrganizationJoinLinkResponse> {
-	const search = new URLSearchParams({ token: input.token });
+	const search = new URLSearchParams({
+		token: input.token,
+		responseVersion: "2",
+	});
 	const response = await requestAuthEndpoint<unknown>({
 		fallbackMessage: "Failed to check organization invite link.",
 		path: `/organization/join-link/preview?${search.toString()}`,

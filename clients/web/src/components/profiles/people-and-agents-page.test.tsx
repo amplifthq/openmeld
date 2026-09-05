@@ -727,6 +727,42 @@ describe("PeopleAndAgentsPage", () => {
 		vi.clearAllMocks();
 	});
 
+	it("keeps saved Project preferences when projecting the Organization directory", () => {
+		const profileId = "agt_11111111-1111-4111-8111-111111111111";
+		const ownedProfile = {
+			...buildAgentProfile(profileId, "Scout"),
+			defaultProjectId: "project-portal",
+		};
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			...buildRecoveryStub(),
+			agentProfiles: [ownedProfile],
+		});
+		const view = render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={profileId}
+			/>
+		);
+		expect(
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].agentProfiles[0]
+				.defaultProjectId
+		).toBe("project-portal");
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			...buildRecoveryStub(),
+			agentProfiles: [{ ...ownedProfile, defaultProjectId: null }],
+		});
+		view.rerender(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={profileId}
+			/>
+		);
+		expect(
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].agentProfiles[0]
+				.defaultProjectId
+		).toBeNull();
+	});
+
 	it("renders Agents with a secondary sidebar and selected detail", () => {
 		render(
 			<PeopleAndAgentsPage
@@ -1388,7 +1424,10 @@ describe("PeopleAndAgentsPage", () => {
 		);
 
 		expect(useLocalAgentRecoveryControllerMock).toHaveBeenCalledWith(
-			expect.objectContaining({ loadAgentProfiles: false })
+			expect.objectContaining({
+				loadAgentProfiles: true,
+				loadAgentExecutionReadiness: false,
+			})
 		);
 		expect(
 			agentProfilesWorkspaceSpy.mock.calls

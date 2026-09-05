@@ -1,4 +1,5 @@
 import { getSetupFlowCopy } from "@openmeld/start";
+import { isLocalWebOrigin } from "./local-web-origin";
 
 const OPENMELD_SETUP_PACKAGE_NAME = "openmeld";
 const OPENMELD_SETUP_PACKAGE_SPEC = `${OPENMELD_SETUP_PACKAGE_NAME}@latest`;
@@ -12,7 +13,6 @@ const OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE =
 const DEFAULT_MIN_NODE_MAJOR_VERSION = 20;
 const DEFAULT_LOCAL_CLI_BINARY_MANIFEST_URL =
 	"http://127.0.0.1:3197/cli/manifest.json";
-const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 const OPENMELD_STAGING_HOSTNAME = "staging.openmeld.ai";
 
 export type OpenMeldSetupBootstrapLane = "prod" | "dev-local" | "canary";
@@ -84,7 +84,8 @@ export function resolveOpenMeldSetupBootstrapScriptConfig(
 		};
 	}
 
-	const localRequest = isLocalUrl(requestUrl) || isLocalUrl(input.webAppUrl);
+	const localRequest =
+		isLocalWebOrigin(requestUrl) || isLocalWebOrigin(input.webAppUrl);
 	const stagingRequest = isOfficialStagingRequest(requestUrl, input.webAppUrl);
 	if (
 		lane !== "prod" &&
@@ -1229,11 +1230,6 @@ function buildSetupBinaryManifestUrl(
 	return new URL("/cli/manifest.json", requestUrl.origin).toString();
 }
 
-function isLocalUrl(value: string | URL): boolean {
-	const url = typeof value === "string" ? new URL(value) : value;
-	return LOCAL_HOSTNAMES.has(normalizeUrlHostname(url.hostname));
-}
-
 function isOfficialStagingRequest(requestUrl: URL, webAppUrl: string): boolean {
 	const configuredWebAppUrl = new URL(webAppUrl);
 	return (
@@ -1243,14 +1239,6 @@ function isOfficialStagingRequest(requestUrl: URL, webAppUrl: string): boolean {
 		configuredWebAppUrl.hostname === OPENMELD_STAGING_HOSTNAME &&
 		requestUrl.origin === configuredWebAppUrl.origin
 	);
-}
-
-function normalizeUrlHostname(hostname: string): string {
-	const normalized = hostname.trim().toLowerCase();
-	if (normalized.startsWith("[") && normalized.endsWith("]")) {
-		return normalized.slice(1, -1);
-	}
-	return normalized;
 }
 
 function normalizeOptionalString(

@@ -70,6 +70,8 @@ export function resolveIsolatedWorkerDevPlan(input) {
           `BETTER_AUTH_URL:${requireEnvironmentValue(env, "BETTER_AUTH_URL")}`,
           "--var",
           `WEB_APP_URL:${requireEnvironmentValue(env, "WEB_APP_URL")}`,
+          "--var",
+          `PASSKEY_RP_ID:${new URL(requireEnvironmentValue(env, "WEB_APP_URL")).hostname}`,
         ],
         command: "pnpm",
         preCommands: [],

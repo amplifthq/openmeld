@@ -615,6 +615,16 @@ this computer**. Selection fills the Project connection draft; **Connect**
 remains the Project-control mutation, and only the resulting validated
 connection may become the profile's Default Project working folder.
 
+Create and edit surfaces share one Working folder source control:
+`On this computer`, `From a project`, or `Let OpenMeld choose`.
+Project creation and details are contextual actions within the Project source.
+The existing available default connection is selected without another radio or
+candidate scan. Empty source-specific selections block submission; managed
+mode cannot inherit a Project path. Choosing a Project writes only its cloud
+ID, not a second custom-folder preference. Changing its device default is a
+separate, explicitly confirmed Project mutation affecting future work for all
+Agents using that Project on that computer.
+
 `defaultProjectId` is a separate Organization-scoped cloud preference for a
 local Agent Profile. It identifies the Project that future Wakes and new
 sessions should use by default. It does not store a folder, permanently assign

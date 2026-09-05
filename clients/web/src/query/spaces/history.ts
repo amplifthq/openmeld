@@ -11,11 +11,36 @@ import {
 } from "@tanstack/react-query";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { mergeSpaceTimelineEnvelopes } from "#/lib/spaces/timeline";
-import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
+import {
+	PERSISTED_DISPLAY_QUERY_GC_TIME_MS,
+	ROUTE_REVISIT_GC_TIME_MS,
+} from "#/query/query-config";
 import { shouldRetrySpaceQuery } from "./retry";
 import { SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS, spaceQueryKeys } from "./status";
 
 export const SPACE_INITIAL_HISTORY_MAX_MESSAGES = 30;
+// Retain loaded pages by their actual cost, independently of the server's
+// initial page size. Eviction affects saved history, not the mounted reader.
+export const SPACE_SAVED_HISTORY_MAX_BYTES = 2 * 1024 * 1024;
+
+export function boundSavedSpaceHistory(
+	envelopes: readonly SignalEnvelope[]
+): readonly SignalEnvelope[] {
+	let bytes = 0;
+	let start = envelopes.length;
+	const encoder = new TextEncoder();
+	while (start > 0) {
+		const size = encoder.encode(
+			JSON.stringify(envelopes[start - 1])
+		).byteLength;
+		if (bytes + size > SPACE_SAVED_HISTORY_MAX_BYTES) {
+			break;
+		}
+		bytes += size;
+		start -= 1;
+	}
+	return start === 0 ? envelopes : envelopes.slice(start);
+}
 export const SPACE_UPDATES_LIMIT = 50;
 export const SPACE_EARLIER_HISTORY_PAGE_MAX_MESSAGES = 20;
 export const SPACE_DATE_HISTORY_PAGE_MAX_MESSAGES = 30;
@@ -40,7 +65,7 @@ export function mergeSpaceHistorySnapshots(input: {
 	});
 	const nextSnapshot = {
 		...input.incoming,
-		envelopes: mergedEnvelopes.slice(-SPACE_INITIAL_HISTORY_MAX_MESSAGES),
+		envelopes: boundSavedSpaceHistory(mergedEnvelopes),
 	};
 	return replaceEqualDeep(input.current, nextSnapshot);
 }
@@ -242,7 +267,7 @@ export function spaceHistoryQueryOptions(input: {
 				signal,
 			}),
 		enabled: input.enabled,
-		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		gcTime: PERSISTED_DISPLAY_QUERY_GC_TIME_MS,
 		retry: shouldRetrySpaceQuery,
 		staleTime: SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS,
 		refetchOnMount: true,

@@ -139,7 +139,10 @@ import {
   resolveSystemServiceStartupWaitMs,
 } from "../local-service/lifecycle/daemon-service-startup-wait";
 import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
-import { uninstallDaemonServiceUpdateWorker } from "../local-service/lifecycle/daemon-service-update-worker-manager";
+import {
+  ensureDaemonServiceMaintenanceInstalled,
+  uninstallDaemonServiceUpdateWorker,
+} from "../local-service/lifecycle/daemon-service-update-worker-manager";
 import {
   captureDaemonStartFailureLogCursor,
   isDaemonStartFailureLikelyDependencyRequestFailure,
@@ -3546,6 +3549,7 @@ async function runDaemonBackgroundStart(input: {
     return runResult;
   }
 
+  await ensureDaemonServiceMaintenanceInstalled();
   const systemContractSnapshot = await stageDaemonBackgroundServiceContract({
     runtime: input.runtime,
     daemonVersion: input.daemonVersion,
