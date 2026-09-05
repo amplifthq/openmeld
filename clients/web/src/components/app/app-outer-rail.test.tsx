@@ -968,11 +968,38 @@ describe("AppOuterRail", () => {
 	});
 
 	it("shows saved accounts and session actions inside the organization menu", () => {
+		useAccountAvatarMock.mockReturnValue({
+			data: {
+				avatar: "https://example.com/current-avatar.png",
+				defaultHumanProfileId: "default-human-profile-1",
+				ok: true,
+			},
+		});
+		useDeviceSessionsMock.mockReturnValue({
+			data: TEST_DEVICE_SESSIONS.map((entry, index) => ({
+				...entry,
+				user: {
+					...entry.user,
+					image:
+						index === 0
+							? "https://example.com/stale-avatar.png"
+							: "https://example.com/jane-avatar.png",
+				},
+			})),
+			isError: false,
+			isPending: false,
+		});
 		renderRail();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "Switch organization" })
 		);
+		expect(
+			screen
+				.getByRole("menuitem", { name: FELIX_ACCOUNT_MENU_ITEM_NAME })
+				.querySelector("img")
+				?.getAttribute("src")
+		).toBe("https://example.com/current-avatar.png");
 		fireEvent.click(
 			screen.getByRole("menuitem", {
 				name: FELIX_ACCOUNT_MENU_ITEM_NAME,
@@ -990,6 +1017,12 @@ describe("AppOuterRail", () => {
 		expect(accountChoices[0]?.getAttribute("aria-checked")).toBe("true");
 		expect(accountChoices[1]?.textContent).toContain("Jane");
 		expect(accountChoices[1]?.getAttribute("aria-checked")).toBe("false");
+		expect(accountChoices[0]?.querySelector("img")?.getAttribute("src")).toBe(
+			"https://example.com/current-avatar.png"
+		);
+		expect(accountChoices[1]?.querySelector("img")?.getAttribute("src")).toBe(
+			"https://example.com/jane-avatar.png"
+		);
 
 		const accountActions = within(menu).getByRole("group", {
 			name: "Account actions",
