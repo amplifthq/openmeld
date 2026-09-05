@@ -1,15 +1,15 @@
-import {
-  cp,
-  mkdir,
-  readFile,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { cp, mkdir, readFile, realpath, symlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import process from "node:process";
-import { runtimeLogsDir } from "../config/paths";
+import { withSkillsInstallLock } from "./install-lock";
+
+// biome-ignore lint/performance/noBarrelFile: Keep the existing installer lock API while the source store shares its owner.
+export { withSkillsInstallLock } from "./install-lock";
+
+import {
+  recoverSkillReplacement,
+  replaceSkillDirectory,
+} from "./replace-directory";
 import type { SkillInstallStateResult } from "./state";
 import { resolveSkillInstallStateForTarget } from "./state";
 import type { LocalSkill } from "./store";
@@ -35,167 +35,14 @@ export type SkillsInstallResult = {
   reason?: string;
 };
 
-const LOCK_FILE_NAME = "skills-install.lock";
-const LOCK_ACQUIRE_MAX_ATTEMPTS = 3;
-
-export async function withSkillsInstallLock<T>(
-  run: () => Promise<T>
-): Promise<T> {
-  const logsDir = runtimeLogsDir();
-  await mkdir(logsDir, { recursive: true });
-  const lockPath = join(logsDir, LOCK_FILE_NAME);
-
-  let acquired = false;
-  const lockContents = `${JSON.stringify({
-    pid: process.pid,
-    createdAt: new Date().toISOString(),
-  })}\n`;
-  for (let attempt = 0; attempt < LOCK_ACQUIRE_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      await writeFile(lockPath, lockContents, {
-        encoding: "utf8",
-        flag: "wx",
-      });
-      acquired = true;
-      break;
-    } catch (error) {
-      if (getErrorCode(error) !== "EEXIST") {
-        throw error;
-      }
-
-      const recovered = await recoverStaleSkillsInstallLock(lockPath);
-      if (!recovered) {
-        throw new Error(
-          "another skills installation is already running; retry after it finishes"
-        );
-      }
-
-      try {
-        await writeFile(lockPath, lockContents, {
-          encoding: "utf8",
-          flag: "wx",
-        });
-        acquired = true;
-        break;
-      } catch (retryError) {
-        if (getErrorCode(retryError) !== "EEXIST") {
-          throw retryError;
-        }
-      }
-    }
-  }
-
-  if (!acquired) {
-    throw new Error(
-      "another skills installation is already running; retry after it finishes"
-    );
-  }
-
-  try {
-    return await run();
-  } finally {
-    await rm(lockPath, { force: true }).catch(() => undefined);
-  }
+export function installSkillsToTargets(input: {
+  skills: LocalSkill[];
+  targets: SkillsInstallTarget[];
+}): Promise<SkillsInstallResult[]> {
+  return withSkillsInstallLock(() => installSkillsToTargetsLocked(input));
 }
 
-async function recoverStaleSkillsInstallLock(
-  lockPath: string
-): Promise<boolean> {
-  const lockRaw = await readFile(lockPath, "utf8").catch((error: unknown) => {
-    if (getErrorCode(error) === "ENOENT") {
-      return "";
-    }
-    throw error;
-  });
-  if (!lockRaw) {
-    return true;
-  }
-
-  const parsed = parseLockMeta(lockRaw);
-  const pid = resolveLockPid(parsed);
-  if (pid && isPidAlive(pid)) {
-    return false;
-  }
-
-  const latestLockRaw = await readFile(lockPath, "utf8").catch(
-    (error: unknown) => {
-      if (getErrorCode(error) === "ENOENT") {
-        return "";
-      }
-      throw error;
-    }
-  );
-  if (!latestLockRaw) {
-    return true;
-  }
-  const latestParsed = parseLockMeta(latestLockRaw);
-  const latestPid = resolveLockPid(latestParsed);
-  if (
-    !isSameLockSnapshot({
-      beforeRaw: lockRaw,
-      beforePid: pid,
-      afterRaw: latestLockRaw,
-      afterPid: latestPid,
-    })
-  ) {
-    return false;
-  }
-
-  await rm(lockPath, { force: true }).catch((error: unknown) => {
-    if (getErrorCode(error) === "ENOENT") {
-      return undefined;
-    }
-    throw error;
-  });
-  return true;
-}
-
-function parseLockMeta(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
-
-function resolveLockPid(meta: unknown): number | null {
-  if (!meta || typeof meta !== "object") {
-    return null;
-  }
-  const pid = (meta as Record<string, unknown>).pid;
-  return typeof pid === "number" && Number.isInteger(pid) ? pid : null;
-}
-
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return getErrorCode(error) !== "ESRCH";
-  }
-}
-
-function getErrorCode(error: unknown): string | undefined {
-  if (!error || typeof error !== "object") {
-    return undefined;
-  }
-  const code = (error as { code?: unknown }).code;
-  return typeof code === "string" ? code : undefined;
-}
-
-function isSameLockSnapshot(input: {
-  beforeRaw: string;
-  beforePid: number | null;
-  afterRaw: string;
-  afterPid: number | null;
-}): boolean {
-  if (input.beforeRaw !== input.afterRaw) {
-    return false;
-  }
-  return input.beforePid === input.afterPid;
-}
-
-export async function installSkillsToTargets(input: {
+async function installSkillsToTargetsLocked(input: {
   skills: LocalSkill[];
   targets: SkillsInstallTarget[];
 }): Promise<SkillsInstallResult[]> {
@@ -260,6 +107,7 @@ async function installOneSkillToTarget(input: {
   const skillTargetDir = resolvedSkillDir;
 
   await mkdir(targetDir, { recursive: true });
+  await recoverSkillReplacement(skillTargetDir);
   const state = await resolveSkillInstallStateForTarget({
     skill: input.skill,
     target: input.target,
@@ -290,40 +138,32 @@ async function installOneSkillToTarget(input: {
     };
   }
 
-  if (state.state === "outdated") {
-    await rm(skillTargetDir, { recursive: true, force: true });
-  }
-
-  const symlinked = await tryCreateSymlink({
-    sourceDir: input.skill.absolutePath,
-    targetDir: skillTargetDir,
-  });
-  if (symlinked) {
-    return {
-      targetId: input.target.id,
-      targetDir,
-      targetType: input.target.type,
-      skillId: input.skill.id,
-      status: "installed",
-      mode: "symlink",
-      degraded: false,
-    };
-  }
-
+  const installation: { mode: SkillsInstallMode } = { mode: "symlink" };
   try {
-    await rm(skillTargetDir, { recursive: true, force: true });
-    await cp(input.skill.absolutePath, skillTargetDir, {
-      recursive: true,
-      force: true,
-    });
-    await writeOpenMeldSkillMarker({
-      skillDir: skillTargetDir,
-      skillId: input.skill.id,
-      mode: "copy",
-      ...(input.skill.contentHash
-        ? { contentHash: input.skill.contentHash }
-        : {}),
-      ...(input.skill.version ? { version: input.skill.version } : {}),
+    await readFile(join(input.skill.absolutePath, "SKILL.md"), "utf8");
+    await replaceSkillDirectory(skillTargetDir, async (stagedDir) => {
+      const symlinked = await tryCreateSymlink({
+        sourceDir: input.skill.absolutePath,
+        targetDir: stagedDir,
+      });
+      if (symlinked) {
+        return;
+      }
+      installation.mode = "copy";
+      await cp(input.skill.absolutePath, stagedDir, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+      });
+      await writeOpenMeldSkillMarker({
+        skillDir: stagedDir,
+        skillId: input.skill.id,
+        mode: "copy",
+        ...(input.skill.contentHash
+          ? { contentHash: input.skill.contentHash }
+          : {}),
+        ...(input.skill.version ? { version: input.skill.version } : {}),
+      });
     });
     return {
       targetId: input.target.id,
@@ -331,25 +171,18 @@ async function installOneSkillToTarget(input: {
       targetType: input.target.type,
       skillId: input.skill.id,
       status: "installed",
-      mode: "copy",
-      degraded: true,
-      reason: "symlink failed; fell back to copy",
+      mode: installation.mode,
+      degraded: installation.mode === "copy",
+      ...(installation.mode === "copy"
+        ? { reason: "symlink failed; fell back to copy" }
+        : {}),
     };
   } catch (error) {
-    const reason =
+    return failInstall(
       error instanceof Error
         ? error.message
-        : "failed to install skill to target";
-    return {
-      targetId: input.target.id,
-      targetDir,
-      targetType: input.target.type,
-      skillId: input.skill.id,
-      status: "failed",
-      mode: "copy",
-      degraded: true,
-      reason,
-    };
+        : "failed to install skill to target"
+    );
   }
 }
 
@@ -370,7 +203,6 @@ async function tryCreateSymlink(input: {
   targetDir: string;
 }): Promise<boolean> {
   try {
-    await rm(input.targetDir, { recursive: true, force: true });
     await mkdir(dirname(input.targetDir), { recursive: true });
 
     const targetParentDir = dirname(input.targetDir);
@@ -382,7 +214,7 @@ async function tryCreateSymlink(input: {
     );
     const relativeTarget = relative(resolvedTargetParentDir, resolvedSourceDir);
     await symlink(
-      relativeTarget,
+      process.platform === "win32" ? resolvedSourceDir : relativeTarget,
       input.targetDir,
       process.platform === "win32" ? "junction" : undefined
     );

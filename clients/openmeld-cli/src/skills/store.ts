@@ -1,13 +1,18 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path, { dirname, join, relative } from "node:path";
 import { skillsDir } from "../config/paths";
-import { OPENMELD_VERSION } from "../runtime/version";
 import {
   type BundledSkillAsset,
   hashBundledSkillAssets,
-  loadBundledSkillAssets,
 } from "./bundled-assets";
 import { sortBundledSkillAssets } from "./bundled-assets-fs";
+import { computeDirectoryContentHash } from "./content-hash";
+import { withSkillsInstallLock } from "./install-lock";
+import { loadSelectedSkillAssets } from "./official-release";
+import {
+  recoverSkillReplacement,
+  replaceSkillDirectory,
+} from "./replace-directory";
 
 export const OPENMELD_SKILL_MARKER_FILE = ".openmeld-skill.json";
 
@@ -32,42 +37,65 @@ export type LocalSkill = {
 const OPENMELD_CLI_SKILL_FILE = "SKILL.md";
 const SKILL_NAME_REGEX = /^name:\s*(.+)$/m;
 
-export async function ensureLocalSkills(): Promise<LocalSkill[]> {
+export function ensureLocalSkills(): Promise<LocalSkill[]> {
+  return withSkillsInstallLock(ensureLocalSkillsLocked);
+}
+
+async function ensureLocalSkillsLocked(): Promise<LocalSkill[]> {
   const storePath = skillsDir();
   await mkdir(storePath, { recursive: true });
 
-  const assets = await loadBundledSkillAssets().catch(() => []);
+  const { assets, version: bundledVersion } = await loadSelectedSkillAssets();
   if (assets.length === 0) {
     return listLocalSkills();
   }
-  const bundledVersion = resolveBundledCliVersion();
   const skillGroups = groupAssetsBySkill(assets);
 
   for (const [skillId, skillAssets] of skillGroups) {
     const targetDir = join(storePath, skillId);
+    await recoverSkillReplacement(targetDir);
     const sourceContentHash = hashBundledSkillAssets(skillAssets);
     const existingMarker = await readOpenMeldSkillMarker(targetDir);
+    const existing = await lstat(targetDir).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") {
+          return null;
+        }
+        throw error;
+      }
+    );
+    if (existing && (!existingMarker || existing.isSymbolicLink())) {
+      throw new Error(
+        `OpenMeld Skill source conflicts with an unmanaged path: ${targetDir}`
+      );
+    }
     const isUpToDate =
       existingMarker?.managedBy === "openmeld" &&
       existingMarker.skillId === skillId &&
       existingMarker.mode === "source" &&
       existingMarker.contentHash === sourceContentHash &&
-      (!bundledVersion || existingMarker.version === bundledVersion);
+      existingMarker.version === bundledVersion &&
+      (await computeDirectoryContentHash({
+        rootDir: targetDir,
+        ignoredNames: [OPENMELD_SKILL_MARKER_FILE],
+      })) === sourceContentHash;
     if (isUpToDate) {
       continue;
     }
 
-    for (const asset of skillAssets) {
-      const filePath = join(targetDir, asset.relativePath);
-      await mkdir(dirname(filePath), { recursive: true });
-      await writeFile(filePath, asset.content);
-    }
-    await writeOpenMeldSkillMarker({
-      skillDir: targetDir,
-      skillId,
-      mode: "source",
-      contentHash: sourceContentHash,
-      ...(bundledVersion ? { version: bundledVersion } : {}),
+    await replaceSkillDirectory(targetDir, async (stagedDir) => {
+      for (const asset of skillAssets) {
+        const filePath = join(stagedDir, asset.relativePath);
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, asset.content);
+      }
+      await writeOpenMeldSkillMarker({
+        skillDir: stagedDir,
+        skillId,
+        mode: "source",
+        contentHash: sourceContentHash,
+        version: bundledVersion,
+      });
     });
   }
 
@@ -229,7 +257,9 @@ async function discoverSkillDirs(
 
   const nested = await Promise.all(
     entries
-      .filter((entry) => entry.isDirectory())
+      .filter(
+        (entry) => entry.isDirectory() && !entry.name.includes(".openmeld-")
+      )
       .map((entry) =>
         discoverSkillDirs(join(dir, entry.name), depth + 1, maxDepth)
       )
@@ -245,11 +275,4 @@ function readSkillName(rawSkillFile: string): string | undefined {
   }
   const candidate = match[1]?.trim();
   return candidate && candidate.length > 0 ? candidate : undefined;
-}
-
-function resolveBundledCliVersion(): string | undefined {
-  const version = OPENMELD_VERSION;
-  return typeof version === "string" && version.trim().length > 0
-    ? version.trim()
-    : undefined;
 }

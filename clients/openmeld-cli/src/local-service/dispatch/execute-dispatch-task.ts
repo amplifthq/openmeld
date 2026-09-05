@@ -141,7 +141,10 @@ import {
   type DispatchResultOutboxSettlement,
   enqueueDispatchResultOutboxRecord,
 } from "./dispatch-result-outbox";
-import { ensureDispatchControllerOpenMeldSkill } from "./ensure-dispatch-controller-openmeld-skill";
+import {
+  applyDispatchSkillInstructions,
+  ensureDispatchControllerOpenMeldSkill,
+} from "./ensure-dispatch-controller-openmeld-skill";
 import {
   markBootstrapInjectedContext as markBootstrapInjectedContextInternal,
   reconcileBootstrapInjectedContextAfterDispatch as reconcileBootstrapInjectedContextAfterDispatchInternal,
@@ -1016,6 +1019,19 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig,
       targetProfileId: parsedTask.targetProfileId,
     });
+    const skillPreflight = await ensureDispatchControllerOpenMeldSkill({
+      agentControllerRef: parsedTask.agentControllerRef,
+    });
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.skill_preflight",
+      text: "OpenMeld Skill checked for this local agent",
+      payload: {
+        agentId: skillPreflight.agentId,
+        status: skillPreflight.status,
+        reason: skillPreflight.reason,
+      },
+    });
     const runtimePreparation = await prepareDispatchRuntimeExecution({
       agentControllerRef: parsedTask.agentControllerRef,
       daemonWorkingDirectory,
@@ -1171,15 +1187,18 @@ export async function handleDispatchDeliverFrame(input: {
       phase: "ledger_context_ready",
       result: "ready",
     });
-    const baseRuntimePromptPlan = buildDispatchRuntimePrompt({
-      bootstrapContext,
-      imageAttachmentPreparation,
-      parsedTask,
-      profileOwnerName: input.profileOwnerName,
-      profileOwnerUserId: input.profileOwnerUserId,
-      sendTargetReference,
-      shouldInjectBootstrap: bootstrapPlan.shouldInject,
-    });
+    const baseRuntimePromptPlan = applyDispatchSkillInstructions(
+      buildDispatchRuntimePrompt({
+        bootstrapContext,
+        imageAttachmentPreparation,
+        parsedTask,
+        profileOwnerName: input.profileOwnerName,
+        profileOwnerUserId: input.profileOwnerUserId,
+        sendTargetReference,
+        shouldInjectBootstrap: bootstrapPlan.shouldInject,
+      }),
+      skillPreflight
+    );
     runtimePromptPlan = computerFileAccessBoundary
       ? applyComputerFileAccessAwareness({
           policy: computerFileAccessBoundary,
