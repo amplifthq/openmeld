@@ -35,6 +35,14 @@ export function AppShell(input: {
 	const currentSection = useMatches({
 		select: resolveAppShellSectionFromMatches,
 	});
+	const activeSpaceId = useMatches({
+		select: (matches) => {
+			const params = matches.findLast(
+				(match) => "spaceId" in match.params
+			)?.params;
+			return params && "spaceId" in params ? params.spaceId : undefined;
+		},
+	});
 
 	return (
 		<AppShellAccountContext.Provider value={input.account}>
@@ -43,6 +51,7 @@ export function AppShell(input: {
 				<WebMemberActivityReporter
 					currentUserId={input.organizationScope.currentUserId}
 					organizationId={input.organizationScope.currentOrganization.id}
+					spaceId={activeSpaceId}
 				/>
 				<StartFlowStateProvider storageScope={input.storageScope}>
 					<InboxVisibleConversationProvider>

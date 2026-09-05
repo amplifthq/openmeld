@@ -1,7 +1,4 @@
-import {
-	type AgentProfileReplyRecoveryPlan,
-	formatSpaceMemberActivityLabel,
-} from "@openmeld/agent-profile";
+import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import { isAgentProfileWorkspaceBlockerReasonCode } from "@openmeld/agent-runtime";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
@@ -38,6 +35,7 @@ import { APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME } from "#/components/app/app-nav-ite
 import { AgentProfileListItem } from "#/components/profiles/profile-list-item";
 import { buildOpenMeldServiceSettingsPath } from "#/lib/settings-routes";
 import { resolveSpaceMemberStatusBadgeDisplay } from "#/lib/spaces/presentation";
+import { useMemberActivityTime } from "#/lib/spaces/use-member-activity-time";
 import {
 	isManualOnlyAgentRecoveryPlan,
 	MANUAL_ONLY_AGENT_BADGE_LABEL,
@@ -357,6 +355,7 @@ function AgentSpaceMemberRecoveryAction(input: {
 }
 
 function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
+	const activityTime = useMemberActivityTime(input.entry);
 	const isSelf = input.entry.profileId === input.currentProfileId;
 	const displayedMemberTransientState = resolveDisplayedMemberTransientState({
 		entry: input.entry,
@@ -377,9 +376,9 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 					displayedMemberTransientState
 				);
 	const spaceActivityLabel =
-		isSelf || input.entry.liveNow
+		isSelf || input.entry.liveNow || !activityTime
 			? null
-			: formatSpaceMemberActivityLabel(input.entry.lastSeenLabel);
+			: `Active here ${activityTime}`;
 	const primaryDetail = spaceActivityLabel ? (
 		<SpaceMemberActivityText label={spaceActivityLabel} />
 	) : (
@@ -891,7 +890,7 @@ function resolveCompactDetail(
 	if (isSelf) {
 		return entry.liveNow ? "You are live" : "You are here";
 	}
-	return entry.liveNow ? "Live" : (entry.lastSeenLabel ?? "Person");
+	return entry.liveNow ? "Live" : "Person";
 }
 
 function resolvePrimaryDetail(
@@ -918,7 +917,7 @@ function resolvePrimaryDetail(
 			: "You are in this space.";
 	}
 
-	return entry.liveNow ? "Live" : (entry.lastSeenLabel ?? "Person");
+	return entry.liveNow ? "Live" : "Person";
 }
 
 function resolveAgentPrimaryDetail(input: {

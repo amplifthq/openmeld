@@ -869,6 +869,27 @@ before the Web caller. Older Web clients and every CLI, OpenMeld Service, Skills
 RuntimeCoordinator, and Space contract remain unchanged because they do not
 call this route.
 
+`POST /v1/spaces/:spaceId/member-activity/web` uses the same authenticated Web
+activity writer and response. The browser supplies only the destination Space;
+Core derives the active Human identity and server timestamp, advances the
+Organization projection, then records that same timestamp in the owning Space.
+The Space verifies its Organization and active Human membership/owner before
+writing `space_member_web_activity`. A failed Space write remains an error; the
+already recorded app visit is still valid. Hidden tabs do not report activity.
+
+Human Space `lastSeenAt` is the latest explicit Web visit or persisted Human
+text Signal. Socket entries, background reconnects, system notices, and message
+read cursors are not substitutes. Historical socket-derived `lastEnteredAt` is
+not migrated into visit history; without trustworthy evidence, the time is
+omitted. Human `liveNow` additionally requires a live connection and a foreground
+report within six minutes (Web reports every five minutes). Agent availability
+contracts are unchanged. Space SQL v30 adds the visit table without rewriting
+members, messages, or cursors.
+
+Deploy Core, then Gateway, then Web for this additive route. Existing callers,
+responses, CLI, Service, and Skills remain compatible; old Web tabs do not gain
+foreground reporting until refreshed. No new local-component release is needed.
+
 `organization-computers.ts` owns the strict team-safe Organization Computer
 projection. Core authorizes the active Organization, resolves its current
 members, and projects their registry-backed Computers independently of Agent

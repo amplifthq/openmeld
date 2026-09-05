@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -18,6 +18,52 @@ afterEach(() => {
 });
 
 describe("WebMemberActivityReporter", () => {
+	it("reports the visible Space but never advances visits from a background tab", async () => {
+		vi.useFakeTimers();
+		let visibility: DocumentVisibilityState = "hidden";
+		vi.spyOn(document, "visibilityState", "get").mockImplementation(
+			() => visibility
+		);
+		recordWebActivityMock.mockResolvedValue({
+			organizationId: "org-1",
+			userId: "user-1",
+			lastActiveAt: "2026-09-05T00:00:00.000Z",
+		});
+		const client = new QueryClient();
+		const view = renderWithQueryClient(
+			<WebMemberActivityReporter
+				currentUserId="user-1"
+				organizationId="org-1"
+				spaceId="space-a"
+			/>,
+			client
+		);
+		try {
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(600_000);
+			});
+			expect(recordWebActivityMock).not.toHaveBeenCalled();
+			visibility = "visible";
+			await act(async () => {
+				document.dispatchEvent(new Event("visibilitychange"));
+				await vi.advanceTimersByTimeAsync(0);
+			});
+			expect(recordWebActivityMock).toHaveBeenCalledWith({
+				organizationId: "org-1",
+				spaceId: "space-a",
+			});
+			visibility = "hidden";
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(600_000);
+			});
+			expect(recordWebActivityMock).toHaveBeenCalledTimes(1);
+		} finally {
+			view.unmount();
+			client.clear();
+			vi.useRealTimers();
+		}
+	});
+
 	it("records entry into the Web app and updates an existing People directory", async () => {
 		const queryClient = new QueryClient();
 		const directory = {
