@@ -470,6 +470,7 @@ import {
 } from "./organizations/center-agent-organization-invite-link-rpc";
 import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/center-agent-working-language-rpc";
 import { resolveOrganizationMembershipById } from "./organizations/organization-context";
+import { spaceInvitation } from "./organizations/space-invitations";
 import { PrepareSessionHub } from "./prepare-session/transport/do/prepare-session-hub";
 import {
   type CreatePrepareSessionInput,
@@ -1037,6 +1038,11 @@ import { listMembershipSpaceIdsForProfilesFromSpaceIndex } from "./space-index/s
 // fan-out. Kept separate from GatewayRpcEntrypoint so auth only gets the
 // reconcile surface instead of the whole gateway RPC surface.
 export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
+  spaceInvitation(
+    input: import("@openmeld/schemas").SpaceInvitationRpcInput
+  ): Promise<import("@openmeld/schemas").SpaceInvitationRpcResult> {
+    return spaceInvitation(this.env, input);
+  }
   reconcileDeletedAgentProfile(
     input: ReconcileDeletedAgentProfileRequest
   ): Promise<ReconcileDeletedAgentProfileResponse> {

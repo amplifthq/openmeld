@@ -1,5 +1,5 @@
-export const SPACE_SQL_SCHEMA_VERSION = 29;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v29";
+export const SPACE_SQL_SCHEMA_VERSION = 30;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v30";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -20,6 +20,11 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   if (hasCurrentSpaceSqlSchema(sql)) {
     return;
   }
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_invitation_receipts (
+    invitation_id TEXT PRIMARY KEY,
+    profile_id TEXT,
+    status TEXT NOT NULL CHECK (status IN ('accepted', 'revoked'))
+  )`);
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_meta (
       space_id TEXT PRIMARY KEY,

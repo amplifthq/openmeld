@@ -196,6 +196,7 @@ export {
 } from "./utils/cookie-domain";
 export type { CloudflareEmailSender, SendEmailOptions } from "./utils/email";
 export { sendCloudflareEmail } from "./utils/email";
+export { buildSpaceInvitationEmailContent } from "./utils/email-templates";
 export type { ResolveTrustedOriginsInput } from "./utils/trusted-origins";
 export { resolveTrustedOrigins } from "./utils/trusted-origins";
 export type {

@@ -75,6 +75,24 @@ export function buildOrganizationInvitationEmailContent({
   });
 }
 
+export function buildSpaceInvitationEmailContent(input: {
+  invitationUrl: string;
+  brandName: string;
+  organizationName: string;
+  spaceName: string;
+  inviterName: string;
+  expiresAt: Date;
+}): BuiltEmailContent {
+  return buildActionEmailContent({
+    actionLabel: "Review invitation",
+    actionUrl: input.invitationUrl,
+    body: `${input.inviterName} invited you to ${input.spaceName} in ${input.organizationName}. Accepting will join the organization as a member and give you access to this Space.`,
+    brandName: input.brandName,
+    heading: `Join ${input.spaceName}`,
+    expiryText: `This invitation expires ${formatInvitationExpiry(input.expiresAt)}.`,
+  });
+}
+
 function buildActionEmailContent({
   actionLabel,
   actionUrl,
