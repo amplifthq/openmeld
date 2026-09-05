@@ -11,10 +11,7 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import {
-	FUTURE_WAKES_PROJECT_SETTINGS_NOTICE,
-	shouldShowAgentProfileProjectSettings,
-} from "./agent-profile-project-settings";
+import { shouldShowAgentProfileProjectSettings } from "./agent-profile-project-settings";
 import { AgentProfileProjectSettingsDialog } from "./agent-profile-project-settings-dialog";
 
 const updateDefaultProjectMock = vi.hoisted(() => vi.fn());
@@ -66,28 +63,41 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		updateWorkspaceMock.mockReset().mockResolvedValue(undefined);
 	});
 
-	it("presents one starting-location choice instead of maintenance actions", () => {
+	it("keeps managed and project sources separate", () => {
 		renderSettings();
+		expect(
+			screen.getByRole("combobox", { name: "Folder source" })
+		).toBeTruthy();
+		selectSource("Let OpenMeld choose");
+		expect(screen.queryByRole("combobox", { name: "Project" })).toBeNull();
+		expect(screen.queryByText("/repo")).toBeNull();
+		expect(
+			screen.getByText("OpenMeld will manage a working folder for this agent.")
+		).toBeTruthy();
+	});
 
-		expect(
-			screen.getByRole("radiogroup", { name: "Starting location" })
-		).toBeTruthy();
-		const folderOption = screen.getByRole("radio", {
-			name: "A folder on this computer",
-		});
-		const projectOption = screen.getByRole("radio", {
-			name: "A Project folder",
-		});
-		expect(folderOption).toBeTruthy();
-		expect(projectOption).toBeTruthy();
-		expect(screen.getAllByRole("radio")[0]).toBe(folderOption);
-		expect(screen.getAllByRole("radio")[1]).toBe(projectOption);
-		expect(
-			screen.getByRole("radio", { name: "OpenMeld managed" })
-		).toBeTruthy();
-		expect(screen.getByText(FUTURE_WAKES_PROJECT_SETTINGS_NOTICE)).toBeTruthy();
-		expect(screen.queryByText("Clear Default Project")).toBeNull();
-		expect(screen.queryByText("Change local folder")).toBeNull();
+	it("selects a connected project without another folder click and saves only project intent", async () => {
+		renderSettings("allowed", { defaultProjectId: null });
+		selectSource("From a project");
+		fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
+		fireEvent.focus(screen.getByRole("option", { name: "OpenMeld" }));
+		fireEvent.click(screen.getByRole("option", { name: "OpenMeld" }));
+		await vi.waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Save changes",
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false)
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await vi.waitFor(() =>
+			expect(updateDefaultProjectMock).toHaveBeenCalledWith(
+				expect.objectContaining({ defaultProjectId: "project-1" })
+			)
+		);
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 	});
 
 	it("saves a custom working-folder draft only after explicit confirmation", async () => {
@@ -100,9 +110,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		});
 		window.sessionStorage.clear();
 		const { onProfileUpdated } = renderSettings();
-		fireEvent.click(
-			screen.getByRole("radio", { name: "A folder on this computer" })
-		);
+		selectSource("On this computer");
 		fireEvent.click(
 			screen.getByRole("button", { name: "Enter path manually" })
 		);
@@ -141,7 +149,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 	it("switches to the managed workspace before clearing the Default Project", async () => {
 		const { onProfileUpdated } = renderSettings();
 
-		fireEvent.click(screen.getByRole("radio", { name: "OpenMeld managed" }));
+		selectSource("Let OpenMeld choose");
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
 		await vi.waitFor(() => {
@@ -171,10 +179,13 @@ describe("AgentProfileProjectSettingsDialog", () => {
 
 		expect(screen.getByText(ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE)).toBeTruthy();
 		expect(
-			screen
-				.getByRole("radiogroup", { name: "Starting location" })
-				.getAttribute("aria-disabled")
-		).toBe("true");
+			(
+				screen.getByRole("combobox", {
+					name: "Folder source",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+
 		expect(
 			(
 				screen.getByRole("button", {
@@ -220,7 +231,8 @@ function renderSettings(
 	executionTargetChangeEligibilityStatus:
 		| "allowed"
 		| "blocked"
-		| "unavailable" = "allowed"
+		| "unavailable" = "allowed",
+	overrides: Partial<AuthProfileView> = {}
 ) {
 	const queryClient = createTestQueryClient();
 	const onProfileUpdated = vi.fn();
@@ -255,7 +267,7 @@ function renderSettings(
 				onProfileUpdated={onProfileUpdated}
 				open={true}
 				organizationId="organization-1"
-				profile={profileFixture()}
+				profile={profileFixture(overrides)}
 			/>
 		</TestQueryClientProvider>
 	);
@@ -283,4 +295,10 @@ function profileFixture(
 		openMeldProfileId: "profile-agent",
 		...overrides,
 	};
+}
+
+function selectSource(name: string) {
+	fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
+	fireEvent.focus(screen.getByRole("option", { name }));
+	fireEvent.click(screen.getByRole("option", { name }));
 }

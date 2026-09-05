@@ -9,6 +9,7 @@ export type StoredProject = Omit<
   "canArchive" | "canManage" | "repositoryUrl"
 > & {
   hasActivity: boolean;
+  creationRequestSignature?: string | null;
   repositoryUrl: string | null;
 };
 
@@ -22,6 +23,7 @@ type ProjectRow = {
   organization_id: string;
   repository_fingerprint: string | null;
   repository_url: string | null;
+  creation_request_signature: string | null;
   slug: string;
   updated_at_ms: number;
 };
@@ -82,6 +84,7 @@ const PROJECT_SELECT = `
     slug,
     repository_fingerprint,
     repository_url,
+    creation_request_signature,
     created_by_user_id,
     created_at_ms,
     updated_at_ms,
@@ -155,6 +158,7 @@ export async function readProjectRecord(input: {
 export async function insertProjectRecord(input: {
   db: D1Database;
   project: StoredProject;
+  rejectDuplicateRepository?: boolean;
 }): Promise<"inserted" | "limit_reached"> {
   const result = await input.db
     .prepare(
@@ -166,17 +170,22 @@ export async function insertProjectRecord(input: {
           slug,
           repository_fingerprint,
           repository_url,
+          creation_request_signature,
           created_by_user_id,
           created_at_ms,
           updated_at_ms,
           archived_at_ms
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE (
           SELECT COUNT(*)
           FROM projects
           WHERE organization_id = ? AND archived_at_ms IS NULL
         ) < ?
+        AND (? = 0 OR NOT EXISTS (
+          SELECT 1 FROM projects WHERE organization_id = ?
+            AND repository_fingerprint = ? AND archived_at_ms IS NULL
+        ))
       `
     )
     .bind(
@@ -186,12 +195,16 @@ export async function insertProjectRecord(input: {
       input.project.slug,
       input.project.repositoryFingerprint,
       input.project.repositoryUrl,
+      input.project.creationRequestSignature ?? null,
       input.project.createdByUserId,
       input.project.createdAtMs,
       input.project.updatedAtMs,
       input.project.archivedAtMs,
       input.project.organizationId,
-      ACTIVE_PROJECT_LIMIT
+      ACTIVE_PROJECT_LIMIT,
+      input.rejectDuplicateRepository ? 1 : 0,
+      input.project.organizationId,
+      input.project.repositoryFingerprint
     )
     .run();
   return Number(result.meta.changes ?? 0) === 1 ? "inserted" : "limit_reached";
@@ -325,6 +338,7 @@ function mapProjectRow(row: ProjectRow): StoredProject {
     organizationId: row.organization_id,
     repositoryFingerprint: row.repository_fingerprint,
     repositoryUrl: row.repository_url,
+    creationRequestSignature: row.creation_request_signature,
     slug: row.slug,
     updatedAtMs: Number(row.updated_at_ms),
   };

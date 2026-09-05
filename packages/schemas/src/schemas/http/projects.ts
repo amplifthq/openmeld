@@ -55,6 +55,7 @@ export const projectSchema = z.strictObject({
 });
 
 export const createProjectBodySchema = z.strictObject({
+  operationId: boundedIdentifierSchema.optional(),
   expectedOrganizationId: boundedIdentifierSchema,
   name: z.string().trim().min(1).max(PROJECT_NAME_MAX_CHARS),
   repositoryFingerprint: repositoryFingerprintSchema.optional(),
