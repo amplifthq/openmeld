@@ -406,6 +406,20 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
     })
   );
 
+  app.post("/v1/spaces/:spaceId/member-activity/web", (c) =>
+    executeRpcRoute({
+      c,
+      route: "/v1/spaces/:spaceId/member-activity/web",
+      method: "POST",
+      responseSchema: organizationMemberWebActivityResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.recordCurrentOrganizationWebActivity({
+          context: buildCoreRpcContext(c),
+          spaceId: c.req.param("spaceId"),
+        }),
+    })
+  );
+
   app.get(CURRENT_ORGANIZATION_COMPUTERS_ROUTE, (c) =>
     executeRpcRoute({
       c,

@@ -1681,6 +1681,12 @@ Auth session refreshes, Computer heartbeats, and Agent Activity are not
 substitutes. Undefined activity is omitted instead of rendering a placeholder,
 and relative last-seen text never claims live online presence.
 
+The same foreground reporter includes the current Space when visiting a Space
+route. Core records both scopes from one server timestamp. Hidden tabs and
+socket reconnects do not count as visits. Directory reads refresh on foreground
+return and every five visible minutes; Space member elapsed-time labels are
+formatted from `lastSeenAt` against the current clock, never a cached label.
+
 The sidebar groups members with one or more registered Computers under
 **Connected** and members without a Computer under **Not Connected**. Hovering
 or focusing those labels explains **Computer connected** and **Computer not
@@ -2309,12 +2315,14 @@ TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
 restoration key is the route pathname rather than the individual
 browser-history entry, and the Space message viewport has a stable id derived
 from the Space id. The conversation also records the first visible message and
-its viewport offset after scrolling settles. That account-and-Space-scoped
-semantic anchor is restored after cached history and layout have settled, so
-virtualized or deferred message layout cannot move a returning reader to a
-different message. Returning to the same Space in a tab therefore restores that
-Space's last reading position; different Spaces remain independent, and a
-message-focus search parameter may still move the viewport after restoration.
+its viewport offset during scrolling and on departure. That account-and-Space-
+scoped semantic anchor is restored after history arrives, loading earlier pages
+if needed. A remembered position disables the MessageScroller's initial
+end jump and automatic following. Resize observation preserves the same message
+as images and deferred layout settle, until deliberate user scrolling takes
+ownership. Reaching the bottom resumes normal following. Different Spaces
+remain independent; explicit message-focus navigation takes priority over the
+remembered position.
 Both layers use session storage. This view-local presentation state does not
 belong in the IndexedDB Query cache and is never message, read-cursor, or access
 authority.

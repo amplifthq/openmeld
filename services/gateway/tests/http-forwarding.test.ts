@@ -1685,6 +1685,23 @@ describe("gateway http forwarding", () => {
     });
   });
 
+  it("forwards a foreground Space visit without browser-selected identity or time", async () => {
+    const { env, rpc } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${"a".repeat(64)}/member-activity/web`,
+        { method: "POST" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(rpc.recordCurrentOrganizationWebActivity).toHaveBeenCalledWith({
+      context: EXPECTED_CORE_CONTEXT,
+      spaceId: "a".repeat(64),
+    });
+  });
+
   it("only exposes requested Organization directory activity fields", async () => {
     const getCurrentOrganizationDirectory = vi.fn(async () => ({
       organizationId: "org-1",

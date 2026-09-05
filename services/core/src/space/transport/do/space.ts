@@ -431,6 +431,7 @@ import {
   listSpaceIdentityDirectoryUseCase,
   listSpaceMemberDirectoryUseCase,
   listSpaceMembersSnapshotUseCase,
+  recordSpaceMemberWebActivityUseCase,
   removeSpaceMembersUseCase,
   SpaceMembersUseCaseError,
   upsertJoinedSpaceMember,
@@ -2936,6 +2937,18 @@ export class Space extends DurableObject<CoreBindings> {
   // The rpc* methods below are adapters for typed DO RPC calls.
   // They build a local Request and reuse existing dispatch handlers so HTTP and
   // RPC paths keep identical validation and business behavior.
+  async rpcRecordMemberWebActivity(input: unknown): Promise<void> {
+    const profileId = recordSpaceMemberWebActivityUseCase({
+      sql: this.ctx.storage.sql,
+      organizationId: this.readSpaceMetaRecord()?.organizationId ?? null,
+      activity: input,
+    });
+    await this.broadcastSpaceMembersChanged({
+      profileIds: [profileId],
+      reason: "member.web_activity",
+    });
+  }
+
   async rpcListSignals(input: ListSignalsInput): Promise<ListSignalsResult> {
     return unwrapSpaceRpcJsonResult(await this.rpcListSignalsResult(input));
   }

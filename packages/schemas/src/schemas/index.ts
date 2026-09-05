@@ -1586,6 +1586,7 @@ export {
   organizationMemberWebActivityResponseSchema,
   organizationProfileDirectoryAgentProfileSchema,
   organizationProfileDirectoryResponseSchema,
+  spaceMemberWebActivityWriteSchema,
 } from "./http/organization-directory";
 export {
   approveOrganizationDocumentDraftBodySchema,

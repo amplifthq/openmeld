@@ -196,7 +196,9 @@ export function organizationDirectoryQueryOptions(input: {
 				organizationId: input.organizationId,
 			}),
 		queryKey: organizationQueryKeys.directory(input.organizationId),
-		refetchOnWindowFocus: false,
+		refetchOnWindowFocus: true,
+		refetchInterval: 5 * 60_000,
+		refetchIntervalInBackground: false,
 		retry: baseQueryOptions.retry,
 		staleTime: 10_000,
 	});
@@ -218,7 +220,9 @@ export function organizationProfileDirectoryQueryOptions(input: {
 				signal,
 			}),
 		queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
-		refetchOnWindowFocus: false,
+		refetchOnWindowFocus: true,
+		refetchInterval: 5 * 60_000,
+		refetchIntervalInBackground: false,
 		retry: baseQueryOptions.retry,
 		staleTime: 10_000,
 	});

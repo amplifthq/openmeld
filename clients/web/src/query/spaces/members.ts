@@ -50,6 +50,8 @@ export function spaceMembersQueryOptions(input: {
 		retry: shouldRetrySpaceQuery,
 		staleTime: SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS,
 		refetchOnMount: true,
-		refetchOnWindowFocus: false,
+		refetchOnWindowFocus: true,
+		refetchInterval: 60_000,
+		refetchIntervalInBackground: false,
 	});
 }
