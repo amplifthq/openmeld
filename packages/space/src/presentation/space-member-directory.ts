@@ -29,6 +29,7 @@ export type SpaceMemberDirectoryEntry = {
   availabilitySummary: string | null;
   availabilityTooltip: string | null;
   id: string;
+  lastSeenAt?: string | null;
   lastSeenLabel: string | null;
   liveNow: boolean;
   manualParticipationOnly: boolean;
@@ -140,6 +141,7 @@ function buildDirectoryEntry(
       availabilitySummary: presence.availabilitySummary,
       availabilityTooltip: presence.availabilityTooltip,
       id: member.profileId,
+      lastSeenAt: member.lastSeenAt,
       lastSeenLabel: normalizeText(member.lastSeenLabel),
       liveNow: member.liveNow,
       manualParticipationOnly: isManualParticipationOnlyAgent(member),
@@ -181,6 +183,7 @@ function buildDirectoryEntry(
     availabilitySummary: null,
     availabilityTooltip: null,
     id: member.profileId,
+    lastSeenAt: member.lastSeenAt,
     lastSeenLabel: normalizeText(member.lastSeenLabel),
     liveNow: member.liveNow,
     manualParticipationOnly: false,

@@ -83,7 +83,7 @@ describe("SpaceAgentToolActivity", () => {
 			trigger
 				.querySelector("canvas")
 				?.getAttribute("data-space-agent-orb-state")
-		).toBe("solving");
+		).toBe("working");
 		expect(screen.queryByText("Preparing the response…")).toBeNull();
 	});
 

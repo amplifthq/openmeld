@@ -650,9 +650,7 @@ describe("AppOuterRail", () => {
 		renderRail();
 
 		const newAgentLink = screen.getByRole("link", { name: "New Agent" });
-		expect(newAgentLink.getAttribute("href")).toBe(
-			"/o/acme/agents?view=create"
-		);
+		expect(newAgentLink.getAttribute("href")).toBe("/o/acme/agents/new");
 	});
 
 	it("opens the canonical Direct Messages home", () => {

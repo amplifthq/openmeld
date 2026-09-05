@@ -32,9 +32,9 @@ import {
 	SPACE_WAKE_COMPOSER_HINT,
 } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
+import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
-import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 
 type SpaceConversationPanelInput = ComponentProps<
 	typeof SpaceConversationPanel
@@ -2881,13 +2881,12 @@ describe("SpaceConversationPanel", () => {
 
 		const wakeRow = screen.getByTestId("space-wake-thinking-row");
 		const wakeIndicator = screen.getByTestId("space-wake-thinking-indicator");
-		const wakeIcon = wakeIndicator.querySelector("svg");
+		const wakeIcon = wakeIndicator.querySelector("canvas");
 
 		expect(screen.queryByText("Sending...")).toBeNull();
 		expect(wakeIndicator.textContent).toContain("Starting Wake for runner…");
 		expect(wakeIcon).toBeTruthy();
-		expect(wakeIcon?.getAttribute("width")).toBe("20");
-		expect(wakeIcon?.getAttribute("height")).toBe("20");
+		expect(wakeIcon?.dataset.spaceAgentOrbState).toBe("connecting");
 		expect(wakeRow.firstElementChild?.className).toContain("justify-end");
 		expect(wakeRow.getAttribute("data-align")).toBe("end");
 		expect(wakeRow.getAttribute("data-slot")).toBe("space-wake-thinking-row");
@@ -2987,7 +2986,9 @@ describe("SpaceConversationPanel", () => {
 				name: "Starting Wake for runner…",
 			}).textContent
 		).toContain("Starting Wake for runner…");
-		expect(progressRow.querySelector("svg")).toBeTruthy();
+		expect(
+			progressRow.querySelector('[data-space-agent-orb-state="connecting"]')
+		).toBeTruthy();
 		expect(progressInset).toBeNull();
 		expect(answerSurface?.className).toContain("px-0");
 		expect(answerSurface?.className).toContain("py-0");
@@ -4243,7 +4244,7 @@ describe("SpaceConversationPanel", () => {
 			thinkingIndicator
 				.querySelector("canvas")
 				?.getAttribute("data-space-agent-orb-state")
-		).toBe("solving");
+		).toBe("working");
 		expect(thinkingIndicator.textContent).toContain("runner is working · 12s");
 
 		act(() => {

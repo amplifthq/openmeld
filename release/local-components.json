@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T03:27:01.529Z",
+  "updatedAt": "2026-09-05T06:20:04.714Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.157",
+      "packageVersion": "0.3.158",
       "updatePolicy": "available",
-      "reason": "The new space link command is additive, and existing commands remain compatible with both cloud versions."
+      "reason": "Existing CLI commands remain compatible with old and new cloud; new invitation commands are published only after Core and Auth receivers are deployed."
     },
     "service": {
-      "bundleHash": "2b12ace38d81f19d310192b97df4364688e3df3d45bb6044b832535483edfff8",
-      "bundleVersion": "0.3.157",
+      "bundleHash": "70fece55a30f63ccf4d942af0281da8188d1fe070062064ea8327130c512d185",
+      "bundleVersion": "0.3.158",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Only additive optional shared schema fields changed the packaged bundle; existing Services keep current Wake, setup, trace, and recovery behavior."
+      "reason": "Shared schema and catalog bytes change the package but existing setup, Wake, Runtime Transport, and running executions remain compatible in both directions."
     },
     "skills": {
-      "bundleHash": "95260cd703b998dcca9b9baba9e170ef8a2dc340cb116cacda27875fe03b2475",
+      "bundleHash": "066654c32315419b602249322147d112da27db40d7872ccd17c0c44b8ebc20ae",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The managed Skill adds optional space link guidance, while existing installed commands and workflows remain valid."
+      "reason": "The additive invitation playbook is published after its Auth receiver; existing skill commands and Space actions remain compatible without a required floor increase."
     }
   }
 }

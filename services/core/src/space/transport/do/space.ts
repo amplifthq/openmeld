@@ -81,6 +81,9 @@ import {
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
+  type SpaceInvitationAccessInput,
+  type SpaceInvitationGrantInput,
+  type SpaceInvitationRevokeInput,
   sanitizeSignalTextPreview,
   signalStatusDataSchema,
   signalSystemNoticeDataSchema,
@@ -93,6 +96,9 @@ import {
   spaceFileAuditEventSchema,
   spaceFileClientMutationIdSchema,
   spaceFileEntryIdSchema,
+  spaceInvitationAccessInputSchema,
+  spaceInvitationGrantInputSchema,
+  spaceInvitationRevokeInputSchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
@@ -431,6 +437,7 @@ import {
   listSpaceIdentityDirectoryUseCase,
   listSpaceMemberDirectoryUseCase,
   listSpaceMembersSnapshotUseCase,
+  recordSpaceMemberWebActivityUseCase,
   removeSpaceMembersUseCase,
   SpaceMembersUseCaseError,
   upsertJoinedSpaceMember,
@@ -2936,6 +2943,18 @@ export class Space extends DurableObject<CoreBindings> {
   // The rpc* methods below are adapters for typed DO RPC calls.
   // They build a local Request and reuse existing dispatch handlers so HTTP and
   // RPC paths keep identical validation and business behavior.
+  async rpcRecordMemberWebActivity(input: unknown): Promise<void> {
+    const profileId = recordSpaceMemberWebActivityUseCase({
+      sql: this.ctx.storage.sql,
+      organizationId: this.readSpaceMetaRecord()?.organizationId ?? null,
+      activity: input,
+    });
+    await this.broadcastSpaceMembersChanged({
+      profileIds: [profileId],
+      reason: "member.web_activity",
+    });
+  }
+
   async rpcListSignals(input: ListSignalsInput): Promise<ListSignalsResult> {
     return unwrapSpaceRpcJsonResult(await this.rpcListSignalsResult(input));
   }
@@ -6844,6 +6863,142 @@ export class Space extends DurableObject<CoreBindings> {
         : undefined
     );
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  rpcAuthorizeSpaceInvitation(
+    raw: SpaceInvitationAccessInput
+  ): { name: string } | null {
+    const input = spaceInvitationAccessInputSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const meta = this.readSpaceMetaRecord();
+    const actor = input.context.actorContext;
+    if (
+      !(
+        meta &&
+        meta.organizationId === input.context.activeOrganizationId &&
+        actor.profileKind === "human" &&
+        actor.ownerUserId &&
+        hasActiveSpaceMemberRecordForOwnerUserId(
+          this.ctx.storage.sql,
+          actor.ownerUserId
+        )
+      ) ||
+      (meta.directMessage && !meta.directMessage.convertedAt)
+    ) {
+      return null;
+    }
+    return { name: meta.name ?? "Untitled Space" };
+  }
+
+  rpcRevokeSpaceInvitation(
+    raw: SpaceInvitationRevokeInput
+  ): "accepted" | "revoked" {
+    const input = spaceInvitationRevokeInputSchema.parse(raw);
+    if (
+      !this.rpcAuthorizeSpaceInvitation({
+        spaceId: input.spaceId,
+        context: input.context,
+      })
+    ) {
+      throw createCoreRpcHttpError({
+        code: "space.invitation.forbidden",
+        reason: "You cannot manage invitations in this Space.",
+        status: 403,
+      });
+    }
+    const sql = this.ctx.storage.sql;
+    return this.ctx.storage.transactionSync(() => {
+      sql.exec(
+        "INSERT INTO space_invitation_receipts (invitation_id, status) VALUES (?, 'revoked') ON CONFLICT (invitation_id) DO NOTHING",
+        input.invitationId
+      );
+      const receipt = [
+        ...sql.exec<{ status: "accepted" | "revoked" }>(
+          "SELECT status FROM space_invitation_receipts WHERE invitation_id = ?",
+          input.invitationId
+        ),
+      ][0];
+      if (!receipt) {
+        throw new Error("Space invitation revocation was not recorded");
+      }
+      return receipt.status;
+    });
+  }
+
+  async rpcAcceptSpaceInvitation(
+    raw: SpaceInvitationGrantInput
+  ): Promise<"accepted" | "revoked"> {
+    const input = spaceInvitationGrantInputSchema.parse(raw);
+    if (
+      !this.rpcAuthorizeSpaceInvitation({
+        spaceId: input.spaceId,
+        context: input.context,
+      })
+    ) {
+      throw createCoreRpcHttpError({
+        code: "space.invitation.forbidden",
+        reason: "The sender can no longer invite people to this Space.",
+        status: 403,
+      });
+    }
+    if (input.member.profileKind !== "human") {
+      throw createCoreRpcHttpError({
+        code: "space.invitation.forbidden",
+        reason: "An invitation must be accepted by a person.",
+        status: 403,
+      });
+    }
+    const sql = this.ctx.storage.sql;
+    // The receipt and membership are committed together. A retry after a lost
+    // response must never restore membership removed after the original join.
+    const added = this.ctx.storage.transactionSync(() => {
+      const receipt = [
+        ...sql.exec<{
+          profile_id: string | null;
+          status: "accepted" | "revoked";
+        }>(
+          "SELECT profile_id, status FROM space_invitation_receipts WHERE invitation_id = ?",
+          input.invitationId
+        ),
+      ][0];
+      if (receipt) {
+        if (receipt.status === "revoked") {
+          return null;
+        }
+        if (receipt.profile_id !== input.member.profileId) {
+          throw new Error("Space invitation receipt identity mismatch");
+        }
+        return [];
+      }
+      const actor = input.context.actorContext;
+      const result = addSpaceMembersUseCase({
+        sql,
+        env: this.bindings,
+        spaceId: this.spaceId,
+        members: [input.member],
+        actorProfileId: actor.openMeldProfileId,
+        actorOwnerUserId: actor.ownerUserId,
+        actorDisplayName: actor.profileName,
+        liveSessions: this.sessions.values(),
+      });
+      sql.exec(
+        "INSERT INTO space_invitation_receipts (invitation_id, profile_id, status) VALUES (?, ?, 'accepted')",
+        input.invitationId,
+        input.member.profileId
+      );
+      return result.addedMemberIds;
+    });
+    if (added === null) {
+      return "revoked";
+    }
+    await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+    if (added.length) {
+      await this.broadcastSpaceMembersChanged({
+        profileIds: added,
+        reason: "space.members.added",
+      });
+    }
+    return "accepted";
   }
 
   async rpcConvertDirectMessageToSpace(

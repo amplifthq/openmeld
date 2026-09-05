@@ -43,6 +43,18 @@ and shared policy define common language and eligibility projections. They do
 not reserve leases, start execution, accept results, publish replies, or decide
 final Wake outcomes.
 
+### Model Catalog Creation Policy
+
+`packages/schemas` owns the authored catalog and Git-backed update-evidence
+schemas. The optional local-controller `creationDefaults` is Core-owned
+creation policy, not runtime selection or availability evidence. Core's
+`readAuthoredModelCatalog` reads it for first-use creation preferences;
+`readModelCatalog` omits it from all public/catalog projections so existing
+strict clients continue to read the version-1 response. The existing resolved
+creation-preferences response remains unchanged. Remembered user choices take
+precedence, including explicit model-default reasoning. No Binding, Wake,
+Service lifecycle, or dispatch contract changes.
+
 ### Organization Working Language Contracts
 
 `packages/schemas` owns the canonical BCP 47 language tag, `automatic` and
@@ -843,6 +855,13 @@ per-Profile readiness work. Splitting transport does not split authority: Auth,
 Core Wakeability, Binding, and RuntimeCoordinator remain the same owners, and
 the browser never derives or writes either projection.
 
+Within one overview request, Core shares in-flight Runtime Registry and
+Controller-report reads for identical database and Runtime/Controller keys.
+Missing results and failures are shared only for that request; the next request
+reads fresh facts. Profile-specific Binding, organization eligibility, provider
+evidence, route evidence, and final Wakeability still use their owning checks.
+No cross-request readiness cache or client-derived verdict is introduced.
+
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member
 receives the public four-state Wakeability status with private readiness facts
@@ -861,6 +880,30 @@ authenticated request context and Core returns only the validated
 before the Web caller. Older Web clients and every CLI, OpenMeld Service, Skills,
 RuntimeCoordinator, and Space contract remain unchanged because they do not
 call this route.
+
+`POST /v1/spaces/:spaceId/member-activity/web` uses the same authenticated Web
+activity writer and response. The browser supplies only the destination Space;
+Core derives the active Human identity and server timestamp, advances the
+Organization projection, then records that same timestamp in the owning Space.
+The Space verifies its Organization and active Human membership/owner before
+writing `space_member_web_activity`. A failed Space write remains an error; the
+already recorded app visit is still valid. Hidden tabs do not report activity.
+
+Human Space `lastSeenAt` is the latest explicit Web visit or persisted Human
+text Signal. Socket entries, background reconnects, system notices, and message
+read cursors are not substitutes. Historical socket-derived `lastEnteredAt` is
+not migrated into visit history; without trustworthy evidence, the time is
+omitted. Human `liveNow` additionally requires a live connection and a foreground
+report within six minutes (Web reports every five minutes). Agent availability
+contracts are unchanged. Space SQL v30 adds the visit table without rewriting
+members, messages, or cursors.
+
+Deploy Core, then Gateway, then Web for this additive route. Existing callers,
+responses, CLI, Service, and Skills remain compatible; old Web tabs do not gain
+foreground reporting until refreshed. The shared schema is included in the
+packaged Service, so release it through the normal compatible CLI/Service patch
+lane before Gateway and Web. Runtime compatibility does not exempt packaged
+shared files from the local-component version and bundle-hash release rules.
 
 `organization-computers.ts` owns the strict team-safe Organization Computer
 projection. Core authorizes the active Organization, resolves its current

@@ -5,6 +5,9 @@ import { readModelCatalog } from "../config/model-catalog";
 describe("model catalog config", () => {
   it("reads the repo-owned release catalog without touching runtime state", () => {
     const catalog = readModelCatalog();
+    expect(catalog.agentControllers.codex).not.toHaveProperty(
+      "creationDefaults"
+    );
 
     expect(catalog.agentControllers.codex?.defaultModelId).toBe("gpt-5.6-sol");
     expect(catalog.agentControllers["claude-code"]?.defaultModelId).toBe(

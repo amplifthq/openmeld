@@ -2,6 +2,176 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "clearer-space-profile-popovers",
+      "title": "Check Space members without leaving the conversation",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "profiles",
+        "center-agent"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.157",
+      "evidence": [
+        "pr:645",
+        "commit:cef0991aa6629da05d753a49ae3638c37a489754",
+        "workflow:33941996083",
+        "worker-version:efe5f224-b75a-4744-a08f-220475c34e7e",
+        "smoke:chrome:space-profile-popovers-20260905"
+      ],
+      "body": "Space member names now open a compact profile card with useful, local context:\npeople show when they were last active in that Space, ordinary Agents link to\ntheir proper editor, and Center Agent chat opens Home instead of a Direct\nMessage."
+    },
+    {
+      "id": "focused-agent-status-updates",
+      "title": "Keep Agent status updates focused",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "computers",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.156",
+      "evidence": [
+        "pr:638",
+        "commit:0413ec38f72a8185c13c53166df4b062a68f3e0d",
+        "tag:v0.3.156",
+        "worker-version:efe5f224-b75a-4744-a08f-220475c34e7e",
+        "smoke:chrome:focused-agent-status-20260905"
+      ],
+      "body": "Agent availability refreshes now stay on the affected Agent, keep names and\nstable status labels still, and point missing working folders to one clear\nrecovery action. Computers also keep an available OpenMeld Tools update visible\nwhen a local agent needs sign-in."
+    },
+    {
+      "id": "remove-agent-logo-from-tools-status",
+      "title": "Keep OpenMeld Tools status clear",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "evidence": [
+        "pr:648",
+        "commit:7f2b736fd110f08f12c9562e0a7a181a4283fcff",
+        "worker-version:516fec14-7e67-45b4-90c2-eedaf6e9840d",
+        "smoke:chrome:openmeld-tools-status-20260905"
+      ],
+      "body": "The OpenMeld Tools status no longer displays a local agent's logo. Each agent's\nreadiness and sign-in status remain in the Local agents section."
+    },
+    {
+      "id": "link-directly-to-space-messages",
+      "title": "Link directly to Space messages",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "cli"
+      ],
+      "audiences": [
+        "members",
+        "agents"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.157",
+      "evidence": [
+        "pr:645",
+        "commit:cef0991aa6629da05d753a49ae3638c37a489754",
+        "workflow:33941996083",
+        "npm:openmeld@0.3.157",
+        "worker-version:efe5f224-b75a-4744-a08f-220475c34e7e",
+        "smoke:56d33584-554f-4abc-9ea9-f715c455d360"
+      ],
+      "body": "Space members can copy a direct message or thread-message link from Message\nDetails without adding another inline message action. Local agents can build\nthe same destination through the CLI and carry it through the shared Space\naccess check."
+    },
+    {
+      "id": "faster-space-and-message-entry",
+      "title": "Open Spaces and messages without waiting on identity",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "messages",
+        "people"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.157",
+      "evidence": [
+        "pr:645",
+        "commit:cef0991aa6629da05d753a49ae3638c37a489754",
+        "workflow:33941996083",
+        "worker-version:efe5f224-b75a-4744-a08f-220475c34e7e",
+        "smoke:chrome:space-and-direct-message-entry-20260905"
+      ],
+      "body": "Returning to a Space now restores its recent conversation and exact reading\nposition sooner. Member controls, profile details, Direct Message avatars, and\nPeople connection states also remain useful and honest while current data is\nstill loading, and repeated Space image previews reuse the same downloaded\ncontent."
+    },
+    {
+      "id": "shared-space-wake-progress",
+      "title": "See clear Wake progress everywhere",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "wake",
+        "web",
+        "cli",
+        "center-agent"
+      ],
+      "audiences": [
+        "members",
+        "agents"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.157",
+      "evidence": [
+        "pr:645",
+        "commit:cef0991aa6629da05d753a49ae3638c37a489754",
+        "workflow:33941996083",
+        "workflow:33943023868",
+        "worker-version:78e11914-8fb6-467a-ba8c-d1ba65ab6f77",
+        "worker-version:48efcc8d-9e46-4e5d-b858-7e874e2c3942",
+        "worker-version:efe5f224-b75a-4744-a08f-220475c34e7e",
+        "dispatch:00fac050-d0cb-4c43-8f71-17c0158c2c7e",
+        "smoke:56d33584-554f-4abc-9ea9-f715c455d360"
+      ],
+      "body": "Space, CLI, and the Center Agent now present the same authoritative Wake state.\nSpace distinguishes a sent request, a real queue, runtime connection, active\nwork, reply writing, posting, retries, and required Human input instead of\nfolding them into one generic working label. Live state changes refresh the Web\nconversation immediately, while reconnect and low-frequency recovery checks\nkeep the view accurate after a browser sleeps or misses an update.\n\nMembers and agents can also inspect who requested the Wake, its public\nsource-message preview and thread, the working Agent, and the current phase."
+    },
+    {
+      "id": "verified-service-update-outcomes",
+      "title": "Verify OpenMeld Service updates before reporting success",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "cli",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-05",
+      "release": "v0.3.156",
+      "evidence": [
+        "pr:638",
+        "commit:0413ec38f72a8185c13c53166df4b062a68f3e0d",
+        "tag:v0.3.156",
+        "npm:openmeld@0.3.156",
+        "tag:v0.3.157",
+        "npm:openmeld@0.3.157",
+        "workflow:33943023868",
+        "smoke:service:auto-update-0.3.157-20260905",
+        "dispatch:00fac050-d0cb-4c43-8f71-17c0158c2c7e"
+      ],
+      "body": "OpenMeld 0.3.156 is the first release with both automatic update delivery and\nverified Service startup. Version 0.3.155 can update automatically; version\n0.3.153 needs one manual `openmeld upgrade --yes` bridge to reach this reliable\nbaseline. Background updates now wait for a positive safe-switch signal, keep\nrunning Agent work intact, report restored updates as failures, and avoid\nasking users to repair a healthy Service while macOS is still starting it."
+    },
+    {
       "id": "clearer-agent-creation-and-team-details",
       "title": "Create and understand Agents without misleading gaps",
       "kind": "fixed",

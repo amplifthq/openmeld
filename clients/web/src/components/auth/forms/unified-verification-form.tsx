@@ -18,6 +18,7 @@ import {
 	useVerifyMagicLinkToken,
 } from "#/hooks/auth-form.hooks";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
+import { isInvitationRedirectTarget } from "#/lib/auth-login-preference";
 import {
 	getCurrentRedirectTarget,
 	getFrontendCallbackURLWithRedirect,
@@ -53,8 +54,6 @@ type UnifiedVerificationFormProps = {
 
 const EMAIL_SUCCESS_REDIRECT = "/login";
 const MAGIC_LINK_ROUTE_FAMILY = "/magic-link";
-const ACCEPT_INVITATION_ROUTE_PREFIX = "/accept-invitation";
-const JOIN_ORGANIZATION_ROUTE_PREFIX = "/join-organization";
 const EMAIL_ROUTE_FAMILY = "/verify-email";
 // Verification sets the browser cookies before a same-turn session read is
 // guaranteed to observe them. Retry only the read; never reuse the one-time link.
@@ -779,12 +778,5 @@ export function UnifiedVerificationForm({
 				resendPending={resendVerification.isPending}
 			/>
 		</div>
-	);
-}
-
-function isInvitationRedirectTarget(target: string): boolean {
-	return (
-		target.startsWith(ACCEPT_INVITATION_ROUTE_PREFIX) ||
-		target.startsWith(JOIN_ORGANIZATION_ROUTE_PREFIX)
 	);
 }

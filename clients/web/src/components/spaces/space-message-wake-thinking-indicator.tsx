@@ -8,10 +8,15 @@ import {
 } from "#/lib/spaces/message-state";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
-import type { WakeProgressStatusKind } from "#/lib/spaces/wake-progress-status";
-import { AnimatedMobiusIcon } from "./animated-mobius-icon";
+import {
+	WAKE_PROGRESS_STATUS_PRIORITY,
+	type WakeProgressStatusKind,
+} from "#/lib/spaces/wake-progress-status";
 import { SpaceAgentOrb } from "./space-agent-orb";
-import type { SpaceAgentOrbState } from "./space-agent-orb-state";
+import {
+	type SpaceAgentOrbState,
+	WAKE_STATUS_ORB_STATE,
+} from "./space-agent-orb-state";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
 
 const WAKE_PROGRESS_DELAYED_STATUS_TEXT = "Still waiting for the final status.";
@@ -314,7 +319,7 @@ function InlineWakePreviewIndicator(input: {
 				data-testid="space-wake-preview-text"
 				style={{ fontVariationSettings: fontWeights.medium }}
 			>
-				{formatWakeProgress(input.text, true)}
+				{input.text}
 			</span>
 		</output>
 	);
@@ -346,7 +351,7 @@ function StaticElapsedThinkingIndicator(input: {
 				className="flex size-5 shrink-0 items-center justify-center"
 			>
 				{input.isWaitingForFinalStatus ? (
-					<AnimatedMobiusIcon />
+					<SpaceAgentOrb paused state="breathing" />
 				) : (
 					<SpaceAgentOrb />
 				)}
@@ -382,20 +387,16 @@ function StaticElapsedThinkingIndicator(input: {
 function resolveWakeProgressOrbState(
 	entries: readonly SpaceMessageWakeThinkingEntry[]
 ): SpaceAgentOrbState | null {
-	const kinds = new Set(entries.map((entry) => entry.step.kind));
-	if (kinds.size !== 1) {
-		return null;
-	}
-
-	switch (entries[0]?.step.kind) {
-		case "working":
-			return "solving";
-		case "replying":
-		case "posting":
-			return "composing";
-		default:
-			return null;
-	}
+	const entry = entries.reduce<SpaceMessageWakeThinkingEntry | undefined>(
+		(selected, candidate) =>
+			!selected ||
+			WAKE_PROGRESS_STATUS_PRIORITY[candidate.step.kind] <
+				WAKE_PROGRESS_STATUS_PRIORITY[selected.step.kind]
+				? candidate
+				: selected,
+		undefined
+	);
+	return entry ? WAKE_STATUS_ORB_STATE[entry.step.kind] : null;
 }
 
 function resolveSingleElapsedEntry(

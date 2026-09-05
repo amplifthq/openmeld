@@ -38,6 +38,7 @@ export const {
 
 export const {
   inboxCenterAgentReadWatermarks,
+  spaceInvitations,
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,

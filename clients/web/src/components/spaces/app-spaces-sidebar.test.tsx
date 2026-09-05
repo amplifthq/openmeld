@@ -69,6 +69,7 @@ const {
 	appOrganizationMock,
 	getAccountSpaceActiveWakeSummaryMock,
 	getCurrentSpaceInboxSummaryMock,
+	getActiveWakeProgressMock,
 	listAccountSpaceItemsMock,
 	navigateMock,
 	setAccountSpaceItemPinnedMock,
@@ -98,6 +99,7 @@ const {
 	} as AppOrganizationMock,
 	getAccountSpaceActiveWakeSummaryMock: vi.fn(),
 	getCurrentSpaceInboxSummaryMock: vi.fn(),
+	getActiveWakeProgressMock: vi.fn(),
 	listAccountSpaceItemsMock: vi.fn(),
 	navigateMock: vi.fn(),
 	setAccountSpaceItemPinnedMock: vi.fn(),
@@ -151,7 +153,78 @@ vi.mock("#/lib/spaces/account-space-active-wake", () => ({
 	) => getAccountSpaceActiveWakeSummaryMock(...args),
 }));
 
+vi.mock("#/lib/spaces/api", () => ({
+	createUnscopedWebSpaceApi: () => ({
+		getActiveWakeProgress: (...args: unknown[]) =>
+			getActiveWakeProgressMock(...args),
+	}),
+}));
+
 describe("AppSpacesSidebar", () => {
+	it("uses the unopened Space snapshot and removes its marker when its tasks finish", async () => {
+		const queryClient = createSidebarQueryClient();
+		seedCurrentSpaceWakeRace(queryClient);
+		const working = createWakeProgressItem({
+			clientMessageId: "client-beta",
+			dispatchId: "dispatch-beta",
+			phase: "running",
+			sourceSignalId: "signal-beta",
+			targetLabel: "Reviewer",
+			targetProfileId: "agent-beta",
+			updatedAtMs: Date.now(),
+		});
+		const response = {
+			items: [
+				working,
+				{
+					...working,
+					dispatchId: "dispatch-question",
+					targetLabel: "Planner",
+					pendingInteraction: {
+						canRespond: true,
+						expiresAtMs: null,
+						interactionId: "question-beta",
+						kind: "question" as const,
+						request: null,
+						requestedAtMs: Date.now(),
+					},
+				},
+			],
+			pageInfo: { hasMore: false, limit: 50 },
+			query: { spaceId: "space-beta", targetProfileId: null },
+		};
+		getActiveWakeProgressMock.mockResolvedValue(response);
+		renderSidebar(
+			<AppSpacesSidebar
+				currentProfileId="human-1"
+				currentSpaceId="space-alpha"
+			/>,
+			queryClient
+		);
+		expect(
+			await screen.findByRole("button", {
+				name: "Planner needs your input; Reviewer is working. Open Beta",
+			})
+		).toBeTruthy();
+		expect(getActiveWakeProgressMock).toHaveBeenCalledWith(
+			expect.objectContaining({ spaceId: "space-beta" })
+		);
+		getActiveWakeProgressMock.mockResolvedValue({ ...response, items: [] });
+		await act(async () => {
+			await queryClient.invalidateQueries({
+				queryKey: spaceActiveWakeProgressSummaryQueryOptions({
+					enabled: true,
+					openMeldProfileId: "human-1",
+					spaceId: "space-beta",
+				}).queryKey,
+			});
+		});
+		expect(await screen.findByRole("link", { name: "Beta" })).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Beta, active Wake" })
+		).toBeNull();
+	});
+
 	beforeEach(() => {
 		appOrganizationMock.activeOrganization = {
 			id: "org-acme",
@@ -166,6 +239,9 @@ describe("AppSpacesSidebar", () => {
 			slug: "acme",
 		};
 		listAccountSpaceItemsMock.mockReset();
+		getActiveWakeProgressMock
+			.mockReset()
+			.mockRejectedValue(new Error("Snapshot unavailable"));
 		getAccountSpaceActiveWakeSummaryMock.mockReset().mockResolvedValue({
 			generatedAtMs: 0,
 			items: [],
@@ -993,7 +1069,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const workingButton = await screen.findByRole("link", {
-			name: "Alpha, agent working",
+			name: "Alpha, active Wake",
 		});
 		const workingRow = workingButton.closest<HTMLElement>(
 			'[data-slot="center-truncated-text"], li, div'
@@ -1013,13 +1089,13 @@ describe("AppSpacesSidebar", () => {
 			false
 		);
 		const workingStatus = screen.getByRole("button", {
-			name: "Clico Codex is working. Open Alpha",
+			name: "Clico Codex has an active Wake. Open Alpha",
 		});
 		expect(workingStatus).toBe(orbSlot);
 		fireEvent.pointerEnter(workingStatus);
 		fireEvent.mouseEnter(workingStatus);
 		await waitFor(() => {
-			expect(screen.getByText("Clico Codex is working")).toBeTruthy();
+			expect(screen.getByText("Clico Codex has an active Wake")).toBeTruthy();
 		});
 		expect(
 			orbSlot?.classList.contains("group-hover/space-row:scale-[0.625]")
@@ -1077,13 +1153,13 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const workingStatus = await screen.findByRole("button", {
-			name: "Clico Codex and Felix Codex are working. Open Alpha",
+			name: "Clico Codex and Felix Codex have an active Wake. Open Alpha",
 		});
 		fireEvent.pointerEnter(workingStatus);
 		fireEvent.mouseEnter(workingStatus);
 		await waitFor(() => {
 			expect(
-				screen.getByText("Clico Codex and Felix Codex are working")
+				screen.getByText("Clico Codex and Felix Codex have an active Wake")
 			).toBeTruthy();
 		});
 	});
@@ -1143,7 +1219,7 @@ describe("AppSpacesSidebar", () => {
 
 		expect(
 			await screen.findByRole("link", {
-				name: "Alpha, agent working",
+				name: "Alpha, active Wake",
 			})
 		).toBeTruthy();
 		expect(
@@ -1217,7 +1293,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", {
-				name: "Clico Codex is waiting for its current task. Open Alpha",
+				name: "Waiting for Clico Codex’s current task. Open Alpha",
 			})
 		).toBeTruthy();
 		expect(
@@ -1276,7 +1352,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("link", { name: "Alpha, agent working" })
+			await screen.findByRole("link", { name: "Alpha, active Wake" })
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", {
@@ -1363,7 +1439,7 @@ describe("AppSpacesSidebar", () => {
 
 		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Beta, agent working" })
+			screen.getByRole("link", { name: "Beta, active Wake" })
 		).toBeTruthy();
 		expect(
 			document.querySelectorAll('[data-space-active-wake-orb="true"]')
@@ -1396,7 +1472,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("link", { name: "Alpha, agent working" })
+			await screen.findByRole("link", { name: "Alpha, active Wake" })
 		).toBeTruthy();
 
 		view.rerender(
@@ -1411,7 +1487,7 @@ describe("AppSpacesSidebar", () => {
 
 		expect(screen.getByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Beta, agent working" })
+			screen.getByRole("link", { name: "Beta, active Wake" })
 		).toBeTruthy();
 		expect(
 			document.querySelectorAll('[data-space-active-wake-orb="true"]')
@@ -1435,7 +1511,7 @@ describe("AppSpacesSidebar", () => {
 
 		expect(screen.getByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Beta, agent working" })
+			screen.getByRole("link", { name: "Beta, active Wake" })
 		).toBeTruthy();
 		expect(
 			document.querySelectorAll('[data-space-active-wake-orb="true"]')
@@ -1488,7 +1564,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const openSpaceButton = await screen.findByRole("link", {
-			name: "Alpha, agent working",
+			name: "Alpha, active Wake",
 		});
 		await waitFor(() => {
 			expect(
@@ -1577,7 +1653,7 @@ describe("AppSpacesSidebar", () => {
 
 		const workingRow = (
 			await screen.findByRole("link", {
-				name: "Working, unread messages, agent working",
+				name: "Working, unread messages, active Wake",
 			})
 		).parentElement;
 		const unreadRow = screen.getByRole("link", {

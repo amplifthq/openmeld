@@ -1,0 +1,60 @@
+name: Model catalog updates
+
+on:
+  schedule:
+    # Twice daily, twelve hours apart. Use '23 */6 * * *' for six-hour checks.
+    - cron: '23 */12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-catalog-update
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: github.repository == 'amplifthq/openmeld' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        controller: [codex, claude-code, cursor, grok-build, opencode]
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install schema dependency
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts --filter @openmeld/schemas
+      - name: Collect and validate public facts
+        env:
+          CONTROLLER: ${{ matrix.controller }}
+        run: node scripts/model-catalog/catalog-update.mjs "$CONTROLLER" dev-tmp/catalog-update
+      - name: Preserve evidence and review brief
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-update-${{ matrix.controller }}
+          path: dev-tmp/catalog-update
+          retention-days: 30
+          if-no-files-found: ignore
+      - name: Create review handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HUSKY: '0'
+        run: |
+          gh auth setup-git
+          node scripts/model-catalog/publish-update.mjs dev-tmp/catalog-update

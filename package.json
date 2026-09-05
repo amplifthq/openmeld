@@ -98,6 +98,7 @@
     "test:full": "pnpm test && pnpm run test:integration && pnpm run test:runtime",
     "check:affected": "node scripts/dev/turbo-affected.mjs check",
     "verify:changelog": "node --test scripts/changelog/changelog.test.mjs && pnpm run changelog:check",
+    "verify:model-catalog": "node --test scripts/model-catalog/*.test.mjs",
     "verify:pre-push:checks": "pnpm sherif && pnpm run verify:changelog && pnpm run verify:docs -- --strict && pnpm run verify:release-workflows && pnpm run verify:doppler-environment && pnpm run verify:cloudflare:env-contract && pnpm run verify:theme-background && pnpm run verify:worker-zod-imports && bash scripts/ci/check-retired-identifiers.sh",
     "verify:pre-push": "pnpm run verify:pre-push:checks && pnpm run verify:release-ready",
     "verify:pre-push:full": "node scripts/dev/turbo-affected.mjs check -- --concurrency=2 && node scripts/dev/turbo-affected.mjs test -- --concurrency=2 && pnpm run verify:release-ready",

@@ -130,6 +130,15 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "space-invitation-receivers-first": [
+    "db",
+    "core",
+    "auth",
+    "gateway",
+    "web",
+    "remote-agent",
+    "cli",
+  ],
   "center-agent-cli-receiver-first":
     CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER,
   "connect-computer-cli-receiver-first":
@@ -412,7 +421,11 @@ export function buildProductionVerifyStepSpecs(input) {
     if (!spec) {
       continue;
     }
-    if (scope === "core" && !input.scopes.includes("cli")) {
+    if (
+      scope === "core" &&
+      !input.scopes.includes("cli") &&
+      !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
+    ) {
       steps.push(coreCliChannelCompatibilityStep());
     }
     steps.push({
@@ -441,7 +454,11 @@ export function buildProductionPreflightStepSpecs(input) {
   if (input.scopes.some((scope) => scope === "cli" || scope === "core")) {
     steps.push(productionQueueVerificationStep("core"));
   }
-  if (input.scopes.includes("core") && !input.scopes.includes("cli")) {
+  if (
+    input.scopes.includes("core") &&
+    !input.scopes.includes("cli") &&
+    !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
+  ) {
     steps.push(coreCliChannelCompatibilityStep());
   }
   return steps;
@@ -531,6 +548,15 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
   assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
+  if (
+    deployOrderProfile === "space-invitation-receivers-first" &&
+    (selected.has("auth") || selected.has("cli")) &&
+    !(selected.has("core") && selected.has("auth"))
+  ) {
+    throw new Error(
+      "Space invitation release requires Core and Auth receivers before publishing its CLI caller."
+    );
+  }
   const orderedScopes = resolveProductionDeployScopeOrder(scopes, changedPaths);
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
   assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
@@ -602,7 +628,10 @@ function appendProductionDeployScopeSteps(input) {
     return;
   }
   if (input.scope === "core") {
-    if (input.selected.has("cli")) {
+    if (
+      input.selected.has("cli") ||
+      input.deployOrderProfile === "space-invitation-receivers-first"
+    ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
         input.steps.push(
           {
@@ -682,6 +711,27 @@ function resolveProductionDeployScopeOrder(scopes, changedPaths) {
 }
 
 function resolveProductionDeployOrderProfile(changedPaths) {
+  const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
+  if (!isSpaceInvitationReceiverFirstDiff(changedPaths)) {
+    return profile;
+  }
+  if (profile !== "default-auth-receiver-first") {
+    throw new Error(
+      `Space invitation receiver order must be reviewed together with ${profile}; split incompatible receiver-first releases.`
+    );
+  }
+  return "space-invitation-receivers-first";
+}
+
+function isSpaceInvitationReceiverFirstDiff(changedPaths) {
+  return [
+    "packages/schemas/src/space-invitation.ts",
+    "services/core/src/organizations/space-invitations.ts",
+    "services/auth/src/lib/hono/space-invitation-routes.ts",
+  ].every((path) => changedPaths.includes(path));
+}
+
+function resolveExistingProductionDeployOrderProfile(changedPaths) {
   const isConnectComputerReceiverFirst =
     isConnectComputerCliReceiverFirstDiff(changedPaths);
   const isInboxReceiverFirst =

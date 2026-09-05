@@ -23,6 +23,21 @@ export type WakeProgressStatusPresentation = {
 	status: "active" | "complete" | "failed" | "pending";
 };
 
+/** Lower values need attention first. Equal priorities retain Wake order. */
+export const WAKE_PROGRESS_STATUS_PRIORITY = {
+	needs_input: 0,
+	working: 1,
+	replying: 1,
+	posting: 1,
+	starting: 2,
+	sent: 2,
+	connecting: 2,
+	retrying: 2,
+	queued: 3,
+	waiting_for_controller: 3,
+	waiting_for_owner: 3,
+} as const satisfies Record<WakeProgressStatusKind, number>;
+
 type PresentableWakeProgress = Pick<
 	WakeProgressItem,
 	"pendingInteraction" | "phase" | "targetLabel" | "waitReasonCode"

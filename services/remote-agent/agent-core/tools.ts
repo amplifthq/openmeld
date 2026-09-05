@@ -1390,7 +1390,6 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
-  "openmeld_retry_as_new_execution",
   "openmeld_create_space",
   "openmeld_read_agent_profile_creation_defaults",
   "openmeld_create_agent_profile_request",
@@ -1493,7 +1492,6 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
-  "openmeld_retry_as_new_execution",
   "openmeld_set_organization_working_language",
   "openmeld_manage_agent_profile_creation_request",
   "openmeld_set_agent_profile_creation_approval_preferences",
@@ -4351,40 +4349,6 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         const body = executeExecutionRecoveryBodySchema.parse({
           action: "resume_controller_conversation",
-          destination: payload.destination,
-          expectedIdentity: payload.expectedIdentity,
-          operationId: payload.operationId,
-        });
-        return executeExecutionRecoveryResponseSchema.parse(
-          await rpc({
-            body,
-            context,
-            spaceId: body.expectedIdentity.spaceId,
-          })
-        );
-      },
-    }),
-    toolDefinition({
-      name: "openmeld_retry_as_new_execution",
-      description:
-        "Start a new execution through OpenMeld's idempotent recovery control plane. Use only when openmeld_inspect_execution_recovery recommends retry_as_new_execution, copy its exact identity and destination, and tell the user that the task and external side effects may run again. Never use this when the outcome is unknown.",
-      input: strictObject({
-        destination: executionRecoveryDestinationInputSchema,
-        expectedIdentity: executionRecoveryIdentityInputSchema,
-        operationId: executionRecoveryIdentifierInputSchema,
-      }),
-      execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_retry_as_new_execution",
-        });
-        const rpc = requireCoreRpc(
-          input.coreWorker.executeExecutionRecovery,
-          "executeExecutionRecovery"
-        );
-        const body = executeExecutionRecoveryBodySchema.parse({
-          action: "retry_as_new_execution",
           destination: payload.destination,
           expectedIdentity: payload.expectedIdentity,
           operationId: payload.operationId,
