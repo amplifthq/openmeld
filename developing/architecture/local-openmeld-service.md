@@ -1886,6 +1886,17 @@ becomes the projection owner as soon as the handoff exists. A computer with no
 saved preference enables automatic OpenMeld Tools updates; an invalid preference
 fails closed and reports maintenance attention. Automatic requests obey that
 preference, while an explicit user request still runs when automation is off.
+Maintenance reads only the owning device preferences file (or the supported
+legacy preference before migration). Broken Skills or controller state cannot
+disable that read. Local configuration mutations hold the existing configuration
+lock and modify only their owned fields and files, preserving unrelated fields.
+Unknown file versions and malformed owned files cannot be overwritten by a
+setter. Legacy migration fills missing split files, never replaces an existing
+split file, and removes its source only after all split files are supported.
+Empty owned files remain explicit so an interrupted migration cannot resurrect
+deleted settings. The filesystem layout marker likewise rejects a newer version
+without modifying it. This release continues writing v1; it adds no new local
+format or minimum-version requirement.
 For a Service that supports release-triggered maintenance, Core uses the
 existing Runtime Transport connection to request one automatic recheck when
 Core's stable-channel release manifest first becomes actionable for that
