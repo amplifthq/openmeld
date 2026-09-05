@@ -953,6 +953,15 @@ that decision.
   "connect this computer" as one atomic decision and never models setup
   internals.
 
+Setup connects its existing Terminal transport before exchanging computer
+authorization and asking for account-switch consent. Canceling the switch or
+failing authorization reports a blocked `connect_terminal` outcome through that
+same connection and waits for the Core snapshot before closing. It does not
+start a local account transition. Normal setup reuses the connection; connection
+epochs still reject an outcome from a replaced Terminal. Web removes an unusable
+command and offers an explicit fresh attempt. Device authorization stays
+single-use, and an unused candidate session is still revoked on cancellation.
+
 Web may offer an enable/disable control for an already reported local Agent
 Controller only as a current-service command. That command must target the
 current connected device/runtime lane through Core and RuntimeTransportHub,
