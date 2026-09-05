@@ -129,7 +129,7 @@ import {
 	OpenCodePermissionsField,
 	openCodePermissionEquals,
 } from "#/components/profiles/open-code-permissions-field";
-import { ProfileDetailsDialog } from "#/components/profiles/profile-details-dialog";
+import { AgentProfileMoreDetailsDialog } from "#/components/profiles/profile-details-dialog";
 import { ProfileCard } from "#/components/profiles/profile-list-item";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -3537,19 +3537,10 @@ function AgentProfileCardPresentation(input: {
 	return (
 		<>
 			<AgentProfileCardActions input={input} />
-			<ProfileDetailsDialog
+			<AgentProfileMoreDetailsDialog
 				agentProfile={input.input.profile}
-				currentSession={input.currentSession}
 				details={input.input.details}
-				isDirectMessagePending={input.input.pendingState.directMessage}
-				isRecoveryActionPending={input.input.pendingState.recoveryAction}
 				onOpenChange={input.onOpenChange.details}
-				onOpenDirectMessage={() => {
-					input.input.onOpenDirectMessage().catch((error) => {
-						console.error("Direct Message action failed.", error);
-					});
-				}}
-				onRecoveryAction={input.input.onRecoveryAction}
 				open={input.presentationState.detailsOpen}
 			/>
 			<AgentProfileProjectSettingsDialog
@@ -3888,13 +3879,10 @@ function AgentProfileWorkspacePresentation(input: {
 				}
 				wakeAvailabilityNowMs={input.input.wakeAvailabilityNowMs}
 			/>
-			<ProfileDetailsDialog
+			<AgentProfileMoreDetailsDialog
 				agentProfile={input.input.profile}
-				currentSession={input.currentSession}
 				details={input.input.details}
-				isRecoveryActionPending={input.input.pendingState.recoveryAction}
 				onOpenChange={input.onOpenChange.details}
-				onRecoveryAction={input.input.onRecoveryAction}
 				open={input.presentationState.detailsOpen}
 			/>
 			<AgentProfileProjectSettingsDialog

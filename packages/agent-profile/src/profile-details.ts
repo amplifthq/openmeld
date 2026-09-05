@@ -12,6 +12,13 @@ import type {
   ProfileDetailsViewerScope,
 } from "@openmeld/schemas/types";
 
+const SPACE_MEMBER_ACTIVITY_NOW_PATTERN = /^(?:just )?now$/i;
+const SPACE_MEMBER_ACTIVITY_UNDER_MINUTE_PATTERN = /^less than a minute ago$/i;
+const SPACE_MEMBER_ACTIVITY_MINUTES_PATTERN = /^(\d+)\s+minutes? ago$/i;
+const SPACE_MEMBER_ACTIVITY_HOURS_PATTERN = /^(\d+)\s+hours? ago$/i;
+const SPACE_MEMBER_ACTIVITY_DAYS_PATTERN = /^(\d+)\s+days? ago$/i;
+const SPACE_MEMBER_ACTIVITY_WEEKS_PATTERN = /^(\d+)\s+weeks? ago$/i;
+
 export type ProfileDetailsSpaceMemberInput = {
   addedByDisplayName: string | null;
   addedByProfileId: string | null;
@@ -220,7 +227,7 @@ export function buildProfileDetailsSnapshotFromSpaceMember(input: {
           id: "last_seen",
           label: "Last activity in this Space",
           source: "space_membership",
-          value: resolveSpaceMemberActivityTime(input.entry.lastSeenLabel),
+          value: formatSpaceMemberActivityTime(input.entry.lastSeenLabel),
         }),
       ]),
       buildConnectionSection({
@@ -256,18 +263,34 @@ export function formatProfileKind(profileKind: "agent" | "human"): string {
 export function formatSpaceMemberActivityLabel(
   lastSeenLabel: string | null | undefined
 ): string | null {
-  const activityTime = resolveSpaceMemberActivityTime(lastSeenLabel);
+  const activityTime = formatSpaceMemberActivityTime(lastSeenLabel);
   return activityTime ? `Active here ${activityTime}` : null;
 }
 
-function resolveSpaceMemberActivityTime(
+export function formatSpaceMemberActivityTime(
   lastSeenLabel: string | null | undefined
 ): string | null {
   const normalized = normalizeDetailsValue(lastSeenLabel, {});
   if (!normalized) {
     return null;
   }
-  return normalized.replace(SPACE_MEMBER_LAST_SEEN_PREFIX, "").trim() || null;
+  const activityTime = normalized
+    .replace(SPACE_MEMBER_LAST_SEEN_PREFIX, "")
+    .trim();
+  if (!activityTime) {
+    return null;
+  }
+  if (
+    SPACE_MEMBER_ACTIVITY_NOW_PATTERN.test(activityTime) ||
+    SPACE_MEMBER_ACTIVITY_UNDER_MINUTE_PATTERN.test(activityTime)
+  ) {
+    return "Now";
+  }
+  return activityTime
+    .replace(SPACE_MEMBER_ACTIVITY_MINUTES_PATTERN, "$1m ago")
+    .replace(SPACE_MEMBER_ACTIVITY_HOURS_PATTERN, "$1h ago")
+    .replace(SPACE_MEMBER_ACTIVITY_DAYS_PATTERN, "$1d ago")
+    .replace(SPACE_MEMBER_ACTIVITY_WEEKS_PATTERN, "$1w ago");
 }
 
 function buildConnectionSection(input: {
