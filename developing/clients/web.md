@@ -3530,6 +3530,16 @@ sidebar status uses the same progress projection and a non-Working waiting
 indicator instead of its animated Working orb. Both surfaces return to ordinary
 Wake progress as soon as Core projects the conversation as available.
 
+Web uses the shared Wake presentation resolver for status text and Orb variants.
+Sidebar priority is input needed from the current user, then working/replying,
+then sending/connecting, then queued or waiting. Equal priorities retain Wake
+start order. Other active Spaces in the selected Organization reuse the same
+authenticated active-progress query and cache on the ambient 15-second refresh
+cadence; this does not claim open-Space WebSocket latency. A failed read retains
+only the account summary's generic active indication, not a guessed phase.
+Bounded summaries disclose additional active tasks. Progress is placed before
+message actions; reduced-motion and input-waiting Orbs are paused.
+
 Web derives message-level progress, the details drawer, and Space-level current
 work from the same shared Wake progress item. It must not introduce a second
 resolver that independently combines dispatch, RuntimeCoordinator, native
