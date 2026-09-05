@@ -238,8 +238,12 @@ inside the workspace switcher. Its first four entries are flat, fixed
 primary actions and destinations; the remaining two product destinations stay
 in one user-collapsible group:
 
-- **New Agent** — opens the current Organization's route-backed Agent creation
-  view.
+- **New Agent** — opens `/o/{orgSlug}/agents/new`, a standalone creation page
+  with the primary rail and no Agent-list secondary sidebar. It reuses the
+  existing creation flow without loading the organization-wide Agent status
+  overview. Success opens the new Agent's detail; Cancel returns to Agents.
+  Pending teammate requests open Agent requests. Legacy `agents?view=create`
+  links redirect to this route before loading the Agents directory.
 - **Home** — the current Organization's adaptive overview and product entry.
 - **Spaces** and **Direct Messages** — first-level destinations directly below
   Home.
