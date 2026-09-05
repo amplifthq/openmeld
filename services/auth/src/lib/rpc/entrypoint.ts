@@ -773,10 +773,15 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
             ON users.id = members.user_id
           WHERE members.organization_id = ?
             AND members.user_id = ?
+            AND (? = 0 OR members.role IN ('owner', 'admin'))
           LIMIT 1
         `
       )
-        .bind(request.organizationId, request.userId)
+        .bind(
+          request.organizationId,
+          request.userId,
+          Number(request.purpose === "invitation_review")
+        )
         .first<InboxUrgentEmailRecipientRow>();
     } catch (error) {
       logInboxUrgentEmailFailure({
@@ -858,6 +863,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       });
     }
     const email = buildInboxUrgentEmail({
+      purpose: request.purpose,
       from,
       inboxUrl,
       preview: request.preview,

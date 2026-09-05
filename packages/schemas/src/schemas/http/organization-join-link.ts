@@ -13,6 +13,7 @@ export const organizationJoinLinkTokenSchema = z
 
 export const organizationJoinLinkManagementQuerySchema = z.strictObject({
   organizationId: z.string().trim().min(1).max(255),
+  spaceId: z.string().trim().min(1).max(255).optional(),
 });
 
 export const organizationJoinLinkSchema = z.strictObject({
@@ -23,6 +24,7 @@ export const organizationJoinLinkSchema = z.strictObject({
   role: z.literal("member"),
   createdBy: z.string().min(1),
   createdAt: z.iso.datetime(),
+  spaceId: z.string().min(1).nullable().optional(),
 });
 
 export const getOrganizationJoinLinkResponseSchema = z.strictObject({
@@ -31,7 +33,7 @@ export const getOrganizationJoinLinkResponseSchema = z.strictObject({
 });
 
 export const CENTER_AGENT_ORGANIZATION_INVITE_LINK_GENERATION_GUIDANCE = {
-  requiredRole: "owner_or_admin",
+  requiredRole: "member",
   settingsLocation: "Settings → Workspace → General",
   settingsSection: "Invite link",
 } as const;
@@ -135,6 +137,7 @@ export const previewOrganizationJoinLinkResponseSchema = z.discriminatedUnion(
       active: z.literal(true),
       organizationName: z.string().min(1),
       organizationSlug: z.string().min(1),
+      spaceId: z.string().min(1).nullable().optional(),
     }),
     z.strictObject({
       ok: z.literal(true),
@@ -161,6 +164,7 @@ export const organizationJoinLinkErrorCodeSchema = z.enum([
   ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITED_ERROR_CODE,
   "organization.join_link.invalid_input",
   "organization.join_link.authentication_required",
+  "organization.join_link.approval_required",
   "organization.join_link.forbidden",
   "organization.join_link.email_verification_required",
   "organization.join_link.inactive",

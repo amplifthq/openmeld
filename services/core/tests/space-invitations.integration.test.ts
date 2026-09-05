@@ -1,16 +1,164 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import type {
+  OrganizationJoinRequestRpcInput,
   SpaceInvitationRpcInput,
   SpaceInvitationRpcResult,
 } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { organizationJoinRequest } from "../src/organizations/organization-join-requests";
 import { spaceInvitation } from "../src/organizations/space-invitations";
 import { upsertSpaceCreatorMember } from "../src/space/application/space-members-service";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import type { Space } from "../src/space/transport/do/space";
 
 const core = env as unknown as CoreBindings;
+
+// First-party Auth directory contract; membership decisions still exercise D1.
+const requestCore: CoreBindings = {
+  ...core,
+  OPENMELD_AUTH_WORKER: {
+    resolveOrganizationDirectoryMembers: async ({ organizationId }) => {
+      const rows = await env.OPENMELD_DB.prepare(
+        "SELECT m.id, m.user_id, m.role, u.email, u.name FROM members m JOIN users u ON u.id = m.user_id WHERE m.organization_id = ?"
+      )
+        .bind(organizationId)
+        .all<{
+          id: string;
+          user_id: string;
+          role: string;
+          email: string;
+          name: string;
+        }>();
+      return {
+        ok: true,
+        organizationId,
+        members: rows.results.map((row) => ({
+          memberId: row.id,
+          organizationId,
+          userId: row.user_id,
+          role: row.role,
+          joinedAt: new Date().toISOString(),
+          humanProfile: null,
+          user: {
+            id: row.user_id,
+            email: row.email,
+            name: row.name,
+            image: null,
+          },
+        })),
+      };
+    },
+  },
+};
+
+describe("invitation approval boundary", () => {
+  it("keeps requests separate from membership, blocks member approval, and queues one review email", async () => {
+    const f = await fixture();
+    await f.joinOrganization();
+    const call = (
+      userId: string,
+      request: OrganizationJoinRequestRpcInput["request"]
+    ) =>
+      organizationJoinRequest(requestCore, {
+        userId,
+        email: `${userId}@example.com`,
+        emailVerified: true,
+        request,
+      });
+    const create = () =>
+      call(f.recipientId, {
+        action: "create",
+        organizationId: f.organizationId,
+        email: "new-person@example.com",
+      });
+    const result = await create();
+    if (!(result.ok && result.requests[0])) {
+      throw new Error(JSON.stringify(result));
+    }
+    const requestId = result.requests[0].id;
+    expect(result.requests[0].status).toBe("pending");
+    expect(await create()).toMatchObject({
+      ok: true,
+      requests: [{ id: requestId }],
+    });
+    expect(
+      await call(f.recipientId, { action: "approve", requestId })
+    ).toMatchObject({ ok: false, code: "organization.join_request.forbidden" });
+    const counts = await env.OPENMELD_DB.prepare(
+      "SELECT (SELECT count(*) FROM inbox_items WHERE organization_id = ?) AS inbox, (SELECT count(*) FROM inbox_email_deliveries WHERE inbox_item_id IN (SELECT id FROM inbox_items WHERE organization_id = ?)) AS emails, (SELECT count(*) FROM invitations WHERE organization_id = ?) AS invitations"
+    )
+      .bind(f.organizationId, f.organizationId, f.organizationId)
+      .first();
+    expect(counts).toEqual({ inbox: 1, emails: 1, invitations: 0 });
+    expect(
+      await call(f.ownerId, { action: "approve", requestId })
+    ).toMatchObject({
+      ok: true,
+      requests: [{ status: "approved", invitationSentAt: null }],
+    });
+    const reviewState = () =>
+      env.OPENMELD_DB.prepare(
+        "SELECT resolution_status FROM inbox_items WHERE organization_id = ? AND source_key = ?"
+      )
+        .bind(f.organizationId, `invitation:${requestId}`)
+        .first();
+    // Approval is not delivery: keep the actionable item until Auth confirms sending.
+    expect(await reviewState()).toEqual({ resolution_status: "open" });
+    expect(
+      await call(f.recipientId, { action: "delivery_complete", requestId })
+    ).toMatchObject({ ok: false, code: "organization.join_request.forbidden" });
+    expect(
+      await call(f.ownerId, { action: "delivery_complete", requestId })
+    ).toMatchObject({
+      ok: true,
+      requests: [{ invitationSentAt: expect.any(Number) }],
+    });
+    expect(await reviewState()).toEqual({ resolution_status: "resolved" });
+    expect(
+      await call(f.ownerId, { action: "reject", requestId })
+    ).toMatchObject({
+      ok: false,
+      code: "organization.join_request.already_reviewed",
+    });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT count(*) AS count FROM members WHERE organization_id = ?"
+      )
+        .bind(f.organizationId)
+        .first()
+    ).toEqual({ count: 2 });
+  });
+
+  it("does not let an unverified applicant or a non-Space sponsor create a request", async () => {
+    const f = await fixture();
+    await f.joinOrganization();
+    const input = {
+      userId: f.recipientId,
+      email: f.email,
+      emailVerified: true,
+      request: {
+        action: "create" as const,
+        organizationId: f.organizationId,
+        spaceId: f.spaceId,
+        email: "another@example.com",
+      },
+    };
+    expect(await organizationJoinRequest(requestCore, input)).toMatchObject({
+      ok: false,
+      code: "space.invitation.forbidden",
+    });
+    expect(
+      await organizationJoinRequest(requestCore, {
+        ...input,
+        emailVerified: false,
+      })
+    ).toMatchObject({
+      ok: false,
+      code: "organization.join_request.email_verification_required",
+    });
+  });
+});
 
 async function fixture() {
   const organizationId = crypto.randomUUID();

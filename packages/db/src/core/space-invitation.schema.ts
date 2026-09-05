@@ -22,6 +22,7 @@ export const spaceInvitations = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     organizationInvitationId: text("organization_invitation_id"),
+    sponsorUserId: text("sponsor_user_id"),
     organizationInvitationOwned: integer("organization_invitation_owned", {
       mode: "boolean",
     })

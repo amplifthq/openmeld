@@ -25,6 +25,7 @@ export async function readActiveOrganizationJoinLink(input: {
           ON organizations.id = organization_join_links.organization_id
         WHERE organization_join_links.organization_id = ?
           AND organization_join_links.revoked_at IS NULL
+          AND organization_join_links.space_id IS NULL
         LIMIT 1
       `
     )

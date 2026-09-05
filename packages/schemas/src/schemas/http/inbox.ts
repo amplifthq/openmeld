@@ -112,6 +112,10 @@ export const slackInboxSourceTargetSchema = z.strictObject({
 
 export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
+    kind: z.literal("organization_join_request"),
+    requestId: identifierSchema,
+  }),
+  z.strictObject({
     kind: z.literal("agent_profile"),
     profileId: identifierSchema,
   }),
