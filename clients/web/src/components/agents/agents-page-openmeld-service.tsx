@@ -29,7 +29,6 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@openmeld/ui/components/dialog";
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { Switch } from "@openmeld/ui/components/switch";
 import {
@@ -912,12 +911,6 @@ function CurrentLocalRuntimeServiceFacts(input: {
 								resolveOpenMeldServiceStatusDotClassName(display.tone)
 							)}
 						/>
-						{computerSummaryStatus?.localAgent ? (
-							<LocalAgentLogo
-								agentId={computerSummaryStatus.localAgent.agentId}
-								size="xs"
-							/>
-						) : null}
 						{display.statusLabel}
 					</p>
 					<p
