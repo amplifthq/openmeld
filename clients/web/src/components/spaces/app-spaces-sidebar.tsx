@@ -22,7 +22,6 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CompassIcon,
 	HashIcon,
-	HourglassMediumIcon,
 	PlusIcon,
 	PushPinIcon,
 } from "@phosphor-icons/react";
@@ -49,6 +48,11 @@ import type {
 	AccountSpaceItem,
 	AccountSpaceSections,
 } from "#/lib/spaces/account-spaces";
+import {
+	resolveWakeProgressStatus,
+	WAKE_PROGRESS_STATUS_PRIORITY,
+	type WakeProgressStatusPresentation,
+} from "#/lib/spaces/wake-progress-status";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
 	spaceActiveWakeProgressSummaryQueryOptions,
@@ -62,6 +66,10 @@ import {
 	selectAccountSpaceSections,
 } from "./account-space-sections";
 import { SpaceAgentOrb } from "./space-agent-orb";
+import {
+	type SpaceAgentOrbState,
+	WAKE_STATUS_ORB_STATE,
+} from "./space-agent-orb-state";
 import { useSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import { useAccountSpaceIndicators } from "./use-account-space-indicators";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
@@ -96,6 +104,7 @@ const SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME =
 
 type SpaceSidebarActiveWakeSummary = AccountSpaceActiveWakeSummaryItem & {
 	waitReasonCode?: WakeProgressItem["waitReasonCode"];
+	statuses?: readonly WakeProgressStatusPresentation[];
 };
 
 function subscribeToBrowserEnvironment() {
@@ -649,7 +658,7 @@ function resolveSpaceSidebarActiveWakeLabel(input: {
 	if (!input.hasActiveWake) {
 		return null;
 	}
-	return input.isWaitingForCurrentTask ? "agent waiting" : "agent working";
+	return input.isWaitingForCurrentTask ? "agent waiting" : "active Wake";
 }
 
 function SpaceSidebarActiveWakeStatus(input: {
@@ -683,11 +692,10 @@ function SpaceSidebarActiveWakeStatus(input: {
 						onClick={input.onOpen}
 						type="button"
 					>
-						{isWaitingForCurrentTask ? (
-							<HourglassMediumIcon className="size-4" />
-						) : (
-							<SpaceAgentOrb />
-						)}
+						<SpaceAgentOrb
+							paused={input.presentation.orbState === undefined}
+							state={input.presentation.orbState ?? "listening"}
+						/>
 					</button>
 				}
 			/>
@@ -740,6 +748,18 @@ function buildCurrentSpaceActiveWakeSummary(input: {
 	);
 	return {
 		activeTargets,
+		statuses: [...activeItems]
+			.sort((left, right) => (left.startedAtMs ?? 0) - (right.startedAtMs ?? 0))
+			.flatMap((item) => {
+				const status = resolveWakeProgressStatus({
+					...item,
+					targetLabel:
+						normalizeWorkingTargetLabel(item.targetLabel) ??
+						fallbackNamesByProfileId.get(item.targetProfileId) ??
+						"Agent",
+				});
+				return status ? [status] : [];
+			}),
 		activeWakeCount: activeTargets.reduce(
 			(total, target) => total + target.activeWakeCount,
 			0
@@ -760,11 +780,27 @@ function buildCurrentSpaceActiveWakeSummary(input: {
 type SpaceActiveWakePresentation = {
 	isWaitingForCurrentTask: boolean;
 	label: string;
+	orbState?: SpaceAgentOrbState;
 };
 
 function resolveSpaceActiveWakePresentation(
 	summary: SpaceSidebarActiveWakeSummary
 ): SpaceActiveWakePresentation {
+	if (summary.statuses?.length) {
+		const statuses = [...summary.statuses].sort(
+			(left, right) =>
+				WAKE_PROGRESS_STATUS_PRIORITY[left.kind] -
+				WAKE_PROGRESS_STATUS_PRIORITY[right.kind]
+		);
+		const first = statuses[0];
+		if (first) {
+			return {
+				isWaitingForCurrentTask: first.kind === "waiting_for_controller",
+				label: [...new Set(statuses.map((status) => status.label))].join("; "),
+				orbState: WAKE_STATUS_ORB_STATE[first.kind],
+			};
+		}
+	}
 	const isWaitingForCurrentTask =
 		summary.waitReasonCode ===
 		WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE;
@@ -797,7 +833,7 @@ function resolveGenericSpaceWakeStatusLabel(input: {
 			: `${String(input.activeWakeCount)} Wakes are waiting for current tasks`;
 	}
 	return input.activeWakeCount === 1
-		? "An agent is working"
+		? "A Wake is active"
 		: `${String(input.activeWakeCount)} Wakes are active`;
 }
 
@@ -819,7 +855,7 @@ function resolveAttributedSpaceWakeStatusLabel(input: {
 	const plural = input.activeTargets.length > 1;
 	const status = input.isWaitingForCurrentTask
 		? `${plural ? "are" : "is"} waiting for ${plural ? "their" : "its"} current task`
-		: `${plural ? "are" : "is"} working`;
+		: `${plural ? "have" : "has"} an active Wake`;
 	return capitalizeStatusFragment(
 		`${formatEnglishList(targetLabels)} ${status}`
 	);

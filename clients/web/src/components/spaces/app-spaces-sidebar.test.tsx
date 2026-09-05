@@ -993,7 +993,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const workingButton = await screen.findByRole("link", {
-			name: "Alpha, agent working",
+			name: "Alpha, active Wake",
 		});
 		const workingRow = workingButton.closest<HTMLElement>(
 			'[data-slot="center-truncated-text"], li, div'
@@ -1013,13 +1013,13 @@ describe("AppSpacesSidebar", () => {
 			false
 		);
 		const workingStatus = screen.getByRole("button", {
-			name: "Clico Codex is working. Open Alpha",
+			name: "Clico Codex has an active Wake. Open Alpha",
 		});
 		expect(workingStatus).toBe(orbSlot);
 		fireEvent.pointerEnter(workingStatus);
 		fireEvent.mouseEnter(workingStatus);
 		await waitFor(() => {
-			expect(screen.getByText("Clico Codex is working")).toBeTruthy();
+			expect(screen.getByText("Clico Codex has an active Wake")).toBeTruthy();
 		});
 		expect(
 			orbSlot?.classList.contains("group-hover/space-row:scale-[0.625]")
@@ -1077,13 +1077,13 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const workingStatus = await screen.findByRole("button", {
-			name: "Clico Codex and Felix Codex are working. Open Alpha",
+			name: "Clico Codex and Felix Codex have an active Wake. Open Alpha",
 		});
 		fireEvent.pointerEnter(workingStatus);
 		fireEvent.mouseEnter(workingStatus);
 		await waitFor(() => {
 			expect(
-				screen.getByText("Clico Codex and Felix Codex are working")
+				screen.getByText("Clico Codex and Felix Codex have an active Wake")
 			).toBeTruthy();
 		});
 	});
@@ -1143,7 +1143,7 @@ describe("AppSpacesSidebar", () => {
 
 		expect(
 			await screen.findByRole("link", {
-				name: "Alpha, agent working",
+				name: "Alpha, active Wake",
 			})
 		).toBeTruthy();
 		expect(
@@ -1217,7 +1217,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", {
-				name: "Clico Codex is waiting for its current task. Open Alpha",
+				name: "Waiting for Clico Codex’s current task. Open Alpha",
 			})
 		).toBeTruthy();
 		expect(
@@ -1276,7 +1276,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("link", { name: "Alpha, agent working" })
+			await screen.findByRole("link", { name: "Alpha, active Wake" })
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", {
@@ -1363,7 +1363,7 @@ describe("AppSpacesSidebar", () => {
 
 		expect(await screen.findByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Beta, agent working" })
+			screen.getByRole("link", { name: "Beta, active Wake" })
 		).toBeTruthy();
 		expect(
 			document.querySelectorAll('[data-space-active-wake-orb="true"]')
@@ -1396,7 +1396,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		expect(
-			await screen.findByRole("link", { name: "Alpha, agent working" })
+			await screen.findByRole("link", { name: "Alpha, active Wake" })
 		).toBeTruthy();
 
 		view.rerender(
@@ -1411,7 +1411,7 @@ describe("AppSpacesSidebar", () => {
 
 		expect(screen.getByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Beta, agent working" })
+			screen.getByRole("link", { name: "Beta, active Wake" })
 		).toBeTruthy();
 		expect(
 			document.querySelectorAll('[data-space-active-wake-orb="true"]')
@@ -1435,7 +1435,7 @@ describe("AppSpacesSidebar", () => {
 
 		expect(screen.getByRole("link", { name: "Alpha" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Beta, agent working" })
+			screen.getByRole("link", { name: "Beta, active Wake" })
 		).toBeTruthy();
 		expect(
 			document.querySelectorAll('[data-space-active-wake-orb="true"]')
@@ -1488,7 +1488,7 @@ describe("AppSpacesSidebar", () => {
 		);
 
 		const openSpaceButton = await screen.findByRole("link", {
-			name: "Alpha, agent working",
+			name: "Alpha, active Wake",
 		});
 		await waitFor(() => {
 			expect(
@@ -1577,7 +1577,7 @@ describe("AppSpacesSidebar", () => {
 
 		const workingRow = (
 			await screen.findByRole("link", {
-				name: "Working, unread messages, agent working",
+				name: "Working, unread messages, active Wake",
 			})
 		).parentElement;
 		const unreadRow = screen.getByRole("link", {
