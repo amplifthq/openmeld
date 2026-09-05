@@ -27,7 +27,7 @@ explicit opt-in.
 ## Choose One Topic
 
 - Read or diagnose a Space: `playbooks/space-reads.md`
-- Create, join, send, add members, use Files, Wake, Stop, or reply from a Wake:
+- Create, join, invite people, add members, send, use Files, Wake, Stop, or reply from a Wake:
   `playbooks/space-ops.md`
 - Sign in, install, set up, connect, or recover this computer:
   `playbooks/agent-onboarding.md`

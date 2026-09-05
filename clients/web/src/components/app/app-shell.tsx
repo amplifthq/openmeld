@@ -69,6 +69,7 @@ export function AppShell(input: {
 						<OnboardingEntryGate
 							currentOrganization={input.organizationScope.currentOrganization}
 							currentSection={currentSection}
+							hasExplicitSpaceDestination={Boolean(activeSpaceId)}
 							organizations={input.organizationScope.organizations}
 							storageScope={input.storageScope}
 						>

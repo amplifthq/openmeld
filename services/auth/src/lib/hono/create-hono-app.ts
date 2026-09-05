@@ -35,6 +35,7 @@ import { registerOrganizationCreationRoutes } from "./organization-creation-rout
 import { registerOrganizationJoinLinkRoutes } from "./organization-join-link-routes";
 import { registerPasswordRoutes } from "./password-routes";
 import { PROFILE_ROUTE_BASE, registerProfileRoutes } from "./profile-routes";
+import { registerSpaceInvitationRoutes } from "./space-invitation-routes";
 import { registerWaitlistRoutes } from "./waitlist-routes";
 
 export function createHonoApp() {
@@ -107,6 +108,7 @@ export function createHonoApp() {
   registerWaitlistRoutes(app);
   registerOrganizationCreationRoutes(app);
   registerOrganizationJoinLinkRoutes(app);
+  registerSpaceInvitationRoutes(app);
   registerBetterAuthRoutes(app);
 
   app.get("/", (c) => {
