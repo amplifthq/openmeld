@@ -37,6 +37,10 @@ pay for an immediately stale Final Candidate or merge to `main` first. The
 combined candidate is the merge unit and proves the interactions users will
 actually receive.
 
+Batch integration must also check directional release dependencies. For example,
+Space invitations require Core and Auth receivers before the new CLI; follow
+the staged order in `production-release.md`, not the default fleet order.
+
 This is not a central-coordinator process. CI/CD reports facts; the responsible
 agent uses those facts, the task, and the relevant owner documents to decide
 what to do. CI/CD does not choose business scope, mandate a reviewer, or ask
