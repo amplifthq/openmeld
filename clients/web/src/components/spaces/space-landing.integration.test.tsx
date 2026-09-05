@@ -46,6 +46,7 @@ import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
 import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
+import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 import {
 	SPACE_LIVE_RECONNECTING_LABEL,
 	SPACE_LIVE_STALE_LABEL,
@@ -582,6 +583,7 @@ function renderSpaceLanding(
 		queryClient?: QueryClient;
 		spaceId?: string;
 		observeVisibleWakeProgress?: boolean;
+		entryConfirmed?: boolean;
 	} = {}
 ) {
 	// SpaceLanding's Slack-discovery header state always mounts two real
@@ -603,7 +605,9 @@ function renderSpaceLanding(
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
 				<AppOrganizationProvider scope={organizationScope}>
-					{ui}
+					<SpaceEntryConfirmationContext value={input.entryConfirmed ?? true}>
+						{ui}
+					</SpaceEntryConfirmationContext>
 				</AppOrganizationProvider>
 			</SpaceWakeProgressVisibleProjectionProvider>
 		</TestQueryClientProvider>
@@ -2075,7 +2079,10 @@ describe("SpaceLanding", () => {
 		).toBe(false);
 	});
 
-	it("keeps restored conversation authoring available while current access is confirming", async () => {
+	it.each([
+		false,
+		true,
+	])("keeps saved authoring read-only while access confirms (status already succeeded: %s)", async (statusConfirmed) => {
 		const postNormalMessageMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
@@ -2092,7 +2099,9 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({
 				isFetchedAfterMount: false,
 				isFetching: true,
-				isPending: true,
+				isPending: !statusConfirmed,
+				isSuccess: statusConfirmed,
+				data: statusConfirmed ? createSpaceStatus() : undefined,
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -2113,7 +2122,7 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		renderSpaceLanding({ entryConfirmed: !statusConfirmed });
 
 		expect(screen.getByText("Private launch numbers")).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Design Room" })).toBeTruthy();

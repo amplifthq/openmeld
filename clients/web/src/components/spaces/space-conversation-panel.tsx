@@ -132,6 +132,7 @@ import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
 import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
+import { SpaceEntryRecoveryNotice } from "./space-entry-recovery-notice";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
@@ -603,19 +604,6 @@ export function SpaceConversationPanel(
 									visible={showEarlierHistoryLoadingIndicator}
 								/>
 								{setupGuidance.banner}
-								<SpaceUnreadAboveControl
-									dismissedTargetKeys={dismissedUnreadTargetKeys}
-									navigation={unreadNavigation}
-									onDismiss={() => {
-										setDismissedUnreadTargetKeys((current) =>
-											mergeUnreadTargetKeys(
-												current,
-												unreadNavigation.aboveTargetKeys
-											)
-										);
-									}}
-									onNavigate={revealUnreadTarget}
-								/>
 							</SpaceConversationTopOverlay>
 							<MessageScrollerViewport
 								aria-busy={
@@ -649,6 +637,21 @@ export function SpaceConversationPanel(
 								role="log"
 							>
 								<SpaceConversationStickyDate
+									afterDate={
+										<SpaceUnreadAboveControl
+											dismissedTargetKeys={dismissedUnreadTargetKeys}
+											navigation={unreadNavigation}
+											onDismiss={() =>
+												setDismissedUnreadTargetKeys((current) =>
+													mergeUnreadTargetKeys(
+														current,
+														unreadNavigation.aboveTargetKeys
+													)
+												)
+											}
+											onNavigate={revealUnreadTarget}
+										/>
+									}
 									loadedSignalCount={loadedMainTimelineSignalIds.size}
 									onActiveDateMsChange={setStuckConversationDateMs}
 									onJumpToDate={input.onJumpToDate}
@@ -684,6 +687,7 @@ export function SpaceConversationPanel(
 			{showComposer ? (
 				<>
 					{input.pendingActionSurface}
+					<SpaceEntryRecoveryNotice />
 					<SpaceComposerSection
 						canSendMessage={canSendMessage}
 						composerContext={composerContext}
@@ -1738,12 +1742,12 @@ function SpaceUnreadNavigationPill(input: {
 	const dismissLabel = `Hide ${label}`;
 	return (
 		<div
-			className="pointer-events-auto inline-flex self-center overflow-hidden rounded-full border border-border bg-background/95 text-foreground shadow-md backdrop-blur-sm"
+			className="pointer-events-auto inline-flex self-center overflow-hidden rounded-full border border-blue-200 bg-blue-50 text-blue-800 shadow-xs dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
 			data-unread-direction={input.direction}
 		>
 			<Button
 				aria-label={navigateLabel}
-				className="min-h-10 gap-1.5 rounded-none border-0 bg-transparent px-3 hover:bg-muted focus-visible:z-10"
+				className="h-8 min-h-8 gap-1.5 rounded-none border-0 bg-transparent px-2.5 text-inherit text-xs hover:bg-blue-100 focus-visible:z-10 dark:hover:bg-blue-900 [@media(pointer:coarse)]:min-h-11"
 				onClick={input.onNavigate}
 				size="sm"
 				type="button"
@@ -1758,7 +1762,7 @@ function SpaceUnreadNavigationPill(input: {
 			</Button>
 			<Button
 				aria-label={dismissLabel}
-				className="min-h-10 min-w-10 rounded-none border-0 border-border border-l bg-transparent px-0 hover:bg-muted focus-visible:z-10"
+				className="size-8 min-h-8 min-w-8 rounded-none border-0 border-blue-200 border-l bg-transparent px-0 text-inherit hover:bg-blue-100 focus-visible:z-10 dark:border-blue-800 dark:hover:bg-blue-900 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
 				onClick={input.onDismiss}
 				size="icon"
 				type="button"

@@ -28,7 +28,10 @@ import { organizationQueryKeys } from "#/query/organizations/organization-direct
 import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
-import { SPACE_INITIAL_HISTORY_MAX_MESSAGES } from "#/query/spaces/history";
+import {
+	mergeSpaceHistorySnapshots,
+	SPACE_SAVED_HISTORY_MAX_BYTES,
+} from "#/query/spaces/history";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import type {
 	DexieQueryCacheStore,
@@ -102,14 +105,15 @@ export type BrowserQueryPersistenceController = {
 	deactivate: () => void;
 };
 
-type QueryCacheStore = Pick<
-	DexieQueryCacheStore,
-	| "clearAccount"
-	| "clearAll"
-	| "clearOrganization"
-	| "clearOrganizationBySlug"
-	| "createStorage"
->;
+type QueryCacheStore = Partial<Pick<DexieQueryCacheStore, "subscribe">> &
+	Pick<
+		DexieQueryCacheStore,
+		| "clearAccount"
+		| "clearAll"
+		| "clearOrganization"
+		| "clearOrganizationBySlug"
+		| "createStorage"
+	>;
 
 type CreateBrowserQueryPersistenceControllerInput = {
 	diagnostics?: QueryPersistenceDiagnostics;
@@ -185,6 +189,7 @@ export function createBrowserQueryPersistenceController(
 	};
 
 	const activateSegment = async (options: {
+		reload?: boolean;
 		organizationId?: string;
 		ownerAccountId: string;
 		queryClient: QueryClient;
@@ -195,6 +200,7 @@ export function createBrowserQueryPersistenceController(
 	}): Promise<void> => {
 		const current = resolveActiveSegment(options.scopeKind);
 		if (
+			!options.reload &&
 			current?.ownerAccountId === options.ownerAccountId &&
 			current.scopeAlias === options.scopeAlias &&
 			current.scopeId === options.scopeId &&
@@ -380,6 +386,60 @@ export function createBrowserQueryPersistenceController(
 		}
 	}
 
+	async function discardExternalSegment(segment: ActiveSegment) {
+		segment.unsubscribe?.();
+		await Promise.all(
+			segment.targetQueryKeys.map((key) =>
+				segment.queryClient.cancelQueries({ queryKey: key, exact: true })
+			)
+		);
+		removeSegmentQueries(segment);
+		if (segment === spaceSegment) {
+			spaceSegment = null;
+		}
+		if (segment === organizationSegment) {
+			organizationSegment = null;
+		}
+		if (segment === accountSegment) {
+			accountSegment = null;
+		}
+	}
+
+	async function refreshExternalSegment(
+		segment: ActiveSegment,
+		cleared: boolean
+	) {
+		const scope = {
+			...segment,
+			organizationId: segment.organizationId ?? undefined,
+		};
+		if (cleared) {
+			const storage = input.store.createStorage(scope);
+			const removed =
+				(await storage.getItem(PERSISTED_QUERY_STORAGE_KEY)) === null;
+			if (removed) {
+				await discardExternalSegment(segment);
+			}
+			// Notifications are refresh signals, never access authority.
+			await segment.queryClient.invalidateQueries({ queryKey: ["spaces"] });
+			if (removed) {
+				return;
+			}
+		}
+		await activateSegment({ ...scope, reload: true });
+	}
+
+	input.store.subscribe?.((cleared) => {
+		runExclusive(async () => {
+			await Promise.all(
+				[accountSegment, organizationSegment, spaceSegment]
+					.filter((segment): segment is ActiveSegment => segment !== null)
+					.map((segment) => refreshExternalSegment(segment, cleared))
+			);
+		}).catch((error: unknown) =>
+			console.error("Failed to refresh saved browser views.", error)
+		);
+	});
 	return {
 		activateAuthorizedScope: ({
 			organizationId,
@@ -534,7 +594,8 @@ export function createBrowserQueryPersistenceController(
 			);
 			await runExclusive(async () => {
 				if (
-					spaceSegment?.ownerAccountId === ownerAccountId &&
+					spaceSegment !== null &&
+					spaceSegment.ownerAccountId === ownerAccountId &&
 					spaceSegment.organizationId === organizationId &&
 					spaceSegment.scopeId === scopeId &&
 					spaceSegment.queryClient === queryClient
@@ -742,18 +803,38 @@ async function restoreAndSubscribe(input: {
 	if (!input.isCurrent()) {
 		return;
 	}
-	hydrate(
-		input.queryClient,
-		dehydrate(restoreQueryClient, {
-			shouldDehydrateMutation: () => false,
-			shouldDehydrateQuery: (query: Query) =>
-				isApprovedSuccessfulQuery(
-					query,
-					input.targetQueryKeys,
-					input.segment.scopeKind
-				),
-		})
-	);
+	const restored = dehydrate(restoreQueryClient, {
+		shouldDehydrateMutation: () => false,
+		shouldDehydrateQuery: (query: Query) =>
+			isApprovedSuccessfulQuery(
+				query,
+				input.targetQueryKeys,
+				input.segment.scopeKind
+			),
+	});
+	// Another tab may have loaded additional pages without a newer server read.
+	// Preserve those pages even when TanStack's timestamp-based hydrate skips it.
+	for (const query of restored.queries) {
+		if (query.queryKey[0] !== "spaces" || query.queryKey[1] !== "history") {
+			continue;
+		}
+		const current = input.queryClient.getQueryState(query.queryKey);
+		const currentHistory = spaceHistorySnapshotSchema.safeParse(current?.data);
+		const savedHistory = spaceHistorySnapshotSchema.safeParse(query.state.data);
+		if (!(currentHistory.success && savedHistory.success && current)) {
+			continue;
+		}
+		const savedIsNewer = query.state.dataUpdatedAt > current.dataUpdatedAt;
+		input.queryClient.setQueryData(
+			query.queryKey,
+			mergeSpaceHistorySnapshots({
+				current: savedIsNewer ? currentHistory.data : savedHistory.data,
+				incoming: savedIsNewer ? savedHistory.data : currentHistory.data,
+			}),
+			{ updatedAt: Math.max(current.dataUpdatedAt, query.state.dataUpdatedAt) }
+		);
+	}
+	hydrate(input.queryClient, restored);
 	if (input.didRestoreUsableClient()) {
 		await Promise.all(
 			input.targetQueryKeys.map(async (targetQueryKey) => {
@@ -814,9 +895,71 @@ async function restoreAndSubscribe(input: {
 const spaceHistorySnapshotSchema = z.strictObject({
 	envelopes: z
 		.array(signalEnvelopeSchema)
-		.max(SPACE_INITIAL_HISTORY_MAX_MESSAGES),
+		.refine(
+			(items) =>
+				new TextEncoder().encode(JSON.stringify(items)).byteLength <=
+				SPACE_SAVED_HISTORY_MAX_BYTES + items.length + 2
+		),
 	nextCursor: z.string().nullable(),
 });
+
+/** Called inside the IndexedDB write transaction, so two tabs retain both
+ * sets of loaded pages. For duplicate signals the newer query snapshot wins. */
+export function mergePersistedBrowserViews(
+	existing: string,
+	incoming: string
+): string {
+	try {
+		const previous = JSON.parse(existing) as PersistedClient;
+		const next = JSON.parse(incoming) as PersistedClient;
+		if (
+			previous.buster !== next.buster ||
+			!Array.isArray(previous.clientState?.queries) ||
+			!Array.isArray(next.clientState?.queries)
+		) {
+			return incoming;
+		}
+		const queries = new Map(
+			previous.clientState.queries.map((query) => [query.queryHash, query])
+		);
+		for (const query of next.clientState.queries) {
+			const old = queries.get(query.queryHash);
+			const newer =
+				old && old.state.dataUpdatedAt > query.state.dataUpdatedAt
+					? old
+					: query;
+			const older = newer === old ? query : old;
+			const oldHistory = spaceHistorySnapshotSchema.safeParse(
+				older?.state.data
+			);
+			const newHistory = spaceHistorySnapshotSchema.safeParse(newer.state.data);
+			queries.set(
+				query.queryHash,
+				query.queryKey[0] === "spaces" &&
+					query.queryKey[1] === "history" &&
+					oldHistory.success &&
+					newHistory.success
+					? {
+							...newer,
+							state: {
+								...newer.state,
+								data: mergeSpaceHistorySnapshots({
+									current: oldHistory.data,
+									incoming: newHistory.data,
+								}),
+							},
+						}
+					: newer
+			);
+		}
+		return JSON.stringify({
+			...next,
+			clientState: { ...next.clientState, queries: [...queries.values()] },
+		});
+	} catch {
+		return incoming;
+	}
+}
 
 function resolvePersistedDataSerializer(scopeKind: QueryCacheScopeKind): {
 	serializeData?: (data: unknown) => unknown;

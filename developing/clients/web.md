@@ -2327,7 +2327,10 @@ as images and deferred layout settle, until deliberate user scrolling takes
 ownership. Reaching the bottom resumes normal following. Different Spaces
 remain independent; explicit message-focus navigation takes priority over the
 remembered position.
-Both layers use session storage. This view-local presentation state does not
+The coarse fallback uses session storage. The semantic anchor keeps each tab's
+session position and also saves a seven-day local-storage copy for a new tab or
+browser restart. An existing tab's position wins over another tab's last saved
+position. Auth cleanup removes both copies. This view-local presentation state does not
 belong in the IndexedDB Query cache and is never message, read-cursor, or access
 authority.
 
@@ -2356,8 +2359,9 @@ The persistence allowlist contains exactly seven successful query families:
   safe canonical Center Agent DM identity returned by the read-only projection;
 - `spaceQueryKeys.history(spaceId, openMeldProfileId)` for one confirmed
   account, Organization, Space, and acting Human Profile. This is the same
-  recent main-timeline snapshot consumed by the conversation and is capped at
-  30 validated recorded signal envelopes; and
+  main-timeline snapshot consumed by the conversation and retains loaded pages
+  within a 2 MiB signal-payload budget; the initial server page remains 30
+  recorded signals; and
 - `spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)` for a versioned,
   validated Space identity and presentation snapshot with current actions and
   latest-message preview removed.
@@ -2404,7 +2408,7 @@ snapshot and the bounded history may render immediately while current access is
 checked. The composer remains available for browser-local text authoring with
 **Write a message while OpenMeld checks access…**, but Send, file actions, and
 every other mutation or authority-bearing secondary surface stay unavailable
-until the current status succeeds. Pressing Enter during confirmation must not
+until the current entry resolver and status both succeed. Pressing Enter during confirmation must not
 bypass that mutation boundary. Background `isFetching` and a transient refresh
 failure do not erase an already visible conversation. An explicit access
 rejection immediately hides the private content and clears only that
@@ -2454,6 +2458,14 @@ current successful read completes. A paused offline refresh does not count as a
 current read. Open navigation may remain available because the destination's
 server read still decides access. With no usable saved data, the ordinary
 skeleton and error behavior remains unchanged.
+
+Saved conversation records share a 32 MiB browser budget. Expired records leave
+first, then the least recently written Space records. Eviction never removes
+messages from an already mounted reader. IndexedDB transactions merge loaded
+history from concurrent tabs, retaining newer duplicate signals. BroadcastChannel
+only requests rereading these saved views or server-owned facts; it never carries
+private content or authorizes access. Scoped storage generations prevent an old
+tab's delayed save from resurrecting content after account or Space cleanup.
 
 IndexedDB unavailable, corrupt, over quota, expired, or blocked is an
 observable acceleration failure, not an app failure. The network path continues,
@@ -2758,7 +2770,11 @@ performs the same targeted status and index refresh in other open clients; it
 does not carry a replacement name or require a members refresh.
 
 Every direct Space entry uses the shared Core Space entry resolution before it
-mounts a member or public conversation. The Web entry gate consumes that
+enables a member or public conversation. After current account and Organization
+confirmation, a returning app route may mount its scoped saved display and
+history read-only while entry resolution runs. Public routes and routes without
+that saved pair keep the ordinary entry gate. Explicit rejection removes the
+saved view; transient failures retain it with retry. The Web entry gate consumes that
 resolution as the only routing decision: it opens the member experience, opens
 the public read-only experience, asks for sign-in or a protected-Space password,
 shows the same-Organization membership block with the safe Space name and owner,
