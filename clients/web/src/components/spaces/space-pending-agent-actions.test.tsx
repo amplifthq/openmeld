@@ -13,7 +13,7 @@ import {
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	resolveSpacePendingAgentActionSurfacePlacement,
+	partitionSpacePendingAgentActions,
 	resolveSpacePermissionModeShortcut,
 } from "./space-pending-agent-action-model";
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
@@ -468,14 +468,50 @@ describe("resolveSpacePermissionModeShortcut", () => {
 	});
 });
 
-describe("resolveSpacePendingAgentActionSurfacePlacement", () => {
-	it("uses exactly the panel whose composer is currently visible", () => {
+describe("pending action thread navigation", () => {
+	it("keeps unrelated requests in main and opens the requested thread before showing its card", () => {
+		const main = createPermissionItem({ interactionId: "main" });
+		const threaded = {
+			...createPermissionItem({ interactionId: "threaded" }),
+			sourceContext: {
+				profileId: "human",
+				profileKind: "human" as const,
+				profileName: "Reviewer",
+				messagePreview: null,
+				threadId: "thread-a",
+			},
+		};
+		const items = [main, threaded];
 		expect(
-			resolveSpacePendingAgentActionSurfacePlacement({ hasActiveThread: false })
-		).toBe("conversation");
-		expect(
-			resolveSpacePendingAgentActionSurfacePlacement({ hasActiveThread: true })
-		).toBe("thread");
+			partitionSpacePendingAgentActions(items, "unrelated").thread
+		).toEqual([]);
+		const onOpen = vi.fn();
+		const view = render(
+			<SpacePendingAgentActions
+				items={[threaded]}
+				onOpenRequestThread={onOpen}
+				onRespond={vi.fn()}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
+		expect(screen.queryByText("Allow this command?")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
+		expect(onOpen).toHaveBeenCalledWith(threaded);
+		view.unmount();
+		const panels = partitionSpacePendingAgentActions(items, "thread-a");
+		expect(panels.conversation).toEqual([main]);
+		expect(panels.thread).toEqual([threaded]);
+		render(
+			<SpacePendingAgentActions
+				initialInteractionIdentity={JSON.stringify([
+					threaded.runtimeCoordinatorExecutionId,
+					"threaded",
+				])}
+				items={panels.thread}
+				onRespond={vi.fn()}
+			/>
+		);
+		expect(screen.getByText("Allow this command?")).toBeTruthy();
 	});
 });
 

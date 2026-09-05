@@ -29,6 +29,8 @@ import {
 
 export function SpacePendingAgentActions(input: {
 	items: readonly WakeProgressItem[];
+	initialInteractionIdentity?: string;
+	onOpenRequestThread?: (item: WakeProgressItem) => void;
 	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
 	onRespond?: SpaceAgentInteractionResponseHandler;
@@ -42,9 +44,11 @@ export function SpacePendingAgentActions(input: {
 		() => listActionablePendingAgentInteractions(input.items),
 		[input.items]
 	);
-	const [isOpen, setIsOpen] = useState(false);
+	const [isOpen, setIsOpen] = useState(
+		Boolean(input.initialInteractionIdentity)
+	);
 	const [selectedInteractionIdentity, setSelectedInteractionIdentity] =
-		useState<string | null>(null);
+		useState<string | null>(input.initialInteractionIdentity ?? null);
 	const [surfaceElement, setSurfaceElement] = useState<HTMLElement | null>(
 		null
 	);
@@ -216,17 +220,33 @@ export function SpacePendingAgentActions(input: {
 									</div>
 								</div>
 							) : null}
-							<SpaceAgentInteractionCard
-								item={selectedItem}
-								key={selectedItemIdentity}
-								onEditAgentProfile={input.onEditAgentProfile}
-								onPermissionModeUpdate={input.onPermissionModeUpdate}
-								onRespond={input.onRespond}
-								permissionModeShortcut={input.permissionModeShortcutsByProfileId?.get(
-									selectedItem.targetProfileId
-								)}
-								presentation="surface"
-							/>
+							{selectedItem.sourceContext?.threadId &&
+							input.onOpenRequestThread ? (
+								<div className="grid gap-2">
+									<p className="text-sm">
+										{selectedItem.targetLabel} needs your response in a thread.
+									</p>
+									<Button
+										onClick={() => input.onOpenRequestThread?.(selectedItem)}
+										type="button"
+										variant="outline"
+									>
+										Open thread
+									</Button>
+								</div>
+							) : (
+								<SpaceAgentInteractionCard
+									item={selectedItem}
+									key={selectedItemIdentity}
+									onEditAgentProfile={input.onEditAgentProfile}
+									onPermissionModeUpdate={input.onPermissionModeUpdate}
+									onRespond={input.onRespond}
+									permissionModeShortcut={input.permissionModeShortcutsByProfileId?.get(
+										selectedItem.targetProfileId
+									)}
+									presentation="surface"
+								/>
+							)}
 						</fieldset>
 					) : null}
 				</div>
