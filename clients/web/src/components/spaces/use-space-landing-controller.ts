@@ -391,6 +391,14 @@ function appendPendingOutgoingSignal(
 	setPendingSignals: (value: SetStateAction<PendingOutgoingSignal[]>) => void,
 	pendingSignal: PendingOutgoingSignal
 ) {
+	if (
+		hasNoPublishedComposerContent({
+			files: pendingSignal.signal.data.files ?? [],
+			text: pendingSignal.signal.data.text,
+		})
+	) {
+		return;
+	}
 	setPendingSignals((current) => [
 		...current.filter(
 			(item) => item.clientMessageId !== pendingSignal.clientMessageId
@@ -1717,6 +1725,7 @@ export function useSpaceLandingController(input: {
 		createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId })
 			.getActiveWakeProgress({
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -2293,6 +2302,21 @@ export function useSpaceLandingController(input: {
 				pendingMessage: options?.pendingMessage,
 			});
 			pendingSubmission = preparedSubmission;
+			mentionAuthoring.recordPendingSubmission();
+			// The pending message is local feedback, not admission or publication.
+			// Show authored text before the fresh Wakeability read can block on network.
+			appendPendingOutgoingSignal(
+				setPendingOutgoingSignals,
+				createPendingOutgoingSignal({
+					clientMessageId: messageSeed.clientMessageId,
+					createdAtMs: messageSeed.createdAtMs,
+					membersSnapshot,
+					messageEnvelope: preparedSubmission.messageEnvelope,
+					profileId: input.profileId,
+					spaceId: input.spaceId,
+					text: preparedSubmission.text,
+				})
+			);
 			await requireCurrentSpaceComposerWakeAdmission({
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets:
@@ -2323,7 +2347,6 @@ export function useSpaceLandingController(input: {
 				);
 				return;
 			}
-			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedSpaceMessage({
 				files: publishedFiles.messageFiles,
 				filePreviewUrlsById: publishedFiles.previewUrlsByFileId,
@@ -3625,6 +3648,7 @@ async function refreshWakeStopAfterResponse(input: {
 			})
 				.getActiveWakeProgress({
 					includePreviewText: true,
+					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeWakeStopEligibility: true,

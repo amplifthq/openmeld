@@ -337,6 +337,33 @@ export function AgentProfileConfigurationCards(input: {
 
 	return (
 		<AgentConfigurationGrid>
+			<AgentConfigurationCard
+				description="What this Agent can do without asking."
+				icon={<LockKeyIcon aria-hidden="true" />}
+				itemId="permissions"
+				label="Permissions"
+				summary={summaries.permission}
+			>
+				<div className="grid gap-4">
+					<AgentControllerPermissionModeFields
+						agentId={form.boundAgentId}
+						confirmed={form.boundAgentControllerPermissionModeConfirmed}
+						disabled={form.isSubmitting}
+						onChange={form.onChangeBoundAgentControllerPermissionMode}
+						onConfirmChange={
+							form.onChangeBoundAgentControllerPermissionModeConfirmed
+						}
+						value={form.boundAgentControllerPermissionMode}
+					/>
+					{isOpenCodeAgentId(form.boundAgentId) ? (
+						<OpenCodePermissionsField
+							disabled={form.isSubmitting}
+							onChange={form.onChangeBoundOpenCodePermission}
+							value={form.boundOpenCodePermission}
+						/>
+					) : null}
+				</div>
+			</AgentConfigurationCard>
 			{form.agentOwnershipSlot ? (
 				<AgentConfigurationCard
 					description="Who owns and maintains this Agent."
@@ -409,33 +436,6 @@ export function AgentProfileConfigurationCards(input: {
 					/>
 				</AgentConfigurationCard>
 			) : null}
-			<AgentConfigurationCard
-				description="What this Agent can do without asking."
-				icon={<LockKeyIcon aria-hidden="true" />}
-				itemId="permissions"
-				label="Permissions"
-				summary={summaries.permission}
-			>
-				<div className="grid gap-4">
-					<AgentControllerPermissionModeFields
-						agentId={form.boundAgentId}
-						confirmed={form.boundAgentControllerPermissionModeConfirmed}
-						disabled={form.isSubmitting}
-						onChange={form.onChangeBoundAgentControllerPermissionMode}
-						onConfirmChange={
-							form.onChangeBoundAgentControllerPermissionModeConfirmed
-						}
-						value={form.boundAgentControllerPermissionMode}
-					/>
-					{isOpenCodeAgentId(form.boundAgentId) ? (
-						<OpenCodePermissionsField
-							disabled={form.isSubmitting}
-							onChange={form.onChangeBoundOpenCodePermission}
-							value={form.boundOpenCodePermission}
-						/>
-					) : null}
-				</div>
-			</AgentConfigurationCard>
 		</AgentConfigurationGrid>
 	);
 }

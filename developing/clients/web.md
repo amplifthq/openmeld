@@ -3613,8 +3613,25 @@ start order. Other active Spaces in the selected Organization reuse the same
 authenticated active-progress query and cache on the ambient 15-second refresh
 cadence; this does not claim open-Space WebSocket latency. A failed read retains
 only the account summary's generic active indication, not a guessed phase.
-Bounded summaries disclose additional active tasks. Progress is placed before
-message actions; reduced-motion and input-waiting Orbs are paused.
+Bounded summaries disclose additional active tasks. Reduced-motion and
+input-waiting Orbs are paused.
+
+Unfinished Agent replies follow the latest message in their owning conversation.
+Main Space and Thread use the same presentation-only ordering: published history
+keeps its server order, followed by active Wakes in request order. A public reply
+stream replaces its matching placeholder; it does not add another status row.
+The final durable reply takes its published position. Failures and stopped
+outcomes keep their original request context. Active rows expose a request link
+and reuse the shared status, Orb, preview, and Stop controls, without message
+timestamps or publication actions. Missing source history does not hide a Wake
+whose authoritative source context proves its conversation scope.
+All Web progress reads request `includeSourceContext=true`. Thread rendering
+uses the same recovered presentation snapshot as the main conversation, filtered
+to its own Thread; the root message does not import main-conversation controls.
+
+Stop confirmation is owned by the conversation rather than a movable message
+row, so progress updates and streaming replacement do not dismiss an open
+confirmation. The existing selector and Core eligibility remain authoritative.
 
 Web derives message-level progress, the details drawer, and Space-level current
 work from the same shared Wake progress item. It must not introduce a second
@@ -3676,6 +3693,8 @@ OpenMeld Service syncs it and whether an active local Agent accepts a live
 update. Web does not invent a generic mode for controllers such as OpenCode that
 own a different permission contract, and it never offers a dangerous mode
 through this shortcut.
+The ordinary approval card does not include a separate Profile settings button
+or a standing explanation of permission synchronization.
 
 Only `canRespond=true` plus a non-null private request may render details or
 controls. A content-free summary renders only that the Agent Profile is waiting

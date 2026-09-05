@@ -159,8 +159,8 @@ describe("LocalAgentsCard", () => {
 			"settings-local-agent-row-codex",
 			"settings-local-agent-row-claude-code",
 			"settings-local-agent-row-grok-build",
-			"settings-local-agent-row-cursor",
 			"settings-local-agent-row-opencode",
+			"settings-local-agent-row-cursor",
 		];
 		renderLocalAgentsCard({
 			localAgentCatalogEntries,

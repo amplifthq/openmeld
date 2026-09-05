@@ -4,9 +4,9 @@ export const BUILTIN_AGENT_CONTROLLER_DISPLAY_ORDER = [
   "codex",
   "claude-code",
   "grok-build",
-  "cursor",
   "opencode",
   "openclaw",
+  "cursor",
 ] as const;
 
 export const BUILTIN_AGENT_CONTROLLER_BRAND_IDS =

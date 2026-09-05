@@ -81,20 +81,38 @@ type SpaceMessageProgressContent =
 			showAgentWorkingState: boolean;
 	  };
 
+function resolveActiveWakeEntries(item: SpaceTimelineItem) {
+	if (!item.activeWakeProgress) {
+		return [];
+	}
+	return resolveWakeProgressThinkingEntry({
+		item: item.agentStreamState
+			? { ...item.activeWakeProgress, previewText: undefined }
+			: item.activeWakeProgress,
+		showElapsedTime: true,
+	});
+}
+
 function resolveSpaceMessageProgressContent(input: {
 	deliveryPresentation: SpaceMessageDeliveryPresentation | null;
 	entries: readonly SpaceMessageWakeThinkingEntry[];
 	hasControl: boolean;
 	item: SpaceTimelineItem;
 }): SpaceMessageProgressContent | null {
-	const optimisticEntries = input.item.optimisticAgentReplyProgress
-		? resolveWakeProgressThinkingEntry({
-				item: input.item.optimisticAgentReplyProgress,
-				showElapsedTime: true,
-			})
-		: [];
+	if (
+		input.item.activeWakeProgress?.phase === "sending" &&
+		input.deliveryPresentation === "sending_delayed"
+	) {
+		return {
+			deliveryPresentation: input.deliveryPresentation,
+			entries: [],
+			kind: "status",
+			showAgentWorkingState: false,
+		};
+	}
+	const activeEntries = resolveActiveWakeEntries(input.item);
 	const presentedEntries =
-		optimisticEntries.length > 0 ? optimisticEntries : input.entries;
+		activeEntries.length > 0 ? activeEntries : input.entries;
 	if (presentedEntries.some((entry) => entry.step.status === "pending")) {
 		return {
 			deliveryPresentation: null,
@@ -106,10 +124,10 @@ function resolveSpaceMessageProgressContent(input: {
 	if (hasLiveSpaceAgentToolActivity(input.item)) {
 		return { kind: "tool" };
 	}
-	if (optimisticEntries.length > 0) {
+	if (activeEntries.length > 0) {
 		return {
 			deliveryPresentation: null,
-			entries: optimisticEntries,
+			entries: activeEntries,
 			kind: "status",
 			showAgentWorkingState: false,
 		};

@@ -126,6 +126,17 @@ describe("CenterAgentPage", () => {
 		vi.clearAllMocks();
 	});
 
+	it.each([
+		true,
+		false,
+	])("passes personal workspace identity to the conversation: %s", (isPersonal) => {
+		currentOrganization = { ...currentOrganization, isPersonal };
+		renderCenterAgentPage(readyRouteData());
+		expect(spaceLandingSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({ isPersonalContext: isPersonal })
+		);
+	});
+
 	it("keeps one interactive conversation skeleton inside the ready shell while Space bootstrap loads", () => {
 		renderSpaceLandingLoadingFallback = true;
 
