@@ -11,6 +11,7 @@ permissions:
 
 concurrency:
   group: model-catalog-update
+  queue: max
   cancel-in-progress: false
 
 jobs:
