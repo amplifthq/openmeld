@@ -103,6 +103,12 @@ Startup, reconnect, and hourly channel checks remain the fallback; the release
 signal does not create a new polling loop. A disconnected request fails
 immediately so a replacement Service can retry.
 
+The `dev-local` managed binary also uses this maintenance path when setup
+explicitly configures an HTTP(S) loopback binary manifest. Source/npm development
+installs, missing manifests, and remote manifests do not opt the local lane into
+automatic updates. This keeps localhost upgrade verification isolated from the
+production release channel.
+
 `openmeld skills` is the canonical Organization Skills command group. Phase 1
 provides `list`, `show`, and `load` with Human View, Agent View, and strict JSON
 contracts. `load` resolves one enabled exact release from the authenticated

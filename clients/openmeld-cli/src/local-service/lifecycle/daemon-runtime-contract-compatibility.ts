@@ -1,8 +1,8 @@
 import type { StartDeviceProjection } from "@openmeld/schemas/types";
 import type { DaemonServiceRuntimeStatus } from "../../config/daemon-state";
-import { DAEMON_RUNTIME_CONTRACT_EPOCH } from "../core/constants";
 import { toErrorMessage } from "../core/logger";
 import type { DaemonRuntimeContractMeta } from "../core/types";
+import { DAEMON_LOCAL_STATE_EPOCH } from "../state/local-state-version";
 import { readDaemonRuntimeContractMeta } from "../state/runtime-contract-guard";
 
 export type DaemonRuntimeContractCompatibilityStatus =
@@ -41,7 +41,7 @@ export async function resolveDaemonRuntimeContractCompatibility(input: {
   readMeta?: () => Promise<DaemonRuntimeContractMeta | null>;
   runtimeStatus: RuntimeStatusInput;
 }): Promise<DaemonRuntimeContractCompatibility> {
-  const expectedEpoch = input.expectedEpoch ?? DAEMON_RUNTIME_CONTRACT_EPOCH;
+  const expectedEpoch = input.expectedEpoch ?? DAEMON_LOCAL_STATE_EPOCH;
   const runtimeStatus =
     typeof input.runtimeStatus === "string"
       ? input.runtimeStatus
