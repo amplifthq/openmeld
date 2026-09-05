@@ -47,10 +47,20 @@ export function resolveSpacePendingAgentActionIdentity(
 	]);
 }
 
-export function resolveSpacePendingAgentActionSurfacePlacement(input: {
-	hasActiveThread: boolean;
-}): "conversation" | "thread" {
-	return input.hasActiveThread ? "thread" : "conversation";
+export function partitionSpacePendingAgentActions(
+	items: readonly WakeProgressItem[],
+	activeThreadId: string | null
+): { conversation: WakeProgressItem[]; thread: WakeProgressItem[] } {
+	const conversation: WakeProgressItem[] = [];
+	const thread: WakeProgressItem[] = [];
+	for (const item of listActionablePendingAgentInteractions(items)) {
+		if (activeThreadId && item.sourceContext?.threadId === activeThreadId) {
+			thread.push(item);
+		} else {
+			conversation.push(item);
+		}
+	}
+	return { conversation, thread };
 }
 
 export function resolveSpacePermissionModeShortcut(input: {

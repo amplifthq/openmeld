@@ -132,13 +132,12 @@ import type {
 } from "./space-composer-editor";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
 import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
-import { persistSpaceNameUpdate } from "./space-name-update";
-import { usePublishSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import type {
 	SpaceExecutionRecoveryAttempt,
 	SpaceExecutionRecoveryResolution,
-	SpaceWakeRetryAttempt,
-} from "./space-wake-retry";
+} from "./space-execution-recovery-actions";
+import { persistSpaceNameUpdate } from "./space-name-update";
+import { usePublishSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import { useSpaceComposerSession } from "./use-space-composer-session";
 import {
 	addSetValue,
@@ -204,8 +203,6 @@ type PreparedSpaceMessageSubmission = Pick<
 	"messageEnvelope" | "text"
 >;
 
-type ProgrammaticWakeRetryInput = SpaceWakeRetryAttempt;
-
 class PreparedSpaceMessageSendError extends Error {
 	readonly clientMessageId: string;
 	readonly originalError: unknown;
@@ -235,28 +232,6 @@ function throwSpaceSendFailureWhenRequested(input: {
 	if (input.throwOnFailure && !input.postedMessage) {
 		throw input.error;
 	}
-}
-
-function prepareProgrammaticWakeRetrySubmission(
-	input: ProgrammaticWakeRetryInput
-): PreparedSpaceMessageSubmission {
-	const text = input.sourceText.trim();
-	const targetProfileId = input.targetProfileId.trim();
-	if (!text) {
-		throw new Error("The Wake retry source message text is required.");
-	}
-	if (!targetProfileId) {
-		throw new Error("The Wake retry target Agent Profile is required.");
-	}
-
-	return {
-		messageEnvelope: {
-			activationTargets: [targetProfileId],
-			referenceTargets: [],
-			text,
-		},
-		text,
-	};
 }
 
 function createPendingOutgoingSignal(input: {
@@ -1074,7 +1049,6 @@ export type SpaceLandingController =
 			onRecoverExecution: (
 				input: SpaceExecutionRecoveryAttempt
 			) => Promise<SpaceExecutionRecoveryResolution>;
-			onRetryWakeTarget: (input: ProgrammaticWakeRetryInput) => Promise<void>;
 			onAgentInteractionResponse: (
 				input: RespondToSpaceAgentInteractionBody
 			) => Promise<void>;
@@ -1534,11 +1508,8 @@ export function useSpaceLandingController(input: {
 		setBlockedWakeProfileId: setComposerBlockedWakeProfileId,
 		setErrorMessage: setComposerErrorMessage,
 	} = composerSession.feedback;
-	const {
-		inFlightRef: composerSendInFlightRef,
-		isSending: isSendingMessage,
-		setIsSending: setIsSendingMessage,
-	} = composerSession.send;
+	const { inFlightRef: composerSendInFlightRef, isSending: isSendingMessage } =
+		composerSession.send;
 	const restoreColdLoadingComposerFocusRef = useRef(false);
 	useLayoutEffect(() => {
 		if (!(statusReady && restoreColdLoadingComposerFocusRef.current)) {
@@ -2219,7 +2190,6 @@ export function useSpaceLandingController(input: {
 		},
 		onReportMessage: handleReportMessage,
 		onRecoverExecution: handleRecoverExecution,
-		onRetryWakeTarget: handleRetryWakeTarget,
 		onAgentInteractionResponse: handleAgentInteractionResponse,
 		onWakeStopRequest: handleWakeStopRequest,
 		onUpdateAgentProfileBinding: handleUpdateAgentProfileBinding,
@@ -2549,74 +2519,6 @@ export function useSpaceLandingController(input: {
 				outcomeUnknown,
 				postedMessage,
 			});
-		}
-	}
-
-	async function handleRetryWakeTarget(
-		retryInput: ProgrammaticWakeRetryInput
-	): Promise<void> {
-		const isThreadRetry = retryInput.threadContext !== undefined;
-		if (!isThreadRetry) {
-			setIsSendingMessage(true);
-		}
-		let postedMessage = false;
-		try {
-			// The Retry control creates one clientMessageId per logical attempt and
-			// keeps it across outcome-unknown redrives. A definite failure clears
-			// that identity before the control offers a new attempt.
-			if (isThreadRetry) {
-				await threadController.onRetryWakeTarget(retryInput);
-			} else {
-				await requireCurrentSpaceComposerWakeAdmission({
-					agentProfileIds: [retryInput.targetProfileId],
-					readCurrentMembers: readCurrentMembersForWakeAdmission,
-				});
-				await sendPreparedSpaceMessage({
-					files: [],
-					filePreviewUrlsById: new Map<string, string>(),
-					clientMessageId: retryInput.clientMessageId,
-					createdAtMs: Date.now(),
-					preparedSubmission:
-						prepareProgrammaticWakeRetrySubmission(retryInput),
-				});
-			}
-			postedMessage = true;
-			if (!isThreadRetry) {
-				await Promise.all([membersQuery.refetch(), statusQuery.refetch()]);
-			}
-			toast.success("Retried");
-		} catch (error) {
-			const sendError =
-				error instanceof PreparedSpaceMessageSendError ? error : null;
-			const originalError = sendError?.originalError ?? error;
-			const failure = toStructuredApiClientFailure(originalError);
-			postedMessage ||= sendError?.postedMessage ?? false;
-			if (postedMessage) {
-				console.error(
-					"The retried Wake was posted, but a follow-up refresh failed.",
-					failure
-				);
-				toast.success("Retried");
-				return;
-			}
-			if (sendError?.outcomeUnknown) {
-				console.warn("[openmeld.web.space.wake_retry_outcome_unknown]", {
-					clientMessageId: retryInput.clientMessageId,
-					code: failure.code,
-					spaceId: input.spaceId,
-				});
-				toast.warning(resolveSpaceComposerSendErrorMessage(failure));
-				throw originalError;
-			}
-			toast.error(`Couldn't retry this Wake. ${failure.message}`);
-			if (isProtectedSpaceFailure(failure)) {
-				await statusQuery.refetch();
-			}
-			throw originalError;
-		} finally {
-			if (!isThreadRetry) {
-				setIsSendingMessage(false);
-			}
 		}
 	}
 
@@ -3143,7 +3045,6 @@ function useSpaceThreadController(input: {
 		onCreateThread: createThread,
 		onOpenUnreadThread: openUnreadThread,
 		onOpenThread: openThread,
-		onRetryWakeTarget: retryWakeTarget,
 		onThreadComposerEditorChange: composerSession.onEditorChange,
 		onThreadMentionButtonClick: mentionAuthoring.onMentionButtonClick,
 		onThreadSend: sendMessage,
@@ -3436,37 +3337,6 @@ function useSpaceThreadController(input: {
 				error: originalError,
 				postedMessage: sendError?.postedMessage ?? false,
 				throwOnFailure: true,
-			});
-		} finally {
-			setIsSendingMessage(false);
-		}
-	}
-
-	async function retryWakeTarget(
-		retryInput: ProgrammaticWakeRetryInput
-	): Promise<void> {
-		const thread = activeThread;
-		const threadContext = retryInput.threadContext;
-		if (
-			!(thread && threadContext) ||
-			thread.threadId !== threadContext.threadId ||
-			thread.rootSignalId !== threadContext.rootSignalId
-		) {
-			throw new Error(
-				"The originating thread changed before this Wake could be retried."
-			);
-		}
-
-		setIsSendingMessage(true);
-		try {
-			await requireCurrentSpaceComposerWakeAdmission({
-				agentProfileIds: [retryInput.targetProfileId],
-				readCurrentMembers: input.readCurrentMembers,
-			});
-			await sendPreparedThreadMessage({
-				clientMessageId: retryInput.clientMessageId,
-				preparedSubmission: prepareProgrammaticWakeRetrySubmission(retryInput),
-				thread,
 			});
 		} finally {
 			setIsSendingMessage(false);

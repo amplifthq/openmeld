@@ -21,6 +21,7 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const SPACE_INVITATION_ORDER_ERROR = /Space invitation/u;
 const CURRENT_WORKER_VERSION_RE =
   /11111111-1111-1111-1111-111111111111 \(100%\)/u;
 const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
@@ -997,6 +998,44 @@ test("rejects a Connect Computer Web deploy without its CLI receiver", () => {
         ],
       }),
     CONNECT_COMPUTER_CLI_SCOPE_ERROR_RE
+  );
+});
+
+test("stages Space invitation receivers before publishing the CLI caller", () => {
+  const changedPaths = [
+    "packages/schemas/src/space-invitation.ts",
+    "services/core/src/organizations/space-invitations.ts",
+    "services/auth/src/lib/hono/space-invitation-routes.ts",
+    "clients/openmeld-cli/src/space/invitations-command.ts",
+  ];
+  for (const scopes of [
+    ["db", "core", "auth"],
+    ["db", "core", "auth", "cli"],
+  ]) {
+    const labels = buildProductionDeployStepSpecs(scopes, { changedPaths }).map(
+      (step) => step.label
+    );
+    assert.deepEqual(labels.slice(0, 5), [
+      "Synchronize production database",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Deploy Auth Worker",
+      "Verify Auth Worker health",
+    ]);
+    if (scopes.includes("cli")) {
+      assert.equal(
+        labels[5],
+        "Publish CLI and deploy its Core release projection"
+      );
+    }
+  }
+  assert.throws(
+    () => buildProductionDeployStepSpecs(["cli"], { changedPaths }),
+    SPACE_INVITATION_ORDER_ERROR
+  );
+  assert.throws(
+    () => buildProductionDeployStepSpecs(["auth"], { changedPaths }),
+    SPACE_INVITATION_ORDER_ERROR
   );
 });
 

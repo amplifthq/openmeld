@@ -4,6 +4,10 @@
   "agentControllers": {
     "codex": {
       "defaultModelId": "gpt-5.6-sol",
+      "creationDefaults": {
+        "modelId": "gpt-5.6-sol",
+        "reasoningLevel": "high"
+      },
       "models": [
         {
           "id": "gpt-5.6-sol",

@@ -43,6 +43,18 @@ and shared policy define common language and eligibility projections. They do
 not reserve leases, start execution, accept results, publish replies, or decide
 final Wake outcomes.
 
+### Model Catalog Creation Policy
+
+`packages/schemas` owns the authored catalog and Git-backed update-evidence
+schemas. The optional local-controller `creationDefaults` is Core-owned
+creation policy, not runtime selection or availability evidence. Core's
+`readAuthoredModelCatalog` reads it for first-use creation preferences;
+`readModelCatalog` omits it from all public/catalog projections so existing
+strict clients continue to read the version-1 response. The existing resolved
+creation-preferences response remains unchanged. Remembered user choices take
+precedence, including explicit model-default reasoning. No Binding, Wake,
+Service lifecycle, or dispatch contract changes.
+
 ### Organization Working Language Contracts
 
 `packages/schemas` owns the canonical BCP 47 language tag, `automatic` and
@@ -888,7 +900,10 @@ members, messages, or cursors.
 
 Deploy Core, then Gateway, then Web for this additive route. Existing callers,
 responses, CLI, Service, and Skills remain compatible; old Web tabs do not gain
-foreground reporting until refreshed. No new local-component release is needed.
+foreground reporting until refreshed. The shared schema is included in the
+packaged Service, so release it through the normal compatible CLI/Service patch
+lane before Gateway and Web. Runtime compatibility does not exempt packaged
+shared files from the local-component version and bundle-hash release rules.
 
 `organization-computers.ts` owns the strict team-safe Organization Computer
 projection. Core authorizes the active Organization, resolves its current

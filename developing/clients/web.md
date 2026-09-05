@@ -3542,6 +3542,16 @@ sidebar status uses the same progress projection and a non-Working waiting
 indicator instead of its animated Working orb. Both surfaces return to ordinary
 Wake progress as soon as Core projects the conversation as available.
 
+Web uses the shared Wake presentation resolver for status text and Orb variants.
+Sidebar priority is input needed from the current user, then working/replying,
+then sending/connecting, then queued or waiting. Equal priorities retain Wake
+start order. Other active Spaces in the selected Organization reuse the same
+authenticated active-progress query and cache on the ambient 15-second refresh
+cadence; this does not claim open-Space WebSocket latency. A failed read retains
+only the account summary's generic active indication, not a guessed phase.
+Bounded summaries disclose additional active tasks. Progress is placed before
+message actions; reduced-motion and input-waiting Orbs are paused.
+
 Web derives message-level progress, the details drawer, and Space-level current
 work from the same shared Wake progress item. It must not introduce a second
 resolver that independently combines dispatch, RuntimeCoordinator, native
@@ -3568,11 +3578,13 @@ treats `hasMore=true` as incomplete coverage (for example, `25+` rather than an
 exact count). It must not imply that the bounded first page is the complete set.
 
 When active Wake progress includes a pending Agent Interaction for the current
-Binding owner, Web projects it into one collapsed Pending Action Surface above
-the currently visible main Space Composer or active Thread Composer. Web mounts
-that one surface in exactly one panel; opening a Thread moves the projection
-beside that Thread Composer instead of leaving a second entry behind the side
-panel. The surface reuses the existing Permission, Question, and Plan Review
+Binding owner, Web partitions requests by their authoritative source Thread ID.
+The active Thread Composer shows only that Thread's requests. The main Composer
+keeps main-timeline requests and entry points for requests in other Threads.
+Opening an unrelated Thread never moves those requests into it. A Thread entry
+opens its owning Thread and expands the selected request; the request is then
+removed from the main surface, so its approval controls exist in one place.
+The surface reuses the existing Permission, Question, and Plan Review
 cards, stays closed until the owner opens it, and presents multiple requests one
 at a time. Its selection and component identity use
 `runtimeCoordinatorExecutionId + interactionId`, because separate Wakes may

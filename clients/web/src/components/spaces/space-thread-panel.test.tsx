@@ -21,8 +21,8 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
+import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import { SpaceThreadPanel } from "./space-thread-panel";
-import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 
 const FAILED_TEXT_PATTERN = /failed/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
