@@ -3,19 +3,7 @@ import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	resolveAnchoredSpaceExecutionRecoveryState,
-	resolveAnchoredSpaceWakeRetryRequest,
-} from "./space-wake-retry";
-
-function sourceItem(
-	targets: string[] = ["agent-profile-1"]
-): SpaceTimelineItem {
-	return {
-		attachments: [],
-		signalType: "signal.text",
-		text: "finish the research",
-		wakeTargetProfileIds: targets,
-	} as unknown as SpaceTimelineItem;
-}
+} from "./space-execution-recovery-actions";
 
 function terminalFailure(
 	targetProfileId = "agent-profile-1",
@@ -51,13 +39,6 @@ function recoveryCompleted(): SpaceTimelineItem {
 describe("anchored execution recovery actions", () => {
 	it("correlates a separate recovery notice to the original terminal failure and suppresses fresh retry", () => {
 		expect(
-			resolveAnchoredSpaceWakeRetryRequest({
-				notices: [terminalFailure(), recoveryAvailable()],
-				outcomeNotice: terminalFailure(),
-				sourceItem: sourceItem(),
-			})
-		).toBeNull();
-		expect(
 			resolveAnchoredSpaceExecutionRecoveryRequest({
 				notices: [terminalFailure(), recoveryAvailable()],
 				outcomeNotice: terminalFailure(),
@@ -69,7 +50,7 @@ describe("anchored execution recovery actions", () => {
 		});
 	});
 
-	it("keeps a fresh Wake available for a terminal failure with no result", () => {
+	it("inspects recovery for a terminal failure with no known result", () => {
 		expect(
 			resolveAnchoredSpaceExecutionRecoveryRequest({
 				notices: [terminalFailure()],
@@ -80,13 +61,6 @@ describe("anchored execution recovery actions", () => {
 			resultRef: null,
 			targetProfileId: "agent-profile-1",
 		});
-		expect(
-			resolveAnchoredSpaceWakeRetryRequest({
-				notices: [terminalFailure()],
-				outcomeNotice: terminalFailure(),
-				sourceItem: sourceItem(),
-			})
-		).toBeNull();
 	});
 
 	it("shows neither recovery nor fresh retry after the exact result was recovered", () => {
@@ -107,13 +81,6 @@ describe("anchored execution recovery actions", () => {
 				outcomeNotice: terminalFailure(),
 			})
 		).toEqual({ request: null, status: "closed" });
-		expect(
-			resolveAnchoredSpaceWakeRetryRequest({
-				notices,
-				outcomeNotice: terminalFailure(),
-				sourceItem: sourceItem(),
-			})
-		).toBeNull();
 	});
 
 	it("correlates one recoverable target independently in a multi-target Wake", () => {
@@ -141,13 +108,6 @@ describe("anchored execution recovery actions", () => {
 			resultRef: null,
 			targetProfileId: "agent-profile-2",
 		});
-		expect(
-			resolveAnchoredSpaceWakeRetryRequest({
-				notices,
-				outcomeNotice: firstFailure,
-				sourceItem: sourceItem(["agent-profile-1", "agent-profile-2"]),
-			})
-		).toBeNull();
 	});
 
 	it("dedupes exact replay evidence and rejects conflicting result identities", () => {

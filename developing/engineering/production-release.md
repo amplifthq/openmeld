@@ -392,6 +392,31 @@ URL. Rolling Web back temporarily removes the archive projection and returns
 all clients to the verified raw fallback; it does not make setup or upgrades
 unsafe. Old clients also ignore additive delta and signing-identity fields.
 
+### Space invitation receivers before new clients
+
+The first Space invitation release requires Database, Core, then Auth before
+the new CLI command or Web invitation entry points become available. Auth calls
+the new Core RPC; publishing CLI first would expose a command whose Auth
+endpoint does not yet exist.
+
+When the shared invitation schema, Core owner, and Auth route change together,
+`space-invitation-receivers-first` orders Database, Core, Auth, Gateway, Web,
+Remote Agent, then CLI. It rejects Auth or CLI selection without both receivers,
+and fails closed if another directional profile also applies until their order
+is reviewed. Ordinary Core-only deployments retain their channel compatibility
+guard.
+
+For the signed GitHub CLI lane, use the same approved main SHA for both stages:
+first run guarded local `release:deploy:local -- --scope db,core,auth --base
+<previous-production-sha>`. This profile deploys Core with the immutable current
+stable CLI projection, verified by the existing receiver deployment helper;
+it does not advertise the future CLI version. Then run the normal GitHub CLI
+release, which publishes the new artifact and its Core projection. Deploy the
+remaining affected scopes afterward. The normal static hosted `full` order is
+not valid for this first rollout. This staged receiver path is not startup
+recovery and never bypasses tag, channel, source, lease, or deployment health
+checks.
+
 ## Local Scoped Release
 
 Use this lane only from a dedicated clean release worktree at the exact approved

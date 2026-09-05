@@ -38,13 +38,11 @@ import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profile
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
-import {
-	CreateAgentProfilePage,
-	CreateProfileDialog,
-} from "#/components/profiles/create-profile-dialog";
+import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationAgentCreationPath } from "#/lib/organizations/organization-routes";
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
@@ -57,7 +55,7 @@ import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent
 import { startQueryKeys } from "#/query/query-keys";
 
 export type ProfileHomeId = "agents" | "people";
-type AgentWorkspaceView = "agents" | "create" | "requests";
+type AgentWorkspaceView = "agents" | "requests";
 
 type AgentProfileListFilter =
 	| AgentProfileAvailabilityFilter
@@ -138,8 +136,7 @@ export function PeopleAndAgentsPage(input: {
 	);
 	const organizationAgentRuntimeOverviewQuery = useQuery(
 		organizationAgentRuntimeOverviewQueryOptions({
-			enabled:
-				input.activeSectionId === "people" || activeAgentView === "agents",
+			enabled: true,
 			organizationId: currentOrganization.id,
 		})
 	);
@@ -257,19 +254,6 @@ export function PeopleAndAgentsPage(input: {
 				availabilityFilter={resolveAgentProfileAvailabilityFilter(
 					agentProfileFilter
 				)}
-				createPanel={
-					activeAgentView === "create" ? (
-						<CreateAgentProfilePage
-							allowTeammateRequests={isOrganizationContext}
-							currentUserId={currentUserId}
-							onAgentRequestCreated={handleAgentRequestCreated}
-							onCancel={() => input.onAgentViewChange?.("agents")}
-							onProfileCreated={handleProfileCreated}
-							organizationId={currentOrganization.id}
-							recovery={recovery}
-						/>
-					) : null
-				}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
 				filterControl={
@@ -284,7 +268,13 @@ export function PeopleAndAgentsPage(input: {
 				initialSidebarStates={input.initialSidebarStates}
 				isOrganizationContext={isOrganizationContext}
 				modelCatalog={modelCatalogQuery.data ?? null}
-				onCreateAgent={() => input.onAgentViewChange?.("create")}
+				onCreateAgent={() => {
+					navigate({ to: buildOrganizationAgentCreationPath(orgSlug) }).catch(
+						(error: unknown) => {
+							console.error("Failed to open Create Agent.", error);
+						}
+					);
+				}}
 				onSelectProfile={(profileId) => {
 					navigate({
 						search: {
@@ -322,12 +312,6 @@ function resolveActiveAgentView(input: {
 	activeSectionId: ProfileHomeId;
 	isOrganizationContext: boolean;
 }): AgentWorkspaceView {
-	if (
-		input.activeSectionId === "agents" &&
-		input.activeAgentView === "create"
-	) {
-		return "create";
-	}
 	return input.activeSectionId === "agents" &&
 		input.activeAgentView === "requests" &&
 		input.isOrganizationContext
@@ -397,7 +381,6 @@ function AgentsWorkspaceHome(input: {
 	availabilityFilter: AgentProfileAvailabilityFilter;
 	agentProfileSearchQuery: string;
 	currentUserId: string;
-	createPanel: ReactNode;
 	runtimeOverviewQuery: OrganizationAgentRuntimeOverviewQueryState;
 	profileDirectoryQuery: OrganizationProfileDirectoryQueryState;
 	fallbackOwnerLabel: string;
@@ -722,7 +705,6 @@ function AgentsWorkspaceHomeView(input: {
 		<AgentProfilesWorkspace
 			activeView={workspace.activeView}
 			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
-			createPanel={workspace.createPanel}
 			currentUserId={workspace.currentUserId}
 			filterControl={workspace.filterControl}
 			hasAnyProfiles={input.agentProfiles.length > 0}

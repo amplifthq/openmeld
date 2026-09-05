@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SpaceAgentInteractionCard } from "./space-agent-interaction-card";
 
 const SECRET_COMMAND_PATTERN = /git push/i;
-const PLAN_CONTENT_PATTERN = /1\. Update the contract/;
+const PLAN_CONTENT_PATTERN = /Update the contract/;
 
 describe("SpaceAgentInteractionCard", () => {
 	afterEach(() => {
@@ -77,7 +77,7 @@ describe("SpaceAgentInteractionCard", () => {
 			});
 		});
 		expect(
-			await screen.findByText("@runner is resuming this Wake.")
+			await screen.findByText("Waiting for @runner to continue.")
 		).toBeTruthy();
 	});
 

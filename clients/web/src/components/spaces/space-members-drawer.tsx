@@ -85,6 +85,7 @@ import { DirectMessageConversionDialog } from "./direct-message-conversion-dialo
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { buildSpaceMemberDirectoryEntryByProfileId } from "./space-collaboration-profile";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
+import { SpaceInvitationsSection } from "./space-invitations-section";
 import { isSameOwnerUserId } from "./space-member-ownership";
 import { SpaceMemberRow } from "./space-member-row";
 import {
@@ -1001,10 +1002,11 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			? selectedProfileIds
 			: activeSelection;
 	}, [selectableProfileIds, selectedProfileIds]);
-	const selectedCount = resolveEffectiveAddMemberCount({
+	const effectiveSelectedProfileIds = resolveEffectiveAddMemberProfileIds({
 		candidateGroups,
 		selectedProfileIds: activeSelectedProfileIds,
 	});
+	const selectedCount = effectiveSelectedProfileIds.size;
 	const canRunAddMutation = usesOrganizationDirectory
 		? Boolean(input.onAddOrganizationDirectoryProfiles)
 		: Boolean(input.onAddProfiles);
@@ -1032,7 +1034,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		if (input.onConvertDirectMessageToSpace) {
 			const selectedNames: string[] = [];
 			for (const candidate of allCandidates) {
-				if (activeSelectedProfileIds.has(candidate.profileId)) {
+				if (effectiveSelectedProfileIds.has(candidate.profileId)) {
 					selectedNames.push(candidate.profileName);
 				}
 			}
@@ -1120,7 +1122,17 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 					selectableProfileIds.has(selectedId)
 				)
 			);
-			if (next.has(profileId)) {
+			const personGroup = candidateGroups.personGroups.find(
+				(group) => group.humanCandidate?.profileId === profileId
+			);
+			if (personGroup && effectiveSelectedProfileIds.has(profileId)) {
+				next.delete(profileId);
+				for (const agent of personGroup.agentCandidates) {
+					if (agent.ownerHumanProfileId === profileId) {
+						next.delete(agent.profileId);
+					}
+				}
+			} else if (next.has(profileId)) {
 				next.delete(profileId);
 			} else {
 				next.add(profileId);
@@ -1131,6 +1143,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 
 	return {
 		activeSelectedProfileIds,
+		effectiveSelectedProfileIds,
 		addQuery,
 		allCandidates,
 		canSubmit,
@@ -1210,7 +1223,7 @@ function SpaceAddProfilesSectionView({
 				organizationName={model.organization?.name ?? "Organization"}
 				orgSlug={input.orgSlug}
 				selectedCount={model.selectedCount}
-				selectedProfileIds={model.activeSelectedProfileIds}
+				selectedProfileIds={model.effectiveSelectedProfileIds}
 				snapshot={input.snapshot}
 				spaceId={input.spaceId}
 				spaceName={input.spaceName}
@@ -1370,7 +1383,7 @@ function SpaceAddProfilesDialogContent({
 			<SpaceAddProfilesDialogHeader />
 			<DialogDescription>{description}</DialogDescription>
 			{input.spaceId ? (
-				<div>
+				<div className="flex flex-wrap items-center gap-2">
 					<SpaceCreateProfileButton
 						label="New Agent"
 						onAfterJoin={async (profile) => {
@@ -1386,6 +1399,9 @@ function SpaceAddProfilesDialogContent({
 						spaceId={input.spaceId}
 						spaceName={input.spaceName ?? null}
 					/>
+					{input.usesOrganizationDirectory ? (
+						<SpaceInvitationsSection spaceId={input.spaceId} />
+					) : null}
 				</div>
 			) : null}
 			<div className="relative">
@@ -2174,10 +2190,10 @@ function filterAddMemberGroups(
 	};
 }
 
-function resolveEffectiveAddMemberCount(input: {
+function resolveEffectiveAddMemberProfileIds(input: {
 	candidateGroups: SpaceAddMembersCandidateGroups;
 	selectedProfileIds: ReadonlySet<string>;
-}): number {
+}): ReadonlySet<string> {
 	const effectiveIds = new Set(input.selectedProfileIds);
 	for (const group of input.candidateGroups.personGroups) {
 		if (
@@ -2191,7 +2207,7 @@ function resolveEffectiveAddMemberCount(input: {
 			effectiveIds.add(group.humanCandidate.profileId);
 		}
 	}
-	return effectiveIds.size;
+	return effectiveIds;
 }
 
 function resolvePersonActivityLabel(

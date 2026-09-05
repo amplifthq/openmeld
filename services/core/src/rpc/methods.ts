@@ -689,6 +689,7 @@ import {
 } from "../agent-activity/activity-session-inventory-rpc";
 import { rpcReadAgentActivitySnapshot as readAgentActivitySnapshot } from "../agent-activity/activity-snapshot-rpc";
 import { rpcReadAgentActivityStats as readAgentActivityStats } from "../agent-activity/activity-stats-rpc";
+import { createAgentExecutionReadinessReads } from "../agent-execution/application/agent-execution-readiness-reads";
 import {
   type AgentExecutionTargetRuntimeContext,
   type CoreAgentExecutionReadiness,
@@ -857,7 +858,10 @@ import { rpcCenterAgentReadChangelog as centerAgentReadChangelog } from "../chan
 import { rpcReadChangelog as readChangelog } from "../changelog/changelog-read-rpc";
 import { createComputerFileAccessRpc } from "../computers/computer-file-access-rpc";
 import { createLocalFolderPickerRpc } from "../computers/local-folder-picker-rpc";
-import { readModelCatalog } from "../config/model-catalog";
+import {
+  readAuthoredModelCatalog,
+  readModelCatalog,
+} from "../config/model-catalog";
 import {
   listConnectorAppRequestsForRequester,
   upsertConnectorAppRequest,
@@ -2625,6 +2629,7 @@ export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
 
 export type RecordCurrentOrganizationWebActivityInput = {
   context?: CoreRpcContextInput;
+  spaceId?: string;
 };
 
 export type GetCurrentOrganizationComputersInput = {
@@ -5443,7 +5448,7 @@ export async function rpcGetAgentProfileCreationDefaults(
     ? null
     : resolveFirstUseAgentProfileCreationDefaults({
         agentControllerRef,
-        modelCatalog: readModelCatalog(),
+        modelCatalog: readAuthoredModelCatalog(),
       });
 
   return buildAgentProfileCreationDefaultsResponse({
@@ -5709,6 +5714,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
   env: CoreBindings,
   input: GetCurrentOrganizationAgentRuntimeOverviewInput
 ): Promise<OrganizationAgentRuntimeOverviewResponse> {
+  const startedAtMs = Date.now();
   const context = requireRpcContext(input.context);
   const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
     context,
@@ -5730,6 +5736,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     viewerUserId: activeOrganization.userId,
   });
   console.info("[core.organization_agent_runtime_overview.read]", {
+    durationMs: Math.max(0, Date.now() - startedAtMs),
     actorProfileKind: context.actorContext.profileKind,
     agentProfileCount: response.agentProfiles.length,
     event: "organization_agent_runtime_overview.read",
@@ -5974,6 +5981,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
   >
 > {
   const profilesByOwner = new Map<string, EligibleOrganizationAgentProfile[]>();
+  const reads = createAgentExecutionReadinessReads();
   for (const profile of input.eligibleAgentProfiles) {
     const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
     profiles.push(profile);
@@ -6045,6 +6053,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             ? (preloadedRoutes.routes[agent.profileId] ?? null)
             : undefined;
           const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+            reads,
             activeOrganizationId: input.organizationId,
             env: input.env,
             generatedAt: input.generatedAt,
@@ -6253,6 +6262,13 @@ export async function rpcRecordCurrentOrganizationWebActivity(
     organizationId: activeOrganization.organizationId,
     userId: activeOrganization.userId,
   });
+  if (input.spaceId) {
+    const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+    await stub.rpcRecordMemberWebActivity({
+      ...response,
+      profileId: humanProfileId,
+    });
+  }
   console.info("[core.organization_member_activity.recorded]", {
     event: "organization_member_activity.recorded",
     lastActiveAt: response.lastActiveAt,

@@ -133,6 +133,7 @@ import {
   spaceIndexProjectionEvents,
   spaceIndexSpaces,
 } from "./space-index.schema.ts";
+import { spaceInvitations } from "./space-invitation.schema.ts";
 
 export const openMeldDaemonOpsDecisions = sqliteTable(
   "openMeldDaemon_ops_decisions",
@@ -1634,6 +1635,7 @@ export const agentActivityExecutionLinks = sqliteTable(
 );
 
 export const coreSchema = {
+  spaceInvitations,
   inboxCenterAgentReadWatermarks,
   inboxEmailDeliveries,
   inboxItems,

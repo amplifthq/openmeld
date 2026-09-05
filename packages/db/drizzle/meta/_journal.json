@@ -1065,6 +1065,20 @@
       "when": 1788441399650,
       "tag": "0151_lethal_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "6",
+      "when": 1788584509703,
+      "tag": "0152_fluffy_white_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "6",
+      "when": 1788585217102,
+      "tag": "0153_sloppy_cerise",
+      "breakpoints": true
     }
   ]
 }

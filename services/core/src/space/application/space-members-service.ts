@@ -7,6 +7,7 @@ import type { Profile, SignalEnvelope, SpaceCreator } from "@openmeld/protocol";
 import {
   normalizeOptionalWorkingDirectory,
   SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
+  spaceMemberWebActivityWriteSchema,
 } from "@openmeld/schemas";
 import type {
   LeaveSpaceResponse,
@@ -40,6 +41,11 @@ import {
   type SpaceMemberRecord,
   upsertSpaceMemberRecord,
 } from "../infrastructure/sql/space-member-repo";
+import {
+  readSpaceMemberHumanTextActivity,
+  readSpaceMemberWebActivity,
+  recordSpaceMemberWebActivity,
+} from "../infrastructure/sql/space-member-web-activity-repo";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
 import { parseStoredSignal } from "../rules/parsers/stored-signal";
 import { redactProfileForViewer } from "../rules/privacy/agent-profile-visibility";
@@ -125,6 +131,41 @@ export class SpaceMembersUseCaseError extends Error {
     this.status = input.status;
     this.code = input.code;
   }
+}
+
+export function recordSpaceMemberWebActivityUseCase(input: {
+  sql: SqlStorage;
+  organizationId: string | null;
+  activity: unknown;
+}): string {
+  const parsed = spaceMemberWebActivityWriteSchema.safeParse(input.activity);
+  if (!parsed.success) {
+    throw new SpaceMembersUseCaseError({
+      status: 400,
+      code: "space.activity.invalid",
+      message: "Invalid Space activity.",
+    });
+  }
+  const activity = parsed.data;
+  const member = readSpaceMemberRecord(input.sql, activity.profileId);
+  if (
+    input.organizationId !== activity.organizationId ||
+    member?.status !== "active" ||
+    member.profileKindSnapshot !== "human" ||
+    member.ownerUserIdSnapshot !== activity.userId
+  ) {
+    throw new SpaceMembersUseCaseError({
+      status: 403,
+      code: "space.activity.forbidden",
+      message: "Space activity requires an active Human member.",
+    });
+  }
+  recordSpaceMemberWebActivity(
+    input.sql,
+    activity.profileId,
+    activity.lastActiveAt
+  );
+  return activity.profileId;
 }
 
 export const upsertSpaceCreatorMember = (input: {
@@ -288,9 +329,16 @@ function buildSpaceMemberMutationItems(input: {
     if (record.profileKindSnapshot === "human") {
       return buildHumanSnapshot({
         record,
+        textLastActiveAt: readSpaceMemberHumanTextActivity(
+          input.sql,
+          record.profileId
+        ),
+        webLastActiveAt: readSpaceMemberWebActivity(
+          input.sql,
+          record.profileId
+        ),
         liveProfileById,
         cursorSnapshots,
-        latestSignalActivity,
         generatedAt: input.nowIso,
       });
     }
@@ -549,10 +597,17 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       humans.push(
         buildHumanSnapshot({
           record,
+          textLastActiveAt: readSpaceMemberHumanTextActivity(
+            input.sql,
+            record.profileId
+          ),
+          webLastActiveAt: readSpaceMemberWebActivity(
+            input.sql,
+            record.profileId
+          ),
           avatarByOwnerUserId: preloadedHumanAvatarByOwnerUserId,
           liveProfileById,
           cursorSnapshots,
-          latestSignalActivity,
           generatedAt,
         })
       );
@@ -884,13 +939,25 @@ function buildSnapshotBase(input: {
 
 function buildHumanSnapshot(input: {
   record: SpaceMemberRecord;
+  webLastActiveAt: string | null;
+  textLastActiveAt: string | null;
   avatarByOwnerUserId?: ReadonlyMap<string, string | null>;
   liveProfileById: Map<string, Profile>;
   cursorSnapshots: Map<string, CursorMemberSnapshot>;
-  latestSignalActivity: Map<string, LatestSignalActivity>;
   generatedAt: string;
 }): SpaceMemberHumanSnapshot {
-  const snapshotBase = buildSnapshotBase(input);
+  // Socket reconnects and read watermarks are not evidence of a foreground visit.
+  // Historical socket-derived lastEnteredAt is intentionally not a fallback.
+  const lastSeenAt = pickLaterIsoTimestamp(
+    input.webLastActiveAt,
+    input.textLastActiveAt
+  );
+  const liveNow = Boolean(
+    input.webLastActiveAt &&
+      input.liveProfileById.has(input.record.profileId) &&
+      Date.parse(input.generatedAt) - Date.parse(input.webLastActiveAt) <
+        6 * 60_000
+  );
   return {
     profileId: input.record.profileId,
     profileName: input.record.profileNameSnapshot,
@@ -912,9 +979,11 @@ function buildHumanSnapshot(input: {
     removalReason: input.record.removalReason,
     firstEnteredAt: input.record.firstEnteredAt,
     lastEnteredAt: input.record.lastEnteredAt,
-    lastSeenAt: snapshotBase.lastSeenAt,
-    lastSeenLabel: snapshotBase.lastSeenLabel,
-    liveNow: snapshotBase.liveNow,
+    lastSeenAt,
+    lastSeenLabel: lastSeenAt
+      ? formatLastSeenLabel({ generatedAt: input.generatedAt, lastSeenAt })
+      : null,
+    liveNow,
     avatarUrl: input.record.ownerUserIdSnapshot
       ? (input.avatarByOwnerUserId?.get(input.record.ownerUserIdSnapshot) ??
         null)

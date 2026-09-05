@@ -53,9 +53,8 @@ const EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID: ReadonlyMap<
 > = new Map();
 
 export type AgentProfilesWorkspaceProps = {
-	activeView: "agents" | "create" | "requests";
+	activeView: "agents" | "requests";
 	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
-	createPanel?: ReactNode;
 	currentUserId: string;
 	filterControl?: ReactNode;
 	hasAnyProfiles?: boolean;
@@ -63,7 +62,7 @@ export type AgentProfilesWorkspaceProps = {
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onCreateAgent: () => void;
 	onSelectProfile: (profileId: string) => void;
-	onViewChange: (view: "agents" | "create" | "requests") => void;
+	onViewChange: (view: "agents" | "requests") => void;
 	pendingRequestCount: number;
 	profiles: readonly AuthProfileView[];
 	profilesErrorMessage?: string;
@@ -217,10 +216,7 @@ function AgentProfilesWorkspaceSidebar(input: {
 			leadingContent={
 				<div className="space-y-1">
 					<Button
-						className={cn(
-							"w-full min-w-0 justify-start overflow-hidden",
-							input.input.activeView === "create" && "bg-sidebar-accent"
-						)}
+						className="w-full min-w-0 justify-start overflow-hidden"
 						onClick={input.input.onCreateAgent}
 						size="sm"
 						type="button"
@@ -278,9 +274,6 @@ function AgentProfilesWorkspaceContent(input: {
 	selectionMissing: boolean;
 	selectedProfile: AuthProfileView | null;
 }) {
-	if (input.input.activeView === "create") {
-		return input.input.createPanel ?? null;
-	}
 	if (input.input.activeView === "requests") {
 		return <AgentRequestsWorkspace input={input.input} />;
 	}

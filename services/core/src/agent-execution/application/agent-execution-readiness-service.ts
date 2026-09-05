@@ -67,12 +67,9 @@ import {
 } from "../../lib/bindings";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { resolveRemoteAgentRuntimeAvailability } from "../../remote-agent/application/remote-agent-runtime-policy";
-import { readCurrentRuntimeAgentControllerReports } from "../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
 import {
   listOwnedDeviceExecutionTargetRecords,
   type RuntimeRegistryRecord,
-  readRuntimeRegistryRecord,
-  readRuntimeRegistryRecordByRuntimeId,
 } from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
@@ -85,6 +82,10 @@ import { RUNTIME_TRANSPORT_LEASE_TTL_MS } from "../../strategy-constants";
 import { readFreshAgentExecutionReadinessImpactForBinding } from "../infrastructure/d1/agent-execution-readiness-impact-repo";
 import { readFreshProviderAccessEvidenceForBinding } from "../infrastructure/d1/provider-access-evidence-repo";
 import { readFreshProviderConversationProofForBinding } from "../infrastructure/d1/provider-conversation-proof-repo";
+import {
+  type AgentExecutionReadinessReads,
+  createAgentExecutionReadinessReads,
+} from "./agent-execution-readiness-reads";
 
 export type AgentExecutionReadinessAgentInput = {
   controllerRefSnapshot: string | null;
@@ -111,6 +112,7 @@ export type CoreAgentExecutionReadiness = {
 };
 
 export type AgentExecutionReadinessProfileInput = {
+  reads?: AgentExecutionReadinessReads;
   activeOrganizationId?: string | null;
   env: CoreBindings;
   generatedAt?: string;
@@ -180,6 +182,7 @@ type ProfileIdentitySnapshot = Omit<
 >;
 
 type ResolveAgentBindingSnapshotInput = {
+  reads: AgentExecutionReadinessReads;
   activeOrganizationId: string | null;
   preloadedDaemonRoute?: RuntimeTransportLookupRouteResponse | null;
   preloadedOwnerService?: RuntimeTransportLookupOwnerServiceResponse | null;
@@ -251,6 +254,7 @@ export function resolveCoreAgentExecutionReadinessForProfile(
   input: AgentExecutionReadinessProfileInput
 ): Promise<CoreAgentExecutionReadiness> {
   return resolveCoreAgentExecutionReadiness({
+    reads: input.reads,
     activeOrganizationId: input.activeOrganizationId ?? null,
     agent: {
       controllerRefSnapshot: null,
@@ -288,6 +292,7 @@ export function resolveCoreAgentExecutionReadinessForProfile(
 }
 
 export async function resolveCoreAgentExecutionReadiness(input: {
+  reads?: AgentExecutionReadinessReads;
   activeOrganizationId?: string | null;
   agent: AgentExecutionReadinessAgentInput;
   env: CoreBindings;
@@ -303,6 +308,7 @@ export async function resolveCoreAgentExecutionReadiness(input: {
   const startedAtMs = Date.now();
   const timing: ReadinessTimingRecorder = { durationsMs: {} };
   const bindingSnapshot = await resolveAgentBindingSnapshot({
+    reads: input.reads ?? createAgentExecutionReadinessReads(),
     activeOrganizationId: input.activeOrganizationId ?? null,
     agent: input.agent,
     env: input.env,
@@ -528,6 +534,7 @@ function createEnrichAgentBindingSnapshotInput(input: {
   snapshot: ProfileIdentitySnapshot;
 }): Parameters<typeof enrichAgentBindingSnapshot>[0] {
   return {
+    reads: input.input.reads,
     ...(input.input.preloadedDaemonRoute === undefined
       ? {}
       : { preloadedDaemonRoute: input.input.preloadedDaemonRoute }),
@@ -695,6 +702,7 @@ function mapProfileIdentityLookupFailureReason(code: string): string {
 }
 
 async function enrichAgentBindingSnapshot(input: {
+  reads: AgentExecutionReadinessReads;
   activeOrganizationId: string | null;
   agent: AgentExecutionReadinessAgentInput;
   env: CoreBindings;
@@ -803,6 +811,7 @@ async function enrichAgentBindingSnapshot(input: {
     "runtime_readiness_read",
     () =>
       resolveAgentRuntimeReadiness({
+        reads: input.reads,
         binding: agentExecutionBinding,
         env: input.env,
         generatedAt: input.generatedAt,
@@ -840,6 +849,7 @@ async function enrichAgentBindingSnapshot(input: {
         env: input.env,
         resolveRuntimeClaimDiagnostics: () =>
           resolveAgentClaimDiagnostics({
+            reads: input.reads,
             binding: agentExecutionBinding,
             env: input.env,
             ownerUserId: input.snapshot.ownerUserId,
@@ -849,6 +859,7 @@ async function enrichAgentBindingSnapshot(input: {
       })
     ),
     resolveAgentLocalExecutionServiceEvidence({
+      reads: input.reads,
       binding: agentExecutionBinding,
       env: input.env,
       hasFreshRouteLease: runtimeRoute.hasFreshRouteLease,
@@ -1238,6 +1249,7 @@ async function isCurrentConflictingAgentProfile(input: {
 }
 
 async function resolveAgentRuntimeReadiness(input: {
+  reads: AgentExecutionReadinessReads;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
   generatedAt: string;
@@ -1259,14 +1271,15 @@ async function resolveAgentRuntimeReadiness(input: {
   }
 
   try {
-    const currentReports = await readCurrentRuntimeAgentControllerReports({
-      agentControllerRefs: [executionTarget.agentControllerRef],
-      db: domainDb,
-      openMeldServiceRuntimeId: createAuthorityOpenMeldServiceRuntimeId({
-        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-        source: "runtime_registry_authority",
-      }),
-    });
+    const currentReports =
+      await input.reads.readCurrentRuntimeAgentControllerReports({
+        agentControllerRefs: [executionTarget.agentControllerRef],
+        db: domainDb,
+        openMeldServiceRuntimeId: createAuthorityOpenMeldServiceRuntimeId({
+          openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+          source: "runtime_registry_authority",
+        }),
+      });
     const readiness = resolvePrepareReadinessFromAgentControllerReports({
       agentControllerRefsToEvaluate: [executionTarget.agentControllerRef],
       currentReports: currentReports.map((report) => ({
@@ -1746,6 +1759,7 @@ async function resolveAgentReadinessImpactEvidence(input: {
 }
 
 async function resolveAgentClaimDiagnostics(input: {
+  reads: AgentExecutionReadinessReads;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
   ownerUserId: string | null;
@@ -1772,10 +1786,11 @@ async function resolveAgentClaimDiagnostics(input: {
   }
 
   try {
-    const bindingRuntime = await readRuntimeRegistryRecordByRuntimeId({
-      db: domainDb,
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const bindingRuntime =
+      await input.reads.readRuntimeRegistryRecordByRuntimeId({
+        db: domainDb,
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (bindingRuntime.status === "missing") {
       return {
         reasonCodes: ["claim_eligibility.runtime_missing"],
@@ -1808,7 +1823,7 @@ async function resolveAgentClaimDiagnostics(input: {
       };
     }
 
-    const routeRuntime = await readRuntimeRegistryRecord({
+    const routeRuntime = await input.reads.readRuntimeRegistryRecord({
       db: domainDb,
       runtimeLookupInput: {
         ...bindingRuntimeLookup,
@@ -1937,6 +1952,7 @@ function mergeAgentProfileOrganizationClaimFailure(input: {
 }
 
 async function resolveAgentLocalExecutionServiceEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
   hasFreshRouteLease: boolean;
@@ -1987,10 +2003,11 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
   }
 
   try {
-    const bindingRuntime = await readRuntimeRegistryRecordByRuntimeId({
-      db: domainDb,
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const bindingRuntime =
+      await input.reads.readRuntimeRegistryRecordByRuntimeId({
+        db: domainDb,
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (bindingRuntime.status !== "found") {
       return {
         localService: {

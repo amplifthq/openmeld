@@ -38,8 +38,8 @@ const { copyTextToClipboardMock, toastMock } = vi.hoisted(() => ({
 	},
 }));
 
+import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
-import type { SpaceExecutionRecoveryHandler } from "./space-wake-retry";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
 const REPORT_POINTER_COPY_PATTERN =
@@ -718,7 +718,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
-		const onRetryWakeTarget = vi.fn().mockResolvedValue(undefined);
 
 		renderMessageDetailsPanel({
 			agentRecoveryPlansByProfileId: new Map([
@@ -729,7 +728,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				text: "@Runner check the release build",
 				wakeTargetProfileIds: ["agt_triage"],
 			}),
-			onRetryWakeTarget,
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -754,130 +752,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(actions.map((action) => action.textContent)).toEqual([
 			"Choose local agent",
 		]);
-		expect(onRetryWakeTarget).not.toHaveBeenCalled();
-	});
-
-	it("shows a visible failure when retrying a Wake fails", async () => {
-		useQueryMock.mockReturnValue(
-			createQueryResult({ data: createHumanMessageDetails() })
-		);
-		const onOpenChange = vi.fn();
-		const onRetryWakeTarget = vi
-			.fn()
-			.mockRejectedValue(new Error("The retry request failed."));
-
-		renderMessageDetailsPanel({
-			item: createTimelineItem({
-				id: "sig-human",
-				text: "@Runner check the release build",
-				wakeTargetProfileIds: ["agt_triage"],
-			}),
-			onOpenChange,
-			onRetryWakeTarget,
-			replyItems: [
-				createTimelineItem({
-					id: "sig-terminal-failure",
-					replyToSignalId: "sig-human",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: "agt_triage",
-					systemNoticeType: "terminal_failure",
-					text: "Runner could not complete the Wake.",
-				}),
-			],
-		});
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "Retry as new execution" })
-		);
-
-		const failedRetryButton = await screen.findByRole("button", {
-			name: "New execution failed. Try again",
-		});
-		const firstClientMessageId =
-			onRetryWakeTarget.mock.calls[0]?.[0].clientMessageId;
-		expect(firstClientMessageId).toEqual(expect.any(String));
-
-		fireEvent.click(failedRetryButton);
-
-		await waitFor(() => {
-			expect(onRetryWakeTarget).toHaveBeenCalledTimes(2);
-		});
-		expect(onRetryWakeTarget.mock.calls[1]?.[0].clientMessageId).not.toBe(
-			firstClientMessageId
-		);
-		expect(onOpenChange).not.toHaveBeenCalledWith(false);
-	});
-
-	it("does not offer Retry when the source Wake contains attachments", () => {
-		useQueryMock.mockReturnValue(
-			createQueryResult({ data: createHumanMessageDetails() })
-		);
-
-		renderMessageDetailsPanel({
-			item: createTimelineItem({
-				attachments: [
-					{
-						fileName: "context.png",
-						height: 600,
-						id: "attachment-context",
-						localPreviewUrl: null,
-						mimeType: "image/png",
-						sizeBytes: 2048,
-						width: 800,
-					},
-				],
-				id: "sig-human",
-				text: "@Runner check this screenshot",
-				wakeTargetProfileIds: ["agt_triage"],
-			}),
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
-			replyItems: [
-				createTimelineItem({
-					id: "sig-terminal-failure",
-					replyToSignalId: "sig-human",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: "agt_triage",
-					systemNoticeType: "terminal_failure",
-					text: "Runner could not complete this Wake.",
-				}),
-			],
-		});
-
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
-	});
-
-	it("does not offer Retry when only one target of a multi-target Wake failed", () => {
-		useQueryMock.mockReturnValue(
-			createQueryResult({ data: createHumanMessageDetails() })
-		);
-
-		renderMessageDetailsPanel({
-			item: createTimelineItem({
-				id: "sig-human",
-				text: "@Runner @Reviewer check the release",
-				wakeTargetProfileIds: ["agt_triage", "agt_reviewer"],
-			}),
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
-			replyItems: [
-				createTimelineItem({
-					id: "sig-terminal-failure",
-					replyToSignalId: "sig-human",
-					signalType: "signal.system_notice",
-					systemNoticeFailureStage: "execution",
-					systemNoticeTargetProfileId: "agt_triage",
-					systemNoticeType: "terminal_failure",
-					text: "Runner could not complete this Wake.",
-				}),
-			],
-		});
-
-		expect(
-			screen.queryByRole("button", { name: "Retry as new execution" })
-		).toBeNull();
 	});
 
 	it("keeps the failed reason prominent without treating a fresh Wake as recovery", async () => {
@@ -893,7 +767,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				wakeTargetProfileIds: ["agt_center"],
 			}),
 			onRecoverExecution,
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-system-failure",
@@ -1136,7 +1009,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				wakeTargetProfileIds: ["agt_center"],
 			}),
 			onRecoverExecution,
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-large-tool-result",
@@ -1250,7 +1122,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 		);
 
 		renderMessageDetailsPanel({
-			onRetryWakeTarget: vi.fn(),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-publication-failure",
@@ -1341,7 +1212,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				id: "sig-human",
 				wakeTargetProfileIds: ["agt_runner"],
 			}),
-			onRetryWakeTarget: vi.fn().mockResolvedValue(undefined),
 			replyItems: [
 				createTimelineItem({
 					id: "sig-terminal-failure",
@@ -1547,7 +1417,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				systemNoticeType: "terminal_failure",
 				text: "Runner could not reply.",
 			}),
-			onRetryWakeTarget: vi.fn(),
 			targetProfileDisplayNamesByProfileId: new Map([["agt_triage", "Runner"]]),
 		});
 
@@ -1593,7 +1462,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				systemNoticeType: "wake_stopped",
 				text: "Wake was stopped.",
 			}),
-			onRetryWakeTarget: vi.fn(),
 		});
 
 		expect(
@@ -1921,10 +1789,6 @@ function renderMessageDetailsPanel(input?: {
 	onViewInGraph?: (signalId: string) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onReportMessage?: (item: SpaceTimelineItem) => Promise<void>;
-	onRetryWakeTarget?: (input: {
-		sourceText: string;
-		targetProfileId: string;
-	}) => Promise<void>;
 	onWakeStopRequest?: (
 		target: SpaceWakeStopTargetResolution
 	) => Promise<PostSpaceWakeStopResponse>;
@@ -1956,7 +1820,6 @@ function renderMessageDetailsPanel(input?: {
 			onOpenChange={input?.onOpenChange ?? vi.fn()}
 			onRecoverExecution={input?.onRecoverExecution}
 			onReportMessage={input?.onReportMessage ?? vi.fn()}
-			onRetryWakeTarget={input?.onRetryWakeTarget}
 			onViewInGraph={input?.onViewInGraph}
 			onWakeStopRequest={input?.onWakeStopRequest}
 			open={true}

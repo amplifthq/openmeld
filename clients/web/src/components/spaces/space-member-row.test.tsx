@@ -742,6 +742,7 @@ describe("SpaceMemberRow", () => {
 				lastSeenLabel: "Seen 8h ago",
 				liveNow: false,
 				presenceLabel: "Seen 8h ago",
+				lastSeenAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
 				presenceStatus: null,
 			}),
 		});
@@ -761,6 +762,7 @@ describe("SpaceMemberRow", () => {
 				lastSeenLabel: "Seen 7 hours ago",
 				liveNow: false,
 				presenceLabel: "seen 7 hours ago",
+				lastSeenAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
 				presenceStatus: "offline",
 			}),
 		});
