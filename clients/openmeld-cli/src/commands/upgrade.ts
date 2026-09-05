@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
 import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
 import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
+import { hasIndependentMaintenanceRegistration } from "../config/daemon-service-update-worker-registration";
 import {
   buildNextVersionState,
   type CliBinaryReleaseInfo,
@@ -26,6 +27,7 @@ import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon
 import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
 import { resolveVersionChangeDirection } from "../local-service/lifecycle/version-change-direction";
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
+import { createOpenMeldToolsUpdateCoordinator } from "../local-service/maintenance/openmeld-tools-update-coordinator";
 import { resolveExternalOpenMeldToolsUpdate } from "../local-service/maintenance/openmeld-tools-update-join";
 import {
   type CliBinaryUpdatePlan,
@@ -37,7 +39,7 @@ import {
   formatInlineOpenMeldCliCommands,
   formatOpenMeldCliTextBlock,
 } from "../runtime/cli-entry-command";
-import { resolveRuntimeContext } from "../runtime/context";
+import { type RuntimeContext, resolveRuntimeContext } from "../runtime/context";
 import {
   type NpmCommandSpec,
   resolveCurrentNpmCommandSpec,
@@ -137,6 +139,33 @@ export async function runUpgrade(input: {
   const runtime = await resolveRuntimeContext({
     view: input.view,
   });
+  await runUpgradeWithRuntime(input, runtime);
+}
+
+export async function runMaintenanceUpgrade(
+  internalAlignService = false
+): Promise<void> {
+  if (!readOpenMeldToolsUpdateContextFromEnv()) {
+    throw new Error("OpenMeld maintenance requires a saved update operation.");
+  }
+  await runUpgradeWithRuntime(
+    { yes: true, internalAlignService },
+    {
+      viewMode: "agent",
+      resolvedView: "agent",
+      interactive: false,
+    }
+  );
+}
+
+async function runUpgradeWithRuntime(
+  input: {
+    yes?: boolean;
+    check?: boolean;
+    internalAlignService?: boolean;
+  },
+  runtime: RuntimeContext
+): Promise<void> {
   const presenter = createPresenter(runtime);
   if (runtime.resolvedView === "agent") {
     emitTopLevelAgentOverview({
@@ -232,8 +261,9 @@ export async function runUpgrade(input: {
     return;
   }
 
-  if (upgradeStatus.status === "outdated") {
-    const shouldRun = await resolveUpgradeConfirmation({
+  if (
+    upgradeStatus.status === "outdated" &&
+    !(await resolveUpgradeConfirmation({
       allowPrompt,
       yes: Boolean(input.yes),
       message: `Upgrade OpenMeld CLI from ${upgradeStatus.currentVersion} to ${upgradeStatus.latestVersion}?`,
@@ -241,10 +271,9 @@ export async function runUpgrade(input: {
         "openmeld upgrade requires --yes in non-interactive mode when upgrade is available",
       resolvedView: runtime.resolvedView,
       scenario: "outdated",
-    });
-    if (!shouldRun) {
-      return;
-    }
+    }))
+  ) {
+    return;
   }
 
   if (upgradeStatus.status === "check_failed") {
@@ -258,6 +287,13 @@ export async function runUpgrade(input: {
 
   const installableUpgradeStatus =
     requireInstallableUpgradeStatus(upgradeStatus);
+  if (!currentUpdate && (await hasIndependentMaintenanceRegistration())) {
+    await requestMaintainedUpgrade({
+      presenter,
+      resolvedView: runtime.resolvedView,
+    });
+    return;
+  }
   if (installableUpgradeStatus.distribution === "binary") {
     await installAndReconcileBinaryUpgrade({
       upgradeStatus: installableUpgradeStatus,
@@ -278,6 +314,37 @@ export async function runUpgrade(input: {
     resolvedView: runtime.resolvedView,
     currentVersion,
     presenter,
+  });
+}
+
+async function requestMaintainedUpgrade(input: {
+  presenter: ReturnType<typeof createPresenter>;
+  resolvedView: "human" | "agent";
+}): Promise<void> {
+  const coordinator = createOpenMeldToolsUpdateCoordinator(
+    {},
+    { executeUpdates: false }
+  );
+  const result = await coordinator.requestUpdate({ requestSource: "cli" });
+  if (result.status === "already_running") {
+    emitUpgradeAlreadyRunning({ ...input, operation: result.operation });
+    return;
+  }
+  if (result.status !== "started" && result.status !== "current") {
+    throw new Error(
+      "OpenMeld could not start the update. Try again when the update channel is available."
+    );
+  }
+  if (input.resolvedView === "agent") {
+    input.presenter.data({ code: "upgrade.maintenance", payload: result });
+    return;
+  }
+  input.presenter.line({
+    code: "upgrade.maintenance",
+    text:
+      result.status === "current"
+        ? "OpenMeld is up to date."
+        : "OpenMeld is updating in the background. You can close this Terminal.",
   });
 }
 
@@ -563,7 +630,19 @@ async function resolveUpgradeInstallContext(): Promise<{
   }
   const currentGlobalInstall = await resolveCurrentNpmGlobalPackageInstall({
     packageName: OPENMELD_PACKAGE_NAME,
+    ...(readOpenMeldToolsUpdateContextFromEnv() &&
+    process.env.OPENMELD_INTERNAL_NPM_INSTALL_ENTRY
+      ? { cliScriptPath: process.env.OPENMELD_INTERNAL_NPM_INSTALL_ENTRY }
+      : {}),
   });
+  if (
+    process.env.OPENMELD_INTERNAL_MAINTENANCE_WORKER === "1" &&
+    !currentGlobalInstall
+  ) {
+    throw new Error(
+      "OpenMeld could not identify the original npm installation. Automatic update stopped to preserve the current installation."
+    );
+  }
   return {
     currentGlobalInstall,
     manualUpgradeCommand: buildManualOpenMeldUpgradeCommand({
@@ -980,13 +1059,15 @@ async function handoffUpgradeServiceAlignmentToLatestBinary(input: {
     process.stderr.isTTY === true;
   const handoffResult = await runStreamingCommand(
     input.command,
-    [
-      ...input.argsPrefix,
-      "--view",
-      input.resolvedView,
-      "upgrade",
-      UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG,
-    ],
+    process.env.OPENMELD_INTERNAL_MAINTENANCE_WORKER === "1"
+      ? [...input.argsPrefix, "maintenance-align-service"]
+      : [
+          ...input.argsPrefix,
+          "--view",
+          input.resolvedView,
+          "upgrade",
+          UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG,
+        ],
     {
       OPENMELD_INTERNAL_SKIP_STARTUP_UPGRADE: "1",
     },

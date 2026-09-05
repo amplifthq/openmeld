@@ -27,7 +27,8 @@ export type ActiveOrganizationJoinLinkRecord = OrganizationJoinLinkRecord & {
 
 export type OrganizationJoinLinkRepository = {
   findActiveByOrganizationId: (
-    organizationId: string
+    organizationId: string,
+    spaceId?: string
   ) => Promise<OrganizationJoinLinkRecord | null>;
   findActiveByToken: (
     token: string
@@ -40,18 +41,20 @@ export type OrganizationJoinLinkRepository = {
     organizationId: string
   ) => Promise<OrganizationJoinLinkOrganizationRecord | null>;
   ensureActive: (input: {
+    spaceId?: string;
     createdBy: string;
     id: string;
     organizationId: string;
     token: string;
   }) => Promise<OrganizationJoinLinkRecord>;
   resetActive: (input: {
+    spaceId?: string;
     createdBy: string;
     id: string;
     organizationId: string;
     token: string;
   }) => Promise<OrganizationJoinLinkRecord>;
-  revokeActive: (organizationId: string) => Promise<boolean>;
+  revokeActive: (organizationId: string, spaceId?: string) => Promise<boolean>;
 };
 
 type OrganizationJoinLinkDatabase = ReturnType<typeof createD1Db>;
@@ -60,13 +63,16 @@ export function createDrizzleOrganizationJoinLinkRepository(
   db: OrganizationJoinLinkDatabase
 ): OrganizationJoinLinkRepository {
   return {
-    async findActiveByOrganizationId(organizationId) {
+    async findActiveByOrganizationId(organizationId, spaceId) {
       const rows = await db
         .select()
         .from(organizationJoinLinks)
         .where(
           and(
             eq(organizationJoinLinks.organizationId, organizationId),
+            spaceId
+              ? eq(organizationJoinLinks.spaceId, spaceId)
+              : isNull(organizationJoinLinks.spaceId),
             isNull(organizationJoinLinks.revokedAt)
           )
         )
@@ -79,6 +85,7 @@ export function createDrizzleOrganizationJoinLinkRepository(
           id: organizationJoinLinks.id,
           organizationId: organizationJoinLinks.organizationId,
           token: organizationJoinLinks.token,
+          spaceId: organizationJoinLinks.spaceId,
           role: organizationJoinLinks.role,
           createdBy: organizationJoinLinks.createdBy,
           createdAt: organizationJoinLinks.createdAt,
@@ -136,6 +143,7 @@ export function createDrizzleOrganizationJoinLinkRepository(
           .insert(organizationJoinLinks)
           .values({
             id: input.id,
+            spaceId: input.spaceId ?? null,
             organizationId: input.organizationId,
             token: input.token,
             role: "member",
@@ -149,6 +157,9 @@ export function createDrizzleOrganizationJoinLinkRepository(
           .where(
             and(
               eq(organizationJoinLinks.organizationId, input.organizationId),
+              input.spaceId
+                ? eq(organizationJoinLinks.spaceId, input.spaceId)
+                : isNull(organizationJoinLinks.spaceId),
               isNull(organizationJoinLinks.revokedAt)
             )
           )
@@ -171,6 +182,9 @@ export function createDrizzleOrganizationJoinLinkRepository(
           .where(
             and(
               eq(organizationJoinLinks.organizationId, input.organizationId),
+              input.spaceId
+                ? eq(organizationJoinLinks.spaceId, input.spaceId)
+                : isNull(organizationJoinLinks.spaceId),
               isNull(organizationJoinLinks.revokedAt)
             )
           ),
@@ -178,6 +192,7 @@ export function createDrizzleOrganizationJoinLinkRepository(
           .insert(organizationJoinLinks)
           .values({
             id: input.id,
+            spaceId: input.spaceId ?? null,
             organizationId: input.organizationId,
             token: input.token,
             role: "member",
@@ -192,13 +207,16 @@ export function createDrizzleOrganizationJoinLinkRepository(
       }
       return created;
     },
-    async revokeActive(organizationId) {
+    async revokeActive(organizationId, spaceId) {
       const rows = await db
         .update(organizationJoinLinks)
         .set({ revokedAt: new Date() })
         .where(
           and(
             eq(organizationJoinLinks.organizationId, organizationId),
+            spaceId
+              ? eq(organizationJoinLinks.spaceId, spaceId)
+              : isNull(organizationJoinLinks.spaceId),
             isNull(organizationJoinLinks.revokedAt)
           )
         )

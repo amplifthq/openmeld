@@ -321,24 +321,36 @@ docs directly readable against our schema.
 - Invitations are the plugin's email-bound invitations (accepting requires a
   session whose email matches the invite). Email verification is on from day
   one; set `requireEmailVerificationOnInvitation` per its documented
-  semantics. Generic shareable organization join links (Slack/Linear style)
-  are now in MVP under the 2026-07-14 decision in `developing/decisions.md`;
-  they are auth-owned and do not change email-bound invitation semantics.
+  semantics. Owners and admins may send invitations directly. Ordinary members
+  submit recipient-bound invitation requests for owner/admin approval; they
+  never receive the native invitation-create permission.
 - Auth remains the only writer for join-link creation, reset, and revocation.
   Any verified Organization member may ask the Center Agent to read and share
   the current active link through a private Core RPC without a second
   confirmation. On an explicit share request, the Center Agent may also ensure
   that an active link exists on behalf of that verified member. Auth reads the
-  member's current server-side role and permits this represented action only
-  for an `owner` or `admin`; a `member` receives a structured permission error.
+  member's current server-side role and permits verified members to ensure a
+  request link. Possession of a link never grants membership: each signed-in,
+  verified recipient requests an invitation and needs individual approval.
   Ensure returns the current active link when one exists and creates one only
   when none exists. It never resets or revokes an existing link. Owner and admin
   management surfaces are Web Settings and `openmeld org invite-link`: both may
   read the current link, reset it through `create`, or revoke it, while Auth
-  remains the permission authority and writer. Members receive the same
-  structured permission refusal on both surfaces. The Center Agent cannot email
+  remains the permission authority and writer. Members may read and share links,
+  but cannot reset or revoke them. The Center Agent cannot email
   invitations. Personal organizations reject both join-link creation and
   acceptance.
+- Core owns `organization_join_requests`, shared by email and link entry, with
+  an optional ordinary Space target. Approval creates no membership; Auth sends
+  the existing email-bound invitation and the recipient accepts it. Owners and
+  admins receive an Inbox action and transactional review email through the
+  existing delivery ledger. Approval remains actionable until invitation delivery
+  succeeds; failed delivery is explicitly retryable. No configurable policy,
+  multi-stage approval, or guest role is part of this batch.
+- Links are scoped to the Organization or one Space, with one active link per
+  scope. Existing links now request approval rather than enrolling a bearer.
+  Space sponsorship is checked separately from Organization reviewer authority,
+  both at approval and at Space invitation fulfillment.
 - Mail infrastructure is required for invitations; org-foundation implementation
   uses Cloudflare Email Service via the `AUTH_EMAIL` `send_email` binding.
 - The native Better Auth `organizations.logo` column is the only current

@@ -193,12 +193,3 @@ outside the action is not a Space reply.
   a last resort for the current computer.
 - Verify the Space itself received a reply. A successful trace or action receipt
   alone is not visible-publication proof.
-
-## References
-
-- Agent setup and recovery: `playbooks/agent-onboarding.md`
-- Fast, read-only Space work: `playbooks/space-reads.md`
-- Space writes, Wake, Actions, and recovery: `playbooks/space-ops.md`
-- Exact command syntax: `references/commands.md`
-- View, Profile, URL, and saved-state behavior:
-  `references/runtime-resolution.md`

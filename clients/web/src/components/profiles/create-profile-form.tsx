@@ -34,6 +34,7 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
+import { ModelBadge } from "#/components/models/model-badge";
 import { SpinnerButton } from "#/components/spinner-button";
 import type {
 	NewProfileErrorState,
@@ -336,6 +337,33 @@ export function AgentProfileConfigurationCards(input: {
 
 	return (
 		<AgentConfigurationGrid>
+			<AgentConfigurationCard
+				description="What this Agent can do without asking."
+				icon={<LockKeyIcon aria-hidden="true" />}
+				itemId="permissions"
+				label="Permissions"
+				summary={summaries.permission}
+			>
+				<div className="grid gap-4">
+					<AgentControllerPermissionModeFields
+						agentId={form.boundAgentId}
+						confirmed={form.boundAgentControllerPermissionModeConfirmed}
+						disabled={form.isSubmitting}
+						onChange={form.onChangeBoundAgentControllerPermissionMode}
+						onConfirmChange={
+							form.onChangeBoundAgentControllerPermissionModeConfirmed
+						}
+						value={form.boundAgentControllerPermissionMode}
+					/>
+					{isOpenCodeAgentId(form.boundAgentId) ? (
+						<OpenCodePermissionsField
+							disabled={form.isSubmitting}
+							onChange={form.onChangeBoundOpenCodePermission}
+							value={form.boundOpenCodePermission}
+						/>
+					) : null}
+				</div>
+			</AgentConfigurationCard>
 			{form.agentOwnershipSlot ? (
 				<AgentConfigurationCard
 					description="Who owns and maintains this Agent."
@@ -408,33 +436,6 @@ export function AgentProfileConfigurationCards(input: {
 					/>
 				</AgentConfigurationCard>
 			) : null}
-			<AgentConfigurationCard
-				description="What this Agent can do without asking."
-				icon={<LockKeyIcon aria-hidden="true" />}
-				itemId="permissions"
-				label="Permissions"
-				summary={summaries.permission}
-			>
-				<div className="grid gap-4">
-					<AgentControllerPermissionModeFields
-						agentId={form.boundAgentId}
-						confirmed={form.boundAgentControllerPermissionModeConfirmed}
-						disabled={form.isSubmitting}
-						onChange={form.onChangeBoundAgentControllerPermissionMode}
-						onConfirmChange={
-							form.onChangeBoundAgentControllerPermissionModeConfirmed
-						}
-						value={form.boundAgentControllerPermissionMode}
-					/>
-					{isOpenCodeAgentId(form.boundAgentId) ? (
-						<OpenCodePermissionsField
-							disabled={form.isSubmitting}
-							onChange={form.onChangeBoundOpenCodePermission}
-							value={form.boundOpenCodePermission}
-						/>
-					) : null}
-				</div>
-			</AgentConfigurationCard>
 		</AgentConfigurationGrid>
 	);
 }
@@ -717,7 +718,12 @@ export function AgentProfileModelSelectionFields(
 					<SelectTrigger
 						aria-label="Model"
 						className="h-10 w-full px-3 text-sm"
-						displayValue={state.modelDisplayValue}
+						displayValue={
+							<ModelOptionPresentation
+								badgeLabel={state.selectedModel?.badgeLabel}
+								label={state.modelDisplayValue}
+							/>
+						}
 						id={modelSelectId}
 						placeholder="Select a model"
 					/>
@@ -728,9 +734,12 @@ export function AgentProfileModelSelectionFields(
 								index={0}
 								value={state.currentUnavailableModel.id}
 							>
-								{formatUnavailableModelOptionLabel(
-									state.currentUnavailableModel
-								)}
+								<ModelOptionPresentation
+									badgeLabel={state.currentUnavailableModel.badgeLabel}
+									label={formatUnavailableModelOptionLabel(
+										state.currentUnavailableModel
+									)}
+								/>
 							</SelectItem>
 						) : null}
 						{renderCompatibleModelOptions({
@@ -980,14 +989,32 @@ function renderCompatibleModelOptions(input: {
 				key={model.id}
 				value={model.id}
 			>
-				{formatCompatibleModelOptionLabel({
-					compatibility,
-					defaultModelId: input.controller.defaultModelId,
-					model,
-				})}
+				<ModelOptionPresentation
+					badgeLabel={model.badgeLabel}
+					label={formatCompatibleModelOptionLabel({
+						compatibility,
+						defaultModelId: input.controller.defaultModelId,
+						model,
+					})}
+				/>
 			</SelectItem>
 		);
 	});
+}
+
+function ModelOptionPresentation({
+	label,
+	badgeLabel,
+}: {
+	label: string | undefined;
+	badgeLabel?: string;
+}) {
+	return (
+		<span className="flex min-w-0 items-center gap-2">
+			<span className="min-w-0 truncate">{label}</span>
+			{badgeLabel ? <ModelBadge label={badgeLabel} /> : null}
+		</span>
+	);
 }
 
 function ModelCompatibilityNotice(input: {

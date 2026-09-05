@@ -222,8 +222,8 @@ describe("LandingPage", () => {
 			"codex",
 			"claude-code",
 			"grok-build",
-			"cursor",
 			"opencode",
+			"cursor",
 		].map((agentId) => within(hero).getByTestId(`local-agent-logo-${agentId}`));
 		for (const [index, logoElement] of heroLocalAgentLogos.entries()) {
 			const nextLogoElement = heroLocalAgentLogos[index + 1];
@@ -359,8 +359,8 @@ describe("LandingPage", () => {
 			"codex",
 			"claude-code",
 			"grok-build",
-			"cursor",
 			"opencode",
+			"cursor",
 		].map((agentId) =>
 			within(localExecutionSection as HTMLElement).getByTestId(
 				`local-agent-logo-${agentId}`

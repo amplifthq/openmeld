@@ -18,7 +18,6 @@ import {
 import type {
 	SpaceAgentPermissionModeShortcut,
 	SpaceAgentPermissionModeUpdateHandler,
-	SpaceAgentProfileEditHandler,
 } from "./space-agent-interaction-card";
 import { buildEditableSpaceAgentProfilesById } from "./space-agent-profile-edit-access";
 import { resolveSpacePermissionModeShortcut } from "./space-pending-agent-action-model";
@@ -74,14 +73,6 @@ export function useSpacePendingAgentActions(input: {
 		editableAgentProfilesById,
 		profileId: editingProfileId,
 	});
-	const onEditAgentProfile: SpaceAgentProfileEditHandler | undefined =
-		input.agentProfileEditContext
-			? (profileId) => {
-					if (editableAgentProfilesById.has(profileId)) {
-						setEditingProfileId(profileId);
-					}
-				}
-			: undefined;
 	const onPermissionModeUpdate:
 		| SpaceAgentPermissionModeUpdateHandler
 		| undefined = input.agentProfileEditContext
@@ -135,15 +126,12 @@ export function useSpacePendingAgentActions(input: {
 		: undefined;
 	const surfaceProps: PendingAgentActionSurfaceProps = {
 		items: pendingItems,
-		onEditAgentProfile,
 		onPermissionModeUpdate,
 		onRespond: input.onRespond,
 		permissionModeShortcutsByProfileId,
 	};
 
 	return {
-		editableAgentProfileIds,
-		onEditAgentProfile,
 		profileEditDialog:
 			editingProfile && input.agentProfileEditContext ? (
 				<AgentProfileEditDialogController

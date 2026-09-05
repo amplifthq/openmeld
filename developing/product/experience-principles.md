@@ -114,6 +114,15 @@ lie.
 
 ## 7. Same truth on every surface
 
+Computer connection checks take precedence over cached local Agent status.
+While checking, dependent Agent cards show Checking; when disconnected or
+waiting for a computer update, they show that dependency with muted identities.
+Keep the user's on/off preference, disable unavailable controls, and do not
+present old quota or sign-in facts as live. A confirmed Agent-specific failure
+remains visible once current computer facts are available. Routine disconnects,
+account-switch cancellation, and required updates do not warrant a page full
+of red failures.
+
 Web, CLI, and Desktop must reach the same conclusion from the same facts — or
 explicitly explain the split (local view vs cloud view). A three-surface
 comparison is part of production smoke for a reason.

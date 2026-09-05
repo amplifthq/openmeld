@@ -52,6 +52,7 @@ export function resolveDaemonCapabilities(input: {
       connectCandidate: true,
       connectDeclaredPath: true,
       discoverProjects: true,
+      readConnections: true,
       moveConnection: true,
       removeConnection: true,
       removeMissingConnections: true,

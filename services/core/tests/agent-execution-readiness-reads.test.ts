@@ -4,8 +4,8 @@ import {
   createRuntimeLookupInput,
 } from "@openmeld/agent-runtime";
 import { describe, expect, it } from "vitest";
-import { createAgentExecutionReadinessReads } from "../agent-execution/application/agent-execution-readiness-reads";
-import { registerRuntimeRegistryRecord } from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
+import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
 
 describe("request-scoped readiness reads", () => {
   it("shares Runtime facts for 50 profiles, isolates identities, and refreshes on the next request", async () => {

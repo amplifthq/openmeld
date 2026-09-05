@@ -106,6 +106,7 @@ export function resolveLocalComponentUpdateProjection(input: {
     status: input.localComponentsStatus?.cli ?? null,
   });
   const skills = resolveSkillsUpdateProjection({
+    cliVersion: input.localComponentsStatus?.cli.packageVersion ?? null,
     policy: skillsPolicy,
     status: input.localComponentsStatus?.skills ?? null,
   });
@@ -401,10 +402,21 @@ function resolveCliUpdateProjection(input: {
 }
 
 function resolveSkillsUpdateProjection(input: {
+  cliVersion: string | null;
   policy: LocalComponentsReleaseManifest["components"]["skills"];
   status: LocalComponentsStatus["skills"] | null;
 }): LocalSkillsComponentUpdateProjection {
-  const expectedBundleHash = input.policy.bundleHash;
+  const compatibleContentRelease =
+    input.status?.contentRelease &&
+    input.cliVersion !== null &&
+    isLocalComponentVersionAtLeast(
+      input.cliVersion,
+      input.status.contentRelease.minimumCliVersion
+    ) &&
+    input.status.skillContractVersion === input.policy.skillContractVersion;
+  const expectedBundleHash = compatibleContentRelease
+    ? (input.status?.expectedBundleHash ?? null)
+    : input.policy.bundleHash;
   const expectedTargetCount = input.policy.skillIds.length;
   if (!input.status) {
     return buildSkillsUpdateProjection({
@@ -424,6 +436,10 @@ function resolveSkillsUpdateProjection(input: {
 
   const reasonCodes = [...input.status.reasonCodes];
   let updateNeeded = input.status.status === "update_required";
+  if (input.status.contentRelease && !compatibleContentRelease) {
+    updateNeeded = true;
+    reasonCodes.push("skills.content_release_incompatible");
+  }
   if (
     input.status.skillContractVersion !== input.policy.skillContractVersion &&
     !reasonCodes.includes("skills.skill_contract_mismatch")
@@ -432,8 +448,9 @@ function resolveSkillsUpdateProjection(input: {
     reasonCodes.push("skills.skill_contract_mismatch");
   }
   if (
-    expectedBundleHash !== null &&
-    input.status.installedBundleHash !== expectedBundleHash &&
+    ((compatibleContentRelease && expectedBundleHash === null) ||
+      (expectedBundleHash !== null &&
+        input.status.installedBundleHash !== expectedBundleHash)) &&
     !reasonCodes.includes("skills.bundle_mismatch")
   ) {
     updateNeeded = true;

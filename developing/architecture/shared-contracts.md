@@ -28,6 +28,14 @@
 
 ## Boundary
 
+Official CLI Skill content uses the signed Markdown channel contract in
+`packages/schemas/src/official-cli-skill.ts`, separately from Organization
+Skills. The optional local component `skills.contentRelease` reports the
+selected independent revision and minimum CLI version. Core retains required
+Skill contract checks and local installation errors while accepting aligned
+independent hashes. Deploy strict report receivers before bridge producers;
+see [Official CLI Skill delivery](../engineering/official-cli-skill.md).
+
 Shared contracts prevent semantic drift across OpenMeld clients, services, packages,
 and processes.
 
@@ -143,6 +151,26 @@ identity, grants mutation authority, or replaces the Session inventory.
 
 ## Contract Rule
 
+### Space author read confirmation
+
+The optional literal `authorHasRead: true` in authored text metadata and thread
+send requests confirms only the current Human author's exact message. Web
+composers supply it; CLI and automation omit it by default. Core resolves the
+author's current Human ownership and suppresses only that recipient's Inbox
+candidate in the message's durable publication transaction. This is not an
+authorization claim or a conversation read-through position. Unconfirmed own
+messages remain ordinary updates, including self mentions and self thread
+replies. Inbox remains the only unread owner.
+
+Contract impact: existing CLI, Service, Skills, setup, Wake, and diagnostic
+contracts remain supported; no local component floor or stamp changes. Older
+clients omit the optional confirmation and receive normal read-through
+behavior. Older signal readers may discard the additive metadata. Deploy Core
+and Gateway receivers before the new Web producer because an older strict
+thread request parser rejects the new optional request field. Roll back Web
+before those receivers. No database migration or historical unread backfill is
+required.
+
 Any payload that crosses a service, package, process, HTTP boundary, RPC
 boundary, WebSocket boundary, CLI JSON boundary, or diagnostics boundary needs a
 shared contract before integration.
@@ -249,6 +277,24 @@ exactly or admission fails. A plan is disclosure policy, not member authority,
 tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
+
+Organization invitation requests use `organizationJoinRequestInputSchema` for
+Web and CLI and a separate trusted RPC envelope for Auth-proven account identity,
+link sponsorship, and successful-delivery acknowledgement. Client payloads cannot
+set reviewers, approval status, or membership. The Inbox request target carries
+only a request ID; its owner checks current authority on every review.
+
+The invitation-approval rollout adds Auth HTTP/Core RPC actions, a scoped link
+field, an Inbox target, and an optional transactional-email purpose. It does not
+change setup, Wake, Service status, trace, or self-rescue contracts. Existing local
+components remain safe: the legacy link acceptance endpoint fails closed with
+`organization.join_link.approval_required` instead of enrolling someone. CLI and
+managed Skills updates are advisory (`available` at release); no runtime contract
+epoch changes are needed. New clients require the new receivers. Use the existing
+`space-invitation-receivers-first` coordinated release: additive Database
+migrations, Core, Auth, then Web and CLI. Keep the receiver/client transition short;
+old Web cannot operate the new Inbox request target. Rolling clients back must
+not restore bearer-link enrollment or remove the additive request data.
 
 `packages/schemas` owns Inbox item, counts, list-filter, direct item read,
 read/unread and Dismiss mutations, delivery preference, structured source

@@ -19,8 +19,6 @@ export type SpaceAgentInteractionResponseHandler = (
 	input: RespondToSpaceAgentInteractionBody
 ) => Promise<void>;
 
-export type SpaceAgentProfileEditHandler = (profileId: string) => void;
-
 export type SpaceAgentPermissionModeShortcut = {
 	description: string;
 	label: string;
@@ -46,7 +44,6 @@ const EMPTY_QUESTION_DRAFT: QuestionDraft = {
 
 export function SpaceAgentInteractionCard(input: {
 	item: WakeProgressItem;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
 	onRespond?: SpaceAgentInteractionResponseHandler;
 	permissionModeShortcut?: SpaceAgentPermissionModeShortcut;
@@ -153,11 +150,6 @@ export function SpaceAgentInteractionCard(input: {
 			{request.kind === "permission" ? (
 				<PermissionInteraction
 					disabled={isSubmitting}
-					onEditAgentProfile={
-						input.onEditAgentProfile
-							? () => input.onEditAgentProfile?.(input.item.targetProfileId)
-							: undefined
-					}
 					onRespond={respond}
 					permissionModeShortcut={input.permissionModeShortcut}
 					request={request}
@@ -236,7 +228,6 @@ function InteractionShell(input: {
 
 function PermissionInteraction(input: {
 	disabled: boolean;
-	onEditAgentProfile?: () => void;
 	onRespond: (
 		response: AgentInteractionResponse,
 		permissionMode?: AgentControllerPermissionMode
@@ -286,25 +277,6 @@ function PermissionInteraction(input: {
 						onToggle={() => setUpdatePermissionMode((current) => !current)}
 					/>
 				</CheckboxGroup>
-			) : null}
-			{input.onEditAgentProfile ? (
-				<div className="grid gap-2 border-border border-t pt-3">
-					<p className="text-muted-foreground text-xs leading-5">
-						New permission settings can affect later tool requests in this Wake
-						when the local agent supports live updates. This request was already
-						waiting, so respond to it separately.
-					</p>
-					<div>
-						<Button
-							disabled={input.disabled}
-							onClick={input.onEditAgentProfile}
-							type="button"
-							variant="outline"
-						>
-							Edit Agent Profile
-						</Button>
-					</div>
-				</div>
 			) : null}
 			<div className="flex justify-end">
 				<Button

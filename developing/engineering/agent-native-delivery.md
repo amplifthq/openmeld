@@ -95,7 +95,8 @@ unrelated agents to wait.
 
 ## Develop, Review, And Prepare
 
-The scheduled model-catalog collector prepares draft evidence PRs, not delivery
+The scheduled model-catalog collector prepares one combined draft evidence PR
+per complete scan, not delivery
 candidates. Its twelve-hour collection, source contracts, and coding-agent
 handoff are defined in
 [Agent Profile Model Selection](../product/agent-model-selection.md#automatic-evidence-handoff).

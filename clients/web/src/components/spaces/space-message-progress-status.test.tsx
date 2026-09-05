@@ -141,7 +141,7 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(screen.queryByText("Responding...")).toBeNull();
 	});
 
-	it("keeps the working state explicit beside a live output preview", () => {
+	it("shows live output without repeating a generic working label", () => {
 		render(
 			<SpaceMessageProgressStatus
 				entries={[createWakePreviewEntry()]}
@@ -150,9 +150,9 @@ describe("SpaceMessageProgressStatus", () => {
 		);
 
 		expect(
-			screen.getByText("Agent is working · Checking the release configuration…")
+			screen.getByText("Checking the release configuration…")
 		).toBeTruthy();
-		expect(screen.getAllByText(AGENT_WORKING_TEXT_PATTERN)).toHaveLength(1);
+		expect(screen.queryByText(AGENT_WORKING_TEXT_PATTERN)).toBeNull();
 	});
 
 	it.each([
@@ -332,7 +332,7 @@ function createStartingItem(): SpaceTimelineItem {
 	const item = createStreamingItem();
 	item.agentStreamState = undefined;
 	item.deliveryState = "pending";
-	item.optimisticAgentReplyProgress = {
+	item.activeWakeProgress = {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
 		message: "Runner is working.",

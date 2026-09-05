@@ -51,14 +51,14 @@ describe("first-use Agent Profile creation defaults", () => {
     });
   });
 
-  it("uses the concrete catalog default without inventing reasoning", () => {
+  it("starts Claude on the reviewed Opus 5 recommendation without inventing reasoning", () => {
     expect(
       resolveFirstUseAgentProfileCreationDefaults({
         agentControllerRef: "builtin:claude-code",
         modelCatalog: readModelCatalog(),
       })
     ).toEqual({
-      modelId: "claude-opus-4-8",
+      modelId: "claude-opus-5",
       reasoningLevel: null,
     });
   });

@@ -93,7 +93,7 @@ describe("organization join link HTTP schemas", () => {
       centerAgentGetOrganizationInviteLinkResponseSchema.parse({
         active: false,
         generationGuidance: {
-          requiredRole: "owner_or_admin",
+          requiredRole: "member",
           settingsLocation: "Settings → Workspace → General",
           settingsSection: "Invite link",
         },
@@ -101,7 +101,7 @@ describe("organization join link HTTP schemas", () => {
     ).toEqual({
       active: false,
       generationGuidance: {
-        requiredRole: "owner_or_admin",
+        requiredRole: "member",
         settingsLocation: "Settings → Workspace → General",
         settingsSection: "Invite link",
       },

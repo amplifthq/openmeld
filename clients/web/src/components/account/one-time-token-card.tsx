@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { env } from "#/env";
 import { useGenerateOneTimeToken } from "#/hooks/account.hooks";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
+import { isLocalWebOrigin } from "#/lib/local-web-origin";
 import { DEFAULT_ONE_TIME_TOKEN_EXPIRES_IN_SECONDS } from "#/lib/one-time-token-expiry";
 
 const DEFAULT_DEV_AUTH_URL = "http://localhost:8788";
@@ -43,20 +44,6 @@ function tokenStatusText(remainingSeconds: number | null): string {
 	}
 
 	return `Token expires in ${formatCountdown(remainingSeconds)}.`;
-}
-
-function isLocalWebOrigin(origin: string): boolean {
-	try {
-		const url = new URL(origin);
-		return (
-			url.hostname === "localhost" ||
-			url.hostname === "127.0.0.1" ||
-			url.hostname === "::1" ||
-			url.hostname === "[::1]"
-		);
-	} catch {
-		return false;
-	}
 }
 
 export function buildOneTimeTokenCommandDisplay(

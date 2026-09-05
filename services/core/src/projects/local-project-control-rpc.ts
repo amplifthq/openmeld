@@ -287,10 +287,13 @@ export function buildCanonicalLocalProjectDiscoveryRequest(input: {
   projects: readonly Project[];
   request: Pick<
     LocalProjectControlDiscoverProjectsRpcInput,
-    "clientGeneration" | "expectedOrganizationId"
+    "clientGeneration" | "expectedOrganizationId" | "includeCandidates"
   >;
 }) {
   return {
+    ...(input.request.includeCandidates === undefined
+      ? {}
+      : { includeCandidates: input.request.includeCandidates }),
     clientGeneration: input.request.clientGeneration,
     expectedOrganizationId: input.request.expectedOrganizationId,
     projects: input.projects.map((project) => ({

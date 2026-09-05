@@ -37,6 +37,22 @@ afterEach(() => {
 });
 
 describe("urgent Inbox email RPC", () => {
+  it("links invitation review emails to the same in-app request destination", async () => {
+    seedIdentity({ organizationSlug: "acme-team" });
+    sendEmail.mockResolvedValue({ messageId: "review-mail" });
+    await expect(
+      createRpc().sendInboxUrgentEmail({
+        ...validRequest,
+        purpose: "invitation_review",
+        invitationRequestId: "request/one?other=value",
+      })
+    ).resolves.toMatchObject({ status: "sent" });
+    const message = sendEmail.mock.calls[0]?.[0] as EmailMessageBuilder;
+    expect(message.text).toContain(
+      "https://openmeld.ai/o/acme-team/settings/invitations?requestId=request%2Fone%3Fother%3Dvalue"
+    );
+    expect(message.text).not.toContain("/inbox?item=");
+  });
   it("rejects non-strict input before reading identity data or sending", async () => {
     const rpc = createRpc();
     const prepare = vi.spyOn(harness.db, "prepare");

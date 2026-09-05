@@ -3,6 +3,7 @@ const INVITATION_ROUTES = [
 	"/accept-space-invitation",
 	"/join-organization",
 	"/invitations",
+	"/invitation-requests",
 ] as const;
 
 export function shouldPreferMagicLink(redirectTarget: string | null): boolean {

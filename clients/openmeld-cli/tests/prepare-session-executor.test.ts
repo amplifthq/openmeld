@@ -22,6 +22,7 @@ import {
   PrepareSessionCancelledError,
   PrepareSessionConnectionInterruptedError,
   reportLocalAgentCatalogForSelection,
+  reportPrepareHandoffStopped,
   resolveAgentSelection,
   resolveNextTerminalPrepareStep,
   resolvePrepareSessionTerminalAuthCheck,
@@ -2747,6 +2748,49 @@ function buildSelectedNoAgentSnapshot(
     ),
   };
 }
+
+describe("handoff outcome delivery", () => {
+  it("waits for Core to acknowledge the stopped attempt before closing Terminal", async () => {
+    const snapshot = buildSnapshot({ connect_terminal: "complete" });
+    let acknowledge: (() => void) | undefined;
+    const close = vi.fn();
+    const writeTerminalStep = vi.fn();
+    const stream: PrepareSessionStream = {
+      close,
+      writeTerminalStep,
+      getLatestSnapshot: () => snapshot,
+      writeTerminalAgentSelection: vi.fn(),
+      writeTerminalLocalAgentCatalog: vi.fn(),
+      waitForSnapshot: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              acknowledge = () => resolve(snapshot);
+            })
+        ),
+    };
+    const pending = reportPrepareHandoffStopped({
+      stream,
+      reasonCode: "prepare.account_switch_cancelled",
+      message: "Account switch canceled.",
+    });
+    await vi.waitFor(() => expect(writeTerminalStep).toHaveBeenCalled());
+    expect(writeTerminalStep).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionEpoch: 1,
+        expectedRevision: 1,
+        stepId: "connect_terminal",
+        status: "failed",
+      })
+    );
+    expect(close).not.toHaveBeenCalled();
+    acknowledge?.();
+    await pending;
+    expect(close).toHaveBeenCalledOnce();
+  });
+});
 
 function buildSnapshot(
   stepStates: Partial<Record<PrepareStepId, PrepareStepState>>,

@@ -33,7 +33,9 @@ describe("client version recovery", () => {
 
 		window.dispatchEvent(preloadError);
 
-		expect(preloadError.defaultPrevented).toBe(true);
+		// Vite must still reject the import while the document reload is pending.
+		// Canceling the event resolves the failed import with undefined instead.
+		expect(preloadError.defaultPrevented).toBe(false);
 		expect(reload).toHaveBeenCalledOnce();
 		expect(
 			window.sessionStorage.getItem(CLIENT_VERSION_RECOVERY_ATTEMPT_KEY)
