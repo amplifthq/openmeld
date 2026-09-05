@@ -113,7 +113,6 @@ import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
-import type { SpaceAgentProfileEditHandler } from "./space-agent-interaction-card";
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
@@ -1734,12 +1733,8 @@ function SpaceLandingReady({
 						}
 						currentProfileName={currentProfileName}
 						currentSpaceControls={currentSpaceControls}
-						editableAgentProfileIds={
-							pendingAgentActions.editableAgentProfileIds
-						}
 						historyErrorMessage={historyErrorMessage}
 						input={input}
-						onEditAgentProfile={pendingAgentActions.onEditAgentProfile}
 						pendingActionSurface={pendingActionSurface}
 						prepareSetupHref={prepareSetupHref}
 						state={state}
@@ -1755,11 +1750,7 @@ function SpaceLandingReady({
 								currentProfileIsActiveSpaceMember
 							}
 							currentSpaceControls={currentSpaceControls}
-							editableAgentProfileIds={
-								pendingAgentActions.editableAgentProfileIds
-							}
 							input={input}
-							onEditAgentProfile={pendingAgentActions.onEditAgentProfile}
 							pendingActionSurface={threadPendingActionSurface}
 							prepareSetupHref={prepareSetupHref}
 							state={state}
@@ -1940,10 +1931,8 @@ function SpaceLandingConversation({
 	currentProfileIsActiveSpaceMember,
 	currentProfileName,
 	currentSpaceControls,
-	editableAgentProfileIds,
 	historyErrorMessage,
 	input,
-	onEditAgentProfile,
 	pendingActionSurface,
 	prepareSetupHref,
 	state,
@@ -1960,10 +1949,8 @@ function SpaceLandingConversation({
 	currentProfileIsActiveSpaceMember: boolean;
 	currentProfileName: string | null;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
-	editableAgentProfileIds: ReadonlySet<string>;
 	historyErrorMessage: string | null;
 	input: SpaceLandingInput;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	pendingActionSurface?: ReactNode;
 	prepareSetupHref: string;
 	state: SpaceLandingState;
@@ -2017,7 +2004,6 @@ function SpaceLandingConversation({
 			composerReplyToSignalId={controller.composerReplyToSignalId}
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
-			editableAgentProfileIds={editableAgentProfileIds}
 			emptyStateDescription={resolveSpaceConversationEmptyStateDescription({
 				isAgentOwnerDirectMessageObserver:
 					agentOwnerDirectMessageObserver !== null,
@@ -2052,7 +2038,6 @@ function SpaceLandingConversation({
 			onClearComposerReplyTo={controller.onClearComposerReplyTo}
 			onComposerEditorChange={controller.onComposerEditorChange}
 			onCreateThread={controller.onCreateThread}
-			onEditAgentProfile={onEditAgentProfile}
 			onJumpToDate={controller.onJumpToDate}
 			onLoadEarlierHistory={controller.onLoadEarlierHistory}
 			onMentionButtonClick={controller.onMentionButtonClick}
@@ -2444,9 +2429,7 @@ function SpaceLandingSecondaryPanels({
 	controller,
 	currentProfileIsActiveSpaceMember,
 	currentSpaceControls,
-	editableAgentProfileIds,
 	input,
-	onEditAgentProfile,
 	pendingActionSurface,
 	prepareSetupHref,
 	state,
@@ -2461,9 +2444,7 @@ function SpaceLandingSecondaryPanels({
 	controller: ReadySpaceLandingController;
 	currentProfileIsActiveSpaceMember: boolean;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
-	editableAgentProfileIds: ReadonlySet<string>;
 	input: SpaceLandingInput;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	pendingActionSurface?: ReactNode;
 	prepareSetupHref: string;
 	state: SpaceLandingState;
@@ -2550,7 +2531,6 @@ function SpaceLandingSecondaryPanels({
 				composerMentionPickerItems={controller.threadComposerMentionPickerItems}
 				composerText={controller.threadComposerText}
 				currentOwnerUserId={currentOwnerUserId}
-				editableAgentProfileIds={editableAgentProfileIds}
 				ephemeralActivityItems={controller.threadEphemeralActivityItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
 				initialFocusSignalId={
@@ -2574,7 +2554,6 @@ function SpaceLandingSecondaryPanels({
 				onAgentRecoveryAction={handleAgentRecoveryAction}
 				onClose={controller.onCloseThread}
 				onComposerEditorChange={controller.onThreadComposerEditorChange}
-				onEditAgentProfile={onEditAgentProfile}
 				onMentionButtonClick={controller.onThreadMentionButtonClick}
 				onOpenSpaceFile={(fileId, revision) => {
 					controller.onCloseThread();

@@ -98,7 +98,6 @@ import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
 	type SpaceAgentInteractionResponseHandler,
-	type SpaceAgentProfileEditHandler,
 } from "./space-agent-interaction-card";
 import {
 	resolveSpaceAgentInteractionPlacement,
@@ -224,7 +223,6 @@ type SpaceConversationPanelResolvedProps = {
 	>;
 	emptyStateDescription?: string | null;
 	emptyStateTitle?: string;
-	editableAgentProfileIds?: ReadonlySet<string>;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
@@ -258,7 +256,6 @@ type SpaceConversationPanelResolvedProps = {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onOpenThread: (threadId: string) => void;
 	onOpenUnreadThread?: (input: {
 		rootSignalId: string;
@@ -767,7 +764,6 @@ function renderPanelConversationBody(input: {
 		emptyStateActions: input.emptyStateActions,
 		emptyStateDescription: panel.emptyStateDescription,
 		emptyStateTitle: panel.emptyStateTitle,
-		editableAgentProfileIds: panel.editableAgentProfileIds,
 		entries: presentation.entries,
 		ephemeralActivityItems: panel.ephemeralActivityItems,
 		firstUnreadSignalId: panel.firstUnreadSignalId,
@@ -786,7 +782,6 @@ function renderPanelConversationBody(input: {
 		modelCatalog: panel.modelCatalog,
 		onAgentRecoveryAction: presentation.onAgentRecoveryAction,
 		onAgentInteractionResponse: panel.onAgentInteractionResponse,
-		onEditAgentProfile: panel.onEditAgentProfile,
 		onCreateThread: presentation.onCreateThread,
 		onJumpToDate: panel.onJumpToDate,
 		onJumpToMessage: navigation.onJumpToMessage,
@@ -2047,7 +2042,6 @@ function renderConversationBody(input: {
 	emptyStateActions?: ReactNode;
 	emptyStateDescription?: string | null;
 	emptyStateTitle?: string;
-	editableAgentProfileIds?: ReadonlySet<string>;
 	entries: ReturnType<typeof buildSpaceConversationEntries>;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
@@ -2065,7 +2059,6 @@ function renderConversationBody(input: {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
 	onJumpToDate?: (date: Date) => Promise<string | null>;
 	onJumpToMessage: (signalId: string) => void;
@@ -2274,7 +2267,6 @@ function renderConversationBody(input: {
 						}
 						centerAgentProfileId={input.centerAgentProfileId}
 						currentOwnerUserId={input.currentOwnerUserId}
-						editableAgentProfileIds={input.editableAgentProfileIds}
 						ephemeralActivityItems={input.ephemeralActivityItems}
 						highlightedSignalId={input.highlightedSignalId}
 						inlineComputerSetupActionSignalId={
@@ -2290,7 +2282,6 @@ function renderConversationBody(input: {
 						onAgentInteractionResponse={input.onAgentInteractionResponse}
 						onAgentRecoveryAction={input.onAgentRecoveryAction}
 						onCreateThread={input.onCreateThread}
-						onEditAgentProfile={input.onEditAgentProfile}
 						onJumpToMessage={input.onJumpToMessage}
 						onOpenMessageDetails={input.onOpenMessageDetails}
 						onOpenSpaceFile={input.onOpenSpaceFile}
@@ -2462,7 +2453,6 @@ type ConversationBubbleRunInput = {
 	centerAgentProfileId: string | null;
 	currentOwnerUserId: string | null;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-	editableAgentProfileIds?: ReadonlySet<string>;
 	highlightedSignalId: string | null;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	inlineComputerSetupActionSignalId: string | null;
@@ -2477,7 +2467,6 @@ type ConversationBubbleRunInput = {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
 	onJumpToMessage: (signalId: string) => void;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -2838,13 +2827,6 @@ function ConversationBubbleContent(input: {
 					<SpaceAgentInteractionCard
 						item={interactionItem}
 						key={resolveSpacePendingAgentActionIdentity(interactionItem)}
-						onEditAgentProfile={
-							parent.editableAgentProfileIds?.has(
-								interactionItem.targetProfileId
-							)
-								? parent.onEditAgentProfile
-								: undefined
-						}
 						onRespond={
 							parent.readOnly ? undefined : parent.onAgentInteractionResponse
 						}

@@ -69,7 +69,6 @@ import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
 	type SpaceAgentInteractionResponseHandler,
-	type SpaceAgentProfileEditHandler,
 } from "./space-agent-interaction-card";
 import {
 	resolveSpaceAgentInteractionPlacement,
@@ -234,7 +233,6 @@ type SpaceThreadPanelProps = {
 	pendingActionSurface?: ReactNode;
 	profileControl?: ReactNode;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-	editableAgentProfileIds?: ReadonlySet<string>;
 	wakeFailureTargetContextsByProfileId: ReadonlyMap<
 		string,
 		WakeFailureTargetContext
@@ -256,7 +254,6 @@ type SpaceThreadPanelProps = {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onRemoveComposerFile: (localId: string) => void;
@@ -448,7 +445,6 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				centerAgentProfileId={input.centerAgentProfileId ?? null}
 				computerSetupActionSignalId={computerSetupActionSignalId}
 				computerSetupContext={computerSetupContext}
-				editableAgentProfileIds={input.editableAgentProfileIds}
 				ephemeralActivityItems={input.ephemeralActivityItems}
 				errorMessage={input.signalsErrorMessage}
 				firstUnreadSignalId={firstUnreadSignalId}
@@ -457,7 +453,6 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				items={threadTimelineItems}
 				latestThreadOccurredAtMs={latestThreadOccurredAtMs}
 				onAgentInteractionResponse={input.onAgentInteractionResponse}
-				onEditAgentProfile={input.onEditAgentProfile}
 				onOpenMessageDetails={onOpenMessageDetails}
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				onRecoverExecution={messageDetailsItem ? undefined : onRecoverExecution}
@@ -945,7 +940,6 @@ function ThreadTimeline(input: {
 	errorMessage: string | null;
 	firstUnreadSignalId: string | null;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-	editableAgentProfileIds?: ReadonlySet<string>;
 	centerAgentProfileId: string | null;
 	computerSetupActionSignalId: string | null;
 	computerSetupContext?: CenterAgentComputerSetupContext;
@@ -960,7 +954,6 @@ function ThreadTimeline(input: {
 	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
@@ -1093,7 +1086,6 @@ function ThreadTimeline(input: {
 											input.computerSetupActionSignalId
 										}
 										computerSetupContext={input.computerSetupContext}
-										editableAgentProfileIds={input.editableAgentProfileIds}
 										ephemeralActivityItems={input.ephemeralActivityItems}
 										isFirstInGroup={messageGroupPosition.isFirstInGroup}
 										isLastInGroup={messageGroupPosition.isLastInGroup}
@@ -1102,7 +1094,6 @@ function ThreadTimeline(input: {
 										onAgentInteractionResponse={
 											input.onAgentInteractionResponse
 										}
-										onEditAgentProfile={input.onEditAgentProfile}
 										onOpenAgentProfile={input.onOpenAgentProfile}
 										onOpenMessageDetails={input.onOpenMessageDetails}
 										onOpenSpaceFile={input.onOpenSpaceFile}
@@ -1217,7 +1208,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 		readonly SpaceTimelineItem[]
 	>;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-	editableAgentProfileIds?: ReadonlySet<string>;
 	isFirstInGroup: boolean;
 	isLastInGroup: boolean;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
@@ -1228,7 +1218,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	renderAgentProfileTrigger: SpaceAgentProfileTriggerRenderer;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
@@ -1434,13 +1423,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										key={resolveSpacePendingAgentActionIdentity(
 											interactionItem
 										)}
-										onEditAgentProfile={
-											input.editableAgentProfileIds?.has(
-												interactionItem.targetProfileId
-											)
-												? input.onEditAgentProfile
-												: undefined
-										}
 										onRespond={
 											input.readOnly
 												? undefined
