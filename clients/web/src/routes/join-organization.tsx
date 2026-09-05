@@ -58,6 +58,9 @@ export function JoinOrganizationPage(input: {
 				)
 			: undefined;
 	const submitted = request.data?.[0];
+	const spaceAccessDescription = activeLink?.spaceId
+		? " The invitation also includes access to the Space shared by the sender."
+		: "";
 	const content = () => {
 		if (!input.token) {
 			return (
@@ -121,6 +124,7 @@ export function JoinOrganizationPage(input: {
 			<>
 				<p className="text-muted-foreground text-sm">
 					You’re requesting to join as an organization member, not a guest.
+					{spaceAccessDescription}
 				</p>
 				{request.error ? (
 					<p className="text-destructive text-sm" role="alert">
