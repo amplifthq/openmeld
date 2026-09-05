@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T00:00:00.000Z",
+  "updatedAt": "2026-09-05T07:30:14.654Z",
   "agentControllers": {
     "codex": {
       "defaultModelId": "gpt-5.6-sol",
@@ -71,6 +71,20 @@
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
           "minCliVersion": null
+        },
+        {
+          "id": "gpt-6-astra",
+          "displayName": "GPT-6-Astra",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.153.0"
         }
       ]
     },
