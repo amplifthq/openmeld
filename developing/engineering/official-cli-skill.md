@@ -1,5 +1,15 @@
 # Official CLI Skill delivery
 
+## Agent Context
+
+- Purpose: Define independent delivery and installation of the official OpenMeld CLI Skill.
+- Read this when: Changing the public guide, signed channel, local cache, or Agent installation.
+- Update this when: Publication, compatibility, installation ownership, or maintenance behavior changes.
+- Do not use this for: Organization Skills, CLI command implementation, or Wake execution policy.
+- Source of truth: This file owns the official CLI Skill content delivery contract.
+
+## Scope
+
 OpenMeld's own CLI guide is separate from Organization Skills. It contains
 Markdown only. There is no remote executable, Agent configuration, permission,
 or command implementation in this channel.

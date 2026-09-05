@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const OFFICIAL_CLI_SKILL_CONTRACT =
   "openmeld-skills-contract-2026-08-tool-owned-actions-v2";
