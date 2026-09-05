@@ -19,6 +19,7 @@ import type {
 	AuthProfileView,
 	CreateAgentProfileCreationRequestResponse,
 	GetSpaceStatusResponse,
+	OrganizationDirectoryResponse,
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
 	SpaceMemberAgentSnapshot,
@@ -263,15 +264,20 @@ vi.mock("@tanstack/react-query", async () => {
 		Array.isArray(queryKey) &&
 		queryKey[0] === "spaces" &&
 		queryKey[1] === "wake-progress-presentation";
+	// File previews must exercise the real enabled/queryFn contract against the
+	// mocked download API, including the optimistic local-preview phase.
+	const usesRealQuery = (queryKey: unknown) =>
+		isWakeProgressPresentationQuery(queryKey) ||
+		(Array.isArray(queryKey) &&
+			queryKey[0] === "space-files" &&
+			queryKey[2] === "content");
 
 	return {
 		...actual,
 		useQuery: (options: { queryKey?: readonly unknown[] }) => {
-			const isPresentationQuery = isWakeProgressPresentationQuery(
-				options.queryKey
-			);
+			const useActualQuery = usesRealQuery(options.queryKey);
 			const actualQuery = actual.useQuery(
-				(isPresentationQuery
+				(useActualQuery
 					? options
 					: {
 							enabled: false,
@@ -280,7 +286,7 @@ vi.mock("@tanstack/react-query", async () => {
 						}) as Parameters<typeof actual.useQuery>[0]
 			);
 			const queryMock = useQueryMock;
-			return isPresentationQuery ? actualQuery : queryMock(options);
+			return useActualQuery ? actualQuery : queryMock(options);
 		},
 		useQueryClient: () => {
 			const actualQueryClient = actual.useQueryClient();
@@ -1690,8 +1696,63 @@ describe("SpaceLanding", () => {
 		}
 	});
 
-	it("keeps refreshing a newly created Space agent without repeating the Core membership write", async () => {
+	it("adds a newly created Space agent only after confirmation without repeating the Core membership write", async () => {
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
+		const queryClient = createTestQueryClient();
+		vi.spyOn(queryClient, "invalidateQueries").mockImplementation(
+			invalidateQueriesMock
+		);
+		const directory = createOrganizationDirectoryFixture({
+			centerAgentProfileId: SECOND_AGENT_PROFILE_ID,
+			humanProfileId: DEFAULT_SPACE_PROFILE_ID,
+		});
+		const [createdAgent] = directory.agentProfiles;
+		if (!createdAgent) {
+			throw new Error("Expected an Agent directory fixture");
+		}
+		createdAgent.isCenterAgent = false;
+		createdAgent.profileName = "Scout";
+		createdAgent.profileHandle = "scout";
+		const [owner] = directory.members;
+		if (!owner) {
+			throw new Error("Expected an owner directory fixture");
+		}
+		owner.userId = "user-mira";
+		owner.memberName = "Mira";
+		const rawDirectory: OrganizationDirectoryResponse = {
+			organizationId: "org-acme",
+			generatedAt: "2026-07-16T00:00:00.000Z",
+			agentProfiles: [],
+			members: [
+				{
+					memberId: "member-mira",
+					organizationId: "org-acme",
+					userId: "user-mira",
+					role: "owner",
+					joinedAt: "2026-07-16T00:00:00.000Z",
+					humanProfile: owner.humanProfile,
+					user: {
+						id: "user-mira",
+						name: "Mira",
+						email: "mira@example.test",
+						image: null,
+					},
+				},
+			],
+		};
+		directory.agentProfiles = [];
+		const directoryQuery: Record<string, unknown> = createQueryResult({
+			isSuccess: true,
+			data: directory,
+		});
+		createAgentProfileCreationRequestMock.mockImplementation(
+			(request: WebCreateAgentProfileCreationRequestInput) => {
+				directoryQuery.data = { ...directory, agentProfiles: [createdAgent] };
+				return Promise.resolve(
+					buildCompletedAgentProfileCreationRequest(request)
+				);
+			}
+		);
 		const statusRefetchMock = vi.fn().mockResolvedValue(undefined);
 		const newAgentOfflineSnapshot = createMembersSnapshot({
 			defaultAgentOwnerUserId: "user-mira",
@@ -1707,21 +1768,6 @@ describe("SpaceLanding", () => {
 				},
 			],
 		});
-		const newAgentReadySnapshot = createMembersSnapshot({
-			defaultAgentOwnerUserId: "user-mira",
-			extraAgents: [
-				{
-					agentExecutionReadiness: createReadyAgentExecutionReadiness(
-						SECOND_AGENT_PROFILE_ID
-					),
-					liveNow: true,
-					mentionAlias: "scout",
-					profileId: SECOND_AGENT_PROFILE_ID,
-					profileName: "Scout",
-					runtimeDeviceDisplayName: "Felix's MacBook Pro",
-				},
-			],
-		});
 		const membersQuery = createQueryResult({
 			isSuccess: true,
 			data: createMembersSnapshot({
@@ -1731,15 +1777,12 @@ describe("SpaceLanding", () => {
 			data: ReturnType<typeof createMembersSnapshot>;
 			refetch: ReturnType<typeof vi.fn>;
 		};
-		let membersRefetchCount = 0;
 		const membersRefetchMock = vi.fn().mockImplementation(() => {
-			const nextSnapshot =
-				membersRefetchCount < 2
-					? newAgentOfflineSnapshot
-					: newAgentReadySnapshot;
-			membersRefetchCount += 1;
-			membersQuery.data = nextSnapshot;
-			return Promise.resolve({ data: nextSnapshot });
+			if (!addOrganizationDirectoryProfilesToSpaceMock.mock.calls.length) {
+				return Promise.resolve({ data: membersQuery.data });
+			}
+			membersQuery.data = newAgentOfflineSnapshot;
+			return Promise.resolve({ data: newAgentOfflineSnapshot });
 		});
 		membersQuery.refetch = membersRefetchMock;
 		const addMembersMock = vi.fn().mockResolvedValue({
@@ -1747,12 +1790,18 @@ describe("SpaceLanding", () => {
 			alreadyMemberIds: [],
 			items: [],
 		});
-		useQueryClientMock.mockReturnValue({
-			invalidateQueries: invalidateQueriesMock,
-			setQueryData: vi.fn(),
-		});
+		const addOrganizationDirectoryProfilesToSpaceMock = vi
+			.fn()
+			.mockResolvedValue({
+				addedMemberIds: [SECOND_AGENT_PROFILE_ID],
+				alreadyMemberIds: [],
+				items: [],
+			});
+		useQueryClientMock.mockReturnValue(queryClient);
 		createWebSpaceApiMock.mockReturnValue({
 			addMembers: addMembersMock,
+			addOrganizationDirectoryProfilesToSpace:
+				addOrganizationDirectoryProfilesToSpaceMock,
 			deleteSpace: vi.fn().mockResolvedValue({
 				deleted: true,
 				spaceId: "space-123",
@@ -1776,6 +1825,8 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
+			organizationDirectoryQuery: directoryQuery,
+			organizationDirectoryResponse: rawDirectory,
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -1827,12 +1878,7 @@ describe("SpaceLanding", () => {
 		vi.useFakeTimers();
 		fireEvent.click(submitButton);
 		await flushPromiseQueue();
-		expect(
-			screen
-				.getByRole("button", { name: "Add People or Agents" })
-				.getAttribute("aria-expanded")
-		).toBe("false");
-		expect(membersRefetchMock).toHaveBeenCalledTimes(2);
+		expect(screen.getByRole("button", { name: "Add 1 member" })).toBeTruthy();
 		expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				configuration: expect.objectContaining({
@@ -1843,11 +1889,26 @@ describe("SpaceLanding", () => {
 				idempotencyKey: expect.any(String),
 				organizationId: "org-acme",
 				profileName: "Scout",
-				requestedSpaceId: "space-123",
 				targetOwnerUserId: "user-mira",
 			})
 		);
 		expect(addMembersMock).not.toHaveBeenCalled();
+		expect(
+			createAgentProfileCreationRequestMock.mock.calls[0]?.[0].requestedSpaceId
+		).toBeNull();
+		expect(addOrganizationDirectoryProfilesToSpaceMock).not.toHaveBeenCalled();
+		const refreshesBeforeAdd = membersRefetchMock.mock.calls.length;
+		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
+		await flushPromiseQueue();
+		expect(
+			addOrganizationDirectoryProfilesToSpaceMock
+		).toHaveBeenCalledExactlyOnceWith({
+			directoryProfileIds: [SECOND_AGENT_PROFILE_ID],
+			spaceId: "space-123",
+		});
+		expect(membersRefetchMock.mock.calls.length).toBeGreaterThan(
+			refreshesBeforeAdd
+		);
 		expect(notifyAgentExecutionReadinessRefreshMock).toHaveBeenCalledWith({
 			agentProfileIds: [SECOND_AGENT_PROFILE_ID],
 			organizationId: "org-acme",
@@ -1865,7 +1926,10 @@ describe("SpaceLanding", () => {
 			await vi.advanceTimersByTimeAsync(2000);
 		});
 
-		expect(membersRefetchMock).toHaveBeenCalledTimes(3);
+		expect(addOrganizationDirectoryProfilesToSpaceMock).toHaveBeenCalledTimes(
+			1
+		);
+		expect(addMembersMock).not.toHaveBeenCalled();
 	});
 
 	it("hides the Get-set-up Add agents row when an account agent is already a Space member even if owner metadata lags", () => {
@@ -17292,6 +17356,8 @@ function mockSpaceQueries(input: {
 	members: Record<string, unknown>;
 	history: Record<string, unknown>;
 	organizationDirectory?: OrganizationSpaceProfileCandidates;
+	organizationDirectoryQuery?: Record<string, unknown>;
+	organizationDirectoryResponse?: OrganizationDirectoryResponse;
 	messageDetailsBySignalId?: Record<string, Record<string, unknown>>;
 	threads?: Record<string, unknown>;
 	threadSignals?: Record<string, unknown>;
@@ -17325,8 +17391,14 @@ function mockSpaceQueries(input: {
 			},
 		});
 	useQueryMock.mockImplementation(
-		(options: { queryKey: readonly unknown[] }) => {
+		(options: { queryKey: readonly unknown[]; select?: unknown }) => {
 			const queryKey = JSON.stringify(options.queryKey);
+			if (
+				options.queryKey[0] === "space-invitations" &&
+				spaceIds.has(String(options.queryKey[3]))
+			) {
+				return createQueryResult({ isSuccess: true, data: [] });
+			}
 			const querySpaceId = options.queryKey[2];
 			const isExpectedSpace =
 				typeof querySpaceId === "string" && spaceIds.has(querySpaceId);
@@ -17592,15 +17664,24 @@ function mockSpaceQueries(input: {
 				options.queryKey[0] === "organizations" &&
 				options.queryKey[2] === "directory"
 			) {
-				return createQueryResult({
-					isSuccess: true,
-					data: input.organizationDirectory ?? {
-						agentProfiles: [],
-						generatedAt: "2026-07-16T00:00:00.000Z",
-						members: [],
-						organizationId: "org-acme",
-					},
-				});
+				if (!options.select && input.organizationDirectoryResponse) {
+					return createQueryResult({
+						isSuccess: true,
+						data: input.organizationDirectoryResponse,
+					});
+				}
+				return (
+					input.organizationDirectoryQuery ??
+					createQueryResult({
+						isSuccess: true,
+						data: input.organizationDirectory ?? {
+							agentProfiles: [],
+							generatedAt: "2026-07-16T00:00:00.000Z",
+							members: [],
+							organizationId: "org-acme",
+						},
+					})
+				);
 			}
 			if (
 				Array.isArray(options.queryKey) &&

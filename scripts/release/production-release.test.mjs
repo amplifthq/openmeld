@@ -1089,7 +1089,7 @@ test("combines invitation and Service receivers while keeping conflicting writer
           ],
         }
       ),
-    /Space invitation receiver order/u
+    SPACE_INVITATION_ORDER_ERROR
   );
 });
 
