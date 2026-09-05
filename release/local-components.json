@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T06:20:04.714Z",
+  "updatedAt": "2026-09-05T07:50:48.414Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.158",
+      "packageVersion": "0.3.159",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible with old and new cloud; new invitation commands are published only after Core and Auth receivers are deployed."
+      "reason": "Existing setup, commands, Space actions and diagnostics remain compatible with old and new cloud; live catalog data keeps the existing schema and an offline baseline."
     },
     "service": {
-      "bundleHash": "70fece55a30f63ccf4d942af0281da8188d1fe070062064ea8327130c512d185",
-      "bundleVersion": "0.3.158",
+      "bundleHash": "c5f192f56bf1fca06c46a164eaa16acdc5caa09e748ede5a0e4a9e66d2104595",
+      "bundleVersion": "0.3.159",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Shared schema and catalog bytes change the package but existing setup, Wake, Runtime Transport, and running executions remain compatible in both directions."
+      "reason": "Independent local maintenance changes no Prepare or Wake wire contract; old and new cloud and Service remain interoperable, and working existing Services can continue safely."
     },
     "skills": {
       "bundleHash": "066654c32315419b602249322147d112da27db40d7872ccd17c0c44b8ebc20ae",
