@@ -69,6 +69,7 @@ export const admin = organizationAccessControl.newRole({
 
 export const member = organizationAccessControl.newRole({
   ...memberAc.statements,
+  joinLink: ["read"],
   space: ["read"],
   centerAgent: ["read"],
   routine: ["create", "read"],
@@ -102,7 +103,7 @@ export function memberRoleHasOrganizationPermission(
 
 export function canCreateOrganizationJoinLinkForRole(role: string): boolean {
   return memberRoleHasOrganizationPermission(role, {
-    joinLink: ["create"],
+    joinLink: ["read"],
   });
 }
 

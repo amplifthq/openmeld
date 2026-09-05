@@ -715,6 +715,30 @@ function PrepareSessionTimeline(input: {
 		setupCopy: input.setupCopy,
 		snapshot: input.snapshot,
 	});
+	const handoffBlockers = input.snapshot.blockers.filter(
+		isHandoffStoppedBlocker
+	);
+	if (handoffBlockers.length > 0) {
+		const canceled = handoffBlockers.some(
+			(blocker) => blocker.reasonCode === "prepare.account_switch_cancelled"
+		);
+		return (
+			<SetupTimeline>
+				<SetupTimelineStep
+					state="pending"
+					summary=""
+					title={
+						canceled ? "Account switch canceled" : "Setup needs a new command"
+					}
+				>
+					<PrepareBlockers
+						blockers={handoffBlockers}
+						onStartOver={input.onStartOver}
+					/>
+				</SetupTimelineStep>
+			</SetupTimeline>
+		);
+	}
 
 	return (
 		<SetupTimeline>
@@ -1573,6 +1597,7 @@ function PrepareBlockers(input: {
 		isLocalMachinePrepareBlocker
 	);
 	const hasTerminalAuthBlocker = input.blockers.some(isTerminalAuthBlocker);
+	const handoffStopped = input.blockers.some(isHandoffStoppedBlocker);
 	const followUp = resolvePrepareBlockerFollowUp({
 		hasForgottenComputerBlocker,
 		hasLocalMachineBlocker,
@@ -1580,12 +1605,24 @@ function PrepareBlockers(input: {
 	});
 
 	return (
-		<div className="grid gap-2 border border-destructive/20 p-4">
+		<div
+			className={
+				handoffStopped
+					? "grid gap-2 rounded-lg border p-4"
+					: "grid gap-2 border border-destructive/20 p-4"
+			}
+		>
 			{input.blockers.map((blocker) => {
 				const display = resolvePrepareBlockerDisplay(blocker);
 				return (
 					<div className="grid gap-1" key={blocker.blockerId}>
-						<p className="font-medium text-destructive text-sm">
+						<p
+							className={
+								handoffStopped
+									? "font-medium text-sm"
+									: "font-medium text-destructive text-sm"
+							}
+						>
 							{display.message}
 						</p>
 						<p className="text-muted-foreground text-xs">
@@ -1594,7 +1631,7 @@ function PrepareBlockers(input: {
 					</div>
 				);
 			})}
-			{followUp.nextStepText ? (
+			{!handoffStopped && followUp.nextStepText ? (
 				<p className="text-muted-foreground text-sm">{followUp.nextStepText}</p>
 			) : null}
 			<div className="pt-2">
@@ -1608,7 +1645,7 @@ function PrepareBlockers(input: {
 					type="button"
 					variant="outline"
 				>
-					{followUp.actionLabel}
+					{handoffStopped ? "Get a new setup command" : followUp.actionLabel}
 				</Button>
 			</div>
 		</div>
@@ -1641,6 +1678,13 @@ function isForgottenComputerBlocker(blocker: PrepareBlocker): boolean {
 
 function isTerminalAuthBlocker(blocker: PrepareBlocker): boolean {
 	return blocker.reasonCode.startsWith("prepare.auth.");
+}
+
+function isHandoffStoppedBlocker(blocker: PrepareBlocker): boolean {
+	return (
+		blocker.reasonCode === "prepare.account_switch_cancelled" ||
+		blocker.reasonCode === "prepare.authorization_failed"
+	);
 }
 
 function PrepareLoadingState() {
@@ -1876,7 +1920,8 @@ function usePrepareSession(input: {
 	useEffect(() => {
 		const shouldBuildCommand =
 			state.opaqueToken !== null &&
-			state.snapshot?.lifecycleStatus !== "completed";
+			state.snapshot?.lifecycleStatus !== "completed" &&
+			!state.snapshot?.blockers.some(isHandoffStoppedBlocker);
 		if (!shouldBuildCommand) {
 			commandGenerationKeyRef.current = null;
 			setCommand(null);
@@ -1923,6 +1968,7 @@ function usePrepareSession(input: {
 		state.opaqueToken,
 		state.opaqueTokenExpiresAt,
 		state.snapshot?.lifecycleStatus,
+		state.snapshot?.blockers,
 	]);
 
 	useEffect(() => {
@@ -3000,7 +3046,10 @@ function shouldShowConnectTerminalCard(
 	step: PrepareStepSnapshot,
 	snapshot: PrepareSessionSnapshot
 ) {
-	if (snapshot.lifecycleStatus === "completed") {
+	if (
+		snapshot.lifecycleStatus === "completed" ||
+		snapshot.blockers.some(isHandoffStoppedBlocker)
+	) {
 		return false;
 	}
 	return (

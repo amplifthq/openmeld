@@ -15,8 +15,10 @@ import { startQueryKeys } from "#/query/query-keys";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
+	BROWSER_QUERY_CACHE_BUSTER,
 	buildSpaceConversationQueryCacheScopeId,
 	createBrowserQueryPersistenceController,
+	mergePersistedBrowserViews,
 	type QueryPersistenceDiagnostic,
 } from "./browser-query-persistence";
 import {
@@ -33,6 +35,113 @@ afterEach(async () => {
 });
 
 describe("BrowserQueryPersistenceController", () => {
+	it("merges saved older pages into an equally recent tab without replacing its newer message data", async () => {
+		const store = createTestStore();
+		const saved = createQueryClient();
+		const current = createQueryClient();
+		const key = spaceQueryKeys.history("space-a", "profile-a");
+		const messages = Array.from({ length: 70 }, (_, i) => ({
+			...createTextSignal(`signal-${i}`, "space-a", "profile-a"),
+			ts: i + 1,
+		}));
+		saved.setQueryData(
+			key,
+			{ envelopes: messages, nextCursor: null },
+			{ updatedAt: 100 }
+		);
+		current.setQueryData(
+			key,
+			{
+				envelopes: [
+					{ ...messages[69], data: { text: "Current tab revision" } },
+				],
+				nextCursor: null,
+			},
+			{ updatedAt: 100 }
+		);
+		await store
+			.createStorage({
+				ownerAccountId: "account-a",
+				organizationId: "organization-a",
+				scopeAlias: "organization-a",
+				scopeKind: "space",
+				scopeId: buildSpaceConversationQueryCacheScopeId(
+					"space-a",
+					"profile-a"
+				),
+			})
+			.setItem(
+				"tanstack-query-cache",
+				JSON.stringify({
+					buster: BROWSER_QUERY_CACHE_BUSTER,
+					timestamp: Date.now(),
+					clientState: dehydrate(saved),
+				})
+			);
+		const controller = createBrowserQueryPersistenceController({
+			store,
+			restoreBudgetMs: 100,
+			throttleTimeMs: 0,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient: current,
+		};
+		await controller.activateAuthorizedScope(scope);
+		await controller.activateSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		const result = current.getQueryData<{ envelopes: SignalEnvelope[] }>(key);
+		expect(result?.envelopes).toHaveLength(70);
+		expect(result?.envelopes.at(-1)?.data).toEqual({
+			text: "Current tab revision",
+		});
+		expect(current.getQueryState(key)?.dataUpdatedAt).toBe(100);
+		controller.deactivate();
+	});
+	it("retains loaded older pages across two tab writes, keeping the newer duplicate message", () => {
+		const key = spaceQueryKeys.history("space-a", "profile-a");
+		const oldTab = createQueryClient();
+		const newTab = createQueryClient();
+		const messages = Array.from({ length: 90 }, (_, index) => ({
+			...createTextSignal(`message-${index}`, "space-a", "profile-a"),
+			ts: index + 1,
+		}));
+		oldTab.setQueryData(
+			key,
+			{ envelopes: messages, nextCursor: "older-page" },
+			{ updatedAt: 10 }
+		);
+		newTab.setQueryData(
+			key,
+			{
+				envelopes: [{ ...messages[89], data: { text: "Updated message" } }],
+				nextCursor: null,
+			},
+			{ updatedAt: 20 }
+		);
+		const pack = (client: QueryClient) =>
+			JSON.stringify({
+				buster: "browser-read-cache-v1",
+				timestamp: Date.now(),
+				clientState: dehydrate(client),
+			});
+		for (const [left, right] of [
+			[oldTab, newTab],
+			[newTab, oldTab],
+		]) {
+			const merged = JSON.parse(
+				mergePersistedBrowserViews(pack(left), pack(right))
+			);
+			const history = merged.clientState.queries[0].state.data;
+			expect(history.envelopes).toHaveLength(90);
+			expect(history.envelopes[89].data.text).toBe("Updated message");
+		}
+	});
 	it("saves only when a query owned by that persistence segment changes", async () => {
 		const accountSetItem = vi.fn(async () => undefined);
 		const organizationSetItem = vi.fn(async () => undefined);

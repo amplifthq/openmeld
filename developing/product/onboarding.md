@@ -487,9 +487,9 @@ overlay and action rows have no opaque background or structural border, so the
 conversation remains visible behind the guidance. Controls still follow the
 shared interface-shape token. The overlay does not cover **Graph** controls;
 **Get set up** in the Space header returns the user to **Messages**. Dismissal
-is session-scoped and never persisted — a refresh recomputes the plan and the
-rows return; within a session the same header action brings them back (see
-Behavior).
+is a browser-local presentation preference scoped to the account, Organization,
+and Space. Refreshes and browser restarts retain it; the header action brings
+the rows back (see Behavior). Dismissal never stores or overrides setup facts.
 
 Two facts, two homes (Invariant 3 + the role rule, Invariant 8):
 
@@ -597,10 +597,12 @@ Behavior:
 - Empty Space: action cards are not dismissible and do not obscure the composer.
   Sending the first message replaces them with the conversation timeline and
   moves any remaining setup decision into the banner.
-- Dismiss/recall: each row's × hides just that row for the session; dismissing
-  the last visible row closes the panel. Dismissal is never persisted, so a
-  refresh re-derives the plan and the rows return (Invariant 4/6). Within a
-  session a **Get set up** action appears in the Space header's right-aligned
+- Dismiss/recall: each row's × hides just that row for this account and Space in
+  the current browser; dismissing the last visible row closes the panel.
+  Local storage retains these preferences across refreshes, tabs, and browser
+  restarts without storing readiness facts. Clearing browser storage resets
+  them; blocked storage still permits dismissal for the current page.
+  A **Get set up** action appears in the Space header's right-aligned
   action group immediately before **Members** whenever there is available setup
   but every row is hidden, or while **Graph** is active and the Messages-only
   overlay is not visible. It never joins the **Messages** / **Graph** view row.
@@ -998,7 +1000,9 @@ manual verification):
     same setup command and live timeline owner. The page stays a page; the
     Direct Message stays inline; both reach the same verified completion state.
 21. A human-only Space can dismiss all setup guidance to reach a clean
-    conversation and recall it during the same session.
+    conversation, retain the choice after refresh or browser restart, and
+    explicitly recall it from the header. Another account or Space does not
+    inherit that choice.
 22. Completed `bring_agents` copy states membership only. If the Members drawer
     reports an agent Offline, no onboarding surface claims that agent can be
     woken.

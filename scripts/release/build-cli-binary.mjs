@@ -11,7 +11,7 @@ import { buildMacOsKeychainAddon } from "../../clients/openmeld-cli/scripts/buil
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const CLI_DIR = path.join(REPO_ROOT, "clients", "openmeld-cli");
-const CLI_ENTRY = path.join(CLI_DIR, "src", "openmeld.ts");
+const CLI_ENTRY = path.join(CLI_DIR, "src", "openmeld-entry.ts");
 const DEFAULT_CLI_BINARY_OUT_DIR_SEGMENTS = ["cli", "dist"];
 
 // The binary distribution marker consumed by src/runtime/distribution.ts. This

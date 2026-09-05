@@ -33,6 +33,7 @@ import {
 import { registerBetterAuthRoutes } from "./better-auth-routes";
 import { registerOrganizationCreationRoutes } from "./organization-creation-routes";
 import { registerOrganizationJoinLinkRoutes } from "./organization-join-link-routes";
+import { registerOrganizationJoinRequestRoutes } from "./organization-join-request-routes";
 import { registerPasswordRoutes } from "./password-routes";
 import { PROFILE_ROUTE_BASE, registerProfileRoutes } from "./profile-routes";
 import { registerSpaceInvitationRoutes } from "./space-invitation-routes";
@@ -109,6 +110,7 @@ export function createHonoApp() {
   registerOrganizationCreationRoutes(app);
   registerOrganizationJoinLinkRoutes(app);
   registerSpaceInvitationRoutes(app);
+  registerOrganizationJoinRequestRoutes(app);
   registerBetterAuthRoutes(app);
 
   app.get("/", (c) => {

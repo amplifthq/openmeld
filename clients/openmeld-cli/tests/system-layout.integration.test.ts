@@ -27,7 +27,7 @@ describe("system layout", () => {
     await withTempHome(async (home) => {
       const path = join(home, ".openmeld", "system", "layout.json");
       await mkdir(join(home, ".openmeld", "system"), { recursive: true });
-      await writeFile(path, `{"v":99,"schema":"legacy"}\n`, "utf8");
+      await writeFile(path, "{broken\n", "utf8");
 
       const layout = await ensureSystemLayout();
       expect(layout.v).toBe(1);
@@ -37,6 +37,17 @@ describe("system layout", () => {
       const parsed = JSON.parse(raw);
       expect(parsed.v).toBe(1);
       expect(parsed.schema).toBe("openmeld-fs-v1");
+    });
+  });
+
+  it("preserves an unknown newer layout instead of downgrading it", async () => {
+    await withTempHome(async (home) => {
+      const path = join(home, ".openmeld", "system", "layout.json");
+      await mkdir(join(home, ".openmeld", "system"), { recursive: true });
+      const future = '{"v":2,"schema":"openmeld-fs-v2","futureData":"keep"}\n';
+      await writeFile(path, future);
+      await expect(ensureSystemLayout()).rejects.toThrow();
+      expect(await readFile(path, "utf8")).toBe(future);
     });
   });
 

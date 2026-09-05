@@ -9,11 +9,37 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpaceWakeStopTargetResolution } from "#/lib/spaces/wake-stop-target";
-import { SpaceWakeStopControl } from "./space-wake-stop-control";
+import {
+	SpaceWakeStopControl,
+	SpaceWakeStopScope,
+} from "./space-wake-stop-control";
 
 describe("SpaceWakeStopControl", () => {
 	afterEach(() => {
 		cleanup();
+	});
+
+	it("keeps confirmation and its exact target when an active reply replaces the trigger row", async () => {
+		const target = createWakeStopTarget({ targetLabel: "Review Agent" });
+		const onStopWake = vi.fn().mockResolvedValue(createWakeStopResponse());
+		const view = render(
+			<SpaceWakeStopScope>
+				<SpaceWakeStopControl onStopWake={onStopWake} target={target} />
+			</SpaceWakeStopScope>
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Stop Wake for Review Agent" })
+		);
+		view.rerender(
+			<SpaceWakeStopScope>
+				<p>The public reply is streaming.</p>
+			</SpaceWakeStopScope>
+		);
+		const dialog = within(
+			screen.getByRole("dialog", { name: "Stop this Wake?" })
+		);
+		fireEvent.click(dialog.getByRole("button", { name: "Stop Wake" }));
+		await waitFor(() => expect(onStopWake).toHaveBeenCalledWith(target));
 	});
 
 	it("shows a visible Stop label for the details trigger", () => {

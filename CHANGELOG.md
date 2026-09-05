@@ -15,6 +15,61 @@ Message.
 
 Evidence: pr:645, commit:cef0991aa6629da05d753a49ae3638c37a489754, workflow:33941996083, worker-version:efe5f224-b75a-4744-a08f-220475c34e7e, smoke:chrome:space-profile-popovers-20260905
 
+### Clarify Space activity times and historical profiles
+
+Fixed · people · spaces · web
+
+Space member lists and profile popovers now say "Here 2d ago" to distinguish
+activity in that Space from activity elsewhere in the app. Live status is
+unchanged.
+
+Profiles opened from older messages stay compact when current member details
+are unavailable, without falling back to a table of technical IDs or implying
+an online status.
+
+Evidence: pr:668, commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f, workflow:33953073945
+
+### Clearer Agent progress and response feedback
+
+Improved · v0.3.158 · spaces · agents · web
+
+Agent progress uses consistent status orbs for connecting, waiting, working,
+replying, and requests that need your response. Space sidebar indicators give
+requests needing your input priority over ongoing work.
+
+Progress stays next to the message, above its actions. Pending requests remain
+above the Composer, and sending a response no longer implies that the Agent
+has already resumed. Plan reviews render formatted Markdown.
+
+Evidence: pr:652, pr:658, commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254
+
+### Give Agent creation its own page and reduce status reads
+
+Fixed · v0.3.158 · agents · web
+
+Create Agent now opens its own page without the Agent-list sidebar. Existing
+creation links redirect there, and creating an Agent opens its details.
+
+Agent requests now loads sidebar status instead of leaving every Agent on
+Checking. Organization status reads also avoid repeated Runtime and Controller
+lookups within the same request, while each new request still reads fresh facts.
+
+Evidence: pr:654, pr:658, commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254
+
+### Invite someone directly into a Space
+
+New · v0.3.158 · spaces · organizations · cli
+
+Organization owners and admins can invite someone by email from a Space.
+Recipients review the invitation, join the organization if needed, and land
+directly in that Space. Pending invitations can be reviewed, resent, or
+revoked, with matching commands for local agents using the CLI.
+
+The member picker also checks an Agent's owner when that person will join with
+the selected Agent, so the selection matches who is actually being added.
+
+Evidence: pr:655, pr:658, commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254
+
 ### Keep Agent status updates focused
 
 Fixed · v0.3.156 · agents · computers · web
@@ -25,6 +80,17 @@ recovery action. Computers also keep an available OpenMeld Tools update visible
 when a local agent needs sign-in.
 
 Evidence: pr:638, commit:0413ec38f72a8185c13c53166df4b062a68f3e0d, tag:v0.3.156, worker-version:efe5f224-b75a-4744-a08f-220475c34e7e, smoke:chrome:focused-agent-status-20260905
+
+### Keep diagnostic records for Web application errors
+
+Improved · web · observability
+
+Web application errors now produce searchable Cloudflare logs with build
+identifiers, error categories, and code locations. Browser reports omit private
+page content and credentials. Hosted Web releases retain private browser source
+maps to help operators investigate errors after an update.
+
+Evidence: pr:667, commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f, workflow:33953073945
 
 ### Keep OpenMeld Tools status clear
 
@@ -46,6 +112,19 @@ access check.
 
 Evidence: pr:645, commit:cef0991aa6629da05d753a49ae3638c37a489754, workflow:33941996083, npm:openmeld@0.3.157, worker-version:efe5f224-b75a-4744-a08f-220475c34e7e, smoke:56d33584-554f-4abc-9ea9-f715c455d360
 
+### More accurate activity times and reliable Space reading positions
+
+Fixed · v0.3.158 · people · spaces
+
+People shows a person's latest activity across the app, while each Space shows
+their latest visit or message there. Background reconnections no longer make
+someone appear recently active, and elapsed times stay current.
+
+Returning to a Space restores the message you were reading instead of jumping
+to the bottom, including when earlier history or images finish loading.
+
+Evidence: pr:651, pr:658, commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254
+
 ### Open Spaces and messages without waiting on identity
 
 Improved · v0.3.157 · spaces · messages · people
@@ -57,6 +136,30 @@ still loading, and repeated Space image previews reuse the same downloaded
 content.
 
 Evidence: pr:645, commit:cef0991aa6629da05d753a49ae3638c37a489754, workflow:33941996083, worker-version:efe5f224-b75a-4744-a08f-220475c34e7e, smoke:chrome:space-and-direct-message-entry-20260905
+
+### Prepare model updates for review automatically
+
+Improved · v0.3.158 · agent-profiles · developer-workflow
+
+A twice-daily collector prepares model-update pull requests with official source
+evidence and clear decisions for the reviewing coding agent. Confirmed Codex
+catalog additions are prepared automatically; account access and product defaults
+remain explicit review decisions.
+
+New Agent Profile recommendations can be configured independently of runtime
+defaults, while preserving existing selections and remembered preferences.
+
+Evidence: pr:656, pr:658, commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254
+
+### Preserve page loading errors during refresh
+
+Fixed · web
+
+When an older page cannot load a component after an update, automatic refresh
+preserves the original loading error instead of replacing it with a misleading
+missing-component error while the refresh is pending.
+
+Evidence: pr:667, commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f, workflow:33953073945
 
 ### See clear Wake progress everywhere
 
@@ -73,6 +176,17 @@ Members and agents can also inspect who requested the Wake, its public
 source-message preview and thread, the working Agent, and the current phase.
 
 Evidence: pr:645, commit:cef0991aa6629da05d753a49ae3638c37a489754, workflow:33941996083, workflow:33943023868, worker-version:78e11914-8fb6-467a-ba8c-d1ba65ab6f77, worker-version:48efcc8d-9e46-4e5d-b858-7e874e2c3942, worker-version:efe5f224-b75a-4744-a08f-220475c34e7e, dispatch:00fac050-d0cb-4c43-8f71-17c0158c2c7e, smoke:56d33584-554f-4abc-9ea9-f715c455d360
+
+### Start a new Wake from the composer
+
+Removed · v0.3.158 · spaces · center-agent
+
+Historical Wake failures no longer offer a shortcut that reruns the original
+request. To run it again, send a new message from the Space composer. Message
+details still provides diagnostics and recovery for an existing result when
+available. The Center Agent no longer exposes the retired execution-retry tool.
+
+Evidence: pr:650, pr:658, commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254
 
 ### Verify OpenMeld Service updates before reporting success
 

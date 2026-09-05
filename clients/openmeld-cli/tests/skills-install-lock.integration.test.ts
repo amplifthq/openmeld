@@ -5,6 +5,33 @@ import { withSkillsInstallLock } from "../src/skills/installer";
 import { withTempHome } from "./helpers/fs";
 
 describe("skills install lock", () => {
+  it("serializes concurrent local checks while allowing a nested installation", async () => {
+    await withTempHome(async () => {
+      const order: string[] = [];
+      await Promise.all([
+        withSkillsInstallLock(async () => {
+          order.push("first");
+          await withSkillsInstallLock(() =>
+            Promise.resolve(order.push("nested"))
+          );
+          order.push("finished");
+        }),
+        withSkillsInstallLock(() => Promise.resolve(order.push("second"))),
+      ]);
+      expect(order).toEqual(["first", "nested", "finished", "second"]);
+    });
+  });
+
+  it("does not steal a recently created partial lock file", async () => {
+    await withTempHome(async (home) => {
+      const lockDir = join(home, ".openmeld", "runtime", "logs");
+      await mkdir(lockDir, { recursive: true });
+      await writeFile(join(lockDir, "skills-install.lock"), '{"pid":');
+      await expect(withSkillsInstallLock(async () => "wrong")).rejects.toThrow(
+        "already running"
+      );
+    });
+  });
   it("removes stale lock and continues installation", async () => {
     await withTempHome(async (home) => {
       const lockDir = join(home, ".openmeld", "runtime", "logs");

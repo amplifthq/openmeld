@@ -19,10 +19,8 @@ import {
 } from "./lock";
 import {
   deviceAgentRuntimePath,
-  deviceDir,
   devicePreferencesPath,
   deviceSkillsCustomTargetsPath,
-  deviceSkillsDir,
   deviceSkillsInstallsPath,
   deviceSkillsStorePath,
   legacyRuntimeConfigPath,
@@ -276,7 +274,7 @@ const resolveDefaultRuntimeAgentStreamingMode =
   };
 
 export async function getConfiguredBaseUrl(): Promise<string | null> {
-  const config = await readRuntimeConfig();
+  const config = await readRuntimeConfig("preferences");
   if (!config?.baseUrl) {
     return null;
   }
@@ -284,32 +282,34 @@ export async function getConfiguredBaseUrl(): Promise<string | null> {
 }
 
 export async function getConfiguredViewCustomization(): Promise<RuntimeViewCustomization | null> {
-  const config = await readRuntimeConfig();
+  const config = await readRuntimeConfig("preferences");
   return config?.viewCustomization ?? null;
 }
 
 export async function getConfiguredSkillsConfig(): Promise<RuntimeSkillsConfig | null> {
-  const config = await readRuntimeConfig();
+  const config = await readRuntimeConfig("skills");
   return config?.skills ?? null;
 }
 
 export async function getConfiguredDeviceRuntimeState(): Promise<RuntimeDeviceRuntimeState | null> {
-  const config = await readRuntimeConfig();
+  const config = await readRuntimeConfig("runtime");
   return config?.deviceRuntimeState ?? null;
 }
 
 export async function getConfiguredDaemonDispatchLimits(): Promise<RuntimeDaemonDispatchLimits> {
-  const config = await readRuntimeConfig();
+  const config = await readRuntimeConfig("preferences");
   return resolveRuntimeDaemonDispatchLimits(config?.daemon?.dispatch);
 }
 
 export async function getConfiguredOpenMeldToolsMaintenance(): Promise<RuntimeOpenMeldToolsMaintenanceConfig> {
-  const result = await readRuntimeConfigDetailed();
-  if (result.health.parseFallback) {
-    throw new Error("OpenMeld update setting is invalid.");
+  let preferencesFile = await readOptionalJsonFile(devicePreferencesPath());
+  if (!preferencesFile.found) {
+    preferencesFile = await readOptionalJsonFile(legacyRuntimeConfigPath());
   }
-  const preferencesFile = await readOptionalJsonFile(devicePreferencesPath());
-  if (preferencesFile.error) {
+  if (
+    preferencesFile.error ||
+    (preferencesFile.found && !isSupportedConfigFile(preferencesFile.value))
+  ) {
     throw new Error("OpenMeld update setting is invalid.");
   }
   if (
@@ -325,14 +325,17 @@ export async function getConfiguredOpenMeldToolsMaintenance(): Promise<RuntimeOp
     throw new Error("OpenMeld update setting is invalid.");
   }
   return (
-    result.config?.openMeldToolsMaintenance ?? {
+    parseRuntimeOpenMeldToolsMaintenanceConfig(
+      (preferencesFile.value as { openMeldToolsMaintenance?: unknown } | null)
+        ?.openMeldToolsMaintenance
+    ) ?? {
       automaticUpdatesEnabled: true,
     }
   );
 }
 
 export async function getConfiguredOnboardingConfig(): Promise<RuntimeOnboardingConfig | null> {
-  const config = await readRuntimeConfig();
+  const config = await readRuntimeConfig("preferences");
   return config?.onboarding ?? null;
 }
 
@@ -357,41 +360,16 @@ export async function alignRuntimeConfigStorage(): Promise<{
   migratedLegacyConfig: boolean;
   removedLegacyConfig: boolean;
 }> {
-  return await withRuntimeConfigLock(async () => {
-    const split = await readSplitRuntimeConfigDetailed();
-    const legacy = await readLegacyRuntimeConfigDetailed();
-    const hasLegacyConfig = await pathExists(legacyRuntimeConfigPath());
-
-    if (legacy.config && (!split.hasFiles || split.health.parseFallback)) {
-      await writeRuntimeConfig(legacy.config);
-      return {
-        migratedLegacyConfig: true,
-        removedLegacyConfig: hasLegacyConfig,
-      };
-    }
-
-    if (hasLegacyConfig && split.hasFiles) {
-      await rm(legacyRuntimeConfigPath(), { force: true });
-      return {
-        migratedLegacyConfig: false,
-        removedLegacyConfig: true,
-      };
-    }
-
-    return {
-      migratedLegacyConfig: false,
-      removedLegacyConfig: false,
-    };
-  });
+  return await withRuntimeConfigLock(migrateLegacyRuntimeConfig);
 }
 
 export async function setConfiguredBaseUrl(baseUrl: string): Promise<void> {
   await withRuntimeConfigLock(async () => {
     const normalized = normalizeGatewayBaseUrl(baseUrl);
-    const previous = await readRuntimeConfig();
+    const previous = await readRuntimeConfigForMutation("preferences");
     const next = buildNextConfig(previous, { baseUrl: normalized });
 
-    await writeRuntimeConfig(next);
+    await writeRuntimeConfigFields(next, ["baseUrl"]);
   });
 }
 
@@ -399,12 +377,12 @@ export async function setConfiguredOpenMeldToolsMaintenance(
   maintenance: RuntimeOpenMeldToolsMaintenanceConfig
 ): Promise<void> {
   await withRuntimeConfigLock(async () => {
-    const previous = await readRuntimeConfig();
+    const previous = await readRuntimeConfigForMutation("preferences");
     const next = buildNextConfig(previous, {
       openMeldToolsMaintenance: maintenance,
     });
 
-    await writeRuntimeConfig(next);
+    await writeRuntimeConfigFields(next, ["openMeldToolsMaintenance"]);
   });
 }
 
@@ -412,10 +390,10 @@ export async function setConfiguredSkillsConfig(
   skills: RuntimeSkillsConfig
 ): Promise<void> {
   await withRuntimeConfigLock(async () => {
-    const previous = await readRuntimeConfig();
+    const previous = await readRuntimeConfigForMutation("skills");
     const next = buildNextConfig(previous, { skills });
 
-    await writeRuntimeConfig(next);
+    await writeRuntimeConfigFields(next, ["skills"]);
   });
 }
 
@@ -423,7 +401,7 @@ export async function updateConfiguredSkillsConfig(
   updater: (current: RuntimeSkillsConfig | null) => RuntimeSkillsConfig | null
 ): Promise<void> {
   await withRuntimeConfigLock(async () => {
-    const previous = await readRuntimeConfig();
+    const previous = await readRuntimeConfigForMutation("skills");
     const previousSkills = previous?.skills ?? null;
     const nextSkills = updater(previousSkills);
 
@@ -435,7 +413,7 @@ export async function updateConfiguredSkillsConfig(
 
     const next = buildNextConfig(previous, { skills: nextSkills });
 
-    await writeRuntimeConfig(next);
+    await writeRuntimeConfigFields(next, ["skills"]);
   });
 }
 
@@ -443,10 +421,10 @@ export async function setConfiguredDeviceRuntimeState(
   deviceRuntimeState: RuntimeDeviceRuntimeState
 ): Promise<void> {
   await withRuntimeConfigLock(async () => {
-    const previous = await readRuntimeConfig();
+    const previous = await readRuntimeConfigForMutation("runtime");
     const next = buildNextConfig(previous, { deviceRuntimeState });
 
-    await writeRuntimeConfig(next);
+    await writeRuntimeConfigFields(next, ["deviceRuntimeState"]);
   });
 }
 
@@ -456,7 +434,7 @@ export async function updateConfiguredDeviceRuntimeState(
   ) => RuntimeDeviceRuntimeState | null
 ): Promise<void> {
   await withRuntimeConfigLock(async () => {
-    const previous = await readRuntimeConfig();
+    const previous = await readRuntimeConfigForMutation("runtime");
     const previousDeviceRuntimeState = previous?.deviceRuntimeState ?? null;
     const nextDeviceRuntimeState = updater(previousDeviceRuntimeState);
 
@@ -470,7 +448,7 @@ export async function updateConfiguredDeviceRuntimeState(
       deviceRuntimeState: nextDeviceRuntimeState,
     });
 
-    await writeRuntimeConfig(next);
+    await writeRuntimeConfigFields(next, ["deviceRuntimeState"]);
   });
 }
 
@@ -480,7 +458,7 @@ export async function updateConfiguredStartV1OnboardingState(
   ) => RuntimeStartV1OnboardingState | null
 ): Promise<void> {
   await withRuntimeConfigLock(async () => {
-    const previous = await readRuntimeConfig();
+    const previous = await readRuntimeConfigForMutation("preferences");
     const previousOnboarding = previous?.onboarding ?? null;
     const previousStartV1 = previousOnboarding?.startV1 ?? null;
     const nextStartV1 = updater(previousStartV1);
@@ -506,7 +484,7 @@ export async function updateConfiguredStartV1OnboardingState(
       onboarding: nextOnboarding,
     });
 
-    await writeRuntimeConfig(next);
+    await writeRuntimeConfigFields(next, ["onboarding"]);
   });
 }
 
@@ -516,7 +494,7 @@ export async function updateConfiguredOnboardingConfig(
   ) => RuntimeOnboardingConfig | null
 ): Promise<void> {
   await withRuntimeConfigLock(async () => {
-    const previous = await readRuntimeConfig();
+    const previous = await readRuntimeConfigForMutation("preferences");
     const previousOnboarding = previous?.onboarding ?? null;
     const nextOnboarding = updater(previousOnboarding);
 
@@ -530,7 +508,7 @@ export async function updateConfiguredOnboardingConfig(
       onboarding: nextOnboarding,
     });
 
-    await writeRuntimeConfig(next);
+    await writeRuntimeConfigFields(next, ["onboarding"]);
   });
 }
 
@@ -645,16 +623,22 @@ async function withRuntimeConfigLock<T>(run: () => Promise<T>): Promise<T> {
   });
 }
 
-async function readRuntimeConfig(): Promise<RuntimeConfigV1 | null> {
-  const result = await readRuntimeConfigDetailed();
+type RuntimeConfigDomain = "preferences" | "runtime" | "skills";
+
+async function readRuntimeConfig(
+  domain: RuntimeConfigDomain
+): Promise<RuntimeConfigV1 | null> {
+  const result = await readRuntimeConfigDetailed(domain);
   return result.config;
 }
 
-async function readRuntimeConfigDetailed(): Promise<{
+async function readRuntimeConfigDetailed(
+  domain?: RuntimeConfigDomain
+): Promise<{
   config: RuntimeConfigV1 | null;
   health: RuntimeConfigReadHealth;
 }> {
-  const split = await readSplitRuntimeConfigDetailed();
+  const split = await readSplitRuntimeConfigDetailed(domain);
   if (split.hasFiles) {
     return {
       config: split.config,
@@ -873,32 +857,161 @@ function parseRuntimeStartV1OnboardingState(
   };
 }
 
-async function writeRuntimeConfig(next: RuntimeConfigV1): Promise<void> {
-  await mkdir(deviceDir(), { recursive: true });
-  await mkdir(deviceSkillsDir(), { recursive: true });
-
+function runtimeConfigFiles(next: RuntimeConfigV1) {
   const updatedAt = new Date().toISOString();
-  await writeJsonFileOrRemove(
-    devicePreferencesPath(),
-    buildDevicePreferencesState(next, updatedAt)
+  return [
+    {
+      path: devicePreferencesPath(),
+      domain: "preferences",
+      keys: [
+        "baseUrl",
+        "viewCustomization",
+        "daemon",
+        "openMeldToolsMaintenance",
+        "onboarding",
+      ],
+      value: buildDevicePreferencesState(next, updatedAt),
+    },
+    {
+      path: deviceAgentRuntimePath(),
+      domain: "runtime",
+      keys: ["deviceRuntimeState"],
+      value: buildDeviceAgentRuntimeState(next, updatedAt),
+    },
+    {
+      path: deviceSkillsStorePath(),
+      domain: "skills",
+      keys: ["storeDir", "agents"],
+      value: buildDeviceSkillsStoreState(next, updatedAt),
+    },
+    {
+      path: deviceSkillsCustomTargetsPath(),
+      domain: "skills",
+      keys: ["customTargets"],
+      value: buildDeviceSkillsCustomTargetsState(next, updatedAt),
+    },
+    {
+      path: deviceSkillsInstallsPath(),
+      domain: "skills",
+      keys: ["installs"],
+      value: buildDeviceSkillsInstallsState(next, updatedAt),
+    },
+  ] as const;
+}
+
+function isSupportedConfigFile(
+  value: unknown
+): value is Record<string, unknown> {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "v" in value &&
+    value.v === 1
   );
-  await writeJsonFileOrRemove(
-    deviceAgentRuntimePath(),
-    buildDeviceAgentRuntimeState(next, updatedAt)
+}
+
+async function migrateLegacyRuntimeConfig(): Promise<{
+  migratedLegacyConfig: boolean;
+  removedLegacyConfig: boolean;
+}> {
+  if (!(await pathExists(legacyRuntimeConfigPath()))) {
+    return { migratedLegacyConfig: false, removedLegacyConfig: false };
+  }
+  const legacy = await readLegacyRuntimeConfigDetailed();
+  if (legacy.health.parseFallback) {
+    throw new Error(
+      "OpenMeld could not migrate the saved configuration. The original file has been preserved."
+    );
+  }
+  const files = runtimeConfigFiles(
+    legacy.config ?? { v: 1, updatedAt: new Date().toISOString() }
   );
-  await writeJsonFileOrRemove(
-    deviceSkillsStorePath(),
-    buildDeviceSkillsStoreState(next, updatedAt)
+  let migratedLegacyConfig = false;
+  let canRemoveLegacy = true;
+  for (const file of files) {
+    const existing = await readOptionalJsonFile(file.path);
+    if (existing.found) {
+      // A partially completed migration never replaces an already-owned file.
+      canRemoveLegacy &&=
+        !existing.error && isSupportedConfigFile(existing.value);
+      continue;
+    }
+    await writeRuntimeConfigFile(
+      file.path,
+      file.value ?? { v: 1, updatedAt: new Date().toISOString() }
+    );
+    migratedLegacyConfig = true;
+  }
+  if (canRemoveLegacy) {
+    await rm(legacyRuntimeConfigPath(), { force: true });
+  }
+  return { migratedLegacyConfig, removedLegacyConfig: canRemoveLegacy };
+}
+
+async function readRuntimeConfigForMutation(
+  domain: RuntimeConfigDomain
+): Promise<RuntimeConfigV1 | null> {
+  await migrateLegacyRuntimeConfig();
+  const files = runtimeConfigFiles({ v: 1, updatedAt: "" }).filter(
+    (file) => file.domain === domain
   );
-  await writeJsonFileOrRemove(
-    deviceSkillsCustomTargetsPath(),
-    buildDeviceSkillsCustomTargetsState(next, updatedAt)
+  for (const file of files) {
+    const existing = await readOptionalJsonFile(file.path);
+    if (
+      existing.found &&
+      (existing.error || !isSupportedConfigFile(existing.value))
+    ) {
+      throw new Error(
+        `OpenMeld cannot safely update ${file.path}. Its existing contents have been preserved.`
+      );
+    }
+  }
+  return await readRuntimeConfig(domain);
+}
+
+async function writeRuntimeConfigFields(
+  next: RuntimeConfigV1,
+  fields: (keyof RuntimeConfigOverrides)[]
+): Promise<void> {
+  const files = runtimeConfigFiles(next).filter((file) =>
+    file.domain === "skills"
+      ? fields.includes("skills")
+      : file.keys.some((key) =>
+          fields.includes(key as keyof RuntimeConfigOverrides)
+        )
   );
-  await writeJsonFileOrRemove(
-    deviceSkillsInstallsPath(),
-    buildDeviceSkillsInstallsState(next, updatedAt)
-  );
-  await rm(legacyRuntimeConfigPath(), { force: true }).catch(() => undefined);
+  for (const file of files) {
+    const existing = await readOptionalJsonFile(file.path);
+    if (
+      existing.found &&
+      (existing.error || !isSupportedConfigFile(existing.value))
+    ) {
+      throw new Error(
+        `OpenMeld cannot safely update ${file.path}. Its existing contents have been preserved.`
+      );
+    }
+    const value = {
+      ...(existing.value as Record<string, unknown> | null),
+      v: 1,
+    } as Record<string, unknown>;
+    const incoming = file.value as Record<string, unknown> | null;
+    for (const key of file.keys) {
+      if (
+        file.domain === "preferences" &&
+        !fields.includes(key as keyof RuntimeConfigOverrides)
+      ) {
+        continue;
+      }
+      delete value[key];
+      if (incoming && key in incoming) {
+        value[key] = incoming[key];
+      }
+    }
+    value.updatedAt = new Date().toISOString();
+    // Keep empty owned files: absence must not resurrect legacy values after a crash.
+    await writeRuntimeConfigFile(file.path, value);
+  }
 }
 
 function delay(ms: number): Promise<void> {
@@ -1421,7 +1534,9 @@ function isFileNotFoundError(error: unknown): boolean {
   );
 }
 
-async function readSplitRuntimeConfigDetailed(): Promise<{
+async function readSplitRuntimeConfigDetailed(
+  domain?: RuntimeConfigDomain
+): Promise<{
   config: RuntimeConfigV1 | null;
   hasFiles: boolean;
   health: RuntimeConfigReadHealth;
@@ -1433,12 +1548,18 @@ async function readSplitRuntimeConfigDetailed(): Promise<{
     customTargetsFile,
     installsFile,
   ] = await Promise.all([
-    readOptionalJsonFile(devicePreferencesPath()),
-    readOptionalJsonFile(deviceAgentRuntimePath()),
-    readOptionalJsonFile(deviceSkillsStorePath()),
-    readOptionalJsonFile(deviceSkillsCustomTargetsPath()),
-    readOptionalJsonFile(deviceSkillsInstallsPath()),
+    readDomainFile("preferences", devicePreferencesPath()),
+    readDomainFile("runtime", deviceAgentRuntimePath()),
+    readDomainFile("skills", deviceSkillsStorePath()),
+    readDomainFile("skills", deviceSkillsCustomTargetsPath()),
+    readDomainFile("skills", deviceSkillsInstallsPath()),
   ]);
+
+  function readDomainFile(owner: RuntimeConfigDomain, path: string) {
+    return !domain || domain === owner
+      ? readOptionalJsonFile(path)
+      : Promise.resolve({ found: false, value: null, error: undefined });
+  }
 
   const files = [
     preferencesFile,
@@ -1844,15 +1965,10 @@ function buildDeviceSkillsInstallsState(
   };
 }
 
-async function writeJsonFileOrRemove(
+async function writeRuntimeConfigFile(
   path: string,
-  payload: object | null
+  payload: object
 ): Promise<void> {
-  if (!payload) {
-    await rm(path, { force: true }).catch(() => undefined);
-    return;
-  }
-
   await mkdir(dirname(path), { recursive: true });
   const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
   await writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");

@@ -30,8 +30,10 @@ const {
 }));
 
 vi.mock("../src/commands/skills", () => ({
-  collectSkillsReadinessSnapshot: collectSkillsReadinessSnapshotMock,
   runSkillsInstall: runSkillsInstallMock,
+}));
+vi.mock("../src/skills/installation-inventory", () => ({
+  collectSkillsReadinessSnapshot: collectSkillsReadinessSnapshotMock,
 }));
 
 vi.mock("../src/agents/registry", () => ({

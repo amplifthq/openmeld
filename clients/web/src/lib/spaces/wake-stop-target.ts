@@ -95,6 +95,12 @@ export function buildSpaceWakeOutcomeIndex(
 
 	for (const item of timelineItems) {
 		if (
+			item.activeWakeProgress ||
+			item.agentStreamState?.status === "streaming"
+		) {
+			continue;
+		}
+		if (
 			item.replyToSignalId &&
 			item.actorProfileKind === "agent" &&
 			item.actorProfileId
@@ -368,9 +374,9 @@ function resolveWakeStopTargetsForProgressItems(input: {
 	return targets;
 }
 
-function resolveWakeStopTargetForProgressItem(input: {
+export function resolveWakeStopTargetForProgressItem(input: {
 	item: WakeProgressItem;
-	sourceItem: SpaceTimelineItem;
+	sourceItem?: SpaceTimelineItem;
 	statusOverride?: SpaceWakeStopUiStatus;
 	stopRequestStatusBySelectorKey?: ReadonlyMap<
 		string,
@@ -414,7 +420,9 @@ function resolveWakeStopTargetForProgressItem(input: {
 	return {
 		canStop,
 		clientMessageId:
-			input.item.clientMessageId ?? input.sourceItem.wakeClientMessageId,
+			input.item.clientMessageId ??
+			input.sourceItem?.wakeClientMessageId ??
+			null,
 		selector,
 		selectorKey,
 		sourceSignalId:
@@ -747,12 +755,13 @@ function resolveWakeStopIntentStatus(
 
 function resolveWakeStopSelector(input: {
 	item: WakeProgressItem;
-	sourceItem: SpaceTimelineItem;
+	sourceItem?: SpaceTimelineItem;
 }): SpaceWakeStopSelector | null {
 	const sourceSignalId =
 		input.item.sourceSignalId ??
-		input.sourceItem.wakeSourceSignalId ??
-		input.sourceItem.id;
+		input.sourceItem?.wakeSourceSignalId ??
+		input.sourceItem?.id ??
+		"";
 	if (sourceSignalId.trim().length > 0) {
 		return {
 			by: "source_signal",
@@ -762,7 +771,7 @@ function resolveWakeStopSelector(input: {
 	}
 
 	const clientMessageId =
-		input.item.clientMessageId ?? input.sourceItem.wakeClientMessageId;
+		input.item.clientMessageId ?? input.sourceItem?.wakeClientMessageId;
 	if (!clientMessageId) {
 		return null;
 	}
