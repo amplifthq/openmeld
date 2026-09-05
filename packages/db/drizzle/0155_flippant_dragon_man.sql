@@ -1,0 +1,1 @@
+ALTER TABLE `organization_join_requests` ADD `invitation_sent_at` integer;

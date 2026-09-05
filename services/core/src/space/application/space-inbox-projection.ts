@@ -76,16 +76,21 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
     activeMemberRecords: input.activeMemberRecords,
     allowedRecipientUserIds: audience.allowedRecipientUserIds,
     authorUserId,
+    authorHasRead:
+      signal.type === "signal.text" && signal.data.meta?.authorHasRead === true,
   });
   const candidates: InboxSourceCandidate[] = [];
 
   for (const [recipientUserId, recipientMembers] of memberRecordsByUserId) {
-    const isMention = recipientMembers.some((member) =>
-      mentionedProfileIds.has(member.profileId)
-    );
+    const isAuthor = recipientUserId === authorUserId;
+    const isMention =
+      !isAuthor &&
+      recipientMembers.some((member) =>
+        mentionedProfileIds.has(member.profileId)
+      );
     const kind = isMention ? "space_mention" : audience.kind;
     const isThreadRootAuthor =
-      !isMention &&
+      !(isMention || isAuthor) &&
       normalizeText(input.threadRootAuthorUserId) === recipientUserId;
     candidates.push(
       inboxSourceCandidateSchema.parse({
@@ -160,6 +165,7 @@ function groupRecipientMemberRecords(input: {
   activeMemberRecords: readonly SpaceMemberRecord[];
   allowedRecipientUserIds: ReadonlySet<string> | null;
   authorUserId: string | null;
+  authorHasRead: boolean;
 }): Map<string, SpaceMemberRecord[]> {
   const byUserId = new Map<string, SpaceMemberRecord[]>();
   for (const member of input.activeMemberRecords) {
@@ -168,7 +174,7 @@ function groupRecipientMemberRecords(input: {
       member.status !== "active" ||
       member.profileKindSnapshot !== "human" ||
       !userId ||
-      userId === input.authorUserId ||
+      (userId === input.authorUserId && input.authorHasRead) ||
       (input.allowedRecipientUserIds !== null &&
         !input.allowedRecipientUserIds.has(userId))
     ) {
@@ -220,8 +226,7 @@ function resolveAudience(input: {
     input.signal.type === "signal.text" &&
     input.signal.profile.kind === "human"
   ) {
-    // If the human author cannot be mapped to an active owner, notifying the
-    // whole Space could notify the author as well. Fail closed.
+    // Attribution must resolve to a current Human owner before projection.
     return input.authorUserId
       ? { allowedRecipientUserIds: null, kind: "space_message" }
       : null;

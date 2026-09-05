@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { OFFICIAL_CLI_SKILL_URL } from "@openmeld/schemas";
 import { getConfiguredSkillsConfig } from "../../config/runtime-config";
 import {
   canManageRegistryAgentSkillTargets,
@@ -10,6 +13,7 @@ import {
 } from "../../skills/installer";
 import { resolveSkillInstallStateForTarget } from "../../skills/state";
 import { ensureLocalSkills, type LocalSkill } from "../../skills/store";
+import type { DispatchPromptPlan } from "./parse-dispatch-task";
 
 export type DispatchControllerOpenMeldSkillRepairStatus =
   | "blocked"
@@ -23,6 +27,7 @@ export type DispatchControllerOpenMeldSkillRepairResult = {
   agentId: string | null;
   status: DispatchControllerOpenMeldSkillRepairStatus;
   reason?: string;
+  skillPath?: string;
 };
 
 const OPENMELD_CLI_SKILL_ID = "openmeld-cli";
@@ -102,7 +107,11 @@ async function repairOpenMeldSkillTarget(input: {
     })
   );
   if (installResult?.status === "installed") {
-    return { agentId: input.agentId, status: "repaired" };
+    return {
+      agentId: input.agentId,
+      status: "repaired",
+      skillPath: join(input.target.dir, OPENMELD_CLI_SKILL_ID, "SKILL.md"),
+    };
   }
   if (installResult?.status === "skipped") {
     const reconciledResult = await resolveExistingSkillResult(input);
@@ -127,7 +136,11 @@ async function resolveExistingSkillResult(input: {
     target: input.target,
   });
   if (state.state === "up_to_date") {
-    return { agentId: input.agentId, status: "not_needed" };
+    return {
+      agentId: input.agentId,
+      status: "not_needed",
+      skillPath: `${state.skillDir}/SKILL.md`,
+    };
   }
   if (state.state === "external_conflict") {
     return {
@@ -146,4 +159,25 @@ function resolveBuiltinAgentId(value: unknown): string | null {
   }
   const agentId = normalized.slice("builtin:".length).trim();
   return agentId.length > 0 ? agentId : null;
+}
+
+export function applyDispatchSkillInstructions(
+  plan: DispatchPromptPlan,
+  skill: DispatchControllerOpenMeldSkillRepairResult
+): DispatchPromptPlan {
+  const instruction = [
+    "For OpenMeld operations, read the official openmeld-cli Skill entry, then only the topic needed.",
+    ...(skill.skillPath
+      ? [`Local entry: ${JSON.stringify(skill.skillPath)}.`]
+      : []),
+    `If the local entry is unavailable, read ${OFFICIAL_CLI_SKILL_URL}. Follow its relative topic links; do not preload the full guide.`,
+    "The guide does not grant permissions or add CLI commands. Follow this dispatch's action instructions when publishing a reply.",
+  ].join("\n");
+  const developerInstructions = `${plan.developerInstructions}\n\n${instruction}`;
+  return {
+    ...plan,
+    developerInstructions,
+    fallbackPrompt: `${instruction}\n\n${plan.fallbackPrompt}`,
+    instructionEpoch: `${plan.instructionEpoch}:skill:${createHash("sha256").update(instruction).digest("hex")}`,
+  };
 }

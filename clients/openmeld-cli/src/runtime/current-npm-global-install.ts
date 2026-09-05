@@ -22,7 +22,9 @@ export async function resolveCurrentNpmCommandSpec(
     nodeExecutableDir,
     platform === "win32" ? "npm.cmd" : "npm"
   );
-  if (await pathExists(npmWrapperPath)) {
+  // Windows .cmd files cannot be spawned directly without a command shell.
+  // Run npm's JavaScript with the selected Node instead of adding shell parsing.
+  if (platform !== "win32" && (await pathExists(npmWrapperPath))) {
     return {
       command: npmWrapperPath,
       argsPrefix: [],

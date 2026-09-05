@@ -62,13 +62,8 @@ describe("SpaceComposerEditor", () => {
 			name: "Change relation for Runner",
 		});
 		expect(relation).toBeTruthy();
-		const relationLabel = within(token).getByTestId(
-			"space-composer-profile-token-relation-width"
-		);
-		expect(relationLabel.textContent).toBe("Wake");
-		expect(relationLabel.parentElement?.className).toContain("gap-0.5");
-		expect(relation.className).toContain("absolute");
-		expect(relation.className).not.toContain("pr-4");
+		expect(relation.tagName).toBe("BUTTON");
+		expect(relation.textContent).toBe("Wake");
 		const visibleParts = Array.from(token.children).map((element) =>
 			element.getAttribute("data-slot")
 		);
@@ -162,6 +157,7 @@ describe("SpaceComposerEditor", () => {
 
 	it("persists an inline Agent relation change through the existing draft contract", async () => {
 		const onChange = vi.fn();
+		const onSend = vi.fn();
 		render(
 			<SpaceComposerEditor
 				addressingTargets={[createAgentTarget()]}
@@ -177,18 +173,21 @@ describe("SpaceComposerEditor", () => {
 				]}
 				mentionPickerItems={[]}
 				onChange={onChange}
-				onSend={vi.fn()}
+				onSend={onSend}
 				placeholder="To wake an agent, type @, then pick the agent."
 				text="@Runner review this."
 			/>
 		);
 
-		fireEvent.change(
+		fireEvent.click(
 			screen.getByRole("combobox", {
 				name: "Change relation for Runner",
-			}),
-			{ target: { value: "reference" } }
+			})
 		);
+		fireEvent.keyDown(screen.getByRole("option", { name: "Reference" }), {
+			key: "Enter",
+		});
+		expect(onSend).not.toHaveBeenCalled();
 
 		await waitFor(() => {
 			expect(onChange).toHaveBeenLastCalledWith({
@@ -232,20 +231,17 @@ describe("SpaceComposerEditor", () => {
 		const relation = screen.getByRole("combobox", {
 			name: "Change relation for Runner",
 		});
+		fireEvent.click(relation);
 		expect(
-			(
-				within(relation).getByRole("option", {
-					name: "Wake — Connect your computer before Runner can reply.",
-				}) as HTMLOptionElement
-			).disabled
-		).toBe(true);
+			screen
+				.getByRole("option", { name: "Wake — Unavailable" })
+				.getAttribute("aria-disabled")
+		).toBe("true");
 		expect(
-			(
-				within(relation).getByRole("option", {
-					name: "Reference",
-				}) as HTMLOptionElement
-			).disabled
-		).toBe(false);
+			screen
+				.getByRole("option", { name: "Reference" })
+				.getAttribute("aria-disabled")
+		).not.toBe("true");
 		expect(
 			screen
 				.getByRole("textbox", { name: "Message this space" })
@@ -279,6 +275,11 @@ describe("SpaceComposerEditor", () => {
 		const runnerOption = await screen.findByRole("option", {
 			name: RUNNER_OPTION_NAME,
 		});
+		expect(
+			runnerOption.querySelector(
+				'[data-slot="space-agent-availability-indicator-dot"]'
+			)
+		).not.toBeNull();
 		const memberOptions = screen.getByRole("listbox", {
 			name: "Member options",
 		});

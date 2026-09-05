@@ -15788,9 +15788,9 @@ function buildCenterAgentDirectMessageWelcomeText(input: {
 }): string {
   const greeting = input.firstName ? `Hi ${input.firstName} — ` : "";
   if (input.organizationKind === "personal") {
-    return `👋 ${greeting}I'm your Center Agent. Pick a starting point below, or tell me what you'd like to get done.`;
+    return `👋 ${greeting}I'm your Center Agent. Choose a starting point, or tell me what you'd like to get done.`;
   }
-  return `👋 ${greeting}I'm the Center Agent for ${input.organizationName}. Pick a starting point below, or tell me what you'd like to get done.`;
+  return `👋 ${greeting}I'm the Center Agent for ${input.organizationName}. Choose a starting point, or tell me what you'd like to get done.`;
 }
 
 function resolveFriendlyFirstName(value: unknown): string | null {

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "controller": "grok-build",
+  "observedAt": "2026-09-05T07:30:15.565Z",
+  "fingerprint": "429d08cead0d5a7929f4ee650bb3a3522c7a74efb11f4858dfe0c03a42abd548",
+  "sources": [
+    {
+      "url": "https://docs.x.ai/build/overview.md",
+      "kind": "official-document",
+      "data": "#### Getting Started\n\n# Grok Build\n\nGrok Build is a powerful and extensible coding agent. Use it via an interactive TUI, headlessly in scripts or bots, or through the Agent Client Protocol (ACP) in other apps.\n\nThe TUI provides a rich, mouse-interactive, fullscreen experience for coding with agents.\n\n## Install\n\n```bash customLanguage=\"bashMacLinux\"\ncurl -fsSL https://x.ai/cli/install.sh | bash\n```\n\n```bash customLanguage=\"powershell\"\nirm https://x.ai/cli/install.ps1 | iex\n```\n\n## Start an interactive session\n\n```bash customLanguage=\"bash\"\ncd your-project\ngrok\n```\n\nOn first launch, Grok opens a browser for authentication. In non-browser environments, use an API key:\n\n```bash customLanguage=\"bash\"\nexport XAI_API_KEY=\"xai-...\"\ngrok\n```\n\nUseful first prompts:\n\n```text\nExplain this repo.\n@src/main.rs Walk me through this file.\n```\n\n## Run headlessly\n\n```bash customLanguage=\"bash\"\ngrok -p \"Explain this codebase\"\ngrok -p \"Explain the architecture\" --output-format streaming-json\n```\n\nHeadless usage is ideal for scripts, automations, or integration into other apps.\n\n## Custom models\n\nGrok supports any custom model. Add it to your user-level config file, `~/.grok/config.toml` (on Windows, `%USERPROFILE%\\.grok\\config.toml`):\n\n```text\n[model.my-model]\nmodel = \"model-id\"\nbase_url = \"https://api.example.com/v1\"\nname = \"Display Name\"\nenv_key = \"API_KEY\"\n\n[models]\ndefault = \"my-model\"\n```\n\nAfter updating `~/.grok/config.toml`, use `grok inspect` to see what Grok discovered in the current directory, including config sources, instructions, skills, plugins, hooks, and MCP servers, then pick the model in headless mode or in the TUI:\n\n```bash customLanguage=\"bash\"\ngrok inspect\ngrok -p \"Hello\" -m my-model\n```\n\nYou can also switch inside the TUI with `/model <name>`.\n\n## Use Grok 4.6 on the API\n\nThe same model that powers Grok Build, [`grok-4.6`](/developers/models/grok-4.6), is also available directly on the xAI API. Drop it into your own agent loop, IDE integration, or coding tool.\n\n```bash customLanguage=\"bash\"\ncurl https://api.x.ai/v1/responses \\\n  -H \"Authorization: Bearer $XAI_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"model\": \"grok-4.6\",\n    \"input\": \"Fix this function and explain the bug: function median(a){a.sort();return a[a.length/2]}\"\n  }'\n```\n\n```python customLanguage=\"pythonXAI\"\nimport os\nfrom xai_sdk import Client\nfrom xai_sdk.chat import user\n\nclient = Client(api_key=os.getenv(\"XAI_API_KEY\"))\n\nchat = client.chat.create(model=\"grok-4.6\")\nchat.append(user(\"Fix this function and explain the bug: function median(a){a.sort();return a[a.length/2]}\"))\n\nprint(chat.sample().content)\n```\n\n```python customLanguage=\"pythonOpenAISDK\"\nfrom openai import OpenAI\n\nclient = OpenAI(\n    api_key=\"<YOUR_XAI_API_KEY_HERE>\",\n    base_url=\"https://api.x.ai/v1\",\n)\n\nresponse = client.responses.create(\n    model=\"grok-4.6\",\n    input=\"Fix this function and explain the bug: function median(a){a.sort();return a[a.length/2]}\",\n)\n\nprint(response.output_text)\n```\n\n```javascript customLanguage=\"javascriptAISDK\"\nimport { xai } from '@ai-sdk/xai';\nimport { generateText } from 'ai';\n\nconst { text } = await generateText({\n  model: xai.responses('grok-4.6'),\n  prompt: 'Fix this function and explain the bug: function median(a){a.sort();return a[a.length/2]}',\n});\n\nconsole.log(text);\n```\n\n## Next\n\n* [Skills, Plugins & Marketplaces](/build/features/skills-plugins-marketplaces)\n* [Modes and Commands](/build/modes-and-commands)\n* [Headless & Scripting](/build/cli/headless-scripting)\n* [Enterprise Deployments](/build/enterprise)\n* [Grok Bot](/grok-bot/overview) — AI teammates on a cloud computer"
+    },
+    {
+      "url": "https://docs.x.ai/build/settings.md",
+      "kind": "official-document",
+      "data": "# Settings\n\nGrok Build offers a variety of configurations to suit your needs, many of which are made directly available in the TUI under `/settings`.\n\nSettings are persisted under `~/.grok/config.toml` (on Windows, `%USERPROFILE%\\.grok\\config.toml`). To configure the default home directory, you can set `$GROK_HOME`.\n\nFor MCP servers, see [MCP Servers](/build/features/mcp-servers). For marketplaces, skills, and plugins, see [Skills, Plugins, and Marketplaces](/build/features/skills-plugins-marketplaces); for hooks, see [Hooks](/build/features/hooks).\n\n## Scopes\n\n| Scope | Path | Use for |\n| --- | --- | --- |\n| Environment | `GROK_*` (and related) variables | Session / CI overrides |\n| User | `~/.grok/config.toml` (or `$GROK_HOME/config.toml`) | Personal defaults |\n| Project | `.grok/config.toml` in the repo | Repo-shared MCP, plugins, and permission rules |\n| Managed | `~/.grok/managed_config.toml`, `/etc/grok/managed_config.toml` | Enterprise-served defaults |\n| Requirements | `~/.grok/requirements.toml`, `/etc/grok/requirements.toml` | Policy pins |\n\nProject configs are limited to MCP servers, plugins, and permission rules, not full user configs. For scope merge order and managed deployments, see [Enterprise Deployments](/build/enterprise#configuration). Day-to-day [permissions](/build/features/permissions) and [sandbox](/build/features/sandbox) apply to individual use; managed locks and headless modes are under Enterprise.\n\n## Verification\n\nTo confirm which configs are picked up by Grok Build, run the following command:\n\n```bash customLanguage=\"bash\"\ngrok inspect\n```\n\n## Example `config.toml`\n\nCopy into `$GROK_HOME/config.toml`, or `~/.grok/config.toml` when `GROK_HOME` is unset. Prefer `/settings` for UI, notifications, and other in-app options.\n\n```toml customLanguage=\"toml\"\n[models]\ndefault = \"grok-build\"                       # recommended for coding / agent sessions\nweb_search = \"grok-4.6\"                      # model used by client-side web_search tool\n\n[model.\"grok-4.6\"]\nmodel = \"grok-4.6\"                           # id sent to the API\nbase_url = \"https://api.x.ai/v1\"             # provider endpoint\nname = \"Grok 4.6\"                            # shown in model picker\ndescription = \"Grok 4.6 from xAI\"\nenv_key = \"XAI_API_KEY\"                      # env var holding the API key\napi_backend = \"responses\"                    # chat_completions | responses | messages\ntemperature = 0.7\ntop_p = 0.95\nmax_completion_tokens = 8192\ncontext_window = 1000000\nextra_headers = { \"x-api-key\" = \"xai-...\" }\nsupports_backend_search = true               # if the endpoint supports Grok-hosted server-side search tools\n\n[mcp_servers.filesystem]\ncommand = \"npx\"\nargs = [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/path/to/allowed/directory\"]\nenabled = true\nstartup_timeout_sec = 30\ntool_timeout_sec = 6000\n\n[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\nheaders = { \"Authorization\" = \"Bearer ${LINEAR_API_KEY}\", \"x-mcp-session-id\" = \"{{session_id}}\" }\n\n[ui]\ncompact_mode = false\ntheme = \"auto\"\nshow_thinking_blocks = true\n```\n\n## TOML Values\n\nFor the full list of `config.toml` keys, see [TOML Values](/build/settings/reference#toml-values).\n\n## Environment variables\n\nFor the full list of environment variables, see [Environment variables](/build/settings/reference#environment-variables)."
+    },
+    {
+      "url": "https://models.dev/api.json",
+      "kind": "discovery-only",
+      "data": {
+        "xai": {
+          "grok-4.5": {
+            "id": "grok-4.5",
+            "name": "Grok 4.5",
+            "description": "xAI's Grok model for chat, coding, agentic tools, and lower hallucination risk",
+            "family": "grok",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "release_date": "2026-07-08",
+            "last_updated": "2026-07-08",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 500000,
+              "output": 500000
+            },
+            "cost": {
+              "input": 2,
+              "output": 6,
+              "cache_read": 0.3,
+              "tiers": [
+                {
+                  "input": 4,
+                  "output": 12,
+                  "cache_read": 0.6,
+                  "tier": {
+                    "type": "context",
+                    "size": 200000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 4,
+                "output": 12,
+                "cache_read": 0.6
+              }
+            }
+          },
+          "grok-4.6": {
+            "id": "grok-4.6",
+            "name": "Grok 4.6",
+            "description": "xAI's frontier model for long-running agents, coding, knowledge work, and visual projects",
+            "family": "grok",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high", "xhigh"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2026-02-01",
+            "release_date": "2026-08-12",
+            "last_updated": "2026-08-12",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 500000,
+              "output": 500000
+            },
+            "cost": {
+              "input": 2,
+              "output": 6,
+              "cache_read": 0.5,
+              "tiers": [
+                {
+                  "input": 4,
+                  "output": 12,
+                  "cache_read": 1,
+                  "tier": {
+                    "type": "context",
+                    "size": 200000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 4,
+                "output": 12,
+                "cache_read": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "changes": [],
+  "manual": [
+    "Discovery evidence only: exact authenticated harness IDs and parameter options still require verification; no API-to-harness mapping was guessed."
+  ]
+}

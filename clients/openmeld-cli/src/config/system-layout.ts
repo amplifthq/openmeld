@@ -70,8 +70,23 @@ function systemLayoutPath(): string {
 }
 
 function parseSystemLayout(raw: string): SystemLayoutV1 | null {
+  let parsed: Partial<SystemLayoutV1>;
   try {
-    const parsed = JSON.parse(raw) as Partial<SystemLayoutV1>;
+    parsed = JSON.parse(raw) as Partial<SystemLayoutV1>;
+  } catch {
+    return null;
+  }
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    typeof parsed.v === "number" &&
+    parsed.v > 1
+  ) {
+    throw new Error(
+      "This OpenMeld version cannot read the newer local layout. Update OpenMeld to continue. Your local data has been preserved."
+    );
+  }
+  try {
     if (parsed.v !== 1) {
       return null;
     }

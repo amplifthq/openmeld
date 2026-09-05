@@ -1,13 +1,10 @@
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 
 export function shouldPlaceSpaceMessageProgressInAnswer(
-	item: Pick<
-		SpaceTimelineItem,
-		"agentStreamState" | "optimisticAgentReplyProgress"
-	>
+	item: Pick<SpaceTimelineItem, "agentStreamState" | "activeWakeProgress">
 ): boolean {
 	return (
-		item.optimisticAgentReplyProgress !== undefined ||
+		item.activeWakeProgress !== undefined ||
 		item.agentStreamState?.status === "streaming"
 	);
 }

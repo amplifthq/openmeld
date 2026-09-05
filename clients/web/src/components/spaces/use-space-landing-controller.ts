@@ -131,6 +131,7 @@ import type {
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
+import { useSpaceEntryConfirmed } from "./space-entry-confirmation";
 import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import type {
 	SpaceExecutionRecoveryAttempt,
@@ -302,6 +303,7 @@ function buildNormalMessagePostInput(input: {
 			: {}),
 		meta: {
 			clientMessageId: input.clientMessageId,
+			authorHasRead: true as const,
 		},
 		spaceId: input.spaceId,
 		text: input.text,
@@ -389,6 +391,14 @@ function appendPendingOutgoingSignal(
 	setPendingSignals: (value: SetStateAction<PendingOutgoingSignal[]>) => void,
 	pendingSignal: PendingOutgoingSignal
 ) {
+	if (
+		hasNoPublishedComposerContent({
+			files: pendingSignal.signal.data.files ?? [],
+			text: pendingSignal.signal.data.text,
+		})
+	) {
+		return;
+	}
 	setPendingSignals((current) => [
 		...current.filter(
 			(item) => item.clientMessageId !== pendingSignal.clientMessageId
@@ -738,6 +748,7 @@ function useSpaceLandingBootstrapState(input: {
 	queryClient: ReturnType<typeof useQueryClient>;
 	spaceId: string;
 }) {
+	const entryConfirmed = useSpaceEntryConfirmed();
 	const bootstrapQuery = useQuery(
 		spaceBootstrapQueryOptions({
 			spaceId: input.spaceId,
@@ -776,7 +787,9 @@ function useSpaceLandingBootstrapState(input: {
 		[statusError, bootstrapError].find(isCurrentSpaceAccessRejection) ?? null;
 	const landingError = currentAccessRejection ?? bootstrapError ?? statusError;
 	const currentStatusSnapshot =
-		currentAccessRejection === null ? (statusQuery.data ?? null) : null;
+		entryConfirmed && currentAccessRejection === null
+			? (statusQuery.data ?? null)
+			: null;
 	useEffect(() => {
 		if (currentStatusSnapshot === null) {
 			return;
@@ -834,9 +847,7 @@ function useSpaceLandingBootstrapState(input: {
 			: null;
 	const statusSnapshot = currentStatusSnapshot ?? restoredDisplayStatus;
 	const currentStatusConfirmationPending =
-		currentStatusSnapshot === null &&
-		landingError === null &&
-		statusQuery.isPending;
+		currentStatusSnapshot === null && landingError === null;
 	const membersError = resolveQueryError({
 		error: membersQuery.error,
 		isError: membersQuery.isError,
@@ -1714,6 +1725,7 @@ export function useSpaceLandingController(input: {
 		createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId })
 			.getActiveWakeProgress({
 				includePreviewText: true,
+				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -2290,6 +2302,21 @@ export function useSpaceLandingController(input: {
 				pendingMessage: options?.pendingMessage,
 			});
 			pendingSubmission = preparedSubmission;
+			mentionAuthoring.recordPendingSubmission();
+			// The pending message is local feedback, not admission or publication.
+			// Show authored text before the fresh Wakeability read can block on network.
+			appendPendingOutgoingSignal(
+				setPendingOutgoingSignals,
+				createPendingOutgoingSignal({
+					clientMessageId: messageSeed.clientMessageId,
+					createdAtMs: messageSeed.createdAtMs,
+					membersSnapshot,
+					messageEnvelope: preparedSubmission.messageEnvelope,
+					profileId: input.profileId,
+					spaceId: input.spaceId,
+					text: preparedSubmission.text,
+				})
+			);
 			await requireCurrentSpaceComposerWakeAdmission({
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets:
@@ -2320,7 +2347,6 @@ export function useSpaceLandingController(input: {
 				);
 				return;
 			}
-			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedSpaceMessage({
 				files: publishedFiles.messageFiles,
 				filePreviewUrlsById: publishedFiles.previewUrlsByFileId,
@@ -3391,6 +3417,7 @@ function useSpaceThreadController(input: {
 			const postInput = {
 				body: {
 					clientMessageId,
+					authorHasRead: true as const,
 					...(sendInput.files?.length ? { files: [...sendInput.files] } : {}),
 					...(sendInput.preparedSubmission.messageEnvelope
 						? {
@@ -3621,6 +3648,7 @@ async function refreshWakeStopAfterResponse(input: {
 			})
 				.getActiveWakeProgress({
 					includePreviewText: true,
+					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeWakeStopEligibility: true,

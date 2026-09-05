@@ -101,7 +101,6 @@ import {
   journalDaemonStopSignalEvidence,
   startDaemonServiceRegistrationReconcileLoop,
 } from "../lifecycle/daemon-service-registration-reconcile";
-import { startOpenMeldToolsAutomaticUpdateLoop } from "../maintenance/openmeld-tools-automatic-update-loop";
 import { createOpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { syncLocalServiceRuntimeAgentControllerReports } from "../reporting/runtime-agent-controller-report-sync";
 import type { RuntimeReportingAttemptObserver } from "../reporting/runtime-agent-controller-reporting-submission";
@@ -923,24 +922,17 @@ export const runDaemonServiceLoop = async (
       },
     }
   );
-  const openMeldToolsUpdateCoordinator = createOpenMeldToolsUpdateCoordinator({
-    reportBackgroundError: (error) => {
-      warnDaemonEvent("[openmeld.tools.update_failed]", {
-        event: "cli.openmeld_tools.update_failed",
-        errorMessage: toErrorMessage(error),
-      });
-    },
-  });
-  const stopOpenMeldToolsAutomaticUpdates =
-    startOpenMeldToolsAutomaticUpdateLoop({
-      coordinator: openMeldToolsUpdateCoordinator,
-      onError: (error) => {
-        warnDaemonEvent("[openmeld.tools.automatic_update_failed]", {
-          event: "cli.openmeld_tools.automatic_update_failed",
+  const openMeldToolsUpdateCoordinator = createOpenMeldToolsUpdateCoordinator(
+    {
+      reportBackgroundError: (error) => {
+        warnDaemonEvent("[openmeld.tools.update_failed]", {
+          event: "cli.openmeld_tools.update_failed",
           errorMessage: toErrorMessage(error),
         });
       },
-    });
+    },
+    { executeUpdates: false }
+  );
 
   const agentActivitySync = startLocalAgentActivitySyncLoop({
     onError: (error) => {
@@ -1184,7 +1176,6 @@ export const runDaemonServiceLoop = async (
       localFolderPicker.close(),
       agentActivityIntegrationRefresh.stop(),
       agentActivitySync.stop(),
-      stopOpenMeldToolsAutomaticUpdates(),
       stopRegistrationReconcile(),
     ]);
   }

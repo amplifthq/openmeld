@@ -19,7 +19,6 @@ import {
 	type SpaceAgentInteractionResponseHandler,
 	type SpaceAgentPermissionModeShortcut,
 	type SpaceAgentPermissionModeUpdateHandler,
-	type SpaceAgentProfileEditHandler,
 } from "./space-agent-interaction-card";
 import { SpaceAgentOrb } from "./space-agent-orb";
 import {
@@ -31,7 +30,6 @@ export function SpacePendingAgentActions(input: {
 	items: readonly WakeProgressItem[];
 	initialInteractionIdentity?: string;
 	onOpenRequestThread?: (item: WakeProgressItem) => void;
-	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
 	onRespond?: SpaceAgentInteractionResponseHandler;
 	permissionModeShortcutsByProfileId?: ReadonlyMap<
@@ -238,7 +236,6 @@ export function SpacePendingAgentActions(input: {
 								<SpaceAgentInteractionCard
 									item={selectedItem}
 									key={selectedItemIdentity}
-									onEditAgentProfile={input.onEditAgentProfile}
 									onPermissionModeUpdate={input.onPermissionModeUpdate}
 									onRespond={input.onRespond}
 									permissionModeShortcut={input.permissionModeShortcutsByProfileId?.get(

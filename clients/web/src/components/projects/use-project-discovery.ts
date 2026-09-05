@@ -36,6 +36,7 @@ export type ProjectComputerView = {
 
 export function useProjectDiscovery(input: {
 	enabled?: boolean;
+	includeCandidates?: boolean;
 	organizationId: string;
 	projects: readonly ProjectDiscoveryProjectRef[];
 }) {
@@ -59,6 +60,7 @@ export function useProjectDiscovery(input: {
 		runtimeLane: target?.runtimeLane ?? "unavailable",
 	};
 	const discoveryOptions = projectDiscoveryQueryOptions({
+		includeCandidates: input.includeCandidates,
 		enabled: enabled && serviceState === "connected",
 		organizationId: input.organizationId,
 		projects: input.projects,
@@ -100,9 +102,34 @@ export function useProjectDiscovery(input: {
 		projectId: string,
 		connections: readonly LocalProjectControlConnection[]
 	) => {
-		queryClient.setQueryData(discoveryOptions.queryKey, (response) =>
-			applyProjectDiscoveryConnectionSnapshot(response, projectId, connections)
+		const hadResponse = Boolean(discoveryQuery.data);
+		queryClient.setQueriesData<
+			import("@openmeld/schemas/types").LocalProjectControlDiscoverProjectsResponse
+		>(
+			{
+				queryKey: projectDiscoveryQueryKeys.target({
+					deviceId: discoveryTarget.deviceId,
+					organizationId: input.organizationId,
+					runtimeLane: discoveryTarget.runtimeLane,
+					storageScope,
+				}),
+			},
+			(response) =>
+				applyProjectDiscoveryConnectionSnapshot(
+					response,
+					projectId,
+					connections
+				)
 		);
+		// A connection can be saved while the first read is pending. Read back
+		// the canonical snapshot instead of fabricating discovery metadata.
+		if (!hadResponse) {
+			discoveryQuery
+				.refetch({ cancelRefetch: true })
+				.catch((error: unknown) =>
+					console.error("Failed to read the saved Project connection.", error)
+				);
+		}
 	};
 
 	const refresh = () => {
@@ -246,12 +273,7 @@ function resolveProjectControlServiceState(input: {
 		return "service_unavailable";
 	}
 	const capabilities = input.target.localProjectControl;
-	if (
-		!(
-			capabilities &&
-			Object.values(capabilities).every((available) => available)
-		)
-	) {
+	if (!(capabilities?.discoverProjects && capabilities.connectDeclaredPath)) {
 		return "update_required";
 	}
 	return "connected";

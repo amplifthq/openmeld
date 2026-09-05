@@ -1,3 +1,4 @@
+import { isLoopbackHostname } from "../config/loopback-hostname";
 import type { OpenMeldEnvironmentTarget } from "../config/openmeld-environment-target";
 import {
   buildNextVersionState,
@@ -25,7 +26,7 @@ const CLI_UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export type CliUpdateAssessment = {
   /**
    * True when the version check actually applies to the current production
-   * distribution or an explicitly configured binary canary.
+   * distribution or an explicitly configured canary/local binary.
    */
   checked: boolean;
   currentVersion: string;
@@ -55,15 +56,24 @@ export function isCliUpdateCheckApplicable(
   if (productionCheck) {
     return true;
   }
+  const manifestUrl = normalizeOptionalText(
+    input.manifestUrl ?? process.env.OPENMELD_CLI_BINARY_MANIFEST_URL
+  );
+  if (environmentTarget.preset === "dev-local" && distribution === "binary") {
+    // The localhost setup lane can exercise the real updater without ever
+    // falling back to a published production channel or updating source installs.
+    const url = manifestUrl ? URL.parse(manifestUrl) : null;
+    return Boolean(
+      url &&
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        isLoopbackHostname(url.hostname)
+    );
+  }
   return (
     environmentTarget.preset === "canary" &&
     environmentTarget.userFacingCommand === "openmeld-canary" &&
     distribution === "binary" &&
-    Boolean(
-      normalizeOptionalText(
-        input.manifestUrl ?? process.env.OPENMELD_CLI_BINARY_MANIFEST_URL
-      )
-    )
+    Boolean(manifestUrl)
   );
 }
 

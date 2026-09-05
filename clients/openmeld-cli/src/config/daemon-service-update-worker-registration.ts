@@ -2,16 +2,69 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { daemonRuntimeRootPath } from "./daemon-state";
 import {
   type OpenMeldPathResolutionInput,
   resolveOpenMeldEnvPreset,
+  resolveOpenMeldRootDir,
 } from "./paths";
 
 const MANAGED_VERSION_FROM_EXECUTABLE_PATTERN =
   /[\\/]versions[\\/](v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)[\\/]openmeld(?:\.exe)?/gu;
 const SELF_CONTAINED_BUNDLE_FROM_EXECUTABLE_PATTERN =
   /[\\/]runtime[\\/]daemon[\\/]bundles[\\/]([0-9A-Za-z._-]+)[\\/]/gu;
+
+export const INDEPENDENT_MAINTENANCE_REGISTRATION =
+  "openmeld-independent-maintenance-v1";
+const NPM_ENTRY_IMPORT_PATTERN = /^await import\((".*")\);$/mu;
+
+export function daemonServiceUpdateWorkerNpmEntryPath(
+  pathInput: OpenMeldPathResolutionInput = {}
+): string {
+  return join(daemonRuntimeRootPath(pathInput), "service-update-worker.mjs");
+}
+
+export async function hasIndependentMaintenanceRegistration(
+  pathInput: OpenMeldPathResolutionInput = {},
+  platform: NodeJS.Platform = process.platform
+): Promise<boolean> {
+  if (platform === "win32") {
+    const { runWindowsUserTask, readWindowsTaskAction } = await import(
+      "../local-service/lifecycle/windows-user-task"
+    );
+    const task = await runWindowsUserTask({
+      name: resolveDaemonServiceUpdateWorkerIdentity(pathInput)
+        .windowsServiceName,
+      legacyScript:
+        resolveDaemonServiceUpdateWorkerWindowsScriptPath(pathInput),
+      operation: "status",
+    });
+    return Boolean(
+      task.installed &&
+        !task.legacy &&
+        task.actionArguments &&
+        resolveOpenMeldRootDir({
+          env: readWindowsTaskAction(task.actionArguments).env,
+        }) === resolveOpenMeldRootDir(pathInput)
+    );
+  }
+  const registration = await readDaemonServiceUpdateWorkerRegistration(
+    pathInput,
+    platform
+  );
+  if (!registration?.includes(INDEPENDENT_MAINTENANCE_REGISTRATION)) {
+    return false;
+  }
+  const { parseDaemonServiceEnvironmentFromDefinition } = await import(
+    "../local-service/lifecycle/daemon-service-manager"
+  );
+  const env = parseDaemonServiceEnvironmentFromDefinition({
+    controller: platform === "darwin" ? "launchd" : "systemd",
+    definition: registration,
+  });
+  return resolveOpenMeldRootDir({ env }) === resolveOpenMeldRootDir(pathInput);
+}
 
 export type DaemonServiceUpdateWorkerIdentity = {
   launchdLabel: string;
@@ -77,6 +130,18 @@ export function resolveDaemonServiceUpdateWorkerWindowsScriptPath(
   return join(daemonRuntimeRootPath(pathInput), "service-update-worker.bat");
 }
 
+export function resolveDaemonServiceUpdateWorkerSystemdTimerUnitPath(
+  pathInput: OpenMeldPathResolutionInput = {}
+): string {
+  return join(
+    pathInput.homeDir ?? homedir(),
+    ".config",
+    "systemd",
+    "user",
+    `${resolveDaemonServiceUpdateWorkerIdentity(pathInput).serviceName}.timer`
+  );
+}
+
 export async function readDaemonServiceUpdateWorkerProtectedManagedVersions(
   pathInput: OpenMeldPathResolutionInput = {},
   platform: NodeJS.Platform = process.platform
@@ -98,9 +163,30 @@ export async function readDaemonServiceUpdateWorkerProtectedBundleIds(
     pathInput,
     platform
   );
-  return contents === null
-    ? new Set()
-    : readBundleIdsFromUpdateWorkerRegistration(contents);
+  const protectedIds =
+    contents === null
+      ? new Set<string>()
+      : readBundleIdsFromUpdateWorkerRegistration(contents);
+  const launcherPath = daemonServiceUpdateWorkerNpmEntryPath(pathInput);
+  const launcher = await readFile(launcherPath, "utf8").catch((error) => {
+    if (getErrorCode(error) === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (launcher !== null) {
+    const importLine = launcher.trim().match(NPM_ENTRY_IMPORT_PATTERN);
+    if (!importLine?.[1]) {
+      throw new Error(
+        "OpenMeld maintenance launcher is invalid; bundle cleanup was stopped."
+      );
+    }
+    const entryPath = fileURLToPath(JSON.parse(importLine[1]) as string);
+    for (const id of readBundleIdsFromUpdateWorkerRegistration(entryPath)) {
+      protectedIds.add(id);
+    }
+  }
+  return protectedIds;
 }
 
 export function readManagedVersionsFromUpdateWorkerRegistration(

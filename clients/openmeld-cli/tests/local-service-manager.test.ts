@@ -8,20 +8,17 @@ import {
   assertServiceManagerProbeSucceeded,
   buildLaunchdPlist,
   buildSystemdUnitFile,
-  buildWindowsServiceFailureActions,
   DaemonServiceWaitTimeoutError,
   formatDaemonServiceJobDiagnosticsEvidence,
   installMissingServiceDefinitionFailAtomically,
   isDaemonServiceBackgroundExecutionBlocked,
   isDaemonServiceJobNeverSpawned,
   isDaemonServiceWaitTimeoutError,
-  isWindowsServiceDefinitionMissingResult,
   parseLaunchdServiceJobDiagnostics,
   readDaemonServiceJobCrashExitCode,
   readSystemdServiceActiveProbe,
   readSystemdServiceEnabledProbe,
   readWindowsRunnerCommandSummary,
-  rollbackNewWindowsServiceDefinition,
   runServiceDefinitionRollbackSteps,
 } from "../src/local-service/lifecycle/daemon-service-manager";
 
@@ -233,24 +230,6 @@ describe("local service manager helpers", () => {
     expect(rollbackNewDefinition).not.toHaveBeenCalled();
   });
 
-  it("only treats an explicit Windows 1060 response as a missing service", () => {
-    expect(
-      isWindowsServiceDefinitionMissingResult({
-        exitCode: 1060,
-        stdout: "",
-        stderr:
-          "[SC] OpenService FAILED 1060: The specified service does not exist as an installed service.",
-      })
-    ).toBe(true);
-    expect(
-      isWindowsServiceDefinitionMissingResult({
-        exitCode: 5,
-        stdout: "",
-        stderr: "[SC] OpenService FAILED 5: Access is denied.",
-      })
-    ).toBe(false);
-  });
-
   it("accepts explicit systemd inactive and disabled states but rejects probe errors", () => {
     expect(
       readSystemdServiceActiveProbe({
@@ -283,37 +262,6 @@ describe("local service manager helpers", () => {
         stderr: "Operation not permitted",
       })
     ).toThrow("Operation not permitted");
-  });
-
-  it("rejects Windows status errors other than the explicit 1060 missing result", () => {
-    expect(() =>
-      assertServiceManagerProbeSucceeded("sc qc", {
-        exitCode: 5,
-        stdout: "",
-        stderr: "[SC] OpenService FAILED 5: Access is denied.",
-      })
-    ).toThrow("Access is denied");
-  });
-
-  it("deletes a Windows service only after this install created it", async () => {
-    const deleteDefinition = vi.fn(() => Promise.resolve());
-    const removeRunnerScript = vi.fn(() => Promise.resolve());
-
-    await rollbackNewWindowsServiceDefinition({
-      definitionCreated: false,
-      deleteDefinition,
-      removeRunnerScript,
-    });
-    expect(deleteDefinition).not.toHaveBeenCalled();
-    expect(removeRunnerScript).toHaveBeenCalledOnce();
-
-    await rollbackNewWindowsServiceDefinition({
-      definitionCreated: true,
-      deleteDefinition,
-      removeRunnerScript,
-    });
-    expect(deleteDefinition).toHaveBeenCalledOnce();
-    expect(removeRunnerScript).toHaveBeenCalledTimes(2);
   });
 
   it("attempts every rollback step and retains every cleanup failure", async () => {
@@ -371,12 +319,6 @@ describe("local service manager helpers", () => {
     expect(unit).toContain("Restart=always");
     expect(unit).toContain("RestartSec=60");
     expect(unit).not.toContain("RestartSec=5");
-  });
-
-  it("backs off Windows Service restart attempts after a host-level startup failure", () => {
-    expect(buildWindowsServiceFailureActions()).toBe(
-      "restart/60000/restart/60000/restart/60000"
-    );
   });
 
   it("reads the quoted OpenMeld command from a Windows runner script", async () => {

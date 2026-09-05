@@ -507,6 +507,7 @@ describe("pollWakeProgress", () => {
 			clientMessageId: "client-message-1",
 			includePreviewText: true,
 			includeTiming: true,
+			includeSourceContext: true,
 			includeWaitReason: true,
 			includeWakeStopEligibility: true,
 			spaceId: "space-123",

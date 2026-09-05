@@ -82,6 +82,27 @@ export {
   openMeldNavigationTargetSchema,
   openMeldWebUrlSchema,
 } from "./navigation-action";
+export {
+  OFFICIAL_CLI_SKILL_CONTRACT,
+  OFFICIAL_CLI_SKILL_MAX_BYTES,
+  OFFICIAL_CLI_SKILL_PUBLIC_KEY,
+  OFFICIAL_CLI_SKILL_URL,
+  type OfficialCliSkillPayload,
+  type OfficialCliSkillRelease,
+  officialCliSkillChannelSchema,
+  officialCliSkillPayloadSchema,
+  officialCliSkillReleaseSchema,
+} from "./official-cli-skill";
+export {
+  type OrganizationJoinRequest,
+  type OrganizationJoinRequestInput,
+  type OrganizationJoinRequestResponse,
+  type OrganizationJoinRequestRpcInput,
+  organizationJoinRequestInputSchema,
+  organizationJoinRequestResponseSchema,
+  organizationJoinRequestRpcInputSchema,
+  organizationJoinRequestSchema,
+} from "./organization-join-request";
 export { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "./organization-request-context";
 export {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
@@ -145,3 +166,12 @@ export {
   spaceInvitationSchema,
 } from "./space-invitation";
 export type * from "./types/index";
+export {
+  WEB_APPLICATION_ERROR_MAX_BYTES,
+  WEB_APPLICATION_ERROR_PATH,
+  type WebApplicationErrorReport,
+  type WebApplicationErrorSource,
+  webApplicationErrorReportSchema,
+  webApplicationErrorSourceSchema,
+  webApplicationErrorSummarySchema,
+} from "./web-application-error";

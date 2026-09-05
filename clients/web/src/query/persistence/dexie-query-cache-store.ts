@@ -24,6 +24,7 @@ export type AsyncStringStorage = {
 };
 
 export type DexieQueryCacheStore = {
+	subscribe: (listener: (cleared: boolean) => void) => () => void;
 	clearAccount: (ownerAccountId: string) => Promise<void>;
 	clearAll: () => Promise<void>;
 	clearOrganization: (
@@ -53,6 +54,7 @@ type QueryCacheRecord = NormalizedQueryCacheScope & {
 };
 
 type CreateDexieQueryCacheStoreInput = {
+	mergePayload?: (existing: string, incoming: string) => string;
 	databaseName?: string;
 	diagnostics?: QueryPersistenceDiagnostics;
 	IDBKeyRange?: DexieOptions["IDBKeyRange"];
@@ -63,6 +65,17 @@ type CreateDexieQueryCacheStoreInput = {
 
 class OpenMeldQueryCacheDatabase extends Dexie {
 	queryCaches!: Table<QueryCacheRecord, string>;
+	cacheSizes!: Table<
+		{
+			key: string;
+			bytes: number;
+			updatedAt: number;
+			expiresAt: number;
+			scopeKind: QueryCacheScopeKind;
+		},
+		string
+	>;
+	cacheGenerations!: Table<{ key: string; generation: number }, string>;
 
 	constructor(
 		databaseName: string,
@@ -93,6 +106,22 @@ class OpenMeldQueryCacheDatabase extends Dexie {
 							record.scopeKind === "organization" ? record.scopeId : "";
 					});
 			});
+		this.version(4)
+			.stores({ cacheGenerations: "&key", cacheSizes: "&key, expiresAt" })
+			.upgrade(async (transaction) => {
+				const records = await transaction
+					.table<QueryCacheRecord, string>("queryCaches")
+					.toArray();
+				await transaction.table("cacheSizes").bulkPut(
+					records.map((record) => ({
+						key: record.cacheKey,
+						bytes: new TextEncoder().encode(record.payload).byteLength,
+						updatedAt: record.updatedAt,
+						expiresAt: record.expiresAt,
+						scopeKind: record.scopeKind,
+					}))
+				);
+			});
 		this.on("versionchange", () => {
 			onVersionChange();
 			diagnostics.record({
@@ -116,6 +145,24 @@ export function createDexieQueryCacheStore(
 
 	const now = input.now ?? Date.now;
 	const diagnostics = input.diagnostics ?? defaultQueryPersistenceDiagnostics;
+	const listeners = new Set<(cleared: boolean) => void>();
+	const channel =
+		typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
+			? new BroadcastChannel(
+					`${input.databaseName ?? OPENMELD_QUERY_CACHE_DATABASE_NAME}:changes`
+				)
+			: null;
+	if (channel) {
+		channel.onmessage = (event: MessageEvent<unknown>) => {
+			if (event.data === "refresh" || event.data === "clear") {
+				for (const listener of listeners) {
+					listener(event.data === "clear");
+				}
+			}
+		};
+	}
+	const notify = (cleared = false) =>
+		channel?.postMessage(cleared ? "clear" : "refresh");
 	let openPromise: Promise<void> | undefined;
 	const database = new OpenMeldQueryCacheDatabase(
 		input.databaseName ?? OPENMELD_QUERY_CACHE_DATABASE_NAME,
@@ -151,40 +198,80 @@ export function createDexieQueryCacheStore(
 		await openPromise;
 	};
 
+	const clearWithFence = async (key: string, clear: () => Promise<unknown>) => {
+		await ensureOpen();
+		await database.transaction(
+			"rw",
+			database.queryCaches,
+			database.cacheGenerations,
+			database.cacheSizes,
+			async () => {
+				const generation =
+					(await database.cacheGenerations.get(key))?.generation ?? 0;
+				await database.cacheGenerations.put({
+					key,
+					generation: generation + 1,
+				});
+				await clear();
+				const remaining = new Set(
+					await database.queryCaches.toCollection().primaryKeys()
+				);
+				const sizeKeys = await database.cacheSizes.toCollection().primaryKeys();
+				await database.cacheSizes.bulkDelete(
+					sizeKeys.filter((entry) => !remaining.has(entry))
+				);
+			}
+		);
+		notify(true);
+	};
 	return {
+		subscribe: (listener) => {
+			listeners.add(listener);
+			return () => {
+				listeners.delete(listener);
+			};
+		},
 		clearAccount: async (ownerAccountId) => {
-			await ensureOpen();
-			await database.queryCaches
-				.where("ownerAccountId")
-				.equals(normalizeScopePart(ownerAccountId, "owner account id"))
-				.delete();
+			await clearWithFence(JSON.stringify([ownerAccountId]), () =>
+				database.queryCaches
+					.where("ownerAccountId")
+					.equals(normalizeScopePart(ownerAccountId, "owner account id"))
+					.delete()
+			);
 		},
 		clearAll: async () => {
-			await ensureOpen();
-			await database.queryCaches.clear();
+			await clearWithFence("all", () => database.queryCaches.clear());
 		},
 		clearOrganization: async (ownerAccountId, organizationId) => {
-			await ensureOpen();
-			await database.queryCaches
-				.where("[ownerAccountId+organizationId]")
-				.equals([
-					normalizeScopePart(ownerAccountId, "owner account id"),
-					normalizeScopePart(organizationId, "organization id"),
-				])
-				.delete();
+			await clearWithFence(
+				JSON.stringify([ownerAccountId, organizationId]),
+				() =>
+					database.queryCaches
+						.where("[ownerAccountId+organizationId]")
+						.equals([
+							normalizeScopePart(ownerAccountId, "owner account id"),
+							normalizeScopePart(organizationId, "organization id"),
+						])
+						.delete()
+			);
 		},
 		clearOrganizationBySlug: async (ownerAccountId, organizationSlug) => {
-			await ensureOpen();
-			await database.queryCaches
-				.where("[ownerAccountId+scopeAlias]")
-				.equals([
-					normalizeScopePart(ownerAccountId, "owner account id"),
-					normalizeScopePart(organizationSlug, "organization slug"),
-				])
-				.filter((record) => record.scopeKind !== "account")
-				.delete();
+			await clearWithFence(
+				JSON.stringify([ownerAccountId, "slug", organizationSlug]),
+				() =>
+					database.queryCaches
+						.where("[ownerAccountId+scopeAlias]")
+						.equals([
+							normalizeScopePart(ownerAccountId, "owner account id"),
+							normalizeScopePart(organizationSlug, "organization slug"),
+						])
+						.filter((record) => record.scopeKind !== "account")
+						.delete()
+			);
 		},
 		close: () => {
+			channel?.close();
+			listeners.clear();
 			database.close();
 		},
 		countRecords: async () => {
@@ -193,9 +280,22 @@ export function createDexieQueryCacheStore(
 		},
 		createStorage: (rawScope) => {
 			const scope = normalizeScope(rawScope);
+			const fenceKeys = [
+				"all",
+				JSON.stringify([scope.ownerAccountId]),
+				JSON.stringify([scope.ownerAccountId, scope.organizationId]),
+				JSON.stringify([scope.ownerAccountId, "slug", scope.scopeAlias]),
+				JSON.stringify([scope.ownerAccountId, scope.scopeKind, scope.scopeId]),
+			];
+			let generations: number[] | undefined;
+			const readGenerations = async () =>
+				(await database.cacheGenerations.bulkGet(fenceKeys)).map(
+					(record) => record?.generation ?? 0
+				);
 			return {
 				getItem: async (storageKey) => {
 					await ensureOpen();
+					generations ??= await readGenerations();
 					const cacheKey = buildCacheKey(scope, storageKey);
 					const record = await database.queryCaches.get(cacheKey);
 					if (!record) {
@@ -208,21 +308,60 @@ export function createDexieQueryCacheStore(
 					return record.payload;
 				},
 				removeItem: async (storageKey) => {
-					await ensureOpen();
-					await database.queryCaches.delete(buildCacheKey(scope, storageKey));
+					await clearWithFence(fenceKeys[4], () =>
+						database.queryCaches.delete(buildCacheKey(scope, storageKey))
+					);
 				},
 				setItem: async (storageKey, payload) => {
+					let savedPayload = payload;
 					await ensureOpen();
 					const updatedAt = now();
 					try {
-						await database.queryCaches.put({
-							...scope,
-							cacheKey: buildCacheKey(scope, storageKey),
-							expiresAt: updatedAt + input.retentionMs,
-							payload,
-							storageKey: normalizeScopePart(storageKey, "storage key"),
-							updatedAt,
-						});
+						await database.transaction(
+							"rw",
+							database.queryCaches,
+							database.cacheGenerations,
+							database.cacheSizes,
+							async () => {
+								const current = await readGenerations();
+								generations ??= current;
+								if (
+									current.some((value, index) => value !== generations?.[index])
+								) {
+									return;
+								}
+								const existing = await database.queryCaches.get(
+									buildCacheKey(scope, storageKey)
+								);
+								// A delayed old tab must not replace a newer query snapshot.
+								if (existing && input.mergePayload) {
+									savedPayload = input.mergePayload(existing.payload, payload);
+								} else if (
+									existing &&
+									newestQueryUpdate(existing.payload) >
+										newestQueryUpdate(payload)
+								) {
+									return;
+								}
+								await database.queryCaches.put({
+									...scope,
+									cacheKey: buildCacheKey(scope, storageKey),
+									expiresAt: updatedAt + input.retentionMs,
+									payload: savedPayload,
+									storageKey: normalizeScopePart(storageKey, "storage key"),
+									updatedAt,
+								});
+								await database.cacheSizes.put({
+									key: buildCacheKey(scope, storageKey),
+									bytes: new TextEncoder().encode(savedPayload).byteLength,
+									updatedAt,
+									expiresAt: updatedAt + input.retentionMs,
+									scopeKind: scope.scopeKind,
+								});
+								await evictSavedViews(database, now());
+							}
+						);
+						notify();
 					} catch (error) {
 						if (resolvePersistenceErrorName(error) === "QuotaExceededError") {
 							diagnostics.record({
@@ -237,6 +376,8 @@ export function createDexieQueryCacheStore(
 			};
 		},
 		deleteDatabase: async () => {
+			channel?.close();
+			listeners.clear();
 			database.close();
 			await database.delete();
 		},
@@ -260,6 +401,46 @@ function normalizeScope(scope: QueryCacheScope): NormalizedQueryCacheScope {
 		scopeId,
 		scopeKind: scope.scopeKind,
 	};
+}
+
+function newestQueryUpdate(payload: string): number {
+	try {
+		const client = JSON.parse(payload) as {
+			clientState?: { queries?: Array<{ state: { dataUpdatedAt: number } }> };
+		};
+		return Math.max(
+			0,
+			...(client.clientState?.queries ?? []).map(
+				(query) => query.state.dataUpdatedAt
+			)
+		);
+	} catch {
+		return 0;
+	}
+}
+
+// Bound the browser's saved read views, not the live Query cache. Expired data
+// leaves first, then the least recently written conversation records.
+async function evictSavedViews(
+	database: OpenMeldQueryCacheDatabase,
+	now: number
+): Promise<void> {
+	await database.queryCaches.where("expiresAt").belowOrEqual(now).delete();
+	await database.cacheSizes.where("expiresAt").belowOrEqual(now).delete();
+	const records = await database.cacheSizes.toArray();
+	let bytes = records.reduce((total, record) => total + record.bytes, 0);
+	const evictedKeys: string[] = [];
+	for (const record of records
+		.filter((item) => item.scopeKind === "space")
+		.sort((a, b) => a.updatedAt - b.updatedAt)) {
+		if (bytes <= 32 * 1024 * 1024) {
+			break;
+		}
+		evictedKeys.push(record.key);
+		bytes -= record.bytes;
+	}
+	await database.queryCaches.bulkDelete(evictedKeys);
+	await database.cacheSizes.bulkDelete(evictedKeys);
 }
 
 function resolveOrganizationId(input: {

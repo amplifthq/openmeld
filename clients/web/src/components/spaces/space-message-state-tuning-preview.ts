@@ -129,19 +129,6 @@ function createStandalonePreviewAgent(
 	};
 }
 
-export function resolveSpaceMessageStateTuningTimelineItems(input: {
-	baseItems: readonly SpaceTimelineItem[];
-	optimisticItem: SpaceTimelineItem | null;
-	previewItems: readonly SpaceTimelineItem[] | null;
-}): readonly SpaceTimelineItem[] {
-	if (input.previewItems) {
-		return input.previewItems;
-	}
-	return input.optimisticItem
-		? [...input.baseItems, input.optimisticItem]
-		: input.baseItems;
-}
-
 export function resolveSpaceMessageStateTuningVisibility(input: {
 	isCenterAgentDirectMessage: boolean;
 	previewItems: readonly SpaceTimelineItem[] | null;
@@ -243,7 +230,7 @@ export function buildSpaceMessageStateTuningPreviewItems(input: {
 			""
 		),
 		deliveryState: "pending" as const,
-		optimisticAgentReplyProgress: createPreviewWakeProgressItem(
+		activeWakeProgress: createPreviewWakeProgressItem(
 			input.agent,
 			preview.phase,
 			preview.key,

@@ -7,7 +7,7 @@ import type { WakeProgressStatusKind } from "#/lib/spaces/wake-progress-status";
 
 export type SpaceAgentOrbState = NonNullable<ThinkingOrbProps["state"]>;
 
-export const DEFAULT_SPACE_AGENT_ORB_STATE: SpaceAgentOrbState = "working";
+export const DEFAULT_SPACE_AGENT_ORB_STATE: SpaceAgentOrbState = "solving";
 
 /** Appearance only: the shared Wake presenter owns status and wording. */
 export const WAKE_STATUS_ORB_STATE = {
@@ -19,7 +19,7 @@ export const WAKE_STATUS_ORB_STATE = {
 	waiting_for_controller: "breathing",
 	waiting_for_owner: "listening",
 	needs_input: "listening",
-	working: "working",
+	working: "solving",
 	replying: "composing",
 	posting: "weaving",
 } as const satisfies Record<WakeProgressStatusKind, SpaceAgentOrbState>;

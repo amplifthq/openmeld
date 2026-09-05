@@ -12,12 +12,10 @@ const CLI_RELEASE_PATH_PREFIXES = [
 ];
 const CLI_RELEASE_PATHS = new Set([
   "clients/openmeld-cli/package.json",
+  "clients/openmeld-cli/tsdown.config.ts",
+  "scripts/release/build-cli-binary.mjs",
   "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs",
 ]);
-// Repo-authored data files that the build embeds into both the packaged CLI
-// and the OpenMeld Service bundle. Editing them moves the Service bundle hash,
-// so they release like local-component changes even with no source edit.
-const EMBEDDED_RELEASE_DATA_PATHS = new Set(["release/vendor-models.json"]);
 const RUNTIME_ADAPTER_RELEASE_PATH_RE =
   /^runtime\/adapters\/[^/]+\/(?:src\/|package\.json$)/u;
 const SERVICE_RELEASE_PATH_PREFIXES = [
@@ -44,7 +42,6 @@ export function isCliReleasePath(path) {
   const normalized = normalizeRepoPath(path);
   return (
     CLI_RELEASE_PATHS.has(normalized) ||
-    EMBEDDED_RELEASE_DATA_PATHS.has(normalized) ||
     RUNTIME_ADAPTER_RELEASE_PATH_RE.test(normalized) ||
     isCliAndServiceReleasePath(normalized) ||
     CLI_RELEASE_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix))
@@ -62,7 +59,6 @@ export function isServiceReleasePath(path) {
   }
   return (
     SERVICE_RELEASE_PATHS.has(normalized) ||
-    EMBEDDED_RELEASE_DATA_PATHS.has(normalized) ||
     RUNTIME_ADAPTER_RELEASE_PATH_RE.test(normalized) ||
     isCliAndServiceReleasePath(normalized) ||
     SERVICE_RELEASE_PATH_PREFIXES.some((prefix) =>

@@ -27,6 +27,8 @@ type ClaimedDeliveryRow = {
   recipient_user_id: string;
   resolution_status: "not_applicable" | "open" | "resolved";
   source_accessible: number;
+  source_target_kind: string;
+  invitation_request_id: string | null;
   title: string;
   urgent_email_enabled: number;
 };
@@ -223,6 +225,8 @@ async function claimDelivery(input: {
           items.recipient_user_id,
           items.attention,
           items.importance,
+          json_extract(items.source_target_json, '$.kind') AS source_target_kind,
+          json_extract(items.source_target_json, '$.requestId') AS invitation_request_id,
           items.title,
           items.preview,
           items.resolution_status,
@@ -280,13 +284,19 @@ function resolveSuppressionReason(input: {
   if (row.source_accessible !== 1) {
     return "source_access_revoked";
   }
-  if (row.urgent_email_enabled !== 1) {
+  if (
+    row.source_target_kind !== "organization_join_request" &&
+    row.urgent_email_enabled !== 1
+  ) {
     return "preference_disabled";
   }
   if (row.cleared_at_ms !== null) {
     return "item_cleared";
   }
-  if (row.importance !== "urgent") {
+  if (
+    row.source_target_kind !== "organization_join_request" &&
+    row.importance !== "urgent"
+  ) {
     return "item_not_urgent";
   }
   if (row.attention === "action_required" && row.resolution_status !== "open") {
@@ -301,6 +311,13 @@ async function sendUrgentEmail(input: {
 }): Promise<AuthRpcSendInboxUrgentEmailResult> {
   try {
     const raw = await input.send({
+      ...(input.claimed.source_target_kind === "organization_join_request"
+        ? {
+            purpose: "invitation_review" as const,
+            invitationRequestId:
+              input.claimed.invitation_request_id ?? undefined,
+          }
+        : {}),
       deliveryId: input.claimed.delivery_id,
       itemId: input.claimed.item_id,
       organizationId: input.claimed.organization_id,

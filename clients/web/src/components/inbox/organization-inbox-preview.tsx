@@ -20,6 +20,7 @@ export function OrganizationInboxPreview(input: {
 	currentOrganization: OrganizationSummary;
 	enabled?: boolean;
 	itemLimit?: number;
+	onOpenItem?: () => void;
 }) {
 	const enabled = input.enabled ?? true;
 	const itemLimit = Math.max(0, input.itemLimit ?? INBOX_PREVIEW_LIMIT);
@@ -66,7 +67,10 @@ export function OrganizationInboxPreview(input: {
 			isError={dataUnavailable}
 			isLoading={actionsQuery.isPending || unreadQuery.isPending}
 			isStale={refreshFailed && !dataUnavailable}
-			onOpenItem={(item) => setRead(item, true)}
+			onOpenItem={(item) => {
+				setRead(item, true);
+				input.onOpenItem?.();
+			}}
 			onRetry={async () =>
 				await Promise.all([actionsQuery.refetch(), unreadQuery.refetch()])
 			}

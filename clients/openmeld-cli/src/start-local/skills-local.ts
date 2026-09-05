@@ -1,7 +1,5 @@
-import {
-  collectSkillsReadinessSnapshot,
-  runSkillsInstall,
-} from "../commands/skills";
+import { runSkillsInstall } from "../commands/skills";
+import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory";
 import type { StartReadinessSnapshot } from "./readiness-types";
 
 export function collectStartLocalSkillsReadiness(): Promise<

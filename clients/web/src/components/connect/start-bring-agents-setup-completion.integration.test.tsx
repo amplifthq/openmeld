@@ -43,6 +43,8 @@ const ACTIVE_PREPARE_TOKEN_PATTERN = /preptok_active/u;
 const COMPLETED_PREPARE_TOKEN_PATTERN = /preptok_completed/u;
 const REFRESHED_PREPARE_TOKEN_PATTERN = /preptok_refreshed/u;
 const SETUP_COMMAND_COPY = /setup command/i;
+const UNUSABLE_COMMAND_PATTERN = /preptok_unusable/u;
+const NEW_ATTEMPT_COMMAND_PATTERN = /preptok_new_attempt/u;
 
 type PrepareLocalAgentCatalogEntry = NonNullable<
 	PrepareSessionSnapshot["localAgentCatalog"]
@@ -205,6 +207,52 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		window.sessionStorage.clear();
 		vi.unstubAllGlobals();
 		vi.clearAllMocks();
+	});
+
+	it.each([
+		"prepare.account_switch_cancelled",
+		"prepare.authorization_failed",
+	])("replaces the unusable command with a retry after %s", async (reasonCode) => {
+		const snapshot = createTerminalDisconnectedSnapshot();
+		snapshot.targetSpaceId = null;
+		snapshot.phase = "blocked";
+		snapshot.blockers = [
+			{
+				blockerId: "handoff-stopped",
+				stepId: "connect_terminal",
+				reasonCode,
+				message: "The current computer connection was not changed.",
+				severity: "user_action_required",
+				retryAction: "refresh",
+				createdAt: snapshot.updatedAt,
+			},
+		];
+		snapshot.steps = snapshot.steps.map((step) =>
+			step.id === "connect_terminal"
+				? { ...step, state: "blocked", blockerReasonCode: reasonCode }
+				: step
+		);
+		createPrepareSessionMock.mockResolvedValueOnce({
+			snapshot,
+			opaqueToken: "preptok_unusable",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+		});
+		renderPreparePage();
+		const retry = await screen.findByRole("button", {
+			name: "Get a new setup command",
+		});
+		expect(screen.queryByText(UNUSABLE_COMMAND_PATTERN)).toBeNull();
+		expect(copyCliEntryCommandMock).not.toHaveBeenCalled();
+		const next = createTerminalDisconnectedSnapshot();
+		next.targetSpaceId = null;
+		next.prepareSessionId = "prepare-new-attempt";
+		createPrepareSessionMock.mockResolvedValueOnce({
+			snapshot: next,
+			opaqueToken: "preptok_new_attempt",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+		});
+		fireEvent.click(retry);
+		await screen.findByText(NEW_ATTEMPT_COMMAND_PATTERN);
 	});
 
 	it("returns direct computer setup back to Computers", async () => {

@@ -79,7 +79,7 @@ describe("useProjectDiscovery", () => {
 		});
 	});
 
-	it("reuses one current-computer check across Project screens", async () => {
+	it("reuses saved connections across screens", async () => {
 		api.readLocalRuntimes.mockResolvedValue(localRuntimes({ bound: true }));
 		api.discoverCurrentComputerProjects.mockImplementation(async (input) =>
 			discoveryResponse(input.clientGeneration)
@@ -90,6 +90,7 @@ describe("useProjectDiscovery", () => {
 		const first = renderHook(
 			() =>
 				useProjectDiscovery({
+					includeCandidates: false,
 					organizationId: "org-1",
 					projects: [projectRef("project-1")],
 				}),
@@ -103,6 +104,7 @@ describe("useProjectDiscovery", () => {
 		const second = renderHook(
 			() =>
 				useProjectDiscovery({
+					includeCandidates: false,
 					organizationId: "org-1",
 					projects: [projectRef("project-1")],
 				}),
@@ -111,6 +113,8 @@ describe("useProjectDiscovery", () => {
 
 		expect(second.result.current.projectView("project-1").status).toBe("ready");
 		expect(api.discoverCurrentComputerProjects).toHaveBeenCalledTimes(1);
+		const request = api.discoverCurrentComputerProjects.mock.calls[0]?.[0];
+		expect(request.includeCandidates).toBe(false);
 	});
 
 	it("keeps the last result visible while Check again forces a new check", async () => {

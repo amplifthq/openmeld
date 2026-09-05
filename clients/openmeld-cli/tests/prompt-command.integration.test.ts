@@ -7,7 +7,7 @@ import { withCapturedStdio } from "./helpers/fs";
 const HUMAN_MENTION_LITERAL_GUIDANCE_PATTERN =
   /`@Name\(wake\)`, `@Name\(reference\)`, or\s+`@Name\(mention\)`/;
 
-vi.mock("../src/commands/skills", () => ({
+vi.mock("../src/skills/installation-inventory", () => ({
   collectSkillsReadinessSnapshot: vi.fn(async () => ({
     status: "up_to_date",
     targetCount: 1,

@@ -36,6 +36,7 @@ export const projectDiscoveryQueryKeys = {
 			input.runtimeLane,
 		] as const,
 	catalog: (input: {
+		includeCandidates?: boolean;
 		organizationId: string;
 		projects: readonly ProjectDiscoveryProjectRef[];
 		storageScope: string;
@@ -49,10 +50,12 @@ export const projectDiscoveryQueryKeys = {
 				storageScope: input.storageScope,
 			}),
 			...buildProjectCatalog(input.projects),
+			...(input.includeCandidates === false ? ["connections"] : []),
 		] as const,
 };
 
 export function projectDiscoveryQueryOptions(input: {
+	includeCandidates?: boolean;
 	enabled: boolean;
 	organizationId: string;
 	projects: readonly ProjectDiscoveryProjectRef[];
@@ -72,6 +75,9 @@ export function projectDiscoveryQueryOptions(input: {
 		gcTime: PROJECT_DISCOVERY_GC_TIME_MS,
 		queryFn: async () =>
 			await discoverCurrentComputerProjects({
+				...(input.includeCandidates === false
+					? { includeCandidates: false }
+					: {}),
 				clientGeneration: claimProjectDiscoveryGeneration(scope),
 				expectedOrganizationId: input.organizationId,
 				projectIds,
