@@ -109,7 +109,6 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
-import { SpaceActiveWakeSource } from "./space-active-wake-source";
 import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
@@ -2892,10 +2891,6 @@ function ConversationBubbleContent(input: {
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
 			{input.answerProgressStatus}
-			<SpaceActiveWakeSource
-				item={input.item}
-				onJumpToMessage={parent.onJumpToMessage}
-			/>
 			<SpaceMessageInteractionSource
 				source={input.item.centerAgentInteractionSource}
 			/>

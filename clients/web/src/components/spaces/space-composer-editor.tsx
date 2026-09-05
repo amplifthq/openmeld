@@ -523,7 +523,7 @@ function SpaceComposerProfileToken(
 	return (
 		<PlateElement {...props} as="span">
 			<span
-				className="group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
+				className="group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-baseline text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
 				contentEditable={false}
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"

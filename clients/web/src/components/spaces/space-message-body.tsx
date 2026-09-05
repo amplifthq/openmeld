@@ -292,7 +292,10 @@ function SpaceMessageBodyContent(input: {
 }) {
 	return (
 		<div
-			className={cn("flex min-w-0 flex-col gap-2", input.containerClassName)}
+			className={cn(
+				"flex min-w-0 max-w-full flex-col gap-2",
+				input.containerClassName
+			)}
 			data-slot="space-message-body"
 			style={{ overflowWrap: "anywhere" }}
 		>
@@ -400,7 +403,7 @@ function renderSpaceMessageTextContent(input: {
 		);
 	}
 	return (
-		<p className={cn("whitespace-pre-wrap", input.className)}>
+		<p className={cn("max-w-full whitespace-pre-wrap", input.className)}>
 			<SpaceMessageAgentMentionText
 				onOpenAgentProfile={input.onOpenAgentProfile}
 				profilesById={input.agentMentionProfilesById}
