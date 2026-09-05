@@ -2724,9 +2724,9 @@ describe("SpaceConversationPanel", () => {
 		);
 		expect(jumpButton.getAttribute("data-variant")).toBe("secondary");
 		expect(jumpButton.className).toContain("border-border");
-		expect(jumpButton.className).toContain("bg-background/95");
+		expect(jumpButton.className).toContain("bg-popover/60");
 		expect(jumpButton.className).toContain("backdrop-blur-sm");
-		expect(jumpButton.className).toContain("shadow-md");
+		expect(jumpButton.className).toContain("shadow-xs");
 		expect(jumpButton.className).not.toContain("ring-background");
 		expect(jumpButton.className).not.toContain("shadow-lg");
 		expect(jumpButton.className).toContain("data-[active=false]:blur-[6px]");
