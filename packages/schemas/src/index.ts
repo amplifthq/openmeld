@@ -145,3 +145,12 @@ export {
   spaceInvitationSchema,
 } from "./space-invitation";
 export type * from "./types/index";
+export {
+  WEB_APPLICATION_ERROR_MAX_BYTES,
+  WEB_APPLICATION_ERROR_PATH,
+  type WebApplicationErrorReport,
+  type WebApplicationErrorSource,
+  webApplicationErrorReportSchema,
+  webApplicationErrorSourceSchema,
+  webApplicationErrorSummarySchema,
+} from "./web-application-error";
