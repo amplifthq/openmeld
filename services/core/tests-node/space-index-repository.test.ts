@@ -376,6 +376,7 @@ describe("space index AccountSpaces read model", () => {
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
+        includeDirectMessageProfileIds: true,
         limit: 10,
         ownerUserId: "owner-1",
         scope: "account",
@@ -384,6 +385,10 @@ describe("space index AccountSpaces read model", () => {
 
       expect(accountSpaces.spaceItems.map((item) => item.spaceId)).toEqual([
         "space-ordinary-agent-dm",
+      ]);
+      expect(accountSpaces.spaceItems[0]?.directMessageProfileIds).toEqual([
+        "agent-helper",
+        "human-1",
       ]);
     } finally {
       harness.close();

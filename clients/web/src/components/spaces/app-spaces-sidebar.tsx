@@ -27,7 +27,7 @@ import {
 	PushPinIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
@@ -39,10 +39,6 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
-import {
-	type RouteIntentPrefetchController,
-	useRouteIntentPrefetch,
-} from "#/components/app/use-route-intent-prefetch";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationNewSpacePath,
@@ -69,10 +65,6 @@ import { SpaceAgentOrb } from "./space-agent-orb";
 import { useSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import { useAccountSpaceIndicators } from "./use-account-space-indicators";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
-import {
-	type SpaceConversationIntentPrefetch,
-	useSpaceConversationIntentPrefetch,
-} from "./use-space-conversation-intent-prefetch";
 
 const SIDEBAR_TIME_FORMAT_OPTIONS = {
 	day: "numeric",
@@ -167,8 +159,6 @@ export function AppSpacesSidebar(input: {
 	)
 		? BROWSER_SIDEBAR_TIME_FORMATTER
 		: UTC_SIDEBAR_TIME_FORMATTER;
-	const routeIntentPrefetch = useRouteIntentPrefetch();
-	const prefetchSpaceConversation = useSpaceConversationIntentPrefetch();
 	const spacesQuery = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: input.currentProfileId.trim().length > 0,
@@ -273,7 +263,6 @@ export function AppSpacesSidebar(input: {
 	}) => (
 		<SidebarSpacesList
 			activeWakeSummaryBySpaceId={activeWakeSummaryBySpaceId}
-			currentProfileId={input.currentProfileId}
 			currentSpaceId={input.currentSpaceId}
 			isError={listInput.isError ?? false}
 			isPending={listInput.isPending ?? false}
@@ -288,9 +277,7 @@ export function AppSpacesSidebar(input: {
 				});
 			}}
 			onTogglePinned={pinMutation.toggle}
-			prefetchSpaceConversation={prefetchSpaceConversation}
 			resolveRoutePath={resolveSpaceRoutePath}
-			routeIntentPrefetch={routeIntentPrefetch}
 			unreadBySpaceId={unreadBySpaceId}
 		/>
 	);
@@ -410,11 +397,8 @@ function SidebarSpacesList(input: {
 	onOpenSpace: (routePath: string) => void;
 	onRetry: () => void;
 	onTogglePinned: (item: AccountSpaceItem) => void;
-	prefetchSpaceConversation: SpaceConversationIntentPrefetch;
 	resolveRoutePath: (item: AccountSpaceItem) => string;
-	routeIntentPrefetch: RouteIntentPrefetchController;
 	unreadBySpaceId: SpaceUnreadById;
-	currentProfileId: string;
 }) {
 	if (input.isPending) {
 		return (
@@ -465,7 +449,6 @@ function SidebarSpacesList(input: {
 			{input.items.map((item, index) => {
 				const isActive = item.spaceId === input.currentSpaceId;
 				const unread = input.unreadBySpaceId.get(item.spaceId);
-				const viewerProfileId = input.currentProfileId;
 				return (
 					<SpaceSidebarMenuItem
 						activeWakeSummary={input.activeWakeSummaryBySpaceId.get(
@@ -479,9 +462,6 @@ function SidebarSpacesList(input: {
 						lastJoinedAtFormatter={input.lastJoinedAtFormatter}
 						onOpenSpace={input.onOpenSpace}
 						onTogglePinned={input.onTogglePinned}
-						openMeldProfileId={viewerProfileId}
-						prefetchSpaceConversation={input.prefetchSpaceConversation}
-						routeIntentPrefetch={input.routeIntentPrefetch}
 						routePath={input.resolveRoutePath(item)}
 						unreadCount={unread?.unreadCount ?? 0}
 					/>
@@ -500,11 +480,8 @@ function SpaceSidebarMenuItem(input: {
 	lastJoinedAtFormatter: Intl.DateTimeFormat;
 	onOpenSpace: (routePath: string) => void;
 	onTogglePinned: (item: AccountSpaceItem) => void;
-	prefetchSpaceConversation: SpaceConversationIntentPrefetch;
-	routeIntentPrefetch: RouteIntentPrefetchController;
 	routePath: string;
 	unreadCount: number;
-	openMeldProfileId: string;
 }) {
 	const isPinned = input.item.pinnedAt !== null;
 	const hasActiveWake = input.activeWakeSummary !== undefined;
@@ -529,12 +506,6 @@ function SpaceSidebarMenuItem(input: {
 		isNewSpace,
 		spaceName: input.item.spaceName,
 	});
-	const prefetchConversationData = () =>
-		input.prefetchSpaceConversation({
-			spaceId: input.item.spaceId,
-			openMeldProfileId: input.openMeldProfileId,
-		});
-
 	return (
 		<FluidNavMenuItem
 			className="group/space-row"
@@ -553,46 +524,13 @@ function SpaceSidebarMenuItem(input: {
 				<Tooltip>
 					<TooltipTrigger
 						render={
-							<button
+							<Link
 								aria-label={openLabel}
 								className={resolveSpaceSidebarOpenButtonClassName({
 									hasUnread,
 									isNewSpace,
 								})}
-								onClick={() => input.onOpenSpace(input.routePath)}
-								onFocus={
-									input.isActive
-										? undefined
-										: () =>
-												input.routeIntentPrefetch.prefetchNow(
-													input.routePath,
-													prefetchConversationData
-												)
-								}
-								onPointerDown={
-									input.isActive
-										? undefined
-										: () =>
-												input.routeIntentPrefetch.prefetchNow(
-													input.routePath,
-													prefetchConversationData
-												)
-								}
-								onPointerEnter={
-									input.isActive
-										? undefined
-										: () =>
-												input.routeIntentPrefetch.schedule(
-													input.routePath,
-													prefetchConversationData
-												)
-								}
-								onPointerLeave={
-									input.isActive
-										? undefined
-										: () => input.routeIntentPrefetch.cancel(input.routePath)
-								}
-								type="button"
+								to={input.routePath}
 							>
 								<HashIcon data-icon="inline-start" data-space-icon="channel" />
 								<div
@@ -632,7 +570,7 @@ function SpaceSidebarMenuItem(input: {
 										/>
 									</span>
 								) : null}
-							</button>
+							</Link>
 						}
 					/>
 					<TooltipContent

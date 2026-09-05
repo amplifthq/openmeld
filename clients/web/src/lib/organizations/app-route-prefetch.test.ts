@@ -266,7 +266,7 @@ describe("organization app route prefetch", () => {
 		).toBeLessThan(listOrganizationSpacesMock.mock.invocationCallOrder[0] ?? 0);
 	});
 
-	it("restores the Space display cache and warms current history, status, and bootstrap", async () => {
+	it("restores the Space display cache and warms one complete bootstrap", async () => {
 		const queryClient = createQueryClient();
 
 		await prefetchSpaceConversationRouteData({
@@ -282,8 +282,8 @@ describe("organization app route prefetch", () => {
 			queryClient.getQueryData(spaceQueryKeys.bootstrap("space-1", "human-1"))
 		).toMatchObject({ status: { spaceId: "space-1" } });
 		expect(getBootstrapMock).toHaveBeenCalledTimes(1);
-		expect(getStatusMock).toHaveBeenCalledTimes(1);
-		expect(listSignalEnvelopesMock).toHaveBeenCalledTimes(1);
+		expect(getStatusMock).not.toHaveBeenCalled();
+		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
 		expect(
 			queryClient.getQueryData(spaceQueryKeys.history("space-1", "human-1"))
 		).toEqual({ envelopes: [], nextCursor: null });
@@ -323,7 +323,7 @@ describe("organization app route prefetch", () => {
 		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
 	});
 
-	it("starts the current history read only after the saved conversation is restored", async () => {
+	it("starts the current bootstrap only after the saved conversation is restored", async () => {
 		const queryClient = createQueryClient();
 		let finishRestore: (() => void) | undefined;
 		queryPersistence.activateSpaceConversation = vi.fn(
@@ -347,12 +347,13 @@ describe("organization app route prefetch", () => {
 				1
 			);
 		});
-		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
+		expect(getBootstrapMock).not.toHaveBeenCalled();
 
 		finishRestore?.();
 		await prefetch;
 
-		expect(listSignalEnvelopesMock).toHaveBeenCalledTimes(1);
+		expect(getBootstrapMock).toHaveBeenCalledTimes(1);
+		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
 	});
 
 	it("prefetches a known authorized conversation without waiting for route scope or profiles", async () => {
@@ -371,7 +372,9 @@ describe("organization app route prefetch", () => {
 		expect(resolveOrganizationScopeMock).not.toHaveBeenCalled();
 		expect(listStartProfilesMock).not.toHaveBeenCalled();
 		expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledTimes(1);
-		expect(listSignalEnvelopesMock).toHaveBeenCalledTimes(1);
+		expect(getBootstrapMock).toHaveBeenCalledTimes(1);
+		expect(getStatusMock).not.toHaveBeenCalled();
+		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
 	});
 
 	it("warms an existing Center Agent conversation through its read-only projection", async () => {
@@ -398,8 +401,8 @@ describe("organization app route prefetch", () => {
 			openMeldProfileId: "human-1",
 		});
 		expect(getBootstrapMock).toHaveBeenCalledOnce();
-		expect(getStatusMock).toHaveBeenCalledOnce();
-		expect(listSignalEnvelopesMock).toHaveBeenCalledOnce();
+		expect(getStatusMock).not.toHaveBeenCalled();
+		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
 	});
 
 	it("never opens or creates a Center Agent conversation from hover prefetch", async () => {

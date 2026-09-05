@@ -1,4 +1,7 @@
-import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import type {
+	AgentProfileReplyRecoveryPlan,
+	ProfileDetailsSpaceMemberInput,
+} from "@openmeld/agent-profile";
 import type {
 	ModelCatalog,
 	SpaceInboxUnreadTarget,
@@ -183,6 +186,7 @@ import {
 	type SpaceWakeStopRequestHandler,
 	shouldRenderSpaceWakeStopControl,
 } from "./space-wake-stop-control";
+import { useSpaceConversationPosition } from "./use-space-conversation-position";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
 import type {
 	SpaceComposerAddressingTarget,
@@ -497,16 +501,21 @@ export function SpaceConversationPanel(
 		onSpaceViewChange: input.onSpaceViewChange,
 		onViewingLatestChange: input.onViewingLatestChange,
 		presentedWakeProgressItems: input.presentedWakeProgressItems,
+		selfProfileId: input.selfProfileId,
 		spaceId: input.spaceId,
+		spaceViewIdPrefix: input.spaceViewIdPrefix,
 		threadsByRootSignalId,
 		threadsErrorMessage: input.threadsErrorMessage,
 		threadsIsLoading: input.threadsIsLoading === true,
 		unreadTargets: input.unreadTargets ?? [],
 	});
 	const {
+		conversationAutoScroll,
 		conversationScrollElement,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
+		onConversationScroll,
+		onConversationScrollEnd,
 		onJumpToMessage,
 		registerConversationScrollElement,
 		requestUnreadMeasurement,
@@ -576,8 +585,11 @@ export function SpaceConversationPanel(
 				idPrefix={input.spaceViewIdPrefix}
 				messages={
 					<MessageScrollerProvider
-						autoScroll={true}
+						autoScroll={conversationAutoScroll}
 						defaultScrollPosition="end"
+						key={buildSpaceConversationScrollRestorationId(
+							input.spaceId ?? input.spaceViewIdPrefix
+						)}
 					>
 						<SpaceConversationSendScrollController
 							isSendingMessage={input.isSendingMessage}
@@ -615,10 +627,11 @@ export function SpaceConversationPanel(
 								aria-live="polite"
 								className="h-full py-4"
 								data-scroll-restoration-id={buildSpaceConversationScrollRestorationId(
-									input.spaceId
+									input.spaceId ?? input.spaceViewIdPrefix
 								)}
 								onScroll={(event) => {
 									const conversationScrollElement = event.currentTarget;
+									onConversationScroll(conversationScrollElement);
 									requestUnreadMeasurement();
 									if (conversationScrollElement.scrollTop > 48) {
 										return;
@@ -630,6 +643,9 @@ export function SpaceConversationPanel(
 											error
 										);
 									});
+								}}
+								onScrollEnd={(event) => {
+									onConversationScrollEnd(event.currentTarget);
 								}}
 								ref={registerConversationScrollElement}
 								role="log"
@@ -1133,17 +1149,32 @@ function useSpaceConversationNavigationController(input: {
 	onSpaceViewChange: (view: SpaceView) => void;
 	onViewingLatestChange?: (isViewingLatest: boolean) => void;
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+	selfProfileId: string;
 	spaceId?: string;
+	spaceViewIdPrefix: string;
 	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
 	threadsErrorMessage?: string | null;
 	threadsIsLoading: boolean;
 	unreadTargets: readonly SpaceInboxUnreadTarget[];
 }) {
+	const scrollRestorationId = buildSpaceConversationScrollRestorationId(
+		input.spaceId ?? input.spaceViewIdPrefix
+	);
 	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
 	const unreadMeasurementRequestRef = useRef<() => void>(() => undefined);
 	const [conversationScrollElement, setConversationScrollElement] =
 		useState<HTMLDivElement | null>(null);
 	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
+	const conversationPosition = useSpaceConversationPosition({
+		historyIsPending: input.historyIsPending,
+		messageElementsRef: messageElementsBySignalIdRef,
+		restorationId: scrollRestorationId,
+		selfProfileId: input.selfProfileId,
+		viewport: conversationScrollElement,
+	});
+	const conversationAutoScroll = conversationPosition.autoScroll;
+	const onConversationScroll = conversationPosition.onScroll;
+	const onConversationScrollEnd = conversationPosition.onScrollEnd;
 	const highlightMessageTimerRef = useRef<number | null>(null);
 	const appliedInitialFocusRef = useRef<string | null>(null);
 	const appliedInitialThreadFocusRef = useRef<string | null>(null);
@@ -1427,10 +1458,13 @@ function useSpaceConversationNavigationController(input: {
 	);
 
 	return {
+		conversationAutoScroll,
 		conversationScrollElement,
 		highlightedSignalId,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
+		onConversationScroll,
+		onConversationScrollEnd,
 		onJumpToMessage,
 		registerConversationScrollElement,
 		registerMessageElement,
@@ -2497,6 +2531,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
 		entriesByProfileId: input.profileEntriesById,
+		fallbackEntry: buildConversationSpeakerProfileDetailsEntry(input.run),
 		modelCatalog: input.modelCatalog,
 		orgSlug: input.orgSlug,
 	});
@@ -2706,6 +2741,33 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 		</>
 	);
 });
+
+function buildConversationSpeakerProfileDetailsEntry(
+	run: SpaceConversationBubbleRun
+): ProfileDetailsSpaceMemberInput | null {
+	if (run.speaker.profileKind === "system") {
+		return null;
+	}
+	return {
+		addedByDisplayName: null,
+		addedByProfileId: null,
+		agentControllerConversationId: null,
+		agentControllerRef: run.speaker.agentControllerRef,
+		availabilityPhase: null,
+		availabilityReasonCode: null,
+		availabilitySummary: null,
+		availabilityTooltip: null,
+		lastSeenLabel: null,
+		mentionLabel: null,
+		ownerDisplay: run.speaker.ownerDisplay,
+		ownerUserId: null,
+		profileId: run.speaker.profileId,
+		profileKind: run.speaker.profileKind,
+		profileName: run.speaker.profileName,
+		runtimeDeviceDisplayName: run.speaker.runtimeDeviceDisplayName,
+		workingDirectory: null,
+	};
+}
 
 function ConversationBubbleContent(input: {
 	agentInteractionItems: ReturnType<

@@ -13,6 +13,7 @@ export async function readAccountSpaceIndex(input: {
 	webAppUrl: string;
 	requestHeaders: Headers;
 	profileId: string;
+	includeDirectMessageProfileIds?: boolean;
 	includePurposes?: boolean;
 	limit?: number;
 	scope: "account" | "profile";
@@ -31,6 +32,8 @@ export async function readAccountSpaceIndex(input: {
 		operation: "list account spaces",
 		path: buildAccountSpaceIndexPath({
 			gatewayHost: resolveAccountSpaceIndexGatewayHost(input.gatewayUrl),
+			includeDirectMessageProfileIds:
+				input.includeDirectMessageProfileIds === true,
 			// The Web surfaces the one-time "this space was deleted" notice, so it
 			// opts in to the recently-deleted payload (strict legacy clients do not).
 			includeRecentlyDeletedItems: true,
@@ -54,6 +57,7 @@ export async function fetchAccountSpaceIndexFromRequest(input: {
 	gatewayUrl: string;
 	webAppUrl: string;
 	profileId: string;
+	includeDirectMessageProfileIds?: boolean;
 	includePurposes?: boolean;
 	limit?: number;
 	scope: "account" | "profile";
@@ -65,6 +69,7 @@ export async function fetchAccountSpaceIndexFromRequest(input: {
 		requestHeaders: getRequestHeaders(),
 		profileId: input.profileId,
 		scope: input.scope,
+		includeDirectMessageProfileIds: input.includeDirectMessageProfileIds,
 		includePurposes: input.includePurposes,
 		...(input.limit === undefined ? {} : { limit: input.limit }),
 		fetchImpl: input.fetchImpl,

@@ -1,4 +1,7 @@
-import { buildProfileDetailsSnapshotFromSpaceMember } from "@openmeld/agent-profile";
+import {
+	buildProfileDetailsSnapshotFromSpaceMember,
+	type ProfileDetailsSpaceMemberInput,
+} from "@openmeld/agent-profile";
 import type {
 	ModelCatalog,
 	ProfileDetailsViewerScope,
@@ -24,6 +27,7 @@ export function useSpaceProfileDetailsPopover(input: {
 	currentOwnerUserId: string | null;
 	entry: SpaceMemberDirectoryEntry | null;
 	entriesByProfileId?: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	fallbackEntry?: ProfileDetailsSpaceMemberInput | null;
 	modelCatalog: ModelCatalog | null;
 	orgSlug?: string;
 }) {
@@ -101,9 +105,12 @@ export function useSpaceProfileDetailsPopover(input: {
 		);
 	};
 
-	const selectedEntry = input.entry;
+	const fallbackEntry = input.fallbackEntry
+		? buildFallbackSpaceMemberDirectoryEntry(input.fallbackEntry)
+		: null;
+	const selectedEntry = input.entry ?? fallbackEntry;
 	return {
-		canOpenProfileDetails: input.entry !== null,
+		canOpenProfileDetails: selectedEntry !== null,
 		profileDetailsPopoverTrigger: selectedEntry
 			? (trigger: ReactElement) => renderProfilePopover(selectedEntry, trigger)
 			: null,
@@ -113,9 +120,33 @@ export function useSpaceProfileDetailsPopover(input: {
 		) => {
 			const entry =
 				input.entriesByProfileId?.get(profileId) ??
-				(input.entry?.profileId === profileId ? input.entry : null);
+				(input.entry?.profileId === profileId ? input.entry : null) ??
+				(fallbackEntry?.profileId === profileId ? fallbackEntry : null);
 			return entry ? renderProfilePopover(entry, trigger) : trigger;
 		},
+	};
+}
+
+function buildFallbackSpaceMemberDirectoryEntry(
+	entry: ProfileDetailsSpaceMemberInput
+): SpaceMemberDirectoryEntry {
+	return {
+		...entry,
+		avatarUrl: null,
+		agentControllerPermissionMode: null,
+		availabilityAction: null,
+		availabilityBadgeLabel: null,
+		availabilityCategory: null,
+		availabilityIsRefreshing: false,
+		controllerDisplayName: null,
+		id: entry.profileId,
+		liveNow: false,
+		manualParticipationOnly: false,
+		modelSelection: null,
+		ownerName: entry.ownerDisplay,
+		presenceLabel: null,
+		presenceStatus: null,
+		searchText: `${entry.profileName} ${entry.profileId}`.toLowerCase(),
 	};
 }
 

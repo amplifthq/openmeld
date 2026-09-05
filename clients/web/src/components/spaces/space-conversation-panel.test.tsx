@@ -91,6 +91,7 @@ vi.mock("@tanstack/react-router", () => ({
 			{children}
 		</a>
 	),
+	useElementScrollRestoration: () => undefined,
 }));
 
 vi.mock("./space-message-center-agent-task-references", () => ({
@@ -4083,16 +4084,20 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("keeps historical profile headers passive when the member entry is unavailable", () => {
+	it("opens historical profile identity before the member directory is available", () => {
 		renderSpaceConversationPanel({
 			membersSnapshot: null,
 			timelineItems: [createTimelineItem()],
 		});
 
-		expect(
-			screen.queryByRole("button", { name: "Check Felix Profile" })
-		).toBeNull();
-		expect(screen.getByText("Felix")).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Felix Profile" })
+		);
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.getByText("Check this Profile")).toBeTruthy();
+		expect(dialog.getAllByText("Felix").length).toBeGreaterThan(0);
+		expect(dialog.getByText("human-profile-1")).toBeTruthy();
 	});
 
 	it("shows agent controller metadata without owner repetition", () => {

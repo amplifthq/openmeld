@@ -2262,6 +2262,7 @@ export type ListAccountSpacesInput = {
   scope: AccountSpaceIndexQuery["scope"];
   selectedProfileId: string;
   limit?: number;
+  includeDirectMessageProfileIds?: boolean;
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
 };
@@ -17881,6 +17882,8 @@ export async function rpcListAccountSpaces(
     scope,
     selectedProfileId,
     limit,
+    includeDirectMessageProfileIds:
+      input.includeDirectMessageProfileIds === true,
     includeRecentlyDeletedItems: input.includeRecentlyDeletedItems === true,
     includePurposes: input.includePurposes === true,
   });

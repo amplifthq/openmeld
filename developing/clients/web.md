@@ -471,7 +471,14 @@ pin order or the normal unread-first and recency order. Web does not create a
 second local read-position, membership, or Inbox source for this presentation.
 The Direct Messages secondary sidebar consumes the same Core-owned grouped
 summary and shows the indicator on the exact unread conversation row. It does
-not derive unread state from route activity or a browser-only counter.
+not derive unread state from route activity or a browser-only counter. The
+Account Space Index may additionally return the two Direct Message Profile ids
+when Web explicitly opts in. The sidebar resolves those ids through the one
+shared Organization Profile Directory query used by People and Agents, so its
+rows reuse the same names, avatars, and Agent Controller icons. It must not fan
+out a full Space members query per conversation. The Profile id pair is
+presentation data only: it does not establish membership or authorize opening
+the conversation.
 The Spaces destination in the outer app rail consumes the Core summary's
 complete `ordinarySpaceUnreadCount` aggregate. It shows one static amber dot
 whenever at least one ordinary Space has unread messages, including while the
@@ -2247,19 +2254,15 @@ that restore-and-history chain. Links from
 the Space Directory carry
 the already selected human profile so the Space bootstrap can start during
 intent preload instead of waiting for a second profile-resolution navigation.
-The button-based Space and Direct Message sidebar rows preload their exact target
-route and conversation data together: a 50 ms pointer dwell avoids warming rows
-that the member only passes over, while keyboard focus and pointer press start
-immediately. The mounted authorized App shell supplies its already resolved
-Organization, storage scope, and acting Human Profile to the conversation-data
-prefetch, so Dexie restoration and the current history request do not wait for the
-Router preload to resolve those same prerequisites again. The Router preload still
-runs in parallel, and every server read keeps the normal authenticated and
-authorized API boundary. Leaving before the dwell cancels the pending preload, and
-the current active conversation does not preload itself. The target remains bound
-to its Organization, Space, and acting Human Profile, so Query deduplication,
-browser history restoration, current history, status, and bootstrap all reuse the
-normal entry path instead of creating a second cache or source of state.
+Space and Direct Message sidebar rows are Router links. The Router's shared
+50 ms intent delay avoids warming rows that the member only passes over and
+invokes the target route loader for pointer or keyboard intent. The exact acting
+Human Profile stays in the target URL, so the loader restores and warms the same
+conversation Query keys used on navigation. Every server read keeps the normal
+authenticated and authorized API boundary, and leaving before the Router's
+intent delay cancels the pending preload. Web does not maintain a second timer,
+prefetch controller, or component-owned conversation-data path beside the route
+loader.
 TanStack Query is the sole freshness owner for loader-prefetched data. The
 Router's preload freshness window is zero, so every loader invocation reaches
 the exact Query key and lets that query's `staleTime`, in-flight deduplication,
@@ -2272,9 +2275,11 @@ preload must not return a different loader result that navigation could render.
 The route disables loader preload and resolves canonical route data only on
 entry. The primary app rail and global launcher may nevertheless prefetch the
 read-only Center Agent DM projection on pointer intent or keyboard focus. When
-that projection identifies an existing DM, Web restores and warms the exact
-Space display snapshot, history, status, and bootstrap Query keys consumed by
-the activated conversation. A missing projection ends prefetch immediately: hover and focus
+that projection identifies an existing DM, Web restores the exact Space display
+snapshot and history, then performs one bootstrap read and seeds the status,
+members, history, and thread Query keys consumed by the activated conversation.
+It must not issue parallel status or recent-history reads for data already
+contained in that bootstrap. A missing projection ends prefetch immediately: hover and focus
 must never call the open endpoint, create a DM, or perform another mutation.
 The stable, read-only DM projection may persist in the approved Organization
 browser-read segment. The full route and compact launcher render that cached
@@ -2299,6 +2304,20 @@ Private, membership-scoped, real-time conversations must not be statically
 prerendered or placed in a shared server cache; intent prefetch, request-scoped
 SSR data, the account-scoped browser cache, and live invalidation are the
 allowed acceleration layers.
+
+TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
+restoration key is the route pathname rather than the individual
+browser-history entry, and the Space message viewport has a stable id derived
+from the Space id. The conversation also records the first visible message and
+its viewport offset after scrolling settles. That account-and-Space-scoped
+semantic anchor is restored after cached history and layout have settled, so
+virtualized or deferred message layout cannot move a returning reader to a
+different message. Returning to the same Space in a tab therefore restores that
+Space's last reading position; different Spaces remain independent, and a
+message-focus search parameter may still move the viewport after restoration.
+Both layers use session storage. This view-local presentation state does not
+belong in the IndexedDB Query cache and is never message, read-cursor, or access
+authority.
 
 ### Browser read-cache persistence
 

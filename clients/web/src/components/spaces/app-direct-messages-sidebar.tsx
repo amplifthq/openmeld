@@ -1,6 +1,6 @@
 "use client";
 
-import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
+import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { SidebarContent } from "@openmeld/ui/components/sidebar";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
@@ -13,37 +13,33 @@ import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { AppInnerSidebarHeader } from "#/components/app/app-inner-sidebar";
 import {
 	APP_NAV_ITEM_TONE_CLASS_NAME,
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
-import {
-	type RouteIntentPrefetchController,
-	useRouteIntentPrefetch,
-} from "#/components/app/use-route-intent-prefetch";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
+import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
-import { spaceMembersQueryOptions } from "#/query/spaces/members";
 import {
 	resolveAccountSpaceViewerProfileId,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { useSpaceInboxUnreadById } from "./use-account-space-indicators";
-import {
-	type SpaceConversationIntentPrefetch,
-	useSpaceConversationIntentPrefetch,
-} from "./use-space-conversation-intent-prefetch";
 
-type DirectMessagePeer =
-	| SpaceMembersSnapshot["humans"][number]
-	| SpaceMembersSnapshot["agents"][number];
+type DirectMessagePeer = {
+	agentControllerRef: string | null;
+	avatarUrl: string | null;
+	profileId: string;
+	profileKind: "agent" | "human";
+	profileName: string;
+};
 
 type DirectMessagesListState =
 	| "loading"
@@ -56,9 +52,6 @@ export function AppDirectMessagesSidebar(input: {
 	currentProfileId: string;
 	currentSpaceId: string;
 }) {
-	const navigate = useNavigate();
-	const routeIntentPrefetch = useRouteIntentPrefetch();
-	const prefetchSpaceConversation = useSpaceConversationIntentPrefetch();
 	const { currentOrganization } = useAppOrganization();
 	const spacesQuery = useQuery(
 		accountSpaceItemsQueryOptions({
@@ -76,6 +69,12 @@ export function AppDirectMessagesSidebar(input: {
 	const centerAgentDesignationQuery = useQuery(
 		centerAgentDesignationQueryOptions({
 			enabled: true,
+			organizationId: currentOrganization.id,
+		})
+	);
+	const profileDirectoryQuery = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: input.currentProfileId.trim().length > 0,
 			organizationId: currentOrganization.id,
 		})
 	);
@@ -109,21 +108,13 @@ export function AppDirectMessagesSidebar(input: {
 					currentProfileId={input.currentProfileId}
 					currentSpaceId={input.currentSpaceId}
 					items={directMessageItems}
-					onOpen={(routePath) => {
-						navigate({
-							to: routePath,
-						}).catch((error: unknown) => {
-							console.error("Failed to open Direct Message.", error);
-						});
-					}}
 					onRetry={() => {
 						spacesQuery.refetch().catch((error: unknown) => {
 							console.error("Failed to refresh Direct Messages.", error);
 						});
 					}}
 					organizationSlug={currentOrganization.slug}
-					prefetchSpaceConversation={prefetchSpaceConversation}
-					routeIntentPrefetch={routeIntentPrefetch}
+					profileDirectory={profileDirectoryQuery.data}
 					state={listState}
 					unreadBySpaceId={unreadBySpaceId}
 				/>
@@ -137,11 +128,9 @@ function DirectMessagesList(input: {
 	currentProfileId: string;
 	currentSpaceId: string;
 	items: readonly AccountSpaceItem[];
-	onOpen: (routePath: string) => void;
 	onRetry: () => void;
 	organizationSlug: string;
-	prefetchSpaceConversation: SpaceConversationIntentPrefetch;
-	routeIntentPrefetch: RouteIntentPrefetchController;
+	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
 	state: DirectMessagesListState;
 	unreadBySpaceId: ReadonlyMap<
 		string,
@@ -204,10 +193,8 @@ function DirectMessagesList(input: {
 						isActive={item.spaceId === input.currentSpaceId}
 						item={item}
 						key={item.spaceId}
-						onOpen={input.onOpen}
 						organizationSlug={input.organizationSlug}
-						prefetchSpaceConversation={input.prefetchSpaceConversation}
-						routeIntentPrefetch={input.routeIntentPrefetch}
+						profileDirectory={input.profileDirectory}
 						unreadCount={
 							input.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0
 						}
@@ -249,25 +236,17 @@ function DirectMessageSidebarItem(input: {
 	index: number;
 	isActive: boolean;
 	item: AccountSpaceItem;
-	onOpen: (routePath: string) => void;
 	organizationSlug: string;
-	prefetchSpaceConversation: SpaceConversationIntentPrefetch;
-	routeIntentPrefetch: RouteIntentPrefetchController;
+	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
 	unreadCount: number;
 }) {
 	const viewerProfileId = resolveAccountSpaceViewerProfileId({
 		currentProfileId: input.currentProfileId,
 		item: input.item,
 	});
-	const membersQuery = useQuery(
-		spaceMembersQueryOptions({
-			enabled: true,
-			spaceId: input.item.spaceId,
-			openMeldProfileId: viewerProfileId,
-		})
-	);
 	const peer = resolveDirectMessagePeer({
-		members: membersQuery.data,
+		item: input.item,
+		profileDirectory: input.profileDirectory,
 		viewerProfileId,
 	});
 	const label = peer?.profileName ?? input.item.spaceName;
@@ -278,18 +257,12 @@ function DirectMessageSidebarItem(input: {
 		search: { profileId: viewerProfileId },
 		spaceId: input.item.spaceId,
 	});
-	const prefetchConversationData = () =>
-		input.prefetchSpaceConversation({
-			spaceId: input.item.spaceId,
-			openMeldProfileId: viewerProfileId,
-		});
-
 	return (
 		<FluidNavMenuItem index={input.index} value={input.item.spaceId}>
 			<Tooltip>
 				<TooltipTrigger
 					render={
-						<button
+						<Link
 							aria-current={input.isActive ? "page" : undefined}
 							aria-label={accessibleLabel}
 							className={cn(
@@ -301,40 +274,7 @@ function DirectMessageSidebarItem(input: {
 									: null,
 								hasUnread ? "font-semibold text-sidebar-foreground" : null
 							)}
-							onClick={() => input.onOpen(routePath)}
-							onFocus={
-								input.isActive
-									? undefined
-									: () =>
-											input.routeIntentPrefetch.prefetchNow(
-												routePath,
-												prefetchConversationData
-											)
-							}
-							onPointerDown={
-								input.isActive
-									? undefined
-									: () =>
-											input.routeIntentPrefetch.prefetchNow(
-												routePath,
-												prefetchConversationData
-											)
-							}
-							onPointerEnter={
-								input.isActive
-									? undefined
-									: () =>
-											input.routeIntentPrefetch.schedule(
-												routePath,
-												prefetchConversationData
-											)
-							}
-							onPointerLeave={
-								input.isActive
-									? undefined
-									: () => input.routeIntentPrefetch.cancel(routePath)
-							}
-							type="button"
+							to={routePath}
 						>
 							{peer ? (
 								<SpaceProfileIcon
@@ -365,7 +305,7 @@ function DirectMessageSidebarItem(input: {
 									data-direct-message-unread-indicator="true"
 								/>
 							) : null}
-						</button>
+						</Link>
 					}
 				/>
 				<TooltipContent align="start" side="right">
@@ -377,16 +317,45 @@ function DirectMessageSidebarItem(input: {
 }
 
 function resolveDirectMessagePeer(input: {
-	members: SpaceMembersSnapshot | undefined;
+	item: AccountSpaceItem;
+	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
 	viewerProfileId: string;
 }): DirectMessagePeer | null {
-	const activeMembers = [
-		...(input.members?.humans ?? []),
-		...(input.members?.agents ?? []),
-	].filter((member) => member.status === "active");
-	return (
-		activeMembers.find(
-			(member) => member.profileId !== input.viewerProfileId
-		) ?? null
+	const profileIds = input.item.directMessageProfileIds;
+	if (!profileIds?.includes(input.viewerProfileId)) {
+		return null;
+	}
+	const profileId = profileIds.find(
+		(candidate) => candidate !== input.viewerProfileId
 	);
+	if (!profileId) {
+		return null;
+	}
+	const agent = input.profileDirectory?.agentProfiles.find(
+		(profile) => profile.profileId === profileId && profile.status === "active"
+	);
+	if (agent) {
+		return {
+			agentControllerRef: agent.agentControllerRef,
+			avatarUrl: agent.avatarUrl ?? null,
+			profileId,
+			profileKind: "agent",
+			profileName: agent.profileName,
+		};
+	}
+	const member = input.profileDirectory?.members.find(
+		(candidate) =>
+			candidate.humanProfile?.profileId === profileId &&
+			candidate.humanProfile.status === "active"
+	);
+	if (!member?.humanProfile) {
+		return null;
+	}
+	return {
+		agentControllerRef: null,
+		avatarUrl: member.user.image,
+		profileId,
+		profileKind: "human",
+		profileName: member.humanProfile.profileName,
+	};
 }

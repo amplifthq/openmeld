@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -999,24 +1000,26 @@ describe("SpaceMessageBody", () => {
 	it("keeps canonical Space image files as morphing image previews", () => {
 		const onOpenSpaceFile = vi.fn();
 		render(
-			<SpaceMessageBody
-				item={{
-					files: [
-						{
-							fileId: "file-photo",
-							localPreviewUrl: "blob:space-photo-preview",
-							mimeType: "image/png",
-							name: "launch-photo.png",
-							revision: 2,
-							sizeBytes: 4096,
-						},
-					],
-					isAgentFinalReply: false,
-					spaceId: "space-123",
-					text: "",
-				}}
-				onOpenSpaceFile={onOpenSpaceFile}
-			/>
+			<QueryClientProvider client={new QueryClient()}>
+				<SpaceMessageBody
+					item={{
+						files: [
+							{
+								fileId: "file-photo",
+								localPreviewUrl: "blob:space-photo-preview",
+								mimeType: "image/png",
+								name: "launch-photo.png",
+								revision: 2,
+								sizeBytes: 4096,
+							},
+						],
+						isAgentFinalReply: false,
+						spaceId: "space-123",
+						text: "",
+					}}
+					onOpenSpaceFile={onOpenSpaceFile}
+				/>
+			</QueryClientProvider>
 		);
 
 		const preview = screen.getByRole("img", { name: "launch-photo.png" });

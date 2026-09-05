@@ -13,6 +13,7 @@ import {
 	APP_SIDEBAR_DEFAULT_STATES,
 	getAppSidebarStatesForRoute,
 } from "#/lib/sidebar-width-cookie";
+import { isQueryCancellationError } from "#/query/query-cancellation";
 import { AppSpaceEntryContent } from "../spaces/$spaceId";
 
 const directMessageRouteSearchSchema = z.object({
@@ -41,6 +42,9 @@ export const Route = createFileRoute("/o/$orgSlug/direct-messages/$spaceId")({
 			routeFamily: location.href,
 			spaceId: params.spaceId,
 		}).catch((error: unknown) => {
+			if (isQueryCancellationError(error)) {
+				return;
+			}
 			console.error(
 				"Failed to prefetch the Direct Message conversation.",
 				error

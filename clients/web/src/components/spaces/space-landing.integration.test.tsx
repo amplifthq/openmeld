@@ -2133,6 +2133,11 @@ describe("SpaceLanding", () => {
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(true);
+		const membersButton = screen.getByRole("button", { name: "Members" });
+		expect(membersButton.textContent).toBe("");
+		fireEvent.click(membersButton);
+		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
+		expect(screen.queryByText("Runner")).toBeNull();
 		fireEvent.keyDown(composer, { key: "Enter" });
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: "Space information" }));

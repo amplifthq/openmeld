@@ -13,7 +13,7 @@ const updateProfileSpaceHistoryStatusInputSchema = z.strictObject({
 export const updateProfileSpaceHistoryStatus = createServerFn({
 	method: "POST",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = updateProfileSpaceHistoryStatusInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(
