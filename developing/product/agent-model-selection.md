@@ -87,8 +87,11 @@ becomes a first-class, user-selectable property of an Agent Profile.
    model ID because reasoning validity is model-specific.
 5. **Single availability flag.** A catalog model is either usable or
    `unavailable`. No separate deprecated/retired states.
-6. **No "latest" concept** in Phase 1 — not computed, not stored as a boolean,
-   not shown.
+6. **No computed "latest" concept.** The optional catalog-owned `badgeLabel`
+   is reviewed presentation metadata, such as `New`, and appears beside local
+   model options and the selected value. It does not change defaults, ordering,
+   compatibility, model identity or reasoning. Reviewers add and remove labels;
+   clients do not infer recency or expire labels on their own clocks.
 7. **Reasoning effort is wired end-to-end in Phase 1** for controllers that
    expose a separate per-call control. Option strings must match the vendor's
    official values exactly (verified at catalog-authoring time). Cursor ACP

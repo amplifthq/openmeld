@@ -34,6 +34,7 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
+import { ModelBadge } from "#/components/models/model-badge";
 import { SpinnerButton } from "#/components/spinner-button";
 import type {
 	NewProfileErrorState,
@@ -717,7 +718,12 @@ export function AgentProfileModelSelectionFields(
 					<SelectTrigger
 						aria-label="Model"
 						className="h-10 w-full px-3 text-sm"
-						displayValue={state.modelDisplayValue}
+						displayValue={
+							<ModelOptionPresentation
+								badgeLabel={state.selectedModel?.badgeLabel}
+								label={state.modelDisplayValue}
+							/>
+						}
 						id={modelSelectId}
 						placeholder="Select a model"
 					/>
@@ -728,9 +734,12 @@ export function AgentProfileModelSelectionFields(
 								index={0}
 								value={state.currentUnavailableModel.id}
 							>
-								{formatUnavailableModelOptionLabel(
-									state.currentUnavailableModel
-								)}
+								<ModelOptionPresentation
+									badgeLabel={state.currentUnavailableModel.badgeLabel}
+									label={formatUnavailableModelOptionLabel(
+										state.currentUnavailableModel
+									)}
+								/>
 							</SelectItem>
 						) : null}
 						{renderCompatibleModelOptions({
@@ -980,14 +989,32 @@ function renderCompatibleModelOptions(input: {
 				key={model.id}
 				value={model.id}
 			>
-				{formatCompatibleModelOptionLabel({
-					compatibility,
-					defaultModelId: input.controller.defaultModelId,
-					model,
-				})}
+				<ModelOptionPresentation
+					badgeLabel={model.badgeLabel}
+					label={formatCompatibleModelOptionLabel({
+						compatibility,
+						defaultModelId: input.controller.defaultModelId,
+						model,
+					})}
+				/>
 			</SelectItem>
 		);
 	});
+}
+
+function ModelOptionPresentation({
+	label,
+	badgeLabel,
+}: {
+	label: string | undefined;
+	badgeLabel?: string;
+}) {
+	return (
+		<span className="flex min-w-0 items-center gap-2">
+			<span className="min-w-0 truncate">{label}</span>
+			{badgeLabel ? <ModelBadge label={badgeLabel} /> : null}
+		</span>
+	);
 }
 
 function ModelCompatibilityNotice(input: {
