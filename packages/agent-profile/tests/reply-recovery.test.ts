@@ -745,23 +745,15 @@ describe("planAgentProfileReplyRecovery", () => {
   });
 
   it.each([
-    [
-      "controller.client.upgrade_required",
-      "Codex on this computer can't use the selected model. Update Codex or choose another Codex installation, then try again.",
-      "Update or change local agent",
-    ],
-    [
-      "controller.runtime.missing",
-      "This local agent is not available on this device. Connect a local agent, then try again.",
-      "Connect local agent",
-    ],
-  ] as const)("uses shared recovery copy for readiness-impact reason %s", (reasonCode, copy, actionLabel) => {
+    "controller.client.upgrade_required",
+    "controller.runtime.missing",
+  ] as const)("does not turn historical readiness-impact reason %s into a current recovery action", (reasonCode) => {
     const plan = planAgentProfileReplyRecovery({
       member: createSpaceMemberAgentSnapshot({
         agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
           displayState: "blocked",
           primaryAction: "run_prepare",
-          reasonCodes: [reasonCode],
+          reasonCodes: [],
           facts: {
             binding: {
               routable: true,
@@ -785,14 +777,7 @@ describe("planAgentProfileReplyRecovery", () => {
       }),
     });
 
-    expect(plan).toMatchObject({
-      body: copy,
-      kind: "prepare_agent_profile",
-      primaryActionLabel: actionLabel,
-      recoveryReasonCode: reasonCode,
-      secondaryLabel: copy,
-      title: copy,
-    });
+    expect(plan).toEqual({ kind: "none" });
   });
 
   it.each([
@@ -813,6 +798,10 @@ describe("planAgentProfileReplyRecovery", () => {
             binding: {
               routable: true,
               source: "binding_truth",
+            },
+            runtime: {
+              ready: false,
+              reasonCodes: [reasonCode],
             },
           },
           primaryAction: "run_prepare",
@@ -880,19 +869,10 @@ describe("planAgentProfileReplyRecovery", () => {
   });
 
   it.each([
-    [
-      "provider_account.subscription_access_unavailable",
-      "Codex is connected, but its provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.",
-    ],
-    [
-      "provider_account.organization_access_disabled",
-      "Codex is connected, but its organization has disabled the provider access this agent needs. Ask the provider account admin to enable access before waking it again.",
-    ],
-    [
-      "provider_account.capacity_exhausted",
-      "Codex is connected, but its provider quota or credit balance is exhausted. Review the provider plan, billing, or credits before waking it again.",
-    ],
-  ] as const)("uses shared recovery copy for provider reason %s", (reasonCode, copy) => {
+    "provider_account.subscription_access_unavailable",
+    "provider_account.organization_access_disabled",
+    "provider_account.capacity_exhausted",
+  ] as const)("does not turn historical provider-account reason %s into a current recovery action", (reasonCode) => {
     const plan = planAgentProfileReplyRecovery({
       member: createSpaceMemberAgentSnapshot({
         agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
@@ -912,7 +892,7 @@ describe("planAgentProfileReplyRecovery", () => {
             },
           },
           primaryAction: "fix_provider_account",
-          reasonCodes: [reasonCode],
+          reasonCodes: [],
         }),
         profileName: "Codex",
         wakeState: "offline",
@@ -922,13 +902,45 @@ describe("planAgentProfileReplyRecovery", () => {
       }),
     });
 
+    expect(plan).toEqual({ kind: "none" });
+  });
+
+  it("routes a current Cursor plan limit to the Cursor plan action", () => {
+    const reasonCode = "cursor.plan_upgrade_required";
+    const plan = planAgentProfileReplyRecovery({
+      member: createSpaceMemberAgentSnapshot({
+        agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+          displayState: "blocked",
+          facts: {
+            binding: {
+              routable: true,
+              source: "binding_truth",
+            },
+            providerAccount: {
+              blocked: true,
+              expiresAtMs: 1_770_000_000_000,
+              observedAtMs: 1_769_990_000_000,
+              provider: "codex",
+              reasonCodes: [reasonCode],
+              source: "wake_failure",
+            },
+          },
+          primaryAction: "fix_provider_account",
+          reasonCodes: [reasonCode],
+        }),
+        profileName: "Cursor",
+        wakeState: "offline",
+        wakeabilityStatus: "blocked",
+        wakeabilityReasonCodes: [reasonCode],
+        wakeabilityReasonText: "Blocked",
+      }),
+    });
+
     expect(plan).toMatchObject({
-      body: copy,
       kind: "review_provider_account",
-      primaryActionLabel: "Review agent settings",
+      primaryActionId: "manage_cursor_plan",
+      primaryActionLabel: "Manage Cursor plan",
       recoveryReasonCode: reasonCode,
-      secondaryLabel: copy,
-      title: copy,
     });
   });
 
@@ -1088,7 +1100,7 @@ describe("planAgentProfileReplyRecovery", () => {
           phase: "available",
           reasonCode: "agent_execution.ready",
           status: "available_for_wake",
-          summary: "Can reply from this computer in Spaces.",
+          summary: "Available for Wake",
           tooltip: "Available for Wake",
         },
         wakeabilityReasonCodes: ["route.not_registered"],

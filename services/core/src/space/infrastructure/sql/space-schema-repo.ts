@@ -467,6 +467,12 @@ export function markSpaceAgentOwnerMembershipPolicyReconciled(
   );
 }
 
+export function clearSpaceAgentOwnerMembershipPolicyReconciled(
+  sql: SqlStorage
+): void {
+  sql.exec("DELETE FROM space_agent_owner_membership_policy WHERE id = 1");
+}
+
 function migrateDirectMessageAccess(sql: SqlStorage): void {
   const rows = sql
     .exec<{

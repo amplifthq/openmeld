@@ -14,6 +14,34 @@ openmeld <command> <subcommand> --help
 
 ## Top-Level Commands
 
+### Create a Space or message link
+
+Build a tenant-neutral public entry link locally. This command does not sign
+in, contact Core, start OpenMeld Service, or grant access.
+
+```bash
+openmeld space link <space-id> --view agent
+openmeld space link <space-id> --signal <signal-id> --view agent
+openmeld space link <space-id> --signal <signal-id> --thread-root-signal <thread-root-signal-id> --view agent
+```
+
+Agent View returns the canonical target and an exact `space access`
+continuation. Use full signal UUIDs from Space history.
+
+### Resolve Space access
+
+Use the Core-owned entry resolver before following a Space link when access is
+not already known. This read does not join the Space or change local Profile
+selection.
+
+```bash
+openmeld space access "<space-url-or-id>" --profile <profile-id> --view agent
+openmeld space access "<space-url-or-id>" --password <space-password> --json
+```
+
+Copied links preserve `focusSignalId` / `signalId` and
+`focusThreadRootSignalId` / `threadRootSignalId` in the resolved target.
+
 ## Current Local Session To Space Teammate
 
 When the user asks you to add this Codex or Claude Code session to a Space, use

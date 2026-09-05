@@ -222,6 +222,34 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.queryByText("Required: v0.3.126.")).toBeNull();
 	});
 
+	it("does not offer an update when Core has no actionable release", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.3.152",
+						latestVersion: null,
+						reasonCodes: ["local_components.release_manifest_invalid"],
+						requiredVersion: null,
+						status: "unknown",
+						updatePolicy: "required",
+						wakeBlocked: true,
+					},
+				}
+			),
+			replyReadiness: SERVICE_UPDATE_REQUIRED_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
+		expect(screen.queryByRole("link", { name: "Update manually" })).toBeNull();
+		expect(screen.queryByText("Required:", { exact: false })).toBeNull();
+	});
+
 	it("uses one OpenMeld Tools action for an available service update", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
@@ -481,7 +509,7 @@ describe("OpenMeldServiceCard", () => {
 	it.each([
 		"restored",
 		"needs_help",
-	] as const)("does not keep a stale %s outcome visible after both installed versions converge", (phase) => {
+	] as const)("keeps the authoritative %s failure visible after both installed versions converge", (phase) => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
 				{
@@ -515,9 +543,49 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("Up to date")).toBeTruthy();
-		expect(screen.queryByText("Update failed. Try again.")).toBeNull();
+		expect(screen.getByText("Update failed. Try again.")).toBeTruthy();
+		expect(screen.queryByText("Up to date")).toBeNull();
 		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+	});
+
+	it("keeps updating while the owner is still updating even when the target versions are visible", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					cli: {
+						commandContractVersion:
+							"openmeld-cli-command-contract-2026-05-local-components-v1",
+						installedPackageVersion: "0.8.0",
+						latestPackageVersion: "0.8.0",
+						reasonCodes: [],
+						requiredCommandContractVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.8.0",
+						latestVersion: "0.8.0",
+						reasonCodes: [],
+						requiredVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updating" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(
+			screen.getByText("Updating…", { selector: "[aria-live]" })
+		).toBeTruthy();
+		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
 	it("settles an exact update target when a newer release is already available", () => {
@@ -1488,13 +1556,13 @@ describe("OpenMeldServiceCard", () => {
 			screen.getByText("OpenMeld Service is not connected").className
 		).toContain("text-destructive");
 		expect(
-			screen.getByRole("link", { name: "Reconnect manually" }).className
+			screen.getByRole("link", { name: "Reconnect Computer" }).className
 		).toContain("text-destructive");
 		fireEvent.click(
 			screen.getByRole("button", { name: "OpenMeld tools options" })
 		);
 		expect(
-			screen.getAllByRole("link", { name: "Reconnect manually" })
+			screen.getAllByRole("link", { name: "Reconnect Computer" })
 		).toHaveLength(2);
 		expect(
 			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
@@ -1539,7 +1607,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("OpenMeld Service is not connected")).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Reconnect manually" })
+			screen.getByRole("link", { name: "Reconnect Computer" })
 		).toBeTruthy();
 		expect(screen.queryByText("OpenMeld Service is connected")).toBeNull();
 	});

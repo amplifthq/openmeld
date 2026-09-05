@@ -179,6 +179,8 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "spaces contract set": "space.contract.set",
   "space publication set": "space.publication.set",
   "spaces publication set": "space.publication.set",
+  "space access": "space.access",
+  "spaces access": "space.access",
   "space status": "space.status",
   "spaces status": "space.status",
   "space updates": "space.updates",

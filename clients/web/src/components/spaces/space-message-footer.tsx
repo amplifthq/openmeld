@@ -25,6 +25,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { SPACE_SYSTEM_DIVIDER_CLASS_NAME } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
 	MessageActionTooltip,
@@ -114,7 +115,8 @@ export function SpaceMessageFooter(input: {
 		<div
 			className={cn(
 				"@container mt-0.5 flex min-h-7 w-full min-w-0 items-center",
-				input.align === "end" ? "justify-end" : "justify-start"
+				input.align === "end" ? "justify-end" : "justify-start",
+				persistent && ["gap-2", SPACE_SYSTEM_DIVIDER_CLASS_NAME]
 			)}
 			data-persistent={persistent ? "true" : undefined}
 			data-slot="message-footer"

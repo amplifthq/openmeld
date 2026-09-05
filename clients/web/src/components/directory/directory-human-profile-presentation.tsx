@@ -18,8 +18,10 @@ import {
 } from "#/components/directory/directory-human-profile-format";
 import type {
 	DirectoryAgentProfileSummary,
+	DirectoryHumanProfileComputer,
 	DirectoryHumanProfileRow,
 	DirectoryIdentityAccount,
+	DirectoryProjectionStatus,
 } from "#/components/directory/directory-human-profile-model";
 import {
 	FEISHU_CHANNEL_IDENTITY,
@@ -38,6 +40,20 @@ export function DirectoryComputerSummary(input: {
 	if (input.size === "detail") {
 		return <DirectoryComputerDetailSummary member={input.member} />;
 	}
+	return (
+		<DirectoryHumanProfileComputerSummary
+			computer={input.member.computer}
+			interactive={input.interactive}
+			ownerName={input.member.name}
+		/>
+	);
+}
+
+export function DirectoryHumanProfileComputerSummary(input: {
+	computer: DirectoryHumanProfileComputer;
+	interactive?: boolean;
+	ownerName: string;
+}) {
 	const content = (
 		<>
 			<DesktopTowerIcon
@@ -45,26 +61,26 @@ export function DirectoryComputerSummary(input: {
 				className={cn(
 					"size-4",
 					"shrink-0",
-					resolveDirectoryComputerToneClassName(input.member.computer.state)
+					resolveDirectoryComputerToneClassName(input.computer.state)
 				)}
 			/>
-			<span>{input.member.computer.label}</span>
+			<span className="truncate">{input.computer.label}</span>
 		</>
 	);
 	const className = cn("inline-flex min-w-0 items-center gap-2", "text-xs");
-	if (input.interactive === false || !input.member.computer.path) {
+	if (input.interactive === false || !input.computer.path) {
 		return (
 			<span className={cn(className, "text-muted-foreground")}>{content}</span>
 		);
 	}
 	return (
 		<Link
-			aria-label={`${input.member.name}: ${input.member.computer.label}`}
+			aria-label={`${input.ownerName}: ${input.computer.label}`}
 			className={cn(
 				className,
 				"touch-manipulation transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 max-lg:min-h-11"
 			)}
-			to={input.member.computer.path}
+			to={input.computer.path}
 		>
 			{content}
 		</Link>
@@ -159,47 +175,133 @@ function DirectoryComputerDetailSummary(input: {
 export function DirectoryAgentProfilesSummary(input: {
 	modelCatalog: ModelCatalog | null;
 	ownerName: string;
-	path: string;
+	path?: string;
 	profiles: readonly DirectoryAgentProfileSummary[];
+	status?: DirectoryProjectionStatus;
+	variant?: "detail" | "popover";
 }) {
+	const status = input.status ?? "ready";
+	const isPopover = input.variant === "popover";
+	if (isPopover && (status !== "ready" || input.profiles.length === 0)) {
+		return null;
+	}
+	const visibleProfiles = isPopover
+		? input.profiles.slice(0, 5)
+		: input.profiles;
+	const showViewAll =
+		Boolean(input.path) &&
+		(!isPopover || input.profiles.length > visibleProfiles.length);
+	const countLabel =
+		isPopover && input.profiles.length > visibleProfiles.length
+			? `${visibleProfiles.length} of ${input.profiles.length}`
+			: `${input.profiles.length}`;
 	return (
 		<section className="min-w-0 space-y-2">
 			<div className="flex min-w-0 items-center justify-between gap-4">
-				<h3 className="font-medium text-muted-foreground text-xs">Agents</h3>
-				<Link
-					aria-label={`View all of ${input.ownerName}'s Agents`}
-					className="shrink-0 rounded-sm text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-					to={input.path}
-				>
-					All Agents
-				</Link>
+				<div className="flex min-w-0 items-baseline gap-2">
+					<h3 className="font-medium text-muted-foreground text-xs">Agents</h3>
+					{status === "ready" ? (
+						<span className="text-muted-foreground text-xs">{countLabel}</span>
+					) : null}
+				</div>
+				{showViewAll && input.path ? (
+					<DirectoryAgentsViewAllLink
+						label={isPopover ? "View all" : undefined}
+						ownerName={input.ownerName}
+						path={input.path}
+					/>
+				) : null}
 			</div>
-			{input.profiles.length > 0 ? (
-				<ul
-					aria-label={`${input.ownerName}'s Agents`}
-					className="scrollbar-hide flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-				>
-					{input.profiles.map((profile) => (
-						<li className="shrink-0" key={profile.id}>
-							<AgentProfileSummaryCard
-								modelCatalog={input.modelCatalog}
-								profile={profile}
-							/>
-						</li>
-					))}
-				</ul>
-			) : (
-				<p className="rounded-md border border-border px-4 py-3 text-muted-foreground text-sm">
-					No Agents yet
-				</p>
-			)}
+			<DirectoryAgentProfilesContent
+				modelCatalog={input.modelCatalog}
+				ownerName={input.ownerName}
+				profiles={visibleProfiles}
+				status={status}
+				variant={input.variant}
+			/>
 		</section>
+	);
+}
+
+function DirectoryAgentProfilesContent(input: {
+	modelCatalog: ModelCatalog | null;
+	ownerName: string;
+	profiles: readonly DirectoryAgentProfileSummary[];
+	status: DirectoryProjectionStatus;
+	variant?: "detail" | "popover";
+}) {
+	if (input.status === "loading") {
+		return <DirectoryAgentProfilesLoading />;
+	}
+	if (input.status === "failed") {
+		return (
+			<p className="rounded-md border border-border px-3 py-3 text-muted-foreground text-xs">
+				Agents unavailable
+			</p>
+		);
+	}
+	if (input.profiles.length === 0) {
+		return (
+			<p className="rounded-md border border-border px-3 py-3 text-muted-foreground text-xs">
+				No Agents yet
+			</p>
+		);
+	}
+	return (
+		<ul
+			aria-label={`${input.ownerName}'s Agents`}
+			className="scrollbar-hide flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+		>
+			{input.profiles.map((profile) => (
+				<li className="shrink-0" key={profile.id}>
+					<AgentProfileSummaryCard
+						modelCatalog={input.modelCatalog}
+						profile={profile}
+						variant={input.variant}
+					/>
+				</li>
+			))}
+		</ul>
+	);
+}
+
+function DirectoryAgentsViewAllLink(input: {
+	label?: string;
+	ownerName: string;
+	path: string;
+}) {
+	return (
+		<Link
+			aria-label={`View all of ${input.ownerName}'s Agents`}
+			className="inline-flex shrink-0 items-center gap-1 rounded-sm text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			to={input.path}
+		>
+			{input.label ?? "All Agents"}
+			<CaretRightIcon aria-hidden="true" className="size-3.5" />
+		</Link>
+	);
+}
+
+function DirectoryAgentProfilesLoading() {
+	return (
+		<output
+			aria-label="Loading Agents"
+			className="flex min-w-0 gap-2 overflow-hidden"
+		>
+			{[0, 1].map((index) => (
+				<div
+					className="h-[3.625rem] w-44 shrink-0 rounded-md border border-border bg-muted/35"
+					key={index}
+				/>
+			))}
+		</output>
 	);
 }
 
 function AgentProfileSummaryCard(input: {
 	modelCatalog: ModelCatalog | null;
 	profile: DirectoryAgentProfileSummary;
+	variant?: "detail" | "popover";
 }) {
 	const parsedControllerRef = parseAgentControllerRef(
 		input.profile.agentControllerRef
@@ -218,7 +320,10 @@ function AgentProfileSummaryCard(input: {
 	return (
 		<Link
 			aria-label={`Open ${input.profile.name}`}
-			className="flex w-60 shrink-0 items-center gap-3 rounded-md border border-border bg-card px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			className={cn(
+				"flex shrink-0 items-center gap-3 rounded-md border border-border bg-card px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
+				input.variant === "popover" ? "w-44" : "w-60"
+			)}
 			to={input.profile.path}
 		>
 			<AgentProfileSummaryAvatar profile={input.profile} />

@@ -848,7 +848,7 @@ function isRecordedReplyItem(item: SpaceTimelineItem): boolean {
 		item.signalType === "signal.text" &&
 		item.deliveryState === "sent" &&
 		item.agentStreamState === undefined &&
-		item.optimisticAgentReplyState === undefined &&
+		item.optimisticAgentReplyProgress === undefined &&
 		item.transientActivityPurpose === null
 	);
 }

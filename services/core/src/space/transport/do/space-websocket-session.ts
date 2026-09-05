@@ -225,7 +225,8 @@ function isSpaceLiveInvalidationFrame(
     (message.type === "space.members.changed" ||
       message.type === "space.meta.changed" ||
       message.type === "space.files.changed" ||
-      message.type === "agent.readiness.invalidated")
+      message.type === "agent.readiness.invalidated" ||
+      message.type === "wake.progress.changed")
   );
 }
 
@@ -238,12 +239,17 @@ function mergeSpaceLiveInvalidationFrames(
     previous.agentProfileIds,
     next.agentProfileIds
   );
+  const clientMessageIds = mergeUniqueIds(
+    previous.clientMessageIds,
+    next.clientMessageIds
+  );
   return {
     ...previous,
     ...next,
     version: Math.max(previous.version, next.version),
     ...(profileIds ? { profileIds } : {}),
     ...(agentProfileIds ? { agentProfileIds } : {}),
+    ...(clientMessageIds ? { clientMessageIds } : {}),
   };
 }
 

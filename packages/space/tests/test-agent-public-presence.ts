@@ -23,7 +23,7 @@ export function createTestAgentAgentWakeAvailability(
         phase: "available",
         reasonCode: "agent_execution.ready",
         status,
-        summary: "Can reply from this computer in Spaces.",
+        summary: "Available for Wake",
         tooltip: "Available for Wake",
       };
     case "unavailable_for_wake":
@@ -49,7 +49,7 @@ export function createTestAgentAgentWakeAvailability(
         phase: "checking_status",
         reasonCode: "agent_execution.check_status",
         status,
-        summary: "Checking this agent's Wake availability.",
+        summary: "Checking whether this agent can reply.",
         tooltip: "Checking Wake availability",
       };
     case "offline_for_wake":

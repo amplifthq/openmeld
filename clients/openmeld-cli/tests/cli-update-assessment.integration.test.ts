@@ -143,6 +143,27 @@ describe("assessCliUpdate", () => {
     });
   });
 
+  it("keeps the production npm check on the canonical global command", () => {
+    expect(
+      isCliUpdateCheckApplicable(PROD_TARGET, { distribution: "npm" })
+    ).toBe(true);
+    expect(
+      isCliUpdateCheckApplicable(
+        { ...PROD_TARGET, userFacingCommand: "npx -y openmeld@latest" },
+        { distribution: "npm" }
+      )
+    ).toBe(false);
+    expect(
+      isCliUpdateCheckApplicable(
+        {
+          ...PROD_TARGET,
+          userFacingCommand: "/Users/dev/.openmeld/bin/openmeld",
+        },
+        { distribution: "npm" }
+      )
+    ).toBe(false);
+  });
+
   it("checks an isolated binary canary only when it has an explicit manifest", () => {
     expect(
       isCliUpdateCheckApplicable(CANARY_TARGET, {

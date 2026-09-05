@@ -511,6 +511,8 @@ export {
   LOCAL_AGENT_TOOL_ACTIVITY_NAMES,
   localAgentToolActivityNameSchema,
   localWakeRouteReportSchema,
+  localWakeRouteWorkingFolderObservationSchema,
+  localWakeRouteWorkingFolderReasonCodeSchema,
   MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentControllerConversationOccupancySchema,
@@ -2075,6 +2077,18 @@ export {
   spaceDispatchTraceSnapshotV2Schema,
   spaceDispatchTraceStreamingSchema,
 } from "./http/space-dispatch-trace";
+export {
+  getSpaceEntryResolutionInputSchema,
+  getSpaceEntryResolutionResponseSchema,
+  spaceEntryAllowedViewSchema,
+  spaceEntryBlockedViewSchema,
+  spaceEntryOwnerSchema,
+  spaceEntryParticipationSchema,
+  spaceEntryRecoverySchema,
+  spaceEntrySafeContextSchema,
+  spaceEntryTargetSchema,
+  spaceEntryViewSchema,
+} from "./http/space-entry";
 export {
   buildSpaceComposerPublishedFileId,
   buildSpaceComposerUploadObjectKey,

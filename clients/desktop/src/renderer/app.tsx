@@ -695,7 +695,7 @@ function HomeActionsMenu({
               label={
                 serviceActionBusy === "setup"
                   ? "Reconnecting..."
-                  : "Reconnect OpenMeld Service"
+                  : "Reconnect Computer"
               }
               onSelect={() => {
                 setOpen(false);

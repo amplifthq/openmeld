@@ -31,13 +31,14 @@ const AGENT_SETUP_COMMAND =
 const SEMVER_RE =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u;
 const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
-// OpenMeld Service 0.3.138 is the first release that preserves a resumed Codex
-// thread's controller-owned model when the Binding has no explicit selection.
-// Earlier Services can silently replace that model with the catalog default.
+// OpenMeld Service 0.3.153 is the first release that reports the current
+// working-folder facts and keeps every reply owned by its accepted Wake.
+// Earlier Services can admit work from stale routing facts or let a later Wake
+// influence an earlier Wake's reply observation.
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.138";
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.153";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];
@@ -135,22 +136,10 @@ export function resolveLocalComponentUpdateProjection(input: {
     input.serviceVersion ??
     input.localComponentsStatus?.service.installedBundleVersion ??
     null;
-  const minimumSupportedVersionComparison =
-    installedServiceVersion === null
-      ? null
-      : compareSemver(
-          installedServiceVersion,
-          MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
-        );
-  const minimumSupportedVersionBreached =
-    minimumSupportedVersionComparison === null ||
-    minimumSupportedVersionComparison < 0;
-  const minimumRecoveryTargetVersion = minimumSupportedVersionBreached
-    ? maxServiceVersion(
-        MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
-        servicePolicy.bundleVersion
-      )
-    : null;
+  const minimumRecoveryTargetVersion = resolveMinimumRecoveryTargetVersion({
+    installedVersion: installedServiceVersion,
+    publishedVersion: servicePolicy.bundleVersion,
+  });
   const requiredVersion = maxServiceVersion(
     servicePolicy.updatePolicy === "required"
       ? servicePolicy.bundleVersion
@@ -192,11 +181,11 @@ function resolveRequestedReleaseManifest(
   releaseManifest: LocalComponentsReleaseManifest | null | undefined
 ): LocalComponentsReleaseManifest | null {
   return releaseManifest === undefined
-    ? resolveReleaseManifest()
+    ? resolveCoreLocalComponentsReleaseManifest()
     : releaseManifest;
 }
 
-function resolveReleaseManifest(): LocalComponentsReleaseManifest | null {
+export function resolveCoreLocalComponentsReleaseManifest(): LocalComponentsReleaseManifest | null {
   let source: unknown = releaseManifestJson;
   if (typeof OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON === "string") {
     try {
@@ -209,6 +198,35 @@ function resolveReleaseManifest(): LocalComponentsReleaseManifest | null {
   }
   const parsed = localComponentsReleaseManifestSchema.safeParse(source);
   return parsed.success ? parsed.data : null;
+}
+
+function resolveMinimumRecoveryTargetVersion(input: {
+  installedVersion: string | null;
+  publishedVersion: string;
+}): string | null {
+  const installedVersionComparison = input.installedVersion
+    ? compareSemver(
+        input.installedVersion,
+        MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
+      )
+    : null;
+  if (installedVersionComparison !== null && installedVersionComparison >= 0) {
+    return null;
+  }
+  // The source floor can land before its carrier is published. Production
+  // Core supplies the stable channel's immutable release manifest, so only
+  // activate the floor once that manifest proves the recovery target exists.
+  const publishedVersionComparison = compareSemver(
+    input.publishedVersion,
+    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
+  );
+  if (publishedVersionComparison === null || publishedVersionComparison < 0) {
+    return null;
+  }
+  return maxServiceVersion(
+    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+    input.publishedVersion
+  );
 }
 
 function resolveServiceUpdateDecision(input: {
@@ -589,6 +607,14 @@ function compareSemver(left: string, right: string): number | null {
     leftVersion.prerelease,
     rightVersion.prerelease
   );
+}
+
+export function isLocalComponentVersionAtLeast(
+  currentVersion: string,
+  targetVersion: string
+): boolean {
+  const comparison = compareSemver(currentVersion, targetVersion);
+  return comparison !== null && comparison >= 0;
 }
 
 function maxServiceVersion(

@@ -224,7 +224,7 @@ describe("reply readiness", () => {
 
     expect(readiness.reasonCodes).toEqual(["service.not_running"]);
     expect(readiness.reasonText).toBe(
-      "Connect OpenMeld Service on this device before this agent can reply."
+      "Connect your computer before this Agent can reply."
     );
     expect(readiness.replyReadiness).toBe("blocked");
     expect(resolveDaemonRuntimeStateMock).not.toHaveBeenCalled();

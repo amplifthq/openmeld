@@ -194,6 +194,7 @@ import type {
   GetPrepareReadinessResponse,
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
+  GetSpaceEntryResolutionResponse,
   GetSpaceInboxSummaryRpcInput,
   GetSpaceInboxUnreadTargetsRpcInput,
   GetSpaceMessageDetailsResponse,
@@ -645,6 +646,7 @@ import {
   type GetSpaceDispatchLookupInput,
   type GetSpaceDispatchResultInput,
   type GetSpaceDispatchTraceInput,
+  type GetSpaceEntryResolutionRpcInput,
   type GetSpaceFileInput,
   type GetSpaceMembersInput,
   type GetSpaceMessageDetailsInput,
@@ -856,6 +858,7 @@ import {
   rpcGetSpaceDispatchLookup,
   rpcGetSpaceDispatchResult,
   rpcGetSpaceDispatchTrace,
+  rpcGetSpaceEntryResolution,
   rpcGetSpaceFile,
   rpcGetSpaceIdentityDirectory,
   rpcGetSpaceMemberDirectory,
@@ -2015,6 +2018,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   getSpaceStatus(input: GetSpaceStatusInput): Promise<GetSpaceStatusResponse> {
     return rpcGetSpaceStatus(this.env, input);
+  }
+
+  getSpaceEntryResolution(
+    input: GetSpaceEntryResolutionRpcInput
+  ): Promise<GetSpaceEntryResolutionResponse> {
+    return rpcGetSpaceEntryResolution(this.env, input);
   }
 
   getSpaceConversationState(
@@ -3910,6 +3919,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   getSpaceStatus(input: GetSpaceStatusInput): Promise<GetSpaceStatusResponse> {
     return super.getSpaceStatus(input);
+  }
+
+  getSpaceEntryResolution(
+    input: GetSpaceEntryResolutionRpcInput
+  ): Promise<GetSpaceEntryResolutionResponse> {
+    return super.getSpaceEntryResolution(input);
   }
 
   getSpaceConversationState(

@@ -269,30 +269,52 @@ describe("Center Agent Project RPC", () => {
       operationId: "create-default",
       speakerMember: fixture.speakerMember,
     });
-    const updateAgentProfileDefaultProjectInOrganization = vi.fn(async () => ({
-      ok: true as const,
-      profile: {
-        createdAt: new Date().toISOString(),
-        createdByUserId: fixture.speakerUserId,
-        creatorProfileId: fixture.speakerProfileId,
-        defaultProjectId: created.project.id,
-        isDefault: false,
-        lastUsedAt: null,
-        managedRole: null,
-        ownerUserId: fixture.speakerUserId,
-        profileHandle: "codex",
-        profileKind: "agent" as const,
-        profileName: "Codex",
-        source: "user",
-        status: "active" as const,
-        updatedAt: new Date().toISOString(),
-        openMeldProfileId: fixture.localAgentProfileId,
-      },
-    }));
+    const mutationOrder: string[] = [];
+    const updateAgentProfileDefaultProjectInOrganization = vi.fn(() => {
+      mutationOrder.push("update");
+      return Promise.resolve({
+        ok: true as const,
+        profile: {
+          createdAt: new Date().toISOString(),
+          createdByUserId: fixture.speakerUserId,
+          creatorProfileId: fixture.speakerProfileId,
+          defaultProjectId: created.project.id,
+          isDefault: false,
+          lastUsedAt: null,
+          managedRole: null,
+          ownerUserId: fixture.speakerUserId,
+          profileHandle: "codex",
+          profileKind: "agent" as const,
+          profileName: "Codex",
+          source: "user",
+          status: "active" as const,
+          updatedAt: new Date().toISOString(),
+          openMeldProfileId: fixture.localAgentProfileId,
+        },
+      });
+    });
+    const acquire = vi.fn((input: { operationId: string }) => {
+      mutationOrder.push("acquire");
+      return Promise.resolve({
+        expiresAtMs: Date.now() + 30_000,
+        operationId: input.operationId,
+        status: "acquired" as const,
+      });
+    });
+    const release = vi.fn(() => {
+      mutationOrder.push("release");
+      return Promise.resolve({ status: "released" as const });
+    });
 
     await expect(
       rpcCenterAgentSetAgentProfileDefaultProject(
-        coreEnv({ updateAgentProfileDefaultProjectInOrganization }),
+        coreEnv(
+          { updateAgentProfileDefaultProjectInOrganization },
+          {
+            rpcAcquireAgentProfileFutureWorkSettingsMutation: acquire,
+            rpcReleaseAgentProfileControllerMutation: release,
+          }
+        ),
         {
           agentProfileId: fixture.localAgentProfileId,
           context: fixture.context("set-default"),
@@ -319,15 +341,25 @@ describe("Center Agent Project RPC", () => {
         profileId: fixture.localAgentProfileId,
       }
     );
+    expect(mutationOrder).toEqual(["acquire", "update", "release"]);
   });
 });
 
 function coreEnv(
-  authWorker: Partial<NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>> = {}
+  authWorker: Partial<NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>> = {},
+  runtimeTransportStub?: Record<string, unknown>
 ): CoreBindings {
   return {
     OPENMELD_AUTH_WORKER: authWorker,
     OPENMELD_DB: env.OPENMELD_DB,
+    ...(runtimeTransportStub
+      ? {
+          OPENMELD_RUNTIME_TRANSPORT: {
+            get: vi.fn(() => runtimeTransportStub),
+            idFromName: vi.fn((value: string) => value),
+          },
+        }
+      : {}),
     OPENMELD_SPACES: env.OPENMELD_SPACES,
   } as CoreBindings;
 }

@@ -32,7 +32,7 @@ const NEW_AGENT_ID = "agt_99999999-9999-4999-8999-999999999999";
 const CREATE_PROFILE_BUTTON_PATTERN = /create profile/i;
 const CREATING_PROFILE_BUTTON_PATTERN = /creating profile/i;
 const CHOOSE_LATER_PATTERN = /Choose later/i;
-const HUMAN_PROFILE_CARD_PATTERN = /Human profile/i;
+const HUMAN_PROFILE_CARD_PATTERN = /Person/i;
 const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
 const OPENCODE_AGENT_PATTERN = /opencode/i;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
@@ -44,7 +44,7 @@ const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
 const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Customize this Agent/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
-	"Add a human profile to this account before bringing profiles into this Space.";
+	"Add a personal profile to this account before bringing profiles into this Space.";
 const FIRST_USE_SELECTION_BY_AGENT_CONTROLLER_REF: Readonly<
 	Record<string, { modelId: string | null; reasoningLevel: string | null }>
 > = {
@@ -1540,18 +1540,14 @@ describe("CreateProfileDialog", () => {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		}) as HTMLButtonElement;
 		expect(submitButton.disabled).toBe(true);
-		expect(
-			screen.getByText("Choose an Agent Profile or Human Profile.")
-		).toBeTruthy();
+		expect(screen.getByText("Choose a person or Agent Profile.")).toBeTruthy();
 
 		await selectAgentProfileKind();
 
 		await waitFor(() => {
 			expect(submitButton.disabled).toBe(false);
 		});
-		expect(
-			screen.queryByText("Choose an Agent Profile or Human Profile.")
-		).toBeNull();
+		expect(screen.queryByText("Choose a person or Agent Profile.")).toBeNull();
 	});
 
 	it("keeps the create form shrinkable inside the Dialog", async () => {

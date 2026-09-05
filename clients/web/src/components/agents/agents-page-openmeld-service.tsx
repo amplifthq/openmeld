@@ -80,6 +80,7 @@ import {
 	setCurrentOpenMeldToolsMaintenance,
 } from "#/lib/connect/local-runtimes";
 import {
+	hasOpenMeldToolsUpdate,
 	isOpenMeldToolsComponentUpdateActionable,
 	isOpenMeldToolsComponentUpdateRequired,
 } from "#/lib/openmeld-tools-update";
@@ -104,12 +105,11 @@ type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
 const OPENMELD_TOOLS_CARD_TITLE = "OpenMeld Tools";
 const OPENMELD_SKILLS_MANAGEMENT_COMMAND = "npx -y openmeld@latest skills";
-const RECONNECT_MANUALLY_LABEL = "Reconnect manually";
+const RECONNECT_MANUALLY_LABEL = "Reconnect Computer";
 const UPDATE_MANUALLY_LABEL = "Update manually";
 const UPDATE_STATUS_REFRESH_INTERVAL_MS = 2000;
 const UPDATE_STATUS_MAX_REFRESH_ATTEMPTS = 60;
 const UPDATE_STATUS_MAX_CONSECUTIVE_REFRESH_FAILURES = 3;
-
 type PendingManagedUpdate =
 	| {
 			currentVersion: string;
@@ -882,7 +882,10 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		skillsUpdate,
 	});
 	const primaryAction = resolveCurrentOpenMeldToolsPrimaryAction({
-		displayAction: display.primaryAction,
+		displayAction: resolveCoreActionableOpenMeldToolsDisplayAction({
+			action: display.primaryAction,
+			localComponents,
+		}),
 		maintenanceAvailable: maintenance !== null,
 		onUpdateOpenMeldTools: input.onUpdateOpenMeldTools,
 		updateIsActive,
@@ -1024,8 +1027,7 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 
 	if (input.serviceDisconnected) {
 		return {
-			description:
-				"Reconnect OpenMeld Service to use local agents on this computer.",
+			description: "Reconnect this computer to use its local agents.",
 			descriptionTone: "muted",
 			hideVersionDetails: false,
 			primaryAction: {
@@ -1156,6 +1158,19 @@ function buildOpenMeldToolsLinkAction(path: string): OpenMeldToolsAction {
 	};
 }
 
+function resolveCoreActionableOpenMeldToolsDisplayAction(input: {
+	action: OpenMeldToolsAction | null;
+	localComponents: OpenMeldToolsProjection | null;
+}): OpenMeldToolsAction | null {
+	if (
+		input.action?.kind !== "link" ||
+		input.action.label !== UPDATE_MANUALLY_LABEL
+	) {
+		return input.action;
+	}
+	return hasOpenMeldToolsUpdate(input.localComponents) ? input.action : null;
+}
+
 function resolveCurrentOpenMeldToolsPrimaryAction(input: {
 	displayAction: OpenMeldToolsAction | null;
 	maintenanceAvailable: boolean;
@@ -1252,9 +1267,17 @@ function hasObservedPendingManagedUpdateSettled(input: {
 		input.pending.kind === "confirmation"
 			? input.pending.currentVersion
 			: input.pending.operation.targetVersion;
-	return (
+	const exactTargetObserved =
 		input.localComponents.service.installedVersion === expectedVersion &&
-		input.localComponents.cli.installedPackageVersion === expectedVersion
+		input.localComponents.cli.installedPackageVersion === expectedVersion;
+	if (input.pending.kind === "confirmation") {
+		return exactTargetObserved;
+	}
+	const observedOperation = input.localComponents.updateOperation ?? null;
+	return (
+		exactTargetObserved &&
+		observedOperation?.operationId === input.pending.operation.operationId &&
+		observedOperation.phase === "updated"
 	);
 }
 
@@ -1392,7 +1415,6 @@ function formatOpenMeldServiceVersionDescription(input: {
 	].filter((value): value is string => Boolean(value));
 	return details.length > 0 ? details.join(" ") : undefined;
 }
-
 function resolveOpenMeldServiceActionLabel(input: {
 	replyReadiness: ComputerReplyReadiness;
 	serviceConnected: boolean;
@@ -1470,7 +1492,7 @@ function formatOpenMeldServiceDescription(input: {
 		return "OpenMeld Service is not connected for this account on this computer.";
 	}
 	if (input.replyReadiness.reasonCode === "background_helper.not_running") {
-		return "Reconnect OpenMeld Service to refresh OpenMeld tools and local agents on this computer.";
+		return "Reconnect this computer to refresh OpenMeld tools and local agents.";
 	}
 	return formatComputerReplyReadinessDescription(input.replyReadiness);
 }
@@ -1640,12 +1662,7 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 	if (input.requesting) {
 		return "Checking…";
 	}
-	if (
-		input.targetObserved &&
-		(input.operation?.phase === "updated" ||
-			input.operation?.phase === "restored" ||
-			input.operation?.phase === "needs_help")
-	) {
+	if (input.targetObserved && input.operation?.phase === "updated") {
 		return input.nextUpdateAvailable ? null : "Up to date";
 	}
 	return input.operation

@@ -1,12 +1,26 @@
 import type { OpenClawGatewayVisibility } from "@openmeld/local-service";
 import { providerDispatchRuntimeContextSchema } from "@openmeld/schemas";
-import type { ProviderDispatchRuntimeContext } from "@openmeld/schemas/types";
-import { resolveEffectiveProfileWorkingFolderRuntime } from "../../profile-workspace/effective-runtime-resolution";
+import type {
+  OpenMeldDaemonDispatchControllerSnapshot,
+  ProviderDispatchRuntimeContext,
+  RuntimeTransportDeliveryExecutionIdentity,
+} from "@openmeld/schemas/types";
+import {
+  resolveCurrentEffectiveProfileWorkingFolderRuntime,
+  resolveEffectiveProfileWorkingFolderRuntime,
+} from "../../profile-workspace/effective-runtime-resolution";
 import {
   type ProviderRuntimePreparationDetails,
   prepareProviderRuntime,
 } from "../../provider-hosts/prepare-provider-runtime";
+import type { DaemonProfileRouteConfig } from "../core/types";
 import { DaemonServiceRunError } from "../core/types";
+
+// A healthy session re-observes the route at most every 45 seconds. Keep the
+// compatibility launch fence aligned with the current route-lease freshness
+// window so a transient catalog read failure can preserve a genuinely current
+// route without allowing historical folder state to launch new work.
+export const CURRENT_ROUTE_WORKING_FOLDER_FRESHNESS_MS = 200_000;
 
 export type DispatchRuntimePreparation = {
   effectiveRuntimeContext: ProviderDispatchRuntimeContext;
@@ -57,9 +71,134 @@ export async function resolveDispatchRuntimeContext(input: {
       message: `profile.workspace.missing: ${resolution.reasonText}`,
     });
   }
+  if (
+    "workingFolderSource" in resolution &&
+    resolution.workingFolderSource === "default_project" &&
+    resolution.defaultProjectId
+  ) {
+    throw new DaemonServiceRunError({
+      code: "project.local_connection.invalid",
+      message: "project.local_connection.invalid",
+      projectFailureContext: {
+        ...(resolution.defaultProjectBindingGeneration
+          ? {
+              bindingGeneration: resolution.defaultProjectBindingGeneration,
+            }
+          : {}),
+        projectId: resolution.defaultProjectId,
+      },
+    });
+  }
   throw new DaemonServiceRunError({
     code: "profile.workspace.invalid",
     message: `profile.workspace.invalid: ${resolution.reasonText}`,
+  });
+}
+
+export async function resolveDispatchWorkingFolderRuntimeContext(input: {
+  controllerSnapshot: OpenMeldDaemonDispatchControllerSnapshot;
+  defaultProjectId: string | null;
+  defaultProjectIdWasProvided: boolean;
+  executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
+  nowMs?: number;
+  onCurrentWorkingFolderFactRejected?: () => void;
+  routeConfig: DaemonProfileRouteConfig | null;
+  targetProfileId: string;
+}): Promise<ProviderDispatchRuntimeContext> {
+  const route = input.routeConfig;
+  const workingFolderRuntime = route?.workingFolderRuntime;
+  if (!(route && workingFolderRuntime)) {
+    rejectCurrentWorkingFolderFact(
+      input,
+      "missing",
+      "the current route has no working-folder observation"
+    );
+  }
+  if (
+    input.defaultProjectIdWasProvided &&
+    input.defaultProjectId !==
+      workingFolderRuntime.workingFolderFact.defaultProjectId
+  ) {
+    rejectCurrentWorkingFolderFact(
+      input,
+      "identity_mismatch",
+      "the delivered Default Project does not match the current route observation"
+    );
+  }
+  const identity = input.executionIdentity.core;
+  const controllerSnapshot = input.controllerSnapshot;
+  if (
+    route.profileId !== input.targetProfileId ||
+    identity.targetProfileId !== input.targetProfileId ||
+    route.bindingId !== identity.bindingId ||
+    controllerSnapshot.bindingId !== identity.bindingId ||
+    typeof route.configurationRevision !== "number" ||
+    typeof controllerSnapshot.configurationRevision !== "number" ||
+    route.configurationRevision !== controllerSnapshot.configurationRevision ||
+    route.agentControllerRef !== identity.agentControllerRef ||
+    controllerSnapshot.agentControllerRef !== identity.agentControllerRef ||
+    route.openMeldServiceRuntimeId !== identity.openMeldServiceRuntimeId.value
+  ) {
+    rejectCurrentWorkingFolderFact(
+      input,
+      "identity_mismatch",
+      "the current route does not match the accepted dispatch identity"
+    );
+  }
+  const observedAtMs = workingFolderRuntime.workingFolderFact.observedAtMs;
+  const nowMs = input.nowMs ?? Date.now();
+  if (
+    observedAtMs > nowMs ||
+    nowMs - observedAtMs >= CURRENT_ROUTE_WORKING_FOLDER_FRESHNESS_MS
+  ) {
+    rejectCurrentWorkingFolderFact(
+      input,
+      "stale",
+      "the current route working-folder observation has expired"
+    );
+  }
+  const currentWorkingFolder =
+    await resolveCurrentEffectiveProfileWorkingFolderRuntime({
+      defaultProjectId: workingFolderRuntime.workingFolderFact.defaultProjectId,
+      mode: "dispatch",
+      openMeldProfileId: input.targetProfileId,
+    });
+  const currentFact = currentWorkingFolder.workingFolderFact;
+  if (
+    currentWorkingFolder.status !== "ready" ||
+    currentFact.source !== workingFolderRuntime.workingFolderFact.source ||
+    currentFact.defaultProjectId !==
+      workingFolderRuntime.workingFolderFact.defaultProjectId ||
+    currentFact.localProjectBindingGeneration !==
+      workingFolderRuntime.workingFolderFact.localProjectBindingGeneration ||
+    currentWorkingFolder.runtimeContext.providerRuntimeWorkingDirectory !==
+      workingFolderRuntime.runtimeContext.providerRuntimeWorkingDirectory
+  ) {
+    rejectCurrentWorkingFolderFact(
+      input,
+      "changed",
+      "the effective working folder changed after this route was observed"
+    );
+  }
+  return workingFolderRuntime.runtimeContext;
+}
+
+function rejectCurrentWorkingFolderFact(
+  input: { onCurrentWorkingFolderFactRejected?: () => void },
+  reason: "changed" | "identity_mismatch" | "missing" | "stale",
+  detail: string
+): never {
+  input.onCurrentWorkingFolderFactRejected?.();
+  throwCurrentWorkingFolderFactError(reason, detail);
+}
+
+function throwCurrentWorkingFolderFactError(
+  reason: "changed" | "identity_mismatch" | "missing" | "stale",
+  detail: string
+): never {
+  throw new DaemonServiceRunError({
+    code: `profile.working_folder.current_fact_${reason}`,
+    message: `profile.working_folder.current_fact_${reason}: ${detail}`,
   });
 }
 

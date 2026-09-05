@@ -22,6 +22,8 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
     const spaceId = c.req.param("spaceId");
     const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
       spaceId,
+      includePageInfo: c.req.query("includePageInfo"),
+      includePreviewText: c.req.query("includePreviewText"),
       includeTiming: c.req.query("includeTiming"),
       includeSourceContext: c.req.query("includeSourceContext"),
       includeWaitReason: c.req.query("includeWaitReason"),
@@ -51,6 +53,8 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
       execute: async () => {
         return await c.var.coreRpc.getActiveSpaceWakeProgress({
           spaceId: parsed.data.spaceId,
+          includePageInfo: parsed.data.includePageInfo,
+          includePreviewText: parsed.data.includePreviewText,
           ...(parsed.data.includeTiming === undefined
             ? {}
             : { includeTiming: parsed.data.includeTiming }),
@@ -83,6 +87,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
       spaceId,
       clientMessageId: c.req.query("clientMessageId"),
       includeTiming: c.req.query("includeTiming"),
+      includePreviewText: c.req.query("includePreviewText"),
       includeSourceContext: c.req.query("includeSourceContext"),
       includeWaitReason: c.req.query("includeWaitReason"),
       includeWakeStopEligibility: c.req.query("includeWakeStopEligibility"),
@@ -110,6 +115,7 @@ export function registerWakeProgressRoutes(app: Hono<HonoBindings>): void {
         return await c.var.coreRpc.getSpaceWakeProgress({
           spaceId: parsed.data.spaceId,
           clientMessageId: parsed.data.clientMessageId,
+          includePreviewText: parsed.data.includePreviewText,
           ...(parsed.data.includeTiming === undefined
             ? {}
             : { includeTiming: parsed.data.includeTiming }),

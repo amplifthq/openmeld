@@ -587,16 +587,22 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
   async (input: {
     db: D1Database;
     limit?: number;
-    sourceSignalIds?: readonly string[];
+    sourceDispatchIds?: readonly string[];
+    sourceProfileId?: string;
     spaceId: string;
     targetProfileId?: string;
   }): Promise<RuntimeCoordinatorExecutionWakeProgressSelector[]> => {
     const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 25)));
     const targetProfileId = input.targetProfileId?.trim() || null;
-    const sourceSignalIds = input.sourceSignalIds?.filter(
-      (sourceSignalId) => sourceSignalId.trim().length > 0
+    const sourceDispatchIds = input.sourceDispatchIds?.filter(
+      (dispatchId) => dispatchId.trim().length > 0
     );
-    if (sourceSignalIds && sourceSignalIds.length === 0) {
+    const sourceProfileId = input.sourceProfileId?.trim() || null;
+    if (
+      !sourceProfileId &&
+      sourceDispatchIds &&
+      sourceDispatchIds.length === 0
+    ) {
       return [];
     }
     const statusPlaceholders = ACTIVE_WAKE_PROGRESS_STATUSES.map(
@@ -605,9 +611,25 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
     const whereTargetSql = targetProfileId
       ? "AND executions.target_profile_id = ?"
       : "";
-    const whereSourceSql = sourceSignalIds
-      ? "AND ledger.source_event_id IN (SELECT value FROM json_each(?))"
-      : "";
+    let whereSourceSql = "";
+    let sourceBindings: string[] = [];
+    if (sourceProfileId) {
+      whereSourceSql = `AND (
+          ledger.source_profile_id = ?
+          OR (
+            ledger.source_profile_id IS NULL
+            AND executions.dispatch_id IN (SELECT value FROM json_each(?))
+          )
+        )`;
+      sourceBindings = [
+        sourceProfileId,
+        JSON.stringify(sourceDispatchIds ?? []),
+      ];
+    } else if (sourceDispatchIds) {
+      whereSourceSql =
+        "AND executions.dispatch_id IN (SELECT value FROM json_each(?))";
+      sourceBindings = [JSON.stringify(sourceDispatchIds)];
+    }
     const statement = input.db.prepare(
       `
         SELECT
@@ -658,7 +680,7 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
       input.spaceId,
       ...ACTIVE_WAKE_PROGRESS_STATUSES,
       ...(targetProfileId ? [targetProfileId] : []),
-      ...(sourceSignalIds ? [JSON.stringify(sourceSignalIds)] : []),
+      ...sourceBindings,
       limit,
     ];
     const rows = await statement

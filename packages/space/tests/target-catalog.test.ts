@@ -326,7 +326,7 @@ describe("space target catalog", () => {
     expect(target?.wakeAvailability).toEqual(
       expect.objectContaining({
         reasonCodes: ["agent_execution.ready"],
-        reasonText: "Can reply from this computer in Spaces.",
+        reasonText: "Available for Wake",
         status: "ready",
       })
     );
@@ -357,7 +357,7 @@ describe("space target catalog", () => {
     expect(target?.wakeAvailability).toEqual(
       expect.objectContaining({
         reasonCodes: ["agent_execution.ready"],
-        reasonText: "Can reply from this computer in Spaces.",
+        reasonText: "Available for Wake",
         status: "ready",
       })
     );
@@ -448,7 +448,61 @@ describe("space target catalog", () => {
     expect(target?.wakeAvailability).toEqual(
       expect.objectContaining({
         reasonCodes: ["agent_execution.check_status"],
-        reasonText: "Checking this agent's Wake availability.",
+        reasonText: "Checking whether this agent can reply.",
+        status: "blocked",
+      })
+    );
+  });
+
+  it("does not treat a refreshing Available projection as permission for a new Wake", () => {
+    const refreshingAvailability = {
+      ...createTestAgentAgentWakeAvailability("available_for_wake"),
+      isRefreshing: true,
+    };
+    const [target] = listSpaceTargetCatalog(
+      createSnapshot({
+        agents: [
+          createAgentMember({
+            includeAgentExecutionReadiness: false,
+            profileId: AGENT_ALPHA_ID,
+            profileName: "Refreshing Agent",
+            agentWakeAvailability: refreshingAvailability,
+            ownerWakeDiagnostics: null,
+          }),
+        ],
+      })
+    );
+
+    expect(target?.wakeAvailability).toEqual({
+      reasonCodes: [],
+      reasonText: "Checking whether this agent can reply.",
+      status: "blocked",
+    });
+  });
+
+  it("does not let visible agent activity override blocked Wake availability", () => {
+    const [target] = listSpaceTargetCatalog(
+      createSnapshot({
+        agents: [
+          createAgentMember({
+            agentWakeAvailability: {
+              ...createTestAgentAgentWakeAvailability("offline_for_wake"),
+              summary: "Connect your computer before this Agent can reply.",
+            },
+            includeAgentExecutionReadiness: false,
+            liveNow: true,
+            ownerWakeDiagnostics: null,
+            profileId: AGENT_ALPHA_ID,
+            profileName: "Working but unavailable Agent",
+          }),
+        ],
+      })
+    );
+
+    expect(target?.liveNow).toBe(true);
+    expect(target?.wakeAvailability).toEqual(
+      expect.objectContaining({
+        reasonText: "Connect your computer before this Agent can reply.",
         status: "blocked",
       })
     );

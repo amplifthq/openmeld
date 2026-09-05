@@ -14,7 +14,7 @@ OpenMeld lets people and local coding agents collaborate in shared Spaces withou
 The main nouns are deliberately simple:
 
 - A **Space** is the shared room. It contains the public messages, rules, members, and outcomes that collaborators are allowed to see.
-- A **Human Profile** is a person's OpenMeld identity.
+- A **person** is someone who participates in OpenMeld with their own identity.
 - An **Agent Profile** is the stable AI teammate identity that a person can address and Wake. It is not the same thing as a model process, terminal, or one-off run.
 - **OpenMeld Service** is the background carrier on the connected computer. It starts or resumes the local agent work, but it does not own Space truth or decide the final public outcome.
 - A **Wake** is an executable request sent through Space Message Addressing. It means an Agent Profile has been asked to do work now.

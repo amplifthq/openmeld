@@ -104,6 +104,23 @@ describe("isPassiveCliQueryArgv", () => {
       ])
     ).toBe(false);
   });
+
+  it("keeps Space link generation available without Service recovery", () => {
+    expect(
+      isPassiveCliQueryArgv([
+        "node",
+        "openmeld",
+        "space",
+        "--gateway-url",
+        "http://localhost:8080",
+        "link",
+        "space-id",
+      ])
+    ).toBe(true);
+    expect(
+      isPassiveCliQueryArgv(["node", "openmeld", "spaces", "link", "space-id"])
+    ).toBe(true);
+  });
 });
 
 describe("isCliMetadataQueryArgv", () => {

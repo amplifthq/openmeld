@@ -1,5 +1,6 @@
 import {
   AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+  resolveAgentWakeAdmissionBlockReasonCode,
   resolveAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
@@ -19,6 +20,8 @@ import { readFreshProviderAccessEvidenceForBinding } from "../agent-execution/in
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as providerConversationProofRepo from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
 import { readFreshProviderConversationProofForBinding } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
+// biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
+import * as localRuntimeExpectedRoutesService from "../agent-profile-binding/application/local-runtime-expected-routes-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as agentProfileBindingRepo from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
@@ -112,6 +115,7 @@ const MISSING_CONTRACT_SERVICE = {
   reasonCode: "daemon.runtime_contract.missing",
   status: "update_required",
 } as const;
+let currentExpectedWorkingFolderProfileId: string | null = null;
 
 function useRequiredServiceUpdatePolicy() {
   return vi
@@ -134,6 +138,7 @@ describe("Core Agent Execution Readiness", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    currentExpectedWorkingFolderProfileId = null;
     // vi.mock module factories do not reach the worker-entry module graph in
     // vitest-pool-workers (src/index.ts already loaded these repos in the same
     // isolate), so per-test spies on the shared module namespaces are the only
@@ -188,6 +193,10 @@ describe("Core Agent Execution Readiness", () => {
       readinessImpactRepo,
       "readFreshAgentExecutionReadinessImpactForBinding"
     ).mockResolvedValue(null);
+    vi.spyOn(
+      localRuntimeExpectedRoutesService,
+      "readLocalRuntimeExpectedRoutes"
+    ).mockImplementation(() => undefined as never);
     vi.spyOn(
       ownedDeviceRegistryRepo,
       "listOwnedDeviceRegistryRecords"
@@ -966,7 +975,7 @@ describe("Core Agent Execution Readiness", () => {
     ).toMatchObject({
       badgeLabel: "Reconnecting",
       category: "checking",
-      label: "Reconnecting OpenMeld Service",
+      label: "Reconnecting Computer",
       phase: "checking_route",
       reasonCode: "local_service.reconnecting",
       status: "checking_connection",
@@ -1090,11 +1099,11 @@ describe("Core Agent Execution Readiness", () => {
     ).toMatchObject({
       badgeLabel: "Reconnecting",
       category: "checking",
-      label: "Reconnecting OpenMeld Service",
+      label: "Reconnecting Computer",
       phase: "checking_route",
       reasonCode: "local_service.reconnecting",
       status: "checking_connection",
-      summary: "OpenMeld Service is reconnecting on this computer.",
+      summary: "Computer is reconnecting.",
     });
   });
 
@@ -1158,6 +1167,245 @@ describe("Core Agent Execution Readiness", () => {
       summary:
         "Run codex login in a terminal on this computer to sign in to Codex.",
     });
+  });
+
+  it("fails closed on a missing current working-folder report without pretending the Computer is offline or needs setup", async () => {
+    const profileId = "agt_working_folder_report_missing";
+    mockReadyBindingAndRuntime(profileId);
+    vi.mocked(lookupRuntimeTransportRoute).mockResolvedValueOnce({
+      capabilities: {},
+      connectionGeneration: 1,
+      daemonSessionId: "daemon-session-1",
+      deviceId: "device-1",
+      executionCompatibility: COMPATIBLE_SERVICE,
+      lane: "dev-local",
+      lastHeartbeatMs: GENERATED_AT_MS,
+      leaseEpoch: 1,
+      online: true,
+      serviceVersion: "999.0.0",
+    });
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId,
+            profileName: "Missing Working Folder Report Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "not_ready",
+      facts: {
+        localService: { reachable: true },
+        runtime: {
+          ready: false,
+          reasonCodes: expect.arrayContaining([
+            "working_folder.current_report_missing",
+          ]),
+        },
+      },
+      primaryAction: "check_status",
+    });
+    expect(readiness.agentExecutionReadiness.primaryAction).not.toBe(
+      "connect_service"
+    );
+    expect(readiness.agentExecutionReadiness.primaryAction).not.toBe(
+      "run_prepare"
+    );
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "checking",
+      reasonCode: "working_folder.current_report_missing",
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("working_folder.current_report_missing");
+  });
+
+  it("requires an OpenMeld update when an online legacy Service cannot report current working-folder truth", async () => {
+    const profileId = "agt_legacy_working_folder_contract";
+    mockReadyBindingAndRuntime(profileId);
+    vi.mocked(lookupRuntimeTransportRoute).mockResolvedValueOnce({
+      capabilities: {},
+      connectionGeneration: 1,
+      daemonSessionId: "daemon-session-1",
+      deviceId: "device-1",
+      executionCompatibility: COMPATIBLE_SERVICE,
+      lane: "dev-local",
+      lastHeartbeatMs: GENERATED_AT_MS,
+      leaseEpoch: 1,
+      localWakeRouteReport: {
+        daemonSessionId: "daemon-session-1",
+        deviceId: "device-1",
+        includedProfileIds: [profileId],
+        lane: "dev-local",
+        reportedAtMs: GENERATED_AT_MS,
+        skippedProfiles: [],
+      },
+      online: true,
+      serviceVersion: "998.0.0",
+    });
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId,
+            profileName: "Legacy Working Folder Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "not_ready",
+      primaryAction: "update_service",
+      facts: {
+        localService: { reachable: true },
+        runtime: {
+          ready: false,
+          reasonCodes: expect.arrayContaining([
+            "working_folder.legacy_contract",
+            "service.update_required",
+          ]),
+        },
+      },
+    });
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "unavailable",
+      phase: "service_update_required",
+      reasonCode: "service.update_required",
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("service.update_required");
+  });
+
+  it("uses a fresh current working-folder failure instead of reconstructing readiness from older evidence", async () => {
+    const profileId = "agt_current_workspace_missing";
+    mockReadyBindingAndRuntime(profileId);
+    mockOnlineRoute("device-1");
+    vi.mocked(lookupRuntimeTransportRoute)
+      .mockReset()
+      .mockResolvedValueOnce({
+        capabilities: {},
+        connectionGeneration: 1,
+        daemonSessionId: "daemon-session-1",
+        deviceId: "device-1",
+        executionCompatibility: COMPATIBLE_SERVICE,
+        lane: "dev-local",
+        lastHeartbeatMs: GENERATED_AT_MS,
+        leaseEpoch: 1,
+        localWakeRouteReport: {
+          daemonSessionId: "daemon-session-1",
+          deviceId: "device-1",
+          expectedRoutesContractVersion: "v4",
+          includedProfileIds: [profileId],
+          lane: "dev-local",
+          reportedAtMs: GENERATED_AT_MS,
+          skippedProfiles: [],
+          workingFolderObservations: [
+            {
+              bindingId: "binding-1",
+              configurationRevision: 1,
+              defaultProjectId: null,
+              localProjectBindingGeneration: null,
+              observedAtMs: GENERATED_AT_MS,
+              profileId,
+              reasonCode: "profile.workspace.missing",
+              source: "profile_workspace",
+              status: "missing",
+            },
+          ],
+        },
+        online: true,
+        serviceVersion: "999.0.0",
+      });
+    vi.mocked(
+      readFreshAgentExecutionReadinessImpactForBinding
+    ).mockResolvedValueOnce({
+      expiresAtMs: GENERATED_AT_MS + 60_000,
+      impactKind: "local_execution",
+      observedAtMs: GENERATED_AT_MS - 1000,
+      reasonCode: "workspace.invalid",
+      source: "wake_failure",
+    });
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId,
+            profileName: "Current Workspace Missing Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "not_ready",
+      facts: {
+        runtime: {
+          ready: false,
+          reasonCodes: expect.arrayContaining(["profile.workspace.missing"]),
+        },
+      },
+      primaryAction: "run_prepare",
+    });
+    expect(
+      readiness.agentExecutionReadiness.facts.runtime.reasonCodes
+    ).not.toContain("workspace.invalid");
+    expect(
+      readiness.agentExecutionReadiness.facts.readinessImpact
+    ).toMatchObject({
+      impactKind: "local_execution",
+      source: "wake_failure",
+    });
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "unavailable",
+      reasonCode: "profile.workspace.missing",
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("profile.workspace.missing");
   });
 
   it("keeps stale owner-service disconnects as service-disconnected guidance", async () => {
@@ -1380,6 +1628,56 @@ describe("Core Agent Execution Readiness", () => {
     });
   });
 
+  it("treats an expired current Usage report as Checking and blocks Wake admission", async () => {
+    const profileId = "agt_usage_expired";
+    mockReadyBindingAndRuntime(profileId, "builtin:codex");
+    mockOnlineRoute("device-1");
+    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
+      {
+        ...createRuntimeReportWithUsage(
+          createUsageLimit({ status: "available", usedPercent: 15 })
+        ),
+        expiresAtMs: GENERATED_AT_MS - 1,
+      },
+    ]);
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId,
+            profileName: "Expired Usage Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      displayState: "not_ready",
+      primaryAction: "check_status",
+      reasonCodes: expect.arrayContaining(["usage_checking"]),
+    });
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "checking",
+      reasonCode: "usage_checking",
+    });
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("usage_checking");
+  });
+
   it("keeps explicitly unsupported Usage out of Wakeability", async () => {
     mockReadyBindingAndRuntime("agt_usage_unsupported", "builtin:cursor");
     mockOnlineRoute("device-1");
@@ -1470,7 +1768,7 @@ describe("Core Agent Execution Readiness", () => {
     );
   });
 
-  it("projects exact Codex Usage exhaustion evidence ahead of sign-in guidance", async () => {
+  it("keeps an earlier Codex Usage failure diagnostic behind current sign-in guidance", async () => {
     mockReadyBindingAndRuntime("agt_provider_access", "builtin:codex");
     vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
       {
@@ -1520,7 +1818,7 @@ describe("Core Agent Execution Readiness", () => {
       openMeldServiceRuntimeId: "runtime-1",
     });
     expect(readiness.agentExecutionReadiness).toMatchObject({
-      displayState: "blocked",
+      displayState: "not_ready",
       facts: {
         providerAccount: {
           blocked: true,
@@ -1529,7 +1827,7 @@ describe("Core Agent Execution Readiness", () => {
           source: "wake_failure",
         },
       },
-      primaryAction: "fix_provider_account",
+      primaryAction: "check_status",
     });
     expect(
       resolveAgentWakeAvailability({
@@ -1539,15 +1837,18 @@ describe("Core Agent Execution Readiness", () => {
         wakeRouteStatus: readiness.wakeRouteStatus,
       })
     ).toMatchObject({
-      action: "fix_provider_account",
+      action: "none",
+      badgeLabel: "Sign-in needed",
       category: "unavailable",
-      phase: "provider_blocked",
-      reasonCode: "usage_exhausted",
+      phase: "provider_sign_in_needed",
+      reasonCode: "controller.auth.unauthenticated",
       status: "unavailable_for_wake",
+      summary:
+        "Run codex login in a terminal on this computer to sign in to Codex.",
     });
   });
 
-  it("blocks otherwise ready Agent readiness when Core has a fresh execution readiness impact", async () => {
+  it("keeps historical execution impact diagnostic without deciding current Wakeability", async () => {
     mockReadyBindingAndRuntime("agt_readiness_impact", "builtin:codex");
     mockOnlineRoute("device-1");
     vi.mocked(
@@ -1585,7 +1886,7 @@ describe("Core Agent Execution Readiness", () => {
       openMeldServiceRuntimeId: "runtime-1",
     });
     expect(readiness.agentExecutionReadiness).toMatchObject({
-      displayState: "blocked",
+      displayState: "ready",
       facts: {
         readinessImpact: {
           blocked: true,
@@ -1594,9 +1895,9 @@ describe("Core Agent Execution Readiness", () => {
           source: "wake_failure",
         },
       },
-      primaryAction: "run_prepare",
+      primaryAction: "none",
     });
-    expect(readiness.agentExecutionReadiness.reasonCodes).toContain(
+    expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
       "controller.client.upgrade_required"
     );
   });
@@ -1672,7 +1973,7 @@ describe("Core Agent Execution Readiness", () => {
       },
       primaryAction: "none",
     });
-    expect(readiness.agentExecutionReadiness.reasonCodes).toContain(
+    expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
       "provider_conversation.proof_failed"
     );
   });
@@ -1993,6 +2294,7 @@ function mockReadyBindingAndRuntime(
   agentControllerConversationId?: string,
   modelId?: string
 ): void {
+  currentExpectedWorkingFolderProfileId = agentProfileId;
   vi.mocked(readPrimaryAgentProfileBindingRecord).mockResolvedValue({
     agentProfileId,
     bindingId: "binding-1",
@@ -2058,6 +2360,38 @@ function mockReadyBindingAndRuntime(
 }
 
 function mockOnlineRoute(deviceId: string): void {
+  const profileId = currentExpectedWorkingFolderProfileId;
+  if (!profileId) {
+    throw new Error("mockOnlineRoute requires a current profile Binding");
+  }
+  vi.mocked(
+    localRuntimeExpectedRoutesService.readLocalRuntimeExpectedRoutes
+  ).mockResolvedValue({
+    response: {
+      excludedProfiles: [],
+      expectedRoutes: [
+        {
+          agentProfileId: profileId,
+          bindingId: "binding-1",
+          bindingState: "enabled_primary",
+          configurationRevision: 1,
+          defaultProjectId: null,
+          executionTarget: {
+            agentControllerConversationId: null,
+            agentControllerRef: "builtin:codex",
+            openMeldServiceRuntimeId: "runtime-1",
+          },
+          profileName: "Readiness Test Agent",
+          reasonCodes: [],
+          routable: true,
+        },
+      ],
+      generatedAt: GENERATED_AT,
+      openMeldServiceRuntimeId: "runtime-1",
+      runtimeResolution: "resolved",
+    },
+    status: "ok",
+  });
   vi.mocked(lookupRuntimeTransportRoute).mockResolvedValueOnce({
     capabilities: {},
     connectionGeneration: 1,
@@ -2067,6 +2401,28 @@ function mockOnlineRoute(deviceId: string): void {
     lane: "dev-local",
     lastHeartbeatMs: GENERATED_AT_MS,
     leaseEpoch: 1,
+    localWakeRouteReport: {
+      daemonSessionId: "daemon-session-1",
+      deviceId,
+      expectedRoutesContractVersion: "v4",
+      includedProfileIds: [profileId],
+      lane: "dev-local",
+      reportedAtMs: GENERATED_AT_MS,
+      skippedProfiles: [],
+      workingFolderObservations: [
+        {
+          bindingId: "binding-1",
+          configurationRevision: 1,
+          defaultProjectId: null,
+          localProjectBindingGeneration: null,
+          observedAtMs: GENERATED_AT_MS,
+          profileId,
+          reasonCode: null,
+          source: "profile_workspace",
+          status: "ready",
+        },
+      ],
+    },
     online: true,
     serviceVersion: "999.0.0",
   });

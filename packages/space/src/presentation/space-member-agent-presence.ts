@@ -279,7 +279,7 @@ function fallbackCheckingAvailabilityPresentation(): ReturnType<
     availabilityIsRefreshing: true,
     availabilityPhase: "checking_status",
     availabilityReasonCode: null,
-    availabilitySummary: "Checking this agent's Wake availability.",
+    availabilitySummary: "Checking whether this agent can reply.",
     availabilityTooltip: "Checking Wake availability",
   };
 }

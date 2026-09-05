@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	canManuallyRefreshAgentProfileConnection,
 	formatAgentProfileExecutionComputerDetail,
+	formatAgentWakeAvailabilityCheckedAt,
 	resolveAgentProfileAutoRefreshDelayMs,
 	resolveAgentProfileAvailabilityFilterState,
 	resolveAgentProfileBulkReconnectCandidates,
@@ -68,8 +69,6 @@ describe("Agent Profile availability presentation", () => {
 
 		expect(
 			resolveAgentProfileRowWakeAvailability({
-				autoRefreshExhausted: false,
-				currentLocalRuntimeCanReply: true,
 				readiness,
 			})
 		).toMatchObject({
@@ -81,8 +80,6 @@ describe("Agent Profile availability presentation", () => {
 		});
 		expect(
 			resolveAgentProfileRowWakeAvailability({
-				autoRefreshExhausted: true,
-				currentLocalRuntimeCanReply: true,
 				readiness,
 			})
 		).toMatchObject({
@@ -115,9 +112,6 @@ describe("Agent Profile availability presentation", () => {
 
 		expect(
 			resolveAgentProfileRowWakeAvailability({
-				autoRefreshExhausted: false,
-				currentLocalRuntimeCanReply: true,
-				localAgentDisplayName: "OpenCode",
 				readiness,
 			})
 		).toMatchObject({
@@ -144,9 +138,6 @@ describe("Agent Profile availability presentation", () => {
 
 		expect(
 			resolveAgentProfileRowWakeAvailability({
-				autoRefreshExhausted: true,
-				currentLocalRuntimeCanReply: true,
-				localAgentDisplayName: "OpenCode",
 				readiness,
 			})
 		).toMatchObject({
@@ -175,22 +166,14 @@ describe("Agent Profile availability presentation", () => {
 		).toBeNull();
 	});
 
-	it("reserves connection copy for a profile with no computer binding", () => {
+	it("does not rederive the Core verdict from a missing binding", () => {
 		const readiness = createUnboundAgentReadiness();
 
 		expect(
 			resolveAgentProfileRowWakeAvailability({
-				autoRefreshExhausted: false,
-				currentLocalRuntimeCanReply: true,
-				localAgentDisplayName: "OpenCode",
 				readiness,
 			})
-		).toMatchObject({
-			badgeLabel: "Unavailable",
-			category: "unavailable",
-			summary: "Not connected to a computer.",
-			tooltip: "Not connected to a computer",
-		});
+		).toBe(readiness.agentWakeAvailability);
 	});
 
 	it("uses the shared product priority for confirmed local agent connection choices", () => {
@@ -345,22 +328,14 @@ describe("Agent Profile availability presentation", () => {
 		).toEqual([]);
 	});
 
-	it("names the local agent when this computer needs setup", () => {
+	it("uses the Core verdict and a concrete local-agent action when Prepare is required", () => {
 		const readiness = createLocalAgentSetupReadiness();
 
 		expect(
 			resolveAgentProfileRowWakeAvailability({
-				autoRefreshExhausted: false,
-				currentLocalRuntimeCanReply: true,
-				localAgentDisplayName: "OpenCode",
 				readiness,
 			})
-		).toMatchObject({
-			badgeLabel: "Unavailable",
-			category: "unavailable",
-			summary: "OpenCode needs setup on Felix's MacBook Pro.",
-			tooltip: "Review OpenCode setup",
-		});
+		).toBe(readiness.agentWakeAvailability);
 		expect(
 			resolveAgentProfileSetupAction({
 				autoRefreshExhausted: false,
@@ -372,8 +347,62 @@ describe("Agent Profile availability presentation", () => {
 			})
 		).toEqual({
 			href: "/connect",
-			label: "Review OpenCode setup",
+			label: "Connect local agent",
 		});
+	});
+
+	it("uses the exact action verbs from the canonical Core action plan", () => {
+		const baseReadiness = createExpiredWakeRouteReadiness();
+		const reconnectReadiness = {
+			...baseReadiness,
+			primaryActionPlan: {
+				action: "connect_service",
+				target: { kind: "openmeld_service_connection" },
+			},
+		} as GetAgentExecutionReadinessResponse;
+		const connectReadiness = {
+			...reconnectReadiness,
+			agentExecutionReadiness: {
+				...reconnectReadiness.agentExecutionReadiness,
+				facts: {
+					...reconnectReadiness.agentExecutionReadiness.facts,
+					localService: {
+						...reconnectReadiness.agentExecutionReadiness.facts.localService,
+						reasonCodes: ["service.not_installed"],
+					},
+				},
+			},
+		};
+		const updateReadiness = {
+			...reconnectReadiness,
+			primaryActionPlan: {
+				action: "update_service",
+				target: { kind: "openmeld_service" },
+			},
+		} as GetAgentExecutionReadinessResponse;
+		const resolveAction = (readiness: GetAgentExecutionReadinessResponse) =>
+			resolveAgentProfileSetupAction({
+				autoRefreshExhausted: false,
+				currentLocalRuntimeCanReply: null,
+				readiness,
+				serviceUpdatePath: "/update",
+				setupPath: "/connect",
+			});
+
+		expect(resolveAction(connectReadiness)?.label).toBe("Connect computer");
+		expect(resolveAction(reconnectReadiness)?.label).toBe("Reconnect computer");
+		expect(resolveAction(updateReadiness)?.label).toBe("Update");
+	});
+
+	it("formats the cached Core snapshot age without inventing freshness", () => {
+		expect(
+			formatAgentWakeAvailabilityCheckedAt(
+				"2026-09-04T08:00:00.000Z",
+				Date.parse("2026-09-04T08:03:20.000Z")
+			)
+		).toBe("checked 3 minutes ago");
+		expect(formatAgentWakeAvailabilityCheckedAt("not-a-date", 0)).toBeNull();
+		expect(formatAgentWakeAvailabilityCheckedAt(null, 0)).toBeNull();
 	});
 
 	it("describes a healthy binding as where the profile runs", () => {

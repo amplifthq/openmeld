@@ -3,10 +3,12 @@ import {
   type AgentRecoveryActionId,
   formatAgentRecoveryActionLabel,
 } from "./agent-recovery-action";
+import { RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE } from "./runtime-coordinator-reason-code";
 
 export const PROJECT_LOCAL_CONNECTION_FAILURE_REASON_CODES = [
   "project.local_connection.missing",
   "project.local_connection.folder_missing",
+  "project.local_connection.invalid",
 ] as const;
 
 export const projectLocalConnectionFailureReasonCodeSchema = z.enum(
@@ -428,7 +430,7 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Available",
-      availabilitySummary: "Can reply from this computer in Spaces.",
+      availabilitySummary: "Available for Wake",
       availabilityTooltip: "Available for Wake",
       patterns: ["=agent_execution.ready"],
     },
@@ -956,6 +958,15 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       patterns: [
         "claim_eligibility.target_no_longer_member",
         "claim_eligibility.target_not_claimable_agent_member",
+      ],
+      recoveryTarget: null,
+    },
+    {
+      body: (targetName) =>
+        `OpenMeld stopped this Wake for ${formatObjectTargetName(targetName)} because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics.`,
+      kind: "system_retry",
+      patterns: [
+        `=${RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE}`,
       ],
       recoveryTarget: null,
     },

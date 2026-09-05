@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -220,9 +221,10 @@ describe("SpaceMessageBody", () => {
 		expect(
 			view.container.querySelector('[data-slot="space-message-agent-mention"]')
 		).toBeNull();
-		expect(screen.getByText(`@${WAKE_TARGET_PROFILE_NAME} hi`).tagName).toBe(
-			"P"
-		);
+		const humanMessage = screen.getByText(`@${WAKE_TARGET_PROFILE_NAME} hi`);
+		expect(humanMessage.tagName).toBe("P");
+		expect(humanMessage.classList.contains("content-space-message")).toBe(true);
+		expect(view.container.querySelector(".typeset")).toBeNull();
 	});
 
 	it("renders Markdown for ordinary Agent-authored Space messages", () => {
@@ -241,7 +243,12 @@ describe("SpaceMessageBody", () => {
 		).toBeTruthy();
 		expect(screen.getByText("Accepted").tagName).toBe("STRONG");
 		expect(screen.getByText("Run the smoke test").tagName).toBe("LI");
-		expect(view.container.querySelector(".typeset-chat")).toBeTruthy();
+		const messageBody = view.container.querySelector(
+			'[data-typeset-variant="space-message"]'
+		);
+		expect(messageBody?.classList.contains("typeset")).toBe(true);
+		expect(messageBody?.classList.contains("typeset-space-message")).toBe(true);
+		expect(messageBody?.classList.contains("content-space-message")).toBe(true);
 	});
 
 	it("renders a structured Wake target without breaking Agent Markdown", () => {
@@ -489,9 +496,12 @@ describe("SpaceMessageBody", () => {
 		expect(screen.queryByText("**bold**")).toBeNull();
 		expect(screen.getByText("first").tagName).toBe("LI");
 		expect(screen.getByText("second").tagName).toBe("LI");
-		const messageBody = view.container.querySelector(".typeset-chat");
+		const messageBody = view.container.querySelector(
+			'[data-typeset-variant="space-message"]'
+		);
 		expect(messageBody?.classList.contains("typeset")).toBe(true);
-		expect(messageBody?.classList.contains("typeset-chat")).toBe(true);
+		expect(messageBody?.classList.contains("typeset-space-message")).toBe(true);
+		expect(messageBody?.classList.contains("content-space-message")).toBe(true);
 	});
 
 	it("animates words while an agent reply is streaming", () => {
@@ -990,24 +1000,26 @@ describe("SpaceMessageBody", () => {
 	it("keeps canonical Space image files as morphing image previews", () => {
 		const onOpenSpaceFile = vi.fn();
 		render(
-			<SpaceMessageBody
-				item={{
-					files: [
-						{
-							fileId: "file-photo",
-							localPreviewUrl: "blob:space-photo-preview",
-							mimeType: "image/png",
-							name: "launch-photo.png",
-							revision: 2,
-							sizeBytes: 4096,
-						},
-					],
-					isAgentFinalReply: false,
-					spaceId: "space-123",
-					text: "",
-				}}
-				onOpenSpaceFile={onOpenSpaceFile}
-			/>
+			<QueryClientProvider client={new QueryClient()}>
+				<SpaceMessageBody
+					item={{
+						files: [
+							{
+								fileId: "file-photo",
+								localPreviewUrl: "blob:space-photo-preview",
+								mimeType: "image/png",
+								name: "launch-photo.png",
+								revision: 2,
+								sizeBytes: 4096,
+							},
+						],
+						isAgentFinalReply: false,
+						spaceId: "space-123",
+						text: "",
+					}}
+					onOpenSpaceFile={onOpenSpaceFile}
+				/>
+			</QueryClientProvider>
 		);
 
 		const preview = screen.getByRole("img", { name: "launch-photo.png" });

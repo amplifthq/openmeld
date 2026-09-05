@@ -1206,6 +1206,9 @@ describe("gateway http forwarding", () => {
     expect(payload.endpoints?.getSpaceMemberDirectory).toBe(
       "GET /v1/spaces/:spaceId/member-directory"
     );
+    expect(payload.endpoints?.getSpaceEntryResolution).toBe(
+      "GET /v1/spaces/:spaceId/entry-resolution"
+    );
     expect(payload.endpoints?.addSpaceMembers).toBe(
       "POST /v1/spaces/:spaceId/members"
     );
@@ -1234,6 +1237,7 @@ describe("gateway http forwarding", () => {
       "addSpaceMembers",
       "createSpaceThread",
       "getSpaceConversationState",
+      "getSpaceEntryResolution",
       "getSpaceIdentityDirectory",
       "getSpaceMemberDirectory",
       "getSpaceMembers",
@@ -2742,7 +2746,7 @@ describe("gateway http forwarding", () => {
   it("forwards GET /v1/spaces/:spaceId/wake-progress to core RPC", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(
-      "http://local/v1/spaces/demo/wake-progress?clientMessageId=client-message-1&includeTiming=true&includeSourceContext=true&includeWaitReason=true&includeWakeStopEligibility=true&targetProfileId=agt_56789012-5678-4678-8678-56789012abcd",
+      "http://local/v1/spaces/demo/wake-progress?clientMessageId=client-message-1&includeTiming=true&includePreviewText=true&includeSourceContext=true&includeWaitReason=true&includeWakeStopEligibility=true&targetProfileId=agt_56789012-5678-4678-8678-56789012abcd",
       {
         method: "GET",
         headers: {
@@ -2770,6 +2774,7 @@ describe("gateway http forwarding", () => {
       spaceId: "demo",
       clientMessageId: "client-message-1",
       includeTiming: true,
+      includePreviewText: true,
       includeSourceContext: true,
       includeWaitReason: true,
       includeWakeStopEligibility: true,
@@ -2782,7 +2787,7 @@ describe("gateway http forwarding", () => {
   it("forwards GET /v1/spaces/:spaceId/active-wake-progress to core RPC", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(
-      "http://local/v1/spaces/demo/active-wake-progress?includeTiming=true&includeSourceContext=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-profile-1&targetProfileId=agt_56789012-5678-4678-8678-56789012abcd",
+      "http://local/v1/spaces/demo/active-wake-progress?includePageInfo=true&includeTiming=true&includePreviewText=true&includeSourceContext=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-profile-1&targetProfileId=agt_56789012-5678-4678-8678-56789012abcd",
       {
         method: "GET",
         headers: {
@@ -2807,7 +2812,9 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.getActiveSpaceWakeProgress).toHaveBeenCalledWith({
       spaceId: "demo",
+      includePageInfo: true,
       includeTiming: true,
+      includePreviewText: true,
       includeSourceContext: true,
       includeWaitReason: true,
       includeWakeStopEligibility: true,
@@ -6399,7 +6406,7 @@ describe("gateway http forwarding", () => {
     expect(authRpc.listProfileSpaceHistory).not.toHaveBeenCalled();
   });
 
-  it("forwards GET /v1/account/spaces includePurposes to Core AccountSpaces", async () => {
+  it("forwards opt-in AccountSpaces presentation fields to Core", async () => {
     const { env, rpc, authRpc } = makeEnv({
       coreOverrides: {
         listAccountSpaces: vi.fn(async () => ({
@@ -6429,6 +6436,7 @@ describe("gateway http forwarding", () => {
               spaceCreatedAt: "2026-02-24T00:00:00.000Z",
               spaceId: "demo",
               spaceName: "Mira's OpenMeld Welcoming Space",
+              directMessageProfileIds: null,
               spacePurpose: "openmeld_welcoming_space",
               spaceUpdatedAt: "2026-02-24T00:00:01.000Z",
               status: "active",
@@ -6441,7 +6449,7 @@ describe("gateway http forwarding", () => {
     });
 
     const request = new Request(
-      "http://local/v1/account/spaces?gatewayHost=localhost%3A8080&scope=account&selectedProfileId=11111111-1111-4111-8111-111111111111&limit=20&includePurposes=true",
+      "http://local/v1/account/spaces?gatewayHost=localhost%3A8080&scope=account&selectedProfileId=11111111-1111-4111-8111-111111111111&limit=20&includeDirectMessageProfileIds=true&includePurposes=true",
       { method: "GET" }
     );
 
@@ -6459,6 +6467,7 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.listAccountSpaces).toHaveBeenCalledWith({
       gatewayHost: "localhost:8080",
+      includeDirectMessageProfileIds: true,
       includePurposes: true,
       limit: 20,
       ownerUserId: "owner-001",

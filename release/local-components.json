@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-03T11:54:02.871Z",
+  "updatedAt": "2026-09-05T03:27:01.529Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.152",
+      "packageVersion": "0.3.157",
       "updatePolicy": "available",
-      "reason": "Copy-only Agent availability and recovery labels remain compatible with old and new cloud responses."
+      "reason": "The new space link command is additive, and existing commands remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "ceb4708b4890b1e24e9e1cffbcce504bcc645446796f09804c0bc3043ac6ac85",
-      "bundleVersion": "0.3.152",
+      "bundleHash": "2b12ace38d81f19d310192b97df4364688e3df3d45bb6044b832535483edfff8",
+      "bundleVersion": "0.3.157",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Copy-only shared recovery labels do not change Service transport, readiness, or execution contracts."
+      "reason": "Only additive optional shared schema fields changed the packaged bundle; existing Services keep current Wake, setup, trace, and recovery behavior."
     },
     "skills": {
-      "bundleHash": "40b26531a2a2ea3a800df3cb40bc801eac2a7ebfc0407ca7907d2bd121112c30",
+      "bundleHash": "95260cd703b998dcca9b9baba9e170ef8a2dc340cb116cacda27875fe03b2475",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The bundled skill only documents the additive wake-progress read; older skills and supported operations remain compatible."
+      "reason": "The managed Skill adds optional space link guidance, while existing installed commands and workflows remain valid."
     }
   }
 }

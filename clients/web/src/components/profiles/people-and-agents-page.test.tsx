@@ -7,6 +7,7 @@ import type {
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -16,6 +17,7 @@ import {
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatAgentWakeAvailabilityCheckedAt } from "#/components/agents/agents-page-agent-profile-helpers";
 import { PeopleAndAgentsPage } from "./people-and-agents-page";
 
 const agentProfilesCardSpy = vi.hoisted(() => vi.fn());
@@ -174,6 +176,7 @@ vi.mock("#/components/agents/agents-page-agent-profiles-card", () => ({
 		onCreateProfile?: () => void;
 		presentation?: "cards" | "controller" | "detail";
 		showOwnerGroups?: boolean;
+		wakeAvailabilityNowMs: number;
 	}) => {
 		agentProfilesCardSpy(props);
 		const [editing, setEditing] = useState(false);
@@ -235,6 +238,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 		selectedProfileId: string | null;
 		showAgentRequests?: boolean;
 		searchControl?: ReactNode;
+		wakeAvailabilityNowMs: number;
 	}) => {
 		agentProfilesWorkspaceSpy(props);
 		const selectedProfile =
@@ -722,6 +726,7 @@ describe("PeopleAndAgentsPage", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.useRealTimers();
 		vi.clearAllMocks();
 	});
 
@@ -849,7 +854,135 @@ describe("PeopleAndAgentsPage", () => {
 			}),
 		]);
 		expect(workspaceProps.profilesStatus).toBe("ready");
-		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([]);
+		expect([...workspaceProps.readinessPendingProfileIds]).toEqual([
+			"agt_11111111-1111-4111-8111-111111111111",
+		]);
+		expect(workspaceProps.readinessIsRefreshing).toBeUndefined();
+	});
+
+	it("keeps the cached Core overview visible while a background refresh runs", () => {
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				organizationDirectoryFixture
+			);
+			if (organizationProjection) {
+				return queryKey.includes("agent-runtime-overview")
+					? { ...organizationProjection, isFetching: true }
+					: organizationProjection;
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		const workspaceProps = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
+		expect(workspaceProps.readinessIsRefreshing).toBeUndefined();
+		expect(agentProfilesCardSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentExecutionReadinessIsRefreshing: true,
+				agentExecutionReadinessByProfileId: expect.any(Map),
+			})
+		);
+	});
+
+	it("keeps the cached Core overview alongside a background refresh failure", () => {
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				organizationDirectoryFixture
+			);
+			if (organizationProjection) {
+				return queryKey.includes("agent-runtime-overview")
+					? {
+							...organizationProjection,
+							error: new Error("Core could not refresh Wake availability."),
+							isError: true,
+						}
+					: organizationProjection;
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: { organizationId: "org-123", requests: [] },
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		const workspaceProps = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
+		expect(workspaceProps.readinessByProfileId.size).toBe(1);
+		expect(
+			workspaceProps.readinessErrorByProfileId.get(
+				"agt_11111111-1111-4111-8111-111111111111"
+			)
+		).toBe("Core could not refresh Wake availability.");
+	});
+
+	it("advances one shared Wake availability clock every minute", () => {
+		const checkedAt = "2026-09-04T12:00:00.000Z";
+		vi.useFakeTimers();
+		vi.setSystemTime(checkedAt);
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		let detailNowMs =
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
+		expect(formatAgentWakeAvailabilityCheckedAt(checkedAt, detailNowMs)).toBe(
+			"checked just now"
+		);
+
+		act(() => vi.advanceTimersByTime(60_000));
+		detailNowMs =
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
+		expect(formatAgentWakeAvailabilityCheckedAt(checkedAt, detailNowMs)).toBe(
+			"checked 1 minute ago"
+		);
+
+		act(() => vi.advanceTimersByTime(120_000));
+		detailNowMs =
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].wakeAvailabilityNowMs;
+		expect(formatAgentWakeAvailabilityCheckedAt(checkedAt, detailNowMs)).toBe(
+			"checked 3 minutes ago"
+		);
 	});
 
 	it("counts only pending requests from the existing organization request query", () => {

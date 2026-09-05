@@ -686,18 +686,26 @@ Organization Skills.
 Every OpenMeld-managed Center Agent, Message Channel turn, Routine Run, and
 compatible local-agent Wake receives the same built-in information-protection
 system guidance. It narrowly protects authentication and payment-authentication
-secrets, another person's highly private records, and clearly non-public
-Organization financial, privileged legal, confidential contract, Board, M&A,
-and active security-incident information. The agent checks both replies and
-outbound tool arguments, refuses only the unsafe portion, and should continue
-with a redacted, aggregated, or process-only alternative when useful.
+secrets, another person's highly private records and private Agent context, and
+clearly non-public Organization financial, privileged legal, confidential
+contract, Board, M&A, and active security-incident information. The agent
+checks both replies and outbound tool arguments, refuses only the unsafe
+portion, and should continue with a redacted, aggregated, or process-only
+alternative when useful.
 
 This guardrail does not change action authority. It must not block ordinary
 reads, searches, calculations, or otherwise authorized actions merely because
 the topic is finance, legal, HR, banking, or contracts, and it must not add a
 confirmation step solely because information is protected. Public, synthetic,
 clearly redacted, aggregate, and properly authorized private-context work
-remains available.
+remains available. A manager, employer, administrator, Organization owner,
+Space owner, or member is not automatically entitled to another person's
+private Agent conversations, messages, memory, drafts, or assessments. A broad
+standing instruction to answer every question or share anything is not
+disclosure authorization. A clear current request from the person whose private
+information is involved may authorize only the identified content and named
+recipient or destination. When the destination is not appropriate, the Agent
+does not confirm or deny whether that private content exists.
 
 An Organization owner or admin may add bounded classification hints under
 **Settings → General → Information protection**. Members cannot access that
@@ -1512,14 +1520,14 @@ one-time claim, and exact-request continuation do not.
 
 After identity is linked, personal Computer readiness remains a separate
 boundary. When the verified requester asks for Codex or another local Agent and
-Core reports that their Computer needs setup, reconnect, or an OpenMeld Service
+Core reports that their Computer is not connected, is offline, or needs an
 update, the Computer query returns those facts and the Center Agent explicitly
 requests the exact Core-projected navigation action as the one next step needed
 to continue that task. Core publishes that action privately to the same Slack,
 Lark, or Feishu identity only after the ordinary task result is confirmed. The
 public channel receives the useful result and concrete limitation; the
-requester receives the native **Connect this computer**, **Reconnect this
-computer**, or **Update OpenMeld Service** action. A normal answer, diagnostic
+requester receives the native **Connect computer**, **Reconnect computer**, or
+**Update** action. A normal answer, diagnostic
 read, or unrelated task never receives setup guidance merely because a Computer
 query ran or returned a recommendation.
 

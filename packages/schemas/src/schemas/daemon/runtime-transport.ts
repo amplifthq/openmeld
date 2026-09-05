@@ -259,6 +259,7 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
     currentAgentControllerRef: agentControllerRefSchema,
     currentBindingId: z.string().trim().min(1).max(512),
     currentConfigurationRevision: z.number().int().positive(),
+    currentDefaultProjectId: z.string().trim().min(1).nullable().optional(),
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
     requireAcceptedExecutionTargetRevision: z.literal(true),
   });
@@ -423,7 +424,83 @@ export const runtimeTransportCapabilitiesSchema =
     localFolderPicker: localFolderPickerRuntimeCapabilitySchema.optional(),
   });
 
-export const localWakeRouteReportSchema = z.strictObject({
+const localWakeRouteWorkingFolderObservationIdentityShape = {
+  bindingId: z.string().min(1),
+  configurationRevision: z.number().int().positive(),
+  observedAtMs: z.number().int().nonnegative(),
+  profileId: z.string().min(1),
+} as const;
+const localProjectBindingGenerationSchema = z.string().trim().min(1);
+const defaultProjectIdSchema = z.string().trim().min(1);
+
+export const localWakeRouteWorkingFolderReasonCodeSchema = z.enum([
+  "project.local_connection.missing",
+  "project.local_connection.folder_missing",
+  "project.local_connection.invalid",
+  "profile.workspace.missing",
+  "profile.workspace.invalid",
+]);
+
+export const localWakeRouteWorkingFolderObservationSchema = z.union([
+  z.strictObject({
+    ...localWakeRouteWorkingFolderObservationIdentityShape,
+    defaultProjectId: defaultProjectIdSchema,
+    localProjectBindingGeneration: localProjectBindingGenerationSchema,
+    reasonCode: z.null(),
+    source: z.literal("default_project"),
+    status: z.literal("ready"),
+  }),
+  z.strictObject({
+    ...localWakeRouteWorkingFolderObservationIdentityShape,
+    defaultProjectId: defaultProjectIdSchema,
+    localProjectBindingGeneration: z.null(),
+    reasonCode: z.literal("project.local_connection.missing"),
+    source: z.literal("default_project"),
+    status: z.literal("missing"),
+  }),
+  z.strictObject({
+    ...localWakeRouteWorkingFolderObservationIdentityShape,
+    defaultProjectId: defaultProjectIdSchema,
+    localProjectBindingGeneration: localProjectBindingGenerationSchema,
+    reasonCode: z.literal("project.local_connection.folder_missing"),
+    source: z.literal("default_project"),
+    status: z.literal("missing"),
+  }),
+  z.strictObject({
+    ...localWakeRouteWorkingFolderObservationIdentityShape,
+    defaultProjectId: defaultProjectIdSchema,
+    localProjectBindingGeneration: localProjectBindingGenerationSchema,
+    reasonCode: z.literal("project.local_connection.invalid"),
+    source: z.literal("default_project"),
+    status: z.literal("invalid"),
+  }),
+  z.strictObject({
+    ...localWakeRouteWorkingFolderObservationIdentityShape,
+    defaultProjectId: z.null(),
+    localProjectBindingGeneration: z.null(),
+    reasonCode: z.null(),
+    source: z.literal("profile_workspace"),
+    status: z.literal("ready"),
+  }),
+  z.strictObject({
+    ...localWakeRouteWorkingFolderObservationIdentityShape,
+    defaultProjectId: z.null(),
+    localProjectBindingGeneration: z.null(),
+    reasonCode: z.literal("profile.workspace.missing"),
+    source: z.literal("profile_workspace"),
+    status: z.literal("missing"),
+  }),
+  z.strictObject({
+    ...localWakeRouteWorkingFolderObservationIdentityShape,
+    defaultProjectId: z.null(),
+    localProjectBindingGeneration: z.null(),
+    reasonCode: z.literal("profile.workspace.invalid"),
+    source: z.literal("profile_workspace"),
+    status: z.literal("invalid"),
+  }),
+]);
+
+const localWakeRouteReportBaseShape = {
   reportedAtMs: z.number().int().nonnegative(),
   daemonSessionId: z.string().min(1),
   deviceId: z.string().min(1),
@@ -441,7 +518,23 @@ export const localWakeRouteReportSchema = z.strictObject({
     .max(512)
     .optional(),
   skippedProfiles: z.array(skippedDaemonProfileSchema).max(512),
+} as const;
+
+const legacyLocalWakeRouteReportSchema = z.strictObject(
+  localWakeRouteReportBaseShape
+);
+const v4LocalWakeRouteReportSchema = z.strictObject({
+  ...localWakeRouteReportBaseShape,
+  expectedRoutesContractVersion: z.literal("v4"),
+  workingFolderObservations: z
+    .array(localWakeRouteWorkingFolderObservationSchema)
+    .max(512),
 });
+
+export const localWakeRouteReportSchema = z.union([
+  legacyLocalWakeRouteReportSchema,
+  v4LocalWakeRouteReportSchema,
+]);
 
 export const runtimeTransportRejectedProfileRegistrationSchema = z.strictObject(
   {

@@ -23,10 +23,10 @@ export function Logout() {
 		redirectTimerRef.current = null;
 	}, []);
 
-	const scheduleLoginRedirect = useCallback(() => {
+	const scheduleEntryRedirect = useCallback(() => {
 		clearRedirectTimer();
 		redirectTimerRef.current = setTimeout(() => {
-			window.location.assign("/login");
+			window.location.assign("/");
 		}, 300);
 	}, [clearRedirectTimer]);
 
@@ -40,7 +40,7 @@ export function Logout() {
 			.mutateAsync()
 			.then(() => {
 				dispatch({ type: "redirecting" });
-				scheduleLoginRedirect();
+				scheduleEntryRedirect();
 			})
 			.catch((error) => {
 				dispatch({
@@ -50,14 +50,14 @@ export function Logout() {
 			});
 
 		return clearRedirectTimer;
-	}, [clearRedirectTimer, logoutAction, scheduleLoginRedirect]);
+	}, [clearRedirectTimer, logoutAction, scheduleEntryRedirect]);
 
 	const onRetry = async () => {
 		dispatch({ type: "logging-out" });
 		try {
 			await logoutAction.mutateAsync();
 			dispatch({ type: "redirecting" });
-			scheduleLoginRedirect();
+			scheduleEntryRedirect();
 		} catch (error) {
 			dispatch({
 				message: getAuthErrorMessage(error, "Failed to sign out."),

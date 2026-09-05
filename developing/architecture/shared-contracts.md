@@ -265,7 +265,7 @@ the shared schema restricts to HTTPS `slack.com` hosts. Core resolves that link
 through Slack `chat.getPermalink`; clients never construct or accept a
 recipient-authored external URL.
 An Agent Interaction target carries the stable source Space signal when known
-and an exact nullable Space thread root for every new RuntimeCoordinator
+and an exact nullable Space thread ID for every new RuntimeCoordinator
 projection, so resolved interaction history remains navigable and clients can
 identify the exact visible source conversation. A string identifies one thread;
 explicit null identifies the main timeline; an absent field means legacy
@@ -658,7 +658,7 @@ remain release-sensitive.
 for daemon lifecycle journal entries that the CLI may attach to a failed
 Prepare step. The CLI writes this diagnostic bundle and Core validates it only
 for bounded logging; rejection must not change Prepare completion, setup truth,
-Wake availability, or execution state.
+Wakeability, or execution state.
 
 Adding an event type is therefore backward-compatible for product behavior but
 not forward-compatible for diagnostic logging: an older Core rejects the whole
@@ -676,7 +676,7 @@ new type; removing that consumer first would recreate the diagnostic gap.
 versioned `LocalMachineIssue` contract and its CLI Agent View error event. The
 contract carries one stable code, the failed local operation, the recovery
 policy, a plain-language summary, one primary action, and bounded diagnostic
-detail. It does not carry Service readiness, Wake availability, execution
+detail. It does not carry Service readiness, Wakeability, execution
 state, or authority to mutate local state.
 
 The CLI is the classifier and writer. Prepare, Desktop, and Web are consumers:
@@ -840,8 +840,8 @@ contains readiness and Agent Profile Operational Context keyed by Profile id.
 Core resolves its inputs in bounded owner batches: one route batch, one owner
 Service read, and one local-runtime display inventory per owner, with bounded
 per-Profile readiness work. Splitting transport does not split authority: Auth,
-Core readiness, Binding, and RuntimeCoordinator remain the same owners, and the
-browser never derives or writes either projection.
+Core Wakeability, Binding, and RuntimeCoordinator remain the same owners, and
+the browser never derives or writes either projection.
 
 Organization Directory readiness is permission-scoped before serialization.
 The Agent owner receives the normal owner projection. Another active member
@@ -1066,6 +1066,17 @@ than a partial member write. Rollback removes Web and Gateway callers before
 Core. CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, Wake dispatch,
 Space actions, diagnostics, and local-component contract versions are
 unchanged.
+
+Account Space Index also supports the additive
+`includeDirectMessageProfileIds=true` opt-in. For an unconverted two-party
+Direct Message it returns the canonical two Profile ids already present in the
+Space Index pair key; other rows return `null`. This is a bounded presentation
+projection for resolving sidebar identity through the Organization Profile
+Directory, not membership or access authority. Strict older clients omit the
+flag and keep their prior response shape. Roll out schemas, Core, Gateway, and
+Web receiver-first; rollback removes the Web flag before the Gateway and Core
+field support. No D1, CLI, Service, daemon, runtime, or local-component contract
+change is required.
 
 ### Organization Logo Contracts
 
@@ -1566,17 +1577,18 @@ Contract Impact Audit:
 
 `packages/schemas/src/schemas/protocol/envelope.ts` owns Space live WebSocket
 frames that cross Core/Space and browser clients. Live invalidation frames such
-as `space.members.changed`, `space.meta.changed`, and
-`agent.readiness.invalidated` are transport signals, not durable state.
+as `space.members.changed`, `space.meta.changed`,
+`agent.readiness.invalidated`, and `wake.progress.changed` are transport
+signals, not durable state.
 
 Rules:
 
-- Core/Space may emit an invalidation frame after a membership, metadata, or
-  readiness owner changes facts.
+- Core/Space may emit an invalidation frame after a membership, metadata,
+  readiness, or RuntimeCoordinator Wake-progress owner changes facts.
 - Clients may use the frame to trigger a targeted read-model refresh.
 - The authoritative facts remain the Space members snapshot, Space status
   snapshot, Core Wake/readiness projections, and their shared schemas.
-- Clients must not derive final membership, Wake availability, Agent Profile
+- Clients must not derive final membership, Wakeability, Agent Profile
   Binding, local service liveness, or execution outcome directly from an
   invalidation frame.
 - The frame version must be monotonic for a Space across Durable Object
@@ -1585,6 +1597,10 @@ Rules:
 - A missed invalidation frame must be recoverable by the next snapshot read.
 - `space.meta.changed` triggers a Space status and Space Index refresh. It does
   not carry metadata state and does not imply that membership changed.
+- `wake.progress.changed` may carry only selectors such as Agent Profile IDs
+  and client message IDs. It never carries a phase, outcome, interaction,
+  eligibility decision, or user-facing status. Web uses it to refresh the
+  Core-owned active Wake progress projection.
 
 The Space-name request field and `space.meta.changed` topic are additive,
 cloud-only contracts. Deploy Core first, then Gateway, then Web: an older Core
@@ -2214,14 +2230,15 @@ Core may include a `primaryBinding` read projection on readiness responses so a
 client can render Binding diagnostics without issuing a separate Binding read
 per Agent Profile. That projection is copied from Binding-owned truth and is
 read-only. It must not become a second Binding writer, reservation, claim
-authority, or Wake availability owner.
+authority, or Wakeability owner.
 
 Rules:
 
 - Binding writes and command eligibility stay on the Agent Profile Binding
   contract.
-- Wake availability still comes from Core-owned `AgentExecutionReadiness`, not
-  from Binding existence or route/service evidence alone.
+- Wakeability still comes from the Core-owned projection. Its current
+  compatibility implementation is `AgentExecutionReadiness`; Binding existence
+  or route/service evidence alone does not provide the verdict.
 - Clients may use `primaryBinding` for display and local cache hydration only.
   They must refresh the owning Binding or readiness read model after a mutation
   instead of treating a stale projection as authority.
@@ -3875,15 +3892,22 @@ RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
 progress read model, including the optional `startedAtMs` timing projection and
 the optional `wakeStopEligibility` projection. A caller may also opt into
 `sourceContext`, which contains only the Space-owned requester Profile ID, kind,
-display name, sanitized public source-message preview, and nullable thread root.
-Active reads may filter by one `sourceProfileId`; Core resolves that filter to
-Space source Signal identities before each bounded owner query, never after a
-global limit.
+display name, sanitized public source-message preview, and nullable thread ID.
+Active reads may filter by one `sourceProfileId`. New dispatch-ledger and native
+delivery rows retain that immutable source Profile ID only as a bounded query
+selector; it is not identity authority or public source context. Legacy
+dispatch rows may match through bounded active-outbox dispatch IDs. Every
+lifecycle-owner filter runs before ordering and limiting, and Core must never
+scan the requester's unbounded Space message history.
 The response query must echo the accepted `sourceProfileId`. A new client that
 requested this filter fails closed when the echo is absent or different, so an
 older Gateway or Core cannot silently return an unfiltered result.
-This context is a read-time join over existing Space truth. It is not copied
-into an execution owner, cannot authorize or advance work, and never contains
+Callers may opt into bounded result metadata with `includePageInfo=true`.
+When requested, Core returns `pageInfo.limit` and `pageInfo.hasMore`; a new
+client fails closed if an older Gateway or Core omits that metadata. Core omits
+`pageInfo` when it was not requested so older strict clients remain compatible.
+This public context is a read-time join over existing Space truth. It is not
+copied into an execution owner, cannot authorize or advance work, and never contains
 provider prompts, transcripts, or other private runtime context.
 
 The contract may also expose the bounded
@@ -3899,7 +3923,8 @@ mixed-version opt-in: clients request authoritative elapsed-time timing with
 `includeWaitReason=true`, and Stop eligibility with
 `includeWakeStopEligibility=true` on Wake progress and active Wake progress
 reads. Public source context is similarly requested with
-`includeSourceContext=true`. Core must omit each field when the corresponding
+`includeSourceContext=true`, and live reply preview text with
+`includePreviewText=true`. Core must omit each field when the corresponding
 request does not opt in, so new Core does not break older strict clients. `startedAtMs` is the
 authoritative execution start anchor while `updatedAtMs` remains freshness and
 ordering evidence. A new client must omit elapsed time when `startedAtMs` is
@@ -4367,9 +4392,9 @@ truth.
 Clients should use the shared setup action labels instead of inventing local
 copy for the same local alignment state:
 
-- `Connect OpenMeld Service`
-- `Reconnect OpenMeld Service`
-- `Update OpenMeld Service`
+- `Connect Computer`
+- `Reconnect Computer`
+- `Update OpenMeld on Computer`
 - `Connect local agent`
 - `Update OpenMeld skills`
 - `Everything is up to date`
@@ -4400,11 +4425,12 @@ Service projection `required` even when the latest artifact is advisory:
   Core behavior tests; an ordinary advisory release cannot lower or bypass it.
   The initial floor was `0.3.15`: Service `0.3.14` can report an online
   heartbeat without registering execution routes. The current floor is
-  `0.3.126`: earlier Services lack the complete startup recovery,
-  managed-update, and active Permission/Wake behavior required by the current
-  workstation runtime, and `0.3.125` can strand a newly delivered Wake during
-  a controlled Service replacement. A supported version below the latest
-  release remains advisory when
+  `0.3.153`: earlier Services cannot provide the current working-folder facts
+  or dispatch-owned reply observation required by the current workstation
+  runtime. The floor blocks only new unsafe admission; RuntimeCoordinator keeps
+  accepted work authoritative, and Service update and reconnect controls remain
+  available so the Computer can recover.
+  A supported version below the latest release remains advisory when
   `components.service.updatePolicy=available`.
 - CLI policy is projected at release time into the published npm package as
   `openmeld.minRequiredCliVersion` (the forced-update floor), because npm is the only
@@ -4612,7 +4638,7 @@ and projections for those facts. It remains optional so older Core producers
 and already-deployed strict consumers remain compatible during rollout.
 
 `packages/schemas/src/schemas/http/space-members.ts` owns the shared HTTP
-contracts for Space member snapshots, public Wake availability fields, owner
+contracts for Space member snapshots, public Wakeability fields, owner
 diagnostics, and Space member directory entries.
 
 Core's Organization-directory member-addition boundary expands every selected
@@ -4980,7 +5006,7 @@ fact authority. It may compose:
 
 - Agent or Human Profile identity from profile-owned read models.
 - Space membership context from Space-owned membership projections.
-- Wake availability from Core-owned readiness projections.
+- Wakeability from the Core-owned projection.
 - local connection and Binding diagnostics from Binding, Runtime, and local OpenMeld
   Service evidence.
 
@@ -5279,21 +5305,36 @@ interrupted target-Wake lifecycle id, and the owner shard compares that identity
 before mutation so a stale Web action cannot clear a later gate. Usage-based
 automatic continuation requires the exact current
 `usageLimitsSupportMatrixVersion`, the same Profile, controller, Binding, and
-configuration, complete replayable source context, and no prior automatic
-continuation attempt. The continuation authorization request also carries the
-current canonical Binding tuple and an explicit accepted-revision verification
-marker; the owner shard compares it with the interrupted run command snapshot
-in the same transaction. Missing or mismatched accepted revision evidence is
-unsafe. An unsafe request or failed automatic continuation stays behind one
-current Needs-attention projection instead of entering another retry loop.
+configuration, the same nullable Default Project, complete replayable source
+context, and no prior automatic continuation attempt. The continuation
+authorization request also carries the current canonical Binding tuple, the
+Auth-owned nullable Default Project, and an explicit accepted-revision
+verification marker; the owner shard compares them with the interrupted run
+command snapshot in the same transaction. The new Default Project field is
+additive on the wire, but a new owner shard treats an omitted field as unsafe so
+an older caller cannot continue without this fence. Missing or mismatched
+accepted evidence is unsafe. An unsafe request or failed automatic continuation
+stays behind one current Needs-attention projection instead of entering another
+retry loop.
+The resulting Space handoff is a separate owner-only Usage-continuation
+command. It carries the frozen interrupted source identity plus deterministic
+operation and client-message identities, the exact canonical Space File
+revision references, and the structured Agent Reference targets. Repeated
+commands converge through Space's ordinary exactly-once client-message writer,
+including its current file and addressing validation, and cannot create a
+second handoff. The command never depends on the public Execution Recovery
+`retry_as_new_execution` capability. That legacy schema member remains accepted
+for mixed-version parsing while public inspection and execution keep it
+disabled.
 
 RuntimeCoordinator head admission keeps its existing version 1 wire shape so a
 new Core caller cannot stall ordinary Wake traffic on an older strict owner
 shard. The initial continuation authorization compares the current canonical
-`bindingId`, `agentControllerRef`, and `configurationRevision` with the
-interrupted run command in the owner-shard transaction. Future-work settings
-use a dedicated owner-shard mutation RPC instead of adding a field to the
-existing strict execution-target mutation request. That transaction moves a
+`bindingId`, `agentControllerRef`, `configurationRevision`, and Auth-owned
+nullable `defaultProjectId` with the interrupted run command in the owner-shard
+transaction. Future-work settings use a dedicated owner-shard mutation RPC
+instead of adding a field to the existing strict execution-target mutation
+request. That transaction moves a
 pending or authorized continuation to the single Needs-attention gate and
 writes its Inbox intent before the cloud Binding write may begin. If the
 continuation head wins the owner-shard order first, it becomes running and the
@@ -5358,11 +5399,40 @@ controller.
 The existing strict expected-routes response remains the v1 mixed-version
 shape and never emits `agentControllerCollaborationMode`. `contractVersion=v2`
 adds collaboration mode. `contractVersion=v3` additionally carries the
-Binding's `configurationRevision`. A new local component negotiates newest
-first and falls back from `v3` to `v2` to the legacy query only when the server
+Binding's `configurationRevision`. `contractVersion=v4` additionally carries
+the current Auth-owned `defaultProjectId` as a nullable Project identity. A new
+local component negotiates newest first and falls back from `v4` through `v3`
+and `v2` to the legacy query only when the server
 returns `invalid_payload`, whether surfaced as the direct Gateway error code or
 its legacy upstream-code alias. It must not retry network or server failures as
 compatibility fallbacks.
+
+A Service that successfully negotiated v4 uses the strict v4
+`LocalWakeRouteReport` branch with `expectedRoutesContractVersion: "v4"` and a
+required `workingFolderObservations` array. A legacy report has neither field;
+there is no v3 report marker. Each observation is path-free and echoes the
+Profile, Binding, Binding configuration revision, nullable Default Project,
+observation time, resolution source, status, and nullable local Project
+`bindingGeneration` (named `localProjectBindingGeneration` across this mixed
+identity boundary). The seven legal fact shapes are Default Project ready,
+missing connection, missing folder, or invalid connection; and Profile
+workspace ready, missing, or invalid. Non-ready observations use only
+`project.local_connection.missing`,
+`project.local_connection.folder_missing`, `project.local_connection.invalid`,
+`profile.workspace.missing`, or `profile.workspace.invalid`. The Core trust
+matcher accepts a set only when its echoed current identities match and the
+report provides exactly one observation for every current expected Profile.
+Duplicate, missing, extra, stale, or mismatched facts make the observation set
+unknown. `localProjectBindingGeneration` remains an opaque Service-owned local
+connection identity: Core does not compare it with a cloud value, and a later
+accepted report replaces the earlier generation. Core Wakeability and dispatch
+admission consume this matcher as the single current working-folder gate. Once
+that gate is enabled, an online Service that can only send the legacy report is
+shown as requiring an OpenMeld update; it is not misreported as Offline or as a
+damaged Agent setup. Rollout therefore publishes the new Service package first,
+then enables the Core gate. A new Service falls back to the legacy query only
+after an explicit v4 negotiation failure, so it remains compatible with an old
+Core during that rollout window.
 
 `openMeldDaemonDispatchControllerSnapshotSchema` carries optional `bindingId`
 and `configurationRevision` as frozen execution-consistency identity. The
@@ -5488,7 +5558,7 @@ field unchanged until the adapter serializes it into `OPENCODE_PERMISSION`.
 OpenMeld must not invent a controller-agnostic permission policy layer for this
 field.
 
-Binding existence does not equal `Available for Wake`.
+Binding existence does not make Wakeability `Available`.
 
 Binding command eligibility does not grant claim success.
 
@@ -5508,15 +5578,15 @@ Its current scope is Agent Profile Reply Recovery:
 - consume adapter-provided current-local-Runtime evidence
 - translate those facts into one user-visible next action and copy
 
-It does not own readiness truth.
+It does not own Wakeability truth.
 
 It also does not own Start or Prepare orchestration, OpenMeld Service lifecycle,
 Space rendering, RuntimeCoordinator execution truth, dispatch, claim, final Wake
 outcomes, or reply placement.
 
 Adapters must flatten source-specific evidence before calling this package. Do
-not import Start-owned setup, device projection, or profile readiness types into
-`packages/agent-profile`.
+not import Start-owned setup, device projection, or profile Wakeability types
+into `packages/agent-profile`.
 
 ## Cross-Client Reuse Policy
 
@@ -5617,6 +5687,35 @@ exceed the schema maximum keep failing closed (null context) rather than
 being silently truncated — the visited list is the chain's loop telemetry
 (dispatch trace today, loop-awareness prompt injection next), so dropping
 entries is never a valid degradation.
+
+## Space Entry Resolution Contract
+
+`packages/schemas/src/schemas/http/space-entry.ts` owns the shared Space entry
+target and resolution read model. The target preserves the Space plus optional
+message and Thread-root focus so a client can continue to the original
+destination after a recoverable entry gate is cleared.
+
+Core is the only owner of the resolution. It combines canonical Space access,
+Space membership, Organization membership, and the bounded Space Index
+projection into separate `view` and `participation` outcomes. This separation
+is required because `public_view_join_password` permits reading while still
+requiring a password to join. Web, CLI, and Agent View consume the result; they
+must not rebuild the access table from HTTP status codes or client caches.
+
+The resolver is a read projection, not an authorization token. Every content
+or mutation endpoint still performs its own Core-owned authorization. Same-
+Organization nonmembers may receive the bounded Space name and creator contact
+needed for a useful blocked state. Anonymous visitors and authenticated
+outsiders receive no private Space or Organization context. A missing or
+inconsistent owner fact is omitted instead of being guessed.
+
+`packages/space` owns the pure public path and URL builder for a validated
+`SpaceEntryTarget`. The builder emits the tenant-neutral `/spaces/<space-id>`
+route with optional `signalId` and `threadRootSignalId`; it does not add a
+Profile, Organization slug, password, token, or access outcome. Web share
+surfaces and CLI Agent/Human View reuse this builder so a copied destination has
+one cross-client form while authorization remains owned by the resolver and
+the eventual read endpoint.
 
 ## Protected Space Access Contract
 

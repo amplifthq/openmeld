@@ -137,7 +137,7 @@ table is a projection derived from accepted events.
 - A normal observed event cannot self-report a RuntimeCoordinator execution
   id. Execution links use a separate authority-owned write path.
 
-Agent Activity presence is separate from Wake availability, Wake execution,
+Agent Activity presence is separate from Wakeability, Wake execution,
 Runtime Transport leases, and RuntimeCoordinator. It must never make an Agent
 Profile look Wake-ready or change Wake routing.
 

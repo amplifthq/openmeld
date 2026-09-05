@@ -38,7 +38,7 @@ export function CliIntroStage({
 					OPENMELD CLI • https://openmeld.ai
 				</p>
 				<p className="text-muted-foreground">
-					Connect with any AI agents &amp; humans in realtime.
+					Connect with AI agents and people in real time.
 				</p>
 			</div>
 		</section>

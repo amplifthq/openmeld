@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	buildSpaceComposerAddressingTargets,
 	buildSpaceMentionTargetItems,
+	resolveDefaultSpaceComposerMentionRelation,
 	resolveSpaceComposerAddressingMentions,
 	useSpaceMentionAuthoring,
 } from "./use-space-mention-authoring";
@@ -35,10 +36,11 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		);
 
 		act(() => {
-			firstComposer.result.current.onComposerChange(
-				"Keep this plan after refresh",
-				{ end: 28, start: 28 }
-			);
+			firstComposer.result.current.onComposerEditorChange({
+				authoredMentions: [],
+				selection: { end: 28, start: 28 },
+				text: "Keep this plan after refresh",
+			});
 		});
 		firstComposer.unmount();
 
@@ -84,9 +86,10 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		);
 
 		act(() => {
-			composer.result.current.onComposerChange("Draft for thread A", {
-				end: 18,
-				start: 18,
+			composer.result.current.onComposerEditorChange({
+				authoredMentions: [],
+				selection: { end: 18, start: 18 },
+				text: "Draft for thread A",
 			});
 		});
 
@@ -94,9 +97,10 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		expect(composer.result.current.composerText).toBe("");
 
 		act(() => {
-			composer.result.current.onComposerChange("Draft for thread B", {
-				end: 18,
-				start: 18,
+			composer.result.current.onComposerEditorChange({
+				authoredMentions: [],
+				selection: { end: 18, start: 18 },
+				text: "Draft for thread B",
 			});
 		});
 
@@ -220,40 +224,6 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		});
 	});
 
-	it("inserts @ at the current selection for the cold-loading textarea", () => {
-		const composer = renderHook(() =>
-			useSpaceMentionAuthoring({
-				composerDraftScope: {
-					kind: "space",
-					ownerAccountId: "account-1",
-					profileId: "human-1",
-					spaceId: "space-1",
-				},
-				isMembersLoading: false,
-				membersErrorMessage: null,
-				openMeldProfileId: "human-1",
-				snapshot: createMentionOrderingSnapshot(),
-				spaceId: "space-1",
-			})
-		);
-
-		act(() => {
-			composer.result.current.onComposerChange("Hello teammate", {
-				end: 14,
-				start: 6,
-			});
-		});
-		act(() => {
-			composer.result.current.onMentionButtonClick();
-		});
-
-		expect(composer.result.current.composerText).toBe("Hello @");
-		expect(composer.result.current.composerSelection).toEqual({
-			end: 7,
-			start: 7,
-		});
-	});
-
 	it("authors a Human Mention without creating Agent addressing copy", () => {
 		const humanProfileId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const composer = renderHook(() =>
@@ -314,6 +284,37 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 });
 
 describe("buildSpaceMentionTargetItems", () => {
+	it("defaults a blocked Agent to Reference while keeping it in the picker", () => {
+		const [item] = buildSpaceMentionTargetItems({
+			query: "@runner",
+			snapshot: createSpaceMembersSnapshot({
+				agents: [
+					createSpaceMemberAgentSnapshot({
+						agentWakeAvailability: {
+							action: "connect_service",
+							badgeLabel: "Offline",
+							category: "offline",
+							isRefreshing: false,
+							label: "Offline for Wake",
+							phase: "service_not_connected",
+							reasonCode: "service.not_running",
+							status: "offline_for_wake",
+							summary: "Connect your computer before this agent can reply.",
+							tooltip: "Computer not connected",
+						},
+						profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+						profileName: "Runner",
+					}),
+				],
+			}),
+		});
+
+		expect(item).toBeDefined();
+		expect(
+			item ? resolveDefaultSpaceComposerMentionRelation(item.suggestion) : null
+		).toBe("reference");
+	});
+
 	it("orders non-recent mention targets by the same visible status order as the members panel", () => {
 		const items = buildSpaceMentionTargetItems({
 			query: "@",

@@ -25,6 +25,7 @@ const {
 	listAccountSpaceItemsMock,
 	listStartProfilesMock,
 	navigateMock,
+	resolveSpaceEntryMock,
 	spaceWindowShellMock,
 	spaceProfileRequiredStateMock,
 	spaceLandingMock,
@@ -75,6 +76,7 @@ const {
 	),
 	listStartProfilesMock: vi.fn(),
 	navigateMock: vi.fn(),
+	resolveSpaceEntryMock: vi.fn(),
 	spaceProfileRequiredStateMock: vi.fn(),
 }));
 
@@ -152,6 +154,7 @@ vi.mock("#/lib/spaces/api", () => ({
 	}),
 	createUnscopedWebSpaceApi: () => ({
 		getStatus: (...args: unknown[]) => getSpaceStatusMock(...args),
+		resolveEntry: (...args: unknown[]) => resolveSpaceEntryMock(...args),
 	}),
 }));
 
@@ -182,6 +185,17 @@ describe("app space entry route", () => {
 			}),
 		]);
 		navigateMock.mockReset().mockResolvedValue(undefined);
+		resolveSpaceEntryMock.mockReset().mockResolvedValue({
+			participation: { state: "active_member" },
+			recovery: null,
+			safeContext: {
+				organizationId: "org-acme",
+				organizationSlug: "acme",
+				spaceName: "Shared Space",
+			},
+			target: { spaceId: "space-123" },
+			view: { experience: "member", state: "allowed" },
+		});
 		spaceProfileRequiredStateMock.mockClear();
 		spaceLandingMock.mockClear();
 	});
@@ -617,6 +631,82 @@ describe("app space entry route", () => {
 				name: "Open This Space With Your Profile",
 			})
 		).toBeNull();
+	});
+
+	it("shows the owning Space and owner when an Organization member needs access", async () => {
+		resolveSpaceEntryMock.mockResolvedValue({
+			participation: { state: "owner_add_required" },
+			recovery: { kind: "contact_space_owner" },
+			safeContext: {
+				organizationId: "org-acme",
+				organizationSlug: "acme",
+				owner: {
+					displayName: "Mira Chen",
+					profileId: "human-owner",
+				},
+				spaceName: "Release Planning",
+			},
+			target: { spaceId: "space-private" },
+			view: { state: "membership_required" },
+		});
+
+		renderAppSpaceEntry({
+			profileId: "profile-123",
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-private",
+		});
+
+		expect(
+			await screen.findByRole("heading", {
+				name: "You don't have access to Release Planning",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByText("Ask Mira Chen to add you to this Space.")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("link", { name: "Back to Spaces" }).getAttribute("href")
+		).toBe("/o/acme/spaces");
+		expect(spaceLandingMock).not.toHaveBeenCalled();
+	});
+
+	it("moves a public-only profile view to the public route without losing its message target", async () => {
+		resolveSpaceEntryMock.mockResolvedValue({
+			participation: { state: "self_join_available" },
+			recovery: null,
+			safeContext: {
+				organizationId: "org-acme",
+				organizationSlug: "acme",
+				spaceName: "Public Notes",
+			},
+			target: {
+				signalId: "signal-123",
+				spaceId: "space-public",
+				threadRootSignalId: "thread-root-123",
+			},
+			view: { experience: "public", state: "allowed" },
+		});
+
+		renderAppSpaceEntry({
+			focusSignalId: "signal-123",
+			focusThreadRootSignalId: "thread-root-123",
+			profileId: "profile-123",
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-public",
+		});
+
+		await waitFor(() => {
+			expect(navigateMock).toHaveBeenCalledWith({
+				params: { spaceId: "space-public" },
+				replace: true,
+				search: {
+					signalId: "signal-123",
+					threadRootSignalId: "thread-root-123",
+				},
+				to: "/spaces/$spaceId",
+			});
+		});
+		expect(spaceLandingMock).not.toHaveBeenCalled();
 	});
 
 	it("redirects to the public Space viewer when profileId is not in the current account", async () => {

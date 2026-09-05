@@ -18,6 +18,7 @@ export async function getSpaceWakeProgress(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
     clientMessageId: string;
+    includePreviewText?: boolean;
     includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
@@ -27,6 +28,9 @@ export async function getSpaceWakeProgress(
 ): Promise<GetSpaceWakeProgressResponse> {
   const searchParams = new URLSearchParams();
   searchParams.set("clientMessageId", input.clientMessageId);
+  if (input.includePreviewText === true) {
+    searchParams.set("includePreviewText", "true");
+  }
   if (input.includeSourceContext === true) {
     searchParams.set("includeSourceContext", "true");
   }
@@ -62,6 +66,8 @@ export async function getSpaceWakeProgress(
 export async function getActiveSpaceWakeProgress(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
+    includePageInfo?: boolean;
+    includePreviewText?: boolean;
     includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
@@ -71,6 +77,12 @@ export async function getActiveSpaceWakeProgress(
   }
 ): Promise<GetActiveSpaceWakeProgressResponse> {
   const searchParams = new URLSearchParams();
+  if (input.includePageInfo === true) {
+    searchParams.set("includePageInfo", "true");
+  }
+  if (input.includePreviewText === true) {
+    searchParams.set("includePreviewText", "true");
+  }
   if (input.includeSourceContext === true) {
     searchParams.set("includeSourceContext", "true");
   }
@@ -121,6 +133,20 @@ export async function getActiveSpaceWakeProgress(
         message:
           "The response source profile did not match the requested source profile.",
         path: ["query", "sourceProfileId"],
+      },
+    });
+  }
+
+  if (input.includePageInfo === true && response.pageInfo === undefined) {
+    throw new OpenMeldApiClientInvalidResponseError({
+      message:
+        "Active Wake progress did not confirm the requested page information.",
+      operation: "space.active_wake_progress",
+      status: 200,
+      rawBody: JSON.stringify(response),
+      schemaIssue: {
+        message: "The response did not include the requested page information.",
+        path: ["pageInfo"],
       },
     });
   }

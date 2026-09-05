@@ -134,6 +134,10 @@ export type DaemonProfileRouteConfig = {
   profileId: string;
   streamingMode: RuntimeAgentStreamingMode;
   transportMode: RuntimeAgentTransportMode;
+  workingFolderRuntime?: Extract<
+    import("../../profile-workspace/effective-runtime-resolution").CurrentEffectiveProfileWorkingFolderRuntimeResolution,
+    { status: "ready" }
+  >;
 };
 
 export type DaemonProfileRouteResolution =
@@ -141,27 +145,42 @@ export type DaemonProfileRouteResolution =
       profileId: string;
       route: DaemonProfileRouteConfig;
       status: "accepted";
+      workingFolderObservation?: DaemonProfileWorkingFolderObservation;
     }
   | {
       profileId?: string;
       skipReason?: DaemonProfileSkipReason;
       status: "skipped";
+      workingFolderObservation?: DaemonProfileWorkingFolderObservation;
     };
+
+export type DaemonProfileWorkingFolderObservation =
+  import("../../profile-workspace/effective-runtime-resolution").ProfileWorkingFolderFact & {
+    bindingId: string | null;
+    configurationRevision: number | null;
+    profileId: string;
+  };
 
 export type DaemonProfileSkipReason = SharedDaemonProfileSkipReason;
 export type SkippedDaemonProfile = SharedSkippedDaemonProfile;
 
 export type RouteCatalog = {
+  expectedRoutesContractVersion?: "v4";
   profileIds: string[];
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
   skippedProfiles: SkippedDaemonProfile[];
+  workingFolderExpectedProfileIds?: string[];
+  workingFolderObservations?: DaemonProfileWorkingFolderObservation[];
 };
 
 export type MutableRouteCatalogState = {
+  expectedRoutesContractVersion?: "v4";
   fingerprint: string;
   profileIds: string[];
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
   skippedProfiles: SkippedDaemonProfile[];
+  workingFolderExpectedProfileIds?: string[];
+  workingFolderObservations?: DaemonProfileWorkingFolderObservation[];
 };
 
 export type RouteCatalogDiff = {

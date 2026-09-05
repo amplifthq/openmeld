@@ -169,7 +169,7 @@ export function resolveMessageChannelErrorMessage(
 		case "message_channel.organization_required":
 			return "Create an organization before connecting Slack, Lark, or Feishu.";
 		case "message_channel.actor_required":
-			return "Use a Human Profile to manage organization channels.";
+			return "Use your profile to manage organization channels.";
 		case "message_channel.already_connected":
 			return "This channel is already connected. Refresh Channels to see its current status.";
 		case "message_channel.connection_changed":

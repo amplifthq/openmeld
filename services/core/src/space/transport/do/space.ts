@@ -261,7 +261,6 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-native-result";
 import {
   buildExecutionRecoveryFreshClientMessageId,
-  buildExecutionRecoveryOperationKeys,
   EXECUTION_RECOVERY_OPERATION_CLAIM_STORAGE_PREFIX,
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
@@ -342,6 +341,8 @@ import type {
   SetSpaceAccessModeInput,
   SpaceAccessModeStateResult,
   SpacePasswordStateResult,
+  StartUsageExhaustedContinuationInput,
+  StartUsageExhaustedContinuationResponse,
   UpdateSpaceCursorInput,
   UpsertSpacePasswordInput,
 } from "../../../rpc/methods";
@@ -473,6 +474,7 @@ import type {
   SignalPublishContext,
   SourceDispatchChainContext,
 } from "../../application/types";
+import { projectWakeProgressItemsForClient } from "../../application/wake-progress-client-projection";
 import {
   projectWakeTraceWaterfall,
   resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode,
@@ -564,6 +566,7 @@ import {
   TARGET_BYTES,
 } from "../../infrastructure/sql/space-retention-repo";
 import {
+  clearSpaceAgentOwnerMembershipPolicyReconciled,
   ensureSpaceSqlSchema,
   hasReconciledSpaceAgentOwnerMembershipPolicy,
   isoToTimestampMs,
@@ -582,7 +585,6 @@ import {
   listSignalEntriesAfterAnchor,
   listSignalEntriesAroundAnchor,
   listSignalEntriesPageWindow,
-  listTextSignalIdsByProfileId,
   readFinalReplyClaimSignalId,
   readSignalEntryById,
   rejectTextSignalClientMessageIfAbsent,
@@ -807,6 +809,7 @@ const SPACE_INDEX_PROJECTION_OUTBOX_REDRIVE_BATCH_SIZE = 10;
 const SPACE_INBOX_PROJECTION_OUTBOX_REDRIVE_BATCH_SIZE = 20;
 const ACTIVE_REPLYING_SIGNAL_MAX_AGE_MS = 180_000;
 const ACTIVE_WAKE_PROGRESS_READ_CONCURRENCY = 6;
+const ACTIVE_WAKE_PROGRESS_PAGE_LIMIT = 25;
 const DISPATCH_PLANNER_LOG_SAMPLE_LIMIT = 10;
 const OPENMELD_GENERATED_SIGNAL_SOURCE = "openmeld";
 const MENTION_HINT_PROFILE: Profile = {
@@ -827,7 +830,7 @@ function requireRpcAuthorProfile(context?: CoreRpcContextInput): Profile {
   return toProtocolProfile(context);
 }
 
-function buildVerifiedRecoverySourceAuthorContext(input: {
+function buildVerifiedUsageContinuationSourceAuthorContext(input: {
   continuationContext?: CoreRpcContextInput;
   dispatchId: string;
   sourceProfile: Profile;
@@ -847,7 +850,7 @@ function buildVerifiedRecoverySourceAuthorContext(input: {
         }
       : {}),
     actorContext: {
-      requestId: `execution-recovery-replay:${input.dispatchId}`,
+      requestId: `usage-continuation:${input.dispatchId}`,
       openMeldProfileId: sourceProfile.profileId,
       profileKind: sourceProfile.kind,
       ...(sourceProfile.profileHandle
@@ -4535,19 +4538,6 @@ export class Space extends DurableObject<CoreBindings> {
             projection,
             spaceAccess: input.spaceAccess,
           }),
-        retryAsNewExecution: async ({
-          command,
-          markEffectStarted,
-          projection,
-        }) =>
-          await this.retryExecutionAsNewWake({
-            command,
-            context: input.context,
-            markEffectStarted,
-            password: input.password,
-            projection,
-            spaceAccess: input.spaceAccess,
-          }),
       },
       inspectProjection: async () =>
         (
@@ -4566,6 +4556,121 @@ export class Space extends DurableObject<CoreBindings> {
         ),
       storage: this.ctx.storage,
     });
+  }
+
+  async rpcStartUsageExhaustedContinuation(
+    input: StartUsageExhaustedContinuationInput
+  ): Promise<StartUsageExhaustedContinuationResponse> {
+    this.applySpaceRef(input.spaceId);
+    const operationId = normalizeOptionalText(input.operationId);
+    const continuationClientMessageId = parseOptionalClientMessageId(
+      input.continuationClientMessageId
+    );
+    if (!(operationId && continuationClientMessageId)) {
+      throw new Error(
+        "agent_profile_work_recovery.continuation_identity_invalid"
+      );
+    }
+
+    const traceResponse = await this.rpcGetDispatchTrace({
+      context: input.context,
+      dispatchId: input.interruptedDispatchId,
+      spaceAccess: input.spaceAccess,
+      spaceId: input.spaceId,
+    });
+    const trace = traceResponse.trace;
+    const sourceSignal = this.readSourceTextSignalById(
+      input.interruptedSourceSignalId
+    );
+    if (
+      !(trace && sourceSignal) ||
+      trace.dispatch.dispatchId !== input.interruptedDispatchId ||
+      trace.dispatch.sourceEventId !== input.interruptedSourceSignalId ||
+      trace.dispatch.targetProfileId !== input.targetProfileId ||
+      sourceSignal.spaceId !== this.spaceId ||
+      normalizeOptionalText(sourceSignal.data.meta?.clientMessageId) !==
+        input.interruptedClientMessageId ||
+      (sourceSignal.data.attachments?.length ?? 0) > 0 ||
+      !readWakeActivationTargetProfileIds(sourceSignal).includes(
+        input.targetProfileId
+      )
+    ) {
+      throw new Error(
+        "agent_profile_work_recovery.continuation_source_mismatch"
+      );
+    }
+
+    const placement = readSpaceThreadSignalPlacementBySignalId(
+      this.ctx.storage.sql,
+      sourceSignal.id
+    );
+    const thread = placement
+      ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+      : null;
+    const continuationContext =
+      getSpaceAccessRequestContext(input.spaceAccess) ?? input.context;
+    const verifiedReplayAccess = createDispatchContinuationSpaceAccessContext({
+      dispatchId: input.interruptedDispatchId,
+      password: getSpaceAccessPassword(input.spaceAccess),
+      requestContext: buildVerifiedUsageContinuationSourceAuthorContext({
+        continuationContext,
+        dispatchId: input.interruptedDispatchId,
+        sourceProfile: sourceSignal.profile,
+      }),
+      sourceSignalId: sourceSignal.id,
+      spaceId: this.spaceId,
+      targetProfileId: input.targetProfileId,
+    });
+    try {
+      await this.rpcPostSignalOnceByClientMessageId({
+        authoringPolicy: "user_authored",
+        clientMessageId: continuationClientMessageId,
+        context: continuationContext,
+        messageEnvelope: {
+          activationTargets: [input.targetProfileId],
+          referenceTargets:
+            sourceSignal.data.messageEnvelope?.referenceTargets ?? [],
+          ...(sourceSignal.data.messageEnvelope?.mentionTargets
+            ? {
+                mentionTargets:
+                  sourceSignal.data.messageEnvelope.mentionTargets,
+              }
+            : {}),
+          text: sourceSignal.data.text,
+        },
+        meta: { clientMessageId: continuationClientMessageId },
+        password: getSpaceAccessPassword(verifiedReplayAccess),
+        profile: sourceSignal.profile,
+        spaceAccess: verifiedReplayAccess,
+        spaceId: this.spaceId,
+        text: sourceSignal.data.text,
+        ...(sourceSignal.data.files ? { files: sourceSignal.data.files } : {}),
+        ...(thread
+          ? {
+              threadContext: {
+                rootSignalId: thread.rootSignalId,
+                threadId: thread.threadId,
+              },
+            }
+          : {}),
+      });
+    } catch (error) {
+      if (!isUsageContinuationSourceValidationError(error)) {
+        throw error;
+      }
+      const sourceMismatch = new Error(
+        "agent_profile_work_recovery.continuation_source_mismatch",
+        { cause: error }
+      ) as Error & { code: string };
+      sourceMismatch.code =
+        "agent_profile_work_recovery.continuation_source_mismatch";
+      throw sourceMismatch;
+    }
+    return {
+      continuationClientMessageId,
+      operationId,
+      status: "started",
+    };
   }
 
   private async inspectExecutionRecoveryForCommand(input: {
@@ -4828,12 +4933,6 @@ export class Space extends DurableObject<CoreBindings> {
         trace,
       });
     const canonicalIdentity = resolvedResumeCapability.identity ?? identity;
-    const sourceSignal = this.readSignalById(trace.dispatch.sourceEventId);
-    const exactSourceWakeVerified = isExactRecoverySourceWakeVerified({
-      canonicalTargetProfileId: canonicalIdentity.targetProfileId,
-      nativeDelivery,
-      sourceSignal,
-    });
     const recoveredPublicationId = resolveRecoveredPublicationId({
       nativeRecoveredPublicationId,
       nativeRecoveryCompleted,
@@ -4843,9 +4942,6 @@ export class Space extends DurableObject<CoreBindings> {
     return inspectExecutionRecovery({
       destination,
       explicitUserStop: trace.finalVisibleOutcome?.status === "visible_stopped",
-      freshExecutionCapability: {
-        exactSourceWakeVerified,
-      },
       identity: canonicalIdentity,
       outcomeUnknown:
         trace.finalVisibleOutcome?.reasonCode ===
@@ -5333,132 +5429,6 @@ export class Space extends DurableObject<CoreBindings> {
         originPublication.status === "already_published"
           ? "already_completed"
           : "completed",
-    };
-  }
-
-  private async retryExecutionAsNewWake(input: {
-    command: ExecuteExecutionRecoveryInput["body"];
-    context?: CoreRpcContextInput;
-    markEffectStarted: () => Promise<void>;
-    password?: string;
-    projection: ExecutionRecoveryProjection;
-    spaceAccess?: SpaceAccessContext;
-  }): Promise<{
-    newExecutionId: string;
-    status: "new_execution_requested" | "outcome_unknown";
-  }> {
-    if (input.command.destination.surface !== "space") {
-      const db = wakeEvidenceDb(this.bindings);
-      if (!db) {
-        throw new Error("execution_recovery.storage_unavailable");
-      }
-      const delivery = await this.requireExecutionRecoveryNativeDelivery(
-        input.projection
-      );
-      const submission = await submitRemoteAgentExecutionRecoveryTurn({
-        action: "retry_as_new_execution",
-        db,
-        env: this.bindings,
-        nowMs: Date.now(),
-        operationId: input.command.operationId,
-        originalDelivery: delivery,
-        markEffectStarted: input.markEffectStarted,
-      });
-      return {
-        newExecutionId: submission.dispatchId,
-        status: "new_execution_requested",
-      };
-    }
-    const traceResponse = await this.rpcGetDispatchTrace({
-      context: input.context,
-      dispatchId: input.projection.identity.dispatchId,
-      password: input.password,
-      spaceAccess: input.spaceAccess,
-      spaceId: this.spaceId,
-    });
-    const trace = traceResponse.trace;
-    const sourceSignal = trace
-      ? this.readSignalById(trace.dispatch.sourceEventId)
-      : null;
-    const targetProfileId = input.projection.identity.targetProfileId;
-    if (!trace) {
-      throw new Error("execution_recovery.execution_not_found");
-    }
-    if (
-      trace.dispatch.dispatchId !== input.projection.identity.dispatchId ||
-      trace.dispatch.targetProfileId !== targetProfileId
-    ) {
-      throw new Error("execution_recovery.identity_mismatch");
-    }
-    if (
-      sourceSignal?.type !== "signal.text" ||
-      sourceSignal.spaceId !== this.spaceId ||
-      (sourceSignal.data.attachments?.length ?? 0) > 0 ||
-      !readWakeActivationTargetProfileIds(sourceSignal).includes(
-        targetProfileId
-      )
-    ) {
-      throw new Error("execution_recovery.exact_source_wake_unavailable");
-    }
-    const operationKeys = await buildExecutionRecoveryOperationKeys(
-      input.command
-    );
-    const newClientMessageId = buildExecutionRecoveryFreshClientMessageId(
-      operationKeys.claimStorageKey
-    );
-    const placement = readSpaceThreadSignalPlacementBySignalId(
-      this.ctx.storage.sql,
-      sourceSignal.id
-    );
-    const thread = placement
-      ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
-      : null;
-    const continuationContext = input.spaceAccess
-      ? (getSpaceAccessRequestContext(input.spaceAccess) ?? input.context)
-      : input.context;
-    const verifiedReplayAccess = createDispatchContinuationSpaceAccessContext({
-      attemptId: input.projection.identity.attemptId,
-      dispatchId: trace.dispatch.dispatchId,
-      password: input.spaceAccess
-        ? getSpaceAccessPassword(input.spaceAccess)
-        : input.password,
-      requestContext: buildVerifiedRecoverySourceAuthorContext({
-        continuationContext,
-        dispatchId: trace.dispatch.dispatchId,
-        sourceProfile: sourceSignal.profile,
-      }),
-      sourceSignalId: sourceSignal.id,
-      spaceId: this.spaceId,
-      targetProfileId,
-    });
-    await input.markEffectStarted();
-    await this.rpcPostSignalOnceByClientMessageId({
-      authoringPolicy: "user_authored",
-      clientMessageId: newClientMessageId,
-      context: continuationContext,
-      messageEnvelope: {
-        activationTargets: [targetProfileId],
-        referenceTargets: [],
-        text: sourceSignal.data.text,
-      },
-      meta: { clientMessageId: newClientMessageId },
-      password: getSpaceAccessPassword(verifiedReplayAccess),
-      profile: sourceSignal.profile,
-      spaceAccess: verifiedReplayAccess,
-      spaceId: this.spaceId,
-      text: sourceSignal.data.text,
-      ...(thread
-        ? {
-            threadContext: {
-              rootSignalId: thread.rootSignalId,
-              threadId: thread.threadId,
-            },
-          }
-        : {}),
-    });
-    return {
-      newExecutionId: newClientMessageId,
-      status: "new_execution_requested",
     };
   }
 
@@ -6654,6 +6624,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
     }
+    if (input.includePreviewText === true) {
+      url.searchParams.set("includePreviewText", "true");
+    }
     if (input.includeSourceContext === true) {
       url.searchParams.set("includeSourceContext", "true");
     }
@@ -6687,8 +6660,14 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<GetActiveSpaceWakeProgressResponse> {
     this.applySpaceRef(input.spaceId);
     const url = new URL("https://openmeld.local/active-wake-progress");
+    if (input.includePageInfo === true) {
+      url.searchParams.set("includePageInfo", "true");
+    }
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
+    }
+    if (input.includePreviewText === true) {
+      url.searchParams.set("includePreviewText", "true");
     }
     if (input.includeSourceContext === true) {
       url.searchParams.set("includeSourceContext", "true");
@@ -6975,6 +6954,7 @@ export class Space extends DurableObject<CoreBindings> {
         passwordProof: undefined,
         updatedAt: convertedAt,
       });
+      clearSpaceAgentOwnerMembershipPolicyReconciled(this.ctx.storage.sql);
       return addSpaceMembersUseCase({
         actorDisplayName:
           context.actorContext.profileName ?? context.actorContext.ownerName,
@@ -7058,6 +7038,35 @@ export class Space extends DurableObject<CoreBindings> {
       ok: true,
       spaceId: this.spaceId,
     };
+  }
+
+  async rpcBroadcastWakeProgressChanged(input: {
+    agentProfileIds: readonly string[];
+    clientMessageIds: readonly string[];
+    reason: string;
+    spaceId: string;
+  }): Promise<{
+    broadcast: boolean;
+    ok: true;
+    spaceId: string;
+  }> {
+    this.applySpaceRef(input.spaceId);
+    const agentProfileIds = normalizeProfileIds(input.agentProfileIds);
+    const clientMessageIds = normalizeProfileIds(input.clientMessageIds);
+    if (agentProfileIds.length === 0 && clientMessageIds.length === 0) {
+      return { broadcast: false, ok: true, spaceId: this.spaceId };
+    }
+
+    const frame: SpaceLiveInvalidationFrame = {
+      type: "wake.progress.changed",
+      spaceId: this.spaceId,
+      version: await this.nextLiveInvalidationVersion(),
+      ...(agentProfileIds.length > 0 ? { agentProfileIds } : {}),
+      ...(clientMessageIds.length > 0 ? { clientMessageIds } : {}),
+      reason: normalizeOptionalText(input.reason) ?? "wake.progress.changed",
+    };
+    this.broadcast(frame);
+    return { broadcast: true, ok: true, spaceId: this.spaceId };
   }
 
   async rpcReconcileDeletedAgentProfileMember(input: {
@@ -9271,6 +9280,8 @@ export class Space extends DurableObject<CoreBindings> {
         const url = new URL(request.url);
         const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
           spaceId: this.spaceId,
+          includePageInfo: url.searchParams.get("includePageInfo"),
+          includePreviewText: url.searchParams.get("includePreviewText"),
           includeTiming: url.searchParams.get("includeTiming"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
@@ -9302,7 +9313,9 @@ export class Space extends DurableObject<CoreBindings> {
             await this.readActiveSpaceWakeProgress({
               actorOwnerUserId,
               db,
+              includePageInfo: parsed.data.includePageInfo === true,
               includeTiming: parsed.data.includeTiming === true,
+              includePreviewText: parsed.data.includePreviewText === true,
               includeSourceContext: parsed.data.includeSourceContext === true,
               includeWaitReason: parsed.data.includeWaitReason === true,
               includeWakeStopEligibility:
@@ -9879,6 +9892,7 @@ export class Space extends DurableObject<CoreBindings> {
           spaceId: this.spaceId,
           clientMessageId: url.searchParams.get("clientMessageId"),
           includeTiming: url.searchParams.get("includeTiming"),
+          includePreviewText: url.searchParams.get("includePreviewText"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeWakeStopEligibility: url.searchParams.get(
@@ -9901,6 +9915,7 @@ export class Space extends DurableObject<CoreBindings> {
             ),
             clientMessageId: parsed.data.clientMessageId,
             includeTiming: parsed.data.includeTiming === true,
+            includePreviewText: parsed.data.includePreviewText === true,
             includeSourceContext: parsed.data.includeSourceContext === true,
             includeWaitReason: parsed.data.includeWaitReason === true,
             includeWakeStopEligibility:
@@ -11480,7 +11495,6 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     if (metaRecord.directMessage && !metaRecord.directMessage.convertedAt) {
-      markSpaceAgentOwnerMembershipPolicyReconciled(sql);
       return;
     }
 
@@ -15482,6 +15496,7 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     clientMessageId?: string | null;
     includeTiming?: boolean;
+    includePreviewText?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
@@ -15625,10 +15640,14 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
 
-    const responseItems =
+    const contextualItems =
       input.includeSourceContext === true
         ? this.attachWakeProgressSourceContexts(items)
         : items;
+    const responseItems = projectWakeProgressItemsForClient({
+      includePreviewText: input.includePreviewText === true,
+      items: contextualItems,
+    });
     return {
       query: {
         spaceId: this.spaceId,
@@ -15702,10 +15721,60 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
+  private async readActiveWakeProgressOwnerEvidence(input: {
+    db: D1Database;
+    includePageInfo: boolean;
+    sourceProfileId: string | null;
+    targetProfileId: string | null;
+  }) {
+    const ownerReadLimit =
+      ACTIVE_WAKE_PROGRESS_PAGE_LIMIT + Number(input.includePageInfo);
+    const outboxRecords = listActiveDispatchOutboxRecordsBySpace(
+      this.ctx.storage.sql,
+      {
+        limit: ownerReadLimit,
+        ...(input.sourceProfileId
+          ? { sourceProfileId: input.sourceProfileId }
+          : {}),
+        spaceId: this.spaceId,
+        ...(input.targetProfileId
+          ? { targetProfileId: input.targetProfileId }
+          : {}),
+      }
+    );
+    const sourceDispatchIds = outboxRecords.map((record) => record.dispatchId);
+    const sourceFilter = input.sourceProfileId
+      ? { sourceDispatchIds, sourceProfileId: input.sourceProfileId }
+      : {};
+    const [executions, activeNativeDeliveries] = await Promise.all([
+      listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+        db: input.db,
+        limit: ownerReadLimit,
+        ...sourceFilter,
+        spaceId: this.spaceId,
+        ...(input.targetProfileId
+          ? { targetProfileId: input.targetProfileId }
+          : {}),
+      }),
+      listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+        db: input.db,
+        limit: ownerReadLimit,
+        ...sourceFilter,
+        spaceId: this.spaceId,
+        ...(input.targetProfileId
+          ? { targetProfileId: input.targetProfileId }
+          : {}),
+      }),
+    ]);
+    return { activeNativeDeliveries, executions, outboxRecords };
+  }
+
   private async readActiveSpaceWakeProgress(input: {
     actorOwnerUserId?: string | null;
     db: D1Database;
     includeTiming?: boolean;
+    includePreviewText?: boolean;
+    includePageInfo?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
@@ -15714,35 +15783,14 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<GetActiveSpaceWakeProgressResponse> {
     const targetProfileId = normalizeOptionalText(input.targetProfileId);
     const sourceProfileId = normalizeOptionalText(input.sourceProfileId);
-    const sourceSignalIds = sourceProfileId
-      ? listTextSignalIdsByProfileId(this.ctx.storage.sql, sourceProfileId)
-      : undefined;
     const useFastSummary = input.includeWakeStopEligibility !== true;
-    const [executions, activeNativeDeliveries] = await Promise.all([
-      listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+    const { activeNativeDeliveries, executions, outboxRecords } =
+      await this.readActiveWakeProgressOwnerEvidence({
         db: input.db,
-        limit: 25,
-        ...(sourceSignalIds ? { sourceSignalIds } : {}),
-        spaceId: this.spaceId,
-        ...(targetProfileId ? { targetProfileId } : {}),
-      }),
-      listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
-        db: input.db,
-        limit: 25,
-        ...(sourceSignalIds ? { sourceSignalIds } : {}),
-        spaceId: this.spaceId,
-        ...(targetProfileId ? { targetProfileId } : {}),
-      }),
-    ]);
-    const outboxRecords = listActiveDispatchOutboxRecordsBySpace(
-      this.ctx.storage.sql,
-      {
-        limit: 25,
-        ...(sourceSignalIds ? { sourceSignalIds } : {}),
-        spaceId: this.spaceId,
-        ...(targetProfileId ? { targetProfileId } : {}),
-      }
-    );
+        includePageInfo: input.includePageInfo === true,
+        sourceProfileId,
+        targetProfileId,
+      });
     const activeNativeDeliveryByTarget = new Map(
       activeNativeDeliveries.map(
         (delivery) => [buildDispatchTargetKey(delivery), delivery] as const
@@ -15889,9 +15937,13 @@ export class Space extends DurableObject<CoreBindings> {
         }),
       ];
     });
-    const fastSummaryItems = clearWakeProgressItemsClosedByRecentSignals({
+    const activeSummaryItems = clearWakeProgressItemsClosedByRecentSignals({
       items: [...executionItems, ...outboxItems, ...nativeDeliveryItems],
       sql: this.ctx.storage.sql,
+    });
+    const page = paginateActiveWakeProgressItems({
+      includePageInfo: input.includePageInfo === true,
+      items: activeSummaryItems,
     });
     if (useFastSummary) {
       return {
@@ -15900,10 +15952,14 @@ export class Space extends DurableObject<CoreBindings> {
           ...(sourceProfileId ? { sourceProfileId } : {}),
           targetProfileId,
         },
-        items:
-          input.includeSourceContext === true
-            ? this.attachWakeProgressSourceContexts(fastSummaryItems)
-            : fastSummaryItems,
+        ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
+        items: projectWakeProgressItemsForClient({
+          includePreviewText: input.includePreviewText === true,
+          items:
+            input.includeSourceContext === true
+              ? this.attachWakeProgressSourceContexts(page.items)
+              : page.items,
+        }),
       };
     }
 
@@ -15914,7 +15970,7 @@ export class Space extends DurableObject<CoreBindings> {
       targetProfileId: string;
     }> = [];
 
-    for (const item of fastSummaryItems) {
+    for (const item of page.items) {
       const clientMessageId = normalizeOptionalText(item.clientMessageId);
       const sourceSignalId = normalizeOptionalText(item.sourceSignalId);
       if (!(clientMessageId || sourceSignalId)) {
@@ -15951,6 +16007,7 @@ export class Space extends DurableObject<CoreBindings> {
           ...selector,
           actorOwnerUserId: input.actorOwnerUserId,
           includeTiming: input.includeTiming === true,
+          includePreviewText: input.includePreviewText === true,
           includeSourceContext: false,
           includeWaitReason: input.includeWaitReason === true,
           includeWakeStopEligibility: input.includeWakeStopEligibility === true,
@@ -15978,10 +16035,14 @@ export class Space extends DurableObject<CoreBindings> {
         ...(sourceProfileId ? { sourceProfileId } : {}),
         targetProfileId,
       },
-      items:
-        input.includeSourceContext === true
-          ? this.attachWakeProgressSourceContexts(activeItems)
-          : activeItems,
+      ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
+      items: projectWakeProgressItemsForClient({
+        includePreviewText: input.includePreviewText === true,
+        items:
+          input.includeSourceContext === true
+            ? this.attachWakeProgressSourceContexts(activeItems)
+            : activeItems,
+      }),
     };
   }
 
@@ -17123,7 +17184,8 @@ function isSpaceLiveInvalidationFrame(
     (message.type === "space.members.changed" ||
       message.type === "space.meta.changed" ||
       message.type === "space.files.changed" ||
-      message.type === "agent.readiness.invalidated")
+      message.type === "agent.readiness.invalidated" ||
+      message.type === "wake.progress.changed")
   );
 }
 
@@ -17158,6 +17220,32 @@ function resolveSpaceFileAuditErrorCode(error: unknown): string {
     return error.code.trim().slice(0, 128);
   }
   return "space_file.internal_error";
+}
+
+const USAGE_CONTINUATION_SOURCE_VALIDATION_ERROR_CODES = new Set<string>([
+  SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+  SPACE_WAKE_TARGET_INVALID_ERROR_CODE,
+  "space_file.not_found",
+]);
+
+function isUsageContinuationSourceValidationError(error: unknown): boolean {
+  const visited = new Set<unknown>();
+  let current = error;
+  for (let depth = 0; depth < 4 && current !== null; depth += 1) {
+    if (visited.has(current) || typeof current !== "object") {
+      return false;
+    }
+    visited.add(current);
+    const record = current as Record<string, unknown>;
+    if (
+      typeof record.code === "string" &&
+      USAGE_CONTINUATION_SOURCE_VALIDATION_ERROR_CODES.has(record.code)
+    ) {
+      return true;
+    }
+    current = record.cause ?? null;
+  }
+  return false;
 }
 
 function isSpaceAgentStreamFrame(
@@ -17485,6 +17573,42 @@ function clearWakeProgressItemsClosedByRecentSignals(input: {
 
 function isActiveWakeProgressProjectionItem(item: WakeProgressItem): boolean {
   return !item.terminal && item.phase !== "replied";
+}
+
+function paginateActiveWakeProgressItems(input: {
+  includePageInfo: boolean;
+  items: readonly WakeProgressItem[];
+}): {
+  items: WakeProgressItem[];
+  pageInfo?: { hasMore: boolean; limit: number };
+} {
+  if (!input.includePageInfo) {
+    return { items: [...input.items] };
+  }
+  const items = [...input.items].sort(
+    (left, right) =>
+      right.updatedAtMs - left.updatedAtMs ||
+      buildActiveWakeProgressSelectorKey({
+        clientMessageId: normalizeOptionalText(left.clientMessageId),
+        dispatchId: normalizeOptionalText(left.dispatchId),
+        sourceSignalId: normalizeOptionalText(left.sourceSignalId),
+        targetProfileId: left.targetProfileId,
+      }).localeCompare(
+        buildActiveWakeProgressSelectorKey({
+          clientMessageId: normalizeOptionalText(right.clientMessageId),
+          dispatchId: normalizeOptionalText(right.dispatchId),
+          sourceSignalId: normalizeOptionalText(right.sourceSignalId),
+          targetProfileId: right.targetProfileId,
+        })
+      )
+  );
+  return {
+    items: items.slice(0, ACTIVE_WAKE_PROGRESS_PAGE_LIMIT),
+    pageInfo: {
+      hasMore: items.length > ACTIVE_WAKE_PROGRESS_PAGE_LIMIT,
+      limit: ACTIVE_WAKE_PROGRESS_PAGE_LIMIT,
+    },
+  };
 }
 
 function buildActiveWakeProgressSelectorKey(input: {
@@ -20313,27 +20437,6 @@ function resolveNativeRecoveredPublicationId(
     return delivery.publishedSignalId;
   }
   return null;
-}
-
-function isExactRecoverySourceWakeVerified(input: {
-  canonicalTargetProfileId: string;
-  nativeDelivery: ExecutionRecoveryNativeDelivery;
-  sourceSignal: SignalEnvelope | null;
-}): boolean {
-  if (input.nativeDelivery?.conversationKind !== "space") {
-    return Boolean(
-      input.nativeDelivery?.executionRecoverySubmitRequest?.messages.every(
-        (message) => (message.attachments?.length ?? 0) === 0
-      )
-    );
-  }
-  return (
-    input.sourceSignal?.type === "signal.text" &&
-    (input.sourceSignal.data.attachments?.length ?? 0) === 0 &&
-    readWakeActivationTargetProfileIds(input.sourceSignal).includes(
-      input.canonicalTargetProfileId
-    )
-  );
 }
 
 function resolveRecoveredPublicationId(input: {

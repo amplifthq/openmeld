@@ -2177,7 +2177,7 @@ function usePrepareSession(input: {
 	const startOver = useCallback(async () => {
 		if (humanProfileId === null) {
 			setState({
-				error: new Error("Choose a human profile before setup."),
+				error: new Error("Choose a profile before setup."),
 				opaqueToken: null,
 				opaqueTokenExpiresAt: null,
 				snapshot: null,
@@ -2539,7 +2539,7 @@ async function createFreshPrepareSession(
 	input: PrepareSessionInput
 ): Promise<PrepareSessionLoadResult> {
 	if (input.humanProfileId === null) {
-		throw new Error("Choose a human profile before setup.");
+		throw new Error("Choose a profile before setup.");
 	}
 
 	return await createPrepareSession({

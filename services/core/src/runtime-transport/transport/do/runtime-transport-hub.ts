@@ -13,6 +13,7 @@ import {
   AGENT_REPLY_PREVIEW_PURPOSE,
   agentInteractionResolutionSchema,
   agentTaskObservationRedriveQueueMessageSchema,
+  buildRuntimeCoordinatorExecutionId,
   buildRuntimeCoordinatorFinalizationCommandId,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
@@ -34,8 +35,10 @@ import {
   postSpaceDispatchOutboxRedriveBodySchema,
   postSpaceDispatchOutboxRedriveResponseSchema,
   projectTargetWakeLifecycleIdentity,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
+  RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeCoordinatorFailurePublicationOutcomeSchema,
@@ -148,6 +151,7 @@ import type {
   ComputerFileAccessErrorResponse,
   DaemonServiceLane,
   DaemonStreamFrame,
+  LocalComponentsReleaseManifest,
   LocalWakeRouteReport,
   OpenMeldDaemonCancelPayload,
   OpenMeldDaemonInterruptPayload,
@@ -287,7 +291,11 @@ import {
   projectionsDb,
   wakeEvidenceDb,
 } from "../../../lib/bindings";
-import { resolveReleaseTriggeredOpenMeldToolsUpdate } from "../../../local-components/automatic-update-trigger";
+import { resolveReleaseTriggeredOpenMeldToolsUpdateDecision } from "../../../local-components/automatic-update-trigger";
+import {
+  isLocalComponentVersionAtLeast,
+  resolveCoreLocalComponentsReleaseManifest,
+} from "../../../local-components/update-projection";
 import { resolveSpaceStub } from "../../../rpc/space-ref";
 import {
   emitSpaceExecutionRecoveryNoticeSignal,
@@ -645,13 +653,20 @@ const LOCAL_AGENT_CONTROL_SET_ENABLED_RESPONSE_TIMEOUT_MS = 5000;
 const LOCAL_AGENT_CONTROL_MANAGE_INSTALLATION_RESPONSE_TIMEOUT_MS = 30_000;
 const LOCAL_AGENT_CONTROL_REFRESH_CATALOG_RESPONSE_TIMEOUT_MS = 15_000;
 const CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS = 30_000;
+const AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_DELAYS_MS = [
+  5 * 60_000,
+  15 * 60_000,
+  60 * 60_000,
+] as const;
+const AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_STORAGE_PREFIX =
+  "automatic_tools_update_unavailable_retry.v1.";
 const LOCAL_FOLDER_PICKER_RESPONSE_TIMEOUT_MS = 600_000;
 const SERVER_ROUTE_RECONCILIATION_REASON = "server_route_reconciliation";
 // Coalesce readiness-invalidation bursts: one binding change fans out to every
 // profile in the owner's sessions, and several call sites fire within a few
 // ms, so hundreds of per-space broadcasts pile up. Buffering by reason for a
 // short window collapses each storm into one deduplicated publish per reason.
-const AGENT_READINESS_INVALIDATION_COALESCE_WINDOW_MS = 200;
+const LIVE_INVALIDATION_COALESCE_WINDOW_MS = 200;
 const AGENT_READINESS_INVALIDATION_DEFAULT_REASON =
   "agent.readiness.invalidated";
 const EXPECTED_ROUTE_RECONCILIATION_READ_CACHE_MAX_AGE_MS = 5 * 60_000;
@@ -1181,7 +1196,10 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
       return {
         ok: false,
         primaryDispatchId: input.admission.effectiveRecord.primaryDispatchId,
-        reasonCode: "runtime_coordinator.head_authority_conflict",
+        reasonCode:
+          input.admission.conflictKind === "accepted_dispatch_payload"
+            ? RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE
+            : "runtime_coordinator.head_authority_conflict",
         status: "conflict",
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
       };
@@ -1292,6 +1310,88 @@ function resolveExistingRuntimeCoordinatorHeadAdmissionResponse(input: {
   };
 }
 
+function resolveHandledOpenMeldToolsUpdateTargetVersion(
+  result: OpenMeldToolsControlResult
+): string | null {
+  if (result.operation !== "request_update") {
+    return null;
+  }
+  if (result.result.status === "current") {
+    return result.result.currentVersion;
+  }
+  if (
+    result.result.status === "started" ||
+    result.result.status === "already_running"
+  ) {
+    return result.result.operation.targetVersion;
+  }
+  return null;
+}
+
+type AutomaticToolsUpdateUnavailableRetry = {
+  attempts: number;
+  daemonSessionId: string;
+  retryAtMs: number;
+  targetVersion: string;
+};
+
+type StoredAutomaticToolsUpdateUnavailableRetry =
+  AutomaticToolsUpdateUnavailableRetry & {
+    computerKey: string;
+    v: 1;
+  };
+
+type AutomaticToolsUpdateCoalescingMarker = {
+  daemonSessionId: string;
+  requestId: string;
+  targetVersion: string;
+};
+
+function resolveAutomaticToolsUpdateUnavailableRetryDelayMs(
+  attempts: number
+): number {
+  const index = Math.min(
+    Math.max(attempts - 1, 0),
+    AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_DELAYS_MS.length - 1
+  );
+  return AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_DELAYS_MS[index] ?? 0;
+}
+
+function buildAutomaticToolsUpdateUnavailableRetryStorageKey(
+  computerKey: string,
+  retry: Pick<
+    AutomaticToolsUpdateUnavailableRetry,
+    "daemonSessionId" | "targetVersion"
+  >
+): string {
+  return `${AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_STORAGE_PREFIX}${encodeURIComponent(computerKey)}:${encodeURIComponent(retry.daemonSessionId)}:${encodeURIComponent(retry.targetVersion)}`;
+}
+
+function parseStoredAutomaticToolsUpdateUnavailableRetry(
+  value: unknown
+): StoredAutomaticToolsUpdateUnavailableRetry | null {
+  if (!(value && typeof value === "object")) {
+    return null;
+  }
+  const candidate =
+    value as Partial<StoredAutomaticToolsUpdateUnavailableRetry>;
+  if (
+    candidate.v !== 1 ||
+    typeof candidate.computerKey !== "string" ||
+    candidate.computerKey.length === 0 ||
+    typeof candidate.daemonSessionId !== "string" ||
+    candidate.daemonSessionId.length === 0 ||
+    typeof candidate.targetVersion !== "string" ||
+    candidate.targetVersion.length === 0 ||
+    !Number.isInteger(candidate.attempts) ||
+    Number(candidate.attempts) < 1 ||
+    !Number.isFinite(candidate.retryAtMs)
+  ) {
+    return null;
+  }
+  return candidate as StoredAutomaticToolsUpdateUnavailableRetry;
+}
+
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
   private readonly currentDeviceOperationWaiters = new Map<
@@ -1300,7 +1400,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   >();
   private readonly automaticToolsUpdateTargetByComputer = new Map<
     string,
-    string
+    AutomaticToolsUpdateCoalescingMarker
+  >();
+  // This is only a retry throttle, not update state. It is persisted so DO
+  // hibernation cannot restart a heartbeat storm; a new daemon session or
+  // release target still bypasses the prior failure immediately.
+  private readonly automaticToolsUpdateUnavailableRetryByComputer = new Map<
+    string,
+    AutomaticToolsUpdateUnavailableRetry
   >();
   private readonly routeCatalogReconciliationSignalsBySessionKey = new Map<
     string,
@@ -1310,9 +1417,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     string,
     Set<string>
   >();
-  private agentReadinessInvalidationFlushTimer: ReturnType<
-    typeof setTimeout
-  > | null = null;
+  private liveInvalidationFlushTimer: ReturnType<typeof setTimeout> | null =
+    null;
+  private pendingWakeProgressInvalidationsBySpaceId = new Map<
+    string,
+    {
+      agentProfileIds: Set<string>;
+      clientMessageIds: Set<string>;
+    }
+  >();
   private readonly expectedRouteReconciliationReadCacheBySessionKey = new Map<
     string,
     ExpectedRouteReconciliationReadCacheState
@@ -1335,6 +1448,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.ctx,
         this.state
       );
+      await this.restoreAutomaticToolsUpdateUnavailableRetries();
       const adoptedSockets = adoptHibernatedSockets(this.ctx, this.state, {
         closeSocket: safeCloseSocket,
       });
@@ -1628,6 +1742,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         currentAgentControllerRef: parsed.data.currentAgentControllerRef,
         currentBindingId: parsed.data.currentBindingId,
         currentConfigurationRevision: parsed.data.currentConfigurationRevision,
+        currentDefaultProjectId: parsed.data.currentDefaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           parsed.data.expectedInterruptedTargetWakeLifecycleId,
         nowMs: Date.now(),
@@ -2972,6 +3087,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.state.sessionsById.get(parsed.data.daemonSessionId) ?? null;
     if (response.ok) {
       this.queueReleaseTriggeredOpenMeldToolsUpdate({
+        connection: {
+          daemonSessionId: parsed.data.daemonSessionId,
+          deviceId: parsed.data.deviceId,
+          lane: parsed.data.lane,
+          ownerUserId: verifiedOwnerUserId,
+        },
+        releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
         session: registeredSession,
         socket: webSocket,
         trigger: "register",
@@ -3153,6 +3275,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       if (sessionAfterHeartbeat) {
         this.queueReleaseTriggeredOpenMeldToolsUpdate({
+          connection: {
+            daemonSessionId: parsed.data.daemonSessionId,
+            deviceId: parsed.data.deviceId,
+            lane: parsed.data.lane,
+            ownerUserId: verifiedOwnerUserId,
+          },
+          releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
           session: sessionAfterHeartbeat,
           socket: webSocket,
           trigger: "heartbeat",
@@ -10257,6 +10386,33 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
 
+  private async readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
+    request: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest
+  ): Promise<RuntimeCoordinatorExecutionTokenAuthorityRecord | null> {
+    const identity = request.targetWakeLifecycleIdentity;
+    const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
+      dispatchId: request.dispatchId,
+      spaceId: identity.spaceId,
+      targetProfileId: identity.targetProfileId,
+    });
+    const authority = await this.readRuntimeCoordinatorTokenAuthority(
+      runtimeCoordinatorExecutionId
+    );
+    if (
+      !authority?.terminalOutcome ||
+      authority.executionScope.dispatchId !== request.dispatchId ||
+      authority.executionScope.runtimeCoordinatorExecutionId !==
+        runtimeCoordinatorExecutionId ||
+      authority.executionScope.sourceClientMessageId !==
+        identity.clientMessageId ||
+      authority.executionScope.spaceId !== identity.spaceId ||
+      authority.executionScope.targetProfileId !== identity.targetProfileId
+    ) {
+      return null;
+    }
+    return authority;
+  }
+
   private async readRuntimeCoordinatorTokenAuthorityForDecision(
     runtimeCoordinatorExecutionId: string
   ): Promise<RuntimeCoordinatorDecisionAuthorityRead> {
@@ -10457,6 +10613,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.storage,
       state
     );
+    this.publishWakeProgressChanged({
+      agentProfileId: state.targetProfileId,
+      clientMessageId: state.sourceClientMessageId,
+      spaceId: state.sanitizedDeliveryRequest.payload.spaceId,
+    });
   }
 
   private async rollbackRuntimeCoordinatorUnsentDelivery(
@@ -10885,6 +11046,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       storage: this.ctx.storage,
     });
     if (
+      admission.status === "existing" &&
+      admission.compatibilityDiagnosticReasonCode
+    ) {
+      console.warn(
+        "[core.runtime_transport.runtime_coordinator_legacy_terminal_replay_deduped]",
+        {
+          dispatchId: request.dispatchId,
+          reasonCode: admission.compatibilityDiagnosticReasonCode,
+          runtimeCoordinatorExecutionId:
+            admission.effectiveRecord.runtimeCoordinatorExecutionId,
+          targetProfileId: identity.targetProfileId,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        }
+      );
+    }
+    if (
       admission.status === "queued" ||
       admission.status === "started" ||
       admission.status === "continuation_needs_attention"
@@ -10916,6 +11093,36 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
 
     if (!existing) {
+      const terminalAuthority =
+        await this.readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
+          request
+        );
+      const terminalReasonCode =
+        terminalAuthority?.terminalOutcome?.reasonCode ?? null;
+      if (terminalAuthority && terminalReasonCode) {
+        console.warn(
+          "[core.runtime_transport.runtime_coordinator_retired_terminal_head_redrive_observed]",
+          {
+            dispatchId: request.dispatchId,
+            preservedReasonCode: terminalReasonCode,
+            redriveReasonCode: request.reasonCode,
+            runtimeCoordinatorExecutionId:
+              terminalAuthority.runtimeCoordinatorExecutionId,
+            targetProfileId: identity.targetProfileId,
+            targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          }
+        );
+        return {
+          ok: true,
+          primaryDispatchId: request.dispatchId,
+          publicationIntentId,
+          reasonCode:
+            RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
+          runtimeCoordinatorExecutionId: null,
+          status: "already_recorded",
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        };
+      }
       return {
         ok: false,
         primaryDispatchId: null,
@@ -11452,6 +11659,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!(db && readinessImpactDb && input.record.noExecutionDecision)) {
       return;
     }
+    if (
+      input.record.noExecutionDecision.reasonCode !==
+      RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
+    ) {
+      return;
+    }
     const identity =
       await this.readRuntimeCoordinatorHeadFailureExecutionIdentity({
         db,
@@ -11706,6 +11919,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.publishAgentReadinessInvalidated({
       profileIds: [record.targetWakeLifecycleIdentity.targetProfileId],
       reason: "agent_profile_work_coordinator.changed",
+    });
+    this.publishWakeProgressChanged({
+      agentProfileId: record.targetWakeLifecycleIdentity.targetProfileId,
+      clientMessageId: record.targetWakeLifecycleIdentity.clientMessageId,
+      spaceId: record.targetWakeLifecycleIdentity.spaceId,
     });
     if (pendingPromotion) {
       await this.requestSpaceDispatchOutboxRedriveForPromotion(
@@ -16179,11 +16397,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       pending.add(profileId);
     }
     this.pendingAgentReadinessInvalidationsByReason.set(reason, pending);
-    this.scheduleAgentReadinessInvalidationFlush();
+    this.scheduleLiveInvalidationFlush();
   }
 
-  private scheduleAgentReadinessInvalidationFlush(): void {
-    if (this.agentReadinessInvalidationFlushTimer) {
+  private scheduleLiveInvalidationFlush(): void {
+    if (this.liveInvalidationFlushTimer) {
       return;
     }
     // A single keepalive promise spans the whole window so the DO is not
@@ -16197,10 +16415,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       resolveFlush = resolve;
     });
     this.ctx.waitUntil(flushSettled);
-    this.agentReadinessInvalidationFlushTimer = setTimeout(() => {
-      this.agentReadinessInvalidationFlushTimer = null;
-      this.flushAgentReadinessInvalidations().finally(resolveFlush);
-    }, AGENT_READINESS_INVALIDATION_COALESCE_WINDOW_MS);
+    this.liveInvalidationFlushTimer = setTimeout(() => {
+      this.liveInvalidationFlushTimer = null;
+      Promise.all([
+        this.flushAgentReadinessInvalidations(),
+        this.flushWakeProgressInvalidations(),
+      ]).finally(resolveFlush);
+    }, LIVE_INVALIDATION_COALESCE_WINDOW_MS);
   }
 
   private async flushAgentReadinessInvalidations(): Promise<void> {
@@ -16271,6 +16492,62 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         },
       },
     });
+  }
+
+  private publishWakeProgressChanged(input: {
+    agentProfileId: string;
+    clientMessageId: string | null;
+    spaceId: string;
+  }): void {
+    const spaceId = input.spaceId.trim();
+    const agentProfileId = input.agentProfileId.trim();
+    const clientMessageId = input.clientMessageId?.trim() ?? "";
+    if (!(spaceId && (agentProfileId || clientMessageId))) {
+      return;
+    }
+    const pending = this.pendingWakeProgressInvalidationsBySpaceId.get(
+      spaceId
+    ) ?? {
+      agentProfileIds: new Set<string>(),
+      clientMessageIds: new Set<string>(),
+    };
+    if (agentProfileId) {
+      pending.agentProfileIds.add(agentProfileId);
+    }
+    if (clientMessageId) {
+      pending.clientMessageIds.add(clientMessageId);
+    }
+    this.pendingWakeProgressInvalidationsBySpaceId.set(spaceId, pending);
+    this.scheduleLiveInvalidationFlush();
+  }
+
+  private async flushWakeProgressInvalidations(): Promise<void> {
+    const pending = this.pendingWakeProgressInvalidationsBySpaceId;
+    this.pendingWakeProgressInvalidationsBySpaceId = new Map();
+    await Promise.all(
+      [...pending.entries()].map(async ([spaceId, targets]) => {
+        try {
+          const spaceStub = resolveSpaceStub(this.env.OPENMELD_SPACES, spaceId);
+          if (!spaceStub) {
+            throw new Error(
+              "Space stub unavailable for Wake progress invalidation"
+            );
+          }
+          await spaceStub.rpcBroadcastWakeProgressChanged({
+            agentProfileIds: [...targets.agentProfileIds],
+            clientMessageIds: [...targets.clientMessageIds],
+            reason: "runtime_coordinator.wake_progress_changed",
+            spaceId,
+          });
+        } catch (error) {
+          console.warn("[core.wake_progress.invalidation_failed]", {
+            error: error instanceof Error ? error.message : String(error),
+            reasonCode: "wake.progress.invalidation_failed",
+            spaceId,
+          });
+        }
+      })
+    );
   }
 
   private async processAgentProfileWorkPromotionAlarm(
@@ -16385,43 +16662,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             : "runtime_coordinator.agent_profile_work_promotion_response_invalid"
         );
       }
-      if (parsedResponse.data.status === "retry_scheduled") {
-        const deferred = await deferPendingAgentProfileWorkPromotion({
-          expected: pendingPromotion,
-          nowMs,
-          storage: this.ctx.storage,
-        });
-        console.info(
-          "[core.runtime_transport.agent_profile_work_promotion_retry_scheduled]",
-          {
-            attemptCount:
-              deferred?.attemptCount ?? pendingPromotion.attemptCount,
-            dispatchId: pendingPromotion.dispatchId,
-            nextAttemptAtMs: deferred?.nextAttemptAtMs ?? null,
-            spaceId: identity.spaceId,
-            targetProfileId: pendingPromotion.targetProfileId,
-            targetWakeLifecycleId: pendingPromotion.targetWakeLifecycleId,
-            trigger,
-          }
-        );
-        await this.syncHousekeepingAlarm();
-        return;
-      }
-      await clearPendingAgentProfileWorkPromotion(
-        this.ctx.storage,
-        pendingPromotion
-      );
-      console.info(
-        "[core.runtime_transport.agent_profile_work_promotion_redriven]",
-        {
-          dispatchId: pendingPromotion.dispatchId,
-          redriveStatus: parsedResponse.data.status,
-          spaceId: identity.spaceId,
-          targetProfileId: pendingPromotion.targetProfileId,
-          targetWakeLifecycleId: pendingPromotion.targetWakeLifecycleId,
-          trigger,
-        }
-      );
+      await this.settleAcceptedAgentProfileWorkPromotionRedrive({
+        head,
+        nowMs,
+        pendingPromotion,
+        redriveStatus: parsedResponse.data.status,
+        spaceId: identity.spaceId,
+        trigger,
+      });
     } catch (error) {
       const deferred = await deferPendingAgentProfileWorkPromotion({
         expected: pendingPromotion,
@@ -16442,6 +16690,61 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
     await this.syncHousekeepingAlarm();
+  }
+
+  private async settleAcceptedAgentProfileWorkPromotionRedrive(input: {
+    head: RuntimeCoordinatorHeadLifecycleRecord;
+    nowMs: number;
+    pendingPromotion: PendingAgentProfileWorkPromotion;
+    redriveStatus: "cancelled" | "enqueued" | "retry_scheduled" | "submitted";
+    spaceId: string;
+    trigger: "alarm_recovery" | "terminal_transaction";
+  }): Promise<void> {
+    const requiresIdentityReacceptance =
+      (input.redriveStatus === "enqueued" ||
+        input.redriveStatus === "submitted") &&
+      !input.head.acceptedDispatchSnapshot;
+    if (
+      input.redriveStatus === "retry_scheduled" ||
+      requiresIdentityReacceptance
+    ) {
+      const deferred = await deferPendingAgentProfileWorkPromotion({
+        expected: input.pendingPromotion,
+        nowMs: input.nowMs,
+        storage: this.ctx.storage,
+      });
+      console.info(
+        input.redriveStatus === "retry_scheduled"
+          ? "[core.runtime_transport.agent_profile_work_promotion_retry_scheduled]"
+          : "[core.runtime_transport.agent_profile_work_promotion_identity_reacceptance_pending]",
+        {
+          attemptCount:
+            deferred?.attemptCount ?? input.pendingPromotion.attemptCount,
+          dispatchId: input.pendingPromotion.dispatchId,
+          nextAttemptAtMs: deferred?.nextAttemptAtMs ?? null,
+          spaceId: input.spaceId,
+          targetProfileId: input.pendingPromotion.targetProfileId,
+          targetWakeLifecycleId: input.pendingPromotion.targetWakeLifecycleId,
+          trigger: input.trigger,
+        }
+      );
+      return;
+    }
+    await clearPendingAgentProfileWorkPromotion(
+      this.ctx.storage,
+      input.pendingPromotion
+    );
+    console.info(
+      "[core.runtime_transport.agent_profile_work_promotion_redriven]",
+      {
+        dispatchId: input.pendingPromotion.dispatchId,
+        redriveStatus: input.redriveStatus,
+        spaceId: input.spaceId,
+        targetProfileId: input.pendingPromotion.targetProfileId,
+        targetWakeLifecycleId: input.pendingPromotion.targetWakeLifecycleId,
+        trigger: input.trigger,
+      }
+    );
   }
 
   private async triggerRuntimeCoordinatorHeadWaitingRecovery(input: {
@@ -17720,42 +18023,175 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
   }
 
+  private async restoreAutomaticToolsUpdateUnavailableRetries(): Promise<void> {
+    const entries = await this.ctx.storage
+      .list<unknown>({
+        prefix: AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_STORAGE_PREFIX,
+      })
+      .catch((error: unknown) => {
+        console.warn(
+          "[core.openmeld_tools.automatic_update_retry_restore_failed]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+        return new Map<string, unknown>();
+      });
+    for (const [storageKey, value] of entries) {
+      const retry = parseStoredAutomaticToolsUpdateUnavailableRetry(value);
+      if (
+        !retry ||
+        storageKey !==
+          buildAutomaticToolsUpdateUnavailableRetryStorageKey(
+            retry.computerKey,
+            retry
+          )
+      ) {
+        this.ctx.storage.delete(storageKey).catch(() => undefined);
+        continue;
+      }
+      this.automaticToolsUpdateUnavailableRetryByComputer.set(
+        retry.computerKey,
+        retry
+      );
+    }
+  }
+
+  private async persistAutomaticToolsUpdateUnavailableRetry(input: {
+    computerKey: string;
+    retry: AutomaticToolsUpdateUnavailableRetry;
+  }): Promise<void> {
+    await this.ctx.storage.put(
+      buildAutomaticToolsUpdateUnavailableRetryStorageKey(
+        input.computerKey,
+        input.retry
+      ),
+      {
+        ...input.retry,
+        computerKey: input.computerKey,
+        v: 1,
+      } satisfies StoredAutomaticToolsUpdateUnavailableRetry
+    );
+  }
+
+  private async deleteAutomaticToolsUpdateUnavailableRetry(
+    computerKey: string,
+    retry: Pick<
+      AutomaticToolsUpdateUnavailableRetry,
+      "daemonSessionId" | "targetVersion"
+    >
+  ): Promise<void> {
+    await this.ctx.storage.delete(
+      buildAutomaticToolsUpdateUnavailableRetryStorageKey(computerKey, retry)
+    );
+  }
+
   private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
+    connection: Pick<
+      RuntimeTransportSessionState,
+      "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
+    >;
+    releaseManifest: LocalComponentsReleaseManifest | null;
     session: RuntimeTransportSessionState | null;
     socket: WebSocket;
     trigger: "heartbeat" | "register";
   }): void {
     if (input.session?.socket !== input.socket) {
+      this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
+        ...input,
+        reasonCode: "automatic_update.session_socket_mismatch",
+      });
       return;
     }
     const session = input.session as RuntimeTransportSessionState & {
       socket: WebSocket;
     };
-    const update = resolveReleaseTriggeredOpenMeldToolsUpdate({
+    const decision = resolveReleaseTriggeredOpenMeldToolsUpdateDecision({
       capabilities: session.capabilities,
       generatedAt: new Date().toISOString(),
       lane: session.lane,
+      releaseManifest: input.releaseManifest,
       serviceVersion: session.serviceVersion ?? null,
     });
-    if (!update) {
+    if (decision.status === "skipped") {
+      this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
+        ...input,
+        reasonCode: decision.reasonCode,
+      });
       return;
     }
+    const update = decision.update;
     const computerKey = [
       session.ownerUserId,
       session.deviceId,
       session.lane,
     ].join(":");
+    const unavailableRetry =
+      this.automaticToolsUpdateUnavailableRetryByComputer.get(computerKey);
+    const retryMatchesCurrentCondition =
+      unavailableRetry?.daemonSessionId === session.daemonSessionId &&
+      unavailableRetry.targetVersion === update.targetVersion;
     if (
-      this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
-      update.targetVersion
+      retryMatchesCurrentCondition &&
+      Date.now() < unavailableRetry.retryAtMs
     ) {
+      this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
+        ...input,
+        reasonCode: "automatic_update.unavailable_retry_backoff",
+        targetVersion: update.targetVersion,
+      });
       return;
     }
+    if (unavailableRetry && !retryMatchesCurrentCondition) {
+      this.automaticToolsUpdateUnavailableRetryByComputer.delete(computerKey);
+      this.ctx.waitUntil(
+        this.deleteAutomaticToolsUpdateUnavailableRetry(
+          computerKey,
+          unavailableRetry
+        ).catch((error) => {
+          console.warn(
+            "[core.openmeld_tools.automatic_update_retry_delete_failed]",
+            {
+              error: error instanceof Error ? error.message : String(error),
+              targetVersion: update.targetVersion,
+            }
+          );
+        })
+      );
+    }
+    const existingMarker =
+      this.automaticToolsUpdateTargetByComputer.get(computerKey);
+    if (
+      existingMarker?.daemonSessionId === session.daemonSessionId &&
+      existingMarker.targetVersion === update.targetVersion
+    ) {
+      this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
+        ...input,
+        reasonCode: "automatic_update.target_already_coalesced",
+        targetVersion: update.targetVersion,
+      });
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    const coalescingMarker: AutomaticToolsUpdateCoalescingMarker = {
+      daemonSessionId: session.daemonSessionId,
+      requestId,
+      targetVersion: update.targetVersion,
+    };
     this.automaticToolsUpdateTargetByComputer.set(
       computerKey,
-      update.targetVersion
+      coalescingMarker
     );
-    const requestId = crypto.randomUUID();
+    console.info("[core.openmeld_tools.automatic_update_queued]", {
+      daemonSessionId: session.daemonSessionId,
+      deviceId: session.deviceId,
+      event: "core.openmeld_tools.automatic_update_queued",
+      lane: session.lane,
+      ownerUserId: session.ownerUserId,
+      requestId,
+      targetVersion: update.targetVersion,
+      trigger: input.trigger,
+    });
     this.ctx.waitUntil(
       this.sendCurrentDeviceOperationAndWait<OpenMeldToolsControlResult>({
         code: "daemon.openmeld_tools_control.request",
@@ -17772,16 +18208,80 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         session,
         timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
       })
-        .then((result) => {
+        .then(async (result) => {
+          const operationStatus =
+            result.operation === "request_update"
+              ? result.result.status
+              : "invalid_response";
+          const handledTargetVersion =
+            resolveHandledOpenMeldToolsUpdateTargetVersion(result);
+          const requestHandledTarget =
+            handledTargetVersion !== null &&
+            isLocalComponentVersionAtLeast(
+              handledTargetVersion,
+              update.targetVersion
+            );
+          const requestStillOwnsMarker =
+            this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
+            coalescingMarker;
+          if (!requestHandledTarget && requestStillOwnsMarker) {
+            this.automaticToolsUpdateTargetByComputer.delete(computerKey);
+            if (operationStatus === "unavailable") {
+              const previousRetry =
+                this.automaticToolsUpdateUnavailableRetryByComputer.get(
+                  computerKey
+                );
+              const attempts =
+                previousRetry?.daemonSessionId === session.daemonSessionId &&
+                previousRetry.targetVersion === update.targetVersion
+                  ? previousRetry.attempts + 1
+                  : 1;
+              const retry: AutomaticToolsUpdateUnavailableRetry = {
+                attempts,
+                daemonSessionId: session.daemonSessionId,
+                retryAtMs:
+                  Date.now() +
+                  resolveAutomaticToolsUpdateUnavailableRetryDelayMs(attempts),
+                targetVersion: update.targetVersion,
+              };
+              this.automaticToolsUpdateUnavailableRetryByComputer.set(
+                computerKey,
+                retry
+              );
+              await this.persistAutomaticToolsUpdateUnavailableRetry({
+                computerKey,
+                retry,
+              });
+            } else {
+              this.automaticToolsUpdateUnavailableRetryByComputer.delete(
+                computerKey
+              );
+              await this.deleteAutomaticToolsUpdateUnavailableRetry(
+                computerKey,
+                unavailableRetry ?? {
+                  daemonSessionId: session.daemonSessionId,
+                  targetVersion: update.targetVersion,
+                }
+              );
+            }
+          } else if (requestHandledTarget && requestStillOwnsMarker) {
+            this.automaticToolsUpdateUnavailableRetryByComputer.delete(
+              computerKey
+            );
+            await this.deleteAutomaticToolsUpdateUnavailableRetry(
+              computerKey,
+              unavailableRetry ?? {
+                daemonSessionId: session.daemonSessionId,
+                targetVersion: update.targetVersion,
+              }
+            );
+          }
           console.info("[core.openmeld_tools.automatic_update_requested]", {
             daemonSessionId: session.daemonSessionId,
             deviceId: session.deviceId,
             event: "core.openmeld_tools.automatic_update_requested",
             lane: session.lane,
-            operationStatus:
-              result.operation === "request_update"
-                ? result.result.status
-                : "invalid_response",
+            operationStatus,
             ownerUserId: session.ownerUserId,
             targetVersion: update.targetVersion,
             trigger: input.trigger,
@@ -17790,7 +18290,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         .catch((error) => {
           if (
             this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
-            update.targetVersion
+            coalescingMarker
           ) {
             this.automaticToolsUpdateTargetByComputer.delete(computerKey);
           }
@@ -17806,6 +18306,67 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           });
         })
     );
+  }
+
+  private recordReleaseTriggeredOpenMeldToolsUpdateSkip(input: {
+    connection: Pick<
+      RuntimeTransportSessionState,
+      "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
+    >;
+    reasonCode:
+      | Extract<
+          ReturnType<typeof resolveReleaseTriggeredOpenMeldToolsUpdateDecision>,
+          { status: "skipped" }
+        >["reasonCode"]
+      | "automatic_update.session_socket_mismatch"
+      | "automatic_update.target_already_coalesced"
+      | "automatic_update.unavailable_retry_backoff";
+    releaseManifest: LocalComponentsReleaseManifest | null;
+    session: RuntimeTransportSessionState | null;
+    socket: WebSocket;
+    targetVersion?: string;
+    trigger: "heartbeat" | "register";
+  }): void {
+    // Register is the one-shot decision boundary. Heartbeats reuse the same
+    // decision and would turn a stable skip reason into recurring log noise.
+    if (input.trigger !== "register" || input.connection.lane !== "prod") {
+      return;
+    }
+    console.info("[core.openmeld_tools.automatic_update_skipped]", {
+      automaticUpdatesEnabled:
+        input.session?.capabilities.localComponents?.maintenance
+          ?.automaticUpdatesEnabled ?? null,
+      daemonSessionId: input.connection.daemonSessionId,
+      deviceId: input.connection.deviceId,
+      event: "core.openmeld_tools.automatic_update_skipped",
+      lane: input.connection.lane,
+      maintenanceStatus:
+        input.session?.capabilities.localComponents?.maintenance?.status ??
+        null,
+      operationPhase:
+        input.session?.capabilities.localComponents?.updateOperation?.phase ??
+        null,
+      operationTargetVersion:
+        input.session?.capabilities.localComponents?.updateOperation
+          ?.targetVersion ?? null,
+      ownerUserId: input.connection.ownerUserId,
+      reasonCode: input.reasonCode,
+      releaseCliVersion:
+        input.releaseManifest?.components.cli.packageVersion ?? null,
+      releaseServiceVersion:
+        input.releaseManifest?.components.service.bundleVersion ?? null,
+      requestAutomaticUpdateSupported:
+        input.session?.capabilities.openMeldToolsControl
+          ?.requestAutomaticUpdate === true,
+      requestUpdateSupported:
+        input.session?.capabilities.openMeldToolsControl?.requestUpdate ===
+        true,
+      serviceVersion: input.session?.serviceVersion ?? null,
+      sessionPresent: input.session !== null,
+      sessionSocketMatches: input.session?.socket === input.socket,
+      targetVersion: input.targetVersion ?? null,
+      trigger: input.trigger,
+    });
   }
 
   private resolveOpenMeldToolsControlSession(input: {
@@ -17840,7 +18401,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         true
     ) {
       return {
-        message: "Reconnect OpenMeld Service to use this action.",
+        message: "Reconnect Computer to use this action.",
         ok: false,
         reasonCode: "openmeld_tools_control.service_update_required",
       };
@@ -19067,6 +19628,11 @@ const collectLocalWakeRouteReportProfileIds = (
   return normalizeRuntimeTransportProfileIds([
     ...report.includedProfileIds,
     ...report.skippedProfiles.map((profile) => profile.profileId),
+    ...(report && "workingFolderObservations" in report
+      ? report.workingFolderObservations.map(
+          (observation) => observation.profileId
+        )
+      : []),
   ]);
 };
 

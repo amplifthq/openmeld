@@ -4,6 +4,7 @@ import {
   isAgentExecutionReadinessImpactReasonCode,
   isProjectLocalConnectionFailureReasonCode,
   projectLocalConnectionFailureReasonCodeSchema,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   resolveCenterAgentCallbackFailureMessage,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,
@@ -685,6 +686,25 @@ describe("public agent failure reason mapping", () => {
     );
   });
 
+  it("keeps an accepted Wake payload conflict separate from computer connectivity", () => {
+    const reasonCode =
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE;
+
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: reasonCode,
+        targetLabel: "Runner",
+      })
+    ).toEqual({
+      body: "OpenMeld stopped this Wake for Runner because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics.",
+      kind: "system_retry",
+      recoveryTarget: null,
+    });
+    expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
+      "OpenMeld stopped this Wake for this agent because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics."
+    );
+  });
+
   it("does not tell users to reconnect a Service that is waiting on its first route report", () => {
     expect(
       resolvePublicAgentFailureRecovery({
@@ -1085,7 +1105,7 @@ describe("public agent failure reason mapping", () => {
       "Center Agent is resting until the next budget window.",
     ],
     ["remote_agent.unavailable", "Center Agent cannot answer right now."],
-    ["agent_execution.ready", "Can reply from this computer in Spaces."],
+    ["agent_execution.ready", "Available for Wake"],
     [
       "agent_execution.check_status",
       "Checking this agent's Wake availability.",

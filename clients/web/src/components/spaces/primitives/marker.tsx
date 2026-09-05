@@ -6,6 +6,9 @@ import type { ComponentProps } from "react";
 
 // Source-adapted from shadcn/ui base-lyra marker, shadcn CLI 3.8.5.
 // Kept Web-local because Space markers carry product-specific outcome meaning.
+export const SPACE_SYSTEM_DIVIDER_CLASS_NAME =
+	"before:mr-1 before:h-px before:min-w-0 before:flex-1 before:bg-border before:content-[''] after:ml-1 after:h-px after:min-w-0 after:flex-1 after:bg-border after:content-['']";
+
 const markerVariants = cva(
 	"group/marker relative flex min-h-4 w-full items-center gap-2 text-left text-muted-foreground text-xs [&_svg:not([class*='size-'])]:size-3.5 [a]:underline [a]:underline-offset-3 [a]:hover:text-foreground",
 	{
@@ -13,8 +16,7 @@ const markerVariants = cva(
 			variant: {
 				border: "border-border border-b pb-2",
 				default: "",
-				separator:
-					"before:mr-1 before:h-px before:min-w-0 before:flex-1 before:bg-border after:ml-1 after:h-px after:min-w-0 after:flex-1 after:bg-border",
+				separator: SPACE_SYSTEM_DIVIDER_CLASS_NAME,
 			},
 		},
 	}

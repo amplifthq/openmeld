@@ -25,7 +25,7 @@ export type OnboardingSetupBannerProps = {
 	plan: OnboardingPlan;
 	/** Opens the centralized "connect this computer" setup page. The OS-aware
 	 * command + expiry + polling live there (same destination as the Agents
-	 * page's "Connect OpenMeld Service"), not inline here — connecting is a multi-step
+	 * page's "Connect Computer"), not inline here — connecting is a multi-step
 	 * Terminal flow, so it routes out rather than dumping a raw command in the
 	 * conversation. */
 	onConnect: () => void;

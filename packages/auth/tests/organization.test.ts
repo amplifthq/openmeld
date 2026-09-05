@@ -34,6 +34,7 @@ const WEB_APP_URL = "http://localhost:3000";
 const validSecret = "12345678901234567890123456789012345678901234";
 const password = "correct-horse-battery-staple";
 const SET_COOKIE_SEPARATOR_PATTERN = /,(?=\s*[^;,]+=)/;
+const MAGIC_LINK_EMAIL_URL_PATTERN = /^Continue to OpenMeld: (\S+)$/mu;
 const API_PERSONAL_ORGANIZATION_SLUG_PATTERN = /^api-[0-9a-hjkmnp-tv-z]{6}$/;
 const OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN =
   /^owner-example-[0-9a-hjkmnp-tv-z]{6}$/;
@@ -69,6 +70,78 @@ describe("organization identity foundation", () => {
 
     expect(response.status).toBe(403);
     expect(sentEmails).toEqual([]);
+  });
+
+  it("keeps the exact add-account intent in the final magic-link email URL", async () => {
+    const { auth, sentEmails } = createTestAuth();
+    const callbackUrl = new URL("/magic-link", WEB_APP_URL);
+    callbackUrl.searchParams.set("intent", "add-account");
+    callbackUrl.searchParams.set("redirect", "/o/acme/settings/account");
+    callbackUrl.searchParams.set("untrusted", "https://attacker.invalid");
+
+    const response = await postAuth(auth, "/sign-in/magic-link", {
+      callbackURL: callbackUrl.toString(),
+      email: "add-account@example.com",
+    });
+
+    expect(response.status).toBe(200);
+    const emailUrl = requireMagicLinkEmailUrl(
+      sentEmails,
+      "add-account@example.com"
+    );
+    expect(emailUrl.origin).toBe(WEB_APP_URL);
+    expect(emailUrl.pathname).toBe("/magic-link");
+    expect(emailUrl.searchParams.get("token")).toBeTruthy();
+    expect(emailUrl.searchParams.get("intent")).toBe("add-account");
+    expect(emailUrl.searchParams.get("redirect")).toBe(
+      "/o/acme/settings/account"
+    );
+    expect(emailUrl.searchParams.has("untrusted")).toBe(false);
+  });
+
+  it("does not mark an ordinary final magic-link email URL as add-account", async () => {
+    const { auth, sentEmails } = createTestAuth();
+    const callbackUrl = new URL("/magic-link", WEB_APP_URL);
+    callbackUrl.searchParams.set("redirect", "/o/acme/new-space");
+
+    const response = await postAuth(auth, "/sign-in/magic-link", {
+      callbackURL: callbackUrl.toString(),
+      email: "sign-in@example.com",
+    });
+
+    expect(response.status).toBe(200);
+    const emailUrl = requireMagicLinkEmailUrl(
+      sentEmails,
+      "sign-in@example.com"
+    );
+    expect(emailUrl.origin).toBe(WEB_APP_URL);
+    expect(emailUrl.pathname).toBe("/magic-link");
+    expect(emailUrl.searchParams.get("token")).toBeTruthy();
+    expect(emailUrl.searchParams.has("intent")).toBe(false);
+    expect(emailUrl.searchParams.get("redirect")).toBe("/o/acme/new-space");
+  });
+
+  it("drops untrusted magic-link callback parameters from the final email URL", async () => {
+    const { auth, sentEmails } = createTestAuth();
+    const callbackUrl = new URL("/magic-link", WEB_APP_URL);
+    callbackUrl.searchParams.set("intent", "add-account-later");
+    callbackUrl.searchParams.set("redirect", "https://attacker.invalid");
+    callbackUrl.searchParams.set("campaign", "untrusted");
+
+    const response = await postAuth(auth, "/sign-in/magic-link", {
+      callbackURL: callbackUrl.toString(),
+      email: "safe-sign-in@example.com",
+    });
+
+    expect(response.status).toBe(200);
+    const emailUrl = requireMagicLinkEmailUrl(
+      sentEmails,
+      "safe-sign-in@example.com"
+    );
+    expect(emailUrl.searchParams.get("token")).toBeTruthy();
+    expect(emailUrl.searchParams.has("intent")).toBe(false);
+    expect(emailUrl.searchParams.has("redirect")).toBe(false);
+    expect(emailUrl.searchParams.has("campaign")).toBe(false);
   });
 
   it("creates a personal organization and stores it as the active session organization", async () => {
@@ -1724,6 +1797,20 @@ function createFakeEmailSender(): {
   };
 
   return { sender, sentEmails };
+}
+
+function requireMagicLinkEmailUrl(
+  sentEmails: SentEmail[],
+  recipient: string
+): URL {
+  const sentEmail = sentEmails.find(
+    (email) => email.to === recipient && email.subject === "Sign in to OpenMeld"
+  );
+  const urlMatch = sentEmail?.text?.match(MAGIC_LINK_EMAIL_URL_PATTERN);
+  if (!urlMatch?.[1]) {
+    throw new Error(`Expected a magic-link email for ${recipient}`);
+  }
+  return new URL(urlMatch[1]);
 }
 
 function toSentEmail(message: unknown): SentEmail {

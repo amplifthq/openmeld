@@ -509,15 +509,9 @@ export function resolveWakeProgressPollDelayMs(input: {
 }): number {
 	const nextAttemptCount = Math.min(...input.attemptCounts);
 	if (nextAttemptCount <= 0) {
-		return 1000;
+		return 15_000;
 	}
-	if (nextAttemptCount === 1) {
-		return 2000;
-	}
-	if (nextAttemptCount <= 3) {
-		return 5000;
-	}
-	return 10_000;
+	return 30_000;
 }
 
 export async function pollWakeProgress(input: {
@@ -538,6 +532,7 @@ export async function pollWakeProgress(input: {
 			input.clientMessageIds.map((clientMessageId) =>
 				api.getWakeProgress({
 					clientMessageId,
+					includePreviewText: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeWakeStopEligibility: true,
@@ -585,6 +580,7 @@ export function areWakeProgressItemsEqual(
 				item.dispatchId === other.dispatchId &&
 				item.failureReasonCode === other.failureReasonCode &&
 				item.message === other.message &&
+				item.previewText === other.previewText &&
 				item.phase === other.phase &&
 				item.runtimeCoordinatorExecutionId ===
 					other.runtimeCoordinatorExecutionId &&
@@ -823,7 +819,7 @@ export function resolveDeleteSpaceErrorMessage(
 		return "Only the space creator can delete this space.";
 	}
 	if (failure.code === "space.human_confirmation_required") {
-		return "Agent-created spaces must be deleted by the owner human profile.";
+		return "Agent-created spaces must be deleted by their owner.";
 	}
 
 	return failure.message;

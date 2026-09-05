@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { getRequiredServerEnv } from "#/env";
 
 const listAccountSpaceIndexInputSchema = z.strictObject({
+	includeDirectMessageProfileIds: z.boolean().optional(),
 	includePurposes: z.boolean().optional(),
 	limit: z.number().int().min(1).max(500).optional(),
 	profileId: z.string().trim().min(1),
@@ -11,6 +12,7 @@ const listAccountSpaceIndexInputSchema = z.strictObject({
 });
 
 async function listAccountSpaceIndexServer(input: {
+	includeDirectMessageProfileIds?: boolean;
 	includePurposes?: boolean;
 	limit?: number;
 	profileId: string;
@@ -22,6 +24,7 @@ async function listAccountSpaceIndexServer(input: {
 
 	return await fetchAccountSpaceIndexFromRequest({
 		gatewayUrl: getRequiredServerEnv("OPENMELD_GATEWAY_URL"),
+		includeDirectMessageProfileIds: input.includeDirectMessageProfileIds,
 		includePurposes: input.includePurposes,
 		...(input.limit === undefined ? {} : { limit: input.limit }),
 		webAppUrl: getRequiredServerEnv("WEB_APP_URL"),
@@ -33,7 +36,7 @@ async function listAccountSpaceIndexServer(input: {
 export const listAccountSpaceIndex = createServerFn({
 	method: "GET",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = listAccountSpaceIndexInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(

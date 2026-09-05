@@ -9,10 +9,12 @@ const {
   prepareProviderRuntimeMock,
   resolveAgentTargetStateMock,
   resolveAgentProfilePrimaryAgentControllerReportMock,
+  resolveEffectiveProfileWorkingFolderRuntimeMock,
 } = vi.hoisted(() => ({
   prepareProviderRuntimeMock: vi.fn(),
   resolveAgentTargetStateMock: vi.fn(),
   resolveAgentProfilePrimaryAgentControllerReportMock: vi.fn(),
+  resolveEffectiveProfileWorkingFolderRuntimeMock: vi.fn(),
 }));
 
 vi.mock("../src/agents/registry", () => ({
@@ -32,6 +34,12 @@ vi.mock("../src/provider-hosts/prepare-provider-runtime", async () => {
 vi.mock("../src/system/agent-profile-primary-binding", () => ({
   resolveAgentProfilePrimaryAgentControllerReport:
     resolveAgentProfilePrimaryAgentControllerReportMock,
+}));
+
+vi.mock("../src/profile-workspace/effective-runtime-resolution", () => ({
+  resolveEffectiveProfileWorkingFolderRuntime: (
+    ...args: Parameters<typeof resolveEffectiveProfileWorkingFolderRuntimeMock>
+  ) => resolveEffectiveProfileWorkingFolderRuntimeMock(...args),
 }));
 
 function createReadyDeviceReplyReadiness() {
@@ -123,6 +131,15 @@ function createReadyWorkspaceResolution(
       providerRuntimeWorkingDirectory: workspacePath,
     },
     status: "ready" as const,
+    workingFolderFact: {
+      defaultProjectId: null,
+      localProjectBindingGeneration: null,
+      observedAtMs: 1,
+      reasonCode: null,
+      source: "profile_workspace" as const,
+      status: "ready" as const,
+    },
+    workingFolderSource: "profile_workspace" as const,
     workspaceMode: "custom" as const,
   };
 }
@@ -143,6 +160,7 @@ describe("reply readiness runtime preparation integration", () => {
   beforeEach(() => {
     prepareProviderRuntimeMock.mockReset();
     resolveAgentTargetStateMock.mockReset();
+    resolveEffectiveProfileWorkingFolderRuntimeMock.mockReset();
     resolveAgentProfilePrimaryAgentControllerReportMock
       .mockReset()
       .mockResolvedValue({
@@ -192,6 +210,38 @@ describe("reply readiness runtime preparation integration", () => {
       },
       targetProfileId: "agt_demo",
     });
+  });
+
+  it("uses the canonical Default Project working folder when no resolution is supplied", async () => {
+    const profile = {
+      ...createAgentProfile("builtin:openclaw"),
+      defaultProjectId: "project-1",
+    };
+    resolveEffectiveProfileWorkingFolderRuntimeMock.mockResolvedValueOnce(
+      createReadyWorkspaceResolution("/tmp/default-project")
+    );
+
+    const readiness = await resolveAgentReplyReadinessStatus({
+      deviceReplyReadiness: createReadyDeviceReplyReadiness(),
+      profile,
+    });
+
+    expect(readiness?.replyReadiness).toBe("ready");
+    expect(
+      resolveEffectiveProfileWorkingFolderRuntimeMock
+    ).toHaveBeenCalledWith({
+      defaultProjectId: "project-1",
+      mode: "inspect",
+      openMeldProfileId: "agt_demo",
+    });
+    expect(prepareProviderRuntimeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        daemonWorkingDirectory: "/tmp/default-project",
+        runtimeContext: {
+          providerRuntimeWorkingDirectory: "/tmp/default-project",
+        },
+      })
+    );
   });
 
   it("does not run daemon route diagnostics inside agent reply readiness", async () => {
@@ -468,8 +518,7 @@ describe("reply readiness runtime preparation integration", () => {
 
     expect(readiness).toMatchObject({
       reasonCodes: ["service.not_running"],
-      reasonText:
-        "Connect OpenMeld Service on this device before this agent can reply.",
+      reasonText: "Connect your computer before this Agent can reply.",
       replyReadiness: "degraded",
     });
     expect(prepareProviderRuntimeMock).not.toHaveBeenCalled();

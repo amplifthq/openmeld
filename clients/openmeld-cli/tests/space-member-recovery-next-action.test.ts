@@ -18,9 +18,7 @@ describe("resolveSpaceMemberJoinOnlyNextAction", () => {
         controllerEnabled: true,
         localParticipationReadiness: "not_running",
       })
-    ).toBe(
-      "Connect OpenMeld Service on this device before this agent can reply."
-    );
+    ).toBe("Connect your computer before this Agent can reply.");
   });
 
   it("points not-running local participation to profile status instead of service start", () => {

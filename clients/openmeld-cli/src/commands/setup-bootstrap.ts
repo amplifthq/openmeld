@@ -80,11 +80,6 @@ async function runSetupFirstBootstrapOrThrow(input: {
         profileKind: "human",
       })
   );
-  emitSetupBootstrapLine(input.line, {
-    code: "setup.bootstrap.stage.center_agent",
-    text: "Center Agent will guide your next setup steps from OpenMeld Home.",
-  });
-
   return {
     status: "completed",
     assistantProfile: null,

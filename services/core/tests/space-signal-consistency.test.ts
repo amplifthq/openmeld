@@ -9,6 +9,7 @@ import type {
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { buildAcceptedDispatchSnapshot } from "../src/dispatch/application/accepted-dispatch-snapshot";
 import {
   OPENMELD_HEADER_AUTO_RELAY_DEPTH,
   OPENMELD_HEADER_DISPATCH_CHAIN_ID,
@@ -473,7 +474,13 @@ const buildDispatchMessageFromRecoveryCandidate = (
           dispatchMessage: OpenMeldDaemonDispatchQueueMessage
         ) => OpenMeldDaemonDispatchQueueMessage["replyToSnapshot"] | null;
       },
-      candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate
+      candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate,
+      deliveryRecoveryReason?: OpenMeldDaemonDispatchQueueMessage["deliveryRecoveryReason"],
+      snapshots?: {
+        sourceProfileName?: string | null;
+        spaceName?: string | null;
+        targetProfileName?: string | null;
+      }
     ): OpenMeldDaemonDispatchQueueMessage;
   }
 ).buildDispatchMessageFromRecoveryCandidate;
@@ -2583,6 +2590,54 @@ describe("space signal consistency matrix", () => {
     );
 
     expect(rebuilt.enqueuedAtMs).toBe(1_700_000_015_000);
+  });
+
+  it("keeps the accepted Wake payload fingerprint stable across transport redrive metadata", async () => {
+    const dispatchMessage = createDispatchMessageFixture(
+      "evt-outbox-stable-accepted-payload"
+    );
+    dispatchMessage.controllerSnapshot = {
+      ...dispatchMessage.controllerSnapshot,
+      agentControllerRef: "builtin:codex",
+      bindingId: "binding-outbox-stable-accepted-payload",
+      configurationRevision: 7,
+      targetBindingEnabled: true,
+      targetBindingState: "bound",
+    };
+    const accepted = await buildAcceptedDispatchSnapshot({
+      message: dispatchMessage,
+      openMeldServiceRuntimeId: "runtime-outbox-stable-accepted-payload",
+      runtimeKind: "openmeld_service",
+    });
+    const rebuilt = buildDispatchMessageFromRecoveryCandidate.call(
+      {
+        resolveDispatchQueueSourceSignalSnapshot: vi.fn().mockReturnValue(null),
+        resolveDispatchQueueReplyToSnapshot: vi.fn().mockReturnValue(null),
+      },
+      {
+        ...dispatchMessage,
+        outboxStatus: "handed_off",
+        createdAtMs: 1_700_000_000_000,
+        handedOffAtMs: 1_700_000_015_000,
+      },
+      undefined,
+      {
+        sourceProfileName: "Source display name",
+        spaceName: "Space display name",
+        targetProfileName: "Target display name",
+      }
+    );
+    const redriven = await buildAcceptedDispatchSnapshot({
+      message: rebuilt,
+      openMeldServiceRuntimeId: "runtime-outbox-stable-accepted-payload",
+      runtimeKind: "openmeld_service",
+    });
+
+    expect(rebuilt.enqueuedAtMs).toBe(1_700_000_015_000);
+    expect(rebuilt.spaceNameSnapshot).toBe("Space display name");
+    expect(rebuilt.sourceProfileNameSnapshot).toBe("Source display name");
+    expect(rebuilt.targetProfileNameSnapshot).toBe("Target display name");
+    expect(redriven?.payloadFingerprint).toBe(accepted?.payloadFingerprint);
   });
 
   it("qualifies ledger idempotency key when reading joined dispatch status", async () => {

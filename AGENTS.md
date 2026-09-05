@@ -39,8 +39,8 @@ OpenMeld Web Space Wake -> RuntimeCoordinator -> current-account local OpenMeld 
 - Production constraints apply. Do not assume broad unsafe changes,
   compatibility breaks, migration shortcuts, or state rewrites are acceptable.
 - RuntimeCoordinator is the in-flight workstation Wake execution truth.
-- Current Wake availability and one concrete Wake execution are separate facts.
-  Current availability must not hide a real Wake failure.
+- Current Wakeability and one concrete Wake execution are separate facts.
+  Current Wakeability must not hide a real Wake failure.
 - A running execution must not be failed by a fixed total wall-clock timeout
   while RuntimeCoordinator receives fresh accepted/running lifecycle or progress
   evidence.
@@ -50,7 +50,7 @@ OpenMeld Web Space Wake -> RuntimeCoordinator -> current-account local OpenMeld 
   Queue is scoped to hosted recovery and other Queue message families; neither
   owns execution or final outcome.
 - Local OpenMeld Service is the local execution carrier and trust boundary. It does
-  not own Space truth, Agent Profile identity, final readiness truth, or
+  not own Space truth, Agent Profile identity, final Wakeability, or
   RuntimeCoordinator execution truth.
 
 ## Context Routing
@@ -89,7 +89,7 @@ Use these owner documents:
 | Workspace Inbox, unread and attention counts, item lifecycle, source coverage, browser delivery, urgent email, notification preferences | `developing/product/inbox.md` |
 | Progressive disclosure, context selector, personal-context rules, Wake-access authorization UX, visibility presentation | `developing/product/presentation-progressive-disclosure.md` |
 | Remote/hosted agent execution: runtime families (workstation vs native), native delivery, Message Channel ingress/publication, model-visible tools, App actions, guardrails, expansion path | `developing/product/remote-agent-runtime.md` |
-| Wake execution, Wake availability, RuntimeCoordinator, Runtime Transport boundaries, local Agent human interaction, final outcome, dispatch trace baseline | `developing/architecture/agent-transport-contract.md` |
+| Wake execution, Wakeability, RuntimeCoordinator, Runtime Transport boundaries, local Agent human interaction, final outcome, dispatch trace baseline | `developing/architecture/agent-transport-contract.md` |
 | OpenMeld Service / daemon lifecycle, RuntimeTransportHub fast paths and current-device Project operations, account/device/lane alignment, Prepare, service health, Agent Controller Interface instruction delivery, reporting, task callbacks, and update states | `developing/architecture/local-openmeld-service.md` |
 | Data ownership, D1 projections, Opportunities, Agent Task Coordination, Dispatch Ledger, evaluation reports, native delivery and Message Channel ledgers, App connection ownership, trace selectors, Diagnostic Reports, Cloudflare evidence | `developing/architecture/data-and-observability.md` |
 | Current D1 binding topology and future observability-only split direction | `developing/architecture/physical-db-split.md` |
@@ -195,9 +195,10 @@ change must leave those signals cleaner and less ambiguous.
   Permission Modes, OpenMeld Service Runtime identity, registry contracts, Prepare
   readiness summaries, Binding projections, command eligibility, and Core claim
   eligibility.
-- User-facing Wake availability must come from Core-owned
-  `AgentExecutionReadiness`, not route-online, Binding existence, service
-  health, or completed Prepare evidence alone.
+- User-facing Wakeability must come from the Core-owned projection defined by
+  `developing/architecture/agent-transport-contract.md`; clients do not derive
+  it from route-online, Binding existence, service health, completed Prepare
+  evidence, Agent Activity, or one Wake's historical outcome.
 - RuntimeCoordinator finalization envelopes must use the shared schema. Do not
   hand-build finalization payloads or expose token secrets in diagnostics.
 - Live invalidation frames are refresh signals, not state. Clients must read the

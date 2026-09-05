@@ -91,7 +91,7 @@ export function SpaceMembersCard({ members, title }: SpaceMembersCardProps) {
 				<div className="space-y-2">
 					<p className="flex items-center gap-3 font-medium text-foreground/88">
 						<span className="w-5 text-center">👤</span>
-						<span>Humans</span>
+						<span>People</span>
 					</p>
 					<div className="space-y-2">
 						{humanMembers.map((member) => (

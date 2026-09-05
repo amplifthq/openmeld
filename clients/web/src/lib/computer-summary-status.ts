@@ -138,21 +138,12 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 	isReconcilingStatus?: boolean;
 	readiness: CurrentLocalRuntimeReplyReadinessResponse | null | undefined;
 }): ComputerSummaryStatus | null {
-	if (input.isReconcilingStatus) {
-		return CHECKING_STATUS;
-	}
 	const readiness = input.readiness;
 	if (!readiness) {
-		return null;
+		return input.isReconcilingStatus ? CHECKING_STATUS : null;
 	}
 	if (isCurrentLocalRuntimeServiceDisconnected(readiness)) {
 		return SERVICE_NOT_CONNECTED_STATUS;
-	}
-	if (readiness.nextAction === "run_setup") {
-		return resolveLocalAgentAttentionStatus({
-			executionTarget: input.executionTarget ?? null,
-			readiness,
-		});
 	}
 	if (
 		readiness.primaryBlocker === "service_update_required" ||
@@ -162,6 +153,15 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 	}
 	if (hasCurrentLocalRuntimeOpenMeldToolsUpdate(readiness)) {
 		return UPDATE_AVAILABLE_STATUS;
+	}
+	if (readiness.nextAction === "run_setup") {
+		return resolveLocalAgentAttentionStatus({
+			executionTarget: input.executionTarget ?? null,
+			readiness,
+		});
+	}
+	if (input.isReconcilingStatus) {
+		return CHECKING_STATUS;
 	}
 	if (
 		readiness.nextAction === "none" &&

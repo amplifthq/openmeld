@@ -1,4 +1,7 @@
-import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import type {
+	AgentProfileReplyRecoveryPlan,
+	ProfileDetailsSpaceMemberInput,
+} from "@openmeld/agent-profile";
 import type {
 	ModelCatalog,
 	SpaceInboxUnreadTarget,
@@ -43,24 +46,10 @@ import {
 	useState,
 } from "react";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
-import {
-	PromptInput,
-	PromptInputAction,
-	PromptInputActions,
-} from "#/components/ibelick/prompt-input";
-import {
-	SpaceComposerFileMenu,
-	SpaceComposerFileTray,
-	useSpaceComposerFileInput,
-} from "#/components/spaces/space-composer-attachments";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import { buildCenterAgentOptimisticReplyItem } from "#/lib/spaces/center-agent-optimistic-reply";
-import {
-	isSpaceComposerFileFailed,
-	isSpaceComposerFileInProgress,
-	type SpaceComposerFile,
-} from "#/lib/spaces/composer-attachment";
+import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
@@ -115,10 +104,7 @@ import {
 	resolveSpaceAgentInteractionPlacement,
 	type SpaceAgentInteractionPlacement,
 } from "./space-agent-interaction-placement";
-import {
-	type SpaceAgentProfileBindingRecoveryPlan,
-	SpaceAgentRecoveryActionControl,
-} from "./space-agent-recovery-action";
+import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import {
 	buildSpaceCollaborationProfilePresentations,
@@ -127,16 +113,18 @@ import {
 	type SpaceCollaborationProfilePresentation,
 } from "./space-collaboration-profile";
 import {
-	resolveSpaceComposerAccessibleName,
-	resolveSpaceComposerPlaceholder,
-	resolveSpaceComposerWakeTextHint,
-	type SpaceAgentDirectConversationComposerHintKind,
-	type SpaceComposerPlaceholderContext,
-} from "./space-composer-copy";
+	resolveSpaceComposerSendBlocked,
+	SpaceComposer,
+} from "./space-composer";
+import { SpaceComposerBlockedWakeRecoveryAction } from "./space-composer-blocked-wake-recovery-action";
 import {
-	SpaceComposerEditor,
-	type SpaceComposerEditorChange,
-	type SpaceComposerInputRef,
+	resolveSpaceComposerConversationKind,
+	type SpaceAgentDirectConversationComposerHintKind,
+	type SpaceComposerConversationKind,
+} from "./space-composer-copy";
+import type {
+	SpaceComposerEditorChange,
+	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import { resolveLocalDateKey } from "./space-conversation-date";
@@ -198,12 +186,13 @@ import {
 	type SpaceWakeStopRequestHandler,
 	shouldRenderSpaceWakeStopControl,
 } from "./space-wake-stop-control";
+import { useSpaceConversationPosition } from "./use-space-conversation-position";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
-import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
+import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 
 type SpaceConversationPanelResolvedProps = {
 	activeSpaceView: SpaceView;
@@ -450,17 +439,12 @@ function resolveConversationComposerContext(input: {
 	agentDirectConversationKind?: SpaceAgentDirectConversationComposerHintKind | null;
 	isCenterAgentDirectMessage: boolean;
 	isDirectMessage: boolean;
-}): SpaceComposerPlaceholderContext {
-	if (input.isCenterAgentDirectMessage) {
-		return "center_agent_direct_message";
-	}
-	if (input.agentDirectConversationKind) {
-		return "agent_direct_message";
-	}
-	if (input.isDirectMessage) {
-		return "human_direct_message";
-	}
-	return "space";
+}): SpaceComposerConversationKind {
+	return resolveSpaceComposerConversationKind({
+		isAgentDirectMessage: Boolean(input.agentDirectConversationKind),
+		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+		isDirectMessage: input.isDirectMessage,
+	});
 }
 
 export function SpaceConversationPanel(
@@ -471,9 +455,9 @@ export function SpaceConversationPanel(
 	const presentation = useSpaceConversationPresentationController(input);
 	const {
 		canSendMessage,
-		composerAccessibleName,
-		composerPlaceholder,
+		composerContext,
 		composerSendBlocked,
+		composerTargetName,
 		conversationTopOverlayElement,
 		dismissedUnreadTargetKeys,
 		entries,
@@ -488,7 +472,6 @@ export function SpaceConversationPanel(
 		onReportMessage,
 		onViewMessageInGraph,
 		profilePresentationsById,
-		sendButtonLabel,
 		setConversationTopOverlayElement,
 		setDismissedUnreadTargetKeys,
 		setMessageDetailsItem,
@@ -500,7 +483,6 @@ export function SpaceConversationPanel(
 		spaceGraphLayout,
 		threadsByRootSignalId,
 		wakeStopTargetLabelsByProfileId,
-		wakeTextHint,
 	} = presentation;
 	const navigation = useSpaceConversationNavigationController({
 		activeSpaceView: input.activeSpaceView,
@@ -519,16 +501,21 @@ export function SpaceConversationPanel(
 		onSpaceViewChange: input.onSpaceViewChange,
 		onViewingLatestChange: input.onViewingLatestChange,
 		presentedWakeProgressItems: input.presentedWakeProgressItems,
+		selfProfileId: input.selfProfileId,
 		spaceId: input.spaceId,
+		spaceViewIdPrefix: input.spaceViewIdPrefix,
 		threadsByRootSignalId,
 		threadsErrorMessage: input.threadsErrorMessage,
 		threadsIsLoading: input.threadsIsLoading === true,
 		unreadTargets: input.unreadTargets ?? [],
 	});
 	const {
+		conversationAutoScroll,
 		conversationScrollElement,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
+		onConversationScroll,
+		onConversationScrollEnd,
 		onJumpToMessage,
 		registerConversationScrollElement,
 		requestUnreadMeasurement,
@@ -598,8 +585,11 @@ export function SpaceConversationPanel(
 				idPrefix={input.spaceViewIdPrefix}
 				messages={
 					<MessageScrollerProvider
-						autoScroll={true}
+						autoScroll={conversationAutoScroll}
 						defaultScrollPosition="end"
+						key={buildSpaceConversationScrollRestorationId(
+							input.spaceId ?? input.spaceViewIdPrefix
+						)}
 					>
 						<SpaceConversationSendScrollController
 							isSendingMessage={input.isSendingMessage}
@@ -637,10 +627,11 @@ export function SpaceConversationPanel(
 								aria-live="polite"
 								className="h-full py-4"
 								data-scroll-restoration-id={buildSpaceConversationScrollRestorationId(
-									input.spaceId
+									input.spaceId ?? input.spaceViewIdPrefix
 								)}
 								onScroll={(event) => {
 									const conversationScrollElement = event.currentTarget;
+									onConversationScroll(conversationScrollElement);
 									requestUnreadMeasurement();
 									if (conversationScrollElement.scrollTop > 48) {
 										return;
@@ -652,6 +643,9 @@ export function SpaceConversationPanel(
 											error
 										);
 									});
+								}}
+								onScrollEnd={(event) => {
+									onConversationScrollEnd(event.currentTarget);
 								}}
 								ref={registerConversationScrollElement}
 								role="log"
@@ -694,18 +688,17 @@ export function SpaceConversationPanel(
 					{input.pendingActionSurface}
 					<SpaceComposerSection
 						canSendMessage={canSendMessage}
-						composerAccessibleName={composerAccessibleName}
-						composerPlaceholder={composerPlaceholder}
+						composerContext={composerContext}
 						composerSendBlocked={composerSendBlocked}
+						composerTargetName={composerTargetName}
 						input={input}
-						sendButtonLabel={sendButtonLabel}
 						submitComposer={submitComposer}
-						wakeTextHint={wakeTextHint}
 					/>
 				</>
 			) : null}
 			{messageDetailsItem && input.spaceId ? (
 				<SpaceMessageDetailsDrawer
+					agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 					canJumpToMessage={(signalId) =>
 						loadedMainTimelineSignalIds.has(signalId)
 					}
@@ -852,15 +845,10 @@ function useSpaceConversationPresentationController(
 	const isReadOnly = input.readOnly === true;
 	const canSendMessage =
 		!isReadOnly && input.allowedActions.includes("post_message");
-	const composerFileUploadInProgress = input.composerFiles.some(
-		isSpaceComposerFileInProgress
-	);
-	const composerHasReadyFile = input.composerFiles.some(
-		(file) => file.status === "ready"
-	);
-	const composerSendBlocked =
-		composerFileUploadInProgress ||
-		(!composerHasReadyFile && input.composerText.trim().length === 0);
+	const composerSendBlocked = resolveSpaceComposerSendBlocked({
+		files: input.composerFiles,
+		text: input.composerText,
+	});
 	const showComposer = shouldRenderSpaceComposer({
 		activeView: input.activeSpaceView,
 		isReadOnly,
@@ -1024,24 +1012,6 @@ function useSpaceConversationPresentationController(
 	);
 	const composerContext = resolveConversationComposerContext(input);
 	const composerTargetName = resolveDirectMessageTargetName(input);
-	const composerAccessibleName = resolveSpaceComposerAccessibleName({
-		context: composerContext,
-		targetName: composerTargetName,
-	});
-	const composerPlaceholder = resolveSpaceComposerPlaceholder({
-		canSendMessage,
-		context: composerContext,
-		readOnlyPlaceholder: isReadOnly
-			? input.readOnlyComposerPlaceholder
-			: undefined,
-		targetName: composerTargetName,
-	});
-	const sendButtonLabel = resolveSendButtonLabel(input.isSendingMessage);
-	const wakeTextHint = input.agentDirectConversationKind
-		? null
-		: resolveSpaceComposerWakeTextHint(input.composerText, {
-				hasAuthoredMentions: input.composerHasAuthoredMentions,
-			});
 	const showEarlierHistoryLoadingIndicator =
 		mainTimelineItems.length > 0 && input.isLoadingEarlierHistory;
 	const loadedMainTimelineSignalIds = useMemo(
@@ -1119,9 +1089,9 @@ function useSpaceConversationPresentationController(
 	return {
 		anchoredOutcomeNoticesBySourceSignalId,
 		canSendMessage,
-		composerAccessibleName,
-		composerPlaceholder,
+		composerContext,
 		composerSendBlocked,
+		composerTargetName,
 		conversationTopOverlayElement,
 		dismissedUnreadTargetKeys,
 		entries,
@@ -1142,7 +1112,6 @@ function useSpaceConversationPresentationController(
 		onWakeStopRequest,
 		profileEntriesById,
 		profilePresentationsById,
-		sendButtonLabel,
 		setConversationTopOverlayElement,
 		setDismissedUnreadTargetKeys,
 		setMessageDetailsItem,
@@ -1160,7 +1129,6 @@ function useSpaceConversationPresentationController(
 		wakeOutcomeIndex,
 		wakeProblemSourceSignalIds,
 		wakeStopTargetLabelsByProfileId,
-		wakeTextHint,
 	};
 }
 
@@ -1181,17 +1149,32 @@ function useSpaceConversationNavigationController(input: {
 	onSpaceViewChange: (view: SpaceView) => void;
 	onViewingLatestChange?: (isViewingLatest: boolean) => void;
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+	selfProfileId: string;
 	spaceId?: string;
+	spaceViewIdPrefix: string;
 	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
 	threadsErrorMessage?: string | null;
 	threadsIsLoading: boolean;
 	unreadTargets: readonly SpaceInboxUnreadTarget[];
 }) {
+	const scrollRestorationId = buildSpaceConversationScrollRestorationId(
+		input.spaceId ?? input.spaceViewIdPrefix
+	);
 	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
 	const unreadMeasurementRequestRef = useRef<() => void>(() => undefined);
 	const [conversationScrollElement, setConversationScrollElement] =
 		useState<HTMLDivElement | null>(null);
 	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
+	const conversationPosition = useSpaceConversationPosition({
+		historyIsPending: input.historyIsPending,
+		messageElementsRef: messageElementsBySignalIdRef,
+		restorationId: scrollRestorationId,
+		selfProfileId: input.selfProfileId,
+		viewport: conversationScrollElement,
+	});
+	const conversationAutoScroll = conversationPosition.autoScroll;
+	const onConversationScroll = conversationPosition.onScroll;
+	const onConversationScrollEnd = conversationPosition.onScrollEnd;
 	const highlightMessageTimerRef = useRef<number | null>(null);
 	const appliedInitialFocusRef = useRef<string | null>(null);
 	const appliedInitialThreadFocusRef = useRef<string | null>(null);
@@ -1475,10 +1458,13 @@ function useSpaceConversationNavigationController(input: {
 	);
 
 	return {
+		conversationAutoScroll,
 		conversationScrollElement,
 		highlightedSignalId,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
+		onConversationScroll,
+		onConversationScrollEnd,
 		onJumpToMessage,
 		registerConversationScrollElement,
 		registerMessageElement,
@@ -1917,40 +1903,13 @@ function SpaceConversationTopOverlay(input: {
 
 function SpaceComposerSection(input: {
 	canSendMessage: boolean;
-	composerAccessibleName: string;
+	composerContext: SpaceComposerConversationKind;
 	composerSendBlocked: boolean;
-	composerPlaceholder: string;
+	composerTargetName: string | null;
 	input: SpaceConversationPanelResolvedProps;
-	sendButtonLabel: string;
 	submitComposer: () => void;
-	wakeTextHint: string | null;
 }) {
 	const panel = input.input;
-	const fileUploadInProgress = panel.composerFiles.some(
-		isSpaceComposerFileInProgress
-	);
-	const composerActionsDisabled =
-		panel.isSendingMessage || !input.canSendMessage;
-	const {
-		addFiles,
-		handleDragLeave,
-		handleDragOver,
-		handleDrop,
-		handlePaste,
-		isDraggingFiles,
-	} = useSpaceComposerFileInput({
-		disabled: composerActionsDisabled,
-		onAddFiles: panel.onAddComposerFiles,
-	});
-	const fileHint = resolveSpaceComposerFileHint({
-		files: panel.composerFiles,
-		fileLimitReached: panel.composerFileLimitReached,
-		fileUploadInProgress,
-	});
-	const composerHint = fileHint ?? input.wakeTextHint;
-	const composerHintClassName = input.wakeTextHint
-		? "text-foreground"
-		: "text-muted-foreground";
 
 	return (
 		<div className="shrink-0 bg-background" data-slot="space-composer-section">
@@ -1958,68 +1917,57 @@ function SpaceComposerSection(input: {
 				className="flex w-full flex-col gap-3 py-4"
 				data-space-conversation-content-width=""
 			>
-				<div className="relative">
-					<ComposerFileDropOverlay visible={isDraggingFiles} />
-					<ComposerReplyBanner
-						onClear={panel.onClearComposerReplyTo}
-						signalId={panel.composerReplyToSignalId}
-						timelineItems={panel.timelineItems}
-					/>
-					<PromptInput
-						className="w-full"
-						maxHeight={240}
-						onSubmit={input.submitComposer}
-						value={panel.composerText}
-					>
-						<SpaceComposerFileTray
-							disabled={panel.isSendingMessage}
-							files={panel.composerFiles}
-							onRemove={panel.onRemoveComposerFile}
-						/>
-						<SpaceComposerEditor
-							addressingTargets={panel.composerAddressingTargets ?? []}
-							ariaLabel={input.composerAccessibleName}
-							authoredMentions={panel.composerAuthoredMentions ?? []}
-							centerAgentProfileId={panel.centerAgentProfileId}
-							composerRef={panel.textareaRef}
-							mentionPickerItems={panel.composerMentionPickerItems ?? []}
-							onChange={(change) => {
-								panel.onComposerEditorChange(change);
-							}}
-							onDragEnter={handleDragOver}
-							onDragLeave={handleDragLeave}
-							onDragOver={handleDragOver}
-							onDrop={handleDrop}
-							onPaste={handlePaste}
-							onSend={input.submitComposer}
-							placeholder={input.composerPlaceholder}
-							text={panel.composerText}
-						/>
-						<SpaceComposerToolbar
-							addFiles={addFiles}
-							canSendMessage={input.canSendMessage}
-							composerActionsDisabled={composerActionsDisabled}
-							composerHint={composerHint}
-							composerHintClassName={composerHintClassName}
-							composerSendBlocked={input.composerSendBlocked}
-							panel={panel}
-							sendButtonLabel={input.sendButtonLabel}
-							submitComposer={input.submitComposer}
-						/>
-					</PromptInput>
-				</div>
-				<ComposerError panel={panel} />
+				<SpaceComposer
+					actions={{
+						onAddFiles: panel.onAddComposerFiles,
+						onEditorChange: panel.onComposerEditorChange,
+						onMentionButtonClick: panel.onMentionButtonClick,
+						onRemoveFile: panel.onRemoveComposerFile,
+						onSubmit: input.submitComposer,
+					}}
+					availability={{
+						canSendMessage: input.canSendMessage,
+						fileLimitReached: panel.composerFileLimitReached,
+						isSendingMessage: panel.isSendingMessage,
+						sendBlocked: input.composerSendBlocked,
+					}}
+					centerAgentProfileId={panel.centerAgentProfileId}
+					composerRef={panel.textareaRef}
+					content={{
+						addressingTargets: panel.composerAddressingTargets ?? [],
+						authoredMentions: panel.composerAuthoredMentions ?? [],
+						files: panel.composerFiles,
+						hasAuthoredMentions: panel.composerHasAuthoredMentions,
+						mentionPickerItems: panel.composerMentionPickerItems ?? [],
+						text: panel.composerText,
+					}}
+					context={{
+						conversationKind: input.composerContext,
+						placement: "conversation",
+						readOnlyPlaceholder: panel.readOnly
+							? panel.readOnlyComposerPlaceholder
+							: undefined,
+						targetName: input.composerTargetName,
+					}}
+					presentation={{ errorClassName: "mt-3" }}
+					slots={{
+						beforeInput: (
+							<ComposerReplyBanner
+								onClear={panel.onClearComposerReplyTo}
+								signalId={panel.composerReplyToSignalId}
+								timelineItems={panel.timelineItems}
+							/>
+						),
+						error: panel.composerErrorMessage ? (
+							<ComposerError panel={panel} />
+						) : null,
+						primaryAction: panel.composerPrimaryAction,
+						profileControl: panel.profileControl,
+					}}
+				/>
 			</div>
 		</div>
 	);
-}
-
-function ComposerFileDropOverlay(input: { visible: boolean }) {
-	return input.visible ? (
-		<div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border border-foreground/30 bg-background/90 text-foreground text-sm shadow-sm backdrop-blur-sm">
-			Drop files to add them
-		</div>
-	) : null;
 }
 
 function ComposerReplyBanner(input: {
@@ -2058,84 +2006,6 @@ function ComposerReplyBanner(input: {
 	);
 }
 
-function SpaceComposerToolbar(input: {
-	addFiles: (files: readonly File[]) => void;
-	canSendMessage: boolean;
-	composerActionsDisabled: boolean;
-	composerHint: string | null;
-	composerHintClassName: string;
-	composerSendBlocked: boolean;
-	panel: SpaceConversationPanelResolvedProps;
-	sendButtonLabel: string;
-	submitComposer: () => void;
-}) {
-	const panel = input.panel;
-	const mentionButton =
-		panel.isCenterAgentDirectMessage ||
-		panel.agentDirectConversationKind ? null : (
-			<Button
-				aria-label="Mention a member"
-				className="size-8 text-base"
-				disabled={input.composerActionsDisabled}
-				onClick={panel.onMentionButtonClick}
-				size="icon-sm"
-				type="button"
-				variant="ghost"
-			>
-				<span aria-hidden="true">@</span>
-			</Button>
-		);
-	const composerHint = input.composerHint ? (
-		<p
-			aria-live="polite"
-			className={cn(
-				"min-w-0 flex-1 text-xs leading-5 max-sm:line-clamp-2 max-sm:whitespace-normal sm:truncate",
-				input.composerHintClassName
-			)}
-		>
-			{input.composerHint}
-		</p>
-	) : null;
-	const primaryAction = panel.composerPrimaryAction ?? (
-		<PromptInputAction
-			className="hidden sm:inline-flex"
-			tooltip={panel.isSendingMessage ? "Sending…" : "Send message"}
-		>
-			<Button
-				aria-label={input.sendButtonLabel}
-				disabled={
-					panel.isSendingMessage ||
-					!input.canSendMessage ||
-					input.composerSendBlocked
-				}
-				onClick={input.submitComposer}
-				size="icon-sm"
-				type="button"
-			>
-				<ArrowUpIcon aria-hidden="true" weight="bold" />
-			</Button>
-		</PromptInputAction>
-	);
-
-	return (
-		<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
-			<div className="flex min-w-0 flex-1 items-center gap-0">
-				<SpaceComposerFileMenu
-					addFiles={input.addFiles}
-					disabled={input.composerActionsDisabled}
-					limitReached={panel.composerFileLimitReached}
-				/>
-				{mentionButton}
-				{composerHint}
-			</div>
-			<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
-				{panel.profileControl}
-				{primaryAction}
-			</div>
-		</PromptInputActions>
-	);
-}
-
 function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 	const panel = input.panel;
 	if (!panel.composerErrorMessage) {
@@ -2144,40 +2014,16 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 	return (
 		<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
 			<p>{panel.composerErrorMessage}</p>
-			{renderComposerBlockedWakeRecoveryAction({
-				agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
-				blockedWakeProfileId: panel.composerBlockedWakeProfileId,
-				isAgentRecoveryPending: panel.isAgentRecoveryPending,
-				onAgentRecoveryAction: panel.onAgentRecoveryAction,
-				orgSlug: panel.orgSlug,
-				prepareSetupHref: panel.prepareSetupHref,
-			})}
+			<SpaceComposerBlockedWakeRecoveryAction
+				agentRecoveryPlansByProfileId={panel.agentRecoveryPlansByProfileId}
+				blockedWakeProfileId={panel.composerBlockedWakeProfileId}
+				isAgentRecoveryPending={panel.isAgentRecoveryPending}
+				onAgentRecoveryAction={panel.onAgentRecoveryAction}
+				orgSlug={panel.orgSlug}
+				prepareSetupHref={panel.prepareSetupHref}
+			/>
 		</div>
 	);
-}
-
-function resolveSpaceComposerFileHint(input: {
-	files: readonly SpaceComposerFile[];
-	fileLimitReached: boolean;
-	fileUploadInProgress: boolean;
-}): string | null {
-	if (input.fileUploadInProgress) {
-		return "Uploading files before sending…";
-	}
-	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
-	if (failedCount > 0) {
-		return `${String(failedCount)} ${failedCount === 1 ? "file" : "files"} couldn't be uploaded and won't be sent.`;
-	}
-	if (input.fileLimitReached) {
-		return "You can add up to 10 files.";
-	}
-	const readyCount = input.files.filter(
-		(file) => file.status === "ready"
-	).length;
-	if (readyCount > 0) {
-		return `${String(readyCount)} ${readyCount === 1 ? "file" : "files"} ready to send`;
-	}
-	return null;
 }
 
 function renderConversationBody(input: {
@@ -2680,11 +2526,12 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 		resolveSpaceMessageContentLayoutClassName({ isSelf: input.run.isSelf });
 	const messageContentPaddingClassName =
 		resolveSpaceMessageContentPaddingClassName({ isSelf: input.run.isSelf });
-	const detailsDialog = useSpaceProfileDetailsDialog({
+	const detailsDialog = useSpaceProfileDetailsPopover({
 		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
 		entriesByProfileId: input.profileEntriesById,
+		fallbackEntry: buildConversationSpeakerProfileDetailsEntry(input.run),
 		modelCatalog: input.modelCatalog,
 		orgSlug: input.orgSlug,
 	});
@@ -2820,23 +2667,18 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 								)}
 							>
 								{index === 0 ? (
-									<>
-										<MessageHeader className="px-0">
-											<ConversationSpeakerHeader
-												centerAgentProfileId={input.centerAgentProfileId}
-												detailsDialog={detailsDialog}
-												isCenterAgentDirectMessage={
-													input.isCenterAgentDirectMessage
-												}
-												run={input.run}
-												selfAvatarImageUrl={input.selfAvatarImageUrl}
-												selfProfileId={input.selfProfileId}
-											/>
-										</MessageHeader>
-										{detailsDialog.profileDetailsPopoverTrigger
-											? null
-											: detailsDialog.profileDetailsDialog}
-									</>
+									<MessageHeader className="px-0">
+										<ConversationSpeakerHeader
+											centerAgentProfileId={input.centerAgentProfileId}
+											detailsDialog={detailsDialog}
+											isCenterAgentDirectMessage={
+												input.isCenterAgentDirectMessage
+											}
+											run={input.run}
+											selfAvatarImageUrl={input.selfAvatarImageUrl}
+											selfProfileId={input.selfProfileId}
+										/>
+									</MessageHeader>
 								) : null}
 								<BubbleGroup className="w-full gap-0">
 									<div
@@ -2900,6 +2742,33 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 	);
 });
 
+function buildConversationSpeakerProfileDetailsEntry(
+	run: SpaceConversationBubbleRun
+): ProfileDetailsSpaceMemberInput | null {
+	if (run.speaker.profileKind === "system") {
+		return null;
+	}
+	return {
+		addedByDisplayName: null,
+		addedByProfileId: null,
+		agentControllerConversationId: null,
+		agentControllerRef: run.speaker.agentControllerRef,
+		availabilityPhase: null,
+		availabilityReasonCode: null,
+		availabilitySummary: null,
+		availabilityTooltip: null,
+		lastSeenLabel: null,
+		mentionLabel: null,
+		ownerDisplay: run.speaker.ownerDisplay,
+		ownerUserId: null,
+		profileId: run.speaker.profileId,
+		profileKind: run.speaker.profileKind,
+		profileName: run.speaker.profileName,
+		runtimeDeviceDisplayName: run.speaker.runtimeDeviceDisplayName,
+		workingDirectory: null,
+	};
+}
+
 function ConversationBubbleContent(input: {
 	agentInteractionItems: ReturnType<
 		typeof resolveSpaceMessageAgentInteractionItems
@@ -2909,7 +2778,7 @@ function ConversationBubbleContent(input: {
 	bubblePresentationClass?: string;
 	canUseMessageActions: boolean;
 	computerSetupContext?: CenterAgentComputerSetupContext;
-	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsPopover>;
 	isHighlighted: boolean;
 	item: SpaceTimelineItem;
 	messageAlign: "start" | "end";
@@ -2947,7 +2816,6 @@ function ConversationBubbleContent(input: {
 				computerSetupSourceSignalId={input.item.id}
 				containerClassName={input.selfMessageContentLayoutClassName}
 				item={input.item}
-				onOpenAgentProfile={input.detailsDialog.openProfileDetailsById}
 				onOpenSpaceFile={parent.onOpenSpaceFile}
 				openMeldProfileId={parent.selfProfileId}
 				orgSlug={parent.orgSlug}
@@ -3017,7 +2885,7 @@ function ConversationBubbleContent(input: {
 
 function ConversationSpeakerHeader(input: {
 	centerAgentProfileId: string | null;
-	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsPopover>;
 	isCenterAgentDirectMessage: boolean;
 	run: SpaceConversationBubbleRun;
 	selfAvatarImageUrl: string | null;
@@ -3077,11 +2945,6 @@ function ConversationSpeakerHeader(input: {
 				APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
 				"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 			)}
-			onClick={
-				input.detailsDialog.profileDetailsPopoverTrigger
-					? undefined
-					: input.detailsDialog.openProfileDetails
-			}
 			type="button"
 		>
 			{content}
@@ -3142,7 +3005,7 @@ function resolveSpaceMessageBubbleVisibilityClassName(input: {
 }): string | undefined {
 	return input.showProgressInAnswerArea ||
 		input.item.text.trim().length > 0 ||
-		Boolean(input.item.agentStreamState?.thinking) ||
+		input.item.agentStreamState?.thinking ||
 		input.item.attachments.length > 0 ||
 		(input.item.files?.length ?? 0) > 0
 		? undefined
@@ -3169,7 +3032,7 @@ function resolveSpaceMessageWakeThinkingEntries(input: {
 	wakeProgressState: ReturnType<typeof resolveSpaceMessageWakeProgressState>;
 	wakeStopTargets: ReturnType<typeof resolveSpaceMessageWakeStopTargets>;
 }) {
-	if (input.item.optimisticAgentReplyState !== undefined) {
+	if (input.item.optimisticAgentReplyProgress !== undefined) {
 		return [];
 	}
 	if (input.wakeProgressState.thinkingEntries.length > 0) {
@@ -3232,7 +3095,7 @@ function resolveIsCenterAgentConversationRun(input: {
 	return (
 		input.isCenterAgentDirectMessage ||
 		input.run.items.some(
-			(item) => item.optimisticAgentReplyState !== undefined
+			(item) => item.optimisticAgentReplyProgress !== undefined
 		) ||
 		input.run.speaker.profileId === input.centerAgentProfileId
 	);
@@ -3705,7 +3568,6 @@ function SystemEventRow(input: {
 				tabIndex={-1}
 			>
 				<SpaceOutcomeRow
-					className="max-w-[min(92vw,44rem)]"
 					onOpenDetails={
 						input.readOnly ? null : () => input.onOpenMessageDetails(input.item)
 					}
@@ -3876,45 +3738,6 @@ function renderAnchoredSpaceOutcomeRows(input: {
 	);
 }
 
-function renderComposerBlockedWakeRecoveryAction(input: {
-	agentRecoveryPlansByProfileId: ReadonlyMap<
-		string,
-		AgentProfileReplyRecoveryPlan
-	>;
-	blockedWakeProfileId: string | null;
-	isAgentRecoveryPending: (profileId: string) => boolean;
-	onAgentRecoveryAction: (
-		plan: SpaceAgentProfileBindingRecoveryPlan
-	) => Promise<void>;
-	orgSlug?: string;
-	prepareSetupHref?: string;
-}) {
-	if (!input.blockedWakeProfileId) {
-		return null;
-	}
-
-	if (!input.orgSlug) {
-		return null;
-	}
-
-	const plan =
-		input.agentRecoveryPlansByProfileId.get(input.blockedWakeProfileId) ?? null;
-	if (!plan || plan.kind === "none") {
-		return null;
-	}
-
-	return (
-		<SpaceAgentRecoveryActionControl
-			className="mt-0 border-destructive/50 text-destructive hover:text-destructive"
-			isPending={input.isAgentRecoveryPending(plan.profileId)}
-			onAction={input.onAgentRecoveryAction}
-			orgSlug={input.orgSlug}
-			plan={plan}
-			prepareSetupHref={input.prepareSetupHref}
-		/>
-	);
-}
-
 function resolveDirectMessageTargetName(
 	input: Pick<
 		SpaceConversationPanelResolvedProps,
@@ -3943,14 +3766,6 @@ function resolveDirectMessageTargetName(
 				member.status === "active" && member.profileId !== input.selfProfileId
 		)?.profileName ?? null
 	);
-}
-
-function resolveSendButtonLabel(isSendingMessage: boolean): string {
-	if (isSendingMessage) {
-		return "Sending…";
-	}
-
-	return "Send message";
 }
 
 const TIMELINE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {

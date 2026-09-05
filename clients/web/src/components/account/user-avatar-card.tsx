@@ -356,7 +356,7 @@ function AccountAvatarEditor(input: {
 			) : null}
 			<IdentityImageCropDialog
 				crop={crop}
-				description="Position the image inside the circle. OpenMeld uses this photo wherever your Human Profile appears."
+				description="Position the image inside the circle. OpenMeld uses this photo wherever your profile appears."
 				draft={draft}
 				errorMessage={
 					saveError ??

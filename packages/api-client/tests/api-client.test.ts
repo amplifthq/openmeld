@@ -92,6 +92,7 @@ describe("@openmeld/api-client", () => {
     expect(
       buildAccountSpaceIndexPath({
         gatewayHost: "openmeld.invalid",
+        includeDirectMessageProfileIds: true,
         includePurposes: true,
         includeRecentlyDeletedItems: true,
         limit: 20,
@@ -99,7 +100,7 @@ describe("@openmeld/api-client", () => {
         selectedProfileId: "profile-123",
       })
     ).toBe(
-      "/v1/account/spaces?gatewayHost=openmeld.invalid&scope=account&selectedProfileId=profile-123&limit=20&includeRecentlyDeletedItems=true&includePurposes=true"
+      "/v1/account/spaces?gatewayHost=openmeld.invalid&scope=account&selectedProfileId=profile-123&limit=20&includeRecentlyDeletedItems=true&includeDirectMessageProfileIds=true&includePurposes=true"
     );
   });
 

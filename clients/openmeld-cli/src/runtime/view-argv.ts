@@ -12,6 +12,8 @@ const PASSIVE_CLI_QUERY_COMMANDS = new Set([
   "service snapshot",
   "service status",
   "service trace",
+  "space link",
+  "spaces link",
   "whoami",
 ]);
 const COMMAND_ROUTE_OPTIONS_WITH_VALUES = new Set([

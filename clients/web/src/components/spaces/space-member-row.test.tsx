@@ -201,25 +201,23 @@ describe("SpaceMemberRow", () => {
 		fireEvent.click(profileSummaryButton);
 
 		const dialog = screen.getByRole("dialog");
-		expect(dialog.className).toContain("max-h-[min(46rem,calc(100dvh-2rem))]");
-		expect(dialog.className).toContain("overflow-hidden");
+		expect(dialog.className).toContain("w-[min(22rem,calc(100vw-1.5rem))]");
 		expect(
-			screen.getByTestId("profile-details-dialog-scroll-area").className
+			screen.getByTestId("profile-details-popover-scroll-area").className
 		).toContain("overflow-y-auto");
-		expect(screen.getByText("Check this Agent")).toBeTruthy();
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("thread-codex-1")).toBeNull();
-		expect(screen.getByText("How this Agent works")).toBeTruthy();
 		const detailsLink = screen.getByRole("link", {
-			name: "Check more or edit",
+			name: "Edit Codex",
 		});
-		expect(detailsLink).toBeTruthy();
-		expect(detailsLink.parentElement?.className).toContain("items-start");
+		expect(detailsLink.getAttribute("href")).toBe(
+			"/o/acme/agents?profileId=agt-1"
+		);
 		expect(
 			screen.queryByRole("button", { name: "More options for Codex" })
 		).toBeNull();
-		expect(screen.getByText("Workspace directory")).toBeTruthy();
-		expect(screen.getByText("/Users/felix/project")).toBeTruthy();
+		expect(screen.queryByText("Workspace directory")).toBeNull();
+		expect(screen.queryByText("/Users/felix/project")).toBeNull();
 		expect(
 			screen.getAllByText("Codex · gpt-5.3-codex-spark · high").length
 		).toBeGreaterThan(0);
@@ -287,7 +285,7 @@ describe("SpaceMemberRow", () => {
 		);
 	});
 
-	it("keeps Agent Profile editing inside the shared profile surface", () => {
+	it("opens the canonical Agent editor from the profile popover", () => {
 		renderSpaceMemberRow({
 			entry: buildAgentEntry({
 				ownerUserId: "user-1",
@@ -298,13 +296,14 @@ describe("SpaceMemberRow", () => {
 		});
 
 		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Member options for Research Agent",
-			})
+			screen.getByRole("button", { name: "Check Research Agent Profile" })
 		);
-		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
-		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
-		expect(screen.getByRole("dialog")).toBeTruthy();
+		expect(screen.queryByRole("menu")).toBeNull();
+		expect(
+			screen
+				.getByRole("link", { name: "Edit Research Agent" })
+				.getAttribute("href")
+		).toBe("/o/acme/agents?profileId=agt-owned");
 	});
 
 	it("keeps profile details available without offering a separate edit action", () => {
@@ -317,26 +316,16 @@ describe("SpaceMemberRow", () => {
 		});
 
 		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Member options for Mira's Agent",
-			})
+			screen.getByRole("button", { name: "Check Mira's Agent Profile" })
 		);
-
-		expect(
-			screen.getByRole("menu", {
-				name: "Member options for Mira's Agent",
-			}).className
-		).toContain("rounded-md");
-		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
-		const aboutItem = screen.getByRole("menuitem", {
-			name: "Check this Agent",
-		});
-		expect(aboutItem.className).toContain("rounded-md");
-		fireEvent.click(aboutItem);
 		expect(screen.getByRole("dialog")).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Edit Mira's Agent" })
+		).toBeNull();
+		expect(screen.queryByRole("menu")).toBeNull();
 	});
 
-	it("keeps Agent Profile diagnostics in Check this Agent instead of the member row", () => {
+	it("keeps compact Agent details in the profile popover instead of the member row", () => {
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildServiceConnectionPlan(),
 			entry: buildAgentEntry({
@@ -346,8 +335,8 @@ describe("SpaceMemberRow", () => {
 				availabilityPhase: "offline",
 				availabilityReasonCode: "local_service.not_connected_for_account",
 				availabilitySummary:
-					"Connect OpenMeld Service before this agent can reply.",
-				availabilityTooltip: "OpenMeld Service is not connected.",
+					"Connect your computer before this Agent can reply.",
+				availabilityTooltip: "Computer not connected",
 				lastSeenLabel: "Seen 16d ago",
 				presenceStatus: "offline",
 			}),
@@ -355,7 +344,7 @@ describe("SpaceMemberRow", () => {
 		});
 
 		expect(
-			screen.getByText("Connect OpenMeld Service before this agent can reply.")
+			screen.getByText("Connect your computer before this Agent can reply.")
 		).toBeTruthy();
 		expect(screen.queryByText("Codex · gpt-5.3-codex-spark · high")).toBeNull();
 		expect(
@@ -369,10 +358,9 @@ describe("SpaceMemberRow", () => {
 		);
 		const dialog = within(screen.getByRole("dialog"));
 		expect(dialog.getByText("Codex · gpt-5.3-codex-spark · high")).toBeTruthy();
-		expect(dialog.getByText("Felix")).toBeTruthy();
 		expect(dialog.queryByText("Last activity in this Space")).toBeNull();
 		expect(
-			dialog.getByText("Connect OpenMeld Service before this agent can reply.")
+			dialog.getByText("Connect your computer before this Agent can reply.")
 		).toBeTruthy();
 	});
 
@@ -397,11 +385,10 @@ describe("SpaceMemberRow", () => {
 		);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.getByText("Mira")).toBeTruthy();
 		const availableForWake = dialog.getByText("Available for Wake");
 		expect(availableForWake).toBeTruthy();
 		expect(availableForWake.className).toContain("text-emerald-");
-		expect(dialog.getByText("How this Agent works")).toBeTruthy();
+		expect(dialog.queryByText("How this Agent works")).toBeNull();
 		expect(dialog.queryByText("Connection")).toBeNull();
 		expect(dialog.queryByText("Controller conversation ID")).toBeNull();
 		expect(dialog.queryByText("thread-codex-1")).toBeNull();
@@ -673,6 +660,30 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 
+	it("treats the Center Agent as the canonical Home chat, not an editable Agent Profile", () => {
+		renderSpaceMemberRow({
+			centerAgentProfileId: "agt-1",
+			entry: buildAgentEntry({ profileName: "Amplift Center Agent" }),
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Check Amplift Center Agent Profile",
+			})
+		);
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(
+			dialog
+				.getByRole("link", { name: "Chat with Amplift Center Agent" })
+				.getAttribute("href")
+		).toBe("/o/acme");
+		expect(
+			dialog.queryByRole("link", { name: "Edit Amplift Center Agent" })
+		).toBeNull();
+		expect(dialog.queryByText("Check more or edit")).toBeNull();
+	});
+
 	it("uses the generic agent icon without a bound controller", () => {
 		renderSpaceMemberRow({
 			entry: buildAgentEntry({
@@ -690,6 +701,7 @@ describe("SpaceMemberRow", () => {
 
 	it("uses human initials before a human profile name", () => {
 		renderSpaceMemberRow({
+			density: "compact",
 			entry: buildHumanEntry(),
 		});
 
@@ -707,14 +719,16 @@ describe("SpaceMemberRow", () => {
 		expect(selfStatus.className).not.toContain("bg-");
 		const liveStatus = screen.getByTestId("space-member-presence-status");
 		expect(liveStatus.textContent).toBe("Live");
-		expect(liveStatus.getAttribute("title")).toBe("Live human");
+		expect(liveStatus.getAttribute("title")).toBe("Live person");
 		expect(liveStatus.className).toContain("before:content-['·']");
 		expect(liveStatus.className).toContain("text-emerald-");
 		expect(liveStatus.className).not.toContain("border");
 		expect(liveStatus.className).not.toContain("bg-");
+		expect(screen.queryByText("You are live in this space.")).toBeNull();
+		expect(screen.queryByText("You are in this space.")).toBeNull();
 	});
 
-	it("distinguishes Space activity from Organization activity for the same Human", () => {
+	it("keeps meaningful Space activity inline for a person", () => {
 		const organizationActivity = resolveDirectoryHumanProfileActivityLabel({
 			lastActiveAt: "2026-08-31T13:20:00.000Z",
 			nowMs: Date.parse("2026-08-31T14:00:00.000Z"),
@@ -723,6 +737,7 @@ describe("SpaceMemberRow", () => {
 
 		renderSpaceMemberRow({
 			currentProfileId: "human-current",
+			density: "compact",
 			entry: buildHumanEntry({
 				lastSeenLabel: "Seen 8h ago",
 				liveNow: false,
@@ -732,14 +747,77 @@ describe("SpaceMemberRow", () => {
 		});
 
 		expect(organizationActivity).toBe("40 minutes ago");
-		expect(screen.getByText("Active here 8h ago")).toBeTruthy();
-		const spaceActivity = screen.getByLabelText(
-			"Active here 8h ago. Last activity in this Space"
-		);
+		expect(screen.getByText("8h ago")).toBeTruthy();
+		const spaceActivity = screen.getByLabelText("8h ago");
 		expect(spaceActivity.getAttribute("title")).toBe(
 			"Last activity in this Space"
 		);
 		expect(screen.queryByText("Seen 8h ago")).toBeNull();
+	});
+
+	it("shows concise Space-specific recency in the Human profile popover", () => {
+		renderSpaceMemberRow({
+			entry: buildHumanEntry({
+				lastSeenLabel: "Seen 7 hours ago",
+				liveNow: false,
+				presenceLabel: "seen 7 hours ago",
+				presenceStatus: "offline",
+			}),
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Felix Profile" })
+		);
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.getByText("7h ago")).toBeTruthy();
+		expect(dialog.getByText("You")).toBeTruthy();
+		expect(dialog.queryByText("Active in this Space")).toBeNull();
+		expect(
+			dialog
+				.getByRole("link", { name: "View Felix profile" })
+				.getAttribute("href")
+		).toBe("/o/acme/people?profileId=human-1");
+	});
+
+	it("links another person to their People detail page", () => {
+		renderSpaceMemberRow({
+			currentProfileId: "human-current",
+			entry: buildHumanEntry({
+				lastSeenLabel: "Seen 7 hours ago",
+				liveNow: false,
+				ownerDisplay: "Monica Cheng",
+				ownerName: "Monica Cheng",
+				ownerUserId: "user-monica",
+				profileId: "human-monica",
+				profileName: "Monica Cheng",
+			}),
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Monica Cheng Profile" })
+		);
+		const dialog = within(screen.getByRole("dialog"));
+		expect(
+			dialog
+				.getByRole("link", { name: "View Monica Cheng profile" })
+				.getAttribute("href")
+		).toBe("/o/acme/people?profileId=human-monica");
+		expect(dialog.queryByText("You")).toBeNull();
+	});
+
+	it("does not fill a compact person row with a generic Human label", () => {
+		renderSpaceMemberRow({
+			currentProfileId: "human-current",
+			density: "compact",
+			entry: buildHumanEntry({
+				lastSeenLabel: null,
+				liveNow: false,
+				presenceLabel: null,
+				presenceStatus: null,
+			}),
+		});
+
+		expect(screen.queryByText("Human")).toBeNull();
 	});
 
 	it("does not label an agent profile as you", () => {
@@ -787,6 +865,23 @@ describe("SpaceMemberRow", () => {
 		expect(
 			screen.getByText("A Wake is waiting for the computer to reconnect.")
 		).toBeTruthy();
+	});
+
+	it("keeps active Wake waiting in the compact status indicator", () => {
+		renderSpaceMemberRow({
+			density: "compact",
+			agentRecoveryPlan: buildServiceConnectionPlan(),
+			memberTransientState: "active_wake_waiting_for_service",
+		});
+
+		const indicator = getAgentAvailabilityIndicator();
+		expect(indicator.getAttribute("aria-label")).toBe("Waiting");
+		expect(indicator.getAttribute("title")).toBe(
+			"Wake waiting for this computer to reconnect"
+		);
+		expect(
+			screen.queryByText("A Wake is waiting for the computer to reconnect.")
+		).toBeNull();
 	});
 
 	it("shows transient readiness checks instead of hard service disconnect guidance", () => {
@@ -958,7 +1053,7 @@ describe("SpaceMemberRow", () => {
 			screen
 				.getByTestId("space-agent-availability-indicator")
 				.getAttribute("title")
-		).toBe("Codex needs OpenMeld Service");
+		).toBe("Codex’s computer is disconnected");
 		expect(screen.queryByText("OpenMeld Service is not connected")).toBeNull();
 	});
 
@@ -1178,6 +1273,7 @@ function renderSpaceMemberRow(input: {
 	centerAgentProfileId?: string | null;
 	currentOwnerUserId?: string | null;
 	currentProfileId?: string;
+	density?: "compact" | "default";
 	entry?: SpaceMemberDirectoryEntry;
 	isAgentWakeAvailabilityCheckPending?: boolean;
 	memberTransientState?: SpaceWakeStatusTransientState | null;
@@ -1195,6 +1291,7 @@ function renderSpaceMemberRow(input: {
 			centerAgentProfileId={input.centerAgentProfileId ?? null}
 			currentOwnerUserId={input.currentOwnerUserId ?? "user-1"}
 			currentProfileId={input.currentProfileId ?? "human-1"}
+			density={input.density}
 			entry={input.entry ?? buildAgentEntry()}
 			isAgentRecoveryPending={false}
 			isAgentWakeAvailabilityCheckPending={
@@ -1359,15 +1456,15 @@ function buildConflictPlan(): AgentProfileReplyRecoveryPlan {
 
 function buildServiceConnectionPlan(): AgentProfileReplyRecoveryPlan {
 	return {
-		body: "Codex is connected, but OpenMeld Service is not running on this computer.",
+		body: "Codex’s computer is disconnected from OpenMeld. Reconnect the computer so it can receive local Wake work.",
 		kind: "review_computer",
 		primaryActionId: "reconnect_openmeld_service",
-		primaryActionLabel: "Reconnect OpenMeld Service",
+		primaryActionLabel: "Reconnect Computer",
 		profileId: "agt-1",
 		profileName: "Codex",
 		recoveryReasonCode: "local_service.not_connected_for_account",
-		secondaryLabel: "OpenMeld Service is not connected",
-		title: "Codex needs OpenMeld Service",
+		secondaryLabel: "Computer not connected",
+		title: "Codex’s computer is disconnected",
 	};
 }
 

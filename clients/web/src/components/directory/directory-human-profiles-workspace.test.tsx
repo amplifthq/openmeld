@@ -253,6 +253,36 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByRole("region", { name: "Not Connected" })).toBeNull();
 	});
 
+	it("keeps Computer connection neutral while teammate status is unresolved", () => {
+		const currentMember = buildMember({ current: true });
+		const checkingMember = {
+			...buildMember({ current: false }),
+			computer: {
+				count: 0,
+				label: "Checking computer…",
+				path: null,
+				state: "checking" as const,
+			},
+		};
+
+		renderWorkspace({ members: [currentMember, checkingMember] });
+
+		const connectionGroup = screen.getByRole("region", {
+			name: "Computer Connection",
+		});
+		expect(
+			within(connectionGroup).getByRole("button", {
+				name: "Open Felix's profile",
+			})
+		).toBeTruthy();
+		expect(
+			within(connectionGroup).getByRole("button", {
+				name: "Open Grace Hopper's profile",
+			})
+		).toBeTruthy();
+		expect(screen.queryByRole("region", { name: "Not Connected" })).toBeNull();
+	});
+
 	it("keeps the current member's Computer group first", () => {
 		const currentMember = {
 			...buildMember({ current: true }),

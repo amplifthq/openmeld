@@ -398,6 +398,7 @@ describe("api-client space api", () => {
       "postWakeStop",
       "publishComposerUpload",
       "removeMembers",
+      "resolveEntry",
       "respondToAgentInteraction",
       "restoreFileEntry",
       "restoreFileRevision",
@@ -881,6 +882,52 @@ describe("api-client space api", () => {
         init: expect.objectContaining({
           signal: controller.signal,
         }),
+      })
+    );
+  });
+
+  it("preserves message focus when resolving Space entry", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          target: {
+            spaceId: "space-123",
+            signalId: "signal-1",
+            threadRootSignalId: "thread-1",
+          },
+          view: { state: "allowed", experience: "member" },
+          participation: { state: "active_member" },
+          safeContext: {
+            organizationId: "org-1",
+            organizationSlug: "acme",
+            spaceName: "Launch planning",
+          },
+          recovery: null,
+        })
+      )
+    );
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.resolveEntry({
+        spaceId: "space-123",
+        signalId: "signal-1",
+        threadRootSignalId: "thread-1",
+        requestContext: REQUEST_CONTEXT,
+      })
+    ).resolves.toMatchObject({
+      target: { signalId: "signal-1", threadRootSignalId: "thread-1" },
+      view: { state: "allowed", experience: "member" },
+    });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "space.entry.resolve",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/entry-resolution?signalId=signal-1&threadRootSignalId=thread-1",
       })
     );
   });
@@ -2113,6 +2160,9 @@ describe("api-client space api", () => {
                   clientMessageId: "client-message-1",
                   targetProfileId: null,
                 },
+            ...(isActiveWakeProgress
+              ? { pageInfo: { hasMore: false, limit: 25 } }
+              : {}),
             items: [
               {
                 clientMessageId: "client-message-1",
@@ -2149,6 +2199,7 @@ describe("api-client space api", () => {
 
     await api.getWakeProgress({
       clientMessageId: "client-message-1",
+      includePreviewText: true,
       includeSourceContext: true,
       includeTiming: true,
       includeWaitReason: true,
@@ -2157,6 +2208,8 @@ describe("api-client space api", () => {
       spaceId: "space-123",
     });
     await api.getActiveWakeProgress({
+      includePageInfo: true,
+      includePreviewText: true,
       includeSourceContext: true,
       includeTiming: true,
       includeWaitReason: true,
@@ -2169,13 +2222,13 @@ describe("api-client space api", () => {
     expect(transport).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/wake-progress?clientMessageId=client-message-1&includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/wake-progress?clientMessageId=client-message-1&includePreviewText=true&includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true",
       })
     );
     expect(transport).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-source-1",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/active-wake-progress?includePageInfo=true&includePreviewText=true&includeSourceContext=true&includeTiming=true&includeWaitReason=true&includeWakeStopEligibility=true&sourceProfileId=human-source-1",
       })
     );
   });
@@ -2215,6 +2268,35 @@ describe("api-client space api", () => {
       code: "gateway.invalid_response",
       operation: "space.active_wake_progress",
       schemaIssuePath: "query.sourceProfileId",
+    });
+  });
+
+  it("fails closed when an older server omits requested active Wake page information", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          query: { spaceId: "space-123", targetProfileId: null },
+          items: [],
+        })
+      )
+    );
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.getActiveWakeProgress({
+        includePageInfo: true,
+        requestContext: REQUEST_CONTEXT,
+        spaceId: "space-123",
+      })
+    ).rejects.toMatchObject({
+      code: "gateway.invalid_response",
+      operation: "space.active_wake_progress",
+      schemaIssuePath: "pageInfo",
     });
   });
 

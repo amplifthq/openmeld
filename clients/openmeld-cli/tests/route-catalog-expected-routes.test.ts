@@ -8,6 +8,7 @@ const listOpenMeldProfiles = vi.fn();
 const readExpectedRoutes = vi.fn<() => Promise<ExpectedRoutesReadResult>>();
 const resolveCurrentOpenMeldAccountContext = vi.fn();
 const resolveProfileWorkspaceRuntime = vi.fn();
+const listProjectConnectionsWithStatus = vi.fn();
 
 vi.mock("@openmeld/api-client", () => ({
   createAgentProfileBindingApi: () => ({
@@ -39,6 +40,10 @@ vi.mock("../src/profile-workspace/runtime-resolution", () => ({
   resolveProfileWorkspaceRuntime: (
     input: Parameters<typeof resolveProfileWorkspaceRuntime>[0]
   ) => resolveProfileWorkspaceRuntime(input),
+}));
+
+vi.mock("../src/agent-activity/project-bindings", () => ({
+  listProjectConnectionsWithStatus: () => listProjectConnectionsWithStatus(),
 }));
 
 vi.mock("../src/space/api-client-foundation", () => ({
@@ -115,6 +120,7 @@ const createExpectedRoute = (agentProfileId: string) => ({
   bindingId: `bind-${agentProfileId}`,
   bindingState: "enabled_primary" as const,
   configurationRevision: 7,
+  defaultProjectId: null,
   executionTarget: {
     agentControllerConversationId: null,
     agentControllerRef: "builtin:codex",
@@ -139,10 +145,12 @@ describe("route catalog expected-routes fast path", () => {
     });
     resolveProfileWorkspaceRuntime.mockReset();
     resolveProfileWorkspaceRuntime.mockResolvedValue({ status: "ready" });
+    listProjectConnectionsWithStatus.mockReset().mockResolvedValue([]);
   });
 
   it("builds the catalog from the projection without any per-profile reads", async () => {
     readExpectedRoutes.mockResolvedValue({
+      contractVersion: "v4",
       response: {
         openMeldServiceRuntimeId: "runtime-this-device",
         excludedProfiles: [
@@ -194,6 +202,7 @@ describe("route catalog expected-routes fast path", () => {
 
   it("uses the operation-scoped model catalog for route conversation policy", async () => {
     readExpectedRoutes.mockResolvedValue({
+      contractVersion: "v4",
       response: {
         openMeldServiceRuntimeId: "runtime-this-device",
         excludedProfiles: [],
@@ -225,6 +234,7 @@ describe("route catalog expected-routes fast path", () => {
 
   it("resolves the current account once for every workspace in the catalog", async () => {
     readExpectedRoutes.mockResolvedValue({
+      contractVersion: "v4",
       response: {
         openMeldServiceRuntimeId: "runtime-this-device",
         excludedProfiles: [],
@@ -257,6 +267,134 @@ describe("route catalog expected-routes fast path", () => {
       mode: "inspect",
       openMeldProfileId: "agt-two",
     });
+  });
+
+  it("uses the v4 Default Project identity without rebuilding the route from profile reads", async () => {
+    readExpectedRoutes.mockResolvedValue({
+      contractVersion: "v4",
+      response: {
+        openMeldServiceRuntimeId: "runtime-this-device",
+        excludedProfiles: [],
+        expectedRoutes: [
+          {
+            ...createExpectedRoute("agt-project"),
+            defaultProjectId: "project-v4",
+          },
+        ],
+        generatedAt: "2026-06-12T00:00:00.000Z",
+        runtimeResolution: "resolved",
+      },
+      status: "resolved",
+    });
+    listProjectConnectionsWithStatus.mockResolvedValue([
+      {
+        bindingGeneration: "local-generation-v4",
+        isDefault: true,
+        organizationId: "org-1",
+        projectId: "project-v4",
+        projectSlug: "project-v4",
+        repositoryFingerprint: null,
+        repositoryPath: "/tmp/project-v4",
+        status: "available",
+      },
+    ]);
+
+    const catalog = await loadDaemonRouteCatalog({
+      localAdapterContainer: LOCAL_ADAPTER_CONTAINER,
+      ownerUserId: "owner-1",
+      presenter: QUIET_PRESENTER,
+      quiet: true,
+    });
+
+    expect(listOpenMeldProfiles).not.toHaveBeenCalled();
+    expect(getPrimaryBinding).not.toHaveBeenCalled();
+    expect(catalog.expectedRoutesContractVersion).toBe("v4");
+    expect(catalog.workingFolderExpectedProfileIds).toEqual(["agt-project"]);
+    expect(
+      catalog.routeByProfileId.get("agt-project")?.workingFolderRuntime
+    ).toMatchObject({
+      defaultProjectId: "project-v4",
+      effectiveRuntimeWorkingDirectory: "/tmp/project-v4",
+      workingFolderFact: {
+        localProjectBindingGeneration: "local-generation-v4",
+        source: "default_project",
+        status: "ready",
+      },
+    });
+    expect(catalog.workingFolderObservations).toEqual([
+      expect.objectContaining({
+        bindingId: "bind-agt-project",
+        configurationRevision: 7,
+        defaultProjectId: "project-v4",
+        localProjectBindingGeneration: "local-generation-v4",
+        profileId: "agt-project",
+        reasonCode: null,
+        source: "default_project",
+        status: "ready",
+      }),
+    ]);
+  });
+
+  it("reports one v4 working-folder fact even when the local controller route is skipped", async () => {
+    readExpectedRoutes.mockResolvedValue({
+      contractVersion: "v4",
+      response: {
+        openMeldServiceRuntimeId: "runtime-this-device",
+        excludedProfiles: [],
+        expectedRoutes: [
+          {
+            ...createExpectedRoute("agt-broken-controller"),
+            executionTarget: {
+              agentControllerConversationId: null,
+              agentControllerRef: "not-a-controller-ref",
+              openMeldServiceRuntimeId: "runtime-this-device",
+            },
+          },
+        ],
+        generatedAt: "2026-06-12T00:00:00.000Z",
+        runtimeResolution: "resolved",
+      },
+      status: "resolved",
+    });
+    resolveProfileWorkspaceRuntime.mockResolvedValue({
+      configPath: "/tmp/profile-workspace.json",
+      configuredWorkspacePath: "/tmp/profile-workspace",
+      effectiveRuntimeWorkingDirectory: "/tmp/profile-workspace",
+      runtimeContext: {
+        providerRuntimeWorkingDirectory: "/tmp/profile-workspace",
+      },
+      status: "ready",
+      workspaceMode: "custom",
+    });
+
+    const catalog = await loadDaemonRouteCatalog({
+      localAdapterContainer: LOCAL_ADAPTER_CONTAINER,
+      ownerUserId: "owner-1",
+      presenter: QUIET_PRESENTER,
+      quiet: true,
+    });
+
+    expect(catalog.profileIds).toEqual([]);
+    expect(catalog.skippedProfiles).toEqual([
+      {
+        profileId: "agt-broken-controller",
+        profileName: "Profile agt-broken-controller",
+        skipReason: "controller.binding.incomplete",
+      },
+    ]);
+    expect(catalog.workingFolderExpectedProfileIds).toEqual([
+      "agt-broken-controller",
+    ]);
+    expect(catalog.workingFolderObservations).toEqual([
+      expect.objectContaining({
+        bindingId: "bind-agt-broken-controller",
+        configurationRevision: 7,
+        defaultProjectId: null,
+        profileId: "agt-broken-controller",
+        source: "profile_workspace",
+        status: "ready",
+      }),
+    ]);
   });
 
   it("falls back to per-profile binding reads when the projection is unavailable", async () => {
@@ -300,6 +438,80 @@ describe("route catalog expected-routes fast path", () => {
     expect(
       catalog.routeByProfileId.get("agt-legacy")?.agentControllerPermissionMode
     ).toBe("codex:fullAccess");
+  });
+
+  it("uses current profile and Default Project facts after an older Core negotiates v3", async () => {
+    const { defaultProjectId: _v4DefaultProjectId, ...v3ExpectedRoute } =
+      createExpectedRoute("agt-legacy");
+    readExpectedRoutes.mockResolvedValue({
+      contractVersion: "v3",
+      response: {
+        openMeldServiceRuntimeId: "runtime-this-device",
+        excludedProfiles: [],
+        expectedRoutes: [v3ExpectedRoute],
+        generatedAt: "2026-06-12T00:00:00.000Z",
+        runtimeResolution: "resolved",
+      },
+      status: "resolved",
+    });
+    listOpenMeldProfiles.mockResolvedValue([
+      {
+        defaultProjectId: "project-legacy",
+        openMeldProfileId: "agt-legacy",
+        ownerUserId: "owner-1",
+        profileKind: "agent",
+        profileName: "Legacy",
+        status: "active",
+      },
+    ]);
+    getPrimaryBinding.mockResolvedValue({
+      binding: {
+        bindingId: "bind-legacy",
+        bindingState: "enabled_primary",
+        configurationRevision: 7,
+        executionTarget: {
+          agentControllerConversationId: null,
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: { value: "runtime-this-device" },
+        },
+        routable: true,
+      },
+      status: "found",
+    });
+    listProjectConnectionsWithStatus.mockResolvedValue([
+      {
+        bindingGeneration: "local-generation-1",
+        isDefault: true,
+        organizationId: "org-1",
+        projectId: "project-legacy",
+        projectSlug: "legacy",
+        repositoryFingerprint: null,
+        repositoryPath: "/tmp/project-legacy",
+        status: "available",
+      },
+    ]);
+
+    const catalog = await loadDaemonRouteCatalog({
+      localAdapterContainer: LOCAL_ADAPTER_CONTAINER,
+      ownerUserId: "owner-1",
+      presenter: QUIET_PRESENTER,
+      quiet: true,
+    });
+
+    expect(listOpenMeldProfiles).toHaveBeenCalledTimes(1);
+    expect(getPrimaryBinding).toHaveBeenCalledTimes(1);
+    expect(catalog.expectedRoutesContractVersion).toBeUndefined();
+    expect(
+      catalog.routeByProfileId.get("agt-legacy")?.workingFolderRuntime
+    ).toMatchObject({
+      defaultProjectId: "project-legacy",
+      effectiveRuntimeWorkingDirectory: "/tmp/project-legacy",
+      workingFolderFact: {
+        localProjectBindingGeneration: "local-generation-1",
+        source: "default_project",
+        status: "ready",
+      },
+    });
   });
 
   it("fails the load when the projection read rejects so the set never shrinks", async () => {

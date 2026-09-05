@@ -255,9 +255,6 @@ export function resolveAgentExecutionStatus(
     ...service.reasonCodes,
     ...runtime.reasonCodes,
     ...claim.reasonCodes,
-    ...providerAccount.reasonCodes,
-    ...providerConversation.reasonCodes,
-    ...readinessImpact.reasonCodes,
     ...route.reasonCodes,
   ]);
 
@@ -268,8 +265,6 @@ export function resolveAgentExecutionStatus(
     executionFamily,
     localServiceReachable: localService.reachable,
     profile,
-    providerAccountBlocked: providerAccount.blocked,
-    readinessImpactBlocked: readinessImpact.blocked,
     routeOnline: route.online,
     runtimeReady: runtime.ready,
     serviceExecutionCompatible: service.executionCompatible,
@@ -636,8 +631,6 @@ function resolveDisplayState(input: {
   executionFamily: "native" | "workstation";
   localServiceReachable: boolean;
   profile: AgentExecutionStatusProjection["facts"]["profile"];
-  providerAccountBlocked: boolean;
-  readinessImpactBlocked: boolean;
   routeOnline: boolean;
   runtimeReady: boolean;
   serviceExecutionCompatible: boolean;
@@ -655,12 +648,6 @@ function resolveDisplayState(input: {
     return "blocked";
   }
   if (input.claimBlocked) {
-    return "blocked";
-  }
-  if (input.providerAccountBlocked) {
-    return "blocked";
-  }
-  if (input.readinessImpactBlocked) {
     return "blocked";
   }
   if (
@@ -767,12 +754,6 @@ function resolveRuntimeRoutePrimaryAction(input: {
   if (!(input.localService.reachable || input.route.online)) {
     return "run_prepare";
   }
-  // Fresh accepted Wake failure evidence is bound to the exact execution
-  // identity. It outranks a potentially stale controller-report auth warning,
-  // while that warning remains nonblocking when no failure evidence exists.
-  if (input.providerAccount.blocked) {
-    return "fix_provider_account";
-  }
   if (input.runtime.reasonCodes.includes("usage_exhausted")) {
     return "check_status";
   }
@@ -792,9 +773,6 @@ function resolveRuntimeRoutePrimaryAction(input: {
       runtime: input.runtime,
       service: input.service,
     });
-  }
-  if (input.readinessImpact.blocked) {
-    return "run_prepare";
   }
   return "check_status";
 }
@@ -857,6 +835,13 @@ function resolveRuntimeNotReadyPrimaryAction(input: {
   localService: AgentExecutionStatusProjection["facts"]["localService"];
   runtime: AgentExecutionStatusProjection["facts"]["runtime"];
 }): AgentExecutionPrimaryAction {
+  if (
+    input.runtime.reasonCodes.some((reasonCode) =>
+      reasonCode.startsWith("working_folder.")
+    )
+  ) {
+    return "check_status";
+  }
   if (
     hasRuntimeAgentControllerReportRefreshReason(input.runtime.reasonCodes) &&
     input.localService.refreshable
@@ -938,9 +923,6 @@ function getAgentExecutionReadinessReasonCodes(
     ...readiness.facts.profile.reasonCodes,
     ...readiness.facts.binding.reasonCodes,
     ...readiness.facts.claim.reasonCodes,
-    ...readiness.facts.providerAccount.reasonCodes,
-    ...readiness.facts.providerConversation.reasonCodes,
-    ...readiness.facts.readinessImpact.reasonCodes,
     ...readiness.facts.localService.reasonCodes,
     ...readiness.facts.service.reasonCodes,
     ...readiness.facts.route.reasonCodes,

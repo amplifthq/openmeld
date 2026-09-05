@@ -47,6 +47,7 @@ describe("organization profile projections", () => {
 		]);
 		expect(profileDirectory.refetchOnWindowFocus).toBe(false);
 		expect(runtimeOverview.refetchOnWindowFocus).toBe(true);
+		expect(runtimeOverview.staleTime).toBe(10_000);
 	});
 });
 

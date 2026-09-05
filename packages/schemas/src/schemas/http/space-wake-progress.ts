@@ -93,6 +93,7 @@ export const wakeProgressItemSchema = z.strictObject({
   phase: wakeProgressPhaseSchema,
   failureReasonCode: z.string().trim().min(1).nullable().optional(),
   message: z.string().trim().min(1),
+  previewText: z.string().trim().min(1).optional(),
   startedAtMs: z.int().min(0).optional(),
   updatedAtMs: z.int().min(0),
   terminal: z.boolean(),
@@ -106,6 +107,7 @@ export const wakeProgressItemSchema = z.strictObject({
 export const getSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
   clientMessageId: clientMessageIdSchema,
+  includePreviewText: optionalBooleanQuerySchema,
   includeTiming: optionalBooleanQuerySchema,
   includeSourceContext: optionalBooleanQuerySchema,
   includeWaitReason: optionalBooleanQuerySchema,
@@ -124,6 +126,8 @@ export const getSpaceWakeProgressResponseSchema = z.strictObject({
 
 export const getActiveSpaceWakeProgressInputSchema = z.strictObject({
   spaceId: nonEmptyTrimmedStringFromUnknown,
+  includePageInfo: optionalBooleanQuerySchema,
+  includePreviewText: optionalBooleanQuerySchema,
   includeTiming: optionalBooleanQuerySchema,
   includeSourceContext: optionalBooleanQuerySchema,
   includeWaitReason: optionalBooleanQuerySchema,
@@ -138,5 +142,11 @@ export const getActiveSpaceWakeProgressResponseSchema = z.strictObject({
     sourceProfileId: z.string().trim().min(1).nullable().optional(),
     targetProfileId: z.string().trim().min(1).nullable(),
   }),
+  pageInfo: z
+    .strictObject({
+      hasMore: z.boolean(),
+      limit: z.int().min(1),
+    })
+    .optional(),
   items: z.array(wakeProgressItemSchema),
 });

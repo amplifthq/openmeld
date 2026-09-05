@@ -10,6 +10,9 @@ import { sanitizeTerminalDisplayText } from "./terminal-safe-text";
 
 type SetupProgressLineState = "pending" | "success" | "failed";
 type SetupProgressStepState = "started" | "completed" | "failed";
+type SetupProgressClock = {
+  now: () => number;
+};
 
 export type SetupProgressStepHandle = {
   cancel: () => void;
@@ -38,10 +41,12 @@ export type SetupProgressReporter = {
 };
 
 export function createSetupProgressReporter(input: {
+  clock?: SetupProgressClock;
   presenter: Presenter;
   runtime: RuntimeContext;
 }): SetupProgressReporter {
   const mode = resolveSetupProgressRenderMode(input.runtime);
+  const now = input.clock?.now ?? Date.now;
 
   return {
     detail: (detail) => {
@@ -88,7 +93,7 @@ export function createSetupProgressReporter(input: {
     },
     startStep: (step) => {
       const startedText = formatSetupProgressActiveText(step.text);
-      const startedAtMs = Date.now();
+      const startedAtMs = now();
 
       if (mode === "agent") {
         emitAgentProgressLine({
@@ -102,6 +107,7 @@ export function createSetupProgressReporter(input: {
           code: step.code,
           data: step.data,
           presenter: input.presenter,
+          now,
           startedAtMs,
           startedText,
         });
@@ -111,6 +117,7 @@ export function createSetupProgressReporter(input: {
         return createHumanTtyStepHandle({
           presenter: input.presenter,
           code: step.code,
+          now,
           startedText,
           startedAtMs,
         });
@@ -124,6 +131,7 @@ export function createSetupProgressReporter(input: {
       });
       return createHumanStaticStepHandle({
         code: step.code,
+        now,
         presenter: input.presenter,
         startedAtMs,
       });
@@ -142,6 +150,7 @@ export function formatSetupProgressActiveText(text: string): string {
 function createAgentStepHandle(input: {
   code: string;
   data?: Record<string, unknown>;
+  now: () => number;
   presenter: Presenter;
   startedAtMs: number;
   startedText: string;
@@ -156,7 +165,7 @@ function createAgentStepHandle(input: {
         return;
       }
       closed = true;
-      const durationMs = resolveElapsedTimeMs(input.startedAtMs);
+      const durationMs = resolveElapsedTimeMs(input.startedAtMs, input.now());
       emitAgentProgressLine({
         presenter: input.presenter,
         code: `${input.code}.completed`,
@@ -184,7 +193,7 @@ function createAgentStepHandle(input: {
         return;
       }
       closed = true;
-      const durationMs = resolveElapsedTimeMs(input.startedAtMs);
+      const durationMs = resolveElapsedTimeMs(input.startedAtMs, input.now());
       emitAgentProgressLine({
         presenter: input.presenter,
         code: `${input.code}.failed`,
@@ -200,6 +209,7 @@ function createAgentStepHandle(input: {
 
 function createHumanTtyStepHandle(input: {
   code: string;
+  now: () => number;
   presenter: Presenter;
   startedAtMs: number;
   startedText: string;
@@ -224,7 +234,8 @@ function createHumanTtyStepHandle(input: {
         return;
       }
       closed = true;
-      const durationMs = resolveElapsedTimeMs(input.startedAtMs);
+      const completedAtMs = input.now();
+      const durationMs = resolveElapsedTimeMs(input.startedAtMs, completedAtMs);
       const resultText = message
         ? withHumanStepDuration(
             formatSetupProgressResultText(message),
@@ -236,6 +247,7 @@ function createHumanTtyStepHandle(input: {
         emitHumanProgressLine({
           presenter: input.presenter,
           code: `${input.code}.completed`,
+          completedAtMs,
           state: "success",
           text: resultText ?? "",
         });
@@ -252,12 +264,14 @@ function createHumanTtyStepHandle(input: {
         return;
       }
       closed = true;
-      const durationMs = resolveElapsedTimeMs(input.startedAtMs);
+      const completedAtMs = input.now();
+      const durationMs = resolveElapsedTimeMs(input.startedAtMs, completedAtMs);
       spinner.fail();
       if (message) {
         emitHumanProgressLine({
           presenter: input.presenter,
           code: `${input.code}.failed`,
+          completedAtMs,
           state: "failed",
           text: withHumanStepDuration(
             formatSetupProgressResultText(message),
@@ -271,6 +285,7 @@ function createHumanTtyStepHandle(input: {
 
 function createHumanStaticStepHandle(input: {
   code: string;
+  now: () => number;
   presenter: Presenter;
   startedAtMs: number;
 }): SetupProgressStepHandle {
@@ -284,11 +299,13 @@ function createHumanStaticStepHandle(input: {
         return;
       }
       closed = true;
-      const durationMs = resolveElapsedTimeMs(input.startedAtMs);
+      const completedAtMs = input.now();
+      const durationMs = resolveElapsedTimeMs(input.startedAtMs, completedAtMs);
       if (message) {
         emitHumanProgressLine({
           presenter: input.presenter,
           code: `${input.code}.completed`,
+          completedAtMs,
           state: "success",
           text: withHumanStepDuration(
             formatSetupProgressResultText(message),
@@ -311,11 +328,13 @@ function createHumanStaticStepHandle(input: {
         return;
       }
       closed = true;
-      const durationMs = resolveElapsedTimeMs(input.startedAtMs);
+      const completedAtMs = input.now();
+      const durationMs = resolveElapsedTimeMs(input.startedAtMs, completedAtMs);
       if (message) {
         emitHumanProgressLine({
           presenter: input.presenter,
           code: `${input.code}.failed`,
+          completedAtMs,
           state: "failed",
           text: withHumanStepDuration(
             formatSetupProgressResultText(message),
@@ -365,14 +384,19 @@ function emitAgentProgressLine(input: {
 
 function emitHumanProgressLine(input: {
   code: string;
+  completedAtMs?: number;
   presenter: Presenter;
   state: SetupProgressLineState;
   text: string;
 }): void {
   const marker = resolveHumanProgressMarker(input.state);
+  const completedAt =
+    input.completedAtMs === undefined
+      ? ""
+      : `[${formatLocalClockTime(input.completedAtMs)}] `;
   input.presenter.line({
     code: input.code,
-    text: `${marker} ${input.text}`,
+    text: `${completedAt}${marker} ${input.text}`,
   });
 }
 
@@ -401,8 +425,16 @@ function withStepDuration(
 }
 
 function withHumanStepDuration(text: string, durationMs: number): string {
-  if (durationMs < MIN_VISIBLE_ELAPSED_TIME_MS) {
-    return text;
-  }
   return `${text} · ${formatElapsedTime(durationMs)}`;
+}
+
+function formatLocalClockTime(timestampMs: number): string {
+  const completedAt = new Date(timestampMs);
+  return [
+    completedAt.getHours(),
+    completedAt.getMinutes(),
+    completedAt.getSeconds(),
+  ]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
 }

@@ -186,6 +186,8 @@ import {
   getSpaceConversationStateInputSchema,
   getSpaceDispatchLookupInputSchema,
   getSpaceDispatchResultInputSchema,
+  getSpaceEntryResolutionInputSchema,
+  getSpaceEntryResolutionResponseSchema,
   getSpaceMessageDetailsInputSchema,
   getSpaceStatusInputSchema,
   getSpaceUpdatesInputSchema,
@@ -502,6 +504,8 @@ import type {
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
   GetSpaceDispatchResultResponse,
+  GetSpaceEntryResolutionInput,
+  GetSpaceEntryResolutionResponse,
   GetSpaceMessageDetailsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
@@ -906,10 +910,6 @@ import {
   resolveRuntimeTransportOwnerShard,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
 import {
-  buildExecutionRecoveryFreshClientMessageId,
-  buildExecutionRecoveryOperationKeys,
-} from "../execution-recovery/application/execution-recovery-operation-identity";
-import {
   rpcReadFeedbackReportingPolicy,
   rpcSetFeedbackReportingPolicy,
 } from "../feedback/transport/rpc/feedback-management-rpc";
@@ -1130,6 +1130,11 @@ import {
   SpaceComposerUploadStorageError,
   stageSpaceComposerUpload,
 } from "../space/application/space-composer-upload-storage";
+import {
+  buildSpaceEntryResolution,
+  buildUnavailableSpaceEntryResolution,
+  type SpaceEntryAccessResult,
+} from "../space/application/space-entry-resolution-service";
 import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
@@ -1323,10 +1328,11 @@ const computerFileAccessRpc = createComputerFileAccessRpc({
   readPolicy: readRuntimeTransportComputerFileAccessPolicy,
   requireOwnerUserId: requireAuthenticatedOwnerUserId,
   resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, ownerService } =
+    const { bindingTarget, localRuntimes, ownerService } =
       await resolveCurrentLocalServiceContext({ env, userId });
     return requireCurrentLocalRuntimeServiceTarget({
       bindingTarget,
+      inventory: localRuntimes,
       ownerService,
       offlineError: {
         code: "computer.file_access.service_offline",
@@ -1341,10 +1347,11 @@ const computerFileAccessRpc = createComputerFileAccessRpc({
 const localFolderPickerRpc = createLocalFolderPickerRpc({
   requireOwnerUserId: requireAuthenticatedOwnerUserId,
   resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, ownerService } =
+    const { bindingTarget, localRuntimes, ownerService } =
       await resolveCurrentLocalServiceContext({ env, userId });
     return requireCurrentLocalRuntimeServiceTarget({
       bindingTarget,
+      inventory: localRuntimes,
       ownerService,
       offlineError: {
         code: "local.folder_picker.service_offline",
@@ -1662,6 +1669,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcExecuteExecutionRecovery(
     input: ExecuteExecutionRecoveryInput
   ): Promise<ExecuteExecutionRecoveryResponse>;
+  rpcStartUsageExhaustedContinuation(
+    input: StartUsageExhaustedContinuationInput
+  ): Promise<StartUsageExhaustedContinuationResponse>;
   rpcPostTransientSignal(input: PostTransientSignalInput): Promise<void>;
   rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta>;
   rpcGetBoard(input: GetSpaceBoardInput): Promise<SpaceBoardRoomProjection>;
@@ -1806,6 +1816,16 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     spaceId: string;
   }): Promise<{
     agentProfileIds: string[];
+    broadcast: boolean;
+    ok: true;
+    spaceId: string;
+  }>;
+  rpcBroadcastWakeProgressChanged(input: {
+    agentProfileIds: readonly string[];
+    clientMessageIds: readonly string[];
+    reason: string;
+    spaceId: string;
+  }): Promise<{
     broadcast: boolean;
     ok: true;
     spaceId: string;
@@ -2082,6 +2102,24 @@ export type ExecuteExecutionRecoveryInput = {
   spaceAccess?: SpaceAccessContext;
 };
 
+export type StartUsageExhaustedContinuationInput = {
+  continuationClientMessageId: string;
+  interruptedClientMessageId: string;
+  interruptedDispatchId: string;
+  interruptedSourceSignalId: string;
+  operationId: string;
+  spaceAccess: SpaceAccessContext;
+  spaceId: string;
+  targetProfileId: string;
+  context?: CoreRpcContextInput;
+};
+
+export type StartUsageExhaustedContinuationResponse = {
+  continuationClientMessageId: string;
+  operationId: string;
+  status: "started";
+};
+
 export type GetSpaceMetaInput = {
   spaceId: string;
   password?: string;
@@ -2116,6 +2154,10 @@ export type GetSpaceStatusInput = {
   spaceId: string;
   password?: string;
   context?: CoreRpcContextInput;
+  spaceAccess?: SpaceAccessContext;
+};
+
+export type GetSpaceEntryResolutionRpcInput = GetSpaceEntryResolutionInput & {
   spaceAccess?: SpaceAccessContext;
 };
 
@@ -2220,6 +2262,7 @@ export type ListAccountSpacesInput = {
   scope: AccountSpaceIndexQuery["scope"];
   selectedProfileId: string;
   limit?: number;
+  includeDirectMessageProfileIds?: boolean;
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
 };
@@ -2319,6 +2362,7 @@ export type GetSpaceDispatchLookupInput = {
 export type GetSpaceWakeProgressInput = {
   spaceId: string;
   clientMessageId: string;
+  includePreviewText?: boolean;
   includeTiming?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
@@ -2331,6 +2375,8 @@ export type GetSpaceWakeProgressInput = {
 
 export type GetActiveSpaceWakeProgressInput = {
   spaceId: string;
+  includePageInfo?: boolean;
+  includePreviewText?: boolean;
   includeTiming?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
@@ -2488,7 +2534,7 @@ export type GetPrepareReadinessInput = GetPrepareReadinessQuery & {
 };
 
 export type GetLocalRuntimeExpectedRoutesInput = {
-  contractVersion?: "v2" | "v3";
+  contractVersion?: import("@openmeld/schemas/types").GetLocalRuntimeExpectedRoutesQuery["contractVersion"];
   deviceId: string;
   lane: string;
   context?: CoreRpcContextInput;
@@ -3342,6 +3388,7 @@ async function readOwnerCurrentComputerFileAccessSummary(input: {
         deviceId: input.localRuntimes.currentDeviceId,
         runtimeLane: input.localRuntimes.currentRuntimeLane,
       },
+      inventory: input.localRuntimes,
       offlineError: {
         code: "computer.file_access.service_offline",
         reason: "This computer isn't reachable for OpenMeld right now.",
@@ -3489,17 +3536,19 @@ async function resolveCurrentOpenMeldToolsControlTarget(input: {
   capability: "requestUpdate" | "setAutomaticUpdates";
   env: CoreBindings;
   userId: string;
-}): Promise<CurrentLocalControlTarget> {
-  const { currentTarget, ownerService } =
-    await resolveCurrentLocalControlTarget({
-      env: input.env,
-      offlineError: {
-        code: "service_offline",
-        reason: "OpenMeld Service is offline.",
-        status: 503,
-      },
-      userId: input.userId,
-    });
+}): Promise<{ deviceId: string; runtimeLane: DaemonServiceLane }> {
+  const { bindingTarget, localRuntimes, ownerService } =
+    await resolveCurrentLocalServiceContext(input);
+  const currentTarget = requireCurrentLocalRuntimeServiceTarget({
+    bindingTarget,
+    inventory: localRuntimes,
+    offlineError: {
+      code: "service_offline",
+      reason: "OpenMeld Service is offline.",
+      status: 503,
+    },
+    ownerService,
+  });
   const supportsControl =
     ownerService.online &&
     ownerService.sessions.some(
@@ -3512,7 +3561,7 @@ async function resolveCurrentOpenMeldToolsControlTarget(input: {
   if (!supportsControl) {
     throw createCoreRpcHttpError({
       code: "service_update_required",
-      reason: "Reconnect OpenMeld Service to use this action.",
+      reason: "Reconnect Computer to use this action.",
       status: 409,
     });
   }
@@ -4999,6 +5048,7 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
 function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
   const definitiveCodes = new Set([
     "agent_profile_work_recovery.continuation_conflict",
+    "agent_profile_work_recovery.continuation_source_mismatch",
     "agent_profile_work_recovery.continuation_unavailable",
   ]);
   const visited = new Set<unknown>();
@@ -5010,6 +5060,12 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
     visited.add(current);
     const record = current as Record<string, unknown>;
     if (typeof record.code === "string" && definitiveCodes.has(record.code)) {
+      return true;
+    }
+    if (
+      typeof record.message === "string" &&
+      definitiveCodes.has(record.message)
+    ) {
       return true;
     }
     current = record.cause ?? null;
@@ -5036,6 +5092,15 @@ async function executeAgentProfileWorkContinuation(input: {
   ) {
     return "deferred";
   }
+  const deterministicIdentity = await buildAgentProfileWorkContinuationIdentity(
+    {
+      interruptedClientMessageId: input.recovery.interruptedClientMessageId,
+      targetProfileId: input.targetProfileId,
+    }
+  );
+  const continuationClientMessageId =
+    input.recovery.authorizedContinuationClientMessageId ??
+    deterministicIdentity.continuationClientMessageId;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
     input.env,
     input.recovery.spaceId
@@ -5047,52 +5112,9 @@ async function executeAgentProfileWorkContinuation(input: {
     spaceId,
     targetProfileId: input.targetProfileId,
   });
-  const inspected = await stub.rpcInspectExecutionRecovery({
-    context: input.context,
-    dispatchId: input.recovery.interruptedDispatchId,
-    spaceAccess,
-    spaceId,
-  });
-  const projection = inspected.recovery;
-  if (
-    projection.identity.dispatchId !== input.recovery.interruptedDispatchId ||
-    projection.identity.targetProfileId !== input.targetProfileId ||
-    projection.identity.spaceId !== spaceId ||
-    !projection.actions.retryAsNewExecution.enabled
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_unavailable",
-      reason:
-        "OpenMeld could not verify the interrupted task for a safe continuation.",
-      status: 409,
-    });
-  }
-  const command: ExecuteExecutionRecoveryBody = {
-    action: "retry_as_new_execution",
-    destination: projection.destination,
-    expectedIdentity: projection.identity,
-    operationId: await buildAgentProfileWorkRecoveryOperationId({
-      interruptedClientMessageId: input.recovery.interruptedClientMessageId,
-      targetProfileId: input.targetProfileId,
-    }),
-  };
-  const operationKeys = await buildExecutionRecoveryOperationKeys(command);
-  const continuationClientMessageId =
-    buildExecutionRecoveryFreshClientMessageId(operationKeys.claimStorageKey);
-  if (
-    input.recovery.authorizedContinuationClientMessageId !== null &&
-    input.recovery.authorizedContinuationClientMessageId !==
-      continuationClientMessageId
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_conflict",
-      reason: "This interrupted task already has a different continuation.",
-      status: 409,
-    });
-  }
   if (input.recovery.authorizedContinuationClientMessageId === null) {
-    const currentBinding =
-      await requireCurrentAgentProfileWorkContinuationBinding({
+    const currentTarget =
+      await requireCurrentAgentProfileWorkContinuationTarget({
         env: input.env,
         ownerUserId: input.ownerUserId,
         targetProfileId: input.targetProfileId,
@@ -5100,9 +5122,10 @@ async function executeAgentProfileWorkContinuation(input: {
     const authorized =
       await input.ownerShard.rpcAuthorizeAgentProfileWorkContinuation({
         continuationClientMessageId,
-        currentAgentControllerRef: currentBinding.agentControllerRef,
-        currentBindingId: currentBinding.bindingId,
-        currentConfigurationRevision: currentBinding.configurationRevision,
+        currentAgentControllerRef: currentTarget.agentControllerRef,
+        currentBindingId: currentTarget.bindingId,
+        currentConfigurationRevision: currentTarget.configurationRevision,
+        currentDefaultProjectId: currentTarget.defaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           input.recovery.interruptedTargetWakeLifecycleId,
         ownerUserId: input.ownerUserId,
@@ -5113,23 +5136,17 @@ async function executeAgentProfileWorkContinuation(input: {
       throwAgentProfileWorkContinuationAuthorizationError(authorized.status);
     }
   }
-  const executed = await stub.rpcExecuteExecutionRecovery({
-    body: command,
+  await stub.rpcStartUsageExhaustedContinuation({
+    continuationClientMessageId,
     context: input.context,
+    interruptedClientMessageId: input.recovery.interruptedClientMessageId,
+    interruptedDispatchId: input.recovery.interruptedDispatchId,
+    interruptedSourceSignalId: input.recovery.interruptedSourceSignalId,
+    operationId: deterministicIdentity.operationId,
     spaceAccess,
     spaceId,
+    targetProfileId: input.targetProfileId,
   });
-  if (
-    executed.status !== "new_execution_requested" &&
-    executed.status !== "already_completed"
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_outcome_unknown",
-      reason:
-        "OpenMeld could not confirm that the continuation started. Check this Agent’s Activity before trying again.",
-      status: 503,
-    });
-  }
   return "started";
 }
 
@@ -5158,7 +5175,7 @@ function throwAgentProfileWorkContinuationAuthorizationError(
   });
 }
 
-async function requireCurrentAgentProfileWorkContinuationBinding(input: {
+async function requireCurrentAgentProfileWorkContinuationTarget(input: {
   env: CoreBindings;
   ownerUserId: string;
   targetProfileId: string;
@@ -5166,6 +5183,7 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
   agentControllerRef: string;
   bindingId: string;
   configurationRevision: number;
+  defaultProjectId: string | null;
 }> {
   const bindingDb = localStateDb(input.env);
   if (!bindingDb) {
@@ -5175,18 +5193,27 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
       status: 503,
     });
   }
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.targetProfileId,
-    db: bindingDb,
-    owner: { id: input.ownerUserId, kind: "owner_account" },
-  });
+  const [binding, authScope] = await Promise.all([
+    readPrimaryAgentProfileBindingRecord({
+      agentProfileId: input.targetProfileId,
+      db: bindingDb,
+      owner: { id: input.ownerUserId, kind: "owner_account" },
+    }),
+    resolveAgentProfileWorkRecoveryAuthScope({
+      agentProfileId: input.targetProfileId,
+      authWorker: input.env.OPENMELD_AUTH_WORKER,
+    }),
+  ]);
   const agentControllerRef = binding
     ? parseAgentControllerRef(binding.agentControllerRef)
     : null;
   if (
     binding?.bindingState !== "enabled_primary" ||
     binding.runtimeKind !== "openmeld_service" ||
-    !agentControllerRef
+    !agentControllerRef ||
+    authScope.status === "invalid" ||
+    (authScope.status === "valid" &&
+      authScope.scope.ownerUserId !== input.ownerUserId)
   ) {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.continuation_unavailable",
@@ -5195,22 +5222,33 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
       status: 409,
     });
   }
+  if (authScope.status !== "valid") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld could not verify this Agent’s current setup yet.",
+      status: 503,
+    });
+  }
   return {
     agentControllerRef: agentControllerRef.ref,
     bindingId: binding.bindingId,
     configurationRevision: binding.configurationRevision,
+    defaultProjectId: authScope.scope.defaultProjectId,
   };
 }
 
-async function buildAgentProfileWorkRecoveryOperationId(input: {
+async function buildAgentProfileWorkContinuationIdentity(input: {
   interruptedClientMessageId: string;
   targetProfileId: string;
-}): Promise<string> {
+}): Promise<{
+  continuationClientMessageId: string;
+  operationId: string;
+}> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(
       JSON.stringify([
-        "agent_profile_work_recovery_v1",
+        "agent_profile_work_usage_continuation_v1",
         input.targetProfileId,
         input.interruptedClientMessageId,
       ])
@@ -5219,7 +5257,10 @@ async function buildAgentProfileWorkRecoveryOperationId(input: {
   const hex = Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("");
-  return `agent-profile-work-recovery:${hex}`;
+  return {
+    continuationClientMessageId: `agent-profile-work-continuation-${hex}`,
+    operationId: `agent-profile-work-continuation:${hex}`,
+  };
 }
 
 export async function rpcGetAgentProfileControllerChangeEligibility(
@@ -5834,6 +5875,15 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
         eligibleAgentProfiles: input.eligibleAgentProfiles,
         env: input.env,
         viewerUserId: input.viewerUserId,
+      }).catch((error) => {
+        console.warn(
+          "[core.organization_agent_runtime_overview.activity_unavailable]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            organizationId: input.organizationId,
+          }
+        );
+        return new Map<string, DirectoryOperationalContextRead>();
       }),
     ]);
   const ownerWorkSpaceIds = [
@@ -5855,11 +5905,22 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
       ),
     ];
   });
-  const spaceNamesById = await readSpaceIndexNamesByIds({
-    db: requireSpaceIndexDb(input.env),
-    organizationId: input.organizationId,
-    spaceIds: ownerWorkSpaceIds,
-  });
+  let spaceNamesById = new Map<string, string>();
+  try {
+    spaceNamesById = await readSpaceIndexNamesByIds({
+      db: requireSpaceIndexDb(input.env),
+      organizationId: input.organizationId,
+      spaceIds: ownerWorkSpaceIds,
+    });
+  } catch (error) {
+    console.warn(
+      "[core.organization_agent_runtime_overview.space_names_unavailable]",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        organizationId: input.organizationId,
+      }
+    );
+  }
   const response = {
     agentProfiles: input.eligibleAgentProfiles.map((agent) => {
       const readiness = readinessByProfileId.get(agent.profileId);
@@ -5949,6 +6010,33 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             targets: onlineTargets,
           })
         : null;
+      const workingFolderExpectedRoutesByTarget = new Map<
+        string,
+        Awaited<ReturnType<typeof readLocalRuntimeExpectedRoutes>> | null
+      >();
+      const stateDb = localStateDb(input.env);
+      if (preloadedRoutes && stateDb) {
+        const uniqueOnlineTargets = new Map(
+          onlineTargets.map((target) => [
+            `${target.deviceId}\u0000${target.runtimeLane}`,
+            target,
+          ])
+        );
+        await Promise.all(
+          [...uniqueOnlineTargets].map(async ([key, target]) => {
+            const result = await readLocalRuntimeExpectedRoutes({
+              authWorker: input.env.OPENMELD_AUTH_WORKER,
+              contractVersion: "v4",
+              db: stateDb,
+              deviceId: target.deviceId,
+              generatedAt: input.generatedAt,
+              lane: target.runtimeLane,
+              ownerUserId,
+            }).catch(() => null);
+            workingFolderExpectedRoutesByTarget.set(key, result);
+          })
+        );
+      }
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
@@ -5966,6 +6054,10 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             ...(preloadedOwnerService === null
               ? {}
               : { preloadedOwnerService }),
+            ...buildPreloadedWorkingFolderExpectedRoutesInput({
+              preloadedRoute,
+              workingFolderExpectedRoutesByTarget,
+            }),
             preloadedProfileIdentity: {
               ownerUserId: agent.ownerUserId,
               profileKind: "agent",
@@ -5998,6 +6090,31 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     }
   );
   return new Map(ownerResults.flat());
+}
+
+function buildPreloadedWorkingFolderExpectedRoutesInput(input: {
+  preloadedRoute:
+    | import("@openmeld/schemas/types").RuntimeTransportLookupRouteResponse
+    | null
+    | undefined;
+  workingFolderExpectedRoutesByTarget: ReadonlyMap<
+    string,
+    Awaited<ReturnType<typeof readLocalRuntimeExpectedRoutes>> | null
+  >;
+}): {
+  preloadedWorkingFolderExpectedRoutes?: Awaited<
+    ReturnType<typeof readLocalRuntimeExpectedRoutes>
+  > | null;
+} {
+  if (!input.preloadedRoute?.online) {
+    return {};
+  }
+  return {
+    preloadedWorkingFolderExpectedRoutes:
+      input.workingFolderExpectedRoutesByTarget.get(
+        `${input.preloadedRoute.deviceId}\u0000${input.preloadedRoute.lane}`
+      ) ?? null,
+  };
 }
 
 async function mapWithConcurrency<Input, Output>(
@@ -15896,17 +16013,54 @@ export async function rpcConvertDirectMessageToSpace(
     })
   );
   const { stub } = resolveRpcSpaceStubOrThrow(env, spaceId);
+  const currentMembers = await stub.rpcGetIdentityDirectory({
+    context,
+    spaceId,
+  });
+  const currentMemberProfileIds = new Set(
+    currentMembers.entries.map((member) => member.profileId)
+  );
+  if (
+    !members.some((member) => !currentMemberProfileIds.has(member.profileId))
+  ) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Choose at least one new member.",
+      status: 400,
+    });
+  }
+  const currentAgentMembers = await Promise.all(
+    currentMembers.entries
+      .filter((member) => member.profileKind === "agent")
+      .map(async (member) => {
+        const resolved = await readResolvedOrganizationSpaceMember({
+          db,
+          organizationId: activeOrganization.organizationId,
+          profileId: member.profileId,
+        });
+        if (!resolved) {
+          throw createCoreRpcHttpError({
+            code: "agent_profile.not_found",
+            reason: "Agent Profile was not found.",
+            status: 404,
+          });
+        }
+        return resolved;
+      })
+  );
   const membersWithAgentOwners = await resolveSpaceMembersWithAgentOwners({
     context,
     env,
     expandAgentOwnersInDirectMessageConversion: true,
-    members,
+    members: [...members, ...currentAgentMembers],
     spaceId,
     stub,
   });
   const response = await stub.rpcConvertDirectMessageToSpace({
     context,
-    members: membersWithAgentOwners,
+    members: membersWithAgentOwners.filter(
+      (member) => !currentMemberProfileIds.has(member.profileId)
+    ),
     name: parsed.data.name,
     spaceId,
   });
@@ -17325,6 +17479,167 @@ export async function rpcGetSpaceStatus(
   );
 }
 
+export async function rpcGetSpaceEntryResolution(
+  env: CoreBindings,
+  input: GetSpaceEntryResolutionRpcInput
+): Promise<GetSpaceEntryResolutionResponse> {
+  const parsed = getSpaceEntryResolutionInputSchema.safeParse({
+    spaceId: input.spaceId,
+    signalId: input.signalId,
+    threadRootSignalId: input.threadRootSignalId,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "Space entry resolution input is invalid",
+    });
+  }
+
+  const target = parsed.data;
+  const indexed = await readSpaceIndexOrganizationJoinTarget({
+    db: requireSpaceIndexDb(env),
+    spaceId: target.spaceId,
+  });
+  if (!indexed) {
+    return buildUnavailableSpaceEntryResolution(target);
+  }
+
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const context = getSpaceAccessRequestContext(spaceAccess) ?? undefined;
+  const { organizationMember, organizationSlug } =
+    await resolveSpaceEntryOrganizationAudience({
+      context,
+      env,
+      organizationId: indexed.organizationId,
+    });
+  const access = await resolveSpaceEntryAccess({
+    context,
+    env,
+    spaceAccess,
+    spaceId: target.spaceId,
+  });
+
+  if (
+    access.kind === "allowed" &&
+    access.status.accessMode === "members_only" &&
+    !organizationMember
+  ) {
+    throw createCoreRpcHttpError({
+      code: "organization.context_unavailable",
+      reason:
+        "Space membership could not be reconciled with Organization membership.",
+      status: 503,
+    });
+  }
+
+  const response = buildSpaceEntryResolution({
+    access,
+    authenticated: Boolean(context),
+    indexed: {
+      organizationId: indexed.organizationId,
+      ...(organizationSlug ? { organizationSlug } : {}),
+      ...(indexed.creatorProfileId
+        ? {
+            owner: {
+              profileId: indexed.creatorProfileId,
+              ...(indexed.creatorProfileName
+                ? { displayName: indexed.creatorProfileName }
+                : {}),
+            },
+          }
+        : {}),
+      ...(indexed.spaceName ? { spaceName: indexed.spaceName } : {}),
+      visibility: indexed.visibility,
+    },
+    organizationMember,
+    target,
+  });
+  return getSpaceEntryResolutionResponseSchema.parse(response);
+}
+
+async function resolveSpaceEntryOrganizationAudience(input: {
+  context?: CoreRpcContextInput;
+  env: CoreBindings;
+  organizationId: string;
+}): Promise<{
+  organizationMember: boolean;
+  organizationSlug: string | null;
+}> {
+  const callerPrincipalId = normalizeOptionalText(
+    input.context?.actorContext.callerPrincipalId
+  );
+  if (!callerPrincipalId) {
+    return { organizationMember: false, organizationSlug: null };
+  }
+  const membership = await resolveOrganizationMembershipById({
+    env: input.env,
+    organizationId: input.organizationId,
+    requestId: input.context?.actorContext.requestId,
+    userId: callerPrincipalId,
+  });
+  if (!membership.ok) {
+    if (membership.code === "organization.context_unavailable") {
+      throw createCoreRpcHttpError({
+        code: membership.code,
+        reason: membership.message,
+        status: membership.status,
+      });
+    }
+    return { organizationMember: false, organizationSlug: null };
+  }
+  const organizationSlug = await readOrganizationRouteSlug({
+    env: input.env,
+    organizationId: input.organizationId,
+    requestId: input.context?.actorContext.requestId,
+  });
+  if (!organizationSlug) {
+    throw createCoreRpcHttpError({
+      code: "organization.context_unavailable",
+      reason: "The Space Organization route could not be resolved.",
+      status: 503,
+    });
+  }
+  return { organizationMember: true, organizationSlug };
+}
+
+async function resolveSpaceEntryAccess(input: {
+  context?: CoreRpcContextInput;
+  env: CoreBindings;
+  spaceAccess: SpaceAccessContext;
+  spaceId: string;
+}): Promise<SpaceEntryAccessResult> {
+  let status: GetSpaceStatusResponse;
+  try {
+    status = await rpcGetSpaceStatus(input.env, {
+      spaceId: input.spaceId,
+      spaceAccess: input.spaceAccess,
+    });
+  } catch (error) {
+    const code = readCoreRpcErrorCode(error);
+    if (
+      code === "space.membership_required" ||
+      code === "space.password_invalid" ||
+      code === "space.password_required"
+    ) {
+      return { code, kind: "denied" };
+    }
+    throw error;
+  }
+  const activeMember = input.context
+    ? (
+        await rpcGetSpaceViewerMembership(input.env, {
+          context: input.context,
+          spaceId: input.spaceId,
+          spaceAccess: input.spaceAccess,
+        })
+      ).activeMemberProfiles.length > 0
+    : false;
+  return { activeMember, kind: "allowed", status };
+}
+
 export async function rpcGetSpaceConversationState(
   env: CoreBindings,
   input: GetSpaceConversationStateRpcInput
@@ -17567,6 +17882,8 @@ export async function rpcListAccountSpaces(
     scope,
     selectedProfileId,
     limit,
+    includeDirectMessageProfileIds:
+      input.includeDirectMessageProfileIds === true,
     includeRecentlyDeletedItems: input.includeRecentlyDeletedItems === true,
     includePurposes: input.includePurposes === true,
   });
@@ -18972,6 +19289,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: input.includePreviewText }),
     ...(input.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: input.includeSourceContext }),
@@ -19006,6 +19326,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: parsed.data.includePreviewText }),
     ...(parsed.data.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: parsed.data.includeSourceContext }),
@@ -19028,9 +19351,15 @@ export async function rpcGetActiveSpaceWakeProgress(
 ): Promise<GetActiveSpaceWakeProgressResponse> {
   const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
     spaceId: input.spaceId,
+    ...(input.includePageInfo === undefined
+      ? {}
+      : { includePageInfo: input.includePageInfo }),
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: input.includePreviewText }),
     ...(input.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: input.includeSourceContext }),
@@ -19064,9 +19393,15 @@ export async function rpcGetActiveSpaceWakeProgress(
   );
   return await stub.rpcGetActiveWakeProgress({
     spaceId,
+    ...(parsed.data.includePageInfo === undefined
+      ? {}
+      : { includePageInfo: parsed.data.includePageInfo }),
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: parsed.data.includePreviewText }),
     ...(parsed.data.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: parsed.data.includeSourceContext }),
@@ -20451,7 +20786,7 @@ async function requireAgentProfileWorkspaceScope(
     });
   }
 
-  if (!profileOrganization || profileOrganization.profileKind !== "agent") {
+  if (profileOrganization?.profileKind !== "agent") {
     throw createCoreRpcHttpError({
       code: "agent_profile.not_found",
       reason: "Agent Profile was not found.",

@@ -1,12 +1,12 @@
 import type { LocalMachineIssue } from "@openmeld/schemas";
-import { sleep, toErrorMessage } from "@openmeld/utils";
+import { toErrorMessage } from "@openmeld/utils";
 import {
   type DaemonServiceRuntimeStatus,
   daemonLifecycleJournalPath,
 } from "../config/daemon-state";
-import {
-  type DaemonServiceAnomalyCode,
-  type DaemonServiceInventory,
+import type {
+  DaemonServiceAnomalyCode,
+  DaemonServiceInventory,
   inspectDaemonServiceInventory,
 } from "../local-service/lifecycle/daemon-service-inventory";
 import {
@@ -19,7 +19,11 @@ import {
   isDaemonServiceBackgroundExecutionBlocked,
   readDaemonServiceJobCrashExitCode,
 } from "../local-service/lifecycle/daemon-service-manager";
-import { readCurrentObservedDaemonRuntimeStatus } from "../local-service/lifecycle/daemon-service-runtime";
+import {
+  isDaemonInventoryRunningAndStartReady as isDaemonInventoryRunningAndStartReadyWithBlockers,
+  isSystemServiceStartupTimeoutError as isStartupTimeoutError,
+  waitForSystemServiceStartup as waitForSystemServiceStartupWithPredicate,
+} from "../local-service/lifecycle/daemon-service-startup-wait";
 import {
   formatInlineOpenMeldCliCommands,
   formatOpenMeldCliCommand,
@@ -67,28 +71,6 @@ export type SystemServiceStartupRecoveryOutcome =
       recovery: SystemServiceStartupRecoveryReport | null;
     };
 
-export class SystemServiceStartupTimeoutError extends Error {
-  readonly code = "openmeld.service.startup_timeout";
-  readonly inventory: DaemonServiceInventory | null;
-  readonly managerStatus: DaemonServiceManagerRuntimeStatus | null;
-  readonly runtimeStatus: DaemonServiceRuntimeStatus | null;
-  readonly jobDiagnostics: DaemonServiceJobDiagnostics | null;
-
-  constructor(input: {
-    inventory: DaemonServiceInventory | null;
-    managerStatus: DaemonServiceManagerRuntimeStatus | null;
-    runtimeStatus: DaemonServiceRuntimeStatus | null;
-    jobDiagnostics?: DaemonServiceJobDiagnostics | null;
-  }) {
-    super(buildSystemServiceStartupTimeoutMessage(input));
-    this.name = "SystemServiceStartupTimeoutError";
-    this.inventory = input.inventory;
-    this.managerStatus = input.managerStatus;
-    this.runtimeStatus = input.runtimeStatus;
-    this.jobDiagnostics = input.jobDiagnostics ?? null;
-  }
-}
-
 // Presentation-only verdict distilled from a failed service startup. It carries
 // exactly what the failure card needs (controller, launchd job diagnostics, the
 // sanitized error message, and any explicit detail) so the card can be rebuilt
@@ -126,7 +108,7 @@ export function resolveSystemServiceStartupFailureVerdict(input: {
   error: unknown;
   detail?: string | null;
 }): SystemServiceStartupFailureVerdict {
-  const jobDiagnostics = isSystemServiceStartupTimeoutError(input.error)
+  const jobDiagnostics = isStartupTimeoutError(input.error)
     ? (input.error.jobDiagnostics ?? null)
     : null;
   const assessedIssue = assessLocalMachineFailure({
@@ -295,9 +277,7 @@ export function buildSystemServiceStartupFailureDiagnostics(input: {
   runtimeStatus: DaemonServiceRuntimeStatus | null;
   serviceLogPath: string;
 } {
-  const timeoutError = isSystemServiceStartupTimeoutError(input.error)
-    ? input.error
-    : null;
+  const timeoutError = isStartupTimeoutError(input.error) ? input.error : null;
   const localMachineIssue = input.controller
     ? resolveSystemServiceStartupFailureVerdict({
         controller: input.controller,
@@ -323,31 +303,6 @@ export function buildSystemServiceStartupFailureDiagnostics(input: {
     runtimeStatus: timeoutError?.runtimeStatus ?? null,
     serviceLogPath: getDaemonSystemServiceLogPath(),
   };
-}
-
-export function buildSystemServiceStartupTimeoutMessage(input: {
-  inventory: DaemonServiceInventory | null;
-  managerStatus: DaemonServiceManagerRuntimeStatus | null;
-  runtimeStatus: DaemonServiceRuntimeStatus | null;
-  jobDiagnostics?: DaemonServiceJobDiagnostics | null;
-}): string {
-  const base = `OpenMeld Service failed to reach a running local service state in time. runtime=${input.runtimeStatus?.status ?? "unknown"}, reason=${input.runtimeStatus?.reason || "unknown"}, managerRunning=${String(input.managerStatus?.running ?? false)}, anomalies=${input.inventory?.anomalies.map((anomaly) => anomaly.code).join(",") || "unknown"}`;
-  if (!input.jobDiagnostics) {
-    return base;
-  }
-  return `${base}; ${formatDaemonServiceJobDiagnosticsEvidence(input.jobDiagnostics)}`;
-}
-
-export function isSystemServiceStartupTimeoutError(
-  error: unknown
-): error is SystemServiceStartupTimeoutError {
-  return (
-    error instanceof SystemServiceStartupTimeoutError ||
-    (typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as { code?: unknown }).code === "openmeld.service.startup_timeout")
-  );
 }
 
 export function formatSystemServiceFailureRow(row: {
@@ -392,18 +347,9 @@ export function isPermissionOrAuthorizationError(message: string): boolean {
 export function isDaemonInventoryRunningAndStartReady(
   inventory: Awaited<ReturnType<typeof inspectDaemonServiceInventory>>
 ): boolean {
-  if (inventory.runtimeStatus.status !== "running") {
-    return false;
-  }
-  if (inventory.runtimeStatus.mode !== "background") {
-    return false;
-  }
-  if (inventory.runtimeStatus.managedBySystemService !== true) {
-    return false;
-  }
-
-  return !inventory.anomalies.some((anomaly) =>
-    DAEMON_STARTUP_BLOCKING_ANOMALIES.has(anomaly.code)
+  return isDaemonInventoryRunningAndStartReadyWithBlockers(
+    inventory,
+    DAEMON_STARTUP_BLOCKING_ANOMALIES
   );
 }
 
@@ -416,45 +362,8 @@ export async function waitForSystemServiceStartup(input: {
   state: "running";
   runtimeStatus: DaemonServiceRuntimeStatus;
 }> {
-  const deadlineMs = Date.now() + input.waitMs;
-  while (Date.now() < deadlineMs) {
-    const inventory = await inspectDaemonServiceInventory({
-      expectedVersion: input.expectedVersion,
-      intendedMode: "background",
-      intent: "run_background",
-    }).catch(() => null);
-    if (inventory && isDaemonInventoryRunningAndStartReady(inventory)) {
-      return {
-        state: "running",
-        runtimeStatus: inventory.runtimeStatus,
-      };
-    }
-    await sleep(input.pollMs);
-  }
-
-  const finalInventory = await inspectDaemonServiceInventory({
-    expectedVersion: input.expectedVersion,
-    intendedMode: "background",
-    intent: "run_background",
-  }).catch(() => null);
-  if (finalInventory && isDaemonInventoryRunningAndStartReady(finalInventory)) {
-    return {
-      state: "running",
-      runtimeStatus: finalInventory.runtimeStatus,
-    };
-  }
-
-  const finalRuntimeStatus =
-    await readCurrentObservedDaemonRuntimeStatus().catch(() => null);
-  const finalManagerStatus = await input.manager.status().catch(() => null);
-  // Diagnostic evidence only: explains why startup never became running.
-  // It must not gate or reorder any lifecycle decision above.
-  const finalJobDiagnostics =
-    (await input.manager.readJobDiagnostics?.().catch(() => null)) ?? null;
-  throw new SystemServiceStartupTimeoutError({
-    inventory: finalInventory,
-    managerStatus: finalManagerStatus,
-    runtimeStatus: finalRuntimeStatus,
-    jobDiagnostics: finalJobDiagnostics,
+  return await waitForSystemServiceStartupWithPredicate({
+    ...input,
+    isReady: isDaemonInventoryRunningAndStartReady,
   });
 }

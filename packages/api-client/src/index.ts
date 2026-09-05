@@ -346,6 +346,7 @@ export type {
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceInput,
   RemoveSpaceMembersInput,
+  ResolveSpaceEntryInput,
   SetSpaceAccessModeInput,
   SpaceApi,
   SpaceAttachmentUploadBytes,

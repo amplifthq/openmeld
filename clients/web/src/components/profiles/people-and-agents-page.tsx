@@ -510,7 +510,7 @@ function AgentsWorkspaceHome(input: {
 		activityPresentation.operationalContextByProfileId;
 	const errorByProfileId = useMemo(
 		() =>
-			input.runtimeOverviewQuery.isError && !input.runtimeOverviewQuery.data
+			input.runtimeOverviewQuery.isError
 				? new Map(
 						agentProfiles.map((profile) => [
 							profile.openMeldProfileId,
@@ -521,7 +521,6 @@ function AgentsWorkspaceHome(input: {
 				: EMPTY_AGENT_PROFILE_READINESS_ERROR_BY_PROFILE_ID,
 		[
 			agentProfiles,
-			input.runtimeOverviewQuery.data,
 			input.runtimeOverviewQuery.error?.message,
 			input.runtimeOverviewQuery.isError,
 		]
@@ -718,6 +717,7 @@ function AgentsWorkspaceHomeView(input: {
 	sidebarSelectedProfileId: string | null;
 }) {
 	const workspace = input.input;
+	const wakeAvailabilityNowMs = useMinuteNowMs();
 	return (
 		<AgentProfilesWorkspace
 			activeView={workspace.activeView}
@@ -739,16 +739,16 @@ function AgentsWorkspaceHomeView(input: {
 			profilesStatus={input.profilesStatus}
 			readinessByProfileId={input.readinessByProfileId}
 			readinessErrorByProfileId={input.errorByProfileId}
-			readinessPendingProfileIds={
-				workspace.runtimeOverviewQuery.data
-					? input.pendingProfileIds
-					: EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS
-			}
+			readinessPendingProfileIds={input.pendingProfileIds}
 			renderProfileDetail={(profile) => (
 				<AgentProfilesCard
 					agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 					agentExecutionReadinessByProfileId={input.readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
+					agentExecutionReadinessIsRefreshing={
+						workspace.runtimeOverviewQuery.isFetching === true &&
+						workspace.runtimeOverviewQuery.data !== undefined
+					}
 					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
 					agentProfileActivityNavigationByProfileId={
 						input.activityPresentation.navigationByProfileId
@@ -772,6 +772,7 @@ function AgentsWorkspaceHomeView(input: {
 					recovery={workspace.recovery}
 					serviceUpdatePath={input.accountServiceUpdatePath}
 					setupPath={input.accountComputerSetupPath}
+					wakeAvailabilityNowMs={wakeAvailabilityNowMs}
 				/>
 			)}
 			renderProfilesController={() => (
@@ -779,6 +780,10 @@ function AgentsWorkspaceHomeView(input: {
 					agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 					agentExecutionReadinessByProfileId={input.readinessByProfileId}
 					agentExecutionReadinessErrorByProfileId={input.errorByProfileId}
+					agentExecutionReadinessIsRefreshing={
+						workspace.runtimeOverviewQuery.isFetching === true &&
+						workspace.runtimeOverviewQuery.data !== undefined
+					}
 					agentExecutionReadinessPendingProfileIds={input.pendingProfileIds}
 					agentProfileOperationalContextByProfileId={
 						input.operationalContextByProfileId
@@ -798,6 +803,7 @@ function AgentsWorkspaceHomeView(input: {
 					recovery={workspace.recovery}
 					serviceUpdatePath={input.accountServiceUpdatePath}
 					setupPath={input.accountComputerSetupPath}
+					wakeAvailabilityNowMs={wakeAvailabilityNowMs}
 				/>
 			)}
 			requestPanel={input.requestPanel}
@@ -806,6 +812,17 @@ function AgentsWorkspaceHomeView(input: {
 			showAgentRequests={workspace.isOrganizationContext}
 		/>
 	);
+}
+
+function useMinuteNowMs(): number {
+	const [nowMs, setNowMs] = useState(() => Date.now());
+	useEffect(() => {
+		const intervalId = window.setInterval(() => {
+			setNowMs(Date.now());
+		}, 60_000);
+		return () => window.clearInterval(intervalId);
+	}, []);
+	return nowMs;
 }
 
 function AgentProfileSearchInput(input: {
@@ -983,6 +1000,7 @@ type OrganizationAgentRuntimeOverviewQueryState = {
 	data?: OrganizationAgentRuntimeOverviewResponse;
 	error: { message?: string } | null;
 	isError: boolean;
+	isFetching?: boolean;
 	isPending: boolean;
 };
 
@@ -1034,18 +1052,19 @@ function resolveOrganizationAgentProfileAvailabilityState(input: {
 		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]["readiness"]
 	>;
 }): Exclude<AgentProfileAvailabilityFilter, "all"> {
+	const readiness = input.readinessByProfileId.get(input.profileId);
+	if (readiness) {
+		return resolveAgentWakeAvailabilityDisplayCategory(
+			readiness.agentWakeAvailability
+		);
+	}
 	if (input.pendingProfileIds.has(input.profileId)) {
 		return "checking";
 	}
 	if (input.errorByProfileId.has(input.profileId)) {
-		return "unavailable";
+		return "checking";
 	}
-	const readiness = input.readinessByProfileId.get(input.profileId);
-	return readiness
-		? resolveAgentWakeAvailabilityDisplayCategory(
-				readiness.agentWakeAvailability
-			)
-		: "checking";
+	return "checking";
 }
 
 function buildAuthProfileViewFromOrganizationAgentProfile(
