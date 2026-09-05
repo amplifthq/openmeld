@@ -262,7 +262,7 @@ ${evidence.sources.map((source) => `- ${source.kind}: ${source.url}`).join("\n")
 - Assess removals, restrictions, and parameter changes explicitly; missing inventory is not global retirement evidence.
 - ${verification}
 - Validate the changed OpenMeld create/edit and execution paths. Schema validation below does not prove an actual model call.
-- Follow developing/engineering/agent-native-delivery.md and production-release.md for authorized delivery. Complete the Contract Impact Audit and changelog decision. Catalog changes currently require the CLI release lane; do not bypass it with a Core-only deploy.
+- Follow developing/engineering/agent-native-delivery.md and production-release.md for authorized delivery. Complete the Contract Impact Audit and changelog decision. Online catalog-only changes select Core. Changes to the CLI offline snapshot, schema readers, or controller adapters also require the corresponding local-component release.
 - Keep the evidence file when merging to acknowledge this source revision. Closing this PR without merging declines the same fingerprint; new facts can produce another proposal.
 
 ### Known gaps / changes requiring judgment
