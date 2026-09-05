@@ -15,6 +15,20 @@ Message.
 
 Evidence: pr:645, commit:cef0991aa6629da05d753a49ae3638c37a489754, workflow:33941996083, worker-version:efe5f224-b75a-4744-a08f-220475c34e7e, smoke:chrome:space-profile-popovers-20260905
 
+### Clarify Space activity times and historical profiles
+
+Fixed · people · spaces · web
+
+Space member lists and profile popovers now say "Here 2d ago" to distinguish
+activity in that Space from activity elsewhere in the app. Live status is
+unchanged.
+
+Profiles opened from older messages stay compact when current member details
+are unavailable, without falling back to a table of technical IDs or implying
+an online status.
+
+Evidence: pr:668, commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f, workflow:33953073945
+
 ### Clearer Agent progress and response feedback
 
 Improved · v0.3.158 · spaces · agents · web
@@ -66,6 +80,17 @@ recovery action. Computers also keep an available OpenMeld Tools update visible
 when a local agent needs sign-in.
 
 Evidence: pr:638, commit:0413ec38f72a8185c13c53166df4b062a68f3e0d, tag:v0.3.156, worker-version:efe5f224-b75a-4744-a08f-220475c34e7e, smoke:chrome:focused-agent-status-20260905
+
+### Keep diagnostic records for Web application errors
+
+Improved · web · observability
+
+Web application errors now produce searchable Cloudflare logs with build
+identifiers, error categories, and code locations. Browser reports omit private
+page content and credentials. Hosted Web releases retain private browser source
+maps to help operators investigate errors after an update.
+
+Evidence: pr:667, commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f, workflow:33953073945
 
 ### Keep OpenMeld Tools status clear
 
@@ -125,6 +150,16 @@ New Agent Profile recommendations can be configured independently of runtime
 defaults, while preserving existing selections and remembered preferences.
 
 Evidence: pr:656, pr:658, commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254
+
+### Preserve page loading errors during refresh
+
+Fixed · web
+
+When an older page cannot load a component after an update, automatic refresh
+preserves the original loading error instead of replacing it with a misleading
+missing-component error while the refresh is pending.
+
+Evidence: pr:667, commit:c1ee150e627e974dbb541cd6b8c3db6b673ce73f, workflow:33953073945
 
 ### See clear Wake progress everywhere
 
