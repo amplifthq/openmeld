@@ -10,12 +10,15 @@ import type {
 	SpaceThreadPreview,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
-import { Badge } from "@openmeld/ui/components/badge";
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import {
+	MagnifyingDock,
+	MagnifyingDockItem,
+} from "@openmeld/ui/components/magnifying-dock";
 import { OpenMeldLetterLogoStrong } from "@openmeld/ui/components/openmeld-letter-logo-strong";
 import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
-import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowUpIcon,
@@ -47,6 +50,7 @@ import {
 } from "react";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildActiveWakeConversationItems,
 	hasActiveWakeReplyForSource,
@@ -2393,6 +2397,10 @@ function CenterAgentDirectMessageIntro(input: {
 	showStarterActions: boolean;
 	showStarterComputerSetup: boolean;
 }) {
+	const organization = useOptionalAppOrganization()?.currentOrganization;
+	const organizationHeading = organization
+		? `What should we work on in ${organization.name}?`
+		: "What should we work on?";
 	let starterContent: ReactNode = null;
 	if (input.showStarterComputerSetup && input.computerSetupContext) {
 		starterContent = (
@@ -2413,49 +2421,52 @@ function CenterAgentDirectMessageIntro(input: {
 
 	return (
 		<div
-			className="flex min-h-72 flex-col justify-end pt-12 pb-10"
+			className="mx-auto flex min-h-80 w-full max-w-3xl flex-col items-center justify-center py-12"
 			data-center-agent-direct-message-intro=""
 		>
-			<div className="flex flex-col gap-6">
-				<div className="flex items-end gap-5">
-					<div className="flex h-28 shrink-0 items-center text-foreground">
-						<OpenMeldLetterLogoStrong
-							ariaLabel="OpenMeld O logo"
-							className="translate-y-2"
-							pointerTracking="viewport"
-							size={16}
-						/>
-					</div>
-					<div className="min-w-0 pb-1">
-						<div className="flex min-w-0 items-center gap-2">
-							<h2 className="break-words font-semibold text-3xl text-foreground">
-								Center Agent
-							</h2>
-							<Badge
-								className="h-6 bg-muted px-2 text-muted-foreground uppercase leading-none"
-								variant="outline"
-							>
-								Remote
-							</Badge>
-							<span
-								aria-label="Online"
-								className={cn(
-									"size-3 shrink-0 rounded-full",
-									resolveStatusToneIndicatorClassName("ready", "solid")
-								)}
+			<div className="flex w-full flex-col items-center gap-8">
+				<div className="flex h-20 items-center justify-center text-foreground">
+					<OpenMeldLetterLogoStrong
+						ariaLabel="OpenMeld O logo"
+						pointerTracking="viewport"
+						size={10}
+					/>
+				</div>
+				<h2 className="flex flex-wrap items-center justify-center gap-x-2 gap-y-3 text-center font-medium text-2xl text-foreground leading-relaxed">
+					{input.isPersonalContext ? (
+						<>
+							<span>How should we work with your</span>
+							<MagnifyingDock
+								aria-label="Codex, Claude Code, Grok Build, OpenCode, and Cursor"
+								className="items-center gap-0 -space-x-3 px-1"
+								magnification={1.16}
 								role="img"
-							/>
-						</div>
-					</div>
-				</div>
-				<div className="flex max-w-3xl flex-col gap-4">
-					<p className="text-foreground text-xl leading-8">
-						{input.isPersonalContext
-							? "Your private chat with the Center Agent — your always-on coordinator."
-							: "Your private chat with the Center Agent — your organization's always-on coordinator."}
-					</p>
-					{starterContent}
-				</div>
+							>
+								{[
+									"codex",
+									"claude-code",
+									"grok-build",
+									"opencode",
+									"cursor",
+								].map((agentId) => (
+									<MagnifyingDockItem
+										className="min-h-9 min-w-9 hover:z-10"
+										key={agentId}
+									>
+										<LocalAgentLogo
+											agentId={agentId}
+											className="size-9 rounded-[22%] ring-2 ring-background"
+										/>
+									</MagnifyingDockItem>
+								))}
+							</MagnifyingDock>
+							<span>?</span>
+						</>
+					) : (
+						organizationHeading
+					)}
+				</h2>
+				<div className="w-full">{starterContent}</div>
 			</div>
 		</div>
 	);

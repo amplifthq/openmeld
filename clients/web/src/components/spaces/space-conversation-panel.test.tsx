@@ -2373,7 +2373,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const introHeading = screen.getByRole("heading", {
-			name: "Center Agent",
+			name: "What should we work on?",
 		});
 		const firstMessage = screen.getByText(
 			"Hi Felix. I can help coordinate OpenMeld."
@@ -2397,9 +2397,8 @@ describe("SpaceConversationPanel", () => {
 		const openMeldLogo = screen.getByRole("img", {
 			name: "OpenMeld O logo",
 		});
-		const remoteBadge = screen.getByText("Remote");
-		const onlineDot = screen.getByRole("img", { name: "Online" });
-		const titleRow = introHeading.parentElement;
+		expect(screen.queryByText("Remote")).toBeNull();
+		expect(screen.queryByRole("img", { name: "Online" })).toBeNull();
 
 		expect(openMeldLogo).toBeTruthy();
 		expect(intro).toBeTruthy();
@@ -2408,31 +2407,7 @@ describe("SpaceConversationPanel", () => {
 		expect(intro?.className).not.toContain("px-3");
 		expect(intro?.className).not.toContain("sm:px-8");
 		expect(firstMessageRow?.className).toContain("px-0");
-		expect(openMeldLogo.className).not.toContain("translate-x-1");
-		expect(openMeldLogo.className).toContain("translate-y-2");
-		expect(openMeldLogo.className).not.toContain("-translate-y-0.5");
-		expect(openMeldLogo.getAttribute("style")).toContain("font-size: 16px");
-		expect(openMeldLogo.parentElement?.className).toContain("h-28");
-		expect(openMeldLogo.parentElement?.className).not.toContain("size-28");
-		expect(openMeldLogo.parentElement?.className).not.toContain(
-			"border-border"
-		);
-		expect(openMeldLogo.parentElement?.className).not.toContain("bg-card");
-		expect(openMeldLogo.parentElement?.className).not.toContain("shadow-sm");
-		expect(titleRow?.className).toContain("items-center");
-		expect(titleRow?.className).not.toContain("items-baseline");
-		expect(remoteBadge.getAttribute("data-slot")).toBe("badge");
-		expect(remoteBadge.className).toContain("inline-flex");
-		expect(remoteBadge.className).toContain("items-center");
-		expect(remoteBadge.className).toContain("h-6");
-		expect(remoteBadge.className).toContain("rounded-md");
-		expect(onlineDot.className).toContain("size-3");
-		expect(onlineDot.className).toContain("rounded-full");
-		expect(
-			screen.getByText(
-				"Your private chat with the Center Agent — your organization's always-on coordinator."
-			)
-		).toBeTruthy();
+		expect(screen.getByText("What should we work on?")).toBeTruthy();
 		expect(
 			screen.queryByText('Not sure where to start? Try: "What can you do?"')
 		).toBeNull();
@@ -2491,7 +2466,9 @@ describe("SpaceConversationPanel", () => {
 			timelineItems: [],
 		});
 
-		expect(screen.getByRole("heading", { name: "Center Agent" })).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "What should we work on?" })
+		).toBeTruthy();
 		expect(screen.queryByText("No messages yet")).toBeNull();
 	});
 
@@ -2505,18 +2482,19 @@ describe("SpaceConversationPanel", () => {
 			timelineItems: [],
 		});
 
-		expect(
-			screen.getByText(
-				"Your private chat with the Center Agent — your always-on coordinator."
-			)
-		).toBeTruthy();
+		expect(screen.getByText("How should we work with your")).toBeTruthy();
 		const starterActions = screen.getByRole("group", {
 			name: "Suggested starting points",
 		});
-		expect(starterActions.className).toContain("rounded-md");
 		expect(
-			starterActions.querySelectorAll(".rounded-md").length
-		).toBeGreaterThan(0);
+			within(starterActions)
+				.getAllByRole("button")
+				.map((button) => button.textContent)
+		).toEqual([
+			"Connect my computerBring your local agents into OpenMeld.",
+			"Show me aroundLearn how OpenMeld works and what to do first.",
+			"Start something newTurn a goal into a Space with the right setup.",
+		]);
 	});
 
 	it("sends the exact starter prompt selected by the user", async () => {
@@ -2682,11 +2660,7 @@ describe("SpaceConversationPanel", () => {
 			timelineItems: [createTimelineItem({ text: "Ordinary agent DM" })],
 		});
 
-		expect(
-			screen.queryByText(
-				"Your private chat with the Center Agent — your organization's always-on coordinator."
-			)
-		).toBeNull();
+		expect(screen.queryByText("What should we work on?")).toBeNull();
 		expect(
 			screen.queryByText('Not sure where to start? Try: "What can you do?"')
 		).toBeNull();
@@ -4251,7 +4225,7 @@ describe("SpaceConversationPanel", () => {
 			thinkingIndicator
 				.querySelector("canvas")
 				?.getAttribute("data-space-agent-orb-state")
-		).toBe("working");
+		).toBe("solving");
 		expect(thinkingIndicator.textContent).toContain("runner is working · 12s");
 
 		act(() => {
