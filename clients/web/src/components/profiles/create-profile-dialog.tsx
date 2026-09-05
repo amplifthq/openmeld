@@ -1115,6 +1115,15 @@ function useCreateProfileDialogController(
 			ownerMode,
 		}),
 		agentOwnershipSlot: ownerChoice,
+		agentOwnerAvatar: {
+			userId: ownerMode === "teammate" ? targetOwnerUserId : currentUserId,
+			imageUrl:
+				organizationDirectoryQuery.data?.members.find(
+					(member) =>
+						member.userId ===
+						(ownerMode === "teammate" ? targetOwnerUserId : currentUserId)
+				)?.user.image ?? null,
+		},
 		agentOwnershipSummary: resolveAgentOwnershipSummary({
 			ownerMode,
 			targetOwnerName,
