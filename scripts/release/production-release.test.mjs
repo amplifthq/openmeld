@@ -21,6 +21,7 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const INDEPENDENT_SKILL_BRIDGE_ERROR_RE = /independent Skill bridge/u;
 const SPACE_INVITATION_ORDER_ERROR = /Space invitation/u;
 const CURRENT_WORKER_VERSION_RE =
   /11111111-1111-1111-1111-111111111111 \(100%\)/u;
@@ -1188,6 +1189,45 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]
+  );
+});
+
+test("publishes independent Skill report receivers and public content before the bridge CLI", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/local-components.ts",
+    "clients/openmeld-cli/src/local-components/manifest.ts",
+    "services/core/src/local-components/update-projection.ts",
+  ];
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    sourceSha: REMOTE_SOURCE_SHA,
+  };
+  const plan = buildProductionReleasePlan({
+    ...input,
+    scope: "core,gateway,web,cli",
+  });
+  assert.equal(plan.deployOrderProfile, "local-service-runtime-receiver-first");
+  const labels = plan.deploySteps.map((step) => step.label);
+  assert.ok(
+    labels.indexOf("Deploy Gateway Worker") <
+      labels.indexOf("Publish CLI and deploy its Core release projection")
+  );
+  assert.ok(
+    labels.indexOf("Deploy Web") <
+      labels.indexOf("Publish CLI and deploy its Core release projection")
+  );
+  assert.throws(
+    () => buildProductionReleasePlan({ ...input, scope: "core,cli" }),
+    INDEPENDENT_SKILL_BRIDGE_ERROR_RE
+  );
+  assert.deepEqual(
+    resolveAutomaticReleaseScopes({
+      affectedPackages: [],
+      changedPaths: ["release/openmeld-cli-skill/SKILL.md"],
+    }),
+    ["web"]
   );
 });
 

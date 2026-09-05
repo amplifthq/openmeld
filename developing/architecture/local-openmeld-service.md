@@ -406,12 +406,17 @@ actions. It includes only a bounded excerpt of the preceding output. This
 repair turn does not publish by itself, create a second dispatch, or change the
 Binding's controller-native permission intent.
 
-Immediately before that one repair turn, the Service may restore the bundled
-`openmeld-cli` Skill for only the active controller when its managed copy is
+Before a dispatch and immediately before that one repair turn, the Service may
+restore the locally selected `openmeld-cli` Skill for only the active controller when its managed copy is
 missing or outdated. The Service must use the active lane, hold the normal
 skills lock, and leave any user-owned conflicting file untouched. Skill repair
 is guidance recovery, not execution authority; a failure remains diagnostic
 and must not bypass the dispatch-scoped action checks.
+
+The same local content selection is maintained independently by the existing
+maintenance worker; see [Official CLI Skill delivery](../engineering/official-cli-skill.md).
+Dispatch startup performs no remote download and supplies the installed entry
+path plus the public Markdown fallback. Skill content does not restart Service.
 
 Codex resume may use the smaller per-turn input only when the `thread/resume`
 response proves that `thread.threadSource` matches the exact current

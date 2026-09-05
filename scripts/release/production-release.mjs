@@ -348,6 +348,13 @@ export function expandRequestedReleaseScopes(scope) {
 
 export function resolveAutomaticReleaseScopes(input) {
   const scopes = new Set();
+  if (
+    input.changedPaths.some((path) =>
+      path.startsWith("release/openmeld-cli-skill/")
+    )
+  ) {
+    scopes.add("web");
+  }
   if (input.changedPaths.includes("release/vendor-models.json")) {
     scopes.add("core");
   }
@@ -911,12 +918,25 @@ function assertConnectComputerReleaseScopes(scopes, changedPaths) {
 
 function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {
   return (
-    changedPaths.includes(LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH) &&
-    changedPaths.some((path) =>
-      path.startsWith(LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX)
+    isIndependentSkillBridgeDiff(changedPaths) ||
+    (changedPaths.includes(LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH) &&
+      changedPaths.some((path) =>
+        path.startsWith(LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX)
+      ) &&
+      changedPaths.some((path) =>
+        path.startsWith(LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX)
+      ))
+  );
+}
+
+function isIndependentSkillBridgeDiff(changedPaths) {
+  return (
+    changedPaths.includes("packages/schemas/src/schemas/local-components.ts") &&
+    changedPaths.includes(
+      "clients/openmeld-cli/src/local-components/manifest.ts"
     ) &&
-    changedPaths.some((path) =>
-      path.startsWith(LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX)
+    changedPaths.includes(
+      "services/core/src/local-components/update-projection.ts"
     )
   );
 }
@@ -1005,6 +1025,15 @@ function assertWakeProgressOptInDeployOrder(scopes, changedPaths) {
 }
 
 function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
+  if (
+    isIndependentSkillBridgeDiff(changedPaths) &&
+    scopes.includes("cli") &&
+    !["core", "gateway", "web"].every((scope) => scopes.includes(scope))
+  ) {
+    throw new Error(
+      "The independent Skill bridge requires Core, Gateway, and Web before CLI/Service publication."
+    );
+  }
   if (
     !(
       isLocalServiceRuntimeReceiverFirstDiff(changedPaths) &&
