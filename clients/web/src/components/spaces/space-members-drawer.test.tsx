@@ -111,6 +111,23 @@ const TEST_PANEL_WIDTH = "22rem";
 const noopPanelWidthChange = () => undefined;
 
 describe("SpaceMembersToggleButton", () => {
+	it("keeps the Members control available before the count is confirmed", () => {
+		const onOpenChange = vi.fn();
+		render(
+			<SpaceMembersToggleButton
+				controlsId="space-members-drawer"
+				memberCount={null}
+				onOpenChange={onOpenChange}
+				open={false}
+			/>
+		);
+
+		const button = screen.getByRole("button", { name: "Members" });
+		expect(button.textContent).toBe("");
+		fireEvent.click(button);
+		expect(onOpenChange).toHaveBeenCalledWith(true);
+	});
+
 	it("shows the total member count in the header control", () => {
 		const onOpenChange = vi.fn();
 		render(
@@ -423,7 +440,7 @@ describe("SpaceMembersSidePanel", () => {
 		).toBeTruthy();
 	});
 
-	it("opens the shared Agent Profile editor for an owned Agent member", async () => {
+	it("opens the canonical Agent Profile editor for an owned Agent member", async () => {
 		const agentProfileId = "agt_22222222-2222-4222-8222-222222222222";
 		const queryClient = createTestQueryClient();
 		const primaryBindingResponse = createPrimaryBindingResponse(agentProfileId);
@@ -490,29 +507,22 @@ describe("SpaceMembersSidePanel", () => {
 		);
 
 		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Member options for Research Agent",
-			})
+			screen.getByRole("button", { name: "Check Research Agent Profile" })
 		);
-		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
 
+		const dialog = within(
+			await screen.findByRole("dialog", { name: "Research Agent Profile" })
+		);
 		expect(
-			await screen.findByRole("heading", { name: "Check this Agent" })
-		).toBeTruthy();
-		expect(
-			await screen.findByRole("button", { name: "Edit Collaboration mode" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Edit Permissions" })
-		).toBeTruthy();
-		expect(
-			screen
-				.getByRole("dialog", { name: "Check this Agent" })
-				.querySelector('img[src="https://images.example.test/felix.png"]')
-		).toBeTruthy();
+			dialog
+				.getByRole("link", { name: "Edit Research Agent" })
+				.getAttribute("href")
+		).toBe(`/o/acme/agents?profileId=${agentProfileId}`);
+		expect(dialog.queryByText("How this Agent works")).toBeNull();
+		expect(dialog.queryByText("Check this Agent")).toBeNull();
 	});
 
-	it("keeps a completed Agent Profile save successful when the Space refresh fails", async () => {
+	it("does not expose inline Agent settings in the Space profile popover", async () => {
 		const agentProfileId = "agt_22222222-2222-4222-8222-222222222222";
 		const actorProfileId = "11111111-1111-4111-8111-111111111111";
 		const queryClient = createTestQueryClient();
@@ -520,9 +530,6 @@ describe("SpaceMembersSidePanel", () => {
 		const onSaved = vi.fn(() =>
 			Promise.reject(new Error("Space refresh failed"))
 		);
-		const consoleError = vi
-			.spyOn(console, "error")
-			.mockImplementation(() => undefined);
 		readPrimaryBindingMock.mockResolvedValue(primaryBindingResponse);
 		updatePrimaryBindingAgentControllerCollaborationModeMock.mockResolvedValue({
 			...primaryBindingResponse,
@@ -591,48 +598,22 @@ describe("SpaceMembersSidePanel", () => {
 		);
 
 		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Member options for Research Agent",
-			})
+			screen.getByRole("button", { name: "Check Research Agent Profile" })
 		);
-		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Edit Collaboration mode" })
-		);
-		fireEvent.click(
-			await screen.findByRole("combobox", {
-				name: "Codex collaboration mode",
-			})
-		);
-		fireEvent.click(screen.getByRole("option", { name: "Plan" }));
-		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-		await waitFor(() => {
-			expect(
-				updatePrimaryBindingAgentControllerCollaborationModeMock
-			).toHaveBeenCalledWith({
-				actorProfileId,
-				agentControllerCollaborationMode: "codex:plan",
-				agentProfileId,
-				organizationId: "org-acme",
-			});
-		});
-		expect(onSaved).toHaveBeenCalledWith(agentProfileId);
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("combobox", { name: "Codex collaboration mode" })
-			).toBeNull();
-		});
+		const dialog = within(
+			await screen.findByRole("dialog", { name: "Research Agent Profile" })
+		);
 		expect(
-			screen.getByRole("heading", { name: "Check this Agent" })
-		).toBeTruthy();
-		expect(toastMock.error).toHaveBeenCalledWith(
-			"The Agent was saved, but OpenMeld could not refresh the latest settings. Refresh the page to see them."
-		);
-		expect(consoleError).toHaveBeenCalledWith(
-			"Agent Profile was saved, but current views could not be refreshed.",
-			expect.any(Error)
-		);
+			dialog.queryByRole("button", { name: "Edit Collaboration mode" })
+		).toBeNull();
+		expect(
+			dialog.queryByRole("button", { name: "Edit Permissions" })
+		).toBeNull();
+		expect(dialog.queryByRole("button", { name: "Save changes" })).toBeNull();
+		expect(
+			updatePrimaryBindingAgentControllerCollaborationModeMock
+		).not.toHaveBeenCalled();
 	});
 
 	it("opens a Direct Message from the shared Agent Profile surface", async () => {
@@ -689,11 +670,8 @@ describe("SpaceMembersSidePanel", () => {
 		);
 
 		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Member options for Research Agent",
-			})
+			screen.getByRole("button", { name: "Check Research Agent Profile" })
 		);
-		fireEvent.click(screen.getByRole("menuitem", { name: "Check this Agent" }));
 		fireEvent.click(
 			await screen.findByRole("button", {
 				name: "Chat with Research Agent",
@@ -711,7 +689,7 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
-	it("shows agent permissions mode to every Space member without exposing owner-only connection facts", async () => {
+	it("keeps configuration and owner-only connection facts out of the compact Agent popover", async () => {
 		renderWithQueryClient(
 			<SpaceMembersSidePanel
 				activeWakeWaitingTargetProfileIds={new Set()}
@@ -753,11 +731,14 @@ describe("SpaceMembersSidePanel", () => {
 			screen.getByRole("button", { name: "Check Codex Agent Profile" })
 		);
 
-		expect(await screen.findByText("Permissions mode")).toBeTruthy();
-		expect(screen.getByText("Approve for me")).toBeTruthy();
-		expect(screen.queryByText("Controller conversation ID")).toBeNull();
+		const dialog = within(
+			await screen.findByRole("dialog", { name: "Codex Agent Profile" })
+		);
+		expect(dialog.queryByText("Permissions mode")).toBeNull();
+		expect(dialog.queryByText("Approve for me")).toBeNull();
+		expect(dialog.queryByText("Controller conversation ID")).toBeNull();
 		expect(
-			screen.queryByText("019f07bc-cda8-75e0-94d9-96c82f1333d4")
+			dialog.queryByText("019f07bc-cda8-75e0-94d9-96c82f1333d4")
 		).toBeNull();
 	});
 
@@ -1085,7 +1066,7 @@ describe("SpaceMembersSidePanel", () => {
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
 		expect(within(organization).getByText("Acme Center Agent")).toBeTruthy();
-		expect(within(people).getByText("12 minutes ago")).toBeTruthy();
+		expect(within(people).getByText("12m ago")).toBeTruthy();
 		expect(within(people).getByText("Mira Research")).toBeTruthy();
 		expect(
 			within(people).getByRole("button", {

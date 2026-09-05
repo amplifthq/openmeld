@@ -55,6 +55,7 @@ const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
 const CONNECT_MY_COMPUTER_BUTTON_NAME_PATTERN = /Connect my computer/;
 const MESSAGES_FROM_DATE_MARKER_NAME_PATTERN = /Messages from/;
 const OPEN_DATE_NAVIGATION_NAME_PATTERN = /Open date navigation for/;
+const RUNNER_WORKING_NAME_PATTERN = /runner is working/u;
 
 // The Message Details dialog fetches through `useQuery`. Every test in this
 // file except the ones that open that dialog only checks for the trigger
@@ -90,6 +91,7 @@ vi.mock("@tanstack/react-router", () => ({
 			{children}
 		</a>
 	),
+	useElementScrollRestoration: () => undefined,
 }));
 
 vi.mock("./space-message-center-agent-task-references", () => ({
@@ -1342,7 +1344,17 @@ describe("SpaceConversationPanel", () => {
 			id: `optimistic:center-agent:client-message-1:${TARGET_PROFILE_ID}`,
 			isAgentFinalReply: true,
 			optimisticAgentReplySourceItemId: sourceItem.id,
-			optimisticAgentReplyState: "sending",
+			optimisticAgentReplyProgress: {
+				clientMessageId: "client-message-1",
+				dispatchId: "dispatch-1",
+				message: "Sending message...",
+				phase: "sending",
+				sourceSignalId: sourceItem.id,
+				targetLabel: "Center Agent",
+				targetProfileId: TARGET_PROFILE_ID,
+				terminal: false,
+				updatedAtMs: sourceItem.createdAtMs + 1,
+			},
 			text: "",
 		});
 
@@ -2872,7 +2884,7 @@ describe("SpaceConversationPanel", () => {
 		const wakeIcon = wakeIndicator.querySelector("svg");
 
 		expect(screen.queryByText("Sending...")).toBeNull();
-		expect(wakeIndicator.textContent).toContain("Starting Wake…");
+		expect(wakeIndicator.textContent).toContain("Starting Wake for runner…");
 		expect(wakeIcon).toBeTruthy();
 		expect(wakeIcon?.getAttribute("width")).toBe("20");
 		expect(wakeIcon?.getAttribute("height")).toBe("20");
@@ -2914,8 +2926,10 @@ describe("SpaceConversationPanel", () => {
 		expect(screen.queryByTestId("space-wake-thinking-row")).toBeNull();
 	});
 
-	it("keeps one stable working Center Agent answer shell across transport phases", () => {
+	it("keeps one stable Center Agent answer shell while its phase advances", () => {
 		const createdAtMs = Date.UTC(2026, 4, 27, 10, 0, 7);
+		vi.useFakeTimers();
+		vi.setSystemTime(createdAtMs + 2000);
 		const onWakeStopRequest = vi.fn();
 		const membersSnapshot = createSpaceMembersSnapshot({
 			agents: [
@@ -2957,7 +2971,7 @@ describe("SpaceConversationPanel", () => {
 			throw new Error("Expected the optimistic Center Agent reply shell.");
 		}
 		const progressRow = within(optimisticReply).getByTestId(
-			"space-message-progress-row"
+			"space-wake-thinking-row"
 		);
 		const controlSlot = within(optimisticReply).getByTestId(
 			"space-message-progress-control-slot"
@@ -2970,12 +2984,10 @@ describe("SpaceConversationPanel", () => {
 		expect(within(optimisticReply).getByText("Center Agent")).toBeTruthy();
 		expect(
 			within(progressRow).getByRole("status", {
-				name: "Agent is working",
+				name: "Starting Wake for runner…",
 			}).textContent
-		).toContain("Agent is working");
-		expect(
-			progressRow.querySelector('[data-slot="animated-mobius-icon"]')
-		).toBeTruthy();
+		).toContain("Starting Wake for runner…");
+		expect(progressRow.querySelector("svg")).toBeTruthy();
 		expect(progressInset).toBeNull();
 		expect(answerSurface?.className).toContain("px-0");
 		expect(answerSurface?.className).toContain("py-0");
@@ -2984,7 +2996,7 @@ describe("SpaceConversationPanel", () => {
 			answerSurface?.querySelector('[data-slot="space-message-body"]')
 		).toBeNull();
 		expect(controlSlot.childElementCount).toBe(0);
-		expect(screen.queryByText("Starting Wake…")).toBeNull();
+		expect(screen.queryByText("Sending to Agent…")).toBeNull();
 
 		view.rerender(
 			<SpaceConversationPanel
@@ -3018,9 +3030,9 @@ describe("SpaceConversationPanel", () => {
 		expect(persistedSendingReply).toBe(optimisticReply);
 		expect(
 			within(persistedSendingReply as HTMLElement).getByRole("status", {
-				name: "Agent is working",
+				name: "Starting Wake for runner…",
 			}).textContent
-		).toContain("Agent is working");
+		).toContain("Starting Wake for runner…");
 
 		view.rerender(
 			<SpaceConversationPanel
@@ -3060,9 +3072,9 @@ describe("SpaceConversationPanel", () => {
 		).toBe(controlSlot);
 		expect(
 			within(updatedOptimisticReply as HTMLElement).getByRole("status", {
-				name: "Agent is working",
+				name: RUNNER_WORKING_NAME_PATTERN,
 			}).textContent
-		).toContain("Agent is working");
+		).toContain("runner is working");
 		expect(
 			within(updatedOptimisticReply as HTMLElement).getByRole("button", {
 				name: "Stop Wake for @runner",
@@ -3072,6 +3084,8 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("advances the Center Agent answer shell from polled Wake progress", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(Date.UTC(2026, 4, 27, 10, 0, 22));
 		renderSpaceConversationPanel({
 			ephemeralActivityItems: [],
 			isCenterAgentDirectMessage: true,
@@ -3110,9 +3124,9 @@ describe("SpaceConversationPanel", () => {
 		}
 		expect(
 			within(optimisticReply).getByRole("status", {
-				name: "Agent is working",
+				name: RUNNER_WORKING_NAME_PATTERN,
 			}).textContent
-		).toContain("Agent is working");
+		).toContain("runner is working");
 	});
 
 	it("renders completed Agent Activity once inside its durable reply", () => {
@@ -3259,7 +3273,9 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		const progressRow = screen.getByTestId("space-message-progress-row");
+		const progressRow = screen.getByRole("status", {
+			name: "Agent is working",
+		});
 		const progressInset = progressRow.closest(
 			'[data-slot="space-message-row-progress-inset"]'
 		);
@@ -3344,7 +3360,9 @@ describe("SpaceConversationPanel", () => {
 		const messageBubble = document.querySelector(
 			'[data-signal-id="stream:submission-1"]'
 		);
-		const progressRow = screen.getByTestId("space-message-progress-row");
+		const progressRow = screen.getByRole("status", {
+			name: "Agent is working",
+		});
 		const progressInset = progressRow.closest(
 			'[data-slot="space-message-row-progress-inset"]'
 		);
@@ -4016,10 +4034,17 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(profileHeader);
 
 		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.getByText("Check this Profile")).toBeTruthy();
-		expect(dialog.getAllByText("Felix").length).toBeGreaterThan(0);
-		expect(dialog.getAllByText("Person").length).toBeGreaterThan(0);
-		expect(dialog.getByText(profileId)).toBeTruthy();
+		expect(dialog.getByText("Felix")).toBeTruthy();
+		expect(dialog.getByText("You")).toBeTruthy();
+		expect(dialog.getByText("Now")).toBeTruthy();
+		expect(
+			dialog
+				.getByRole("link", { name: "View Felix profile" })
+				.getAttribute("href")
+		).toBe(`/o/acme/people?profileId=${profileId}`);
+		expect(dialog.queryByText("Check this Profile")).toBeNull();
+		expect(dialog.queryByText("Person")).toBeNull();
+		expect(dialog.queryByText(profileId)).toBeNull();
 	});
 
 	it("opens the exact structured Wake target from an inline Agent mention", () => {
@@ -4059,16 +4084,20 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("keeps historical profile headers passive when the member entry is unavailable", () => {
+	it("opens historical profile identity before the member directory is available", () => {
 		renderSpaceConversationPanel({
 			membersSnapshot: null,
 			timelineItems: [createTimelineItem()],
 		});
 
-		expect(
-			screen.queryByRole("button", { name: "Check Felix Profile" })
-		).toBeNull();
-		expect(screen.getByText("Felix")).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Check Felix Profile" })
+		);
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.getByText("Check this Profile")).toBeTruthy();
+		expect(dialog.getAllByText("Felix").length).toBeGreaterThan(0);
+		expect(dialog.getByText("human-profile-1")).toBeTruthy();
 	});
 
 	it("shows agent controller metadata without owner repetition", () => {
@@ -4215,13 +4244,13 @@ describe("SpaceConversationPanel", () => {
 				.querySelector("canvas")
 				?.getAttribute("data-space-agent-orb-state")
 		).toBe("solving");
-		expect(thinkingIndicator.textContent).toContain("Agent is working · 12s");
+		expect(thinkingIndicator.textContent).toContain("runner is working · 12s");
 
 		act(() => {
 			vi.advanceTimersByTime(1000);
 		});
 
-		expect(thinkingIndicator.textContent).toContain("Agent is working · 13s");
+		expect(thinkingIndicator.textContent).toContain("runner is working · 13s");
 	});
 
 	it("shows a Stop intent before Wake progress arrives", () => {

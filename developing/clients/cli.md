@@ -1362,6 +1362,16 @@ Agent View returns the canonical resolution plus one structured `viewAction`;
 Human View states one cause and one practical next action. The command never
 joins a Space, changes selected Profile state, prompts for a password, or
 invents a join-request capability.
+
+`space link <space-id>` is the passive, local link builder for the same public
+Space-entry target. Optional `--signal` and `--thread-root-signal` selectors
+produce a message or Thread-message destination without contacting Core,
+requiring authentication, starting OpenMeld Service, or changing local Profile
+state. Human View prints the link and states that access is still checked.
+Agent View returns the canonical target, URL, `grantsAccess: false`, and an exact
+`space access` continuation command. It must use the shared target schema and
+link builder rather than manually concatenating a Web route.
+
 `space history --kind text --brief` is the narrow check for readable recent
 conversation history without presence-event noise. Brief mode caps every
 message body at 1,200 Unicode code points, reports the original character count

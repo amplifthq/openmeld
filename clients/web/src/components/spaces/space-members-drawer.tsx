@@ -175,11 +175,14 @@ type SpaceMembersSurfaceProps = {
 
 export function SpaceMembersToggleButton(input: {
 	controlsId: string;
-	memberCount: number;
+	memberCount: number | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
-	const memberLabel = `${String(input.memberCount)} member${input.memberCount === 1 ? "" : "s"}`;
+	const memberLabel =
+		input.memberCount === null
+			? "Members"
+			: `${String(input.memberCount)} member${input.memberCount === 1 ? "" : "s"}`;
 	return (
 		<Tooltip>
 			<TooltipTrigger
@@ -187,7 +190,11 @@ export function SpaceMembersToggleButton(input: {
 					<Button
 						aria-controls={input.controlsId}
 						aria-expanded={input.open}
-						aria-label={`Members, ${String(input.memberCount)} total`}
+						aria-label={
+							input.memberCount === null
+								? "Members"
+								: `Members, ${String(input.memberCount)} total`
+						}
 						onClick={() => input.onOpenChange(!input.open)}
 						size="sm"
 						type="button"
@@ -198,7 +205,9 @@ export function SpaceMembersToggleButton(input: {
 							className="size-4"
 							data-icon="users-three"
 						/>
-						<span className="tabular-nums">{input.memberCount}</span>
+						{input.memberCount === null ? null : (
+							<span className="tabular-nums">{input.memberCount}</span>
+						)}
 					</Button>
 				}
 			/>

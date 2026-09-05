@@ -88,6 +88,7 @@ export type ListAccountSpacesFromSpaceIndexInput = {
   scope: AccountSpaceIndexQuery["scope"];
   selectedProfileId: string;
   limit: number;
+  includeDirectMessageProfileIds?: boolean;
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
 };
@@ -145,6 +146,7 @@ type SpaceIndexJoinedRow = {
 };
 
 type AccountSpaceIndexItemDraft = AccountSpaceIndexItem & {
+  directMessagePairKey: string | null;
   openProfileRankMs: number;
   spaceNameSnapshot: string | null;
 };
@@ -1753,6 +1755,8 @@ function buildAccountSpaceItems(
         row.space_id,
         createAccountSpaceItemDraft({
           gatewayHost: input.gatewayHost,
+          includeDirectMessageProfileIds:
+            input.includeDirectMessageProfileIds === true,
           includePurposes: input.includePurposes === true,
           joinedProfile,
           openProfileRankMs,
@@ -1778,6 +1782,7 @@ function buildAccountSpaceItems(
   return Array.from(bySpaceId.values())
     .map(
       ({
+        directMessagePairKey: _directMessagePairKey,
         openProfileRankMs: _openProfileRankMs,
         spaceNameSnapshot: _spaceNameSnapshot,
         ...item
@@ -1789,6 +1794,7 @@ function buildAccountSpaceItems(
 
 function createAccountSpaceItemDraft(input: {
   gatewayHost: string;
+  includeDirectMessageProfileIds: boolean;
   includePurposes: boolean;
   joinedProfile: AccountSpaceIndexJoinedProfile;
   openProfileRankMs: number;
@@ -1802,6 +1808,7 @@ function createAccountSpaceItemDraft(input: {
     creatorProfileName: input.row.creator_profile_name ?? null,
     gatewayHost: input.gatewayHost,
     joinedProfiles: [input.joinedProfile],
+    directMessagePairKey: input.row.direct_message_pair_key,
     lastJoinedAt: input.joinedProfile.lastJoinedAt,
     lastSeenTs: input.row.overlay_last_seen_ts ?? input.row.last_entered_at_ms,
     openProfileRankMs: input.openProfileRankMs,
@@ -1826,6 +1833,14 @@ function createAccountSpaceItemDraft(input: {
             input.row.direct_message_converted_at_ms
           ),
           spacePurpose: input.row.space_purpose ?? null,
+        }
+      : {}),
+    ...(input.includeDirectMessageProfileIds
+      ? {
+          directMessageProfileIds: resolveDirectMessageProfileIds({
+            directMessagePairKey: input.row.direct_message_pair_key,
+            spacePurpose: input.row.space_purpose,
+          }),
         }
       : {}),
     spaceUpdatedAt: timestampMsToIsoOrNull(input.row.space_updated_at_ms),
@@ -1888,6 +1903,23 @@ function mergeAccountSpaceItemDraft(input: {
       timestampMsToIso(input.updatedAtMs)
     ),
   };
+}
+
+function resolveDirectMessageProfileIds(input: {
+  directMessagePairKey: string | null;
+  spacePurpose: string | null;
+}): [string, string] | null {
+  if (
+    input.spacePurpose !== OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE ||
+    input.directMessagePairKey === null
+  ) {
+    return null;
+  }
+  const pair = input.directMessagePairKey.split(":");
+  if (!(pair[0] && pair[1]) || pair.length !== 2 || pair[0] === pair[1]) {
+    return null;
+  }
+  return [pair[0], pair[1]];
 }
 
 function resolveLatestNullableTimestamp(

@@ -1067,6 +1067,17 @@ Core. CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, Wake dispatch,
 Space actions, diagnostics, and local-component contract versions are
 unchanged.
 
+Account Space Index also supports the additive
+`includeDirectMessageProfileIds=true` opt-in. For an unconverted two-party
+Direct Message it returns the canonical two Profile ids already present in the
+Space Index pair key; other rows return `null`. This is a bounded presentation
+projection for resolving sidebar identity through the Organization Profile
+Directory, not membership or access authority. Strict older clients omit the
+flag and keep their prior response shape. Roll out schemas, Core, Gateway, and
+Web receiver-first; rollback removes the Web flag before the Gateway and Core
+field support. No D1, CLI, Service, daemon, runtime, or local-component contract
+change is required.
+
 ### Organization Logo Contracts
 
 `packages/schemas/src/schemas/http/organization-logo.ts` owns the Organization
@@ -1566,13 +1577,14 @@ Contract Impact Audit:
 
 `packages/schemas/src/schemas/protocol/envelope.ts` owns Space live WebSocket
 frames that cross Core/Space and browser clients. Live invalidation frames such
-as `space.members.changed`, `space.meta.changed`, and
-`agent.readiness.invalidated` are transport signals, not durable state.
+as `space.members.changed`, `space.meta.changed`,
+`agent.readiness.invalidated`, and `wake.progress.changed` are transport
+signals, not durable state.
 
 Rules:
 
-- Core/Space may emit an invalidation frame after a membership, metadata, or
-  readiness owner changes facts.
+- Core/Space may emit an invalidation frame after a membership, metadata,
+  readiness, or RuntimeCoordinator Wake-progress owner changes facts.
 - Clients may use the frame to trigger a targeted read-model refresh.
 - The authoritative facts remain the Space members snapshot, Space status
   snapshot, Core Wake/readiness projections, and their shared schemas.
@@ -1585,6 +1597,10 @@ Rules:
 - A missed invalidation frame must be recoverable by the next snapshot read.
 - `space.meta.changed` triggers a Space status and Space Index refresh. It does
   not carry metadata state and does not imply that membership changed.
+- `wake.progress.changed` may carry only selectors such as Agent Profile IDs
+  and client message IDs. It never carries a phase, outcome, interaction,
+  eligibility decision, or user-facing status. Web uses it to refresh the
+  Core-owned active Wake progress projection.
 
 The Space-name request field and `space.meta.changed` topic are additive,
 cloud-only contracts. Deploy Core first, then Gateway, then Web: an older Core
@@ -3907,7 +3923,8 @@ mixed-version opt-in: clients request authoritative elapsed-time timing with
 `includeWaitReason=true`, and Stop eligibility with
 `includeWakeStopEligibility=true` on Wake progress and active Wake progress
 reads. Public source context is similarly requested with
-`includeSourceContext=true`. Core must omit each field when the corresponding
+`includeSourceContext=true`, and live reply preview text with
+`includePreviewText=true`. Core must omit each field when the corresponding
 request does not opt in, so new Core does not break older strict clients. `startedAtMs` is the
 authoritative execution start anchor while `updatedAtMs` remains freshness and
 ordering evidence. A new client must omit elapsed time when `startedAtMs` is
@@ -5691,6 +5708,14 @@ Organization nonmembers may receive the bounded Space name and creator contact
 needed for a useful blocked state. Anonymous visitors and authenticated
 outsiders receive no private Space or Organization context. A missing or
 inconsistent owner fact is omitted instead of being guessed.
+
+`packages/space` owns the pure public path and URL builder for a validated
+`SpaceEntryTarget`. The builder emits the tenant-neutral `/spaces/<space-id>`
+route with optional `signalId` and `threadRootSignalId`; it does not add a
+Profile, Organization slug, password, token, or access outcome. Web share
+surfaces and CLI Agent/Human View reuse this builder so a copied destination has
+one cross-client form while authorization remains owned by the resolver and
+the eventual read endpoint.
 
 ## Protected Space Access Contract
 

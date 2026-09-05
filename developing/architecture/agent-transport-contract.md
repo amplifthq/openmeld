@@ -966,6 +966,19 @@ A missed frame must be recoverable by the next snapshot/readiness read. A frame
 with no affected Agent Profile IDs should be ignored instead of causing a broad
 refresh.
 
+### Wake Progress Invalidation Lifecycle
+
+RuntimeCoordinator emits `wake.progress.changed` after its canonical
+per-execution state or per-profile FIFO lifecycle changes. The frame is only a
+refresh signal: it may identify the Space, target Agent Profiles, and source
+client messages, but it must not duplicate the phase, wait reason, pending
+interaction, Stop eligibility, or terminal outcome. Clients refresh the shared
+Wake progress projection to obtain those facts.
+
+Delivery of an invalidation is best-effort and cannot participate in execution
+correctness. Clients recover missed frames by reading the active Wake snapshot
+on mount, focus, and reconnect and through a low-frequency safety refresh.
+
 ### Deleted Profile Identity Verdict
 
 The auth owner's `profile.not_found` answer for a profile id is an

@@ -3,9 +3,20 @@ import {
   buildProfileDetailsSnapshotFromAuthProfile,
   buildProfileDetailsSnapshotFromHumanProfile,
   buildProfileDetailsSnapshotFromSpaceMember,
+  formatSpaceMemberActivityTime,
 } from "../src/profile-details";
 
 describe("Profile Details snapshot", () => {
+  it("keeps Space activity time compact for profile popovers", () => {
+    expect(formatSpaceMemberActivityTime("Seen just now")).toBe("Now");
+    expect(formatSpaceMemberActivityTime("Seen 12 minutes ago")).toBe(
+      "12m ago"
+    );
+    expect(formatSpaceMemberActivityTime("7 hours ago")).toBe("7h ago");
+    expect(formatSpaceMemberActivityTime("Seen 2 days ago")).toBe("2d ago");
+    expect(formatSpaceMemberActivityTime(null)).toBeNull();
+  });
+
   it("builds Human Profile details without inventing account or Organization facts", () => {
     const snapshot = buildProfileDetailsSnapshotFromHumanProfile({
       profileId: "human-grace",

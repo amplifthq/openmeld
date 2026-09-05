@@ -1820,6 +1820,16 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     ok: true;
     spaceId: string;
   }>;
+  rpcBroadcastWakeProgressChanged(input: {
+    agentProfileIds: readonly string[];
+    clientMessageIds: readonly string[];
+    reason: string;
+    spaceId: string;
+  }): Promise<{
+    broadcast: boolean;
+    ok: true;
+    spaceId: string;
+  }>;
   rpcRemoveMembers(
     input: RemoveSpaceMembersInput
   ): Promise<RemoveSpaceMembersResponse>;
@@ -2252,6 +2262,7 @@ export type ListAccountSpacesInput = {
   scope: AccountSpaceIndexQuery["scope"];
   selectedProfileId: string;
   limit?: number;
+  includeDirectMessageProfileIds?: boolean;
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
 };
@@ -2351,6 +2362,7 @@ export type GetSpaceDispatchLookupInput = {
 export type GetSpaceWakeProgressInput = {
   spaceId: string;
   clientMessageId: string;
+  includePreviewText?: boolean;
   includeTiming?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
@@ -2364,6 +2376,7 @@ export type GetSpaceWakeProgressInput = {
 export type GetActiveSpaceWakeProgressInput = {
   spaceId: string;
   includePageInfo?: boolean;
+  includePreviewText?: boolean;
   includeTiming?: boolean;
   includeSourceContext?: boolean;
   includeWaitReason?: boolean;
@@ -17869,6 +17882,8 @@ export async function rpcListAccountSpaces(
     scope,
     selectedProfileId,
     limit,
+    includeDirectMessageProfileIds:
+      input.includeDirectMessageProfileIds === true,
     includeRecentlyDeletedItems: input.includeRecentlyDeletedItems === true,
     includePurposes: input.includePurposes === true,
   });
@@ -19274,6 +19289,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: input.includePreviewText }),
     ...(input.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: input.includeSourceContext }),
@@ -19308,6 +19326,9 @@ export async function rpcGetSpaceWakeProgress(
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: parsed.data.includePreviewText }),
     ...(parsed.data.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: parsed.data.includeSourceContext }),
@@ -19336,6 +19357,9 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: input.includePreviewText }),
     ...(input.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: input.includeSourceContext }),
@@ -19375,6 +19399,9 @@ export async function rpcGetActiveSpaceWakeProgress(
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: parsed.data.includePreviewText }),
     ...(parsed.data.includeSourceContext === undefined
       ? {}
       : { includeSourceContext: parsed.data.includeSourceContext }),

@@ -146,7 +146,7 @@ import type {
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
 import { useSpacePanelWidth } from "./use-space-panel-width";
-import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
+import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 
 const SINGLE_MESSAGE_GROUP_POSITION = {
 	isFirstInGroup: true,
@@ -395,7 +395,7 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 			}),
 		[input.centerAgentProfileId, profileEntriesById]
 	);
-	const profileDetailsDialog = useSpaceProfileDetailsDialog({
+	const profileDetailsDialog = useSpaceProfileDetailsPopover({
 		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entriesByProfileId: profileEntriesById,
@@ -482,7 +482,6 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				latestThreadOccurredAtMs={latestThreadOccurredAtMs}
 				onAgentInteractionResponse={input.onAgentInteractionResponse}
 				onEditAgentProfile={input.onEditAgentProfile}
-				onOpenAgentProfile={profileDetailsDialog.openProfileDetailsById}
 				onOpenMessageDetails={onOpenMessageDetails}
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				onRecoverExecution={messageDetailsItem ? undefined : onRecoverExecution}
@@ -512,7 +511,6 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				}
 				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
 			/>
-			{profileDetailsDialog.profileDetailsDialog}
 			{input.pendingActionSurface}
 			{renderThreadComposer(input)}
 			<ThreadSelectedMessageDetails
@@ -594,6 +592,7 @@ function ThreadSelectedMessageDetails(input: {
 			targetProfileDisplayNamesByProfileId={
 				input.wakeStopTargetLabelsByProfileId
 			}
+			threadRootSignalId={input.activeThread.rootSignalId}
 			wakeFailureTargetContextsByProfileId={
 				panelInput.wakeFailureTargetContextsByProfileId
 			}
@@ -984,7 +983,7 @@ function ThreadTimeline(input: {
 	readScopeKey: string;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
-	onOpenAgentProfile: (profileId: string) => void;
+	onOpenAgentProfile?: (profileId: string) => void;
 	renderAgentProfileTrigger: SpaceAgentProfileTriggerRenderer;
 	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
@@ -1255,7 +1254,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	isPersonalContext: boolean;
 	item: SpaceTimelineItem;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
-	onOpenAgentProfile: (profileId: string) => void;
+	onOpenAgentProfile?: (profileId: string) => void;
 	renderAgentProfileTrigger: SpaceAgentProfileTriggerRenderer;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;

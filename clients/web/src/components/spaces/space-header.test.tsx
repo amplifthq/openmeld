@@ -2,7 +2,10 @@ import type {
 	GetSpaceStatusResponse,
 	SpaceAccessMode,
 } from "@openmeld/schemas/types";
-import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
+import {
+	buildPublicSpaceEntryUrl,
+	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+} from "@openmeld/space";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { SparkleIcon } from "@phosphor-icons/react";
 import {
@@ -21,7 +24,6 @@ import {
 } from "./space-access-editor";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SetupRecallButton } from "./space-onboarding-banner";
-import { buildPublicSpaceShareUrl } from "./space-share-url";
 
 const JOINED_AS_LABEL_TEXT = /Joined as/;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
@@ -456,9 +458,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 
 		const dialog = screen.getByRole("dialog");
-		const expectedShareUrl = buildPublicSpaceShareUrl({
+		const expectedShareUrl = buildPublicSpaceEntryUrl({
 			origin: window.location.origin,
-			spaceId: "space-123",
+			target: { spaceId: "space-123" },
 		});
 		expect(dialog.className).toContain("max-h-[min(42rem,calc(100dvh-2rem))]");
 		expect(dialog.className).toContain("overflow-hidden");

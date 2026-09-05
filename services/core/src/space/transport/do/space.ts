@@ -474,6 +474,7 @@ import type {
   SignalPublishContext,
   SourceDispatchChainContext,
 } from "../../application/types";
+import { projectWakeProgressItemsForClient } from "../../application/wake-progress-client-projection";
 import {
   projectWakeTraceWaterfall,
   resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode,
@@ -6623,6 +6624,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
     }
+    if (input.includePreviewText === true) {
+      url.searchParams.set("includePreviewText", "true");
+    }
     if (input.includeSourceContext === true) {
       url.searchParams.set("includeSourceContext", "true");
     }
@@ -6661,6 +6665,9 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
+    }
+    if (input.includePreviewText === true) {
+      url.searchParams.set("includePreviewText", "true");
     }
     if (input.includeSourceContext === true) {
       url.searchParams.set("includeSourceContext", "true");
@@ -7031,6 +7038,35 @@ export class Space extends DurableObject<CoreBindings> {
       ok: true,
       spaceId: this.spaceId,
     };
+  }
+
+  async rpcBroadcastWakeProgressChanged(input: {
+    agentProfileIds: readonly string[];
+    clientMessageIds: readonly string[];
+    reason: string;
+    spaceId: string;
+  }): Promise<{
+    broadcast: boolean;
+    ok: true;
+    spaceId: string;
+  }> {
+    this.applySpaceRef(input.spaceId);
+    const agentProfileIds = normalizeProfileIds(input.agentProfileIds);
+    const clientMessageIds = normalizeProfileIds(input.clientMessageIds);
+    if (agentProfileIds.length === 0 && clientMessageIds.length === 0) {
+      return { broadcast: false, ok: true, spaceId: this.spaceId };
+    }
+
+    const frame: SpaceLiveInvalidationFrame = {
+      type: "wake.progress.changed",
+      spaceId: this.spaceId,
+      version: await this.nextLiveInvalidationVersion(),
+      ...(agentProfileIds.length > 0 ? { agentProfileIds } : {}),
+      ...(clientMessageIds.length > 0 ? { clientMessageIds } : {}),
+      reason: normalizeOptionalText(input.reason) ?? "wake.progress.changed",
+    };
+    this.broadcast(frame);
+    return { broadcast: true, ok: true, spaceId: this.spaceId };
   }
 
   async rpcReconcileDeletedAgentProfileMember(input: {
@@ -9245,6 +9281,7 @@ export class Space extends DurableObject<CoreBindings> {
         const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
           spaceId: this.spaceId,
           includePageInfo: url.searchParams.get("includePageInfo"),
+          includePreviewText: url.searchParams.get("includePreviewText"),
           includeTiming: url.searchParams.get("includeTiming"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
@@ -9278,6 +9315,7 @@ export class Space extends DurableObject<CoreBindings> {
               db,
               includePageInfo: parsed.data.includePageInfo === true,
               includeTiming: parsed.data.includeTiming === true,
+              includePreviewText: parsed.data.includePreviewText === true,
               includeSourceContext: parsed.data.includeSourceContext === true,
               includeWaitReason: parsed.data.includeWaitReason === true,
               includeWakeStopEligibility:
@@ -9854,6 +9892,7 @@ export class Space extends DurableObject<CoreBindings> {
           spaceId: this.spaceId,
           clientMessageId: url.searchParams.get("clientMessageId"),
           includeTiming: url.searchParams.get("includeTiming"),
+          includePreviewText: url.searchParams.get("includePreviewText"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeWakeStopEligibility: url.searchParams.get(
@@ -9876,6 +9915,7 @@ export class Space extends DurableObject<CoreBindings> {
             ),
             clientMessageId: parsed.data.clientMessageId,
             includeTiming: parsed.data.includeTiming === true,
+            includePreviewText: parsed.data.includePreviewText === true,
             includeSourceContext: parsed.data.includeSourceContext === true,
             includeWaitReason: parsed.data.includeWaitReason === true,
             includeWakeStopEligibility:
@@ -15456,6 +15496,7 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     clientMessageId?: string | null;
     includeTiming?: boolean;
+    includePreviewText?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
@@ -15599,10 +15640,14 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
 
-    const responseItems =
+    const contextualItems =
       input.includeSourceContext === true
         ? this.attachWakeProgressSourceContexts(items)
         : items;
+    const responseItems = projectWakeProgressItemsForClient({
+      includePreviewText: input.includePreviewText === true,
+      items: contextualItems,
+    });
     return {
       query: {
         spaceId: this.spaceId,
@@ -15728,6 +15773,7 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     db: D1Database;
     includeTiming?: boolean;
+    includePreviewText?: boolean;
     includePageInfo?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
@@ -15907,10 +15953,13 @@ export class Space extends DurableObject<CoreBindings> {
           targetProfileId,
         },
         ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
-        items:
-          input.includeSourceContext === true
-            ? this.attachWakeProgressSourceContexts(page.items)
-            : page.items,
+        items: projectWakeProgressItemsForClient({
+          includePreviewText: input.includePreviewText === true,
+          items:
+            input.includeSourceContext === true
+              ? this.attachWakeProgressSourceContexts(page.items)
+              : page.items,
+        }),
       };
     }
 
@@ -15958,6 +16007,7 @@ export class Space extends DurableObject<CoreBindings> {
           ...selector,
           actorOwnerUserId: input.actorOwnerUserId,
           includeTiming: input.includeTiming === true,
+          includePreviewText: input.includePreviewText === true,
           includeSourceContext: false,
           includeWaitReason: input.includeWaitReason === true,
           includeWakeStopEligibility: input.includeWakeStopEligibility === true,
@@ -15986,10 +16036,13 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId,
       },
       ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
-      items:
-        input.includeSourceContext === true
-          ? this.attachWakeProgressSourceContexts(activeItems)
-          : activeItems,
+      items: projectWakeProgressItemsForClient({
+        includePreviewText: input.includePreviewText === true,
+        items:
+          input.includeSourceContext === true
+            ? this.attachWakeProgressSourceContexts(activeItems)
+            : activeItems,
+      }),
     };
   }
 
@@ -17131,7 +17184,8 @@ function isSpaceLiveInvalidationFrame(
     (message.type === "space.members.changed" ||
       message.type === "space.meta.changed" ||
       message.type === "space.files.changed" ||
-      message.type === "agent.readiness.invalidated")
+      message.type === "agent.readiness.invalidated" ||
+      message.type === "wake.progress.changed")
   );
 }
 

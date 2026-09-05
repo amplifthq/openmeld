@@ -25,6 +25,7 @@ type SpaceAgentProfileEditContextValue = {
 	context: AgentProfileEditDialogContext | null;
 	modelCatalog: ModelCatalog | null;
 	onOpenDirectMessage: ((profileId: string) => Promise<void>) | null;
+	organizationId: string | null;
 	pendingDirectMessageProfileId: string | null;
 	profilesById: ReadonlyMap<string, AuthProfileView>;
 };
@@ -97,6 +98,7 @@ export function SpaceAgentProfileEditProvider(
 			context: input.context,
 			modelCatalog: input.modelCatalog,
 			onOpenDirectMessage: input.organizationId ? onOpenDirectMessage : null,
+			organizationId: input.organizationId,
 			pendingDirectMessageProfileId,
 			profilesById,
 		}),

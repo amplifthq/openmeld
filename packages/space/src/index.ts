@@ -14,6 +14,10 @@ export {
   toSpaceAccessAuditFields,
 } from "./access/space-access-context";
 export {
+  buildPublicSpaceEntryPath,
+  buildPublicSpaceEntryUrl,
+} from "./access/space-entry-link";
+export {
   listSpaceBareMentionDiagnostics,
   type SpaceBareMentionDiagnostic,
 } from "./authoring/bare-mention-diagnostics";

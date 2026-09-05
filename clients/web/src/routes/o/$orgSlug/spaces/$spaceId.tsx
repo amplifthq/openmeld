@@ -45,6 +45,7 @@ import {
 } from "#/lib/spaces/last-used-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
+import { isQueryCancellationError } from "#/query/query-cancellation";
 import { spaceConversationDisplaySnapshotQueryOptions } from "#/query/spaces/display-snapshot";
 import { spaceStatusQueryOptions } from "#/query/spaces/status";
 
@@ -92,6 +93,9 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 			routeFamily: location.href,
 			spaceId: params.spaceId,
 		}).catch((error: unknown) => {
+			if (isQueryCancellationError(error)) {
+				return;
+			}
 			console.error("Failed to prefetch the Space conversation data.", error);
 		});
 		return { sidebarStates: await sidebarStates };

@@ -401,6 +401,39 @@ describe("directory Human Profile model", () => {
 		]);
 	});
 
+	it("orders an owner's Agent Profiles by recent use before creation time", () => {
+		const rows = buildOrganizationRows({
+			agentProfiles: [
+				buildAgentProfile({
+					agentControllerRef: "builtin:codex",
+					createdAt: "2026-09-04T12:00:00.000Z",
+					ownerUserId: "user-a",
+					profileId: "agent-new",
+					profileName: "New Agent",
+				}),
+				buildAgentProfile({
+					agentControllerRef: "builtin:claude-code",
+					createdAt: "2026-08-01T12:00:00.000Z",
+					lastUsedAt: "2026-09-05T12:00:00.000Z",
+					ownerUserId: "user-a",
+					profileId: "agent-recent",
+					profileName: "Recently Used Agent",
+				}),
+			],
+			messageChannels: buildMessageChannels({
+				connections: [],
+				identityLinks: [],
+			}),
+			messageChannelsStatus: "ready",
+		});
+
+		expect(
+			rows
+				.find((row) => row.userId === "user-a")
+				?.agentProfiles.map((profile) => profile.id)
+		).toEqual(["agent-recent", "agent-new"]);
+	});
+
 	it("adds a team-safe Controller and model selection after runtime data arrives", () => {
 		const rows = buildOrganizationRows({
 			agentProfiles: [
@@ -533,14 +566,18 @@ function buildOrganizationRows(input: {
 
 function buildAgentProfile(input: {
 	agentControllerRef: string;
+	createdAt?: string;
 	isCenterAgent?: boolean;
+	lastUsedAt?: string | null;
 	ownerUserId: string;
 	profileId: string;
 	profileName: string;
 }): OrganizationDirectoryResponse["agentProfiles"][number] {
 	return {
 		avatarUrl: undefined,
+		createdAt: input.createdAt ?? "2026-08-20T00:00:00.000Z",
 		isCenterAgent: input.isCenterAgent,
+		lastUsedAt: input.lastUsedAt ?? null,
 		ownerUserId: input.ownerUserId,
 		profileId: input.profileId,
 		profileName: input.profileName,

@@ -471,7 +471,14 @@ pin order or the normal unread-first and recency order. Web does not create a
 second local read-position, membership, or Inbox source for this presentation.
 The Direct Messages secondary sidebar consumes the same Core-owned grouped
 summary and shows the indicator on the exact unread conversation row. It does
-not derive unread state from route activity or a browser-only counter.
+not derive unread state from route activity or a browser-only counter. The
+Account Space Index may additionally return the two Direct Message Profile ids
+when Web explicitly opts in. The sidebar resolves those ids through the one
+shared Organization Profile Directory query used by People and Agents, so its
+rows reuse the same names, avatars, and Agent Controller icons. It must not fan
+out a full Space members query per conversation. The Profile id pair is
+presentation data only: it does not establish membership or authorize opening
+the conversation.
 The Spaces destination in the outer app rail consumes the Core summary's
 complete `ordinarySpaceUnreadCount` aggregate. It shows one static amber dot
 whenever at least one ordinary Space has unread messages, including while the
@@ -1881,17 +1888,14 @@ when that Session is idle.
 a failed save keeps the draft and its diagnostic visible. Dangerous or
 low-frequency actions remain in the overflow menu. This presentation does not
 create a second Agent Profile, Binding, readiness, request, or edit authority.
-Agent identity controls in messages, Threads, and other in-context collaboration
-surfaces open one compact Profile Details popover. The Members panel opens the
-same content in a larger **Check this Agent** dialog. Both presentations show
-the Agent identity, current Presence and Activity, and a primary **Chat with
-{Agent name}** action. The compact popover omits configuration cards and gives
-the owner one persistent pencil action to open the canonical Agent route; it
-shows no edit affordance to other viewers. The larger dialog keeps the shared
-configuration cards and places **Check more or edit** in the header for the
-owner, or **Check more** for other viewers. Neither presentation adds an
-overflow menu. Owners edit supported settings from the canonical route or the
-dialog cards; other viewers see the same dialog cards read-only.
+Agent identity controls in messages, Threads, and the Members panel open one
+compact Profile Details popover. It shows the Agent identity, current
+availability, and a primary **Chat with {Agent name}** action. The popover omits
+configuration cards and gives the owner one persistent pencil action to open
+the canonical Agent route; it shows no edit affordance to other viewers. It
+does not add a second details dialog or an overflow-menu details action. Owners
+edit supported settings from the canonical route; other viewers keep the
+popover read-only.
 Web must not maintain a separate About-versus-Edit presentation or mutation
 path. Disruptive Controller and working-folder changes keep the account-wide
 execution lock and Core writer guard described below.
@@ -2250,19 +2254,15 @@ that restore-and-history chain. Links from
 the Space Directory carry
 the already selected human profile so the Space bootstrap can start during
 intent preload instead of waiting for a second profile-resolution navigation.
-The button-based Space and Direct Message sidebar rows preload their exact target
-route and conversation data together: a 50 ms pointer dwell avoids warming rows
-that the member only passes over, while keyboard focus and pointer press start
-immediately. The mounted authorized App shell supplies its already resolved
-Organization, storage scope, and acting Human Profile to the conversation-data
-prefetch, so Dexie restoration and the current history request do not wait for the
-Router preload to resolve those same prerequisites again. The Router preload still
-runs in parallel, and every server read keeps the normal authenticated and
-authorized API boundary. Leaving before the dwell cancels the pending preload, and
-the current active conversation does not preload itself. The target remains bound
-to its Organization, Space, and acting Human Profile, so Query deduplication,
-browser history restoration, current history, status, and bootstrap all reuse the
-normal entry path instead of creating a second cache or source of state.
+Space and Direct Message sidebar rows are Router links. The Router's shared
+50 ms intent delay avoids warming rows that the member only passes over and
+invokes the target route loader for pointer or keyboard intent. The exact acting
+Human Profile stays in the target URL, so the loader restores and warms the same
+conversation Query keys used on navigation. Every server read keeps the normal
+authenticated and authorized API boundary, and leaving before the Router's
+intent delay cancels the pending preload. Web does not maintain a second timer,
+prefetch controller, or component-owned conversation-data path beside the route
+loader.
 TanStack Query is the sole freshness owner for loader-prefetched data. The
 Router's preload freshness window is zero, so every loader invocation reaches
 the exact Query key and lets that query's `staleTime`, in-flight deduplication,
@@ -2275,9 +2275,11 @@ preload must not return a different loader result that navigation could render.
 The route disables loader preload and resolves canonical route data only on
 entry. The primary app rail and global launcher may nevertheless prefetch the
 read-only Center Agent DM projection on pointer intent or keyboard focus. When
-that projection identifies an existing DM, Web restores and warms the exact
-Space display snapshot, history, status, and bootstrap Query keys consumed by
-the activated conversation. A missing projection ends prefetch immediately: hover and focus
+that projection identifies an existing DM, Web restores the exact Space display
+snapshot and history, then performs one bootstrap read and seeds the status,
+members, history, and thread Query keys consumed by the activated conversation.
+It must not issue parallel status or recent-history reads for data already
+contained in that bootstrap. A missing projection ends prefetch immediately: hover and focus
 must never call the open endpoint, create a DM, or perform another mutation.
 The stable, read-only DM projection may persist in the approved Organization
 browser-read segment. The full route and compact launcher render that cached
@@ -2302,6 +2304,20 @@ Private, membership-scoped, real-time conversations must not be statically
 prerendered or placed in a shared server cache; intent prefetch, request-scoped
 SSR data, the account-scoped browser cache, and live invalidation are the
 allowed acceleration layers.
+
+TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
+restoration key is the route pathname rather than the individual
+browser-history entry, and the Space message viewport has a stable id derived
+from the Space id. The conversation also records the first visible message and
+its viewport offset after scrolling settles. That account-and-Space-scoped
+semantic anchor is restored after cached history and layout have settled, so
+virtualized or deferred message layout cannot move a returning reader to a
+different message. Returning to the same Space in a tab therefore restores that
+Space's last reading position; different Spaces remain independent, and a
+message-focus search parameter may still move the viewport after restoration.
+Both layers use session storage. This view-local presentation state does not
+belong in the IndexedDB Query cache and is never message, read-cursor, or access
+authority.
 
 ### Browser read-cache persistence
 
@@ -2746,6 +2762,13 @@ access succeeds. A blocked page never reads conversation content to discover
 those targets. A future join-request action extends the resolver's recovery
 tail and returns to this preserved target; it does not create another access
 gate.
+
+Web builds both whole-Space share links and message links through the shared
+public Space-entry link builder. A message link is a secondary action in
+**Message details**, where the user can see and select the full destination;
+it is not another control in the already-dense inline Message Actions row.
+Thread-message links preserve both the selected message Signal and the Thread
+root. Copying a link does not claim or change access.
 
 Authenticated Space app entry uses the selected active OpenMeld Profile from the
 current account. That selected profile can be a Human Profile or an Agent
@@ -3338,7 +3361,10 @@ Message details is one controlled right-side drawer for every visible message,
 not separate ordinary-message and work-message surfaces. The drawer reads the
 shared Message Details response, builds one presentation model, and renders one
 Activity timeline beginning with the actual message preview, author, and sent
-time. Each Wake target receives one Activity row. Transient work updates that
+time. The link section remains available even when the rest of the Message
+Details response is loading or unavailable, because its destination comes from
+the already-visible message identity rather than private detail content. Each
+Wake target receives one Activity row. Transient work updates that
 row in place while the target is active; the recorded reply, failure, stop, or
 other terminal outcome then replaces the transient content in the same row.
 The final status, reply preview, failure explanation, recovery action, and
@@ -3412,6 +3438,15 @@ in the Members surface. When dismissed contextual setup remains recallable,
 trailing edge of the second header row so the Space name remains identifiable;
 it stays visually separate from the **Messages** and **Graph** view control and
 returns to the primary action group at wider breakpoints.
+
+Selecting a Human or Agent identity in a Space opens one compact profile
+popover rather than a table-style details dialog. A Human popover shows the
+short Space-specific activity time from the Space member projection; it does
+not substitute Organization-wide last activity or generic presence copy. An
+ordinary Agent popover may link its owner to the canonical Agent editor. The
+Center Agent is not an ordinary editable Agent Profile: its Space popover has
+no edit action, and its Chat action opens canonical Home instead of creating or
+opening a Direct Message.
 
 The Space header, main conversation rail, contextual setup overlay, and primary
 composer share one responsive inline frame. Its leading inset is the leading
@@ -3501,6 +3536,21 @@ resolver that independently combines dispatch, RuntimeCoordinator, native
 delivery, or reply state. The shared item may include opt-in Space-owned public
 source context for later presentation, but this contract change alone does not
 add a new visible UI surface.
+
+RuntimeCoordinator progress changes reach an open Space through the
+`wake.progress.changed` WebSocket invalidation. Web treats that frame only as a
+targeted prompt to refresh the active Wake progress query; the frame itself is
+never rendered and does not own state. Mount, browser focus, and reconnect also
+refresh the authoritative snapshot. A 15-second initial and 30-second ongoing
+detail refresh remains only as missed-frame recovery, not the normal live-update
+path, and must not trigger unrelated members or Space-status reads.
+
+Web explicitly requests `includePreviewText=true`; the resulting optional
+`previewText` is the only Wake-progress evidence it may render as a live reply
+preview. Core omits that field for clients that do not opt in, which keeps
+rolling strict clients compatible. A `writing` phase without `previewText`
+renders the ordinary concise `is replying` status instead of displaying the
+shared diagnostic `message` as if it were Agent output.
 Any UI that summarizes the active list requests `includePageInfo=true` and
 treats `hasMore=true` as incomplete coverage (for example, `25+` rather than an
 exact count). It must not imply that the bounded first page is the complete set.

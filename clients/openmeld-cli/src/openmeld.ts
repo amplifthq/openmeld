@@ -335,6 +335,7 @@ import {
   runSpaceGuideRead,
   runSpaceGuideSet,
 } from "./space/guide-command";
+import { runSpaceLink } from "./space/link-command";
 import { registerSpaceMemberSelectionOptions } from "./space/member-selection-contract";
 import { runSpaceMembers } from "./space/members-command";
 import { runSpaceMenu } from "./space/menu";
@@ -2679,6 +2680,33 @@ spaceCmd
   });
 
 registerSpaceFilesCommands(spaceCmd);
+
+spaceCmd
+  .command("link")
+  .description("Create a Web link to a Space, message, or thread message.")
+  .argument("[space]", "Space ID (64-character hex)")
+  .option("--signal <id>", "Message signal ID")
+  .option("--thread-root-signal <id>", "Thread root signal ID")
+  .action(async (space, opts, command: Command) => {
+    const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+    const spaceValue = String(space ?? "").trim();
+    if (!spaceValue) {
+      throw new Error(
+        "missing required argument for openmeld space link: <space-id>"
+      );
+    }
+    await runSpaceLink({
+      baseUrl: cliOptions.gatewayUrl,
+      signalId:
+        typeof opts.signal === "string" ? opts.signal.trim() : undefined,
+      space: spaceValue,
+      threadRootSignalId:
+        typeof opts.threadRootSignal === "string"
+          ? opts.threadRootSignal.trim()
+          : undefined,
+      view: getGlobalViewOption(),
+    });
+  });
 
 const spaceActionCmd = spaceCmd
   .command("action")

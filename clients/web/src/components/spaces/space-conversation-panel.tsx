@@ -1,4 +1,7 @@
-import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import type {
+	AgentProfileReplyRecoveryPlan,
+	ProfileDetailsSpaceMemberInput,
+} from "@openmeld/agent-profile";
 import type {
 	ModelCatalog,
 	SpaceInboxUnreadTarget,
@@ -183,12 +186,13 @@ import {
 	type SpaceWakeStopRequestHandler,
 	shouldRenderSpaceWakeStopControl,
 } from "./space-wake-stop-control";
+import { useSpaceConversationPosition } from "./use-space-conversation-position";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
-import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
+import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 
 type SpaceConversationPanelResolvedProps = {
 	activeSpaceView: SpaceView;
@@ -497,16 +501,21 @@ export function SpaceConversationPanel(
 		onSpaceViewChange: input.onSpaceViewChange,
 		onViewingLatestChange: input.onViewingLatestChange,
 		presentedWakeProgressItems: input.presentedWakeProgressItems,
+		selfProfileId: input.selfProfileId,
 		spaceId: input.spaceId,
+		spaceViewIdPrefix: input.spaceViewIdPrefix,
 		threadsByRootSignalId,
 		threadsErrorMessage: input.threadsErrorMessage,
 		threadsIsLoading: input.threadsIsLoading === true,
 		unreadTargets: input.unreadTargets ?? [],
 	});
 	const {
+		conversationAutoScroll,
 		conversationScrollElement,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
+		onConversationScroll,
+		onConversationScrollEnd,
 		onJumpToMessage,
 		registerConversationScrollElement,
 		requestUnreadMeasurement,
@@ -576,8 +585,11 @@ export function SpaceConversationPanel(
 				idPrefix={input.spaceViewIdPrefix}
 				messages={
 					<MessageScrollerProvider
-						autoScroll={true}
+						autoScroll={conversationAutoScroll}
 						defaultScrollPosition="end"
+						key={buildSpaceConversationScrollRestorationId(
+							input.spaceId ?? input.spaceViewIdPrefix
+						)}
 					>
 						<SpaceConversationSendScrollController
 							isSendingMessage={input.isSendingMessage}
@@ -615,10 +627,11 @@ export function SpaceConversationPanel(
 								aria-live="polite"
 								className="h-full py-4"
 								data-scroll-restoration-id={buildSpaceConversationScrollRestorationId(
-									input.spaceId
+									input.spaceId ?? input.spaceViewIdPrefix
 								)}
 								onScroll={(event) => {
 									const conversationScrollElement = event.currentTarget;
+									onConversationScroll(conversationScrollElement);
 									requestUnreadMeasurement();
 									if (conversationScrollElement.scrollTop > 48) {
 										return;
@@ -630,6 +643,9 @@ export function SpaceConversationPanel(
 											error
 										);
 									});
+								}}
+								onScrollEnd={(event) => {
+									onConversationScrollEnd(event.currentTarget);
 								}}
 								ref={registerConversationScrollElement}
 								role="log"
@@ -1133,17 +1149,32 @@ function useSpaceConversationNavigationController(input: {
 	onSpaceViewChange: (view: SpaceView) => void;
 	onViewingLatestChange?: (isViewingLatest: boolean) => void;
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+	selfProfileId: string;
 	spaceId?: string;
+	spaceViewIdPrefix: string;
 	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
 	threadsErrorMessage?: string | null;
 	threadsIsLoading: boolean;
 	unreadTargets: readonly SpaceInboxUnreadTarget[];
 }) {
+	const scrollRestorationId = buildSpaceConversationScrollRestorationId(
+		input.spaceId ?? input.spaceViewIdPrefix
+	);
 	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
 	const unreadMeasurementRequestRef = useRef<() => void>(() => undefined);
 	const [conversationScrollElement, setConversationScrollElement] =
 		useState<HTMLDivElement | null>(null);
 	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
+	const conversationPosition = useSpaceConversationPosition({
+		historyIsPending: input.historyIsPending,
+		messageElementsRef: messageElementsBySignalIdRef,
+		restorationId: scrollRestorationId,
+		selfProfileId: input.selfProfileId,
+		viewport: conversationScrollElement,
+	});
+	const conversationAutoScroll = conversationPosition.autoScroll;
+	const onConversationScroll = conversationPosition.onScroll;
+	const onConversationScrollEnd = conversationPosition.onScrollEnd;
 	const highlightMessageTimerRef = useRef<number | null>(null);
 	const appliedInitialFocusRef = useRef<string | null>(null);
 	const appliedInitialThreadFocusRef = useRef<string | null>(null);
@@ -1427,10 +1458,13 @@ function useSpaceConversationNavigationController(input: {
 	);
 
 	return {
+		conversationAutoScroll,
 		conversationScrollElement,
 		highlightedSignalId,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
+		onConversationScroll,
+		onConversationScrollEnd,
 		onJumpToMessage,
 		registerConversationScrollElement,
 		registerMessageElement,
@@ -2492,11 +2526,12 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 		resolveSpaceMessageContentLayoutClassName({ isSelf: input.run.isSelf });
 	const messageContentPaddingClassName =
 		resolveSpaceMessageContentPaddingClassName({ isSelf: input.run.isSelf });
-	const detailsDialog = useSpaceProfileDetailsDialog({
+	const detailsDialog = useSpaceProfileDetailsPopover({
 		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
 		entry: input.profileDetailsEntry,
 		entriesByProfileId: input.profileEntriesById,
+		fallbackEntry: buildConversationSpeakerProfileDetailsEntry(input.run),
 		modelCatalog: input.modelCatalog,
 		orgSlug: input.orgSlug,
 	});
@@ -2632,23 +2667,18 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 								)}
 							>
 								{index === 0 ? (
-									<>
-										<MessageHeader className="px-0">
-											<ConversationSpeakerHeader
-												centerAgentProfileId={input.centerAgentProfileId}
-												detailsDialog={detailsDialog}
-												isCenterAgentDirectMessage={
-													input.isCenterAgentDirectMessage
-												}
-												run={input.run}
-												selfAvatarImageUrl={input.selfAvatarImageUrl}
-												selfProfileId={input.selfProfileId}
-											/>
-										</MessageHeader>
-										{detailsDialog.profileDetailsPopoverTrigger
-											? null
-											: detailsDialog.profileDetailsDialog}
-									</>
+									<MessageHeader className="px-0">
+										<ConversationSpeakerHeader
+											centerAgentProfileId={input.centerAgentProfileId}
+											detailsDialog={detailsDialog}
+											isCenterAgentDirectMessage={
+												input.isCenterAgentDirectMessage
+											}
+											run={input.run}
+											selfAvatarImageUrl={input.selfAvatarImageUrl}
+											selfProfileId={input.selfProfileId}
+										/>
+									</MessageHeader>
 								) : null}
 								<BubbleGroup className="w-full gap-0">
 									<div
@@ -2712,6 +2742,33 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 	);
 });
 
+function buildConversationSpeakerProfileDetailsEntry(
+	run: SpaceConversationBubbleRun
+): ProfileDetailsSpaceMemberInput | null {
+	if (run.speaker.profileKind === "system") {
+		return null;
+	}
+	return {
+		addedByDisplayName: null,
+		addedByProfileId: null,
+		agentControllerConversationId: null,
+		agentControllerRef: run.speaker.agentControllerRef,
+		availabilityPhase: null,
+		availabilityReasonCode: null,
+		availabilitySummary: null,
+		availabilityTooltip: null,
+		lastSeenLabel: null,
+		mentionLabel: null,
+		ownerDisplay: run.speaker.ownerDisplay,
+		ownerUserId: null,
+		profileId: run.speaker.profileId,
+		profileKind: run.speaker.profileKind,
+		profileName: run.speaker.profileName,
+		runtimeDeviceDisplayName: run.speaker.runtimeDeviceDisplayName,
+		workingDirectory: null,
+	};
+}
+
 function ConversationBubbleContent(input: {
 	agentInteractionItems: ReturnType<
 		typeof resolveSpaceMessageAgentInteractionItems
@@ -2721,7 +2778,7 @@ function ConversationBubbleContent(input: {
 	bubblePresentationClass?: string;
 	canUseMessageActions: boolean;
 	computerSetupContext?: CenterAgentComputerSetupContext;
-	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsPopover>;
 	isHighlighted: boolean;
 	item: SpaceTimelineItem;
 	messageAlign: "start" | "end";
@@ -2759,7 +2816,6 @@ function ConversationBubbleContent(input: {
 				computerSetupSourceSignalId={input.item.id}
 				containerClassName={input.selfMessageContentLayoutClassName}
 				item={input.item}
-				onOpenAgentProfile={input.detailsDialog.openProfileDetailsById}
 				onOpenSpaceFile={parent.onOpenSpaceFile}
 				openMeldProfileId={parent.selfProfileId}
 				orgSlug={parent.orgSlug}
@@ -2829,7 +2885,7 @@ function ConversationBubbleContent(input: {
 
 function ConversationSpeakerHeader(input: {
 	centerAgentProfileId: string | null;
-	detailsDialog: ReturnType<typeof useSpaceProfileDetailsDialog>;
+	detailsDialog: ReturnType<typeof useSpaceProfileDetailsPopover>;
 	isCenterAgentDirectMessage: boolean;
 	run: SpaceConversationBubbleRun;
 	selfAvatarImageUrl: string | null;
@@ -2889,11 +2945,6 @@ function ConversationSpeakerHeader(input: {
 				APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
 				"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 			)}
-			onClick={
-				input.detailsDialog.profileDetailsPopoverTrigger
-					? undefined
-					: input.detailsDialog.openProfileDetails
-			}
 			type="button"
 		>
 			{content}
@@ -2954,7 +3005,7 @@ function resolveSpaceMessageBubbleVisibilityClassName(input: {
 }): string | undefined {
 	return input.showProgressInAnswerArea ||
 		input.item.text.trim().length > 0 ||
-		Boolean(input.item.agentStreamState?.thinking) ||
+		input.item.agentStreamState?.thinking ||
 		input.item.attachments.length > 0 ||
 		(input.item.files?.length ?? 0) > 0
 		? undefined
@@ -2981,7 +3032,7 @@ function resolveSpaceMessageWakeThinkingEntries(input: {
 	wakeProgressState: ReturnType<typeof resolveSpaceMessageWakeProgressState>;
 	wakeStopTargets: ReturnType<typeof resolveSpaceMessageWakeStopTargets>;
 }) {
-	if (input.item.optimisticAgentReplyState !== undefined) {
+	if (input.item.optimisticAgentReplyProgress !== undefined) {
 		return [];
 	}
 	if (input.wakeProgressState.thinkingEntries.length > 0) {
@@ -3044,7 +3095,7 @@ function resolveIsCenterAgentConversationRun(input: {
 	return (
 		input.isCenterAgentDirectMessage ||
 		input.run.items.some(
-			(item) => item.optimisticAgentReplyState !== undefined
+			(item) => item.optimisticAgentReplyProgress !== undefined
 		) ||
 		input.run.speaker.profileId === input.centerAgentProfileId
 	);
@@ -3517,7 +3568,6 @@ function SystemEventRow(input: {
 				tabIndex={-1}
 			>
 				<SpaceOutcomeRow
-					className="max-w-[min(92vw,44rem)]"
 					onOpenDetails={
 						input.readOnly ? null : () => input.onOpenMessageDetails(input.item)
 					}

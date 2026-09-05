@@ -60,6 +60,10 @@ export type DirectoryAgentProfileSummary = {
 	path: string;
 };
 
+type DirectoryAgentProfileSource =
+	| OrganizationProfileDirectoryResponse["agentProfiles"][number]
+	| OrganizationDirectoryResponse["agentProfiles"][number];
+
 export type DirectoryIdentityAccount = {
 	accountEmail: string | null;
 	accountName: string | null;
@@ -138,7 +142,7 @@ export function buildOrganizationHumanProfileRows(input: {
 	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
-	const agentProfilesByOwner = indexAgentProfilesByOwner({
+	const agentProfilesByOwner = buildDirectoryAgentProfilesByOwner({
 		agentProfiles: input.agentProfiles,
 		orgSlug: input.orgSlug,
 		runtimeOverview: input.runtimeOverview,
@@ -335,11 +339,8 @@ function buildPersonalAgentProfileSummaries(input: {
 	return sortAgentProfileSummaries(agentProfiles);
 }
 
-function indexAgentProfilesByOwner(input: {
-	agentProfiles: readonly (
-		| OrganizationProfileDirectoryResponse["agentProfiles"][number]
-		| OrganizationDirectoryResponse["agentProfiles"][number]
-	)[];
+export function buildDirectoryAgentProfilesByOwner(input: {
+	agentProfiles: readonly DirectoryAgentProfileSource[];
 	orgSlug: string;
 	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }): ReadonlyMap<string, readonly DirectoryAgentProfileSummary[]> {
@@ -349,45 +350,95 @@ function indexAgentProfilesByOwner(input: {
 			profile.readiness,
 		])
 	);
-	const profilesByOwner = new Map<string, DirectoryAgentProfileSummary[]>();
+	const sourcesByOwner = new Map<string, DirectoryAgentProfileSource[]>();
 	for (const profile of input.agentProfiles) {
 		if (profile.isCenterAgent === true) {
 			continue;
 		}
-		const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
-		const directoryReadiness =
-			"readiness" in profile ? profile.readiness : null;
-		const readiness =
-			readinessByProfileId.get(profile.profileId) ?? directoryReadiness;
-		const lightweightAgentControllerRef =
-			"agentControllerRef" in profile ? profile.agentControllerRef : null;
-		const agentControllerRef =
-			lightweightAgentControllerRef ??
-			readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
-			readiness?.publicProfileConfiguration?.agentControllerRef ??
-			readiness?.agentControllerRef ??
-			null;
-		profiles.push({
-			agentControllerRef,
-			avatarImageUrl: profile.avatarUrl ?? null,
-			id: profile.profileId,
-			modelSelection:
-				readiness?.primaryBinding?.modelSelection ??
-				readiness?.publicProfileConfiguration?.modelSelection ??
-				null,
-			modelSelectionIsKnown: readiness !== null,
-			name: profile.profileName,
-			path: buildAgentProfilePath({
-				orgSlug: input.orgSlug,
-				profileId: profile.profileId,
-			}),
-		});
-		profilesByOwner.set(profile.ownerUserId, profiles);
+		const profiles = sourcesByOwner.get(profile.ownerUserId) ?? [];
+		profiles.push(profile);
+		sourcesByOwner.set(profile.ownerUserId, profiles);
 	}
-	for (const profiles of profilesByOwner.values()) {
-		sortAgentProfileSummaries(profiles);
+	const profilesByOwner = new Map<
+		string,
+		readonly DirectoryAgentProfileSummary[]
+	>();
+	for (const [ownerUserId, sources] of sourcesByOwner) {
+		const profiles = [...sources]
+			.sort(compareAgentProfileSourceRecency)
+			.map((profile) => {
+				const directoryReadiness =
+					"readiness" in profile ? profile.readiness : null;
+				const readiness =
+					readinessByProfileId.get(profile.profileId) ?? directoryReadiness;
+				const lightweightAgentControllerRef =
+					"agentControllerRef" in profile ? profile.agentControllerRef : null;
+				const agentControllerRef =
+					lightweightAgentControllerRef ??
+					readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
+					readiness?.publicProfileConfiguration?.agentControllerRef ??
+					readiness?.agentControllerRef ??
+					null;
+				return {
+					agentControllerRef,
+					avatarImageUrl: profile.avatarUrl ?? null,
+					id: profile.profileId,
+					modelSelection:
+						readiness?.primaryBinding?.modelSelection ??
+						readiness?.publicProfileConfiguration?.modelSelection ??
+						null,
+					modelSelectionIsKnown: readiness !== null,
+					name: profile.profileName,
+					path: buildAgentProfilePath({
+						orgSlug: input.orgSlug,
+						profileId: profile.profileId,
+					}),
+				};
+			});
+		profilesByOwner.set(ownerUserId, profiles);
 	}
 	return profilesByOwner;
+}
+
+function compareAgentProfileSourceRecency(
+	left: Pick<DirectoryAgentProfileSource, "createdAt" | "lastUsedAt"> & {
+		profileId: string;
+		profileName: string;
+	},
+	right: Pick<DirectoryAgentProfileSource, "createdAt" | "lastUsedAt"> & {
+		profileId: string;
+		profileName: string;
+	}
+): number {
+	const leftActivityAt = resolveAgentProfileActivityTime(left);
+	const rightActivityAt = resolveAgentProfileActivityTime(right);
+	const recencyComparison = rightActivityAt - leftActivityAt;
+	if (recencyComparison !== 0) {
+		return recencyComparison;
+	}
+	const nameComparison = left.profileName.localeCompare(
+		right.profileName,
+		"en",
+		{
+			numeric: true,
+			sensitivity: "base",
+		}
+	);
+	return nameComparison === 0
+		? left.profileId.localeCompare(right.profileId)
+		: nameComparison;
+}
+
+function resolveAgentProfileActivityTime(
+	profile: Pick<DirectoryAgentProfileSource, "createdAt" | "lastUsedAt">
+): number {
+	return Math.max(
+		...[profile.createdAt, profile.lastUsedAt]
+			.filter((value): value is string => Boolean(value))
+			.map((value) => Date.parse(value))
+			.filter((value) => !Number.isNaN(value)),
+		0
+	);
 }
 
 function sortAgentProfileSummaries(
@@ -490,7 +541,7 @@ function resolveDirectoryHumanProfileRole(
 	}
 }
 
-function resolveHumanProfileComputer(input: {
+export function resolveHumanProfileComputer(input: {
 	computers: OrganizationComputersResponse | null;
 	isCurrentUser: boolean;
 	orgSlug: string;

@@ -17,6 +17,7 @@ export type AccountSpaceJoinedProfile = {
 };
 
 export type AccountSpaceItem = {
+	directMessageProfileIds?: readonly [string, string] | null;
 	joinedProfiles: readonly AccountSpaceJoinedProfile[];
 	lastJoinedAt: string;
 	// Optional only for older persisted query-cache entries created before this
@@ -75,6 +76,7 @@ export async function listAccountSpaceItems(input: {
 	return toAccountSpaceSections(
 		await listAccountSpaceIndex({
 			data: {
+				includeDirectMessageProfileIds: true,
 				includePurposes: true,
 				limit: ACCOUNT_SPACE_INDEX_LIMIT,
 				profileId,
@@ -127,6 +129,7 @@ function toAccountSpaceSections(
 
 function toAccountSpaceItem(item: AccountSpaceIndexItem): AccountSpaceItem {
 	return {
+		directMessageProfileIds: item.directMessageProfileIds ?? null,
 		joinedProfiles: item.joinedProfiles,
 		lastJoinedAt: item.lastJoinedAt,
 		lastSeenTs: item.lastSeenTs,

@@ -67,6 +67,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						kind: "status",
 						step: {
 							description: "OpenMeld accepted the Stop request.",
+							kind: "sent",
 							label: "Stop requested",
 							status: "complete",
 						},
@@ -118,6 +119,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						phase: "publishing",
 						step: {
 							description: "OpenMeld is finalizing the reply.",
+							kind: "posting",
 							label: "Finalizing reply",
 							status: "active",
 						},
@@ -141,6 +143,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						phase: "sending",
 						step: {
 							description: "OpenMeld is sending the Wake request.",
+							kind: "starting",
 							label: "Sending to agent",
 							status: "active",
 						},
@@ -205,6 +208,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						elapsedStartedAtMs: null,
 						step: {
 							description: "This agent was included in the Wake.",
+							kind: "sent",
 							label: "Wake started",
 							status: "complete",
 						},
@@ -242,6 +246,7 @@ function createThinkingEntry(
 		phase: input.phase ?? (input.kind === "preview" ? "writing" : "running"),
 		step: input.step ?? {
 			description: "OpenMeld is running the agent.",
+			kind: "working",
 			label: "Agent is working",
 			status: "active",
 		},

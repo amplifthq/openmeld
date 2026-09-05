@@ -164,7 +164,7 @@ export function resolveOrganizationScopeForSession(input: {
 }
 
 export const resolveOrganizationScope = createServerFn({ method: "GET" })
-	.inputValidator((input: unknown) => organizationScopeInputSchema.parse(input))
+	.validator((input: unknown) => organizationScopeInputSchema.parse(input))
 	.handler(async ({ data }): Promise<OrganizationScopeResolution> => {
 		const requestHeaders = getRequestHeaders();
 		const timing = createOrganizationScopeTimingCollector();
@@ -273,7 +273,7 @@ function emitOrganizationScopeTimingEvidenceBestEffort(input: {
 export const resolveActiveOrganizationEntryPath = createServerFn({
 	method: "GET",
 })
-	.inputValidator((input: unknown) =>
+	.validator((input: unknown) =>
 		z
 			.strictObject({
 				routeFamily: z.string().trim().min(1),
@@ -294,7 +294,7 @@ export const resolveActiveOrganizationEntryPath = createServerFn({
 export const resolveOptionalActiveOrganizationEntryPath = createServerFn({
 	method: "GET",
 })
-	.inputValidator((input: unknown) =>
+	.validator((input: unknown) =>
 		z
 			.strictObject({
 				routeFamily: z.string().trim().min(1),
@@ -324,7 +324,7 @@ async function resolveActiveOrganizationEntryPathForRequest(input: {
 export const resolveOptionalActiveOrganizationSlug = createServerFn({
 	method: "GET",
 })
-	.inputValidator((input: unknown) =>
+	.validator((input: unknown) =>
 		z
 			.strictObject({
 				routeFamily: z.string().trim().min(1),
@@ -374,7 +374,7 @@ async function resolveActiveOrganizationForRequest(input: {
 export const resolveActiveOrganizationSpacePath = createServerFn({
 	method: "GET",
 })
-	.inputValidator((input: unknown) =>
+	.validator((input: unknown) =>
 		z
 			.strictObject({
 				profileId: z.string().trim().min(1).optional(),
@@ -415,7 +415,7 @@ export const resolveActiveOrganizationSpacePath = createServerFn({
 export const resolveActiveOrganizationHumanProfilesPath = createServerFn({
 	method: "GET",
 })
-	.inputValidator((input: unknown) =>
+	.validator((input: unknown) =>
 		z
 			.strictObject({
 				routeFamily: z.string().trim().min(1),

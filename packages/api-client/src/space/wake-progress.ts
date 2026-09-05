@@ -18,6 +18,7 @@ export async function getSpaceWakeProgress(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
     clientMessageId: string;
+    includePreviewText?: boolean;
     includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
@@ -27,6 +28,9 @@ export async function getSpaceWakeProgress(
 ): Promise<GetSpaceWakeProgressResponse> {
   const searchParams = new URLSearchParams();
   searchParams.set("clientMessageId", input.clientMessageId);
+  if (input.includePreviewText === true) {
+    searchParams.set("includePreviewText", "true");
+  }
   if (input.includeSourceContext === true) {
     searchParams.set("includeSourceContext", "true");
   }
@@ -63,6 +67,7 @@ export async function getActiveSpaceWakeProgress(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
     includePageInfo?: boolean;
+    includePreviewText?: boolean;
     includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
@@ -74,6 +79,9 @@ export async function getActiveSpaceWakeProgress(
   const searchParams = new URLSearchParams();
   if (input.includePageInfo === true) {
     searchParams.set("includePageInfo", "true");
+  }
+  if (input.includePreviewText === true) {
+    searchParams.set("includePreviewText", "true");
   }
   if (input.includeSourceContext === true) {
     searchParams.set("includeSourceContext", "true");

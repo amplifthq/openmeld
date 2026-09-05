@@ -1512,9 +1512,12 @@ function SpaceLandingReady({
 			currentSpaceIsCenterAgentDirectMessage={
 				currentSpaceIsCenterAgentDirectMessage
 			}
-			isCurrentAccessConfirmed={controller.isCurrentAccessConfirmed}
 			isDesktopMembersPanel={isDesktopMembersPanel}
-			memberCount={controller.status.members.totalCount}
+			memberCount={
+				controller.isCurrentAccessConfirmed
+					? controller.status.members.totalCount
+					: null
+			}
 			onOpenChange={handleMembersOpenChange}
 			open={membersOpen}
 		/>
@@ -1851,16 +1854,12 @@ function resolveSpaceHistoryErrorMessage(
 
 function SpaceLandingMembersControl(input: {
 	currentSpaceIsCenterAgentDirectMessage: boolean;
-	isCurrentAccessConfirmed: boolean;
 	isDesktopMembersPanel: boolean;
-	memberCount: number;
+	memberCount: number | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
-	if (
-		input.currentSpaceIsCenterAgentDirectMessage ||
-		!input.isCurrentAccessConfirmed
-	) {
+	if (input.currentSpaceIsCenterAgentDirectMessage) {
 		return null;
 	}
 	return (
@@ -2494,7 +2493,8 @@ function SpaceLandingSecondaryPanels({
 		currentProfileId: controller.profileId,
 		displayWakeOverrideByProfileId: wakeDisplayOverrideByProfileId,
 		isAgentRecoveryPending: controller.isAgentRecoveryPending,
-		isLoading: controller.isMembersLoading,
+		isLoading:
+			controller.isMembersLoading || !controller.isCurrentAccessConfirmed,
 		membersError: resolveSpaceMembersLoadErrorMessage(controller.membersError),
 		modelCatalog,
 		onAddOrganizationDirectoryProfiles:
@@ -2509,7 +2509,9 @@ function SpaceLandingSecondaryPanels({
 		openAddMembersNonce: addMembersFlashNonce,
 		orgSlug: input.orgSlug,
 		prepareSetupHref,
-		snapshot: controller.membersSnapshot,
+		snapshot: controller.isCurrentAccessConfirmed
+			? controller.membersSnapshot
+			: null,
 		spaceId: controller.spaceId,
 		spaceName: controller.status.name,
 	};

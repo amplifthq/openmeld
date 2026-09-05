@@ -1742,6 +1742,7 @@ export function useSpaceLandingController(input: {
 		const snapshotItemsAtRequestStart = readCurrentWakeProgressItems();
 		createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId })
 			.getActiveWakeProgress({
+				includePreviewText: true,
 				includeTiming: true,
 				includeWaitReason: true,
 				includeWakeStopEligibility: true,
@@ -3749,6 +3750,7 @@ async function refreshWakeStopAfterResponse(input: {
 				openMeldProfileId: input.openMeldProfileId,
 			})
 				.getActiveWakeProgress({
+					includePreviewText: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeWakeStopEligibility: true,
