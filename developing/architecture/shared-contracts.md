@@ -250,6 +250,24 @@ tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
 
+Organization invitation requests use `organizationJoinRequestInputSchema` for
+Web and CLI and a separate trusted RPC envelope for Auth-proven account identity,
+link sponsorship, and successful-delivery acknowledgement. Client payloads cannot
+set reviewers, approval status, or membership. The Inbox request target carries
+only a request ID; its owner checks current authority on every review.
+
+The invitation-approval rollout adds Auth HTTP/Core RPC actions, a scoped link
+field, an Inbox target, and an optional transactional-email purpose. It does not
+change setup, Wake, Service status, trace, or self-rescue contracts. Existing local
+components remain safe: the legacy link acceptance endpoint fails closed with
+`organization.join_link.approval_required` instead of enrolling someone. CLI and
+managed Skills updates are advisory (`available` at release); no runtime contract
+epoch changes are needed. New clients require the new receivers. Use the existing
+`space-invitation-receivers-first` coordinated release: additive Database
+migrations, Core, Auth, then Web and CLI. Keep the receiver/client transition short;
+old Web cannot operate the new Inbox request target. Rolling clients back must
+not restore bearer-link enrollment or remove the additive request data.
+
 `packages/schemas` owns Inbox item, counts, list-filter, direct item read,
 read/unread and Dismiss mutations, delivery preference, structured source
 target, source-event write, and Auth urgent-email RPC contracts. Attention and

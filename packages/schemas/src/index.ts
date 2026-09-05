@@ -82,6 +82,16 @@ export {
   openMeldNavigationTargetSchema,
   openMeldWebUrlSchema,
 } from "./navigation-action";
+export {
+  type OrganizationJoinRequest,
+  type OrganizationJoinRequestInput,
+  type OrganizationJoinRequestResponse,
+  type OrganizationJoinRequestRpcInput,
+  organizationJoinRequestInputSchema,
+  organizationJoinRequestResponseSchema,
+  organizationJoinRequestRpcInputSchema,
+  organizationJoinRequestSchema,
+} from "./organization-join-request";
 export { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "./organization-request-context";
 export {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,

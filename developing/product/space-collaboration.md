@@ -64,6 +64,14 @@ Space can invite a person by email from **Add People or Agents > Invite**.
 Personal Organizations and unconverted Direct Messages do not support this
 action. Existing directory additions remain a separate, immediate operation.
 
+Ordinary Space members can submit an email invitation request or share an
+approval-required link from the same dialog. Core records the Space sponsor;
+an Organization owner/admin reviews Organization entry without needing to join
+the private Space. Approval and acceptance recheck the sponsor's current Space
+and Organization membership. This is one Organization invitation-request flow,
+not a separate Space approval engine. Only direct invitation management requires
+the Organization invitation-create permission.
+
 An invitation is bound to one verified account email and one Space. Opening
 the link never accepts it. The recipient reviews the sender, Organization,
 Space, and ordinary Organization-member role, then explicitly accepts. Login

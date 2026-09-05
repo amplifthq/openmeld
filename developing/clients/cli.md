@@ -149,6 +149,16 @@ isolation, and CI/release workflow belong in
 
 ## Command Model
 
+`openmeld org invitation-requests` uses the signed-in account and the same Auth
+contract as Web. `create --email ... [--space ...]` proposes an invitation;
+`link [--space ...]` ensures an approval-required share link; `request --token ...`
+submits the verified account behind a received link. `list`, `get --request ...`,
+`approve`, `reject`, and `cancel` expose current owner decisions. Agent View
+returns request IDs, status, delivery evidence, and next-action guidance; errors
+retain server codes and exit nonzero. No local Service or speaking Profile is
+required. Approval is not membership. Native email invitation acceptance remains
+the membership boundary.
+
 Keep the command model stable across terminal use, Web handoff, and docs.
 
 ### Local Agent to Center Agent

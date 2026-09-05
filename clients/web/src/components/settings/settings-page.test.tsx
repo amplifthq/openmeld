@@ -48,6 +48,10 @@ vi.mock("@tanstack/react-router", async () => {
 	};
 });
 
+vi.mock("#/query/organizations/invitation-requests", () => ({
+	useInvitationReviewCount: () => ({ data: 0 }),
+}));
+
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
 		currentOrganization,
@@ -133,6 +137,9 @@ describe("Web Settings capability gating", () => {
 			"notifications",
 			"privacy",
 			"general",
+			"members",
+			"invitations",
+			"security",
 		]);
 		expect(ids).not.toContain("service");
 	});
@@ -148,6 +155,9 @@ describe("Web Settings capability gating", () => {
 			"notifications",
 			"privacy",
 			"general",
+			"members",
+			"invitations",
+			"security",
 		]);
 		expect(navItems.map((item) => item.to)).toEqual([
 			testSettingsRoutes.account,
@@ -155,6 +165,9 @@ describe("Web Settings capability gating", () => {
 			testSettingsRoutes.notifications,
 			testSettingsRoutes.privacy,
 			testSettingsRoutes.general,
+			testSettingsRoutes.members,
+			testSettingsRoutes.invitations,
+			testSettingsRoutes.security,
 		]);
 	});
 
@@ -170,6 +183,9 @@ describe("Web Settings capability gating", () => {
 			"notifications",
 			"privacy",
 			"general",
+			"members",
+			"invitations",
+			"security",
 		]);
 	});
 });
@@ -245,7 +261,7 @@ describe("Settings grouped navigation", () => {
 					.getByRole("navigation", { name: "Acme settings" })
 					.querySelectorAll("a")
 			).map((link) => link.textContent)
-		).toEqual(["General"]);
+		).toEqual(["General", "Members", "Invitations", "Security"]);
 	});
 
 	it("uses the shared compact app-nav scale for labels and items", () => {
@@ -352,10 +368,10 @@ describe("Settings grouped navigation", () => {
 		});
 
 		expect(personalItems.personal).toEqual(organizationItems.personal);
-		expect(personalItems.organization).toEqual(organizationItems.organization);
+		expect(personalItems.organization).toEqual(["General"]);
 		expect(organizationItems).toEqual({
 			badges: ["Org", "owner"],
-			organization: ["General"],
+			organization: ["General", "Members", "Invitations", "Security"],
 			organizationLabel: "Acme",
 			personal: [
 				"Account",

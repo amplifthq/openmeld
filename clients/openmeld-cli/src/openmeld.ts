@@ -221,6 +221,7 @@ import {
   runOrgList,
   runOrgSwitch,
 } from "./org/command";
+import { runOrganizationInvitationRequests } from "./org/invitation-requests-command";
 import {
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
@@ -833,6 +834,27 @@ authCmd
 const orgCmd = program
   .command("org")
   .description("Manage OpenMeld organizations.");
+
+orgCmd
+  .command("invitation-requests")
+  .description(
+    "Request invitations, share approval-required links, and review requests."
+  )
+  .argument(
+    "<action>",
+    "create | list | get | approve | reject | cancel | link | request"
+  )
+  .option("--email <email>", "Recipient email for create")
+  .option("--space <id>", "Optional target Space for create or link")
+  .option("--request <id>", "Request ID for get, approve, reject, or cancel")
+  .option("--token <token>", "Shared link token for request")
+  .action(async (action, opts) =>
+    runOrganizationInvitationRequests({
+      action,
+      ...opts,
+      view: getGlobalViewOption(),
+    })
+  );
 
 orgCmd
   .command("list")

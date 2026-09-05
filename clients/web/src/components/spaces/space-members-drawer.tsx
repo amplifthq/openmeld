@@ -69,7 +69,7 @@ import { toast } from "sonner";
 import { Drawer } from "vaul";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
-import { SpaceCreateProfileButton } from "#/components/profiles/space-create-profile-button";
+import { SpacePickerCreateAgent } from "#/components/profiles/space-picker-create-agent";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
 import {
@@ -1199,13 +1199,25 @@ function SpaceAddProfilesSectionView({
 				finalFocus={input.finalFocus}
 				isSubmitting={model.isSubmitting}
 				onAddQueryChange={model.setAddQuery}
-				onAddSuccess={() => model.handleOpenChange(false)}
 				onClear={() => {
 					model.setSelectedProfileIds(new Set());
 					model.clearMessages();
 				}}
+				onCreated={async (profileId) => {
+					try {
+						await model.directoryQuery.refetch({ throwOnError: true });
+						await input.onRefresh({ agentProfileIds: [profileId] });
+						model.setAddQuery("");
+						model.setSelectedProfileIds(
+							(current) => new Set([...current, profileId])
+						);
+					} catch (error) {
+						model.setErrorMessage(
+							`Agent created, but the member list could not refresh. Reopen this picker to select it. ${formatAddProfilesError(error)}`
+						);
+					}
+				}}
 				onOpenChange={model.handleOpenChange}
-				onRefresh={input.onRefresh}
 				onRetryDirectory={() => {
 					model.directoryQuery.refetch().catch((error) => {
 						console.error(
@@ -1317,6 +1329,7 @@ async function executeSpaceAddProfilesMutation(input: {
 }
 
 type SpaceAddProfilesDialogProps = {
+	onCreated: (profileId: string) => Promise<void>;
 	addQuery: string;
 	canSubmit: boolean;
 	candidateGroups: SpaceAddMembersCandidateGroups;
@@ -1329,10 +1342,8 @@ type SpaceAddProfilesDialogProps = {
 	finalFocus: RefObject<HTMLElement | null>;
 	isSubmitting: boolean;
 	onAddQueryChange: (query: string) => void;
-	onAddSuccess: () => void;
 	onClear: () => void;
 	onOpenChange: (open: boolean) => void;
-	onRefresh: (input?: SpaceMembersRefreshInput) => Promise<void>;
 	onRetryDirectory: () => void;
 	onSubmit: () => Promise<void>;
 	onSubmitError: (error: unknown) => void;
@@ -1350,14 +1361,38 @@ type SpaceAddProfilesDialogProps = {
 };
 
 function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
+	const [creating, setCreating] = useState(false);
+	const [busy, setBusy] = useState(false);
 	return (
-		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
+		<Dialog
+			onOpenChange={(open) => {
+				if (busy) {
+					return;
+				}
+				if (!open) {
+					setCreating(false);
+				}
+				input.onOpenChange(open);
+			}}
+			open={input.open}
+		>
 			<DialogContent
-				className="@container sm:max-w-2xl"
+				className="@container flex max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-2xl"
 				finalFocus={input.finalFocus}
 				id={input.dialogId}
 			>
-				<SpaceAddProfilesDialogContent input={input} />
+				{creating ? (
+					<SpacePickerCreateAgent
+						onBack={() => setCreating(false)}
+						onBusyChange={setBusy}
+						onCreated={input.onCreated}
+					/>
+				) : (
+					<SpaceAddProfilesDialogContent
+						input={input}
+						onCreate={() => setCreating(true)}
+					/>
+				)}
 			</DialogContent>
 		</Dialog>
 	);
@@ -1365,8 +1400,10 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 
 function SpaceAddProfilesDialogContent({
 	input,
+	onCreate,
 }: {
 	input: SpaceAddProfilesDialogProps;
+	onCreate: () => void;
 }) {
 	const searchLabel = "Search people and agents";
 	const description = input.usesOrganizationDirectory
@@ -1384,21 +1421,10 @@ function SpaceAddProfilesDialogContent({
 			<DialogDescription>{description}</DialogDescription>
 			{input.spaceId ? (
 				<div className="flex flex-wrap items-center gap-2">
-					<SpaceCreateProfileButton
-						label="New Agent"
-						onAfterJoin={async (profile) => {
-							input.onAddSuccess();
-							await input.onRefresh(
-								profile.profileKind === "agent"
-									? { agentProfileIds: [profile.openMeldProfileId] }
-									: undefined
-							);
-						}}
-						orgSlug={input.orgSlug}
-						primary={true}
-						spaceId={input.spaceId}
-						spaceName={input.spaceName ?? null}
-					/>
+					<Button onClick={onCreate} size="xs">
+						<PlusIcon aria-hidden="true" />
+						New Agent
+					</Button>
 					{input.usesOrganizationDirectory ? (
 						<SpaceInvitationsSection spaceId={input.spaceId} />
 					) : null}

@@ -12,6 +12,7 @@ import {
   ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITED_ERROR_CODE,
   organizationJoinLinkErrorResponseSchema,
   organizationJoinLinkManagementQuerySchema,
+  organizationJoinRequestResponseSchema,
   previewOrganizationJoinLinkQuerySchema,
   previewOrganizationJoinLinkResponseSchema,
   revokeOrganizationJoinLinkResponseSchema,
@@ -54,7 +55,108 @@ const ACCEPT_RATE_LIMITED_RESPONSE =
 
 type JoinLinkPermissionAction = "create" | "read" | "revoke";
 
+async function authorizeLinkScope(
+  c: Context<AppContext>,
+  scope: { organizationId: string; spaceId?: string }
+) {
+  const user = requireAuthenticatedUser(c);
+  const core = c.env.OPENMELD_CORE_WORKER;
+  if (!core) {
+    throw new Error("Core is required for invitation links");
+  }
+  const result = organizationJoinRequestResponseSchema.parse(
+    await core.organizationJoinRequest({
+      userId: user.id,
+      email: user.email,
+      emailVerified: user.emailVerified,
+      request: { action: "authorize_link", ...scope },
+    })
+  );
+  return result.ok ? null : c.json(result, 403);
+}
+
 export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
+  app.post(
+    `${ORGANIZATION_JOIN_LINK_ROUTE}/ensure`,
+    requireTrustedCookieOrigin,
+    authContextMiddleware,
+    async (c) => {
+      const user = c.var.user;
+      if (!user) {
+        return c.json(AUTHENTICATION_REQUIRED_RESPONSE, 401);
+      }
+      const body = organizationJoinLinkManagementQuerySchema.safeParse(
+        await c.req.json().catch(() => null)
+      );
+      if (!body.success) {
+        return c.json(INVALID_INPUT_RESPONSE, 400);
+      }
+      const authorization = await authorizeLinkScope(c, body.data);
+      if (authorization) {
+        return authorization;
+      }
+      const result = await getOrganizationJoinLinkService(c).ensure({
+        actorUserId: user.id,
+        ...body.data,
+      });
+      return c.json({ ok: true, joinLink: result.joinLink });
+    }
+  );
+  app.post(
+    `${ORGANIZATION_JOIN_LINK_ROUTE}/request`,
+    requireTrustedCookieOrigin,
+    authContextMiddleware,
+    async (c) => {
+      const user = c.var.user;
+      if (!user) {
+        return c.json(AUTHENTICATION_REQUIRED_RESPONSE, 401);
+      }
+      const body = acceptOrganizationJoinLinkBodySchema.safeParse(
+        await c.req.json().catch(() => null)
+      );
+      if (!body.success) {
+        return c.json(INVALID_INPUT_RESPONSE, 400);
+      }
+      const rate = await requireJoinLinkAcceptRateLimiter(c).limit({
+        key: `ip:${readClientIpAddress(c.req.raw.headers)}`,
+      });
+      if (!rate.success) {
+        return c.json(ACCEPT_RATE_LIMITED_RESPONSE, 429);
+      }
+      const repository = createDrizzleOrganizationJoinLinkRepository(
+        createD1Db(c.env.OPENMELD_DB)
+      );
+      const link = await repository.findActiveByToken(body.data.token);
+      if (!link) {
+        return c.json(
+          {
+            ok: false,
+            code: "organization.join_link.inactive",
+            message: "This invite link is no longer active.",
+          },
+          404
+        );
+      }
+      const core = c.env.OPENMELD_CORE_WORKER;
+      if (!core) {
+        throw new Error("Core is required for invitation requests");
+      }
+      const result = organizationJoinRequestResponseSchema.parse(
+        await core.organizationJoinRequest({
+          userId: user.id,
+          email: user.email,
+          emailVerified: user.emailVerified,
+          request: {
+            action: "create_from_link",
+            organizationId: link.organizationId,
+            spaceId: link.spaceId ?? undefined,
+            sponsorUserId: link.createdBy,
+          },
+        })
+      );
+      return c.json(result, result.ok ? 200 : 400);
+    }
+  );
   app.get(ORGANIZATION_JOIN_LINK_ROUTE, authContextMiddleware, async (c) => {
     const input = organizationJoinLinkManagementQuerySchema.safeParse(
       c.req.query()
@@ -70,9 +172,16 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
     if (authorization) {
       return authorization;
     }
+    if (input.data.spaceId) {
+      const scopeAuthorization = await authorizeLinkScope(c, input.data);
+      if (scopeAuthorization) {
+        return scopeAuthorization;
+      }
+    }
 
     const joinLink = await getOrganizationJoinLinkService(c).getActive(
-      input.data.organizationId
+      input.data.organizationId,
+      input.data.spaceId
     );
     return c.json(
       getOrganizationJoinLinkResponseSchema.parse({
@@ -102,11 +211,18 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       if (authorization) {
         return authorization;
       }
+      if (input.data.spaceId) {
+        const scopeAuthorization = await authorizeLinkScope(c, input.data);
+        if (scopeAuthorization) {
+          return scopeAuthorization;
+        }
+      }
 
       try {
         const joinLink = await getOrganizationJoinLinkService(c).reset({
           createdBy: requireAuthenticatedUser(c).id,
           organizationId: input.data.organizationId,
+          spaceId: input.data.spaceId,
         });
         return c.json(
           getOrganizationJoinLinkResponseSchema.parse({
@@ -142,7 +258,8 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
       }
 
       const revoked = await getOrganizationJoinLinkService(c).revoke(
-        input.data.organizationId
+        input.data.organizationId,
+        input.data.spaceId
       );
       return c.json(
         revokeOrganizationJoinLinkResponseSchema.parse({

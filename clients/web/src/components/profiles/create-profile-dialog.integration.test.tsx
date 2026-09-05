@@ -1624,9 +1624,7 @@ describe("CreateProfileDialog", () => {
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(addMembersMock).not.toHaveBeenCalled();
 		await waitFor(() => {
-			expect(toastSuccessMock).toHaveBeenCalledWith(
-				"Agent created. Checking its connection now."
-			);
+			expect(toastSuccessMock).toHaveBeenCalledWith("Agent created.");
 		});
 	});
 
