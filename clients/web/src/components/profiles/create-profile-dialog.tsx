@@ -26,6 +26,7 @@ import type {
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Bars } from "@openmeld/ui/components/bars";
+import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -408,6 +409,43 @@ export function LegacyCreateProfileDialog(input: CreateProfileDialogProps) {
 				<CreateProfileForm {...view.formProps} />
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+// Content for an existing picker Dialog. Omit spaceContext so creation never
+// grants Space membership before the picker's final Add selected action.
+export function CreateProfileDialogStep(
+	input: Omit<CreateProfileDialogProps, "spaceContext"> & {
+		onBusyChange: (busy: boolean) => void;
+	}
+) {
+	const view = useCreateProfileDialogController(input, {
+		agentOnly: true,
+		templateNaming: true,
+	});
+	useEffect(() => {
+		input.onBusyChange(view.formProps.isSubmitting);
+		return () => input.onBusyChange(false);
+	}, [input.onBusyChange, view.formProps.isSubmitting]);
+	return (
+		<>
+			<Button
+				className="self-start"
+				disabled={view.formProps.isSubmitting}
+				onClick={() => view.onOpenChange(false)}
+				size="sm"
+				variant="ghost"
+			>
+				Back to people and agents
+			</Button>
+			<DialogHeader>
+				<DialogTitle>{view.title}</DialogTitle>
+				<DialogDescription>
+					Create an Agent, then return to select who to add to this Space.
+				</DialogDescription>
+			</DialogHeader>
+			<AgentProfileGenerator form={view.formProps} surface="dialog" />
+		</>
 	);
 }
 
@@ -2965,7 +3003,7 @@ function showCreatedAgentRequestToast(input: {
 		case "completed":
 			toast.success(
 				input.request.requesterUserId === input.request.targetOwnerUserId
-					? "Agent created. Checking its connection now."
+					? "Agent created."
 					: "Agent created for your teammate."
 			);
 			return;
