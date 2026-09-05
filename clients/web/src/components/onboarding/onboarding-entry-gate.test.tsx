@@ -49,7 +49,7 @@ describe("OnboardingEntryGate", () => {
 		render(
 			<OnboardingEntryGate
 				currentOrganization={currentOrganization}
-				currentSection="spaces"
+				currentSection="space"
 				hasExplicitSpaceDestination
 				organizations={[currentOrganization]}
 				storageScope={storageScope}

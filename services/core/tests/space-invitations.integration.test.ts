@@ -124,6 +124,31 @@ function invitationId(result: SpaceInvitationRpcResult): string {
 }
 
 describe("Space invitation admission", () => {
+  it("rejects expired admission until an authorized sender resends", async () => {
+    const f = await fixture();
+    const id = invitationId(await f.create());
+    await env.OPENMELD_DB.prepare(
+      "UPDATE space_invitations SET expires_at = ? WHERE id = ?"
+    )
+      .bind(Date.now() - 1, id)
+      .run();
+    expect(
+      await f.recipient({ action: "claim", invitationId: id })
+    ).toMatchObject({
+      result: { ok: false, code: "space.invitation.inactive" },
+    });
+    expect(await f.memberStatus()).toBeNull();
+    expect(await f.owner({ action: "resend", invitationId: id })).toMatchObject(
+      {
+        result: { ok: true, invitations: [{ id, status: "pending" }] },
+      }
+    );
+    expect(
+      await f.recipient({ action: "claim", invitationId: id })
+    ).toMatchObject({
+      result: { ok: true, invitations: [{ id, status: "accepting" }] },
+    });
+  });
   it("requires current sender permission, the intended verified recipient, and Organization membership", async () => {
     const f = await fixture();
     const id = invitationId(await f.create());
