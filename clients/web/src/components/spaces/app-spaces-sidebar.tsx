@@ -25,7 +25,7 @@ import {
 	PlusIcon,
 	PushPinIcon,
 } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useSyncExternalStore } from "react";
 import { toast } from "sonner";
@@ -105,6 +105,7 @@ const SPACE_SIDEBAR_PERSISTENT_STATUS_CLASS_NAME =
 type SpaceSidebarActiveWakeSummary = AccountSpaceActiveWakeSummaryItem & {
 	waitReasonCode?: WakeProgressItem["waitReasonCode"];
 	statuses?: readonly WakeProgressStatusPresentation[];
+	hasMore?: boolean;
 };
 
 function subscribeToBrowserEnvironment() {
@@ -183,6 +184,32 @@ export function AppSpacesSidebar(input: {
 		organizationId: currentOrganizationId,
 		profileId: input.currentProfileId,
 	});
+	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
+	const otherActiveSpaceIds = [
+		...new Set(
+			[...sections.pinnedItems, ...sections.spaceItems]
+				.filter(
+					(space) =>
+						space.organizationId === currentOrganizationId &&
+						space.spaceId !== input.currentSpaceId &&
+						ambientActiveWakeSummaryBySpaceId.has(space.spaceId)
+				)
+				.map((space) => space.spaceId)
+		),
+	];
+	const otherActiveSpaceQueries = useQueries({
+		queries: otherActiveSpaceIds.map((spaceId) => ({
+			...spaceActiveWakeProgressSummaryQueryOptions({
+				enabled: input.currentProfileId.trim().length > 0,
+				openMeldProfileId: input.currentProfileId,
+				spaceId,
+			}),
+			// Closed Spaces follow the existing ambient refresh cadence. The open
+			// Space continues to use its live, invalidation-driven projection.
+			refetchInterval: 15_000,
+			refetchIntervalInBackground: false,
+		})),
+	});
 	const currentSpaceWakeProgressPresentationQuery = useQuery(
 		spaceWakeProgressPresentationQueryOptions({
 			openMeldProfileId: input.currentProfileId,
@@ -213,6 +240,24 @@ export function AppSpacesSidebar(input: {
 				currentSpaceActiveWakeProgressSummaryQuery.data?.items ?? [],
 			incomingItems: currentSpaceWakeProgressPresentationQuery.data ?? [],
 		});
+	otherActiveSpaceQueries.forEach((query, index) => {
+		const spaceId = otherActiveSpaceIds[index];
+		if (!(spaceId && query.isSuccess)) {
+			return;
+		}
+		if (query.data.items.length === 0 && !query.data.pageInfo?.hasMore) {
+			activeWakeSummaryBySpaceId.delete(spaceId);
+			return;
+		}
+		activeWakeSummaryBySpaceId.set(spaceId, {
+			...buildSpaceActiveWakeSummary({
+				fallbackSummary: ambientActiveWakeSummaryBySpaceId.get(spaceId),
+				items: query.data.items,
+				spaceId,
+			}),
+			hasMore: query.data.pageInfo?.hasMore,
+		});
+	});
 	if (
 		input.currentSpaceId.trim().length > 0 &&
 		hasVisibleActiveWakeProgress({
@@ -221,7 +266,7 @@ export function AppSpacesSidebar(input: {
 	) {
 		activeWakeSummaryBySpaceId.set(
 			input.currentSpaceId,
-			buildCurrentSpaceActiveWakeSummary({
+			buildSpaceActiveWakeSummary({
 				fallbackSummary: ambientActiveWakeSummaryBySpaceId.get(
 					input.currentSpaceId
 				),
@@ -233,7 +278,6 @@ export function AppSpacesSidebar(input: {
 	const pinMutation = useAccountSpacePinMutation({
 		currentProfileId: input.currentProfileId,
 	});
-	const sections = spacesQuery.data ?? EMPTY_ACCOUNT_SPACE_SECTIONS;
 	const selectedSections = selectAccountSpaceSections({
 		currentOrganizationId,
 		sections,
@@ -715,7 +759,7 @@ function resolveSpaceSidebarOpenButtonClassName(input: {
 	);
 }
 
-function buildCurrentSpaceActiveWakeSummary(input: {
+function buildSpaceActiveWakeSummary(input: {
 	fallbackSummary?: AccountSpaceActiveWakeSummaryItem;
 	items: readonly WakeProgressItem[];
 	spaceId: string;
@@ -796,7 +840,10 @@ function resolveSpaceActiveWakePresentation(
 		if (first) {
 			return {
 				isWaitingForCurrentTask: first.kind === "waiting_for_controller",
-				label: [...new Set(statuses.map((status) => status.label))].join("; "),
+				label: [
+					...new Set(statuses.map((status) => status.label)),
+					...(summary.hasMore ? ["More active tasks in this Space"] : []),
+				].join("; "),
 				orbState: WAKE_STATUS_ORB_STATE[first.kind],
 			};
 		}

@@ -69,6 +69,7 @@ const {
 	appOrganizationMock,
 	getAccountSpaceActiveWakeSummaryMock,
 	getCurrentSpaceInboxSummaryMock,
+	getActiveWakeProgressMock,
 	listAccountSpaceItemsMock,
 	navigateMock,
 	setAccountSpaceItemPinnedMock,
@@ -98,6 +99,7 @@ const {
 	} as AppOrganizationMock,
 	getAccountSpaceActiveWakeSummaryMock: vi.fn(),
 	getCurrentSpaceInboxSummaryMock: vi.fn(),
+	getActiveWakeProgressMock: vi.fn(),
 	listAccountSpaceItemsMock: vi.fn(),
 	navigateMock: vi.fn(),
 	setAccountSpaceItemPinnedMock: vi.fn(),
@@ -151,7 +153,78 @@ vi.mock("#/lib/spaces/account-space-active-wake", () => ({
 	) => getAccountSpaceActiveWakeSummaryMock(...args),
 }));
 
+vi.mock("#/lib/spaces/api", () => ({
+	createUnscopedWebSpaceApi: () => ({
+		getActiveWakeProgress: (...args: unknown[]) =>
+			getActiveWakeProgressMock(...args),
+	}),
+}));
+
 describe("AppSpacesSidebar", () => {
+	it("uses the unopened Space snapshot and removes its marker when its tasks finish", async () => {
+		const queryClient = createSidebarQueryClient();
+		seedCurrentSpaceWakeRace(queryClient);
+		const working = createWakeProgressItem({
+			clientMessageId: "client-beta",
+			dispatchId: "dispatch-beta",
+			phase: "running",
+			sourceSignalId: "signal-beta",
+			targetLabel: "Reviewer",
+			targetProfileId: "agent-beta",
+			updatedAtMs: Date.now(),
+		});
+		const response = {
+			items: [
+				working,
+				{
+					...working,
+					dispatchId: "dispatch-question",
+					targetLabel: "Planner",
+					pendingInteraction: {
+						canRespond: true,
+						expiresAtMs: null,
+						interactionId: "question-beta",
+						kind: "question" as const,
+						request: null,
+						requestedAtMs: Date.now(),
+					},
+				},
+			],
+			pageInfo: { hasMore: false, limit: 50 },
+			query: { spaceId: "space-beta", targetProfileId: null },
+		};
+		getActiveWakeProgressMock.mockResolvedValue(response);
+		renderSidebar(
+			<AppSpacesSidebar
+				currentProfileId="human-1"
+				currentSpaceId="space-alpha"
+			/>,
+			queryClient
+		);
+		expect(
+			await screen.findByRole("button", {
+				name: "Planner needs your input; Reviewer is working. Open Beta",
+			})
+		).toBeTruthy();
+		expect(getActiveWakeProgressMock).toHaveBeenCalledWith(
+			expect.objectContaining({ spaceId: "space-beta" })
+		);
+		getActiveWakeProgressMock.mockResolvedValue({ ...response, items: [] });
+		await act(async () => {
+			await queryClient.invalidateQueries({
+				queryKey: spaceActiveWakeProgressSummaryQueryOptions({
+					enabled: true,
+					openMeldProfileId: "human-1",
+					spaceId: "space-beta",
+				}).queryKey,
+			});
+		});
+		expect(await screen.findByRole("link", { name: "Beta" })).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Beta, active Wake" })
+		).toBeNull();
+	});
+
 	beforeEach(() => {
 		appOrganizationMock.activeOrganization = {
 			id: "org-acme",
@@ -166,6 +239,9 @@ describe("AppSpacesSidebar", () => {
 			slug: "acme",
 		};
 		listAccountSpaceItemsMock.mockReset();
+		getActiveWakeProgressMock
+			.mockReset()
+			.mockRejectedValue(new Error("Snapshot unavailable"));
 		getAccountSpaceActiveWakeSummaryMock.mockReset().mockResolvedValue({
 			generatedAtMs: 0,
 			items: [],
