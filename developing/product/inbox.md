@@ -158,7 +158,9 @@ or tombstone.
 
 The first release creates items for these explicit user-visible events:
 
-1. A visible Space message from another member, with a targeted reply or
+1. A visible Space message, including a Human member's own messages published
+   through CLI or automation without an explicit author read confirmation,
+   with a targeted reply or
    structured Human Mention receiving the more specific source kind.
 2. An Agent or Center Agent reply intended for the member who initiated the
    interaction, a current human member explicitly mentioned by the reply, or
@@ -303,6 +305,18 @@ recent updates. It may say **All caught up** only when there are no unresolved
 actions and no unread items.
 
 ### Space message unread behavior
+
+Authorship does not establish reading. Web composer sends confirm only their
+exact authored message with `authorHasRead: true`; Core omits that author's
+Inbox candidate while preserving all other recipients. The confirmation is
+persisted with the message and its projection intent, so delayed projection
+and idempotent retries cannot recreate a self reminder. It never advances a
+main or thread read-through watermark. CLI sends omit the confirmation by
+default. Unconfirmed self messages use ordinary `space_message` updates even
+when they mention the author or reply to the author's thread; they do not
+escalate to browser delivery or urgent email. Existing historical projections
+are not backfilled. Account ownership and current membership remain the
+recipient authority.
 
 Every Inbox message projection backed by a Space carries its canonical source
 Space id and Signal occurrence time. Web reads one Core summary of at most 500

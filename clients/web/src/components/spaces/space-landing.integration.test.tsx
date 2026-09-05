@@ -1003,7 +1003,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Continue from the compact conversation.",
 				timeoutMs: 30_000,
@@ -9010,7 +9010,7 @@ describe("SpaceLanding", () => {
 					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
 					text: "@Runner please reply",
 				},
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "@Runner please reply",
 				timeoutMs: 30_000,
@@ -9209,6 +9209,7 @@ describe("SpaceLanding", () => {
 				},
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@Runner for context",
@@ -9284,7 +9285,7 @@ describe("SpaceLanding", () => {
 					referenceTargets: [DEFAULT_AGENT_PROFILE_ID],
 					text: "@Runner for context, then @Runner again",
 				},
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "@Runner for context, then @Runner again",
 				timeoutMs: 30_000,
@@ -9364,6 +9365,7 @@ describe("SpaceLanding", () => {
 				},
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@Runner @Reviewer please compare",
@@ -12545,6 +12547,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "First hello",
@@ -12720,6 +12723,7 @@ describe("SpaceLanding", () => {
 				files: [messageFile],
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Photos from the picnic",
@@ -12881,7 +12885,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [createSpaceMessageFileReference(descriptor)],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "",
 				timeoutMs: 30_000,
@@ -12975,7 +12979,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Text can still be sent",
 				timeoutMs: 30_000,
@@ -13075,7 +13079,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Text can still be sent",
 				timeoutMs: 30_000,
@@ -13168,7 +13172,7 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				files: [messageFile],
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: "Send this with the file",
 				timeoutMs: 30_000,
@@ -13494,6 +13498,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: "client-center-agent-first-message",
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Start the launch plan",
@@ -13542,7 +13547,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				meta: { clientMessageId: expect.any(String) },
+				meta: { clientMessageId: expect.any(String), authorHasRead: true },
 				spaceId: "space-123",
 				text: starterPrompt,
 				timeoutMs: 30_000,
@@ -13655,6 +13660,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: "client-center-agent-late-first-message",
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Continue from the loading shell",
@@ -13783,6 +13789,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "DM hello",
@@ -14324,6 +14331,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "Plain text message",
@@ -14373,6 +14381,7 @@ describe("SpaceLanding", () => {
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@unknown-token stays plain text",
@@ -14462,6 +14471,7 @@ describe("SpaceLanding", () => {
 				},
 				meta: {
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 				},
 				spaceId: "space-123",
 				text: "@Watcher hello there",
@@ -16607,6 +16617,7 @@ describe("SpaceLanding", () => {
 			expect(postThreadSignalMock).toHaveBeenCalledWith({
 				body: expect.objectContaining({
 					clientMessageId: expect.any(String),
+					authorHasRead: true,
 					messageEnvelope: expect.objectContaining({
 						activationTargets: [DEFAULT_AGENT_PROFILE_ID],
 					}),

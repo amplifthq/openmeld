@@ -303,6 +303,7 @@ function buildNormalMessagePostInput(input: {
 			: {}),
 		meta: {
 			clientMessageId: input.clientMessageId,
+			authorHasRead: true as const,
 		},
 		spaceId: input.spaceId,
 		text: input.text,
@@ -3393,6 +3394,7 @@ function useSpaceThreadController(input: {
 			const postInput = {
 				body: {
 					clientMessageId,
+					authorHasRead: true as const,
 					...(sendInput.files?.length ? { files: [...sendInput.files] } : {}),
 					...(sendInput.preparedSubmission.messageEnvelope
 						? {

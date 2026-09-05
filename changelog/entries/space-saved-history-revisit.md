@@ -13,3 +13,6 @@ current access confirmation.
 
 Smaller blue new-message controls are easier to find without interrupting your
 reading. The control for messages above now sits just below the date pill.
+
+Messages sent through the CLI using your own profile now appear as unread until
+you read them. Messages you send in Web do not create a reminder for yourself.

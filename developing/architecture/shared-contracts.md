@@ -143,6 +143,26 @@ identity, grants mutation authority, or replaces the Session inventory.
 
 ## Contract Rule
 
+### Space author read confirmation
+
+The optional literal `authorHasRead: true` in authored text metadata and thread
+send requests confirms only the current Human author's exact message. Web
+composers supply it; CLI and automation omit it by default. Core resolves the
+author's current Human ownership and suppresses only that recipient's Inbox
+candidate in the message's durable publication transaction. This is not an
+authorization claim or a conversation read-through position. Unconfirmed own
+messages remain ordinary updates, including self mentions and self thread
+replies. Inbox remains the only unread owner.
+
+Contract impact: existing CLI, Service, Skills, setup, Wake, and diagnostic
+contracts remain supported; no local component floor or stamp changes. Older
+clients omit the optional confirmation and receive normal read-through
+behavior. Older signal readers may discard the additive metadata. Deploy Core
+and Gateway receivers before the new Web producer because an older strict
+thread request parser rejects the new optional request field. Roll back Web
+before those receivers. No database migration or historical unread backfill is
+required.
+
 Any payload that crosses a service, package, process, HTTP boundary, RPC
 boundary, WebSocket boundary, CLI JSON boundary, or diagnostics boundary needs a
 shared contract before integration.
