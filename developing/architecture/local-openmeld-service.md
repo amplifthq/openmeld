@@ -985,6 +985,18 @@ or an explicit CLI agent enable command may reverse it.
 
 ## Current-Device Project Operations
 
+Project controls expose an additive `readConnections` capability. A
+`discover_projects` request with `includeCandidates: false` reads the
+existing owner/device/lane-local connection store and checks path availability
+without Git or inventory discovery. Its `gitStatus: not_checked` and
+`not_connected` project status describe an unsearched Project, not a failed
+search. This read does not rotate candidate-discovery epochs. Saved local
+connections remain the sole durable path authority; this optimization does
+not relax execution-time validation or Core-owned Wakeability.
+RuntimeTransportHub strips `includeCandidates` for a Service without this
+capability. Public local-runtimes responses remain unchanged so existing strict
+client readers can continue to use the new Core.
+
 Project discovery and folder connection are local-machine decisions because
 only the current computer can inspect and validate its filesystem. Web may
 initiate these actions only through RuntimeTransportHub's authenticated,

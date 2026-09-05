@@ -31,6 +31,9 @@ export const createProjectsApi: CreateProjectsApi = (
       {
         expectedOrganizationId: input.expectedOrganizationId,
         name: input.name,
+        ...(input.operationId === undefined
+          ? {}
+          : { operationId: input.operationId }),
         ...(input.repositoryFingerprint === undefined
           ? {}
           : { repositoryFingerprint: input.repositoryFingerprint }),

@@ -401,6 +401,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
       connectCandidate: z.literal(true).optional(),
       connectDeclaredPath: z.literal(true).optional(),
       discoverProjects: z.literal(true).optional(),
+      readConnections: z.literal(true).optional(),
       moveConnection: z.literal(true).optional(),
       removeConnection: z.literal(true).optional(),
       removeMissingConnections: z.literal(true).optional(),

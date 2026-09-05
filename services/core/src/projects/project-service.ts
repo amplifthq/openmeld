@@ -100,19 +100,57 @@ export function createProjectService(input: {
       requireProjectCreateAuthority(authority);
       const nowMs = now();
       const repository = await resolveCreatedRepositoryIdentity(body);
+      const requestSignature = body.operationId
+        ? await hashProjectCreation({
+            name: body.name,
+            slug: body.slug ?? null,
+            ...repository,
+          })
+        : null;
+      const projectId = body.operationId
+        ? `project_${await hashProjectCreation({
+            organizationId: authority.organizationId,
+            userId: authority.userId,
+            operationId: body.operationId,
+          })}`
+        : generateId();
+      const replay = () =>
+        readProjectCreationReplay({
+          db: input.db,
+          authority,
+          projectId,
+          requestSignature,
+        });
+      const previous = await replay();
+      if (previous) {
+        return previous;
+      }
+      const rejectDuplicateRepository = Boolean(
+        body.operationId && repository.repositoryFingerprint
+      );
+      const assertNoDuplicate = () =>
+        assertProjectRepositoryAvailable({
+          db: input.db,
+          organizationId: authority.organizationId,
+          repositoryFingerprint: rejectDuplicateRepository
+            ? repository.repositoryFingerprint
+            : null,
+        });
+      await assertNoDuplicate();
       const baseProject = {
         archivedAtMs: null,
         createdAtMs: nowMs,
         createdByUserId: authority.userId,
         hasActivity: false,
-        id: generateId(),
+        id: projectId,
+        creationRequestSignature: requestSignature,
         name: body.name,
         organizationId: authority.organizationId,
         ...repository,
         updatedAtMs: nowMs,
       } satisfies Omit<StoredProject, "slug">;
 
-      if (body.slug !== undefined) {
+      if (body.slug !== undefined && !body.operationId) {
         return await insertProjectWithExplicitSlug({
           authority,
           db: input.db,
@@ -120,26 +158,15 @@ export function createProjectService(input: {
         });
       }
 
-      for (let sequence = 1; sequence <= 99; sequence += 1) {
-        const slug = generateProjectSlug(body.name, sequence);
-        if (!slug) {
-          break;
-        }
-        const project: StoredProject = { ...baseProject, slug };
-        try {
-          const outcome = await insertProjectRecord({ db: input.db, project });
-          if (outcome === "limit_reached") {
-            throw projectLimitReachedError();
-          }
-          return toProject(project, authority);
-        } catch (error) {
-          if (isProjectSlugConflict(error)) {
-            continue;
-          }
-          throw error;
-        }
-      }
-      throw automaticProjectSlugConflictError();
+      return await insertProjectWithGeneratedSlug({
+        db: input.db,
+        authority,
+        baseProject,
+        requestedSlug: body.slug,
+        rejectDuplicateRepository,
+        replay,
+        assertNoDuplicate,
+      });
     },
 
     async update(
@@ -225,6 +252,16 @@ export function createProjectService(input: {
       );
     },
   };
+}
+
+async function hashProjectCreation(value: unknown): Promise<string> {
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(value))
+  );
+  return Array.from(new Uint8Array(bytes), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
 }
 
 export type ProjectService = ReturnType<typeof createProjectService>;
@@ -446,4 +483,114 @@ function projectRepositoryIdentityInvalidError(): Error {
     reason: "Repository URL and repository identity do not match.",
     status: 400,
   });
+}
+
+async function readProjectCreationReplay(input: {
+  db: D1Database;
+  authority: ProjectAuthority;
+  projectId: string;
+  requestSignature: string | null;
+}): Promise<Project | null> {
+  if (!input.requestSignature) {
+    return null;
+  }
+  const existing = await readProjectRecord({
+    db: input.db,
+    organizationId: input.authority.organizationId,
+    projectId: input.projectId,
+  });
+  if (!existing) {
+    return null;
+  }
+  if (existing.creationRequestSignature !== input.requestSignature) {
+    throw createCoreRpcHttpError({
+      code: "project.operation_conflict",
+      reason:
+        "This creation request was already used with different project details.",
+      status: 409,
+    });
+  }
+  requireActiveProject(existing);
+  return toProject(existing, input.authority);
+}
+
+async function assertProjectRepositoryAvailable(input: {
+  db: D1Database;
+  organizationId: string;
+  repositoryFingerprint: string | null;
+}): Promise<void> {
+  if (!input.repositoryFingerprint) {
+    return;
+  }
+  const existing = (await listProjectRecords(input)).find(
+    (project) => project.repositoryFingerprint === input.repositoryFingerprint
+  );
+  if (existing) {
+    throw createCoreRpcHttpError({
+      code: "project.repository_exists",
+      reason:
+        "This repository already has a project in this workspace. Use the existing project.",
+      status: 409,
+    });
+  }
+}
+
+async function insertProjectWithGeneratedSlug(input: {
+  db: D1Database;
+  authority: ProjectAuthority;
+  baseProject: Omit<StoredProject, "slug">;
+  requestedSlug?: string;
+  rejectDuplicateRepository: boolean;
+  replay: () => Promise<Project | null>;
+  assertNoDuplicate: () => Promise<void>;
+}): Promise<Project> {
+  for (let sequence = 1; sequence <= 99; sequence += 1) {
+    const slug =
+      input.requestedSlug ??
+      generateProjectSlug(input.baseProject.name, sequence);
+    if (!slug) {
+      break;
+    }
+    const project: StoredProject = { ...input.baseProject, slug };
+    try {
+      const outcome = await insertProjectRecord({
+        db: input.db,
+        project,
+        rejectDuplicateRepository: input.rejectDuplicateRepository,
+      });
+      if (outcome === "limit_reached") {
+        const existing = await input.replay();
+        if (existing) {
+          return existing;
+        }
+        await input.assertNoDuplicate();
+        throw projectLimitReachedError();
+      }
+      return toProject(project, input.authority);
+    } catch (error) {
+      const existing = await input.replay();
+      if (existing) {
+        return existing;
+      }
+      await input.assertNoDuplicate();
+      if (shouldRetryGeneratedSlug(error, input.requestedSlug)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw automaticProjectSlugConflictError();
+}
+
+function shouldRetryGeneratedSlug(
+  error: unknown,
+  requestedSlug: string | undefined
+): boolean {
+  if (!isProjectSlugConflict(error)) {
+    return false;
+  }
+  if (requestedSlug !== undefined) {
+    throw projectSlugConflictError();
+  }
+  return true;
 }

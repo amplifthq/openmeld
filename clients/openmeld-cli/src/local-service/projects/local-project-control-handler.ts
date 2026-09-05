@@ -145,18 +145,24 @@ async function handleDiscoverFrame(
   input: { deviceId: string; rootDir?: string },
   dependencies: HandlerDependencies
 ): Promise<LocalProjectControlDaemonFrame> {
-  const epoch = (dependencies.discoveryEpochs ?? defaultDiscoveryEpochs).begin({
-    organizationId: frame.payload.request.expectedOrganizationId,
-  });
+  const epoch =
+    frame.payload.request.includeCandidates === false
+      ? null
+      : (dependencies.discoveryEpochs ?? defaultDiscoveryEpochs).begin({
+          organizationId: frame.payload.request.expectedOrganizationId,
+        });
   const response = await (dependencies.discover ?? discoverLocalProjects)({
     ...frame.payload.request,
     deviceId: input.deviceId,
     requestId: frame.payload.requestId,
     rootDir: input.rootDir,
   });
-  const projects = (
-    dependencies.discoveryEpochs ?? defaultDiscoveryEpochs
-  ).complete(epoch, response.projects);
+  const projects = epoch
+    ? (dependencies.discoveryEpochs ?? defaultDiscoveryEpochs).complete(
+        epoch,
+        response.projects
+      )
+    : response.projects;
   return buildResultFrame(
     "daemon.local_project_control.discover_projects_result",
     frame.payload.requestId,

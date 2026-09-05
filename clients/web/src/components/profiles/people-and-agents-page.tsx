@@ -123,7 +123,8 @@ export function PeopleAndAgentsPage(input: {
 		(account.name ?? account.email ?? "This member").trim() || "This member";
 	const recovery = useLocalAgentRecoveryController({
 		agentExecutionReadinessScope: "bound_runtime",
-		loadAgentProfiles: false,
+		loadAgentProfiles: input.activeSectionId === "agents",
+		loadAgentExecutionReadiness: false,
 		loadSetupState: false,
 	});
 	const organizationProfileDirectoryQuery = useQuery(
@@ -319,10 +320,14 @@ function resolveActiveAgentView(input: {
 
 function buildOrganizationAgentProjection(input: {
 	currentUserId: string;
+	ownedProfiles: readonly AuthProfileView[];
 	profileDirectory: OrganizationProfileDirectoryResponse | undefined;
 	runtimeOverview: OrganizationAgentRuntimeOverviewResponse | undefined;
 }) {
 	const profiles: AuthProfileView[] = [];
+	const ownedProfilesById = new Map(
+		input.ownedProfiles.map((profile) => [profile.openMeldProfileId, profile])
+	);
 	const profileById = new Map<
 		string,
 		OrganizationProfileDirectoryResponse["agentProfiles"][number]
@@ -349,7 +354,15 @@ function buildOrganizationAgentProjection(input: {
 			profile.profileId,
 			profile.agentControllerRef
 		);
-		profiles.push(buildAuthProfileViewFromOrganizationAgentProfile(profile));
+		const ownedProfile = ownedProfilesById.get(profile.profileId);
+		profiles.push({
+			...buildAuthProfileViewFromOrganizationAgentProfile(profile),
+			// The directory owns shared identity; the owner's Auth profile owns
+			// saved configuration, which the directory intentionally does not expose.
+			...(profile.ownerUserId === input.currentUserId && ownedProfile
+				? { defaultProjectId: ownedProfile.defaultProjectId }
+				: {}),
+		});
 	}
 	for (const runtime of input.runtimeOverview?.agentProfiles ?? []) {
 		readinessByProfileId.set(runtime.profileId, runtime.readiness);
@@ -409,11 +422,13 @@ function AgentsWorkspaceHome(input: {
 		() =>
 			buildOrganizationAgentProjection({
 				currentUserId: input.currentUserId,
+				ownedProfiles: input.recovery.agentProfiles,
 				profileDirectory: input.profileDirectoryQuery.data,
 				runtimeOverview: input.runtimeOverviewQuery.data,
 			}),
 		[
 			input.currentUserId,
+			input.recovery.agentProfiles,
 			input.profileDirectoryQuery.data,
 			input.runtimeOverviewQuery.data,
 		]

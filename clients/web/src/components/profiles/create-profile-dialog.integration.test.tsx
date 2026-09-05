@@ -1819,10 +1819,13 @@ describe("CreateProfileDialog", () => {
 			target: { value: "Research Agent" },
 		});
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
-		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
+		fireEvent.focus(
+			await screen.findByRole("option", { name: "On this computer" })
+		);
 		fireEvent.click(
 			await screen.findByRole("option", {
-				name: "Choose a folder on this computer…",
+				name: "On this computer",
 			})
 		);
 		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
@@ -1892,10 +1895,13 @@ describe("CreateProfileDialog", () => {
 			target: { value: "Research Agent" },
 		});
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
-		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
+		fireEvent.focus(
+			await screen.findByRole("option", { name: "On this computer" })
+		);
 		fireEvent.click(
 			await screen.findByRole("option", {
-				name: "Choose a folder on this computer…",
+				name: "On this computer",
 			})
 		);
 		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
@@ -2258,7 +2264,7 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 		await waitFor(() => {
 			expect(
-				screen.getByRole("combobox", { name: "Working folder" }).textContent
+				screen.getByRole("combobox", { name: "Folder source" }).textContent
 			).toContain("Let OpenMeld choose");
 		});
 		expect(screen.queryByLabelText("Custom working folder path")).toBeNull();
@@ -2296,10 +2302,13 @@ describe("CreateProfileDialog", () => {
 			target: { value: "Research Agent" },
 		});
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
-		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
+		fireEvent.focus(
+			await screen.findByRole("option", { name: "On this computer" })
+		);
 		fireEvent.click(
 			await screen.findByRole("option", {
-				name: "Choose a folder on this computer…",
+				name: "On this computer",
 			})
 		);
 		await waitFor(() => {
@@ -2346,10 +2355,13 @@ describe("CreateProfileDialog", () => {
 			target: { value: "Research Agent" },
 		});
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
-		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
+		fireEvent.focus(
+			await screen.findByRole("option", { name: "On this computer" })
+		);
 		fireEvent.click(
 			await screen.findByRole("option", {
-				name: "Choose a folder on this computer…",
+				name: "On this computer",
 			})
 		);
 		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
@@ -2496,7 +2508,7 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
 			).toContain("High");
 			expect(
-				screen.getByRole("combobox", { name: "Working folder" }).textContent
+				screen.getByRole("combobox", { name: "Project" }).textContent
 			).toContain("OpenMeld");
 		});
 
@@ -2511,7 +2523,7 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Model" }).textContent
 			).toContain("Claude Opus 4.8 (default)");
 			expect(
-				screen.getByRole("combobox", { name: "Working folder" }).textContent
+				screen.getByRole("combobox", { name: "Folder source" }).textContent
 			).toContain("Let OpenMeld choose");
 		});
 	});

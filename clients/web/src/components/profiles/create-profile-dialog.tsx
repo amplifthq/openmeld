@@ -167,7 +167,7 @@ type CreateProfileDialogFormState = {
 	profileName: string;
 	profileNameEdited: boolean;
 	projectFolderPath: string;
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
 	sessionMode: AgentProfileSessionMode;
@@ -1268,6 +1268,10 @@ function useCreateProfileDialogController(
 			});
 		},
 		onSubmit: (event: FormEvent<HTMLFormElement>) => {
+			event.preventDefault();
+			if (event.target !== event.currentTarget || projectSelectionBlockReason) {
+				return;
+			}
 			handleCreateProfileSubmit({
 				creationIntentRef,
 				event,
@@ -1406,7 +1410,7 @@ function resolveAgentSessionSummary(input: {
 function resolveProjectSelectionSummary(input: {
 	projectFolderPath: string;
 	projects: ListProjectsResponse["projects"];
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectId: string;
 }): string {
 	const selectedProject = input.projects.find(
@@ -1415,7 +1419,13 @@ function resolveProjectSelectionSummary(input: {
 	if (selectedProject) {
 		return selectedProject.name;
 	}
+	if (input.projectWorkspaceFallback === "project") {
+		return "Choose a project";
+	}
 	if (input.projectWorkspaceFallback === "advanced") {
+		if (!input.projectFolderPath.trim()) {
+			return "Choose a folder";
+		}
 		const normalizedPath = input.projectFolderPath
 			.trim()
 			.replace(PROJECT_PATH_TRAILING_SEPARATOR_PATTERN, "");
@@ -1695,7 +1705,9 @@ function handleAgentProfileSessionModeChange(input: {
 		value: AgentProfileBindingOpenCodePermission | null
 	) => void;
 	setBoundReasoningLevel: (value: string) => void;
-	setProjectWorkspaceFallback: (value: "advanced" | "managed" | null) => void;
+	setProjectWorkspaceFallback: (
+		value: "advanced" | "managed" | "project" | null
+	) => void;
 	setSelectedProjectBindingGeneration: (value: string | null) => void;
 	setSelectedProjectId: (value: string) => void;
 	setSessionMode: (mode: AgentProfileSessionMode) => void;
@@ -1752,7 +1764,9 @@ function applyAgentProfileSessionSelection(input: {
 	setBoundReasoningLevel: (value: string) => void;
 	setProfileName: (value: string) => void;
 	setProjectFolderPath: (value: string) => void;
-	setProjectWorkspaceFallback: (value: "advanced" | "managed" | null) => void;
+	setProjectWorkspaceFallback: (
+		value: "advanced" | "managed" | "project" | null
+	) => void;
 	setSelectedProjectBindingGeneration: (value: string | null) => void;
 	setSelectedProjectId: (value: string) => void;
 	setSessionMode: (mode: AgentProfileSessionMode) => void;
@@ -2249,11 +2263,13 @@ function renderProjectSelectionSlot(input: {
 	projects: ListProjectsResponse | undefined;
 	projectsError: boolean;
 	projectsPending: boolean;
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
 	setProjectFolderPath: (value: string) => void;
-	setProjectWorkspaceFallback: (value: "advanced" | "managed" | null) => void;
+	setProjectWorkspaceFallback: (
+		value: "advanced" | "managed" | "project" | null
+	) => void;
 	setSelectedProjectBindingGeneration: (value: string | null) => void;
 	setSelectedProjectId: (value: string) => void;
 }): ReactNode {
@@ -2295,6 +2311,10 @@ function renderProjectSelectionSlot(input: {
 			disabled={input.disabled}
 			manualPath={input.projectFolderPath}
 			onConnectionReady={(connection) => {
+				if (!connection) {
+					input.setSelectedProjectBindingGeneration(null);
+					return;
+				}
 				input.creationDefaultsEditedRef.current = true;
 				input.setSelectedProjectBindingGeneration(connection.bindingGeneration);
 				input.setProjectFolderPath(connection.path);
@@ -2328,6 +2348,7 @@ function renderProjectSelectionSlot(input: {
 				input.setProjectWorkspaceFallback("managed");
 				input.onErrorClear();
 			}}
+			onUseProjectWorkspace={() => input.setProjectWorkspaceFallback("project")}
 			organizationId={input.organizationId}
 			projectId={input.selectedProjectId}
 			projects={input.projects?.projects ?? []}
@@ -2572,7 +2593,7 @@ function resolveOwnerProjectSelectionBlockReason(input: {
 	ownerMode: AgentProfileOwnerMode;
 	projectFolderPath: string;
 	projectsPending: boolean;
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
 }): string | null {
@@ -3027,11 +3048,26 @@ function showCreatedAgentRequestToast(input: {
 function resolveProjectSelectionBlockReason(input: {
 	boundAgentId: string;
 	projectFolderPath: string;
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
 }): string | null {
-	if (!(input.boundAgentId && input.selectedProjectId)) {
+	if (!input.boundAgentId) {
+		return null;
+	}
+	if (
+		input.projectWorkspaceFallback === "project" &&
+		!input.selectedProjectId
+	) {
+		return "Choose a project to continue.";
+	}
+	if (
+		input.projectWorkspaceFallback === "advanced" &&
+		!input.projectFolderPath.trim()
+	) {
+		return "Choose a folder to continue.";
+	}
+	if (!input.selectedProjectId) {
 		return null;
 	}
 	if (input.selectedProjectBindingGeneration) {
