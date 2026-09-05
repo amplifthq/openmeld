@@ -72,6 +72,7 @@ export type SpaceComposerProps = {
 	};
 	slots?: {
 		beforeInput?: ReactNode;
+		beforePrimaryAction?: ReactNode;
 		error?: ReactNode;
 		primaryAction?: ReactNode;
 		profileControl?: ReactNode;
@@ -193,7 +194,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						text={input.content.text}
 					/>
 					<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
-						<div className="flex min-w-0 flex-1 items-center gap-0">
+						<div className="flex flex-1 items-center gap-0">
 							{input.capabilities?.attachments !== false ? (
 								<SpaceComposerFileMenu
 									addFiles={addFiles}
@@ -228,8 +229,9 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									</p>
 								) : null)}
 						</div>
-						<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
+						<div className="flex min-w-0 items-center justify-end gap-2">
 							{input.slots?.profileControl}
+							{input.slots?.beforePrimaryAction}
 							{primaryAction}
 						</div>
 					</PromptInputActions>

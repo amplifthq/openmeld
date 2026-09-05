@@ -644,7 +644,6 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 		expect(invalidateQueries).toHaveBeenCalledWith(
 			{
-				exact: true,
 				queryKey: spaceQueryKeys.activeWakeProgressSummary(
 					"space-123",
 					"11111111-1111-1111-1111-111111111111"
@@ -695,7 +694,6 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(invalidateQueries).toHaveBeenCalledTimes(2);
 		expect(invalidateQueries).toHaveBeenLastCalledWith(
 			{
-				exact: true,
 				queryKey: spaceQueryKeys.activeWakeProgressSummary(
 					"space-123",
 					"11111111-1111-1111-1111-111111111111"
