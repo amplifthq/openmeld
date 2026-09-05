@@ -30,6 +30,7 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 				}).getActiveWakeProgress({
 					includePageInfo: true,
 					includePreviewText: true,
+					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
 					includeWakeStopEligibility: true,

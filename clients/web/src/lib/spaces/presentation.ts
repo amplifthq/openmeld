@@ -117,6 +117,10 @@ export function buildSpaceConversationEntries(input: {
 		const canAppendToPreviousRun =
 			previousEntry?.kind === "bubble_run" &&
 			previousItem !== null &&
+			!item.activeWakeProgress &&
+			!previousItem.activeWakeProgress &&
+			item.agentStreamState?.status !== "streaming" &&
+			previousItem.agentStreamState?.status !== "streaming" &&
 			!input.groupBoundarySignalIds?.has(item.id) &&
 			previousEntry.run.speaker.profileId === item.actorProfileId &&
 			previousEntry.run.speaker.profileKind === item.actorProfileKind &&

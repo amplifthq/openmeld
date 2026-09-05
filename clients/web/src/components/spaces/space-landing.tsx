@@ -2531,7 +2531,7 @@ function SpaceLandingSecondaryPanels({
 				composerMentionPickerItems={controller.threadComposerMentionPickerItems}
 				composerText={controller.threadComposerText}
 				currentOwnerUserId={currentOwnerUserId}
-				ephemeralActivityItems={controller.threadEphemeralActivityItems}
+				ephemeralActivityItems={controller.presentedWakeProgressItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
 				initialFocusSignalId={
 					controller.threadUnreadFocus?.signalId ?? input.initialFocusSignalId

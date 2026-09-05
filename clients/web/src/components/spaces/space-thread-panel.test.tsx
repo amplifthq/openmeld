@@ -125,6 +125,43 @@ describe("SpaceThreadPanel", () => {
 		expect(composer?.className).not.toContain("border-border");
 	});
 
+	it("restores only this Thread's active Wakes without importing the root message's main-conversation controls", () => {
+		const context = {
+			messagePreview: "Review the launch",
+			profileId: "human-profile-1",
+			profileKind: "human" as const,
+			profileName: "Teammate",
+			threadId: "thread-1",
+		};
+		renderThreadPanel({
+			onWakeStopRequest: vi.fn(),
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem(),
+					sourceContext: context,
+					targetLabel: "Thread Agent",
+				},
+				{
+					...createWakeProgressItem(),
+					sourceContext: { ...context, threadId: null },
+					sourceSignalId: "sig-root",
+					targetProfileId: SECOND_TARGET_PROFILE_ID,
+					targetLabel: "Main Agent",
+				},
+			],
+			signals: [createTextSignal()],
+		});
+		expect(
+			screen.getByRole("button", { name: "Stop Wake for Thread Agent" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Stop Wake for Main Agent" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Stop Wake for 2 agents" })
+		).toBeNull();
+	});
+
 	it("places the current Space pending actions above the visible thread composer", () => {
 		renderThreadPanel({
 			pendingActionSurface: (

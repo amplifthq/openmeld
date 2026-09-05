@@ -1336,10 +1336,10 @@ describe("SpaceConversationPanel", () => {
 			actorProfileName: "Center Agent",
 			createdAtMs: sourceItem.createdAtMs + 1,
 			deliveryState: "pending",
-			id: `optimistic:center-agent:client-message-1:${TARGET_PROFILE_ID}`,
+			id: `active-wake:client-message-1:${TARGET_PROFILE_ID}`,
 			isAgentFinalReply: true,
-			optimisticAgentReplySourceItemId: sourceItem.id,
-			optimisticAgentReplyProgress: {
+			activeWakeSourceItemId: sourceItem.id,
+			activeWakeProgress: {
 				clientMessageId: "client-message-1",
 				dispatchId: "dispatch-1",
 				message: "Sending message...",
@@ -2849,7 +2849,7 @@ describe("SpaceConversationPanel", () => {
 		expect(screen.queryByText(FAILED_TEXT_PATTERN)).toBeNull();
 	});
 
-	it("shows one right-aligned starting Wake status under a pending self message", () => {
+	it("shows one starting Wake status in the Agent answer area", () => {
 		const createdAtMs = Date.UTC(2026, 4, 27, 10, 0, 7);
 		vi.useFakeTimers();
 		vi.setSystemTime(createdAtMs + 7000);
@@ -2882,8 +2882,13 @@ describe("SpaceConversationPanel", () => {
 		expect(wakeIndicator.textContent).toContain("Starting Wake for runner…");
 		expect(wakeIcon).toBeTruthy();
 		expect(wakeIcon?.dataset.spaceAgentOrbState).toBe("connecting");
-		expect(wakeRow.firstElementChild?.className).toContain("justify-end");
-		expect(wakeRow.getAttribute("data-align")).toBe("end");
+		expect(
+			wakeRow
+				.closest("[data-message-id]")
+				?.getAttribute("data-message-id")
+				?.startsWith("active-wake:")
+		).toBe(true);
+		expect(wakeRow.getAttribute("data-align")).toBe("start");
 		expect(wakeRow.getAttribute("data-slot")).toBe("space-wake-thinking-row");
 		expect(wakeIndicator.className).toContain("gap-2");
 		expect(wakeIndicator.className).not.toContain("pl-1");
@@ -2959,7 +2964,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const optimisticReply = document.querySelector<HTMLElement>(
-			'[data-message-id^="optimistic:center-agent:"]'
+			'[data-message-id^="active-wake:"]'
 		);
 		if (!optimisticReply) {
 			throw new Error("Expected the optimistic Center Agent reply shell.");
@@ -3021,7 +3026,7 @@ describe("SpaceConversationPanel", () => {
 		);
 
 		const persistedSendingReply = document.querySelector<HTMLElement>(
-			'[data-message-id^="optimistic:center-agent:"]'
+			'[data-message-id^="active-wake:"]'
 		);
 		expect(persistedSendingReply).toBe(optimisticReply);
 		expect(
@@ -3058,7 +3063,7 @@ describe("SpaceConversationPanel", () => {
 		);
 
 		const updatedOptimisticReply = document.querySelector<HTMLElement>(
-			'[data-message-id^="optimistic:center-agent:"]'
+			'[data-message-id^="active-wake:"]'
 		);
 		expect(updatedOptimisticReply).toBe(optimisticReply);
 		expect(
@@ -3113,7 +3118,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const optimisticReply = document.querySelector<HTMLElement>(
-			'[data-message-id^="optimistic:center-agent:"]'
+			'[data-message-id^="active-wake:"]'
 		);
 		if (!optimisticReply) {
 			throw new Error("Expected polling to create the optimistic reply shell.");
@@ -3176,7 +3181,7 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
-	it("does not add the Center Agent reply shell to an ordinary Space", () => {
+	it("uses the same active answer area in an ordinary Space", () => {
 		renderSpaceConversationPanel({
 			ephemeralActivityItems: [createWakeProgressItem()],
 			membersSnapshot: createSpaceMembersSnapshot({
@@ -3198,13 +3203,15 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			document.querySelector('[data-message-id^="optimistic:center-agent:"]')
-		).toBeNull();
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).not.toBeNull();
 	});
 
 	it("replaces the optimistic Center Agent reply shell with the first real stream projection", () => {
 		renderSpaceConversationPanel({
-			ephemeralActivityItems: [createWakeProgressItem()],
+			ephemeralActivityItems: [
+				createWakeProgressItem({ updatedAtMs: Date.now() }),
+			],
 			isCenterAgentDirectMessage: true,
 			membersSnapshot: createSpaceMembersSnapshot({
 				agents: [
@@ -3243,9 +3250,11 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			document.querySelector('[data-message-id^="optimistic:center-agent:"]')
+			document.querySelector('[data-message-id^="active-wake:"]')
 		).toBeNull();
-		expect(screen.getByText("Agent is working")).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: RUNNER_WORKING_NAME_PATTERN })
+		).toBeTruthy();
 	});
 
 	it("aligns an empty local Agent working row with the profile name and separates it from the header", () => {
@@ -3327,7 +3336,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			document.querySelector('[data-message-id^="optimistic:center-agent:"]')
+			document.querySelector('[data-message-id^="active-wake:"]')
 		).toBeNull();
 		expect(screen.getByText("Here is the weekly update.")).toBeTruthy();
 	});
@@ -4177,7 +4186,7 @@ describe("SpaceConversationPanel", () => {
 			name: "Stop Wake for @runner",
 		});
 		const thinkingRow = screen.getByTestId("space-wake-thinking-row");
-		expect(thinkingRow.className).toContain("justify-end");
+		expect(thinkingRow.className).toContain("justify-start");
 		expect(stopButton.textContent).toBe("Stop");
 		expect(stopButton.className).not.toContain("bg-destructive");
 		expect(screen.queryByText("Stop Wake")).toBeNull();

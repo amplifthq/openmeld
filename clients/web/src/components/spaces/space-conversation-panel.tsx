@@ -47,8 +47,12 @@ import {
 } from "react";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import {
+	buildActiveWakeConversationItems,
+	hasActiveWakeReplyForSource,
+	resolveActiveWakeSourceItem,
+} from "#/lib/spaces/active-wake-conversation";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
-import { buildCenterAgentOptimisticReplyItem } from "#/lib/spaces/center-agent-optimistic-reply";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import {
@@ -73,6 +77,7 @@ import {
 	buildSpaceWakeOutcomeIndex,
 	resolveSpaceMessageWakeStopTarget,
 	resolveSpaceMessageWakeStopTargets,
+	resolveWakeStopTargetForProgressItem,
 	type SpaceWakeOutcomeIndex,
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
@@ -94,6 +99,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "./primitives/message-scroller";
+import { SpaceActiveWakeSource } from "./space-active-wake-source";
 import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
 import {
 	SpaceAgentInteractionCard,
@@ -166,7 +172,6 @@ import {
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
 import {
-	resolveSpaceMessageStateTuningTimelineItems,
 	resolveSpaceMessageStateTuningVisibility,
 	useSpaceMessageStateTuningPreviewItems,
 } from "./space-message-state-tuning-preview";
@@ -181,6 +186,7 @@ import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
+	SpaceWakeStopScope,
 	shouldRenderSpaceWakeStopControl,
 } from "./space-wake-stop-control";
 import { useSpaceConversationPosition } from "./use-space-conversation-position";
@@ -442,6 +448,22 @@ function resolveConversationComposerContext(input: {
 }
 
 export function SpaceConversationPanel(
+	publicInput: SpaceConversationPanelProps
+) {
+	return (
+		<SpaceWakeStopScope
+			key={publicInput.spaceId}
+			progressItems={publicInput.ephemeralActivityItems}
+			stopRequestStatusBySelectorKey={
+				publicInput.wakeStopRequestStatusBySelectorKey
+			}
+		>
+			<SpaceConversationPanelContent {...publicInput} />
+		</SpaceWakeStopScope>
+	);
+}
+
+function SpaceConversationPanelContent(
 	publicInput: SpaceConversationPanelProps
 ) {
 	const { viewState, ...props } = publicInput;
@@ -886,36 +908,24 @@ function useSpaceConversationPresentationController(
 			spaceId: input.spaceId,
 		}
 	);
-	const optimisticCenterAgentReplyItem = useMemo(
+	const activeConversationItems = useMemo(
 		() =>
-			buildCenterAgentOptimisticReplyItem({
+			buildActiveWakeConversationItems({
 				activityItems: input.presentedWakeProgressItems,
-				isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
 				profileEntriesById,
-				selfProfileId: input.selfProfileId,
+				spaceId: input.spaceId,
+				threadId: null,
 				timelineItems: baseMainTimelineItems,
 			}),
 		[
 			baseMainTimelineItems,
-			input.isCenterAgentDirectMessage,
 			input.presentedWakeProgressItems,
-			input.selfProfileId,
+			input.spaceId,
 			profileEntriesById,
 		]
 	);
-	const mainTimelineItems = useMemo(
-		() =>
-			resolveSpaceMessageStateTuningTimelineItems({
-				baseItems: baseMainTimelineItems,
-				optimisticItem: optimisticCenterAgentReplyItem,
-				previewItems: messageStateTuningPreviewItems,
-			}),
-		[
-			baseMainTimelineItems,
-			messageStateTuningPreviewItems,
-			optimisticCenterAgentReplyItem,
-		]
-	);
+	const mainTimelineItems =
+		messageStateTuningPreviewItems ?? activeConversationItems;
 	const hasCurrentUserAuthoredMessage = hasCurrentUserAuthoredSpaceMessage({
 		items: input.timelineItems,
 		selfProfileId: input.selfProfileId,
@@ -2186,8 +2196,18 @@ function renderConversationBody(input: {
 				const createdAtMs = resolveConversationEntryCreatedAtMs(entry);
 				const date = new Date(createdAtMs);
 				const dateKey = resolveLocalDateKey(date);
-				const shouldRenderDateMarker = dateKey !== previousDateKey;
-				previousDateKey = dateKey;
+				const isActiveReply =
+					entry.kind === "bubble_run" &&
+					entry.run.items.some(
+						(item) =>
+							item.activeWakeProgress ||
+							item.agentStreamState?.status === "streaming"
+					);
+				const shouldRenderDateMarker =
+					!isActiveReply && dateKey !== previousDateKey;
+				if (!isActiveReply) {
+					previousDateKey = dateKey;
+				}
 				const firstSignalId = resolveConversationEntryFirstSignalId(entry);
 				const shouldRenderUnreadBoundary =
 					!unreadBoundaryRendered &&
@@ -2539,7 +2559,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 				const anchoredOutcomeNotices =
 					input.anchoredOutcomeNoticesBySourceSignalId.get(item.id) ??
 					EMPTY_ANCHORED_OUTCOME_NOTICES;
-				const wakePresentationItem = resolveSpaceMessageWakePresentationItem({
+				const wakePresentationItem = resolveActiveWakeSourceItem({
 					item,
 					timelineItems: input.timelineItems,
 				});
@@ -2553,16 +2573,25 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					wakeFailureTargetContextsByProfileId:
 						input.wakeFailureTargetContextsByProfileId,
 				});
-				const wakeStopTargets = resolveSpaceMessageWakeStopTargets({
-					item: wakePresentationItem,
-					stopRequestStatusBySelectorKey:
-						input.wakeStopRequestStatusBySelectorKey,
-					targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
-					timelineItems: input.timelineItems,
-					wakeOutcomeIndex: input.wakeOutcomeIndex,
-					wakeProgressItems: input.ephemeralActivityItems,
-				});
+				const wakeStopTargets = item.activeWakeProgress
+					? [
+							resolveWakeStopTargetForProgressItem({
+								item: item.activeWakeProgress,
+								stopRequestStatusBySelectorKey:
+									input.wakeStopRequestStatusBySelectorKey,
+							}),
+						]
+					: resolveSpaceMessageWakeStopTargets({
+							item: wakePresentationItem,
+							stopRequestStatusBySelectorKey:
+								input.wakeStopRequestStatusBySelectorKey,
+							targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
+							timelineItems: input.timelineItems,
+							wakeOutcomeIndex: input.wakeOutcomeIndex,
+							wakeProgressItems: input.ephemeralActivityItems,
+						});
 				const wakeStopControl =
+					wakePresentationItem.deliveryState !== "pending" &&
 					!input.readOnly &&
 					input.onWakeStopRequest &&
 					shouldRenderSpaceWakeStopControl(wakeStopTargets) ? (
@@ -2594,11 +2623,10 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					readOnly: input.readOnly,
 					timelineItems: input.timelineItems,
 				});
-				const isCenterAgentOptimisticReplySource =
-					hasCenterAgentOptimisticReplyForSource({
-						item,
-						timelineItems: input.timelineItems,
-					});
+				const isActiveWakeSource = hasActiveWakeReplyForSource({
+					item,
+					timelineItems: input.timelineItems,
+				});
 				const bubblePresentationClass =
 					resolveSpaceMessageBubblePresentationClass({
 						isHighlighted,
@@ -2615,8 +2643,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 					align: messageAlign,
 					control: wakeStopControl,
 					entries: wakeThinkingEntries,
-					hideForCenterAgentOptimisticReplySource:
-						isCenterAgentOptimisticReplySource,
+					hideForActiveWakeSource: isActiveWakeSource,
 					item,
 					messageDetailsItem,
 					onOpenMessageDetails: input.onOpenMessageDetails,
@@ -2818,6 +2845,10 @@ function ConversationBubbleContent(input: {
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
 			{input.answerProgressStatus}
+			<SpaceActiveWakeSource
+				item={input.item}
+				onJumpToMessage={parent.onJumpToMessage}
+			/>
 			<SpaceMessageInteractionSource
 				source={input.item.centerAgentInteractionSource}
 			/>
@@ -2996,27 +3027,13 @@ function resolveSpaceMessageBubbleVisibilityClassName(input: {
 		: "hidden";
 }
 
-function resolveSpaceMessageWakePresentationItem(input: {
-	item: SpaceTimelineItem;
-	timelineItems: readonly SpaceTimelineItem[];
-}): SpaceTimelineItem {
-	const sourceItemId = input.item.optimisticAgentReplySourceItemId;
-	if (!sourceItemId) {
-		return input.item;
-	}
-	return (
-		input.timelineItems.find((candidate) => candidate.id === sourceItemId) ??
-		input.item
-	);
-}
-
 function resolveSpaceMessageWakeThinkingEntries(input: {
 	item: SpaceTimelineItem;
 	wakePresentationItem: SpaceTimelineItem;
 	wakeProgressState: ReturnType<typeof resolveSpaceMessageWakeProgressState>;
 	wakeStopTargets: ReturnType<typeof resolveSpaceMessageWakeStopTargets>;
 }) {
-	if (input.item.optimisticAgentReplyProgress !== undefined) {
+	if (input.item.activeWakeProgress !== undefined) {
 		return [];
 	}
 	if (input.wakeProgressState.thinkingEntries.length > 0) {
@@ -3035,12 +3052,12 @@ function renderConversationMessageProgressStatus(input: {
 	entries: ReturnType<
 		typeof resolveSpaceMessageWakeProgressState
 	>["thinkingEntries"];
-	hideForCenterAgentOptimisticReplySource: boolean;
+	hideForActiveWakeSource: boolean;
 	item: SpaceTimelineItem;
 	messageDetailsItem: SpaceTimelineItem | null;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 }): ReactNode {
-	if (input.hideForCenterAgentOptimisticReplySource) {
+	if (input.hideForActiveWakeSource) {
 		return null;
 	}
 	return (
@@ -3059,15 +3076,6 @@ function renderConversationMessageProgressStatus(input: {
 	);
 }
 
-function hasCenterAgentOptimisticReplyForSource(input: {
-	item: SpaceTimelineItem;
-	timelineItems: readonly SpaceTimelineItem[];
-}): boolean {
-	return input.timelineItems.some(
-		(candidate) => candidate.optimisticAgentReplySourceItemId === input.item.id
-	);
-}
-
 function resolveIsCenterAgentConversationRun(input: {
 	centerAgentProfileId: string | null;
 	isCenterAgentDirectMessage: boolean;
@@ -3078,9 +3086,7 @@ function resolveIsCenterAgentConversationRun(input: {
 	}
 	return (
 		input.isCenterAgentDirectMessage ||
-		input.run.items.some(
-			(item) => item.optimisticAgentReplyProgress !== undefined
-		) ||
+		input.run.speaker.agentControllerRef === "hosted:center-agent" ||
 		input.run.speaker.profileId === input.centerAgentProfileId
 	);
 }
@@ -3202,7 +3208,10 @@ function renderConversationMessageFooter(input: {
 	selfProfileId: string;
 	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
 }) {
-	if (input.item.transientActivityPurpose !== null) {
+	if (
+		input.item.transientActivityPurpose !== null ||
+		input.item.activeWakeProgress
+	) {
 		return null;
 	}
 	const failureSummary = resolveSpaceMessageFooterFailureSummary({
