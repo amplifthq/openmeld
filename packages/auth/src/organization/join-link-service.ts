@@ -363,7 +363,7 @@ function toOrganizationJoinLink(
     role: "member",
     createdBy: record.createdBy,
     createdAt: record.createdAt.toISOString(),
-    spaceId: record.spaceId,
+    ...(record.spaceId ? { spaceId: record.spaceId } : {}),
   };
 }
 

@@ -282,8 +282,15 @@ export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
     const response = await getOrganizationJoinLinkService(c).preview(
       input.data.token
     );
+    // Existing clients use a strict response schema without Space context.
+    // New clients explicitly opt into that context; authorization is unchanged.
+    const { spaceId: _spaceId, ...legacyResponse } = response.active
+      ? response
+      : { ...response, spaceId: undefined };
     return c.json(
-      previewOrganizationJoinLinkResponseSchema.parse(response),
+      previewOrganizationJoinLinkResponseSchema.parse(
+        input.data.responseVersion === "2" ? response : legacyResponse
+      ),
       200
     );
   });

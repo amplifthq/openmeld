@@ -127,6 +127,7 @@ export const revokeOrganizationJoinLinkResponseSchema = z.strictObject({
 
 export const previewOrganizationJoinLinkQuerySchema = z.strictObject({
   token: organizationJoinLinkTokenSchema,
+  responseVersion: z.literal("2").optional(),
 });
 
 export const previewOrganizationJoinLinkResponseSchema = z.discriminatedUnion(
