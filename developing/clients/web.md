@@ -3633,6 +3633,25 @@ Stop confirmation is owned by the conversation rather than a movable message
 row, so progress updates and streaming replacement do not dismiss an open
 confirmation. The existing selector and Core eligibility remain authoritative.
 
+The Composer provides an offscreen bookmark for active Wakes started by the
+current Human Profile in this Space. It reuses the same presentation snapshot,
+status resolver, and Orb as the conversation. The own-work query applies
+`sourceProfileId` before the server's bounded result limit, and live invalidation
+refreshes both filtered and unfiltered summaries through their shared key prefix.
+Viewport visibility changes placement only, never execution state. A readable
+working status hides its matching bookmark; a short visibility delay and separate
+enter/leave thresholds avoid flicker at the scroll boundary. One bookmark jumps
+directly to the working status; multiple bookmarks open a stable-order list with
+request previews and Thread attribution. An open list updates state in place and
+disables finished entries until it closes. The main Composer summarizes work from
+the entire Space except the currently open Thread, whose Composer hosts only
+that Thread's work. Closing the Thread returns its bookmarks to the main summary.
+Thread bookmarks identify their scope and open the owning Thread before focusing
+its working status. Navigation preserves text drafts and blocks a Thread switch
+that would discard pending attachments.
+Pending Actions retain their
+existing ownership and controls. Reduced motion disables the bookmark transition.
+
 Web derives message-level progress, the details drawer, and Space-level current
 work from the same shared Wake progress item. It must not introduce a second
 resolver that independently combines dispatch, RuntimeCoordinator, native

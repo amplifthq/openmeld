@@ -69,6 +69,7 @@ export function buildLocalWakeProgressItems(input: {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	phase: Extract<WakeProgressPhase, "request_sent" | "sending">;
 	sourceSignal?: SignalEnvelope;
+	threadId?: string;
 	updatedAtMs: number;
 }): WakeProgressItem[] {
 	const sourceSignalId =
@@ -79,6 +80,20 @@ export function buildLocalWakeProgressItems(input: {
 			dispatchId: null,
 			phase: input.phase,
 			sourceSignalId,
+			...(input.sourceSignal
+				? {
+						sourceContext: {
+							profileId: input.sourceSignal.profile.profileId,
+							profileKind: input.sourceSignal.profile.kind,
+							profileName: input.sourceSignal.profile.profileName ?? null,
+							messagePreview:
+								input.sourceSignal.type === "signal.text"
+									? input.sourceSignal.data.text.slice(0, 240) || null
+									: null,
+							threadId: input.threadId ?? null,
+						},
+					}
+				: {}),
 			targetLabel: resolveWakeProgressTargetLabel({
 				membersSnapshot: input.membersSnapshot,
 				targetProfileId,
@@ -367,7 +382,15 @@ export function mergeActiveWakeProgressPresentation(input: {
 		}),
 		// Detailed polling is merged second so equal-revision runtime location
 		// enrichment wins while ordinary lifecycle ordering remains unchanged.
-		incomingItems: input.detailedItems,
+		incomingItems: input.detailedItems.map((item) => {
+			if (item.sourceContext) {
+				return item;
+			}
+			const sourceContext = input.summaryItems.find((candidate) =>
+				doWakeProgressItemsMatch({ left: item, right: candidate })
+			)?.sourceContext;
+			return sourceContext ? { ...item, sourceContext } : item;
+		}),
 		signals: input.signals,
 	});
 	return mergedItems.map((item) => {
