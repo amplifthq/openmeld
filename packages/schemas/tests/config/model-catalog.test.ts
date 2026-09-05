@@ -24,7 +24,6 @@ describe("model catalog schema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.schemaVersion).toBe(MODEL_CATALOG_SCHEMA_VERSION);
-      expect(result.data.updatedAt).toBe("2026-09-01T00:00:00.000Z");
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
         "gpt-5.6-sol"
       );

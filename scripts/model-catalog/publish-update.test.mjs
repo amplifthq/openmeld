@@ -92,7 +92,6 @@ test("a pushed proposal survives a failed PR request without rewriting the branc
       "dev-tmp/bin/gh",
       `#!${process.execPath}
 const fs = require('node:fs');
-const cp = require('node:child_process');
 const args = process.argv.slice(2);
 if (args[1] === 'list') {
   console.log(fs.existsSync('dev-tmp/pr.json') ? fs.readFileSync('dev-tmp/pr.json', 'utf8') : '[]');
