@@ -514,8 +514,8 @@ importers:
         specifier: ^4.1.18
         version: 4.1.18
       thinking-orbs:
-        specifier: ^0.1.1
-        version: 0.1.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        specifier: 0.3.1
+        version: 0.3.1(react@19.2.4)
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -12006,11 +12006,10 @@ packages:
     resolution: {integrity: sha512-yYrrsWnrXMcdsnu/7YMYAofM1ktpL5By7vZhf15CrXijWWrEYZks5AXBudalfSWJLlnen/QUJUB5aoB0kqZUGA==}
     engines: {node: '>=6.0.0'}
 
-  thinking-orbs@0.1.1:
-    resolution: {integrity: sha512-nLvLTGJtk74K13MmP7XiRdzFiQx7UsoZAIyBZNgXyl7Q3h2mdz0r3eKn9LCsuzb3DGOVjwDvMhtnAkIqJJRVQA==}
+  thinking-orbs@0.3.1:
+    resolution: {integrity: sha512-3BG1aeB1RUTxItCml/BBuIz5JRM4kZqGuyx+vouv0fXTtcR9ZNoKjWGneHPx94y74GxgArwJZ1qbJR5dt54kSw==}
     peerDependencies:
       react: '>=18.0.0'
-      react-dom: '>=18.0.0'
 
   three@0.185.1:
     resolution: {integrity: sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==}
@@ -24914,10 +24913,9 @@ snapshots:
       mkdirp: 0.5.6
       rimraf: 2.6.3
 
-  thinking-orbs@0.1.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+  thinking-orbs@0.3.1(react@19.2.4):
     dependencies:
       react: 19.2.4
-      react-dom: 19.2.4(react@19.2.4)
 
   three@0.185.1: {}
 
