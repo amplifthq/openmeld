@@ -86,14 +86,14 @@ export function createDrizzleAccountDisplayNameRepository(
 
       if (updatedUsers.length !== 1) {
         throw new AccountDisplayNameInvariantError(
-          "authenticated account or default Human Profile was not found"
+          "authenticated account or default profile was not found"
         );
       }
 
       const updatedProfile = updatedProfiles[0];
       if (!updatedProfile || updatedProfiles.length !== 1) {
         throw new AccountDisplayNameInvariantError(
-          "default Human Profile or authenticated account was not found"
+          "default profile or authenticated account was not found"
         );
       }
       return updatedProfile;

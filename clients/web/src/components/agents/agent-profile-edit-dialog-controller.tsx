@@ -99,6 +99,7 @@ export function AgentProfileInlineConfigurationController(input: {
 	details: ProfileDetailsSnapshot;
 	entry: SpaceMemberDirectoryEntry;
 	modelCatalog: ModelCatalog | null;
+	ownerEntry: SpaceMemberDirectoryEntry | null;
 	profile: AuthProfileView;
 }) {
 	const controller = useAgentProfileEditController({
@@ -153,8 +154,8 @@ export function AgentProfileInlineConfigurationController(input: {
 			onModelSelectionUpdate={controller.onModelSelectionUpdate}
 			onOpenCodePermissionUpdate={controller.onOpenCodePermissionUpdate}
 			onRenameProfile={controller.onRenameProfile}
-			ownerAvatarUrl={null}
-			ownerProfile={null}
+			ownerAvatarUrl={input.ownerEntry?.avatarUrl}
+			ownerProfileId={input.ownerEntry?.profileId}
 			runtime={null}
 			showHeading={false}
 		/>

@@ -285,11 +285,11 @@ export function formatLocalSetupActionLabel(
 ): string {
   switch (action) {
     case "connect_service":
-      return "Connect OpenMeld Service";
+      return "Connect Computer";
     case "reconnect_service":
-      return "Reconnect OpenMeld Service";
+      return "Reconnect Computer";
     case "update_service":
-      return "Update OpenMeld Service";
+      return "Update OpenMeld on Computer";
     case "connect_local_agent":
       return "Connect local agent";
     case "update_skills":
@@ -354,9 +354,9 @@ export function formatLocalSetupActionDescription(
     case "connect_service":
       return "Connect this computer to OpenMeld so local agents can reply in Spaces.";
     case "reconnect_service":
-      return "Reconnect OpenMeld Service for the current OpenMeld account on this computer.";
+      return "Reconnect this computer to the current OpenMeld account.";
     case "update_service":
-      return "Update OpenMeld Service through setup on this computer.";
+      return "Update OpenMeld on this computer.";
     case "connect_local_agent":
       return "Connect this Agent Profile to a local agent runtime on this computer.";
     case "update_skills":

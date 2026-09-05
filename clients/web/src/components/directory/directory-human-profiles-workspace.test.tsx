@@ -1,4 +1,7 @@
-import type { LocalRuntimeComputer } from "@openmeld/schemas/types";
+import type {
+	LocalRuntimeComputer,
+	ModelCatalog,
+} from "@openmeld/schemas/types";
 import {
 	cleanup,
 	fireEvent,
@@ -15,6 +18,24 @@ import { DirectoryHumanProfilesWorkspace } from "./directory-human-profiles-work
 const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
 	/Claude Code enabled, Codex enabled, Cursor enabled/;
 const LOCAL_AGENT_LOGO_TEST_ID_PATTERN = /^local-agent-logo-/;
+const TEST_MODEL_CATALOG: ModelCatalog = {
+	agentControllers: {
+		codex: {
+			defaultModelId: "gpt-5.6-sol",
+			models: [
+				{
+					displayName: "GPT-5.6 Sol",
+					id: "gpt-5.6-sol",
+					minCliVersion: null,
+					supportedReasoningLevels: ["low", "medium", "high"],
+					unavailable: false,
+				},
+			],
+		},
+	},
+	schemaVersion: 1,
+	updatedAt: "2026-09-03T00:00:00.000Z",
+};
 
 afterEach(() => {
 	cleanup();
@@ -232,6 +253,36 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByRole("region", { name: "Not Connected" })).toBeNull();
 	});
 
+	it("keeps Computer connection neutral while teammate status is unresolved", () => {
+		const currentMember = buildMember({ current: true });
+		const checkingMember = {
+			...buildMember({ current: false }),
+			computer: {
+				count: 0,
+				label: "Checking computer…",
+				path: null,
+				state: "checking" as const,
+			},
+		};
+
+		renderWorkspace({ members: [currentMember, checkingMember] });
+
+		const connectionGroup = screen.getByRole("region", {
+			name: "Computer Connection",
+		});
+		expect(
+			within(connectionGroup).getByRole("button", {
+				name: "Open Felix's profile",
+			})
+		).toBeTruthy();
+		expect(
+			within(connectionGroup).getByRole("button", {
+				name: "Open Grace Hopper's profile",
+			})
+		).toBeTruthy();
+		expect(screen.queryByRole("region", { name: "Not Connected" })).toBeNull();
+	});
+
 	it("keeps the current member's Computer group first", () => {
 		const currentMember = {
 			...buildMember({ current: true }),
@@ -388,7 +439,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toBeNull();
 		expect(
 			within(screen.getByRole("main")).getAllByText("felix@example.com")
-		).toHaveLength(2);
+		).toHaveLength(1);
 		expect(screen.getByRole("main").dataset.showMainHeader).toBe("true");
 	});
 
@@ -498,17 +549,86 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByTestId("human-profile-primary-actions")).toBeNull();
 	});
 
-	it("keeps Direct Message before Learn About in another member's hero", () => {
+	it("keeps joined date beside email without a duplicate member account section", () => {
+		renderWorkspace();
+
+		const metadata = screen.getByTestId("human-profile-metadata");
+		expect(metadata.textContent).toBe("felix@example.comJoined Aug 1, 2026");
+		const separator = metadata.querySelector(
+			'[data-slot="human-profile-metadata-separator"]'
+		);
+		expect(separator).toBeTruthy();
+		expect(separator?.parentElement?.textContent).toBe("Joined Aug 1, 2026");
+		expect(
+			separator?.parentElement?.classList.contains("whitespace-nowrap")
+		).toBe(true);
+		expect(screen.queryByText("Member account")).toBeNull();
+		expect(screen.queryByText("Organization role")).toBeNull();
+	});
+
+	it("shows a single-row scrollable Agent picker with links to every Agent", () => {
+		renderWorkspace({
+			members: [
+				buildMember({
+					agentProfiles: [
+						{
+							agentControllerRef: "builtin:codex",
+							avatarImageUrl: null,
+							id: "agent-sol",
+							modelSelection: { modelId: "gpt-5.6-sol" },
+							modelSelectionIsKnown: true,
+							name: "Felix Sol",
+							path: "/o/acme/agents?profileId=agent-sol",
+						},
+						{
+							agentControllerRef: "builtin:codex",
+							avatarImageUrl: null,
+							id: "agent-default",
+							modelSelection: null,
+							modelSelectionIsKnown: true,
+							name: "Felix Default",
+							path: "/o/acme/agents?profileId=agent-default",
+						},
+					],
+					current: true,
+				}),
+			],
+		});
+
+		expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "All Agents" })).toBeTruthy();
+		const agentStrip = screen.getByLabelText("Felix's Agents");
+		expect(agentStrip.className).toContain("overflow-x-auto");
+		expect(agentStrip.className).toContain("flex");
+		expect(
+			within(agentStrip)
+				.getByText("Felix Sol")
+				.closest("a")
+				?.getAttribute("href")
+		).toBe("/o/acme/agents?profileId=agent-sol");
+		expect(
+			within(agentStrip)
+				.getByText("Felix Default")
+				.closest("a")
+				?.getAttribute("href")
+		).toBe("/o/acme/agents?profileId=agent-default");
+		expect(
+			within(agentStrip).getAllByText("Codex · GPT-5.6 Sol · model default")
+		).toHaveLength(2);
+	});
+
+	it("makes Chat with the primary action for another member", () => {
 		renderWorkspace({ selectedProfileId: "profile-grace" });
 
 		const actions = within(
 			screen.getByTestId("human-profile-hero")
 		).getByTestId("human-profile-header-actions");
-		expect(
-			within(actions)
-				.getAllByRole("button")
-				.map((button) => button.textContent)
-		).toEqual(["Direct Message", "Learn about Grace Hopper"]);
+		const [chatButton, researchButton] = within(actions).getAllByRole("button");
+		expect(chatButton?.textContent).toBe("Chat with Grace Hopper");
+		expect(chatButton?.classList.contains("bg-primary")).toBe(true);
+		expect(chatButton?.classList.contains("h-7")).toBe(true);
+		expect(researchButton?.textContent).toBe("Learn about Grace Hopper");
+		expect(researchButton?.classList.contains("bg-background")).toBe(true);
 	});
 
 	it("keeps a member-scoped research failure beside its retry action", () => {
@@ -590,6 +710,7 @@ function renderWorkspace(
 			latestBatch={null}
 			memberResearchError={input.memberResearchError ?? null}
 			members={members}
+			modelCatalog={TEST_MODEL_CATALOG}
 			onCreateProfile={vi.fn()}
 			onDisconnectConnectedAccount={vi.fn()}
 			onOpenDirectMessage={vi.fn().mockResolvedValue(undefined)}
@@ -617,6 +738,7 @@ function renderWorkspace(
 }
 
 function buildMember(input: {
+	agentProfiles?: DirectoryHumanProfileRow["agentProfiles"];
 	current: boolean;
 	notice?: string;
 }): DirectoryHumanProfileRow {
@@ -624,7 +746,7 @@ function buildMember(input: {
 	const profileId = input.current ? "profile-current" : "profile-grace";
 	const userId = input.current ? "user-current" : "user-grace";
 	return {
-		agentProfiles: [],
+		agentProfiles: input.agentProfiles ?? [],
 		agentProfilesPath: "/o/acme/agents",
 		avatarImageUrl: null,
 		canEdit: input.current,

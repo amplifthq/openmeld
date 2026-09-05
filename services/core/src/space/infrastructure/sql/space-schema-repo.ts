@@ -1,5 +1,5 @@
-export const SPACE_SQL_SCHEMA_VERSION = 29;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v29";
+export const SPACE_SQL_SCHEMA_VERSION = 31;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v31";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -20,6 +20,11 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   if (hasCurrentSpaceSqlSchema(sql)) {
     return;
   }
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_invitation_receipts (
+    invitation_id TEXT PRIMARY KEY,
+    profile_id TEXT,
+    status TEXT NOT NULL CHECK (status IN ('accepted', 'revoked'))
+  )`);
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_meta (
       space_id TEXT PRIMARY KEY,
@@ -58,6 +63,13 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
   ensureSpaceCursorsMentionAliasColumn(sql);
+
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_member_web_activity (
+      profile_id TEXT PRIMARY KEY,
+      last_active_at INTEGER NOT NULL
+    )
+  `);
 
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_signals (
@@ -465,6 +477,12 @@ export function markSpaceAgentOwnerMembershipPolicyReconciled(
 		`,
     reconciledAtMs
   );
+}
+
+export function clearSpaceAgentOwnerMembershipPolicyReconciled(
+  sql: SqlStorage
+): void {
+  sql.exec("DELETE FROM space_agent_owner_membership_policy WHERE id = 1");
 }
 
 function migrateDirectMessageAccess(sql: SqlStorage): void {

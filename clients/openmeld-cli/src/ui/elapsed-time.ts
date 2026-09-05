@@ -1,7 +1,10 @@
 export const MIN_VISIBLE_ELAPSED_TIME_MS = 100;
 
-export function resolveElapsedTimeMs(startedAtMs: number): number {
-  return Math.max(0, Date.now() - startedAtMs);
+export function resolveElapsedTimeMs(
+  startedAtMs: number,
+  currentTimeMs = Date.now()
+): number {
+  return Math.max(0, currentTimeMs - startedAtMs);
 }
 
 export function formatElapsedTime(durationMs: number): string {

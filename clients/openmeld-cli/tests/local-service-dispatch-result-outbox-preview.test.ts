@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,9 +16,14 @@ import {
 } from "@openmeld/schemas";
 import type { RuntimeTransportDeliverDispatchRequest } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  bindProject,
+  setDefaultProjectConnection,
+} from "../src/agent-activity/project-bindings";
 import { handleLocalControlPlaneCancel } from "../src/local-service/carrier/local-control-handlers";
 import type {
   CurrentDaemonSocketRef,
+  DaemonProfileRouteConfig,
   LedgerPaths,
 } from "../src/local-service/core/types";
 import { readRecentDaemonDispatchJournalEvents } from "../src/local-service/dispatch/daemon-dispatch-journal";
@@ -221,6 +226,81 @@ function createDeliveryExecutionIdentity() {
   };
 }
 
+function createCurrentRouteByProfileId(
+  workspacePath = process.cwd()
+): Map<string, DaemonProfileRouteConfig> {
+  return new Map([
+    [
+      "agent-profile-1",
+      {
+        agentControllerRef: "builtin:codex",
+        bindingId: "binding-1",
+        configurationRevision: 7,
+        contextIdMappingSpec: {
+          mappingVersion: 1,
+          sourceField: "OPENMELD_CLI_CONTEXT_ID",
+        },
+        openMeldServiceRuntimeId: "runtime-1",
+        profileId: "agent-profile-1",
+        streamingMode: "final",
+        transportMode: "local-cli",
+        workingFolderRuntime: {
+          configPath: "/tmp/profile-workspace.json",
+          configuredWorkspacePath: workspacePath,
+          effectiveRuntimeWorkingDirectory: workspacePath,
+          runtimeContext: {
+            providerRuntimeWorkingDirectory: workspacePath,
+          },
+          status: "ready",
+          workingFolderFact: {
+            defaultProjectId: null,
+            localProjectBindingGeneration: null,
+            observedAtMs: Date.now(),
+            reasonCode: null,
+            source: "profile_workspace",
+            status: "ready",
+          },
+          workingFolderSource: "profile_workspace",
+          workspaceMode: "custom",
+        },
+      },
+    ],
+  ]);
+}
+
+function createCurrentDefaultProjectRouteByProfileId(
+  workspacePath: string,
+  bindingGeneration = "project-generation-1"
+): ReturnType<typeof createCurrentRouteByProfileId> {
+  const routes = createCurrentRouteByProfileId(workspacePath);
+  const route = routes.get("agent-profile-1");
+  if (!route) {
+    throw new Error("test route missing");
+  }
+  route.workingFolderRuntime = {
+    configPath: null,
+    configuredWorkspacePath: workspacePath,
+    defaultProjectBindingGeneration: bindingGeneration,
+    defaultProjectId: "project-1",
+    effectiveRuntimeWorkingDirectory: workspacePath,
+    runtimeContext: {
+      providerRuntimeWorkingDirectory: workspacePath,
+    },
+    status: "ready",
+    workingFolderFact: {
+      defaultProjectId: "project-1",
+      localProjectBindingGeneration: bindingGeneration,
+      observedAtMs: Date.now(),
+      reasonCode: null,
+      source: "default_project",
+      status: "ready",
+    },
+    workingFolderSource: "default_project",
+    workspaceMode: null,
+  };
+  return routes;
+}
+
 function readOutboxFile(ledgerPaths: LedgerPaths): {
   records: Array<{
     dispatchId: string;
@@ -275,6 +355,8 @@ function createDeliverRequest(): RuntimeTransportDeliverDispatchRequest {
       dispatchPolicy: "mention_only",
       controllerSnapshot: {
         agentControllerRef: "builtin:codex",
+        bindingId: "binding-1",
+        configurationRevision: 7,
         targetBindingEnabled: true,
         targetBindingState: "bound",
       },
@@ -426,6 +508,243 @@ function createSiblingReplySignal(input: {
 }
 
 describe("dispatch result outbox around preview teardown", () => {
+  it("does not start the controller when a legacy dispatch has no current route working-folder fact", async () => {
+    await withTempHome(async () => {
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const socket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      }) as never;
+
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest: createDeliverRequest(),
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({ adapter: {} }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: new Map<string, DaemonProfileRouteConfig>(),
+        socket,
+      });
+
+      expect(result).toMatchObject({
+        errorCode: "profile.working_folder.current_fact_missing",
+        result: "failed",
+      });
+      expect(prepareProviderRuntimeMock).not.toHaveBeenCalled();
+      expect(runRuntimeTaskMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it("launches a dispatch with an explicit Default Project only after its current route matches", async () => {
+    await withTempHome(async (home) => {
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const socket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      }) as never;
+      const workspacePath = join(home, "current-default-project");
+      mkdirSync(workspacePath, { recursive: true });
+      const connection = await bindProject({
+        organizationId: "org-1",
+        projectId: "project-1",
+        projectSlug: "openmeld",
+        repositoryFingerprint: null,
+        repositoryPath: workspacePath,
+      });
+      const runtimeContext = {
+        providerRuntimeWorkingDirectory: connection.repositoryPath,
+      };
+      prepareProviderRuntimeMock.mockImplementation((input) => {
+        expect(input.runtimeContext).toEqual(runtimeContext);
+        return {
+          envOverrides: undefined,
+          preparationDetails: { kind: "none" },
+          runtimeContext,
+        };
+      });
+      runRuntimeTaskMock.mockResolvedValue(createRuntimeSuccessResult());
+
+      const deliverRequest = createDeliverRequest();
+      deliverRequest.payload.defaultProjectId = "project-1";
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest,
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({ adapter: {} }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: createCurrentDefaultProjectRouteByProfileId(
+          runtimeContext.providerRuntimeWorkingDirectory,
+          connection.bindingGeneration
+        ),
+        socket,
+      });
+
+      expect(result).toEqual({
+        errorCode: null,
+        errorMessage: null,
+        result: "success",
+      });
+      expect(prepareProviderRuntimeMock).toHaveBeenCalled();
+      expect(runRuntimeTaskMock).toHaveBeenCalledOnce();
+      expect(resolveProfileWorkspaceRuntimeMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not start an explicit Default Project dispatch after the durable folder changes but before its route refresh finishes", async () => {
+    await withTempHome(async (home) => {
+      const firstPath = join(home, "first-default-project");
+      const secondPath = join(home, "second-default-project");
+      mkdirSync(firstPath, { recursive: true });
+      mkdirSync(secondPath, { recursive: true });
+      const first = await bindProject({
+        organizationId: "org-1",
+        projectId: "project-1",
+        projectSlug: "openmeld",
+        repositoryFingerprint: null,
+        repositoryPath: firstPath,
+      });
+      const second = await bindProject({
+        organizationId: "org-1",
+        projectId: "project-1",
+        projectSlug: "openmeld",
+        repositoryFingerprint: null,
+        repositoryPath: secondPath,
+      });
+      await setDefaultProjectConnection({
+        expectedBindingGeneration: second.bindingGeneration,
+        organizationId: "org-1",
+        projectId: "project-1",
+      });
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const socket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      }) as never;
+
+      const deliverRequest = createDeliverRequest();
+      deliverRequest.payload.defaultProjectId = "project-1";
+      const requestCurrentWorkingFolderFactRefresh = vi.fn();
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest,
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({ adapter: {} }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        requestCurrentWorkingFolderFactRefresh,
+        presenter,
+        routeByProfileId: createCurrentDefaultProjectRouteByProfileId(
+          firstPath,
+          first.bindingGeneration
+        ),
+        socket,
+      });
+
+      expect(result).toMatchObject({
+        errorCode: "profile.working_folder.current_fact_changed",
+        result: "failed",
+      });
+      expect(prepareProviderRuntimeMock).not.toHaveBeenCalled();
+      expect(runRuntimeTaskMock).not.toHaveBeenCalled();
+      expect(requestCurrentWorkingFolderFactRefresh).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("does not start the controller after a Profile workspace changes but before its route refresh finishes", async () => {
+    await withTempHome(async (home) => {
+      const firstPath = join(home, "first-profile-workspace");
+      const secondPath = join(home, "second-profile-workspace");
+      mkdirSync(firstPath, { recursive: true });
+      mkdirSync(secondPath, { recursive: true });
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        configPath: join(home, "profile-workspace.json"),
+        configuredWorkspacePath: secondPath,
+        effectiveRuntimeWorkingDirectory: secondPath,
+        runtimeContext: {
+          providerRuntimeWorkingDirectory: secondPath,
+        },
+        status: "ready",
+        workspaceMode: "custom",
+      });
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const socket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      }) as never;
+
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest: createDeliverRequest(),
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({ adapter: {} }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: createCurrentRouteByProfileId(firstPath),
+        socket,
+      });
+
+      expect(result).toMatchObject({
+        errorCode: "profile.working_folder.current_fact_changed",
+        result: "failed",
+      });
+      expect(prepareProviderRuntimeMock).not.toHaveBeenCalled();
+      expect(runRuntimeTaskMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("injects current Space meta into the runtime prompt", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
@@ -486,7 +805,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
 
@@ -547,7 +866,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
 
@@ -637,7 +956,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
 
@@ -804,7 +1123,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(workspace),
         socket,
       });
 
@@ -897,7 +1216,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
       let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -1060,7 +1379,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
       await siblingReviewRequired;
@@ -1216,7 +1535,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
 
@@ -1339,7 +1658,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
 
@@ -1422,7 +1741,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
 
@@ -1490,7 +1809,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
 
@@ -1563,7 +1882,7 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: new Map(),
+        routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
 

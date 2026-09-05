@@ -70,9 +70,9 @@ const PROFILE_KIND_TABS = [
 		title: "Agent profile",
 	},
 	{
-		description: "Create another human profile on this account.",
+		description: "Create another personal profile on this account.",
 		kind: "human",
-		title: "Human profile",
+		title: "Person",
 	},
 ] as const satisfies readonly {
 	description: string;

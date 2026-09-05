@@ -45,8 +45,17 @@ describe("expected-routes read session", () => {
     });
   });
 
-  it("falls back through v2 to v1 when an older cloud rejects negotiation", async () => {
+  it("falls back through v3 and v2 to legacy when an older cloud rejects negotiation", async () => {
     getExpectedRoutesMock
+      .mockRejectedValueOnce(
+        new OpenMeldApiClientHttpError({
+          code: "invalid_payload",
+          message: "invalid payload",
+          rawBody: "{}",
+          status: 400,
+          upstreamCode: null,
+        })
+      )
       .mockRejectedValueOnce(
         new OpenMeldApiClientHttpError({
           code: "invalid_payload",
@@ -70,26 +79,32 @@ describe("expected-routes read session", () => {
     const result = await createExpectedRoutesReadSession().read();
 
     expect(result).toEqual({
+      contractVersion: "legacy",
       response: resolvedResponse,
       status: "resolved",
     });
     expect(getExpectedRoutesMock).toHaveBeenNthCalledWith(1, {
-      contractVersion: "v3",
+      contractVersion: "v4",
       deviceId: "device-1",
       lane: "prod",
     });
     expect(getExpectedRoutesMock).toHaveBeenNthCalledWith(2, {
-      contractVersion: "v2",
+      contractVersion: "v3",
       deviceId: "device-1",
       lane: "prod",
     });
     expect(getExpectedRoutesMock).toHaveBeenNthCalledWith(3, {
+      contractVersion: "v2",
+      deviceId: "device-1",
+      lane: "prod",
+    });
+    expect(getExpectedRoutesMock).toHaveBeenNthCalledWith(4, {
       deviceId: "device-1",
       lane: "prod",
     });
   });
 
-  it("uses v2 when only v3 is unsupported", async () => {
+  it("uses v3 when only v4 is unsupported", async () => {
     getExpectedRoutesMock
       .mockRejectedValueOnce(
         new OpenMeldApiClientHttpError({
@@ -103,19 +118,41 @@ describe("expected-routes read session", () => {
       .mockResolvedValueOnce(resolvedResponse);
 
     await expect(createExpectedRoutesReadSession().read()).resolves.toEqual({
+      contractVersion: "v3",
       response: resolvedResponse,
       status: "resolved",
     });
     expect(getExpectedRoutesMock).toHaveBeenNthCalledWith(1, {
-      contractVersion: "v3",
+      contractVersion: "v4",
       deviceId: "device-1",
       lane: "prod",
     });
     expect(getExpectedRoutesMock).toHaveBeenNthCalledWith(2, {
-      contractVersion: "v2",
+      contractVersion: "v3",
       deviceId: "device-1",
       lane: "prod",
     });
+  });
+
+  it("recognizes the legacy Gateway invalid_payload alias", async () => {
+    getExpectedRoutesMock
+      .mockRejectedValueOnce(
+        new OpenMeldApiClientHttpError({
+          code: "gateway.http_error",
+          message: "upstream rejected payload",
+          rawBody: "{}",
+          status: 400,
+          upstreamCode: "invalid_payload",
+        })
+      )
+      .mockResolvedValueOnce(resolvedResponse);
+
+    await expect(createExpectedRoutesReadSession().read()).resolves.toEqual({
+      contractVersion: "v3",
+      response: resolvedResponse,
+      status: "resolved",
+    });
+    expect(getExpectedRoutesMock).toHaveBeenCalledTimes(2);
   });
 
   it("does not hide a current server failure behind the compatibility fallback", async () => {
@@ -126,6 +163,14 @@ describe("expected-routes read session", () => {
       status: 503,
       upstreamCode: "profile_facts_unavailable",
     });
+    getExpectedRoutesMock.mockRejectedValueOnce(error);
+
+    await expect(createExpectedRoutesReadSession().read()).rejects.toBe(error);
+    expect(getExpectedRoutesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not downgrade a network failure", async () => {
+    const error = new Error("fetch failed");
     getExpectedRoutesMock.mockRejectedValueOnce(error);
 
     await expect(createExpectedRoutesReadSession().read()).rejects.toBe(error);
@@ -143,9 +188,37 @@ describe("expected-routes read session", () => {
     getExpectedRoutesMock.mockResolvedValueOnce(unresolvedResponse);
 
     await expect(createExpectedRoutesReadSession().read()).resolves.toEqual({
+      contractVersion: "v4",
       response: unresolvedResponse,
       status: "resolved",
     });
+  });
+
+  it("rejects a malformed v4 success instead of downgrading it", async () => {
+    getExpectedRoutesMock.mockResolvedValueOnce({
+      ...resolvedResponse,
+      expectedRoutes: [
+        {
+          agentProfileId: "agt-1",
+          bindingId: "binding-1",
+          bindingState: "enabled_primary",
+          configurationRevision: 4,
+          executionTarget: {
+            agentControllerConversationId: null,
+            agentControllerRef: "builtin:codex",
+            openMeldServiceRuntimeId: "runtime-1",
+          },
+          profileName: "Agent",
+          reasonCodes: [],
+          routable: true,
+        },
+      ],
+    });
+
+    await expect(createExpectedRoutesReadSession().read()).rejects.toThrow(
+      "v4 response omitted current working-folder identity"
+    );
+    expect(getExpectedRoutesMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects when the local Service contract is missing", async () => {

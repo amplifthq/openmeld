@@ -16,6 +16,9 @@ export function resolveSpaceMemberStatusTone(
 	if (entry.profileKind === "human") {
 		return entry.liveNow || entry.presenceStatus === "live" ? "ready" : "muted";
 	}
+	if (entry.availabilityReasonCode === "agent_execution.ready") {
+		return "ready";
+	}
 
 	switch (entry.availabilityCategory) {
 		case "available":

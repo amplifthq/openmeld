@@ -8,6 +8,14 @@ import { authProfileManagedRoleSchema } from "./profiles";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
+
+// Trusted Core-to-Space write, never accepted as a browser-selected identity/time.
+export const spaceMemberWebActivityWriteSchema = z.strictObject({
+  organizationId: trimmedNonEmptyStringSchema,
+  userId: trimmedNonEmptyStringSchema,
+  profileId: uuidProfileIdSchema,
+  lastActiveAt: ISO_DATE_TIME_SCHEMA,
+});
 const nullableTrimmedStringSchema = z.union([
   trimmedNonEmptyStringSchema,
   z.null(),

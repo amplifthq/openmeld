@@ -101,6 +101,10 @@ export function buildOrganizationAgentsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/agents`;
 }
 
+export function buildOrganizationAgentCreationPath(orgSlug: string): string {
+	return `${buildOrganizationAgentsPath(orgSlug)}/new`;
+}
+
 export function buildOrganizationAgentCreationRequestsPath(input: {
 	orgSlug: string;
 	requestId?: string | null;
@@ -466,7 +470,9 @@ function resolveProductHomeSwitchPath(input: {
 		case "people":
 			return buildOrganizationPeoplePath(input.nextOrgSlug);
 		case "agents":
-			return buildOrganizationAgentsPath(input.nextOrgSlug);
+			return subsection === "new"
+				? buildOrganizationAgentCreationPath(input.nextOrgSlug)
+				: buildOrganizationAgentsPath(input.nextOrgSlug);
 		case "computers":
 			return buildOrganizationComputersPath(input.nextOrgSlug);
 		case "directory":

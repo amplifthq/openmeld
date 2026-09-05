@@ -5,13 +5,13 @@
 - Purpose: Define the OpenMeld Web client's product responsibilities in
   navigation, Projects presentation, Space collaboration, hosted reply
   streaming, Center Agent memory controls, Wake authoring, thread presentation,
-  Center Agent Tasks and compact window, setup handoff, Wake availability
+  Center Agent Tasks and compact window, setup handoff, Wakeability
   display, Wake diagnostics, and browser-side diagnostic pointers.
 - Read this when: You are changing OpenMeld Web navigation, Settings placement,
   Project routes or current-computer presentation, Space flows, Wake authoring,
   thread UI, reply context, hosted reply streaming, the public agent manual,
   Center Agent memory settings, Wake details, Diagnostic Reports, setup handoff
-  entry, Wake availability presentation, Agent Profile surfaces, or Web
+  entry, Wakeability presentation, Agent Profile surfaces, or Web
   user-facing recovery copy.
 - Update this when: Web-owned navigation or product entry points, browser
   diagnostic surfaces, browser persistence, stream reconciliation, memory
@@ -146,11 +146,25 @@ and actions are fixed:
 3. **Create organization**, which opens a one-field name form; Auth returns the
    generated Organization URL
 4. **Manage organizations**, which opens the full-page Organization manager
-5. a separated **Settings** utility, which opens **Settings → Personal →
+5. the current account, which opens a nested **Accounts** view for switching,
+   adding, or signing out browser-saved accounts
+6. a separated **Settings** utility, which opens **Settings → Personal →
    Account** for the current workspace
 
 No page-level Organization picker or second context switcher may compete with
 this control.
+
+Account switching is browser-wide because Better Auth changes the active
+Session cookie. The nested view lists only Sessions saved by Better Auth's
+multi-session plugin, marks the current account, allows up to five saved
+accounts, and reloads through the account-neutral root after a switch. Adding
+an account enters the normal login flow with explicit add-account intent so the
+existing Sessions remain saved. Logging out of the current account revokes only
+that account's saved Session when available; **Log out of all accounts** keeps
+the existing full-sign-out behavior. Every successful account identity change
+clears account-private client caches and notifies other tabs before navigation.
+Organization selection remains URL-owned per tab after the newly active account
+loads; account switching must not add Better Auth active-Organization state.
 
 For `/o/{orgSlug}` routes, the URL selects the current tab's Organization after
 the route loader freshly confirms that the signed-in account is a member. The
@@ -219,12 +233,20 @@ authorization.
 ### Fixed primary rail
 
 The rail places the current workspace switcher at the top and has no separate
-OpenMeld brand row or account entry. **Home** is the first destination. The
-remaining four visible product destinations are organized into two fixed,
-user-collapsible groups:
+OpenMeld brand row or outer-rail account entry. Account management stays nested
+inside the workspace switcher. Its first four entries are flat, fixed
+primary actions and destinations; the remaining two product destinations stay
+in one user-collapsible group:
 
+- **New Agent** — opens `/o/{orgSlug}/agents/new`, a standalone creation page
+  with the primary rail and no Agent-list secondary sidebar. It reuses the
+  existing creation flow without loading the organization-wide Agent status
+  overview. Success opens the new Agent's detail; Cancel returns to Agents.
+  Pending teammate requests open Agent requests. Legacy `agents?view=create`
+  links redirect to this route before loading the Agents directory.
 - **Home** — the current Organization's adaptive overview and product entry.
-- **Work** — **Spaces**, **Direct Messages**.
+- **Spaces** and **Direct Messages** — first-level destinations directly below
+  Home.
 - **Team** — **People**, **Agents**.
 
 **Projects**, **Documents**, and **Agent Activity** keep their canonical routes,
@@ -232,15 +254,17 @@ pages, and contextual entry points but are temporarily absent from the primary
 rail while their future placement is redesigned. This interim navigation
 change does not retire, redirect, combine, or relocate those products.
 
-In the full rail, each labeled group uses its heading as an accessible
+In the full rail, the **Team** group uses its heading as an accessible
 disclosure trigger and restores the browser's collapsed groups from the same
-browser-wide layout preference as the rail width and tier. **Home** and the
-bottom utility area never collapse. Compact and icon-only tiers keep every
+browser-wide layout preference as the rail width and tier. **New Agent**,
+**Home**, **Spaces**, **Direct Messages**, and the bottom utility area never
+collapse. Compact and icon-only tiers keep every
 destination visible because those tiers do not render group headings or a
 disclosure trigger; returning to the full tier restores the remembered group
 state.
 
-The visible destinations resolve in that group order:
+The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
+**Direct Messages**, **People**, **Agents**. The product destinations are:
 
 1. **Home** — the current Organization's concise overview. It leads with the
    designated Center Agent, then composes existing Agent Activity, Inbox, Tasks,
@@ -451,7 +475,14 @@ pin order or the normal unread-first and recency order. Web does not create a
 second local read-position, membership, or Inbox source for this presentation.
 The Direct Messages secondary sidebar consumes the same Core-owned grouped
 summary and shows the indicator on the exact unread conversation row. It does
-not derive unread state from route activity or a browser-only counter.
+not derive unread state from route activity or a browser-only counter. The
+Account Space Index may additionally return the two Direct Message Profile ids
+when Web explicitly opts in. The sidebar resolves those ids through the one
+shared Organization Profile Directory query used by People and Agents, so its
+rows reuse the same names, avatars, and Agent Controller icons. It must not fan
+out a full Space members query per conversation. The Profile id pair is
+presentation data only: it does not establish membership or authorize opening
+the conversation.
 The Spaces destination in the outer app rail consumes the Core summary's
 complete `ordinarySpaceUnreadCount` aggregate. It shows one static amber dot
 whenever at least one ordinary Space has unread messages, including while the
@@ -1171,7 +1202,7 @@ OpenMeld Web owns the browser experience for:
 - Slack workspace installation and connection-result presentation
 - hosted Center Agent reply-stream presentation and reconnect recovery
 - Center Agent member-memory wipe and organization-memory policy controls
-- Wake availability and reply-recovery presentation
+- Wakeability and reply-recovery presentation
 - sanitized browser-side diagnostic pointers
 
 This is product-surface ownership, not authority ownership.
@@ -1640,10 +1671,11 @@ tooltips. Local Agent identity
 uses the same catalog-owned logo and name as Computer detail; Web never creates
 a second name or logo map for People.
 
-People reads the lightweight Profile Directory and does not wait for or request
-the Agent Runtime Overview. Its Agent counts and controller icons come from the
-permission-scoped lightweight summary, so unavailable Runtime Transport cannot
-blank member identity or delay the People workspace.
+People reads the lightweight Profile Directory first and renders member and
+Agent identity without waiting for the Agent Runtime Overview. It loads that
+overview independently to add the permission-scoped Controller and model
+summary to Agent cards when known. Unavailable Runtime Transport cannot blank
+member identity or delay the People workspace.
 
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
@@ -1652,6 +1684,12 @@ member's current active Human Profile before advancing the projection. CLI use,
 Auth session refreshes, Computer heartbeats, and Agent Activity are not
 substitutes. Undefined activity is omitted instead of rendering a placeholder,
 and relative last-seen text never claims live online presence.
+
+The same foreground reporter includes the current Space when visiting a Space
+route. Core records both scopes from one server timestamp. Hidden tabs and
+socket reconnects do not count as visits. Directory reads refresh on foreground
+return and every five visible minutes; Space member elapsed-time labels are
+formatted from `lastSeenAt` against the current clock, never a cached label.
 
 The sidebar groups members with one or more registered Computers under
 **Connected** and members without a Computer under **Not Connected**. Hovering
@@ -1664,21 +1702,29 @@ tie breakers.
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
 back, and forward navigation return to the same person. The persistent detail
-owns member account details, Organization role, join time, an ordinary Agent
-Profile count with up to three controller icons and an overflow count,
-Computers, Connected Channels, shared Profile details, and the permitted
-Profile Report, Learn about, Direct Message, inline edit, connect, or manage
-actions. The Agent Profile count links to Agents and focuses the first Agent
-Profile in that member's owner group. Member-account, Channel-account, Profile,
-and advanced-detail values are text-selectable. Editing remains available only
+hero presents the member email and join time as one muted metadata line, while
+the Organization role remains in the badge beside the member name. The detail
+owns an **Agents** section whose header keeps **All Agents** at the trailing
+edge. Every ordinary Agent appears as a compact card with its avatar, name, and
+permission-scoped Controller and model summary when known. Cards stay in one
+horizontal row and the row scrolls inline when it overflows; selecting a card
+opens that exact Agent, while **All Agents** opens the first Agent in the
+member's owner group. The detail also owns Computers, Connected Channels,
+shared Profile details, and the permitted Profile Report, Learn about,
+**Chat with {member}**, inline edit, connect, or manage actions. **Chat with
+{member}** is the primary action and keeps the same compact button height as
+adjacent actions. It does not repeat those account facts in a separate
+member-account section. Header metadata, Channel-account, Profile, and
+advanced-detail values are
+text-selectable. Editing remains available only
 for the signed-in member's own active default Human Profile. The sidebar and
 detail omit the internal Handle, undefined recent activity, and the ubiquitous
 **Active** state; only an exceptional disabled state is visible. Web does not
 derive an Organization online dot from last-used time, Computer state, or
-Space-scoped presence. Members without an active Human Profile have no Direct
-Message or edit action, but their detail remains available for inspecting
+Space-scoped presence. Members without an active Human Profile do not receive
+a **Chat with** or edit action, but their detail remains available for inspecting
 account details and the explicit unavailable or disabled profile state. The
-signed-in member cannot Direct Message themself.
+signed-in member does not receive a **Chat with** action for themself.
 People admits only one pending Direct Message
 open intent at a time so competing responses cannot navigate to an earlier
 selection. The People sidebar includes
@@ -1779,6 +1825,9 @@ entry points use the dialog composition. Both surfaces use the same creation
 controller and generator components: local-Agent selection is the first
 decision, lower-frequency configuration stays under an inline **Advanced**
 disclosure, and the editable generated name appears only in the final review.
+An unfinished browser-local draft may prefill that first decision, but the first
+new local-Agent or execution-target choice dismisses restoration for the current
+open flow so later renders cannot reverse the user's click.
 Creating for another Organization member remains the same Core-owned Agent
 Profile Creation Request flow; Web does not introduce a simplified parallel
 request model. The previous full-form dialog may remain as a temporary internal
@@ -1794,10 +1843,25 @@ error state. Automatic readiness refresh invalidates only the runtime overview;
 identity refresh remains tied to membership, Profile, designation, and Binding
 summary changes.
 
+After creation commits, Web refreshes the Profile Directory before navigating
+to the new `profileId`. The existing page stays in its checking state while the
+independent runtime overview catches up; it must not flash **Agent not found**
+or reuse a stale unavailable verdict for the new identity.
+
 The sidebar groups ordinary Agents by owner name. The signed-in member’s group
-is first, and remaining groups use a stable owner-name and owner-ID order. Each
-row shows the Agent avatar, name, a compact Controller and model summary when
-known, and the existing Core-owned Wake availability projection. Route-online,
+is always first. Remaining owner groups put current work first, then interrupted
+or waiting work, then sort by the most recent Agent activity in that group.
+Within each group, working Agents come first, interrupted or waiting Agents
+follow, and the remaining Agents sort by the newer of `lastUsedAt` and
+`createdAt`. This keeps a just-created Agent at the top until it has real work
+activity. Missing or invalid recency sorts last; owner name, Agent name, and
+stable IDs break ties. Checking
+readiness and Wakeability never count as work activity. Each row shows the
+Agent avatar, name, a compact Controller and friendly model summary when known,
+and the existing Core-owned Wakeability projection. The summary resolves
+Controller defaults through the shared Model Catalog and never substitutes a
+raw model ID for the catalog display name. People Agent cards use the same
+formatter. Route-online,
 Binding existence, browser-local recovery state, and completed Prepare evidence
 cannot substitute for that readiness. The selected `profileId` remains in the
 route search contract so refresh, back, forward, and request-to-Agent navigation
@@ -1822,18 +1886,26 @@ version 2; Core omits Skip from callers that do not advertise that receiver
 capability, including already-loaded older Web builds.
 Non-owners see the same neutral workload summary without the interrupted source
 or recovery action.
-**Direct Message** is a primary header action. An authorized owner may choose
+The **Current activity** section renders a bound Local Agent Session only while
+the Work Coordinator projects that Profile as working. Binding a controller
+conversation is Runtime configuration, not evidence of current work. When a
+working bound Session is shown, Web displays its provider-native title,
+Conversation ID, and Computer name. The configuration grid keeps **Runtime** as
+its final card and uses it to show the bound Computer and Conversation ID even
+when that Session is idle.
+**Chat with {Agent name}** is a primary header action. An authorized owner may choose
 **Edit Agent** to edit in place, then explicitly **Save changes** or **Cancel**;
 a failed save keeps the draft and its diagnostic visible. Dangerous or
 low-frequency actions remain in the overflow menu. This presentation does not
 create a second Agent Profile, Binding, readiness, request, or edit authority.
-Agent identity controls in messages, Threads, and other in-context collaboration
-surfaces open one compact Profile Details popover. The Members panel opens the
-same content in a larger **Check this Profile** dialog. Both presentations show
-the Agent identity, current Presence and Activity, a **Direct Message** action,
-the same configuration cards, and **More Details** navigation to the canonical
-Agent route. Owners edit supported settings from those cards; other viewers see
-the same cards read-only. The overflow contains only non-destructive actions.
+Agent identity controls in messages, Threads, and the Members panel open one
+compact Profile Details popover. It shows the Agent identity, current
+availability, and a primary **Chat with {Agent name}** action. The popover omits
+configuration cards and gives the owner one persistent pencil action to open
+the canonical Agent route; it shows no edit affordance to other viewers. It
+does not add a second details dialog or an overflow-menu details action. Owners
+edit supported settings from the canonical route; other viewers keep the
+popover read-only.
 Web must not maintain a separate About-versus-Edit presentation or mutation
 path. Disruptive Controller and working-folder changes keep the account-wide
 execution lock and Core writer guard described below.
@@ -2192,19 +2264,15 @@ that restore-and-history chain. Links from
 the Space Directory carry
 the already selected human profile so the Space bootstrap can start during
 intent preload instead of waiting for a second profile-resolution navigation.
-The button-based Space and Direct Message sidebar rows preload their exact target
-route and conversation data together: a 50 ms pointer dwell avoids warming rows
-that the member only passes over, while keyboard focus and pointer press start
-immediately. The mounted authorized App shell supplies its already resolved
-Organization, storage scope, and acting Human Profile to the conversation-data
-prefetch, so Dexie restoration and the current history request do not wait for the
-Router preload to resolve those same prerequisites again. The Router preload still
-runs in parallel, and every server read keeps the normal authenticated and
-authorized API boundary. Leaving before the dwell cancels the pending preload, and
-the current active conversation does not preload itself. The target remains bound
-to its Organization, Space, and acting Human Profile, so Query deduplication,
-browser history restoration, current history, status, and bootstrap all reuse the
-normal entry path instead of creating a second cache or source of state.
+Space and Direct Message sidebar rows are Router links. The Router's shared
+50 ms intent delay avoids warming rows that the member only passes over and
+invokes the target route loader for pointer or keyboard intent. The exact acting
+Human Profile stays in the target URL, so the loader restores and warms the same
+conversation Query keys used on navigation. Every server read keeps the normal
+authenticated and authorized API boundary, and leaving before the Router's
+intent delay cancels the pending preload. Web does not maintain a second timer,
+prefetch controller, or component-owned conversation-data path beside the route
+loader.
 TanStack Query is the sole freshness owner for loader-prefetched data. The
 Router's preload freshness window is zero, so every loader invocation reaches
 the exact Query key and lets that query's `staleTime`, in-flight deduplication,
@@ -2217,9 +2285,11 @@ preload must not return a different loader result that navigation could render.
 The route disables loader preload and resolves canonical route data only on
 entry. The primary app rail and global launcher may nevertheless prefetch the
 read-only Center Agent DM projection on pointer intent or keyboard focus. When
-that projection identifies an existing DM, Web restores and warms the exact
-Space display snapshot, history, status, and bootstrap Query keys consumed by
-the activated conversation. A missing projection ends prefetch immediately: hover and focus
+that projection identifies an existing DM, Web restores the exact Space display
+snapshot and history, then performs one bootstrap read and seeds the status,
+members, history, and thread Query keys consumed by the activated conversation.
+It must not issue parallel status or recent-history reads for data already
+contained in that bootstrap. A missing projection ends prefetch immediately: hover and focus
 must never call the open endpoint, create a DM, or perform another mutation.
 The stable, read-only DM projection may persist in the approved Organization
 browser-read segment. The full route and compact launcher render that cached
@@ -2244,6 +2314,22 @@ Private, membership-scoped, real-time conversations must not be statically
 prerendered or placed in a shared server cache; intent prefetch, request-scoped
 SSR data, the account-scoped browser cache, and live invalidation are the
 allowed acceleration layers.
+
+TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
+restoration key is the route pathname rather than the individual
+browser-history entry, and the Space message viewport has a stable id derived
+from the Space id. The conversation also records the first visible message and
+its viewport offset during scrolling and on departure. That account-and-Space-
+scoped semantic anchor is restored after history arrives, loading earlier pages
+if needed. A remembered position disables the MessageScroller's initial
+end jump and automatic following. Resize observation preserves the same message
+as images and deferred layout settle, until deliberate user scrolling takes
+ownership. Reaching the bottom resumes normal following. Different Spaces
+remain independent; explicit message-focus navigation takes priority over the
+remembered position.
+Both layers use session storage. This view-local presentation state does not
+belong in the IndexedDB Query cache and is never message, read-cursor, or access
+authority.
 
 ### Browser read-cache persistence
 
@@ -2467,7 +2553,7 @@ combining immediate write-response cache patches with live invalidation frames.
 When Web creates or adds an Agent Profile to a Space, the successful
 `addMembers` response may be applied to the current members snapshot immediately
 so the new member appears without waiting for a slow follow-up refresh. Any
-missing Wake availability must remain unknown/checking until Core's readiness
+missing Wakeability must remain unknown/checking until Core's compatibility
 read model returns it. For a newly created Agent Profile that Web just bound to
 a local controller and added to the Space, the immediate mutation cache patch may
 show `Checking` until the follow-up readiness refresh completes. Web must not
@@ -2477,7 +2563,7 @@ refetches, but they are not state and must not replace the Space/Core read
 models.
 
 Bootstrap member cache seeding is lower-fidelity reconciliation, not
-authority. When an incoming Agent item omits Wake availability, Web may merge
+authority. When an incoming Agent item omits Wakeability, Web may merge
 its basic fields but must not erase richer controller, runtime, readiness, or
 activity display evidence already read from the owning projection. An explicit
 incoming Wake-availability verdict replaces the cached verdict; cached
@@ -2488,7 +2574,8 @@ gaps: cached rows must never authorize Wake or membership mutations, and a
 future fix must add explicit snapshot freshness and member-set reconciliation
 instead of another client-side readiness source.
 
-The Add members surface may present the designated Center Agent in its own
+The Add People or Agents surface may present the designated Center Agent in its
+own
 category, but the Organization directory result is display data, not mutation
 authority. Web must carry the displayed Center Agent Profile id as the expected
 designation identity and let Core reject a mismatch. Web submits one mixed
@@ -2545,7 +2632,7 @@ source, or prior decisions.
 For Profile Details dialogs, Web should consume the shared Profile Details
 snapshot or section model from the shared contract layer. Web may render the
 dialog, copy buttons, scrolling, and disclosure states, but it must not decide
-Profile identity, Space membership, Wake availability, Binding, or local
+Profile identity, Space membership, Wakeability, Binding, or local
 connection truth by stitching unrelated browser-side facts together.
 
 Profile Details includes immutable **Created by** and **Created from** rows.
@@ -2670,6 +2757,31 @@ relabel the completed rename as failed. A `space.meta.changed` live frame
 performs the same targeted status and index refresh in other open clients; it
 does not carry a replacement name or require a members refresh.
 
+Every direct Space entry uses the shared Core Space entry resolution before it
+mounts a member or public conversation. The Web entry gate consumes that
+resolution as the only routing decision: it opens the member experience, opens
+the public read-only experience, asks for sign-in or a protected-Space password,
+shows the same-Organization membership block with the safe Space name and owner,
+or shows a non-disclosing unavailable state. Web does not reconstruct access
+from status, the Account Space Index, or a failed conversation request. A
+transient resolver failure keeps the target and offers retry; it is not treated
+as denied access.
+
+The entry target may include one Signal and one Thread root Signal. Web carries
+both selectors through sign-in, member/public route reconciliation, and
+password recovery, then focuses the message or opens the Thread only after
+access succeeds. A blocked page never reads conversation content to discover
+those targets. A future join-request action extends the resolver's recovery
+tail and returns to this preserved target; it does not create another access
+gate.
+
+Web builds both whole-Space share links and message links through the shared
+public Space-entry link builder. A message link is a secondary action in
+**Message details**, where the user can see and select the full destination;
+it is not another control in the already-dense inline Message Actions row.
+Thread-message links preserve both the selected message Signal and the Thread
+root. Copying a link does not claim or change access.
+
 Authenticated Space app entry uses the selected active OpenMeld Profile from the
 current account. That selected profile can be a Human Profile or an Agent
 Profile. Web must not treat Space app access as human-only; Human Profile
@@ -2774,14 +2886,22 @@ composited presentation properties such as transform and opacity so labels and
 message content never pass through a compressed wrapping state. Reduced-motion
 users receive the final layout without spatial motion.
 
-Members header descriptions and Add-members guidance own full-width rows below
-their related title-and-action rows. Add-members controls respond to the panel's
-own width rather than the browser viewport: narrow panels stack heading actions
-and footer actions into full-width rows, while wider panels keep the compact
-side-by-side layout. After Core confirms an Agent or Human membership write,
-Web collapses Add members so the roster regains the available space. Agent and
-Human names use the same compact type scale as the app sidebars so the Members
-panel does not introduce a heavier navigation hierarchy.
+Members header descriptions own a full-width row below the title and actions.
+The header Add People or Agents action and the one-member empty-state card both
+open the same Add People or Agents dialog. New Agent is a compact primary action
+below the dialog description; the title row is reserved for the title and close
+action.
+The picker presents People as the primary hierarchy, expanded by default, with
+each person's addable Agent Profiles indented below their People row. A person
+who is already in the Space remains visible when one of their Agents can still
+be added. Center Agent remains Organization-owned, appears first in a separate
+Organization group, and carries a compact Remote badge. The hierarchy uses
+spacing, avatars, and typography rather than nested cards or borders. Selecting
+an ordinary Agent explains and counts
+the Core-owned owner-Human participation effect without submitting a duplicate
+owner selection. After Core confirms an Agent or Human membership write, Web
+closes the dialog. Names use the same compact type scale as the app sidebars so
+the Members panel does not introduce a heavier navigation hierarchy.
 
 The active Thread panel selection is a per-Space browser presentation
 preference. Web persists only the selected Thread id, resolves that id against
@@ -2864,6 +2984,18 @@ continues to gate execution-outcome presentation such as Navigation Actions and
 durable Agent work details. Human-authored message bodies remain plain text.
 The shared safe Markdown renderer strips raw HTML, does not render Markdown
 images, and applies the existing link and internal Space-reference policy.
+
+Web owns content typography separately from rendering semantics. The local
+shadcn Typeset stylesheet supplies element rhythm for rendered HTML, while
+`clients/web/src/styles/content-typography.css` owns semantic presets and the
+unexposed content scale. Human Space messages remain plain text but consume the
+same Space message size, line-height, and body-font tokens as Agent Markdown.
+The shared Plate Markdown editor used by Organization Documents, Organization
+Skills, and Space Markdown Files consumes the document preset. Every
+`MessageResponse` call must select an explicit presentation preset so a new
+surface cannot inherit chat styling accidentally. The public Changelog selects
+its own fixed preset and does not consume the app content scale; changing Space
+or document typography must not change Changelog presentation.
 
 For an authenticated Organization view, a resolved reference navigates to the
 app route `/o/{orgSlug}/spaces/{spaceId}?profileId={activeProfileId}`. The
@@ -3126,23 +3258,14 @@ payloads. OpenMeld-owned identity, security, routing, queue, and publication
 failures continue to use precise OpenMeld-authored copy and one practical next
 action.
 
-A single terminal execution failure with no recoverable result shows
-**Retry as new execution** inline when Web can
-recover the exact source text and exact target Agent Profile. That action
-is labeled **Retry as new execution**, creates a fresh Wake with a new
-client-message identity, and makes clear that the request will run again. Every
-transport retry
-for that one action reuses the same identity. If Web cannot confirm the outcome,
-it shows `New execution not confirmed. Try again`; selecting that action
-redrives the same identity instead of creating another logical Wake. Only a
-definite failure clears the identity before another Retry. Grouped failures,
-stopped outcomes, publication failures, and outcomes without an exact source
-and target omit inline Retry rather than guessing what to rerun. `Open
-diagnostics` expands and focuses the retained technical details, including the
-bounded reason code, while raw internal error text stays out of product copy.
-If the fresh Retry request definitively fails, the action must show that failure
-visibly and remain available for another attempt; console logging alone is not
-a user-facing outcome. Outcome unknown is not definite failure.
+A terminal execution outcome does not show an inline action that starts another
+execution. Web exposes only exact result replay or exact conversation reply
+recovery when Core authorizes those operations. To run the request again, the
+user starts a new Wake through the ordinary composer so current Wakeability,
+target, authorization, and client-message identity are evaluated afresh.
+`Open diagnostics` expands and focuses the retained technical details,
+including the bounded reason code, while raw internal error text stays out of
+product copy. Outcome unknown never authorizes a second logical execution.
 
 When a persisted Agent Profile reply carries server-authored reply staleness
 context, Web may show the quiet `written before N newer messages` marker next to
@@ -3188,11 +3311,13 @@ Agent DMs use `Tell Center Agent what you need…`, and Threads use
 `Reply in thread…`.
 
 The `@` picker optimizes for the common user action:
-selecting an Agent Profile authors Wake by default while keeping the visible
-composer text as a plain `@Name` mention. The same picker surface exposes the
-other allowed relation without a required second dialog: Wake uses `@`, and
-Reference uses a link-style symbol. Selecting a Human Profile creates a fixed
-Human Mention mark; people never receive an Agent relation selector.
+selecting an Agent Profile authors Wake by default only when the current
+Core-owned Wakeability projection is `ready`, while keeping the visible composer
+text as a plain `@Name` mention. An unavailable or checking Agent defaults to
+Reference. The same picker surface exposes the other allowed relation without a
+required second dialog: Wake uses `@`, and Reference uses a link-style symbol.
+Selecting a Human Profile creates a fixed Human Mention mark; people never
+receive an Agent relation selector.
 
 After selection, Web renders one persistent editable semantic control per
 structured target. An Agent control places `@`, the Agent Profile icon,
@@ -3207,6 +3332,14 @@ or keyboard focus and remains available on touch-only surfaces. Web submits all
 structured relations explicitly instead of relying on Core to infer Wake from
 arbitrary bare text. Changing a semantic control changes the authored structured
 relation; AI interpretation must never silently rewrite it.
+
+An existing or restored Wake draft remains a Wake while the user edits it; Web
+does not silently downgrade the authored relation. Before every send path that
+would create a new Wake, Web reads the current Core-owned Wakeability and blocks
+before publishing the message or any Composer Upload when the Agent is not
+currently ready or the read cannot be completed. The Composer stays editable,
+the draft stays intact, and Reference authoring and ordinary text input remain
+available.
 
 The Composer member picker reuses the shared Fluid layout indicator for its
 active row. Pointer hover and combobox keyboard navigation update that one
@@ -3240,7 +3373,10 @@ Message details is one controlled right-side drawer for every visible message,
 not separate ordinary-message and work-message surfaces. The drawer reads the
 shared Message Details response, builds one presentation model, and renders one
 Activity timeline beginning with the actual message preview, author, and sent
-time. Each Wake target receives one Activity row. Transient work updates that
+time. The link section remains available even when the rest of the Message
+Details response is loading or unavailable, because its destination comes from
+the already-visible message identity rather than private detail content. Each
+Wake target receives one Activity row. Transient work updates that
 row in place while the target is active; the recorded reply, failure, stop, or
 other terminal outcome then replaces the transient content in the same row.
 The final status, reply preview, failure explanation, recovery action, and
@@ -3314,6 +3450,15 @@ in the Members surface. When dismissed contextual setup remains recallable,
 trailing edge of the second header row so the Space name remains identifiable;
 it stays visually separate from the **Messages** and **Graph** view control and
 returns to the primary action group at wider breakpoints.
+
+Selecting a Human or Agent identity in a Space opens one compact profile
+popover rather than a table-style details dialog. A Human popover shows the
+short Space-specific activity time from the Space member projection; it does
+not substitute Organization-wide last activity or generic presence copy. An
+ordinary Agent popover may link its owner to the canonical Agent editor. The
+Center Agent is not an ordinary editable Agent Profile: its Space popover has
+no edit action, and its Chat action opens canonical Home instead of creating or
+opening a Direct Message.
 
 The Space header, main conversation rail, contextual setup overlay, and primary
 composer share one responsive inline frame. Its leading inset is the leading
@@ -3397,12 +3542,49 @@ sidebar status uses the same progress projection and a non-Working waiting
 indicator instead of its animated Working orb. Both surfaces return to ordinary
 Wake progress as soon as Core projects the conversation as available.
 
+Web uses the shared Wake presentation resolver for status text and Orb variants.
+Sidebar priority is input needed from the current user, then working/replying,
+then sending/connecting, then queued or waiting. Equal priorities retain Wake
+start order. Other active Spaces in the selected Organization reuse the same
+authenticated active-progress query and cache on the ambient 15-second refresh
+cadence; this does not claim open-Space WebSocket latency. A failed read retains
+only the account summary's generic active indication, not a guessed phase.
+Bounded summaries disclose additional active tasks. Progress is placed before
+message actions; reduced-motion and input-waiting Orbs are paused.
+
+Web derives message-level progress, the details drawer, and Space-level current
+work from the same shared Wake progress item. It must not introduce a second
+resolver that independently combines dispatch, RuntimeCoordinator, native
+delivery, or reply state. The shared item may include opt-in Space-owned public
+source context for later presentation, but this contract change alone does not
+add a new visible UI surface.
+
+RuntimeCoordinator progress changes reach an open Space through the
+`wake.progress.changed` WebSocket invalidation. Web treats that frame only as a
+targeted prompt to refresh the active Wake progress query; the frame itself is
+never rendered and does not own state. Mount, browser focus, and reconnect also
+refresh the authoritative snapshot. A 15-second initial and 30-second ongoing
+detail refresh remains only as missed-frame recovery, not the normal live-update
+path, and must not trigger unrelated members or Space-status reads.
+
+Web explicitly requests `includePreviewText=true`; the resulting optional
+`previewText` is the only Wake-progress evidence it may render as a live reply
+preview. Core omits that field for clients that do not opt in, which keeps
+rolling strict clients compatible. A `writing` phase without `previewText`
+renders the ordinary concise `is replying` status instead of displaying the
+shared diagnostic `message` as if it were Agent output.
+Any UI that summarizes the active list requests `includePageInfo=true` and
+treats `hasMore=true` as incomplete coverage (for example, `25+` rather than an
+exact count). It must not imply that the bounded first page is the complete set.
+
 When active Wake progress includes a pending Agent Interaction for the current
-Binding owner, Web projects it into one collapsed Pending Action Surface above
-the currently visible main Space Composer or active Thread Composer. Web mounts
-that one surface in exactly one panel; opening a Thread moves the projection
-beside that Thread Composer instead of leaving a second entry behind the side
-panel. The surface reuses the existing Permission, Question, and Plan Review
+Binding owner, Web partitions requests by their authoritative source Thread ID.
+The active Thread Composer shows only that Thread's requests. The main Composer
+keeps main-timeline requests and entry points for requests in other Threads.
+Opening an unrelated Thread never moves those requests into it. A Thread entry
+opens its owning Thread and expands the selected request; the request is then
+removed from the main surface, so its approval controls exist in one place.
+The surface reuses the existing Permission, Question, and Plan Review
 cards, stays closed until the owner opens it, and presents multiple requests one
 at a time. Its selection and component identity use
 `runtimeCoordinatorExecutionId + interactionId`, because separate Wakes may
@@ -3539,7 +3721,7 @@ deduplication for the new session. Choosing `Set up again` increments that fence
 before Web requests the replacement session, so the invalidation does not depend
 on a later React render or network response.
 
-When setup starts from `Reconnect OpenMeld Service` on an existing Computer,
+When setup starts from `Reconnect Computer` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local
 service reinstall may report a new `deviceId`; Web still follows the session and
 shows completion for the selected Computer instead of creating a browser-side
@@ -3565,8 +3747,9 @@ device-name matching.
 
 An accepted Agent Profile Binding reconnect is a completed cloud save. Web must
 not report that save as failed because route-catalog notification or
-`AgentExecutionReadiness` has not converged within a browser-side polling
-window. Core owns the route-catalog notification issued with the Binding write;
+the compatibility `AgentExecutionReadiness` projection has not converged within
+a browser-side polling window. Core owns the route-catalog notification issued
+with the Binding write;
 Web then refreshes the primary Binding and canonical readiness projections and
 shows their current state without issuing a duplicate notification.
 
@@ -3736,13 +3919,14 @@ The public Skill should explain OpenMeld identity choices in setup language:
 - a wakeable local Agent Profile must be bound to local agent execution before
   the Space can wake it automatically
 
-Web setup, Computers, and Profiles surfaces should use the
-shared Local Components action vocabulary for local recovery CTAs. Service comes
-before local-agent binding: when OpenMeld Service is missing or disconnected, show
-`Connect OpenMeld Service` or `Reconnect OpenMeld Service`; when the service bundle or
-runtime contract is out of date, show `Update OpenMeld Service`; only after the
-service layer is usable should an Agent Profile binding problem show
-`Connect local agent`.
+Web setup, Computers, and Profiles surfaces use the shared Local Components
+action vocabulary for local recovery CTAs. User-facing entry points say
+`Connect Computer`, `Reconnect Computer`, or `Update OpenMeld on Computer`;
+they do not require a beginner to understand the OpenMeld Service process.
+Computer detail, version checks, diagnostics, and other component-specific
+surfaces may still name **OpenMeld Service**. The computer connection comes
+before local-agent binding; only after it is usable should an Agent Profile
+binding problem show `Connect local agent`.
 
 On the Computers local agents card, the `Connect local agent` notice
 is reserved for the zero-agent case: this computer reports no usable local
@@ -3768,9 +3952,13 @@ is running; it must not manufacture a checking state from an unrelated
 readiness fetch or a fixed grace timer. Computers, Agents, and Space recovery
 surfaces must consume the Core-owned current-local-runtime `nextAction` for the
 completed outcome. A completed `check_status` verdict uses the same amber
-**Couldn't check** outcome on the affected local-agent row, the current Computer
-summary, and current-Computer toolbar attention. It never becomes a red repair
-alert or setup action.
+**Check delayed** outcome on the affected local-agent row, the current Computer
+summary, and current-Computer toolbar attention. The local-agent card footer
+shows the last trusted check as concise relative copy such as **Checked 3
+minutes ago**, with the same evidence repeated in its detail dialog. Only an
+affected controller offers the quiet **Check again** action; routine automatic
+retries do not add a global recovery button. A delayed check never becomes a
+red repair alert, whole-computer reconnect instruction, or setup action.
 
 The current-Computer toolbar keeps that coarse warning or danger attention
 stable while page navigation or a full browser refresh revalidates current
@@ -3869,9 +4057,15 @@ operation in verification; it becomes a separate actionable update. A stale
 refetch must not erase the local accepted-operation evidence, and a
 `current` control response must not produce **Up to date** until the component
 projection agrees. Request completion and installation completion are not
-verified update completion. Service connection recovery remains explicitly
-**Connect OpenMeld Service** or **Reconnect manually**. When Service is offline,
-both the card action and its More menu use **Reconnect manually** and open the
+verified update completion. An exact target observed while the same operation
+is still `waiting_for_work` or `updating` remains **Updating**. Only `updated`
+plus the exact target Service and CLI becomes **Up to date**. `restored` and
+`needs_help` remain **Update failed. Try again.** even when stale component
+fields match the target. An optional update still available after completion
+prevents **Up to date** from becoming a false current-version claim. Computer
+connection recovery remains explicitly
+**Connect Computer** or **Reconnect Computer**. When Service is offline,
+both the card action and its More menu use **Reconnect Computer** and open the
 existing Connect/CLI path; Web never pretends it can send a managed reconnect
 through the disconnected Service.
 
@@ -3917,37 +4111,39 @@ scenario should expose one primary action and one primary entrypoint. Web should
 not make users choose between `openmeld setup`, `openmeld service repair`, `openmeld service
 update`, and skills commands.
 
-## Wake Availability And Recovery Presentation
+## Wakeability And Recovery Presentation
 
-Web may display Wake availability on Agent Profile and Space surfaces, but it
+Web may display Wakeability on Agent Profile and Space surfaces, but it
 does not own execution truth.
 
-Final user-facing Wake availability must come from Core-owned Agent execution
-status. Web must not reconstruct it from local browser state, Space membership,
-Binding existence, route-online evidence, service health, setup completion, or
-capability inventory.
+Final user-facing Wakeability must come from the Core-owned Wakeability
+projection. Web must not reconstruct it from local browser state, Space
+membership, Binding existence, route-online evidence, service health, setup
+completion, Agent Activity, one Wake's Outcome, or capability inventory. The
+current compatibility APIs and types may still use readiness or execution-status
+names, but those names do not create another authority path.
 
 Web may briefly refresh local owner diagnostics when Core reports checking or
 self-healing evidence, but that refresh behavior must have an explicit
 expiration boundary. After the refresh window or attempt budget is exhausted,
 Web must stop presenting transient checking as the public state and must return
-to the latest Core-owned Wake availability or owner recovery guidance. It must
-not keep a last-known `Available for Wake` badge when the current Core
-projection says the route, service, or execution path is no longer available.
+to the latest Core-owned Wakeability or owner recovery guidance. It must not
+keep a last-known `Available` badge when the current Core projection says the
+route, service, or execution path is no longer available.
 
 The Space Members surface may use Core/Space active Wake progress read models to
 show that a target Agent Profile is actively running or waiting for OpenMeld Service,
-even when the latest member availability row is stale or degraded. That overlay
-is presentation-only evidence for one active Wake. It must not become final Wake
-availability, recovery eligibility, Binding truth, member sorting, mention
+even when the latest member Wakeability row is stale or degraded. That overlay
+is presentation-only evidence for one active Wake. It must not become final
+Wakeability, recovery eligibility, Binding truth, member sorting, mention
 authoring, or Profile Details truth.
 
 Visual smoothing for brief `checking_connection` flicker may replay the last
-`Available for Wake` presentation only for the compact row indicator and its
-accessible label, and only inside a bounded debounce window. Terminal
-`offline_for_wake` or `unavailable_for_wake`, cold-start checking, recovery
-actions, diagnostics, Profile Details, sorting, and command eligibility must
-continue to read the raw Core/Space snapshot.
+`Available` presentation only for the compact row indicator and its accessible
+label, and only inside a bounded debounce window. Terminal `offline_for_wake`
+or `unavailable_for_wake`, cold-start checking, recovery actions, diagnostics,
+Profile Details, sorting, and command eligibility must continue to read the raw
+Core/Space snapshot.
 
 The Space Members surface presents an Agent Profile's availability as a compact
 status indicator immediately after the profile name instead of repeating the
@@ -3965,13 +4161,20 @@ severity that warrants it.
 Reply recovery copy may be shared through Agent Profile recovery semantics. Web
 adapts browser-local and current-local-runtime evidence into that shared copy,
 then presents one clear next action. The copy explains known evidence and the
-next step. It does not decide execution truth.
+next step. It does not decide Wakeability or execution truth.
 
-When a Wake failure maps to a local-service recovery action, Web may show a
-local repair entry only when the failed target is manageable by the current
-user. For another user's computer, Web should explain who needs to check OpenMeld
-Service and the local agent instead of linking the current user to a repair
-surface that cannot fix that target.
+Known blockers name the affected object and place the action beside the
+explanation. Computer recovery uses **Connect computer**, **Reconnect
+computer**, or **Update** with copy such as **Felix's MacBook Pro is not
+connected.** or **Felix's MacBook Pro needs an update.** Primary blocker copy
+does not say `needs setup` and does not use `Review setup`. Setup language remains
+appropriate only when the destination is an actual multi-step setup flow.
+
+When a Wake failure maps to a computer-connection recovery action, Web may show
+a local repair entry only when the failed target is manageable by the current
+user. For another user's computer, Web should explain who needs to reconnect
+the computer and check the local agent instead of linking the current user to a
+repair surface that cannot fix that target.
 
 When evidence is incomplete or degraded, Web should keep the user-facing message
 simple:
@@ -4030,6 +4233,6 @@ Use the scoped owner documents for deeper rules:
   derive them from browser state.
 - Conversation compaction markers consume the durable server-authored final
   Signal checkpoint; Web does not infer or animate compaction.
-- Final Wake availability must come from Core-owned Agent execution status.
+- Final Wakeability must come from the Core-owned Wakeability projection.
 - A visible Wake problem should end with a clear outcome, one next action, and a
   diagnostic path, not internal subsystem vocabulary.

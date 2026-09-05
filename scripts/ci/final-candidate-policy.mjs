@@ -31,6 +31,8 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate-policy.test.mjs",
   "scripts/ci/final-candidate-publisher.mjs",
   "scripts/ci/final-candidate-publisher.test.mjs",
+  "scripts/ci/final-candidate-release-policy.mjs",
+  "scripts/ci/final-candidate-release-policy.test.mjs",
   "scripts/ci/final-candidate-reuse.mjs",
   "scripts/ci/final-candidate-reuse.test.mjs",
   "scripts/ci/final-candidate-state.mjs",

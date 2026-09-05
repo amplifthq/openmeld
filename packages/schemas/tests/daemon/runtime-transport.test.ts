@@ -4,6 +4,7 @@ import {
   daemonExecutionCompatibilitySchema,
   daemonStreamErrorFrameSchema,
   daemonStreamFrameSchema,
+  localWakeRouteReportSchema,
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -213,6 +214,172 @@ const createLocalComponentsStatus = () => ({
 });
 
 describe("runtime transport schema", () => {
+  const createV4RouteReport = (observation: Record<string, unknown>) => ({
+    expectedRoutesContractVersion: "v4",
+    reportedAtMs: 1_700_000_000_000,
+    daemonSessionId: "session-1",
+    deviceId: "device-1",
+    lane: "prod",
+    includedProfileIds: ["agent-1"],
+    profileConfigurationRevisions: [
+      {
+        bindingId: "binding-1",
+        configurationRevision: 3,
+        profileId: "agent-1",
+      },
+    ],
+    skippedProfiles: [],
+    workingFolderObservations: [observation],
+  });
+
+  const observationIdentity = {
+    bindingId: "binding-1",
+    configurationRevision: 3,
+    observedAtMs: 1_700_000_000_000,
+    profileId: "agent-1",
+  };
+
+  it.each([
+    {
+      ...observationIdentity,
+      defaultProjectId: "project-1",
+      localProjectBindingGeneration: "binding-generation-2",
+      reasonCode: null,
+      source: "default_project",
+      status: "ready",
+    },
+    {
+      ...observationIdentity,
+      defaultProjectId: "project-1",
+      localProjectBindingGeneration: null,
+      reasonCode: "project.local_connection.missing",
+      source: "default_project",
+      status: "missing",
+    },
+    {
+      ...observationIdentity,
+      defaultProjectId: "project-1",
+      localProjectBindingGeneration: "binding-generation-2",
+      reasonCode: "project.local_connection.folder_missing",
+      source: "default_project",
+      status: "missing",
+    },
+    {
+      ...observationIdentity,
+      defaultProjectId: "project-1",
+      localProjectBindingGeneration: "binding-generation-2",
+      reasonCode: "project.local_connection.invalid",
+      source: "default_project",
+      status: "invalid",
+    },
+    {
+      ...observationIdentity,
+      defaultProjectId: null,
+      localProjectBindingGeneration: null,
+      reasonCode: null,
+      source: "profile_workspace",
+      status: "ready",
+    },
+    {
+      ...observationIdentity,
+      defaultProjectId: null,
+      localProjectBindingGeneration: null,
+      reasonCode: "profile.workspace.missing",
+      source: "profile_workspace",
+      status: "missing",
+    },
+    {
+      ...observationIdentity,
+      defaultProjectId: null,
+      localProjectBindingGeneration: null,
+      reasonCode: "profile.workspace.invalid",
+      source: "profile_workspace",
+      status: "invalid",
+    },
+  ])("accepts one of the six path-free v4 working-folder facts", (observation) => {
+    const report = localWakeRouteReportSchema.parse(
+      createV4RouteReport(observation)
+    );
+
+    expect("workingFolderObservations" in report).toBe(true);
+    if ("workingFolderObservations" in report) {
+      expect(report.workingFolderObservations[0]).toEqual(observation);
+    }
+  });
+
+  it.each([
+    {
+      ...observationIdentity,
+      defaultProjectId: null,
+      localProjectBindingGeneration: "binding-generation-2",
+      reasonCode: null,
+      source: "default_project",
+      status: "ready",
+    },
+    {
+      ...observationIdentity,
+      defaultProjectId: "project-1",
+      localProjectBindingGeneration: "binding-generation-2",
+      reasonCode: "project.local_connection.missing",
+      source: "default_project",
+      status: "missing",
+    },
+    {
+      ...observationIdentity,
+      defaultProjectId: null,
+      localProjectBindingGeneration: null,
+      reasonCode: "project.local_connection.folder_missing",
+      source: "profile_workspace",
+      status: "missing",
+    },
+  ])("rejects an impossible v4 working-folder fact", (observation) => {
+    expect(
+      localWakeRouteReportSchema.safeParse(createV4RouteReport(observation))
+        .success
+    ).toBe(false);
+  });
+
+  it("requires v4 observations only on the negotiated v4 report branch", () => {
+    const observation = {
+      ...observationIdentity,
+      defaultProjectId: null,
+      localProjectBindingGeneration: null,
+      reasonCode: null,
+      source: "profile_workspace",
+      status: "ready",
+    };
+    const legacyReport = {
+      reportedAtMs: 1_700_000_000_000,
+      daemonSessionId: "session-1",
+      deviceId: "device-1",
+      lane: "prod",
+      includedProfileIds: ["agent-1"],
+      skippedProfiles: [],
+    };
+
+    expect(localWakeRouteReportSchema.safeParse(legacyReport).success).toBe(
+      true
+    );
+    expect(
+      localWakeRouteReportSchema.safeParse({
+        ...legacyReport,
+        workingFolderObservations: [observation],
+      }).success
+    ).toBe(false);
+    expect(
+      localWakeRouteReportSchema.safeParse({
+        ...legacyReport,
+        expectedRoutesContractVersion: "v3",
+      }).success
+    ).toBe(false);
+    expect(
+      localWakeRouteReportSchema.safeParse({
+        ...legacyReport,
+        expectedRoutesContractVersion: "v4",
+      }).success
+    ).toBe(false);
+  });
+
   it("reads account-wide Agent execution state without a Space selector", () => {
     expect(
       runtimeTransportAgentProfileExecutionStateRequestSchema.parse({
@@ -1158,6 +1325,7 @@ describe("runtime transport schema", () => {
         currentAgentControllerRef: "builtin:codex",
         currentBindingId: "binding-1",
         currentConfigurationRevision: 2,
+        currentDefaultProjectId: "project-1",
         expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
         ownerUserId: "owner-1",
         requireAcceptedExecutionTargetRevision: true,
@@ -1168,6 +1336,7 @@ describe("runtime transport schema", () => {
       currentAgentControllerRef: "builtin:codex",
       currentBindingId: "binding-1",
       currentConfigurationRevision: 2,
+      currentDefaultProjectId: "project-1",
       expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
       ownerUserId: "owner-1",
       requireAcceptedExecutionTargetRevision: true,
@@ -1178,6 +1347,18 @@ describe("runtime transport schema", () => {
         { status: "needs_attention" }
       )
     ).toEqual({ status: "needs_attention" });
+    expect(
+      runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema.parse({
+        continuationClientMessageId: "client-continuation-legacy",
+        currentAgentControllerRef: "builtin:codex",
+        currentBindingId: "binding-1",
+        currentConfigurationRevision: 2,
+        expectedInterruptedTargetWakeLifecycleId: "wake-lifecycle-interrupted",
+        ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
+        targetProfileId: firstProfileId,
+      })
+    ).not.toHaveProperty("currentDefaultProjectId");
     expect(
       runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema.parse(
         {

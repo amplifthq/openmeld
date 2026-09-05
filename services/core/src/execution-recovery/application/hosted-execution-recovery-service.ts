@@ -85,15 +85,6 @@ export async function projectHostedExecutionRecovery(input: {
         REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE ||
       input.delivery.failureCode ===
         RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-    freshExecutionCapability: {
-      exactSourceWakeVerified: Boolean(
-        exactSourceRequestVerified &&
-          workerCanSubmit &&
-          request?.messages.every(
-            (message) => (message.attachments?.length ?? 0) === 0
-          )
-      ),
-    },
     identity: {
       agentControllerConversationId: exactControllerAssociationVerified
         ? input.delivery.spaceId

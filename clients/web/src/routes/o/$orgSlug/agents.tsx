@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { z } from "zod/v4";
 import { AgentsRoutePendingPage } from "#/components/agents/agents-route-pending";
 import { appShellStaticData } from "#/components/app/shell-layout";
@@ -7,8 +7,11 @@ import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 } from "#/lib/app-route-loading";
-import { prefetchAgentsRouteData } from "#/lib/organizations/app-route-prefetch";
-import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
+import { prefetchAgentsRouteIdentityData } from "#/lib/organizations/app-route-prefetch";
+import {
+	buildOrganizationAgentCreationPath,
+	buildOrganizationAgentsPath,
+} from "#/lib/organizations/organization-routes";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 const agentsRouteSearchSchema = z.object({
@@ -27,16 +30,30 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 	pendingComponent: AgentsRoutePendingPage,
 	pendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
 	pendingMs: APP_ROUTE_PENDING_DELAY_MS,
+	beforeLoad: ({ params, search }) => {
+		if (search.view === "create") {
+			throw redirect({
+				to: buildOrganizationAgentCreationPath(params.orgSlug),
+				replace: true,
+			});
+		}
+	},
 	loader: async ({ context, location, params }) => {
-		prefetchAgentsRouteData({
-			organizationSlug: params.orgSlug,
-			queryClient: context.queryClient,
-			queryPersistence: context.queryPersistence,
-			routeFamily: location.href,
-		}).catch((error: unknown) => {
-			console.error("Failed to prefetch the Agents route data.", error);
-		});
-		return { sidebarStates: await getAppSidebarStatesForRoute("agents") };
+		const [sidebarStates] = await Promise.all([
+			getAppSidebarStatesForRoute("agents"),
+			prefetchAgentsRouteIdentityData({
+				organizationSlug: params.orgSlug,
+				queryClient: context.queryClient,
+				queryPersistence: context.queryPersistence,
+				routeFamily: location.href,
+			}).catch((error: unknown) => {
+				console.error(
+					"Failed to prefetch the Agents identity directory.",
+					error
+				);
+			}),
+		]);
+		return { sidebarStates };
 	},
 	component: AgentsRoute,
 });
@@ -49,7 +66,7 @@ function AgentsRoute() {
 
 	return (
 		<PeopleAndAgentsPage
-			activeAgentView={search.view ?? "agents"}
+			activeAgentView={search.view === "requests" ? "requests" : "agents"}
 			activeSectionId="agents"
 			activityPreview={search.activityPreview === 1}
 			focusProfileId={search.profileId ?? null}
@@ -75,7 +92,7 @@ function AgentsRoute() {
 function resolveAgentsRouteSearch(input: {
 	activityPreview: 1 | undefined;
 	profileId: string | undefined;
-	view: "agents" | "create" | "requests";
+	view: "agents" | "requests";
 }) {
 	if (input.view === "agents") {
 		return {

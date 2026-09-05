@@ -282,7 +282,6 @@ function createHostedTaskToolHarness() {
     "center_agent_designations",
     "center_agent_audit_journal",
     "openMeldDaemon_agent_profile_bindings",
-    "organization_binding_authorizations",
   ]);
   harness.run({
     params: ["org-1", "Amplift", "amplift", 1000],
@@ -322,10 +321,6 @@ function createHostedTaskToolHarness() {
       1000,
     ],
     sql: "INSERT INTO openMeldDaemon_agent_profile_bindings (binding_id, owner_kind, owner_id, agent_profile_id, openmeld_service_runtime_id, runtime_kind, hosted_runtime_identity_json, agent_controller_ref, agent_controller_conversation_id, binding_state, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  });
-  harness.run({
-    params: ["authorization-1", "org-1", "binding-1", "user-1", 1000],
-    sql: "INSERT INTO organization_binding_authorizations (id, organization_id, binding_id, authorized_by, created_at) VALUES (?, ?, ?, ?, ?)",
   });
   return harness;
 }

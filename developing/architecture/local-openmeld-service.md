@@ -180,7 +180,7 @@ Prepare must not:
 - send a Wake
 - decide execution ownership
 - decide final Wake outcome
-- decide final user-facing Wake availability
+- decide final user-facing Wakeability
 
 Prepare can make the local side able to work. It cannot replace Space
 membership, Binding truth, transport readiness, or RuntimeCoordinator execution
@@ -259,7 +259,7 @@ ACI must not own:
 - Agent Profile identity
 - Agent Profile Binding truth
 - Space membership or Space reply placement
-- final `Available for Wake` truth
+- final Wakeability `Available` truth
 - RuntimeCoordinator execution truth
 - the user's model intent stored on a Binding
 
@@ -1059,6 +1059,38 @@ Connections map one Project to one or more repository roots inside one lane.
 Route Registry maps a repository path to one lane root for global hook
 disambiguation. It must not become a second Project binding truth.
 
+The Service has one effective working-folder resolver for local route planning,
+Wake launch, local Agent checks, and provider-conversation proof. A Profile's
+Default Project connection takes precedence over its fallback Profile workspace.
+The resolver produces a path-private current fact with the observation time,
+source, Default Project ID, local Project binding generation when applicable,
+and one precise missing or invalid reason. Route refresh treats a changed
+Binding configuration, Default Project, local binding generation, or effective
+folder fingerprint as a new fact. The route cache may preserve routing metadata
+for offline startup, but it never restores a cached working-folder observation
+as current; the new Service session must observe and report it again.
+Dispatch admission compares the route's observed source, Default Project and
+local binding generation when applicable, and effective directory with the
+current durable local configuration. Once a connection or Profile workspace
+mutation is durable, an older route cannot launch new work; catalog refresh
+only controls how quickly the new route becomes available again.
+Every durable local Project connection writer emits the same lane-local catalog
+refresh signal, while an idempotent no-op emits nothing.
+
+Current working-folder facts are a negotiated transport capability. The Service
+requests expected routes in `v4`, then falls back through `v3`, `v2`, and the
+legacy query only when Core explicitly returns `invalid_payload`. A network,
+server, or malformed-success failure preserves the current catalog and never
+pretends to be an older compatible Core. Only a successful `v4` read authorizes
+the strict `v4` route report; every older response produces the unchanged
+legacy report shape and uses the transitional per-Profile resolver so Default
+Project behavior remains correct. While a `v4` session is live, the normal
+catalog cadence refreshes unchanged observations before their freshness window
+expires. A changed local Project binding generation or effective working folder
+still forces an immediate new report. Restart begins with legacy/unknown cached
+evidence, then automatically re-observes and reports the new session's current
+facts without asking the person to reconnect or rebuild the Profile.
+
 ## Local Folder Picker
 
 Local Folder Picker is a current-Computer, owner-self interaction capability.
@@ -1125,25 +1157,31 @@ when a supported local picker adapter is available. Temporary absence of an
 interactive session is an operation result, not a reconnect-time capability
 rewrite.
 
-## Service Health And Product Readiness
+## Service Health And Wakeability
 
-Service health is not product readiness.
+Service health is not Wakeability.
 
 A service can be installed, running, or able to report local inventory while the
 Agent Profile still cannot reply in the current Space. Local service evidence is
 one input to the product reply path, not the final answer.
 
-Final user-facing readiness belongs to the transport readiness contract. Agent
+Final user-facing Wakeability belongs to the transport Wakeability contract. Agent
 Profile surfaces, Web setup, CLI guidance, and Space membership displays must
-not recompute final Wake availability from service health alone.
+not recompute Wakeability from service health alone. The Service reports current
+local facts and freshness; it does not consume a Wake Outcome or infer a lasting
+blocker from an earlier failure.
 
 OS service manager job-state evidence (for launchd: `launchctl print` runs,
 state, last exit code, and pended-spawn markers) is startup failure diagnostic
 evidence only. After a startup wait fails it may drive failure cards, the
 lifecycle journal, and Agent View diagnostics — for example distinguishing a
 job macOS never spawned (Login Items blocked) from a crash loop with a nonzero
-exit code. It must never feed service health, Wake availability, readiness, or
-lifecycle decisions.
+exit code. It must never feed service health, Wakeability, readiness, or
+lifecycle decisions. A service-manager `running` state corroborates lifecycle
+success only when the same full inventory also proves the exact active bundle,
+install state, runtime contract, live managed background runtime lease, and no
+blocking ownership anomaly. Gateway connection and controller catalog loading
+may converge later and do not gate that local lifecycle result.
 
 ## RuntimeTransportHub Fast Paths
 
@@ -1191,7 +1229,7 @@ Profile is currently registered on a connected local OpenMeld Service for Wake.
 OpenMeld Service reports local Wake route evidence through `LocalWakeRouteReport`.
 That report contains the local route catalog the service can currently carry
 and the profiles it deliberately skipped, with diagnostic reasons. The report is
-local evidence only. It does not make an Agent Profile `Available for Wake`,
+local evidence only. It does not make an Agent Profile's Wakeability `Available`,
 reserve execution, or decide the final Wake outcome.
 
 When every route came from negotiated expected-routes `v3`, the Service also
@@ -1230,8 +1268,9 @@ Can this Agent Profile reply in this Space through the intended Wake path now?
 ```
 
 `AgentWakeRouteRegistration` answers only the local route part of that question.
-`AgentWakeAvailability` and `AgentExecutionReadiness` combine it with Binding,
-transport, compatibility, and policy evidence into the user-facing status.
+The compatibility `AgentWakeAvailability` and `AgentExecutionReadiness`
+implementations combine it with Binding, transport, compatibility, and policy
+evidence into the user-facing Wakeability verdict.
 
 ### Route Catalog Derivation
 
@@ -1406,7 +1445,7 @@ live records with no known disconnect timestamp, Runtime Transport may
 synthesize the restore moment as the disconnect clock and persist it after
 restore/adopt convergence, so repeated cold starts keep one stable diagnostic
 timestamp. That timestamp explains delivery interruption and adoption history;
-it does not decide service liveness, Wake availability, or a public route
+it does not decide service liveness, Wakeability, or a public route
 state. The restored record's last heartbeat stays the service-liveness
 timestamp.
 
@@ -1500,7 +1539,7 @@ blocked by a required Service update; `needs_attention` means current sessions
 exist but none are usable; `not_connected` means the authoritative lookup has
 no current session; and `unknown` means the lookup failed. Multiple computers
 collapse to `connected` when any one current session is usable. These states
-must never be promoted into Agent Profile readiness or Wake availability.
+must never be promoted into Agent Profile readiness or Wakeability.
 
 ## Service Freshness And Compatibility
 
@@ -1616,22 +1655,28 @@ Release policy decides whether that update action is advisory or blocking.
 `available` means a newer Service is available and current Wake work can
 continue. `required` means the Service must be updated before the affected
 capability can receive new Wake work. Independently, Core keeps a monotonic
-minimum supported Service version for versions already proven unsafe. A Service
-below that floor always receives an effective `required` projection and cannot
-receive new Wake work, even when the latest release itself is advisory. This
-keeps healthy supported Services eligible without allowing a later optional
-release to re-enable a known-broken Service.
+minimum supported Service version for versions already proven unsafe. That
+floor becomes active only when Core's stable-channel release manifest proves
+the matching or a newer Service release is installable. A Service below the
+active floor receives an effective `required` projection and cannot receive new
+Wake work, even when the latest release itself is advisory. This keeps healthy
+supported Services eligible without allowing a later optional release to
+re-enable a known-broken Service or announcing an unavailable recovery target.
 
-The current monotonic floor is OpenMeld Service `0.3.126`. It is the first
-supported baseline that carries the required startup recovery, managed-update,
-active Permission/Wake behavior, and pre-accept Wake recovery across a
-controlled Service replacement. Core projects every connected older Service as
-`update_required` and blocks new Wake admission. The user-visible
-`requiredVersion` is the newer of this compatibility floor and the current
-installable Service release, so the action always names a version the user can
-actually install. A later advisory release may raise that remediation target,
-but it must not lower or bypass the compatibility floor. A Service already at
-`0.3.126` remains supported and receives only the advisory update policy of a
+The current monotonic floor is OpenMeld Service `0.3.153`. It is the first
+supported baseline that reports current working-folder facts and keeps reply
+observation owned by the accepted Wake, in addition to the existing startup
+recovery, managed-update, and active Permission/Wake behavior. Once the stable
+release manifest activates that floor, Core projects every connected older
+Service as `update_required` and blocks new Wake admission without terminating
+work already accepted by RuntimeCoordinator. The user-visible `requiredVersion`
+is the newer of this compatibility floor and the current installable Service
+release, so the action always names a version the user can actually install.
+Before the stable release manifest reaches the source floor, Core leaves that
+newer floor inactive rather than projecting `requiredVersion` above
+`latestVersion`. A later advisory release may raise that remediation target,
+but it must not lower or bypass an active compatibility floor. A Service already
+at `0.3.153` remains supported and receives only the advisory update policy of a
 newer release.
 
 Wake Stop local control is an affected Service capability. A Core/Web deployment
@@ -1744,9 +1789,22 @@ and lane. It does not wait for or imply Agent Controller readiness. Controller
 discovery and per-controller attention continue in the background and update
 the Computer projection independently.
 
+Human completion presents that background convergence as local agents syncing;
+an empty Web-handoff selection is not evidence that no supported controller is
+installed. The concise success summary links back to OpenMeld Web, while
+versions, process state, autostart, and stop controls remain on the read-only
+Service status surface. The summary says the computer is connected rather than
+ready, and it does not infer Setup versus Update from a Computer id because the
+same id may represent reconnect. Important completed Human View progress steps
+carry a presentation-only local `HH:mm:ss` timestamp and elapsed duration;
+active detail and spinner lines do not. Those display times never participate in
+execution, waiting, readiness, or Service lifecycle decisions. Agent View keeps
+the structured setup and Service evidence. Partial completion continues to
+expose its cause and recovery action.
+
 Repair succeeds only for the component it repairs. It must not claim success
 just because a process started, local files were rewritten, or inventory was
-detected, and it must not project service health as final Wake availability.
+detected, and it must not project service health as final Wakeability.
 The top-level command entry owns interactive authentication. Nested lifecycle
 and background-start operations run only after that entry decision and must not
 open another authentication prompt. A cancelled start remains `cancelled`; it
@@ -1765,6 +1823,14 @@ treated as `not_running` or as permission to uninstall, replace, prune, or
 register a carrier. Lifecycle mutation stops with the preserved diagnostic
 error; read-only product surfaces may present the state as unknown.
 
+An operating-system-managed hidden `service run` is supervisor bootstrap, not
+an interactive CLI entry. It resolves and validates the lane-local Service
+contract before human entry policy, does not fetch remote profile lists, and
+uses local validation and repair (`validateRemote: false`) so a launchd or
+systemd restart cannot depend on a user prompt or network profile lookup.
+Interactive `service run` keeps the ordinary authenticated command-entry
+policy.
+
 Before a controlled lifecycle stops or drains the current Service, it must
 fully prepare and validate the replacement bundle without changing the active
 bundle pointer. A preparation failure leaves the current Service, its
@@ -1773,13 +1839,22 @@ may enter the destructive lifecycle. Activation happens after the old Service
 is confirmed absent; an abandoned prepared bundle is removed unless it became
 the active bundle.
 
-An OpenMeld Service update request is complete only after a lane-scoped,
-strictly validated update job and prepared replacement have been handed to an
-operating-system-owned update worker. Web Setup, Center Agent actions, the
-ordinary Service command, and top-level CLI upgrade must all converge on this
-one coordinator. The initiating browser or Terminal is not a lifecycle owner:
-it may close immediately after the durable handoff, and the OS worker must
-resume the same job after its own crash, sign-in, or computer restart.
+Stopping and starting use separate evidence budgets. Teardown keeps its bounded
+15-second absence check. Replacement startup uses the platform startup budget
+(90 seconds for launchd) and polls the full lifecycle inventory for its entire
+budget; an alive manager without a fresh runtime lease is still pending, not a
+reason to restart after 15 seconds. At the deadline, lifecycle records the exact
+final inventory and job diagnostics, then performs at most one bounded verified
+rollback. It must not insert an unverified stop/start retry before that rollback.
+
+An OpenMeld Service update request has been accepted and started in the
+background only after a lane-scoped, strictly validated update job and prepared
+replacement have been handed to an operating-system-owned update worker. That
+handoff is not update completion. Web Setup, Center Agent actions, the ordinary
+Service command, and top-level CLI upgrade must all converge on this one
+coordinator. The initiating browser or Terminal is not a lifecycle owner: it
+may close immediately after the durable handoff, and the OS worker must resume
+the same job after its own crash, sign-in, or computer restart.
 
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
@@ -1792,11 +1867,13 @@ Completed operation phases remain visible for at most 24 hours. Core must omit
 an older `updated` phase when current component evidence already shows another
 actionable update. A completed historical operation must never contradict the
 current update action.
-`updated` proves that the worker finished installation; it does not prove that
-Core has observed the target CLI and Service versions. Clients must retain the
-operation and verify both component projections before presenting **Up to
-date**. Same-operation observations are ordered by `updatedAt` and phase, so a
-stale projection cannot move visible progress backward.
+`waiting_for_work` and `updating` are in progress. `restored` and `needs_help`
+are failed outcomes even if stale component fields happen to show the target
+version. `updated` proves that the worker finished installation; clients still
+retain that exact operation and verify both CLI and Service at its target before
+presenting **Up to date** or allowing Setup or Prepare to report completion.
+Same-operation observations are ordered by `updatedAt` and phase, so a stale
+projection cannot move visible progress backward.
 Because runtime capability payloads are strict, rollout deploys the accepting
 Schemas and Core before publishing a Service that emits `updateOperation`.
 New Core accepts older Services that omit it; rollback removes the new local
@@ -1811,10 +1888,22 @@ fails closed and reports maintenance attention. Automatic requests obey that
 preference, while an explicit user request still runs when automation is off.
 For a Service that supports release-triggered maintenance, Core uses the
 existing Runtime Transport connection to request one automatic recheck when
-the current release manifest first becomes actionable for that computer. The
+Core's stable-channel release manifest first becomes actionable for that
+computer. Register and heartbeat triggers both pass that manifest explicitly;
+a missing manifest cannot infer an automatic target from local defaults. The
 request requires the Service's explicit `requestAutomaticUpdate` capability,
 obeys the Service-owned automatic update preference, and coalesces by computer
-and release target. A disconnected request is failed immediately so a
+daemon session, and release target while the request is in flight. It retains
+that marker only when the same Service session reports `current` at or above
+the release, or reports a `started` or `already_running` operation targeting at
+least that release. A replacement Service session or a newer release target
+can request immediately. An `unavailable` response clears the in-flight marker
+and records a hibernation-safe retry throttle in Durable Object storage: retry
+after 5 minutes, then 15 minutes, then 60 minutes, capped at 60 minutes while
+the same computer, daemon session, and release target remain current. `disabled`,
+an invalid response, or a reported current or operation target below the
+release clears the marker so the next register or heartbeat can retry. A
+disconnected request is failed immediately so a
 replacement Service can retry instead of waiting for the control timeout. It
 never adds a second updater or a faster polling loop. The published Service
 still checks the release channel after startup and every hour as the
@@ -1908,6 +1997,23 @@ result outbox, and waits for Core's durable-acceptance receipts before closing
 the socket. If the socket disappears during that wait, unacknowledged results
 remain in the same durable outbox for the next Service session; lifecycle code
 must not create a second result store.
+
+The active-work drain has no fixed wall-clock deadline while execution remains
+live. Once active work has drained, result-receipt and WebSocket-close waits are
+bounded: an unacknowledged durable result remains available for replay, and a
+half-open socket is terminated after its close deadline. The calling lifecycle
+also bounds the control request so a new CLI cannot wait forever on an older
+Service. That timeout is a compatibility fallback only during an actual version
+upgrade; the existing OpenMeld-owned-process and long-stalled-heartbeat checks
+remain mandatory before any automatic force kill.
+
+Repeated process-discovery failures are aggregated within a bounded local log
+window, retaining the first occurrence, count, duration, affected controller,
+and recovery event. Local diagnostics preserve stable reason codes including
+`process_discovery_timeout`, `controller_check_timeout`,
+`result_ack_timeout`, `socket_close_timeout`, and
+`service_reconnect_exhausted`; immediate reconnect exhaustion remains degraded
+evidence while background reconnect attempts continue.
 
 `agentReplyContextReview: true` is an additive Runtime Transport capability.
 A Service advertises it only when it can keep a `post_message` result as an
@@ -2133,7 +2239,8 @@ The Service Thin Core line must not reassign ownership:
 - Space remains the final visible reply, explicit visible stopped outcome, or
   explicit visible failure surface.
 - Agent Profile and Binding remain identity and execution-connection truth.
-- Core-owned `AgentExecutionReadiness` remains final user-facing readiness.
+- Core-owned Wakeability remains the final user-facing verdict; the current
+  compatibility implementation is `AgentExecutionReadiness`.
 - OpenMeld Service evidence remains local execution evidence.
 
 The next extraction target after the marker pass is a local runtime inventory
@@ -2144,7 +2251,7 @@ What local controllers/capabilities are detected on this computer, and what
 local blocker prevents each one from being launched?
 ```
 
-It must not answer final Wake availability, create Binding truth, join Spaces,
+It must not answer final Wakeability, create Binding truth, join Spaces,
 or claim a Wake outcome.
 
 ## Architecture Invariants

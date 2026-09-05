@@ -15,6 +15,8 @@ import type {
   ExecuteExecutionRecoveryBody,
   ExecuteExecutionRecoveryResponse,
   GetActiveSpaceWakeProgressResponse,
+  GetSpaceEntryResolutionInput,
+  GetSpaceEntryResolutionResponse,
   GetSpaceMessageDetailsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
@@ -88,6 +90,9 @@ export type SpaceRequestInput = {
   signal?: AbortSignal;
   timeoutMs?: number;
 };
+
+export type ResolveSpaceEntryInput = SpaceRequestInput &
+  Omit<GetSpaceEntryResolutionInput, "spaceId">;
 
 export type CreateSpaceInput = {
   requestContext?: OpenMeldRequestContext;
@@ -226,6 +231,9 @@ export type SpaceApi = {
     }
   ) => Promise<SpaceBootstrapResponse>;
   getStatus: (input: SpaceRequestInput) => Promise<GetSpaceStatusResponse>;
+  resolveEntry: (
+    input: ResolveSpaceEntryInput
+  ) => Promise<GetSpaceEntryResolutionResponse>;
   getMembersSnapshot: (
     input: SpaceRequestInput
   ) => Promise<SpaceMembersSnapshot>;
@@ -257,9 +265,13 @@ export type SpaceApi = {
   ) => Promise<GetSpaceUpdatesResponse>;
   getActiveWakeProgress: (
     input: SpaceRequestInput & {
+      includePageInfo?: boolean;
+      includePreviewText?: boolean;
+      includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
+      sourceProfileId?: string;
       targetProfileId?: string;
     }
   ) => Promise<GetActiveSpaceWakeProgressResponse>;
@@ -285,6 +297,8 @@ export type SpaceApi = {
   getWakeProgress: (
     input: SpaceRequestInput & {
       clientMessageId: string;
+      includePreviewText?: boolean;
+      includeSourceContext?: boolean;
       includeTiming?: boolean;
       includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;

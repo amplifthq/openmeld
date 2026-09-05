@@ -165,7 +165,7 @@ export function buildOpenMeldNavigationAction(input: {
         label = "Reconnect this computer";
         break;
       }
-      label = "Update OpenMeld Service";
+      label = "Update OpenMeld on Computer";
       url.searchParams.set("serviceAction", "update_service");
       url.searchParams.sort();
       break;

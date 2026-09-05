@@ -798,6 +798,7 @@ function createWakeProgressOutboxRecord(input: {
   outboxStatus?: "pending" | "handed_off" | "cancelled";
   sourceClientMessageId?: string | null;
   sourceEventId?: string;
+  sourceProfileId?: string;
   targetProfileId?: string;
 }) {
   const record = createDispatchOutboxRecord({
@@ -814,10 +815,10 @@ function createWakeProgressOutboxRecord(input: {
       "sourceClientMessageId" in input
         ? input.sourceClientMessageId
         : "client-message-1",
-    senderProfileId: "human-1",
+    senderProfileId: input.sourceProfileId ?? "human-1",
     sourceSignalSnapshot: {
       text: "@Codex Agent(wake) hello",
-      profileId: "human-1",
+      profileId: input.sourceProfileId ?? "human-1",
       profileKind: "human",
       profileMentionLabel: "Felix",
     },
@@ -840,6 +841,7 @@ function createWakeProgressOutboxRecord(input: {
 function createWakeProgressSourceSignal(input: {
   clientMessageId?: string | null;
   id?: string;
+  profileId?: string;
   targetProfileIds?: readonly string[];
 }): Extract<SignalEnvelope, { type: "signal.text" }> {
   const clientMessageId =
@@ -847,6 +849,10 @@ function createWakeProgressSourceSignal(input: {
   return {
     ...createSignal(),
     id: input.id ?? "sig-source-1",
+    profile: {
+      ...createSignal().profile,
+      profileId: input.profileId ?? "human-1",
+    },
     data: {
       text: "@Codex Agent(wake) hello",
       messageEnvelope: {
@@ -898,6 +904,9 @@ function createActiveWakeProgressSql(input: {
   const sqlExec = vi.fn((query: string, ...params: unknown[]) => {
     if (query.includes("FROM openMeldDaemon_outbox")) {
       const statusParams = new Set(params.map(String));
+      const sourceProfileId = query.includes("sourceSignalSnapshot.profileId")
+        ? params.at(-2)
+        : null;
       return {
         toArray: () =>
           outboxRows
@@ -909,6 +918,11 @@ function createActiveWakeProgressSql(input: {
                   : record.outboxStatus,
             }))
             .filter(({ persistedStatus }) => statusParams.has(persistedStatus))
+            .filter(
+              ({ record }) =>
+                !sourceProfileId ||
+                record.sourceSignalSnapshot?.profileId === sourceProfileId
+            )
             .map(({ persistedStatus, record }) => ({
               payload_json: record.payloadJson,
               status: persistedStatus,
@@ -926,6 +940,15 @@ function createActiveWakeProgressSql(input: {
       };
     }
     if (query.includes("FROM space_signals")) {
+      if (query.includes("WHERE profile_id = ?")) {
+        const profileId = String(params[0] ?? "");
+        return {
+          toArray: () =>
+            sourceSignals
+              .filter((signal) => signal.profile.profileId === profileId)
+              .map((signal) => ({ id: signal.id })),
+        };
+      }
       if (query.includes("WHERE id = ?")) {
         const signalId = String(params[0] ?? "");
         return {
@@ -1024,6 +1047,12 @@ function createWakeEvidenceDb(
   const prepare = vi.fn((query: string) => {
     const bind = vi.fn((...params: unknown[]) => {
       const all = vi.fn(() => {
+        const sourceSignalIdsJson = params.find(
+          (param) => typeof param === "string" && param.startsWith("[")
+        );
+        const sourceDispatchIds = sourceSignalIdsJson
+          ? new Set(JSON.parse(String(sourceSignalIdsJson)) as string[])
+          : null;
         if (
           query.includes(
             "FROM openMeldDaemon_runtime_coordinator_executions AS executions"
@@ -1037,6 +1066,11 @@ function createWakeEvidenceDb(
                     execution.status ??
                     "result_accepted"
                 )
+              )
+              .filter(
+                (execution) =>
+                  !query.includes("executions.dispatch_id IN") ||
+                  sourceDispatchIds?.has(execution.dispatchId)
               )
               .map((execution, index) => ({
                 dispatch_id: execution.dispatchId,
@@ -1074,6 +1108,11 @@ function createWakeEvidenceDb(
                 ["accepted", "retry_observed"].includes(
                   row.nativeDeliveryStatus ?? "accepted"
                 )
+              )
+              .filter(
+                (row) =>
+                  !query.includes("deliveries.dispatch_id IN") ||
+                  sourceDispatchIds?.has(row.dispatchId)
               )
               .map((row, index) => ({
                 started_at_ms:
@@ -1328,6 +1367,8 @@ async function readActiveWakeProgressForTest(input: {
   actorOwnerUserId?: string;
   executionRows?: readonly WakeProgressExecutionRow[];
   includeTiming?: boolean;
+  includePageInfo?: boolean;
+  includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
   lookupRows?: readonly WakeProgressExecutionRow[];
@@ -1348,6 +1389,7 @@ async function readActiveWakeProgressForTest(input: {
     };
   }) => Promise<WakeProgressItem["pendingInteraction"]>;
   sourceSignals?: readonly Extract<SignalEnvelope, { type: "signal.text" }>[];
+  sourceProfileId?: string;
   targetProfileId?: string;
   headLifecycleReadStatus?:
     | "accepted"
@@ -1371,8 +1413,11 @@ async function readActiveWakeProgressForTest(input: {
       actorOwnerUserId?: string | null;
       db: D1Database;
       includeTiming?: boolean;
+      includePageInfo?: boolean;
+      includeSourceContext?: boolean;
       includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
+      sourceProfileId?: string;
       targetProfileId?: string;
     }) => Promise<GetActiveSpaceWakeProgressResponse>;
     readSpaceWakeProgress: NonNullable<typeof input.readSpaceWakeProgress>;
@@ -1418,8 +1463,13 @@ async function readActiveWakeProgressForTest(input: {
     actorOwnerUserId: input.actorOwnerUserId,
     db: wakeEvidenceDb,
     includeTiming: input.includeTiming,
+    includePageInfo: input.includePageInfo,
+    includeSourceContext: input.includeSourceContext,
     includeWaitReason: input.includeWaitReason,
     includeWakeStopEligibility: input.includeWakeStopEligibility,
+    ...(input.sourceProfileId
+      ? { sourceProfileId: input.sourceProfileId }
+      : {}),
     ...(input.targetProfileId
       ? { targetProfileId: input.targetProfileId }
       : {}),
@@ -1734,7 +1784,6 @@ describe("space signal service", () => {
     const projection: ExecutionRecoveryProjection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -1863,7 +1912,6 @@ describe("space signal service", () => {
     const projection: ExecutionRecoveryProjection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -1991,7 +2039,6 @@ describe("space signal service", () => {
     const projection: ExecutionRecoveryProjection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
       identity,
       outcomeUnknown: false,
       retainedResult: {
@@ -2054,195 +2101,6 @@ describe("space signal service", () => {
     expect(records.size).toBe(0);
     expect(replayRetainedExecutionResult).not.toHaveBeenCalled();
     expect(resumeExactControllerConversation).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { label: "shared Space", spaceId: "space-1" },
-    { label: "Direct Message", spaceId: "space-dm-1" },
-  ])("replays a fresh execution in a $label with verified continuation authority and the original author", async ({
-    spaceId,
-  }) => {
-    const identity = {
-      agentControllerConversationId: null,
-      agentControllerRef: "builtin:codex",
-      attemptId: "attempt-1",
-      dispatchId: "dispatch-1",
-      resultRef: null,
-      runtimeCoordinatorExecutionId: "execution-1",
-      spaceId,
-      targetProfileId: "agent-1",
-      taskId: "task-1",
-    };
-    const destination = {
-      spaceId,
-      surface: "space" as const,
-      threadId: null,
-    };
-    const projection: ExecutionRecoveryProjection = inspectExecutionRecovery({
-      destination,
-      explicitUserStop: false,
-      freshExecutionCapability: { exactSourceWakeVerified: true },
-      identity,
-      outcomeUnknown: false,
-      retainedResult: {
-        available: false,
-        recoveredPublicationId: null,
-      },
-      resumeCapability: {
-        exactAssociationVerified: false,
-        serviceSupportsResume: false,
-      },
-      updatedAtMs: 1,
-    });
-    const sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> = {
-      ...createSignal(),
-      id: "source-signal-1",
-      spaceId,
-      data: {
-        text: "finish the research",
-        messageEnvelope: {
-          activationTargets: ["agent-1"],
-          referenceTargets: [],
-          text: "finish the research",
-        },
-        meta: {
-          clientMessageId: "original-client-message",
-        },
-      },
-    };
-    const trace = {
-      dispatch: {
-        dispatchId: identity.dispatchId,
-        sourceEventId: sourceSignal.id,
-        targetProfileId: identity.targetProfileId,
-      },
-    } as unknown as SpaceDispatchTraceSnapshot;
-    const records = new Map<string, unknown>();
-    let transactionTail = Promise.resolve();
-    const transaction = vi.fn(
-      <T>(
-        closure: (storage: {
-          get<V>(key: string): Promise<V | undefined>;
-          put<V>(key: string, value: V): Promise<void>;
-        }) => Promise<T>
-      ): Promise<T> => {
-        const run = transactionTail.then(() =>
-          closure({
-            get: async <V>(key: string) => records.get(key) as V | undefined,
-            put: <V>(key: string, value: V) => {
-              records.set(key, value);
-              return Promise.resolve();
-            },
-          })
-        );
-        transactionTail = run.then(
-          () => undefined,
-          () => undefined
-        );
-        return run;
-      }
-    );
-    const postFreshWake = vi.fn(
-      async (input: { clientMessageId: string }): Promise<SignalEnvelope> => ({
-        ...sourceSignal,
-        id: "fresh-source-signal-1",
-        data: {
-          ...sourceSignal.data,
-          meta: { clientMessageId: input.clientMessageId },
-        },
-      })
-    );
-    const space = Object.create(Space.prototype) as Space;
-    Object.defineProperties(space, {
-      applySpaceRef: { value: vi.fn() },
-      ctx: {
-        value: {
-          storage: {
-            sql: { exec: vi.fn(() => ({ toArray: () => [] })) },
-            transaction,
-          },
-        },
-      },
-      readSignalById: {
-        value: vi.fn((signalId: string) =>
-          signalId === sourceSignal.id ? sourceSignal : null
-        ),
-      },
-      rpcGetDispatchTrace: {
-        value: vi.fn(async () => ({ trace })),
-      },
-      rpcInspectExecutionRecovery: {
-        value: vi.fn(async () => ({ recovery: projection })),
-      },
-      rpcPostSignalOnceByClientMessageId: {
-        value: postFreshWake,
-      },
-      spaceId: { value: spaceId },
-    });
-    const command = {
-      action: "retry_as_new_execution" as const,
-      destination,
-      expectedIdentity: identity,
-      operationId: "operation-fresh-1",
-    };
-
-    const result = await space.rpcExecuteExecutionRecovery({
-      body: command,
-      context: {
-        actorContext: {
-          ownerUserId: "owner-1",
-          profileKind: "human",
-          requestId: "request-fresh-recovery-1",
-          openMeldProfileId: "human-owner-1",
-          profileName: "Agent Owner",
-        },
-      },
-      spaceId,
-    });
-
-    expect(result).toMatchObject({
-      action: "retry_as_new_execution",
-      newExecutionId: expect.any(String),
-      operationId: command.operationId,
-      status: "new_execution_requested",
-    });
-    expect(result.newExecutionId).not.toBe(
-      sourceSignal.data.meta?.clientMessageId
-    );
-    expect(postFreshWake).toHaveBeenCalledOnce();
-    expect(postFreshWake).toHaveBeenCalledWith(
-      expect.objectContaining({
-        authoringPolicy: "user_authored",
-        clientMessageId: result.newExecutionId,
-        messageEnvelope: {
-          activationTargets: [identity.targetProfileId],
-          referenceTargets: [],
-          text: sourceSignal.data.text,
-        },
-        meta: {
-          clientMessageId: result.newExecutionId,
-        },
-        profile: sourceSignal.profile,
-        spaceAccess: {
-          actor: expect.objectContaining({
-            dispatchId: identity.dispatchId,
-            kind: "dispatch_continuation",
-            requestContext: expect.objectContaining({
-              actorContext: expect.objectContaining({
-                openMeldProfileId: sourceSignal.profile.profileId,
-                profileKind: sourceSignal.profile.kind,
-                profileName: sourceSignal.profile.profileName,
-              }),
-            }),
-            sourceSignalId: sourceSignal.id,
-            targetProfileId: identity.targetProfileId,
-          }),
-          proof: { kind: "none" },
-          spaceId,
-        },
-        text: sourceSignal.data.text,
-      })
-    );
   });
 
   it("rejects an execution recovery publication when Space did not persist or find the notice", async () => {
@@ -3315,7 +3173,7 @@ describe("space signal service", () => {
           profileName: "Mira",
           signalId: "sig-source-1",
         },
-        text: "OpenMeld could not reach Codex Agent on this computer for this Wake. Reconnect OpenMeld Service, then try again.",
+        text: "OpenMeld could not reach Codex Agent on this computer for this Wake. Reconnect the computer, then try again.",
       },
       type: "signal.system_notice",
     });
@@ -5211,6 +5069,83 @@ describe("space signal service", () => {
     ]);
   });
 
+  it("filters active Wake progress by requester and returns Space-owned source context", async () => {
+    const requestedSource = createWakeProgressSourceSignal({
+      id: "signal-requested-source",
+      profileId: "human-requester",
+    });
+    const otherSource = createWakeProgressSourceSignal({
+      id: "signal-other-source",
+      profileId: "agent-other",
+    });
+    const requestedOutbox = createWakeProgressOutboxRecord({
+      sourceEventId: requestedSource.id,
+      sourceProfileId: "human-requester",
+      targetProfileId: "agent-target-requested",
+    });
+    const otherOutbox = createWakeProgressOutboxRecord({
+      sourceEventId: otherSource.id,
+      sourceProfileId: "agent-other",
+      targetProfileId: "agent-target-other",
+    });
+    const response = await readActiveWakeProgressForTest({
+      executionRows: [
+        {
+          dispatchId: requestedOutbox.dispatchId,
+          executionStatus: "running",
+          sourceEventId: requestedSource.id,
+          targetProfileId: "agent-target-requested",
+        },
+        {
+          dispatchId: otherOutbox.dispatchId,
+          executionStatus: "running",
+          sourceEventId: otherSource.id,
+          targetProfileId: "agent-target-other",
+        },
+      ],
+      includeSourceContext: true,
+      outboxRows: [requestedOutbox, otherOutbox],
+      sourceProfileId: "human-requester",
+      sourceSignals: [requestedSource, otherSource],
+    });
+
+    expect(response.query).toEqual({
+      sourceProfileId: "human-requester",
+      spaceId: "space-1",
+      targetProfileId: null,
+    });
+    expect(response.items).toEqual([
+      expect.objectContaining({
+        dispatchId: requestedOutbox.dispatchId,
+        sourceContext: {
+          messagePreview: "@Codex Agent(wake) hello",
+          profileId: "human-requester",
+          profileKind: "human",
+          profileName: "Felix",
+          threadId: null,
+        },
+        sourceSignalId: "signal-requested-source",
+      }),
+    ]);
+  });
+
+  it("reports when the bounded active Wake progress page has more items", async () => {
+    const outboxRows = Array.from({ length: 26 }, (_, index) =>
+      createWakeProgressOutboxRecord({
+        sourceEventId: `signal-page-${String(index).padStart(2, "0")}`,
+        targetProfileId: `agent-page-${String(index).padStart(2, "0")}`,
+      })
+    );
+
+    const response = await readActiveWakeProgressForTest({
+      includePageInfo: true,
+      outboxRows,
+    });
+
+    expect(response.items).toHaveLength(25);
+    expect(response.pageInfo).toEqual({ hasMore: true, limit: 25 });
+  });
+
   it("projects active RuntimeCoordinator summary without rebuilding dispatch traces", async () => {
     const readSpaceWakeProgress = vi.fn();
     const response = await readActiveWakeProgressForTest({
@@ -5592,6 +5527,7 @@ describe("space signal service", () => {
     expect(readSpaceWakeProgress).toHaveBeenCalledWith({
       actorOwnerUserId: undefined,
       clientMessageId: "client-message-hosted-stop-1",
+      includeSourceContext: false,
       includeTiming: false,
       includeWaitReason: false,
       includeWakeStopEligibility: true,

@@ -8,9 +8,15 @@ import {
 } from "#/lib/spaces/message-state";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
-import { AnimatedMobiusIcon } from "./animated-mobius-icon";
+import {
+	WAKE_PROGRESS_STATUS_PRIORITY,
+	type WakeProgressStatusKind,
+} from "#/lib/spaces/wake-progress-status";
 import { SpaceAgentOrb } from "./space-agent-orb";
-import type { SpaceAgentOrbState } from "./space-agent-orb-state";
+import {
+	type SpaceAgentOrbState,
+	WAKE_STATUS_ORB_STATE,
+} from "./space-agent-orb-state";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
 
 const WAKE_PROGRESS_DELAYED_STATUS_TEXT = "Still waiting for the final status.";
@@ -56,6 +62,7 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 	);
 	const statusContent = statusEntries.map((entry) => (
 		<output
+			aria-label={formatWakeProgressSummary(input.entries)}
 			className="text-[13px] text-muted-foreground"
 			data-testid="space-wake-status"
 			key={entry.key}
@@ -103,7 +110,7 @@ function WakeThinkingIndicatorContent(input: {
 	});
 	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
 	const isWaitingForFinalStatus = isSpaceWakeProgressWaitingForFinalStatus({
-		lastEvidenceAtMs: input.rawElapsedEntry?.elapsedStartedAtMs ?? null,
+		lastEvidenceAtMs: input.rawElapsedEntry?.lastEvidenceAtMs ?? null,
 		nowMs,
 	});
 	const words = input.progressEntries.map((entry) =>
@@ -184,9 +191,19 @@ function buildWakeThinkingIndicator(input: {
 	if (input.progressEntries.length === 0) {
 		return null;
 	}
+	if (input.progressEntries.length > 1) {
+		return (
+			<StableWakeProgressSummary
+				className={input.className}
+				data-testid={dataTestId}
+				entries={input.progressEntries}
+			/>
+		);
+	}
 	const orbState = resolveWakeProgressOrbState(input.progressEntries);
 	return (
 		<ThinkingIndicator
+			aria-label={input.words[0]}
 			className={cn(
 				"max-w-full px-0 py-0 text-muted-foreground",
 				input.className
@@ -198,6 +215,85 @@ function buildWakeThinkingIndicator(input: {
 	);
 }
 
+function StableWakeProgressSummary(input: {
+	className?: string;
+	"data-testid"?: string;
+	entries: readonly SpaceMessageWakeThinkingEntry[];
+}) {
+	return (
+		<output
+			className={cn(
+				"flex max-w-full items-center gap-2 px-0 py-0 text-muted-foreground",
+				input.className
+			)}
+			data-testid={input["data-testid"]}
+		>
+			<span
+				aria-hidden="true"
+				className="flex size-5 shrink-0 items-center justify-center"
+			>
+				<SpaceAgentOrb
+					state={resolveWakeProgressOrbState(input.entries) ?? undefined}
+				/>
+			</span>
+			<span
+				className="min-w-0 truncate text-[13px]"
+				style={{ fontVariationSettings: fontWeights.medium }}
+			>
+				{formatWakeProgressSummary(input.entries)}
+			</span>
+		</output>
+	);
+}
+
+function formatWakeProgressSummary(
+	entries: readonly SpaceMessageWakeThinkingEntry[]
+): string {
+	const counts = new Map<WakeProgressStatusKind, number>();
+	for (const entry of entries) {
+		counts.set(entry.step.kind, (counts.get(entry.step.kind) ?? 0) + 1);
+	}
+	const labels: string[] = [];
+	for (const [kind, count] of counts) {
+		labels.push(formatWakeProgressSummaryPart(kind, count));
+	}
+	return labels.join(" · ");
+}
+
+function formatWakeProgressSummaryPart(
+	kind: WakeProgressStatusKind,
+	count: number
+): string {
+	const agentCount = count === 1 ? "1 agent" : `${count} agents`;
+	switch (kind) {
+		case "needs_input":
+			return count === 1
+				? "1 agent needs your input"
+				: `${agentCount} need your input`;
+		case "waiting_for_owner":
+			return `${agentCount} waiting for ${count === 1 ? "its" : "their"} owner`;
+		case "queued":
+			return `${agentCount} queued`;
+		case "working":
+			return `${agentCount} working`;
+		case "replying":
+			return `${agentCount} replying`;
+		case "posting":
+			return count === 1 ? "Posting 1 reply" : `Posting ${count} replies`;
+		case "waiting_for_controller":
+			return `${agentCount} waiting for a controller task`;
+		case "starting":
+		case "sent":
+		case "connecting":
+		case "retrying":
+			return `${agentCount} starting`;
+		default: {
+			const _exhaustive: never = kind;
+			return _exhaustive;
+		}
+	}
+}
+
 function InlineWakePreviewIndicator(input: {
 	className?: string;
 	"data-testid"?: string;
@@ -205,6 +301,7 @@ function InlineWakePreviewIndicator(input: {
 }) {
 	return (
 		<output
+			aria-label={input.text}
 			className={cn(
 				"flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden px-0 py-0 text-muted-foreground",
 				input.className
@@ -222,7 +319,7 @@ function InlineWakePreviewIndicator(input: {
 				data-testid="space-wake-preview-text"
 				style={{ fontVariationSettings: fontWeights.medium }}
 			>
-				{formatWakeProgress(input.text, true)}
+				{input.text}
 			</span>
 		</output>
 	);
@@ -238,6 +335,11 @@ function StaticElapsedThinkingIndicator(input: {
 }) {
 	return (
 		<output
+			aria-label={
+				input.isWaitingForFinalStatus
+					? WAKE_PROGRESS_DELAYED_STATUS_TEXT
+					: `${input.entry.text} · ${formatElapsedDuration(resolveElapsedSeconds(input))}`
+			}
 			className={cn(
 				"flex max-w-full items-center gap-2 px-0 py-0 text-muted-foreground",
 				input.className
@@ -249,7 +351,7 @@ function StaticElapsedThinkingIndicator(input: {
 				className="flex size-5 shrink-0 items-center justify-center"
 			>
 				{input.isWaitingForFinalStatus ? (
-					<AnimatedMobiusIcon />
+					<SpaceAgentOrb paused state="breathing" />
 				) : (
 					<SpaceAgentOrb />
 				)}
@@ -285,19 +387,16 @@ function StaticElapsedThinkingIndicator(input: {
 function resolveWakeProgressOrbState(
 	entries: readonly SpaceMessageWakeThinkingEntry[]
 ): SpaceAgentOrbState | null {
-	const phases = new Set(entries.map((entry) => entry.phase));
-	if (phases.size !== 1) {
-		return null;
-	}
-
-	switch (entries[0]?.phase) {
-		case "running":
-			return "solving";
-		case "publishing":
-			return "composing";
-		default:
-			return null;
-	}
+	const entry = entries.reduce<SpaceMessageWakeThinkingEntry | undefined>(
+		(selected, candidate) =>
+			!selected ||
+			WAKE_PROGRESS_STATUS_PRIORITY[candidate.step.kind] <
+				WAKE_PROGRESS_STATUS_PRIORITY[selected.step.kind]
+				? candidate
+				: selected,
+		undefined
+	);
+	return entry ? WAKE_STATUS_ORB_STATE[entry.step.kind] : null;
 }
 
 function resolveSingleElapsedEntry(
@@ -307,7 +406,11 @@ function resolveSingleElapsedEntry(
 		return null;
 	}
 	const entry = entries[0];
-	if (!entry || entry.elapsedStartedAtMs === null) {
+	if (
+		!entry ||
+		entry.elapsedStartedAtMs === null ||
+		entry.step.kind !== "working"
+	) {
 		return null;
 	}
 	return entry;

@@ -541,7 +541,7 @@ describe("BrowserQueryPersistenceController", () => {
 			{
 				deviceId: "device-current",
 				status: {
-					label: "Couldn't check",
+					label: "Check delayed",
 					reason: "agent_check_failed",
 					showLabel: true,
 					tone: "warning",

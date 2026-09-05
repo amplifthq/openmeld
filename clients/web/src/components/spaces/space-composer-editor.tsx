@@ -19,6 +19,7 @@ import {
 	type ClipboardEvent,
 	createContext,
 	type DragEvent,
+	type FocusEventHandler,
 	type KeyboardEvent,
 	type MutableRefObject,
 	type ReactNode,
@@ -72,9 +73,8 @@ export type SpaceComposerEditorHandle = {
 	selectTextRange: (selection: SpaceComposerSelection) => void;
 };
 
-export type SpaceComposerInputRef = MutableRefObject<
-	HTMLTextAreaElement | SpaceComposerEditorHandle | null
->;
+export type SpaceComposerInputRef =
+	MutableRefObject<SpaceComposerEditorHandle | null>;
 
 export type SpaceComposerEditorChange = {
 	authoredMentions: ComposerDraftAuthoredMention[];
@@ -86,6 +86,7 @@ type SpaceComposerEditorProps = {
 	addressingTargets: readonly SpaceComposerAddressingTarget[];
 	ariaLabel: string;
 	authoredMentions: readonly ComposerDraftAuthoredMention[];
+	centerAgentProfileId?: string | null;
 	composerRef?: SpaceComposerInputRef;
 	disabled?: boolean;
 	maxHeight?: number;
@@ -95,6 +96,8 @@ type SpaceComposerEditorProps = {
 	onDragLeave?: (event: DragEvent<HTMLDivElement>) => void;
 	onDragOver?: (event: DragEvent<HTMLDivElement>) => void;
 	onDrop?: (event: DragEvent<HTMLDivElement>) => void;
+	onBlur?: FocusEventHandler<HTMLDivElement>;
+	onFocus?: FocusEventHandler<HTMLDivElement>;
 	onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
 	onSend: () => void;
 	placeholder: string;
@@ -103,7 +106,7 @@ type SpaceComposerEditorProps = {
 
 type SpaceComposerEditorContextValue = Pick<
 	SpaceComposerEditorProps,
-	"addressingTargets" | "mentionPickerItems"
+	"addressingTargets" | "centerAgentProfileId" | "mentionPickerItems"
 >;
 
 const SpaceComposerEditorContext =
@@ -156,9 +159,14 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 	const contextValue = useMemo(
 		() => ({
 			addressingTargets: input.addressingTargets,
+			centerAgentProfileId: input.centerAgentProfileId,
 			mentionPickerItems: input.mentionPickerItems,
 		}),
-		[input.addressingTargets, input.mentionPickerItems]
+		[
+			input.addressingTargets,
+			input.centerAgentProfileId,
+			input.mentionPickerItems,
+		]
 	);
 
 	useLayoutEffect(() => {
@@ -260,7 +268,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			}
 		};
 
-		input.composerRef.current = {
+		const composerHandle: SpaceComposerEditorHandle = {
 			focus: () => {
 				focusEditorAtSelection(editor, focusWhenReady);
 			},
@@ -277,9 +285,10 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				focusWhenReady();
 			},
 		};
+		input.composerRef.current = composerHandle;
 
 		return () => {
-			if (input.composerRef?.current) {
+			if (input.composerRef?.current === composerHandle) {
 				input.composerRef.current = null;
 			}
 		};
@@ -325,6 +334,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 						aria-placeholder={input.placeholder}
 						className="min-h-11 px-1 py-2 text-sm leading-6"
 						disabled={input.disabled}
+						onBlurCapture={input.onBlur}
 						onCopyCapture={(event) => handleCopy(event, editor)}
 						onDragEnterCapture={(event) =>
 							handleDragCapture(event, input.onDragEnter)
@@ -336,6 +346,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 							handleDragCapture(event, input.onDragOver)
 						}
 						onDropCapture={(event) => handleDragCapture(event, input.onDrop)}
+						onFocusCapture={input.onFocus}
 						onKeyDownCapture={(event) =>
 							handleKeyDown(event, editor, input.onSend)
 						}
@@ -448,8 +459,14 @@ function SpaceComposerProfileToken(
 					value={element.relation}
 				>
 					{choices.map((choice) => (
-						<option key={choice.relation} value={choice.relation}>
-							{choice.label}
+						<option
+							disabled={choice.disabled}
+							key={choice.relation}
+							value={choice.relation}
+						>
+							{choice.disabled && choice.disabledReason
+								? `${choice.label} — ${choice.disabledReason}`
+								: choice.label}
 						</option>
 					))}
 				</select>
@@ -488,6 +505,7 @@ function SpaceComposerProfileToken(
 						}
 						avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
 						className="size-4"
+						isCenterAgent={element.profileId === context.centerAgentProfileId}
 						profileId={element.profileId}
 						profileKind={profileKind}
 						profileName={profileName}
@@ -567,7 +585,7 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 				>
 					<InlineComboboxEmpty>No matching members</InlineComboboxEmpty>
 					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
-					<SpaceComposerMentionGroup items={humanItems} title="Humans" />
+					<SpaceComposerMentionGroup items={humanItems} title="People" />
 				</InlineComboboxContent>
 			</InlineCombobox>
 			{props.children}
@@ -579,6 +597,7 @@ function SpaceComposerMentionGroup(input: {
 	items: readonly SpaceMentionPickerItem[];
 	title: string;
 }) {
+	const context = useSpaceComposerEditorContext();
 	const editor = useEditorRef();
 	if (input.items.length === 0) {
 		return null;
@@ -599,6 +618,9 @@ function SpaceComposerMentionGroup(input: {
 						agentControllerRef={item.memberEntry.agentControllerRef}
 						avatarImageUrl={item.memberEntry.avatarUrl}
 						className="mr-2 size-5"
+						isCenterAgent={
+							item.suggestion.profileId === context.centerAgentProfileId
+						}
 						profileId={item.suggestion.profileId}
 						profileKind={item.suggestion.profileKind}
 						profileName={item.suggestion.profileName}
@@ -607,12 +629,22 @@ function SpaceComposerMentionGroup(input: {
 						{item.suggestion.profileName}
 					</span>
 					<span className="ml-2 text-muted-foreground text-xs">
-						{item.suggestion.profileKind === "human" ? "Mention" : "Wake"}
+						{resolveMentionPickerRelationLabel(item.suggestion)}
 					</span>
 				</InlineComboboxItem>
 			))}
 		</InlineComboboxGroup>
 	);
+}
+
+function resolveMentionPickerRelationLabel(
+	suggestion: SpaceMentionPickerItem["suggestion"]
+): "Mention" | "Reference" | "Wake" {
+	const relation = resolveDefaultSpaceComposerMentionRelation(suggestion);
+	if (relation === "reference") {
+		return "Reference";
+	}
+	return suggestion.profileKind === "human" ? "Mention" : "Wake";
 }
 
 function insertProfile(

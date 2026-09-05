@@ -101,6 +101,7 @@ import { runPrompt } from "./commands/prompt";
 import { runRepairLocalState } from "./commands/repair";
 import { runReset } from "./commands/reset";
 import {
+  isManagedSystemServiceBootstrapRun,
   runDaemon,
   runDaemonAutostart,
   runDaemonCancel,
@@ -298,6 +299,7 @@ import {
   parseViewFromArgv,
 } from "./runtime/view-argv";
 import { registerSkillsTargetSelectionOptions } from "./skills/target-selection-contract";
+import { runSpaceAccess } from "./space/access-command";
 import {
   runSpaceActionHelp,
   runSpaceActionReply,
@@ -333,6 +335,8 @@ import {
   runSpaceGuideRead,
   runSpaceGuideSet,
 } from "./space/guide-command";
+import { runSpaceInvitations } from "./space/invitations-command";
+import { runSpaceLink } from "./space/link-command";
 import { registerSpaceMemberSelectionOptions } from "./space/member-selection-contract";
 import { runSpaceMembers } from "./space/members-command";
 import { runSpaceMenu } from "./space/menu";
@@ -342,7 +346,10 @@ import {
 } from "./space/organization-space-command";
 import { getRemovedCcCliInputMessage } from "./space/removed-addressing";
 import { runSpaceResult } from "./space/result-command";
-import { resolveSpaceReadCommandTarget } from "./space/space-target";
+import {
+  resolveSpaceEntryCommandTarget,
+  resolveSpaceReadCommandTarget,
+} from "./space/space-target";
 import { runSpaceStatus } from "./space/status-command";
 import { runSpaceThread } from "./space/thread";
 import { runSpaceUpdates } from "./space/updates-command";
@@ -2561,38 +2568,45 @@ async function runServiceStartCliAction(
       command: "run",
     });
   }
+  const run = async (): Promise<void> => {
+    const result = await runDaemonRunAfterEntryChecks({
+      deviceId: opts.deviceId,
+      gatewayUrl: opts.gatewayUrl,
+      heartbeatMs: parseNonNegativeIntegerOption(
+        opts.heartbeatMs,
+        "--heartbeat-ms"
+      ),
+      profile: opts.profile,
+      mode: opts.mode,
+      view,
+      agentOverviewHandled: view === "agent",
+      outputMode: json ? "silent" : "normal",
+    });
+    if (json) {
+      emitCliJsonEnvelope({
+        schemaVersion: 1,
+        type: "daemon.run",
+        ok: result.ok,
+        reason: result.reason,
+      });
+    } else {
+      await maybeRunAgentViewRecoveryAfterSuccess({
+        view,
+      });
+    }
+  };
+
+  if (isManagedSystemServiceBootstrapRun()) {
+    await run();
+    return;
+  }
+
   await runCommandWithEntryChecks({
     routeTokens: ["service", "run"],
     view,
     profile: opts.profile,
     gatewayUrl: opts.gatewayUrl,
-    run: async () => {
-      const result = await runDaemonRunAfterEntryChecks({
-        deviceId: opts.deviceId,
-        gatewayUrl: opts.gatewayUrl,
-        heartbeatMs: parseNonNegativeIntegerOption(
-          opts.heartbeatMs,
-          "--heartbeat-ms"
-        ),
-        profile: opts.profile,
-        mode: opts.mode,
-        view,
-        agentOverviewHandled: view === "agent",
-        outputMode: json ? "silent" : "normal",
-      });
-      if (json) {
-        emitCliJsonEnvelope({
-          schemaVersion: 1,
-          type: "daemon.run",
-          ok: result.ok,
-          reason: result.reason,
-        });
-      } else {
-        await maybeRunAgentViewRecoveryAfterSuccess({
-          view,
-        });
-      }
-    },
+    run,
   });
 }
 
@@ -2667,6 +2681,58 @@ spaceCmd
   });
 
 registerSpaceFilesCommands(spaceCmd);
+
+spaceCmd
+  .command("invitations")
+  .description(
+    "Send and manage email-bound Space invitations, or accept invitations for your account."
+  )
+  .argument(
+    "<action>",
+    "create | list | pending | preview | accept | resend | revoke"
+  )
+  .option("--space <id>", "Target Space ID for create or list")
+  .option("--email <email>", "Recipient email for create")
+  .option(
+    "--invitation <id>",
+    "Invitation ID for preview, accept, resend, or revoke"
+  )
+  .action(async (action, opts) => {
+    await runSpaceInvitations({
+      action,
+      space: opts.space,
+      email: opts.email,
+      invitationId: opts.invitation,
+      view: getGlobalViewOption(),
+    });
+  });
+
+spaceCmd
+  .command("link")
+  .description("Create a Web link to a Space, message, or thread message.")
+  .argument("[space]", "Space ID (64-character hex)")
+  .option("--signal <id>", "Message signal ID")
+  .option("--thread-root-signal <id>", "Thread root signal ID")
+  .action(async (space, opts, command: Command) => {
+    const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+    const spaceValue = String(space ?? "").trim();
+    if (!spaceValue) {
+      throw new Error(
+        "missing required argument for openmeld space link: <space-id>"
+      );
+    }
+    await runSpaceLink({
+      baseUrl: cliOptions.gatewayUrl,
+      signalId:
+        typeof opts.signal === "string" ? opts.signal.trim() : undefined,
+      space: spaceValue,
+      threadRootSignalId:
+        typeof opts.threadRootSignal === "string"
+          ? opts.threadRootSignal.trim()
+          : undefined,
+      view: getGlobalViewOption(),
+    });
+  });
 
 const spaceActionCmd = spaceCmd
   .command("action")
@@ -2990,6 +3056,10 @@ withSpaceProfileOption(
       "--target-profile <profile-id>",
       "Narrow progress to one target Agent Profile"
     )
+    .option(
+      "--source-profile <profile-id>",
+      "Narrow the active summary to work requested by one profile"
+    )
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
@@ -3006,6 +3076,8 @@ withSpaceProfileOption(
         space: String(space),
         clientMessageId:
           normalizeOptionalString(opts.clientMessage) ?? undefined,
+        sourceProfileId:
+          normalizeOptionalString(opts.sourceProfile) ?? undefined,
         targetProfileId:
           normalizeOptionalString(opts.targetProfile) ?? undefined,
         password: cliOptions.password,
@@ -3935,6 +4007,55 @@ withSpaceProfileOption(
         json: cliOptions.json === true,
         view,
         entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("access")
+    .description(
+      "Resolve whether this profile can view and participate in a Space."
+    )
+    .argument("[space]", "Space URL or 64-character Space ID")
+    .option("--json", "Print canonical JSON", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const outputView = await resolveEffectiveViewForOutput();
+  if (!spaceValue && outputView === "agent") {
+    throw createSpaceTargetGuideError("access");
+  }
+  if (!spaceValue) {
+    throw new Error(
+      "missing required argument for openmeld space access: <space-url-or-id>"
+    );
+  }
+  const target = resolveSpaceEntryCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: spaceValue,
+  });
+
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "access"],
+    view,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
+    jsonOutput: cliOptions.json === true,
+    run: async () => {
+      await runSpaceAccess({
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
+        signalId: target.signalId,
+        threadRootSignalId: target.threadRootSignalId,
+        password: cliOptions.password,
+        json: cliOptions.json === true,
+        view,
       });
     },
   });

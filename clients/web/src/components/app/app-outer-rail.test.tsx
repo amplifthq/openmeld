@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AuthDeviceSession } from "#/lib/auth-client-types";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import {
 	rememberClientSidebarState,
@@ -24,6 +25,12 @@ const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
 const useDefaultHumanProfileMock = vi.hoisted(() => vi.fn());
+const useDeviceSessionsMock = vi.hoisted(() => vi.fn());
+const useSwitchAccountMock = vi.hoisted(() => vi.fn());
+const useLogoutAllAccountsActionMock = vi.hoisted(() => vi.fn());
+const switchAccountMutateAsyncMock = vi.hoisted(() => vi.fn());
+const logoutAllAccountsMutateAsyncMock = vi.hoisted(() => vi.fn());
+const retryDeviceSessionsMock = vi.hoisted(() => vi.fn());
 const prefetchCenterAgentConversationMock = vi.hoisted(() => vi.fn());
 const selectLastSelectedOrganizationMock = vi.hoisted(() => vi.fn());
 let routerLocation = {
@@ -135,6 +142,15 @@ vi.mock("#/hooks/account.hooks", () => ({
 	useAccountAvatar: useAccountAvatarMock,
 }));
 
+vi.mock("#/hooks/auth.hooks", () => ({
+	useDeviceSessions: useDeviceSessionsMock,
+	useSwitchAccount: useSwitchAccountMock,
+}));
+
+vi.mock("#/hooks/auth-form.hooks", () => ({
+	useLogoutAllAccountsAction: useLogoutAllAccountsActionMock,
+}));
+
 vi.mock(
 	"#/components/organizations/use-center-agent-conversation-intent-prefetch",
 	() => ({
@@ -152,12 +168,38 @@ const TEST_ACCOUNT: {
 	image: null,
 	name: "Felix",
 };
+const TEST_DEVICE_SESSIONS: AuthDeviceSession[] = [
+	{
+		session: {
+			token: "session-felix",
+			userId: "user-felix",
+		},
+		user: {
+			email: TEST_ACCOUNT.email,
+			id: "user-felix",
+			name: TEST_ACCOUNT.name,
+		},
+	},
+	{
+		session: {
+			token: "session-jane",
+			userId: "user-jane",
+		},
+		user: {
+			email: "jane@example.com",
+			id: "user-jane",
+			name: "Jane",
+		},
+	},
+];
 const CREATE_ORGANIZATION_MENU_ITEM_NAME = /Create organization/;
 const FELIX_MENU_ITEM_NAME = /Felix/;
+const FELIX_ACCOUNT_MENU_ITEM_NAME = /Felix.*felix@example\.com/;
 const TOGGLE_TRIGGER_NAME_PATTERN = /Toggle/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
+	"New Agent",
 	"Home",
 	"Spaces",
 	"Messages",
@@ -193,6 +235,23 @@ describe("AppOuterRail", () => {
 			},
 			isPending: false,
 		});
+		useDeviceSessionsMock.mockReset().mockReturnValue({
+			data: TEST_DEVICE_SESSIONS,
+			isError: false,
+			isPending: false,
+			refetch: retryDeviceSessionsMock,
+		});
+		useSwitchAccountMock.mockReset().mockReturnValue({
+			isPending: false,
+			mutateAsync: switchAccountMutateAsyncMock,
+		});
+		useLogoutAllAccountsActionMock.mockReset().mockReturnValue({
+			isPending: false,
+			mutateAsync: logoutAllAccountsMutateAsyncMock,
+		});
+		switchAccountMutateAsyncMock.mockReset().mockResolvedValue(undefined);
+		logoutAllAccountsMutateAsyncMock.mockReset().mockResolvedValue(undefined);
+		retryDeviceSessionsMock.mockReset().mockResolvedValue(undefined);
 		prefetchCenterAgentConversationMock.mockReset();
 		selectLastSelectedOrganizationMock.mockReset().mockResolvedValue({
 			ok: true,
@@ -318,9 +377,8 @@ describe("AppOuterRail", () => {
 		const groups = screen
 			.getByTestId("app-outer-rail")
 			.querySelectorAll('[data-slot="sidebar-group"]');
-		expect(groups).toHaveLength(3);
+		expect(groups).toHaveLength(2);
 		expect(groups[1]?.className).toContain("mt-5");
-		expect(groups[2]?.className).toContain("mt-5");
 	});
 
 	it("warms the Center Agent conversation from primary navigation intent", () => {
@@ -384,6 +442,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "full", width: "9rem" });
 
 		for (const label of [
+			"New Agent",
 			"Home",
 			"Spaces",
 			"Messages",
@@ -587,6 +646,13 @@ describe("AppOuterRail", () => {
 		expect(peopleLink.getAttribute("href")).toBe("/o/acme/people");
 	});
 
+	it("opens Agent creation in the current organization", () => {
+		renderRail();
+
+		const newAgentLink = screen.getByRole("link", { name: "New Agent" });
+		expect(newAgentLink.getAttribute("href")).toBe("/o/acme/agents/new");
+	});
+
 	it("opens the canonical Direct Messages home", () => {
 		renderRail();
 
@@ -598,7 +664,7 @@ describe("AppOuterRail", () => {
 		);
 	});
 
-	it("collapses destinations under stable group labels without exposing Resources", () => {
+	it("keeps primary destinations flat while Team remains collapsible", () => {
 		renderRail();
 
 		const railContent = screen
@@ -609,31 +675,22 @@ describe("AppOuterRail", () => {
 			return;
 		}
 
-		const workHeading = within(railContent).getByRole("heading", {
-			name: "Work",
-		});
 		const teamHeading = within(railContent).getByRole("heading", {
 			name: "Team",
 		});
-		expect(workHeading).toBeTruthy();
 		expect(teamHeading).toBeTruthy();
-		for (const heading of [workHeading, teamHeading]) {
-			expect(heading.className).toContain("ps-[5px]");
-			expect(heading.className).toContain("pe-2");
-			expect(heading.className).not.toContain("px-2");
-		}
-		expect(
-			workHeading
-				.closest('[data-slot="sidebar-group"]')
-				?.classList.contains("gap-2")
-		).toBe(true);
+		expect(teamHeading.className).toContain("ps-[5px]");
+		expect(teamHeading.className).toContain("pe-2");
+		expect(teamHeading.className).not.toContain("px-2");
 		expect(
 			teamHeading
 				.closest('[data-slot="sidebar-group"]')
 				?.classList.contains("gap-2")
 		).toBe(true);
 		expect(
-			within(railContent).getByRole("navigation", { name: "Work" })
+			within(railContent).getByRole("navigation", {
+				name: "Primary navigation",
+			})
 		).toBeTruthy();
 		expect(
 			within(railContent).getByRole("navigation", { name: "Team" })
@@ -641,20 +698,18 @@ describe("AppOuterRail", () => {
 		expect(
 			within(railContent).queryByRole("navigation", { name: "Resources" })
 		).toBeNull();
-		const workTrigger = within(railContent).getByRole("button", {
-			name: "Work",
-		});
-		expect(workTrigger.getAttribute("aria-expanded")).toBe("true");
 		expect(
 			within(railContent).getByRole("button", { name: "Team" })
 		).toBeTruthy();
 		expect(
+			within(railContent).queryByRole("button", { name: "Work" })
+		).toBeNull();
+		expect(
 			within(railContent).queryByRole("button", { name: "Resources" })
 		).toBeNull();
-
-		fireEvent.click(workTrigger);
-
-		expect(workTrigger.getAttribute("aria-expanded")).toBe("false");
+		expect(
+			within(railContent).getByRole("link", { name: "New Agent" })
+		).toBeTruthy();
 		expect(
 			within(railContent).getByRole("link", { name: "Home" })
 		).toBeTruthy();
@@ -662,28 +717,29 @@ describe("AppOuterRail", () => {
 			within(railContent).queryByRole("link", { name: "Center Agent" })
 		).toBeNull();
 		expect(
-			within(railContent).queryByRole("link", { name: "Spaces" })
-		).toBeNull();
+			within(railContent).getByRole("link", { name: "Spaces" })
+		).toBeTruthy();
 		expect(
-			within(railContent).queryByRole("link", { name: "Messages" })
-		).toBeNull();
+			within(railContent).getByRole("link", { name: "Messages" })
+		).toBeTruthy();
 		expect(
 			within(railContent).getByRole("link", { name: "People" })
 		).toBeTruthy();
 	});
 
-	it("keeps every destination visible in compact mode even when a full-mode group is persisted as collapsed", () => {
+	it("ignores a stale collapsed Work preference in the full rail", () => {
 		rememberClientSidebarState("outer", {
 			collapsedGroupIds: ["work"],
-			tier: "compact",
-			width: "9rem",
+			tier: "full",
+			width: "13.75rem",
 		});
 		renderRail({
 			collapsedGroupIds: ["work"],
-			tier: "compact",
-			width: "9rem",
+			tier: "full",
+			width: "13.75rem",
 		});
 
+		expect(screen.getByRole("link", { name: "New Agent" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Home" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Center Agent" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
@@ -891,15 +947,114 @@ describe("AppOuterRail", () => {
 		const globalActions = within(menu).getByRole("group", {
 			name: "Global actions",
 		});
-		expect(
-			within(globalActions).getByRole("menuitem", { name: "Settings" })
-		).toBeTruthy();
+		const accountAction = within(globalActions).getByRole("menuitem", {
+			name: FELIX_ACCOUNT_MENU_ITEM_NAME,
+		});
+		const settingsAction = within(globalActions).getByRole("menuitem", {
+			name: "Settings",
+		});
+		expect(accountAction).toBeTruthy();
+		expect(settingsAction).toBeTruthy();
+		expect(within(globalActions).getAllByRole("menuitem")).toEqual([
+			accountAction,
+			settingsAction,
+		]);
 		expect(globalActions.className).toContain("border-t");
 		expect(
 			(choices[1] as HTMLElement).querySelector<HTMLElement>(
 				'[aria-hidden="true"]'
 			)?.className
 		).toContain("rounded-sm");
+	});
+
+	it("shows saved accounts and session actions inside the organization menu", () => {
+		renderRail();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Switch organization" })
+		);
+		fireEvent.click(
+			screen.getByRole("menuitem", {
+				name: FELIX_ACCOUNT_MENU_ITEM_NAME,
+			})
+		);
+
+		const menu = screen.getByRole("menu");
+		expect(within(menu).getByText("Accounts")).toBeTruthy();
+		expect(
+			within(menu).getByRole("menuitem", { name: "Back to organizations" })
+		).toBeTruthy();
+		const accountChoices = within(menu).getAllByRole("menuitemradio");
+		expect(accountChoices).toHaveLength(2);
+		expect(accountChoices[0]?.textContent).toContain("Felix");
+		expect(accountChoices[0]?.getAttribute("aria-checked")).toBe("true");
+		expect(accountChoices[1]?.textContent).toContain("Jane");
+		expect(accountChoices[1]?.getAttribute("aria-checked")).toBe("false");
+
+		const accountActions = within(menu).getByRole("group", {
+			name: "Account actions",
+		});
+		expect(
+			within(accountActions).getByRole("menuitem", { name: "Add account" })
+		).toBeTruthy();
+		expect(
+			within(accountActions).getByRole("menuitem", {
+				name: "Log out of this account",
+			})
+		).toBeTruthy();
+		expect(
+			within(accountActions).getByRole("menuitem", {
+				name: "Log out of all accounts",
+			})
+		).toBeTruthy();
+		expect(useDeviceSessionsMock).toHaveBeenLastCalledWith(true);
+	});
+
+	it("explains the five-account limit and disables adding another account", () => {
+		useDeviceSessionsMock.mockReturnValue({
+			data: Array.from(
+				{ length: 5 },
+				(_, index) =>
+					({
+						session: {
+							token: `session-${index}`,
+							userId: index === 0 ? "user-felix" : `user-${index}`,
+						},
+						user: {
+							email:
+								index === 0
+									? TEST_ACCOUNT.email
+									: `person-${index}@example.com`,
+							id: index === 0 ? "user-felix" : `user-${index}`,
+							name: index === 0 ? TEST_ACCOUNT.name : `Person ${index}`,
+						},
+					}) satisfies AuthDeviceSession
+			),
+			isError: false,
+			isPending: false,
+			refetch: retryDeviceSessionsMock,
+		});
+		renderRail();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Switch organization" })
+		);
+		fireEvent.click(
+			screen.getByRole("menuitem", {
+				name: FELIX_ACCOUNT_MENU_ITEM_NAME,
+			})
+		);
+
+		expect(
+			screen
+				.getByRole("menuitem", { name: "Add account" })
+				.hasAttribute("disabled")
+		).toBe(true);
+		expect(
+			screen.getByText(
+				"You can keep up to 5 accounts signed in on this browser."
+			)
+		).toBeTruthy();
 	});
 
 	it("uses shared fluid hover backgrounds for organization choices and actions", async () => {

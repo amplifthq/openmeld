@@ -66,22 +66,6 @@ describe("message-state", () => {
 		);
 	});
 
-	it("uses the thinking status for admitted optimistic work", () => {
-		const presentation = resolveSpaceMessageDeliveryPresentation({
-			item: {
-				createdAtMs: CREATED_AT_MS,
-				deliveryState: "pending",
-				optimisticAgentReplyState: "working",
-			},
-			nowMs: CREATED_AT_MS,
-		});
-
-		expect(presentation).toBe("agent_starting");
-		expect(resolveSpaceMessageDeliveryStatusText(presentation)).toBe(
-			"Agent is working"
-		);
-	});
-
 	it("maps an active Center Agent stream to the canonical working status", () => {
 		const presentation = resolveSpaceMessageDeliveryPresentation({
 			item: {

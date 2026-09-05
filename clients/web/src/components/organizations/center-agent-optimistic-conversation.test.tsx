@@ -60,15 +60,15 @@ describe("CenterAgentOptimisticConversation", () => {
 
 		const optimisticReply = screen.getByTestId("center-agent-optimistic-reply");
 		const status = within(optimisticReply).getByRole("status", {
-			name: "Agent is working",
+			name: "Sending to Agent…",
 		});
 
 		expect(screen.queryByText("Sending…")).toBeNull();
 		expect(screen.getByRole("button", { name: "Sending…" })).toBeTruthy();
 		expect(within(optimisticReply).getByText("Center Agent")).toBeTruthy();
-		expect(status.textContent).toBe("Agent is working");
+		expect(status.textContent).toBe("Sending to Agent…");
 		expect(
-			status.querySelector('[data-slot="animated-mobius-icon"]')
+			status.querySelector('[data-space-agent-orb-state="connecting"]')
 		).toBeTruthy();
 	});
 });

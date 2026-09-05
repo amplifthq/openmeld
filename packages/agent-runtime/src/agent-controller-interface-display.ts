@@ -119,7 +119,7 @@ export function resolveAgentControllerInterfaceDescription(input: {
     return input.displayDescription;
   }
   if (input.snapshot.check?.status === "failed") {
-    return `OpenMeld couldn't finish checking ${input.snapshot.displayName}. It will try again automatically.`;
+    return `${input.snapshot.displayName} check is delayed. OpenMeld will retry automatically.`;
   }
   if (input.snapshot.auth.status === "unauthenticated") {
     const signInCopy = resolvePublicAgentAvailabilityCopy(
@@ -172,7 +172,7 @@ export function formatAgentControllerInterfaceSummary(
 ): string {
   if (snapshot.check?.status === "failed") {
     const version = formatAgentControllerVersion(snapshot.version);
-    return version ? `Couldn't check · ${version}` : "Couldn't check";
+    return version ?? "Check delayed";
   }
   const auth = formatAgentControllerAuthSummary(snapshot);
   const version = formatAgentControllerVersion(snapshot.version);
@@ -249,7 +249,7 @@ function formatAgentControllerStatus(
   snapshot: Pick<OrganizationComputerLocalAgentDetails, "check" | "status">
 ): string {
   if (snapshot.check?.status === "failed") {
-    return "Couldn't check";
+    return "Check delayed";
   }
   switch (snapshot.status) {
     case "ready":

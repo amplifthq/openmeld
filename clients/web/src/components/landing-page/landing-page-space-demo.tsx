@@ -38,7 +38,7 @@ const SECTION_SPACE_DEMO = {
 	context: [
 		{
 			description: "Ship the billing meter rewrite safely.",
-			name: "Human request",
+			name: "Person's request",
 		},
 		{
 			agentId: "builtin:codex",
@@ -115,7 +115,7 @@ const SECTION_SPACE_DEMO = {
 			source: "GPT-5",
 		},
 	],
-	title: "Human request to five agents",
+	title: "One request to five agents",
 } as const satisfies SpaceDemo;
 
 const SPACE_FEATURES = [

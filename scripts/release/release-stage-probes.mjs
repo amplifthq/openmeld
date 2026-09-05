@@ -176,6 +176,7 @@ export function decideNpmPublishStage(input) {
     if (NPM_MISSING_VERSION_PATTERN.test(detail)) {
       return {
         action: "RUN",
+        criterion: "npm-target-version-missing",
         reason: `npm does not publish openmeld@${input.targetVersion}`,
       };
     }
@@ -199,10 +200,10 @@ export function decideNpmPublishStage(input) {
       reason: `npm already publishes openmeld@${input.targetVersion} with required floor ${input.targetMinRequiredCliVersion}`,
     };
   }
-  return {
-    action: "RUN",
-    reason: `npm does not publish openmeld@${input.targetVersion}`,
-  };
+  return probeFailureDecision(
+    "npm completion probe",
+    `npm returned an unexpected version projection for openmeld@${input.targetVersion}`
+  );
 }
 
 export function decideReleaseTagStage(input) {

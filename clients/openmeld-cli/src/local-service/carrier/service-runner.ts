@@ -1686,8 +1686,19 @@ function noteRunLoopReconnectScheduled(input: {
       backoffMs,
       error: errorMessage,
       reason: failureReason,
+      reasonCode:
+        input.reconnectAttempt >= 2 ? "service_reconnect_exhausted" : null,
     },
   });
+  if (input.reconnectAttempt === 2) {
+    warnDaemonEvent("[openmeld.daemon.stream_reconnect_exhausted]", {
+      automaticRetryContinues: true,
+      error: errorMessage,
+      reason: failureReason,
+      reasonCode: "service_reconnect_exhausted",
+      retryAfterMs: backoffMs,
+    });
+  }
   return backoffMs;
 }
 

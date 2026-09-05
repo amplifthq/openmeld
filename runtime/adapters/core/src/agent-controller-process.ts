@@ -1,10 +1,10 @@
 import {
   type ChildProcessWithoutNullStreams,
-  execFileSync,
+  execFile,
   spawn,
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 
 const PROCESS_TABLE_COLUMN_SEPARATOR = /\s+/u;
 const PROCESS_TABLE_LINE_SEPARATOR = /\r?\n/u;
@@ -12,69 +12,50 @@ const PROCESS_SUPERVISION_ENV_KEY = "OPENMELD_PROCESS_SUPERVISION_ID";
 const PROCESS_SUPERVISION_DISCOVERY_RETRY_DELAY_MS = 100;
 const PROCESS_SUPERVISION_DISCOVERY_MAX_ATTEMPTS = 2;
 const PROCESS_TABLE_STOP_PHASE_SNAPSHOT_MAX_AGE_MS = 75;
+const PROCESS_DISCOVERY_DIAGNOSTIC_WINDOW_MS = 60_000;
 
-type AgentControllerProcessTableSnapshot =
-  | {
-      capturedAtMs: number;
-      ok: true;
-      processTable: string;
-    }
-  | {
-      capturedAtMs: number;
-      error: unknown;
-      ok: false;
-    };
+type AgentControllerProcessTableSnapshot = {
+  capturedAtMs: number;
+  processTable: Promise<string>;
+};
 
 export type AgentControllerProcessSignalTarget = "process" | "process_group";
 
 export type ListAgentControllerDescendantProcessIds = (
   processId: number
-) => number[];
+) => Promise<number[]>;
 
 export type ListAgentControllerSupervisedProcessIds = (input: {
   processId: number;
   supervisionId: string;
-}) => number[];
+}) => Promise<number[]>;
 
 export function createAgentControllerProcessTableSnapshotReader(input: {
   maxAgeMs: number;
   now?: () => number;
-  readProcessTable: () => string;
-}): () => string {
+  readProcessTable: () => Promise<string>;
+}): () => Promise<string> {
   if (!(Number.isFinite(input.maxAgeMs) && input.maxAgeMs > 0)) {
     throw new Error("process table snapshot max age must be positive");
   }
   const now = input.now ?? Date.now;
   let snapshot: AgentControllerProcessTableSnapshot | null = null;
 
-  return () => {
+  return async () => {
     const readAtMs = now();
     if (snapshot) {
       const ageMs = readAtMs - snapshot.capturedAtMs;
       if (ageMs >= 0 && ageMs < input.maxAgeMs) {
-        if (!snapshot.ok) {
-          throw snapshot.error;
-        }
-        return snapshot.processTable;
+        return await snapshot.processTable;
       }
     }
 
-    try {
-      const processTable = input.readProcessTable();
-      snapshot = {
-        capturedAtMs: now(),
-        ok: true,
-        processTable,
-      };
-      return processTable;
-    } catch (error) {
-      snapshot = {
-        capturedAtMs: now(),
-        error,
-        ok: false,
-      };
-      throw error;
-    }
+    const processTable = input.readProcessTable();
+    snapshot = {
+      capturedAtMs: readAtMs,
+      processTable,
+    };
+    return await processTable;
   };
 }
 
@@ -88,6 +69,126 @@ export type AgentControllerProcessDiscoveryFailure = {
 export type ReportAgentControllerProcessDiscoveryFailure = (
   failure: AgentControllerProcessDiscoveryFailure
 ) => void;
+
+type AgentControllerProcessDiscoveryDiagnosticSource =
+  AgentControllerProcessDiscoveryFailure["source"];
+
+type AgentControllerProcessDiscoveryDiagnosticWriter = (
+  level: "info" | "warn",
+  event: string,
+  payload: Record<string, unknown>
+) => void;
+
+export function createAgentControllerProcessDiscoveryDiagnosticAggregator(input?: {
+  now?: () => number;
+  windowMs?: number;
+  write?: AgentControllerProcessDiscoveryDiagnosticWriter;
+}): {
+  failure: (
+    failure: AgentControllerProcessDiscoveryFailure & {
+      reporterError?: unknown;
+    }
+  ) => void;
+  recovered: (source: AgentControllerProcessDiscoveryDiagnosticSource) => void;
+} {
+  const now = input?.now ?? Date.now;
+  const windowMs = input?.windowMs ?? PROCESS_DISCOVERY_DIAGNOSTIC_WINDOW_MS;
+  const write: AgentControllerProcessDiscoveryDiagnosticWriter =
+    input?.write ?? ((level, event, payload) => console[level](event, payload));
+  const aggregates = new Map<
+    string,
+    {
+      affectedProcessIds: Set<number>;
+      error: ReturnType<typeof normalizeErrorForDiagnostic>;
+      firstAtMs: number;
+      lastAtMs: number;
+      lastReportedAtMs: number;
+      occurrenceCount: number;
+      reporterError: ReturnType<typeof normalizeErrorForDiagnostic> | null;
+      source: AgentControllerProcessDiscoveryDiagnosticSource;
+    }
+  >();
+
+  return {
+    failure: (failure) => {
+      const observedAtMs = now();
+      const error = normalizeErrorForDiagnostic(failure.error);
+      const reasonCode = isProcessDiscoveryTimeoutError(failure.error)
+        ? "process_discovery_timeout"
+        : "process_discovery_failed";
+      const key = `${failure.source}:${reasonCode}:${error.name}`;
+      const aggregate = aggregates.get(key) ?? {
+        affectedProcessIds: new Set<number>(),
+        error,
+        firstAtMs: observedAtMs,
+        lastAtMs: observedAtMs,
+        lastReportedAtMs: Number.NEGATIVE_INFINITY,
+        occurrenceCount: 0,
+        reporterError: failure.reporterError
+          ? normalizeErrorForDiagnostic(failure.reporterError)
+          : null,
+        source: failure.source,
+      };
+      aggregate.affectedProcessIds.add(failure.processId);
+      aggregate.error = error;
+      aggregate.lastAtMs = observedAtMs;
+      aggregate.occurrenceCount += 1;
+      aggregates.set(key, aggregate);
+      if (observedAtMs - aggregate.lastReportedAtMs < windowMs) {
+        return;
+      }
+      aggregate.lastReportedAtMs = observedAtMs;
+      write("warn", "[openmeld.agent_controller.process_discovery_failed]", {
+        affectedProcessIds: [...aggregate.affectedProcessIds].slice(0, 20),
+        durationMs: observedAtMs - aggregate.firstAtMs,
+        errorCode: error.code,
+        errorMessage: error.message,
+        errorName: error.name,
+        occurrenceCount: aggregate.occurrenceCount,
+        reasonCode,
+        ...(aggregate.reporterError
+          ? {
+              reporterErrorMessage: aggregate.reporterError.message,
+              reporterErrorName: aggregate.reporterError.name,
+            }
+          : {}),
+        signal: failure.signal,
+        source: failure.source,
+      });
+    },
+    recovered: (source) => {
+      const recoveredAtMs = now();
+      for (const [key, aggregate] of aggregates) {
+        if (aggregate.source !== source) {
+          continue;
+        }
+        write(
+          "info",
+          "[openmeld.agent_controller.process_discovery_recovered]",
+          {
+            affectedProcessIds: [...aggregate.affectedProcessIds].slice(0, 20),
+            durationMs: recoveredAtMs - aggregate.firstAtMs,
+            occurrenceCount: aggregate.occurrenceCount,
+            reasonCode: "process_discovery_recovered",
+            source,
+          }
+        );
+        aggregates.delete(key);
+      }
+    },
+  };
+}
+
+function isProcessDiscoveryTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const processError = error as NodeJS.ErrnoException & { killed?: boolean };
+  return processError.code === "ETIMEDOUT" || processError.killed === true;
+}
+
+const processDiscoveryDiagnostics =
+  createAgentControllerProcessDiscoveryDiagnosticAggregator();
 
 export type AgentControllerProcessCleanupFailure = {
   error: unknown;
@@ -153,7 +254,6 @@ export function spawnAgentControllerProcess(input: {
         processId,
         signal,
         signalTarget,
-        supervisionId,
         trackedDescendantProcessIds,
       }),
     terminateRemainingDescendants: () =>
@@ -183,13 +283,9 @@ export function resolveAgentControllerProcessSignalId(input: {
 
 export function signalAgentControllerProcessTree(input: {
   killProcess?: typeof process.kill;
-  listDescendantProcessIds?: ListAgentControllerDescendantProcessIds;
-  listSupervisedProcessIds?: ListAgentControllerSupervisedProcessIds;
   processId: number | null;
-  reportDiscoveryFailure?: ReportAgentControllerProcessDiscoveryFailure;
   signal: NodeJS.Signals;
   signalTarget: AgentControllerProcessSignalTarget;
-  supervisionId?: string;
   trackedDescendantProcessIds?: Set<number>;
 }): boolean {
   if (input.processId === null) {
@@ -205,43 +301,6 @@ export function signalAgentControllerProcessTree(input: {
 
   const trackedDescendantProcessIds =
     input.trackedDescendantProcessIds ?? new Set<number>();
-  const discoveryFailures: AgentControllerProcessDiscoveryFailure[] = [];
-  if (input.supervisionId) {
-    const listSupervisedProcessIds =
-      input.listSupervisedProcessIds ?? listAgentControllerSupervisedProcessIds;
-    try {
-      for (const descendantProcessId of listSupervisedProcessIds({
-        processId: input.processId,
-        supervisionId: input.supervisionId,
-      })) {
-        trackedDescendantProcessIds.add(descendantProcessId);
-      }
-    } catch (error) {
-      discoveryFailures.push({
-        error,
-        processId: input.processId,
-        signal: input.signal,
-        source: "supervision_marker",
-      });
-    }
-  } else {
-    const listDescendantProcessIds =
-      input.listDescendantProcessIds ?? listAgentControllerDescendantProcessIds;
-    try {
-      for (const descendantProcessId of listDescendantProcessIds(
-        input.processId
-      )) {
-        trackedDescendantProcessIds.add(descendantProcessId);
-      }
-    } catch (error) {
-      discoveryFailures.push({
-        error,
-        processId: input.processId,
-        signal: input.signal,
-        source: "descendant_tree",
-      });
-    }
-  }
 
   let sent = false;
   const signalFailures: unknown[] = [];
@@ -265,12 +324,6 @@ export function signalAgentControllerProcessTree(input: {
   );
   for (const descendantProcessId of trackedDescendantProcessIds) {
     attemptSignal(descendantProcessId);
-  }
-  for (const discoveryFailure of discoveryFailures) {
-    reportAgentControllerProcessDiscoveryFailure({
-      failure: discoveryFailure,
-      reporter: input.reportDiscoveryFailure,
-    });
   }
   if (signalFailures.length > 0) {
     throw signalFailures[0];
@@ -313,23 +366,21 @@ async function runRemainingAgentControllerProcessCleanup(input: {
     attempt += 1
   ) {
     let cleanupError: unknown = null;
-    let discoveryError: unknown = null;
+    const discoveryError = await collectSupervisedProcessIds({
+      listSupervisedProcessIds: input.listSupervisedProcessIds,
+      processId: input.processId,
+      reportDiscoveryFailure: input.reportDiscoveryFailure,
+      signalTarget: input.signalTarget,
+      supervisionId: input.supervisionId,
+      trackedDescendantProcessIds,
+    });
     try {
       sent =
         signalAgentControllerProcessTree({
           killProcess: input.killProcess,
-          listSupervisedProcessIds: input.listSupervisedProcessIds,
           processId: input.processId,
-          reportDiscoveryFailure: (failure) => {
-            discoveryError = failure.error;
-            reportAgentControllerProcessDiscoveryFailure({
-              failure,
-              reporter: input.reportDiscoveryFailure,
-            });
-          },
           signal: "SIGKILL",
           signalTarget: input.signalTarget,
-          supervisionId: input.supervisionId,
           trackedDescendantProcessIds,
         }) || sent;
     } catch (error) {
@@ -362,6 +413,42 @@ async function runRemainingAgentControllerProcessCleanup(input: {
   return { ok: true, signalSent: sent };
 }
 
+async function collectSupervisedProcessIds(input: {
+  listSupervisedProcessIds?: ListAgentControllerSupervisedProcessIds;
+  processId: number | null;
+  reportDiscoveryFailure?: ReportAgentControllerProcessDiscoveryFailure;
+  signalTarget: AgentControllerProcessSignalTarget;
+  supervisionId: string;
+  trackedDescendantProcessIds: Set<number>;
+}): Promise<unknown | null> {
+  if (input.signalTarget !== "process_group" || input.processId === null) {
+    return null;
+  }
+  const listSupervisedProcessIds =
+    input.listSupervisedProcessIds ?? listAgentControllerSupervisedProcessIds;
+  try {
+    const supervisedProcessIds = await listSupervisedProcessIds({
+      processId: input.processId,
+      supervisionId: input.supervisionId,
+    });
+    for (const descendantProcessId of supervisedProcessIds) {
+      input.trackedDescendantProcessIds.add(descendantProcessId);
+    }
+    return null;
+  } catch (error) {
+    reportAgentControllerProcessDiscoveryFailure({
+      failure: {
+        error,
+        processId: input.processId,
+        signal: "SIGKILL",
+        source: "supervision_marker",
+      },
+      reporter: input.reportDiscoveryFailure,
+    });
+    return error;
+  }
+}
+
 function waitForAgentControllerProcessDiscoveryRetry(): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, PROCESS_SUPERVISION_DISCOVERY_RETRY_DELAY_MS);
@@ -369,12 +456,11 @@ function waitForAgentControllerProcessDiscoveryRetry(): Promise<void> {
 }
 
 export const listAgentControllerDescendantProcessIds: ListAgentControllerDescendantProcessIds =
-  (processId) => {
-    const processTable = execFileSync("ps", ["-axo", "pid=,ppid=,pgid="], {
-      encoding: "utf8",
+  async (processId) => {
+    const processTable = await readProcessTable(["-axo", "pid=,ppid=,pgid="], {
       maxBuffer: 4 * 1024 * 1024,
-      timeout: 2000,
     });
+    processDiscoveryDiagnostics.recovered("descendant_tree");
     return resolveAgentControllerDescendantProcessIds({
       processId,
       processTable,
@@ -388,33 +474,30 @@ const readMacOsSupervisedProcessTable =
     // controller. The cache expires before the bounded 100 ms discovery retry,
     // so a transient timeout still receives one fresh retry.
     maxAgeMs: PROCESS_TABLE_STOP_PHASE_SNAPSHOT_MAX_AGE_MS,
-    readProcessTable: () =>
-      execFileSync("ps", ["eww", "-axo", "pid=,ppid=,pgid=,command="], {
-        encoding: "utf8",
+    readProcessTable: async () =>
+      await readProcessTable(["eww", "-axo", "pid=,ppid=,pgid=,command="], {
         maxBuffer: 32 * 1024 * 1024,
-        timeout: 2000,
       }),
   });
 
 export const listAgentControllerSupervisedProcessIds: ListAgentControllerSupervisedProcessIds =
-  (input) => {
+  async (input) => {
     if (process.platform === "linux") {
-      const processTable = execFileSync(
-        "ps",
+      const processTable = await readProcessTable(
         ["-e", "-o", "pid=,ppid=,pgid="],
-        {
-          encoding: "utf8",
-          maxBuffer: 4 * 1024 * 1024,
-          timeout: 2000,
-        }
+        { maxBuffer: 4 * 1024 * 1024 }
       );
+      processDiscoveryDiagnostics.recovered("supervision_marker");
       return resolveAgentControllerSupervisedProcessIds({
         ...input,
-        markedProcessIds: listLinuxSupervisedProcessIds(input.supervisionId),
+        markedProcessIds: await listLinuxSupervisedProcessIds(
+          input.supervisionId
+        ),
         processTable,
       });
     }
-    const processTable = readMacOsSupervisedProcessTable();
+    const processTable = await readMacOsSupervisedProcessTable();
+    processDiscoveryDiagnostics.recovered("supervision_marker");
     return resolveAgentControllerSupervisedProcessIds({
       ...input,
       processTable,
@@ -467,10 +550,12 @@ export function resolveAgentControllerSupervisedProcessIds(input: {
   });
 }
 
-function listLinuxSupervisedProcessIds(supervisionId: string): number[] {
+async function listLinuxSupervisedProcessIds(
+  supervisionId: string
+): Promise<number[]> {
   const supervisionMarker = `${PROCESS_SUPERVISION_ENV_KEY}=${supervisionId}`;
   const processIds: number[] = [];
-  for (const entry of readdirSync("/proc", { withFileTypes: true })) {
+  for (const entry of await readdir("/proc", { withFileTypes: true })) {
     if (!entry.isDirectory()) {
       continue;
     }
@@ -479,7 +564,7 @@ function listLinuxSupervisedProcessIds(supervisionId: string): number[] {
       continue;
     }
     try {
-      const environment = readFileSync(`/proc/${entry.name}/environ`, "utf8");
+      const environment = await readFile(`/proc/${entry.name}/environ`, "utf8");
       if (environment.split("\0").includes(supervisionMarker)) {
         processIds.push(processId);
       }
@@ -490,6 +575,30 @@ function listLinuxSupervisedProcessIds(supervisionId: string): number[] {
     }
   }
   return processIds;
+}
+
+function readProcessTable(
+  args: readonly string[],
+  input: { maxBuffer: number }
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    execFile(
+      "ps",
+      [...args],
+      {
+        encoding: "utf8",
+        maxBuffer: input.maxBuffer,
+        timeout: 2000,
+      },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(stdout);
+      }
+    );
+  });
 }
 
 function isExpectedLinuxProcessInspectionError(error: unknown): boolean {
@@ -694,24 +803,7 @@ function reportAgentControllerProcessCleanupFailureToConsole(
 function reportAgentControllerProcessDiscoveryFailureToConsole(
   input: AgentControllerProcessDiscoveryFailure & { reporterError?: unknown }
 ): void {
-  const error = normalizeErrorForDiagnostic(input.error);
-  const reporterError = input.reporterError
-    ? normalizeErrorForDiagnostic(input.reporterError)
-    : null;
-  console.warn("[openmeld.agent_controller.process_discovery_failed]", {
-    errorCode: error.code,
-    errorMessage: error.message,
-    errorName: error.name,
-    processId: input.processId,
-    ...(reporterError
-      ? {
-          reporterErrorMessage: reporterError.message,
-          reporterErrorName: reporterError.name,
-        }
-      : {}),
-    signal: input.signal,
-    source: input.source,
-  });
+  processDiscoveryDiagnostics.failure(input);
 }
 
 function normalizeErrorForDiagnostic(error: unknown): {

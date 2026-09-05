@@ -37,6 +37,10 @@ pay for an immediately stale Final Candidate or merge to `main` first. The
 combined candidate is the merge unit and proves the interactions users will
 actually receive.
 
+Batch integration must also check directional release dependencies. For example,
+Space invitations require Core and Auth receivers before the new CLI; follow
+the staged order in `production-release.md`, not the default fleet order.
+
 This is not a central-coordinator process. CI/CD reports facts; the responsible
 agent uses those facts, the task, and the relevant owner documents to decide
 what to do. CI/CD does not choose business scope, mandate a reviewer, or ask
@@ -90,6 +94,15 @@ unrelated agents to wait.
    way to move CI load onto a busy developer computer.
 
 ## Develop, Review, And Prepare
+
+The scheduled model-catalog collector prepares draft evidence PRs, not delivery
+candidates. Its twelve-hour collection, source contracts, and coding-agent
+handoff are defined in
+[Agent Profile Model Selection](../product/agent-model-selection.md#automatic-evidence-handoff).
+It does not request Final Candidate or merge/release. The agent who explicitly
+takes over its PR owns product decisions, missing compatibility evidence, real
+validation, and the normal authorized lifecycle below. An open collector PR is
+left untouched by later bot runs.
 
 Use focused tests while developing. The responsible agent chooses the smallest
 real checks that prove the change, performs the review required by the task,
@@ -301,6 +314,20 @@ mergeability, and active Ruleset. If the head changed, create a new candidate.
 If only `main` changed, let merge queue validate the new merge group or sync and
 run one new current-base candidate. Do not rerun completed checks merely to
 produce ceremonial evidence.
+
+From an isolated worktree, merge the remote pull request without coupling that
+operation to local branch deletion:
+
+```sh
+gh pr merge <pr-number> --merge
+gh pr view <pr-number> --json state,mergedAt,mergeCommit
+```
+
+Do not pass `--delete-branch` to the merge command. GitHub can merge the pull
+request successfully and then report a local cleanup failure when `main` is
+checked out in another worktree, making a successful remote merge look failed.
+Treat worktree and branch cleanup as a separate, explicitly authorized step
+after the remote merged state and merge commit are proven.
 
 ## Release
 

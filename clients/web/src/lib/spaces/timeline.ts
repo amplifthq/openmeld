@@ -15,6 +15,7 @@ import type {
 	SpaceMessageAttachment,
 	SpaceMessageFileReference,
 	SpaceStatus,
+	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import {
 	buildSignalIndex,
@@ -71,7 +72,7 @@ export type SpaceTimelineItem = {
 	newMessagesDuringComposition: number | null;
 	navigationAction?: NavigationAction | null;
 	optimisticAgentReplySourceItemId?: string;
-	optimisticAgentReplyState?: "sending" | "working";
+	optimisticAgentReplyProgress?: WakeProgressItem;
 	replyPreviewText: string | null;
 	replyToProfileName: string | null;
 	replyToSignalId: string | null;
@@ -133,7 +134,7 @@ export function resolveRecordedSpaceMessageDetailsItem(input: {
 	if (
 		recordedItem?.deliveryState !== "sent" ||
 		recordedItem.agentStreamState !== undefined ||
-		recordedItem.optimisticAgentReplyState !== undefined
+		recordedItem.optimisticAgentReplyProgress !== undefined
 	) {
 		return null;
 	}
@@ -961,7 +962,7 @@ function toLandingMember(
 				member
 			).detailLabel;
 	} else if (member.liveNow) {
-		detail = "Live human";
+		detail = "Live person";
 	}
 
 	return {

@@ -26,7 +26,10 @@ import type {
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../../runtime-transport/application/current-owner-service-sessions";
 import type { ForgetCurrentComputerRecordResult } from "../infrastructure/d1/current-device-forget-repo";
-import { resolveCurrentLocalRuntimeTarget } from "./current-local-runtime-target";
+import {
+  localRuntimeComputerContainsDevice,
+  resolveCurrentLocalRuntimeTarget,
+} from "./current-local-runtime-target";
 import {
   ensureOwnedDevicePlaceholderUseCase,
   type OwnedDeviceRegistryStore,
@@ -799,8 +802,8 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
   }
 
   const currentComputer =
-    localRuntimeInventory.localRuntimes.find(
-      (device) => device.deviceId === currentTarget.deviceId
+    localRuntimeInventory.localRuntimes.find((computer) =>
+      localRuntimeComputerContainsDevice(computer, currentTarget.deviceId)
     ) ?? null;
   const currentExecutionTarget =
     currentComputer?.executionTargets.find(

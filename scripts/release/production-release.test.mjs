@@ -21,6 +21,7 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const SPACE_INVITATION_ORDER_ERROR = /Space invitation/u;
 const CURRENT_WORKER_VERSION_RE =
   /11111111-1111-1111-1111-111111111111 \(100%\)/u;
 const COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE = /requires the Remote Agent scope/u;
@@ -29,6 +30,8 @@ const LOCAL_SERVICE_CORE_SCOPE_ERROR_RE =
   /requires the Core scope before publishing CLI\/Service/u;
 const CORE_GATEWAY_HTTP_SCOPE_ERROR_RE =
   /Wake Progress opt-in contract requires the Gateway and Core scopes before publishing its Core producer/u;
+const SPACE_HISTORY_QUERY_SCOPE_ERROR_RE =
+  /Space history query contract requires the Gateway and Core scopes before publishing its CLI caller/u;
 const CORE_GATEWAY_HTTP_CONNECT_COMBINATION_ERROR_RE =
   /Connect Computer and Wake Progress opt-in receiver-first contracts cannot ship in one release/u;
 const CORE_GATEWAY_HTTP_REMOTE_AGENT_COMBINATION_ERROR_RE =
@@ -310,6 +313,45 @@ test("includes Gateway and Core for the Wake Progress opt-in contract", () => {
       ],
     }),
     ["cli", "gateway", "core"]
+  );
+});
+
+test("includes every receiver before publishing the Space history query caller", () => {
+  assert.deepEqual(
+    resolveAutomaticReleaseScopes({
+      affectedPackages: [],
+      changedPaths: ["packages/schemas/src/schemas/http/list-signals-query.ts"],
+    }),
+    ["cli", "gateway", "core"]
+  );
+});
+
+test("deploys Space history query receivers before its CLI caller", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: ["packages/schemas/src/schemas/http/list-signals-query.ts"],
+    scope: "gateway,core,cli",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(plan.deployOrderProfile, "space-history-query-receivers-first");
+  assert.deepEqual(plan.deployScopeOrder, ["gateway", "core", "cli"]);
+});
+
+test("rejects a Space history query CLI release without its receivers", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        changedPaths: [
+          "packages/schemas/src/schemas/http/list-signals-query.ts",
+        ],
+        scope: "cli",
+        sourceSha: REMOTE_SOURCE_SHA,
+      }),
+    SPACE_HISTORY_QUERY_SCOPE_ERROR_RE
   );
 });
 
@@ -956,6 +998,44 @@ test("rejects a Connect Computer Web deploy without its CLI receiver", () => {
         ],
       }),
     CONNECT_COMPUTER_CLI_SCOPE_ERROR_RE
+  );
+});
+
+test("stages Space invitation receivers before publishing the CLI caller", () => {
+  const changedPaths = [
+    "packages/schemas/src/space-invitation.ts",
+    "services/core/src/organizations/space-invitations.ts",
+    "services/auth/src/lib/hono/space-invitation-routes.ts",
+    "clients/openmeld-cli/src/space/invitations-command.ts",
+  ];
+  for (const scopes of [
+    ["db", "core", "auth"],
+    ["db", "core", "auth", "cli"],
+  ]) {
+    const labels = buildProductionDeployStepSpecs(scopes, { changedPaths }).map(
+      (step) => step.label
+    );
+    assert.deepEqual(labels.slice(0, 5), [
+      "Synchronize production database",
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Deploy Auth Worker",
+      "Verify Auth Worker health",
+    ]);
+    if (scopes.includes("cli")) {
+      assert.equal(
+        labels[5],
+        "Publish CLI and deploy its Core release projection"
+      );
+    }
+  }
+  assert.throws(
+    () => buildProductionDeployStepSpecs(["cli"], { changedPaths }),
+    SPACE_INVITATION_ORDER_ERROR
+  );
+  assert.throws(
+    () => buildProductionDeployStepSpecs(["auth"], { changedPaths }),
+    SPACE_INVITATION_ORDER_ERROR
   );
 });
 

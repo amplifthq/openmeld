@@ -68,6 +68,7 @@ import {
 } from "./prepare-step-diagnostics";
 import { syncLocalSetupCurrentDeviceTargetFromServiceContract } from "./setup-current-device";
 import { shouldForceSetupServiceRefresh } from "./setup-force-service-refresh";
+import { assertSetupServiceUpdateComplete } from "./setup-service-update-truth";
 
 const PREPARE_TOKEN_HEADER = "x-openmeld-prepare-token";
 // computeRetryDelayMs schedule sums to 11750ms across 8 sleeps (attempts 1-8),
@@ -1151,6 +1152,7 @@ async function runRefreshServiceTerminalStep(
       gate.errorMessage ?? "OpenMeld Service is not connected yet."
     );
   }
+  await assertSetupServiceUpdateComplete();
   progress?.detail({
     code: "prepare.session.progress.refresh_service.identity",
     text: "Saving this computer's OpenMeld Service identity...",

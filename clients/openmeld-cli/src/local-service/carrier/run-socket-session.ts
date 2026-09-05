@@ -60,6 +60,8 @@ import { resolveDaemonCapabilities } from "../adapters/resolve-daemon-capabiliti
 import {
   CATALOG_SYNC_RETRY_INTERVAL_MS,
   CATALOG_SYNC_SIGNAL_POLL_INTERVAL_MS,
+  CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS,
+  CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
   DAEMON_RUNTIME_CONTRACT_EPOCH,
   HEARTBEAT_CONSECUTIVE_FAILURES_BEFORE_CLOSE,
   HEARTBEAT_RESPONSE_TIMEOUT_MS,
@@ -111,6 +113,10 @@ import { handleOpenMeldToolsControlRequest } from "../maintenance/openmeld-tools
 import type { OpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { didLocalProjectConnectionsChange } from "../projects/local-project-activity-sync";
 import { handleLocalProjectControlFrame } from "../projects/local-project-control-handler";
+import {
+  createLocalWakeRouteReport,
+  hasCompleteProfileConfigurationRevisions,
+} from "../reporting/local-wake-route-report";
 import { syncLocalServiceProviderConversationProofs } from "../reporting/provider-conversation-proof-sync";
 import {
   type LocalServiceRuntimeAgentControllerReportSyncResult,
@@ -130,7 +136,10 @@ import {
 } from "../routing/route-catalog";
 import { forkAgentSession } from "../session-control/fork-agent-session";
 import { runAgentSessionForkOperation } from "../session-control/session-fork-operation-store";
-import { readDaemonCatalogSyncSignal } from "../state/catalog-sync-signal";
+import {
+  type DaemonCatalogSyncSignal,
+  readDaemonCatalogSyncSignal,
+} from "../state/catalog-sync-signal";
 import { createDaemonStreamKeepalive } from "./daemon-stream-keepalive";
 import {
   handleDaemonSocketFrame,
@@ -160,6 +169,15 @@ function resolveHeartbeatIdleWaiters(waiters: Array<() => void>): void {
   while (waiters.length > 0) {
     waiters.shift()?.();
   }
+}
+
+function resolveCatalogSyncSignalMarker(
+  signal: DaemonCatalogSyncSignal | null
+): string | null {
+  if (!signal) {
+    return null;
+  }
+  return signal.signalId ?? signal.updatedAt;
 }
 
 type CatalogSyncForceReason =
@@ -552,7 +570,7 @@ export async function runDaemonSocketSession(input: {
     | "skipped"
     | null = null;
   let latestSkippedProfilesFingerprint: string | null = null;
-  let latestCatalogSyncSignalUpdatedAtMs = 0;
+  let latestCatalogSyncSignalMarker: string | null = null;
   let forceCatalogSyncReason: CatalogSyncForceReason | null = null;
   let pendingLocalExecutionEvidenceRefreshReason: CatalogSyncForceReason | null =
     null;
@@ -839,8 +857,7 @@ export async function runDaemonSocketSession(input: {
             localAdapterContainer: input.localAdapterContainer,
             localComponentsStatus,
             profileConfigurationRevision:
-              resolveProfileConfigurationRevisions(input.routeCatalogState) !==
-              null,
+              hasCompleteProfileConfigurationRevisions(input.routeCatalogState),
           }),
           sentAtMs: Date.now(),
         }
@@ -1045,10 +1062,11 @@ export async function runDaemonSocketSession(input: {
     if (!signal) {
       return;
     }
-    if (signal.updatedAtMs <= latestCatalogSyncSignalUpdatedAtMs) {
+    const signalMarker = resolveCatalogSyncSignalMarker(signal);
+    if (signalMarker === latestCatalogSyncSignalMarker) {
       return;
     }
-    latestCatalogSyncSignalUpdatedAtMs = signal.updatedAtMs;
+    latestCatalogSyncSignalMarker = signalMarker;
     requestLocalExecutionEvidenceRefresh({
       reason: "local_state_changed",
       scheduleReason: "catalog_sync_signal",
@@ -1068,50 +1086,6 @@ export async function runDaemonSocketSession(input: {
     (input.isRouteCatalogResolved?.() ?? true) &&
     input.routeCatalogState.profileIds.length === 0;
   const serviceVersion = resolveCurrentDaemonExpectedVersion();
-
-  const resolveProfileConfigurationRevisions = (routeCatalog: RouteCatalog) => {
-    if (routeCatalog.profileIds.length === 0) {
-      return null;
-    }
-    const revisions = routeCatalog.profileIds.map((profileId) => {
-      const configurationRevision =
-        routeCatalog.routeByProfileId.get(profileId)?.configurationRevision ??
-        null;
-      const bindingId =
-        routeCatalog.routeByProfileId.get(profileId)?.bindingId ?? null;
-      return configurationRevision === null || bindingId === null
-        ? null
-        : { bindingId, configurationRevision, profileId };
-    });
-    return revisions.every(
-      (
-        revision
-      ): revision is {
-        bindingId: string;
-        configurationRevision: number;
-        profileId: string;
-      } => revision !== null
-    )
-      ? revisions
-      : null;
-  };
-
-  const createLocalWakeRouteReport = (routeCatalog: RouteCatalog) => {
-    const profileConfigurationRevisions =
-      resolveProfileConfigurationRevisions(routeCatalog);
-    return {
-      reportedAtMs: Date.now(),
-      daemonSessionId: input.daemonSessionId,
-      deviceId: input.deviceId,
-      lane: input.lane,
-      serviceVersion,
-      includedProfileIds: [...routeCatalog.profileIds],
-      ...(profileConfigurationRevisions
-        ? { profileConfigurationRevisions }
-        : {}),
-      skippedProfiles: [...routeCatalog.skippedProfiles],
-    };
-  };
 
   const resolveSessionLocalComponentsStatus =
     async (): Promise<LocalComponentsStatus | null> => {
@@ -1142,12 +1116,19 @@ export async function runDaemonSocketSession(input: {
         serviceVersion,
         connectionGeneration,
         profileIds: routeCatalog.profileIds,
-        localWakeRouteReport: createLocalWakeRouteReport(routeCatalog),
+        localWakeRouteReport: createLocalWakeRouteReport({
+          daemonSessionId: input.daemonSessionId,
+          deviceId: input.deviceId,
+          lane: input.lane,
+          reportedAtMs: Date.now(),
+          routeCatalog,
+          serviceVersion,
+        }),
         capabilities: resolveDaemonCapabilities({
           localAdapterContainer: input.localAdapterContainer,
           localComponentsStatus,
           profileConfigurationRevision:
-            resolveProfileConfigurationRevisions(routeCatalog) !== null,
+            hasCompleteProfileConfigurationRevisions(routeCatalog),
         }),
         runtimeContract: {
           epoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
@@ -2348,8 +2329,13 @@ export async function runDaemonSocketSession(input: {
       handleLocalProjectControlSocketFrame({
         deviceId: input.deviceId,
         frame: parsedFrame,
-        onLocalProjectConnectionsChanged:
-          input.onLocalProjectConnectionsChanged,
+        onLocalProjectConnectionsChanged: () => {
+          requestLocalExecutionEvidenceRefresh({
+            reason: "local_state_changed",
+            scheduleReason: "local_project_connection_changed",
+          });
+          input.onLocalProjectConnectionsChanged?.();
+        },
         presenter: input.presenter,
         socket: input.socket,
       }) ||
@@ -2393,6 +2379,12 @@ export async function runDaemonSocketSession(input: {
       parsedFrame,
       profileOwnerName: input.profileOwnerName,
       profileOwnerUserId: input.ownerUserId,
+      requestCurrentWorkingFolderFactRefresh: () => {
+        requestLocalExecutionEvidenceRefresh({
+          reason: "local_state_changed",
+          scheduleReason: "dispatch_working_folder_fact_rejected",
+        });
+      },
       presenter: input.presenter,
       routeByProfileId: input.routeCatalogState.routeByProfileId,
       socket: input.socket,
@@ -2479,8 +2471,12 @@ export async function runDaemonSocketSession(input: {
     }
     scheduleCatalogSyncNext(bootstrapPlan.nextSyncDelayMs);
   }
-  latestCatalogSyncSignalUpdatedAtMs =
-    (await readDaemonCatalogSyncSignal().catch(() => null))?.updatedAtMs ?? 0;
+  const initialCatalogSyncSignal = await readDaemonCatalogSyncSignal().catch(
+    () => null
+  );
+  latestCatalogSyncSignalMarker = resolveCatalogSyncSignalMarker(
+    initialCatalogSyncSignal
+  );
   scheduleCatalogSyncSignalPoll();
 
   await sendHeartbeat();
@@ -2515,7 +2511,15 @@ export async function runDaemonSocketSession(input: {
     });
     if (!closed) {
       const acknowledgementAbortController = new AbortController();
-      waitForClose.then(() => acknowledgementAbortController.abort());
+      let socketClosedBeforeAcknowledgement = false;
+      waitForClose.then(() => {
+        socketClosedBeforeAcknowledgement = true;
+        acknowledgementAbortController.abort();
+      });
+      const acknowledgementTimeout = setTimeout(() => {
+        acknowledgementAbortController.abort();
+      }, CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS);
+      acknowledgementTimeout.unref?.();
       const acknowledgement = await waitForDispatchResultOutboxAcknowledgement({
         abortSignal: acknowledgementAbortController.signal,
         ledgerPaths: input.ledgerPaths,
@@ -2523,13 +2527,42 @@ export async function runDaemonSocketSession(input: {
           ledgerPaths: input.ledgerPaths,
         }),
       });
+      clearTimeout(acknowledgementTimeout);
       if (acknowledgement === "aborted") {
-        return false;
+        if (socketClosedBeforeAcknowledgement) {
+          return false;
+        }
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.controlled_shutdown_result_ack_timeout",
+          text: "controlled shutdown preserved unacknowledged durable results for replay after the receipt deadline",
+          payload: {
+            daemonSessionId: input.daemonSessionId,
+            reasonCode: "result_ack_timeout",
+            timeoutMs: CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS,
+          },
+        });
       }
     }
     if (!closed) {
       input.socket.close(1000, "shutdown");
-      await waitForClose;
+      const didClose = await waitForPromiseDeadline({
+        operation: waitForClose,
+        timeoutMs: CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
+      });
+      if (!didClose) {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.controlled_shutdown_socket_close_timeout",
+          text: "controlled shutdown terminated a half-open daemon stream after the close deadline",
+          payload: {
+            daemonSessionId: input.daemonSessionId,
+            reasonCode: "socket_close_timeout",
+            timeoutMs: CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
+          },
+        });
+        input.socket.terminate();
+      }
     }
     return true;
   }
@@ -2609,6 +2642,26 @@ async function withDaemonRunTimeout<T>(input: {
             })
           );
         }, input.timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function waitForPromiseDeadline(input: {
+  operation: Promise<unknown>;
+  timeoutMs: number;
+}): Promise<boolean> {
+  let timeout: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      input.operation.then(() => true),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), input.timeoutMs);
+        timeout.unref?.();
       }),
     ]);
   } finally {

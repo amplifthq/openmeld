@@ -1,4 +1,5 @@
 import {
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
@@ -15,6 +16,8 @@ import type {
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
+// biome-ignore lint/performance/noNamespaceImport: Vitest spies on the shared batch read used by RPC readiness orchestration.
+import * as localRuntimeExpectedRoutesService from "../src/agent-profile-binding/application/local-runtime-expected-routes-service";
 import { MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE } from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM exports used by the RPC orchestration module.
 import * as centerAgentWakePublicationService from "../src/center-agent/application/center-agent-wake-publication-service";
@@ -534,7 +537,7 @@ describe("organization Core RPC", () => {
       contexts: [
         {
           operationalContext: {
-            status: "idle",
+            status: "working",
             waitingCount: 0,
           },
           targetProfileId: AGENT_PROFILE_ID,
@@ -560,6 +563,13 @@ describe("organization Core RPC", () => {
       AGENT_PROFILE_ID,
       SECOND_AGENT_PROFILE_ID,
     ]);
+    expect(response.agentProfiles[0]).toMatchObject({
+      operationalContext: { status: "working" },
+      readiness: {
+        agentExecutionReadiness: { displayState: "not_ready" },
+        agentWakeAvailability: { category: "unavailable" },
+      },
+    });
     expect(lookupRoutes).toHaveBeenCalledOnce();
     expect(lookupRoutes).toHaveBeenCalledWith({
       blockForgottenDevices: true,
@@ -569,6 +579,149 @@ describe("organization Core RPC", () => {
     });
     expect(lookupOwnerService).toHaveBeenCalledOnce();
     expect(resolveProfileById).not.toHaveBeenCalled();
+  });
+
+  it("reads expected working-folder routes once for profiles on the same owner runtime", async () => {
+    const profiles = [
+      {
+        organizationId: "org-a",
+        ownerUserId: "user-a",
+        profileHandle: "codex",
+        profileId: AGENT_PROFILE_ID,
+        profileName: "Codex",
+        status: "active" as const,
+      },
+      {
+        organizationId: "org-a",
+        ownerUserId: "user-a",
+        profileHandle: "reviewer",
+        profileId: SECOND_AGENT_PROFILE_ID,
+        profileName: "Reviewer",
+        status: "active" as const,
+      },
+    ];
+    const db = createOrganizationRpcDb({
+      agentProfiles: profiles,
+      members: [memberRow("member-a", "org-a", "user-a")],
+    });
+    for (const profile of profiles) {
+      db.bindingRows.set(
+        bindingKey("owner_account", "user-a", profile.profileId),
+        agentProfileBindingTestRow({
+          agentProfileId: profile.profileId,
+          bindingId: `binding-${profile.profileId}`,
+          openMeldServiceRuntimeId: "runtime-user-a",
+          ownerId: "user-a",
+        })
+      );
+    }
+    const env = buildEnv({ db, localStateDb: db });
+    const localWakeRouteReport = {
+      daemonSessionId: "daemon-session-1",
+      deviceId: "device-1",
+      expectedRoutesContractVersion: "v4" as const,
+      includedProfileIds: profiles.map((profile) => profile.profileId),
+      lane: "dev-local" as const,
+      reportedAtMs: Date.parse("2026-07-08T00:00:00.000Z"),
+      skippedProfiles: [],
+      workingFolderObservations: profiles.map((profile) => ({
+        bindingId: `binding-${profile.profileId}`,
+        configurationRevision: 1,
+        defaultProjectId: null,
+        localProjectBindingGeneration: null,
+        observedAtMs: Date.parse("2026-07-08T00:00:00.000Z"),
+        profileId: profile.profileId,
+        reasonCode: null,
+        source: "profile_workspace" as const,
+        status: "ready" as const,
+      })),
+    };
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportRoutesBatch"
+    ).mockResolvedValue({
+      routes: Object.fromEntries(
+        profiles.map((profile) => [
+          profile.profileId,
+          {
+            capabilities: {},
+            connectionGeneration: 1,
+            daemonSessionId: "daemon-session-1",
+            deviceId: "device-1",
+            executionCompatibility: {
+              expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              reasonCode: "daemon.runtime_contract.compatible" as const,
+              status: "compatible" as const,
+            },
+            lane: "dev-local" as const,
+            lastHeartbeatMs: Date.parse("2026-07-08T00:00:00.000Z"),
+            leaseEpoch: 1,
+            localWakeRouteReport,
+            online: true as const,
+            serviceVersion: "999.0.0",
+          },
+        ])
+      ),
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportOwnerService"
+    ).mockResolvedValue({
+      online: false,
+      reasonCode: "daemon.session.not_found",
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "readRuntimeTransportAgentProfileOperationalContexts"
+    ).mockResolvedValue({ contexts: [] });
+    const readExpectedRoutes = vi
+      .spyOn(
+        localRuntimeExpectedRoutesService,
+        "readLocalRuntimeExpectedRoutes"
+      )
+      .mockResolvedValue({
+        response: {
+          excludedProfiles: [],
+          expectedRoutes: profiles.map((profile) => ({
+            agentProfileId: profile.profileId,
+            bindingId: `binding-${profile.profileId}`,
+            bindingState: "enabled_primary" as const,
+            configurationRevision: 1,
+            defaultProjectId: null,
+            executionTarget: {
+              agentControllerConversationId: null,
+              agentControllerRef: "builtin:codex",
+              openMeldServiceRuntimeId: "runtime-user-a",
+            },
+            profileName: profile.profileName,
+            reasonCodes: [],
+            routable: true,
+          })),
+          generatedAt: "2026-07-08T00:00:00.000Z",
+          openMeldServiceRuntimeId: "runtime-user-a",
+          runtimeResolution: "resolved",
+        },
+        status: "ok",
+      });
+
+    const response = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+
+    expect(response.agentProfiles).toHaveLength(2);
+    expect(readExpectedRoutes).toHaveBeenCalledOnce();
+    expect(readExpectedRoutes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contractVersion: "v4",
+        deviceId: "device-1",
+        lane: "dev-local",
+        ownerUserId: "user-a",
+      })
+    );
   });
 
   it("keeps owner readiness details while sharing only the allowlisted Usage fact with another active member", async () => {
@@ -625,6 +778,9 @@ describe("organization Core RPC", () => {
         bindingId: `binding-${AGENT_PROFILE_ID}`,
       },
       profileName: "Codex",
+      publicProfileConfiguration: {
+        agentControllerRef: "builtin:codex",
+      },
     });
     expect(memberReadiness?.agentWakeAvailability).toMatchObject({
       action: "none",
@@ -711,6 +867,9 @@ describe("organization Core RPC", () => {
         },
         primaryAction: "none",
         reasonCodes: [],
+      },
+      publicProfileConfiguration: {
+        agentControllerRef: "builtin:codex",
       },
       agentWakeRouteRegistration: {
         daemonSessionId: null,
@@ -849,8 +1008,10 @@ describe("organization Core RPC", () => {
       reasonCode: null,
       status: "unavailable_for_wake",
     });
+    expect(projectedReadiness.publicProfileConfiguration).toMatchObject({
+      agentControllerRef: "builtin:codex",
+    });
     expect(serializedProjection).not.toContain("private");
-    expect(serializedProjection).not.toContain("builtin:codex");
     expect(serializedProjection).not.toContain("binding-");
     expect(serializedProjection).not.toContain("user-a");
 
@@ -2412,7 +2573,6 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
       "designate_remote_center_agent",
     ]);
@@ -2450,7 +2610,6 @@ describe("organization Core RPC", () => {
       status: 503,
     });
     expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows).toEqual([]);
   });
 
@@ -2494,7 +2653,6 @@ describe("organization Core RPC", () => {
       status: 503,
     });
     expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentDesignations.size).toBe(0);
     expect(db.spaces).toEqual([]);
   });
@@ -2571,7 +2729,6 @@ describe("organization Core RPC", () => {
       })
     );
     expect(db.bindingRows).toEqual(new Map([[ownerBindingKey, ownerBinding]]));
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows).toEqual([]);
   });
 
@@ -2868,10 +3025,9 @@ describe("organization Core RPC", () => {
         organizationId: "org-a",
       }),
     ]);
-    expect(db.authorizationWrites).toEqual([]);
   });
 
-  it("releases every owner admission without touching retired Wake authorization", async () => {
+  it("releases every owner admission after designation", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
         {
@@ -2882,7 +3038,6 @@ describe("organization Core RPC", () => {
           hasBinding: false,
         },
       ],
-      authorizationWriteFailures: 1,
       members: [
         memberRow("member-owner", "org-a", "owner-user", "owner"),
         memberRow("member-admin", "org-a", "admin-user", "admin"),
@@ -2928,7 +3083,6 @@ describe("organization Core RPC", () => {
     expect(
       releaseMutation.mock.calls.map(([request]) => request.ownerUserId).sort()
     ).toEqual(["admin-user", "owner-user"]);
-    expect(db.authorizationWrites).toEqual([]);
   });
 
   it("does not change D1 state when a legacy owner shard blocks reconciliation", async () => {
@@ -3152,7 +3306,6 @@ describe("organization Core RPC", () => {
       MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE
     );
     expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.authorizationWrites).toEqual([]);
   });
 
   it("lets every member read the Center Agent model while only owners and admins can change it", async () => {
@@ -3319,8 +3472,6 @@ describe("organization Core RPC", () => {
       }),
       runtime: "remote_agent",
     });
-
-    expect(db.authorizationWrites).toEqual([]);
     expect(
       db.centerAgentAuditRows
         .filter((row) => row.action === "carry_over_binding_authorization")
@@ -8253,7 +8404,6 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
       "designate_remote_center_agent",
     ]);
@@ -9051,7 +9201,6 @@ describe("organization Core RPC", () => {
     expect(agentProfiles).toEqual([]);
     expect(db.centerAgentDesignations).toHaveLength(0);
     expect(db.bindingRows).toHaveLength(0);
-    expect(db.authorizationWrites).toEqual([]);
     expect(db.disallowedWrites).toEqual([]);
   });
 
@@ -9863,6 +10012,86 @@ describe("organization Core RPC", () => {
     ).rejects.toMatchObject({
       code: "direct_message.target_not_found",
       status: 404,
+    });
+  });
+
+  it("adds an existing Agent's owner when another member converts the Direct Message", async () => {
+    const spaceId =
+      "7878787878787878787878787878787878787878787878787878787878787878";
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "existing-agent",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Existing Agent",
+          status: "active",
+        },
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "new-agent",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "New Agent",
+          status: "active",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "member"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+      spaces: [
+        spaceRow({
+          activeAgentCount: 1,
+          activeHumanCount: 1,
+          activeMemberCount: 2,
+          directMessagePairKey: `${HUMAN_PROFILE_ID}:${AGENT_PROFILE_ID}`,
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Ava and Existing Agent",
+          spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({
+      initialActiveMemberProfileIdsBySpace: {
+        [spaceId]: [HUMAN_PROFILE_ID, AGENT_PROFILE_ID],
+      },
+      spaces: db.spaces,
+    });
+    const env = buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+
+    await expect(
+      rpcConvertDirectMessageToSpace(env, {
+        context,
+        name: "Ava and the Agents",
+        profileIds: [SECOND_AGENT_PROFILE_ID],
+        spaceId,
+      })
+    ).resolves.toMatchObject({
+      addedMemberIds: [SECOND_AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+    });
+    expect(spaceStub.rpcConvertDirectMessageToSpace).toHaveBeenCalledWith({
+      context,
+      members: [
+        expect.objectContaining({
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileKind: "agent",
+        }),
+        expect.objectContaining({
+          ownerUserId: "user-b",
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          profileKind: "human",
+        }),
+      ],
+      name: "Ava and the Agents",
+      spaceId,
     });
   });
 
@@ -10999,8 +11228,6 @@ function buildEnv(
     createOrganizationRpcDb({
       agentProfiles: input.agentProfiles ?? [],
       authorizations: input.authorizations ?? [],
-      bindingAuthorizationPreferences:
-        input.bindingAuthorizationPreferences ?? [],
       centerAgentAuditJournal: input.centerAgentAuditJournal ?? [],
       centerAgentDesignations: input.centerAgentDesignations ?? [],
       centerAgentMemoryPolicies: input.centerAgentMemoryPolicies ?? [],
@@ -11300,23 +11527,6 @@ function authorizationRow(input: {
   };
 }
 
-function preferenceRow(input: {
-  autoAuthorizeAgentProfileBindings: boolean;
-  createdAtMs?: number;
-  organizationId: string;
-  updatedAtMs?: number;
-  userId: string;
-}) {
-  return {
-    autoAuthorizeAgentProfileBindings: input.autoAuthorizeAgentProfileBindings,
-    createdAtMs: input.createdAtMs ?? 1_700_000_000_000,
-    id: `preference-${input.organizationId}-${input.userId}`,
-    organizationId: input.organizationId,
-    updatedAtMs: input.updatedAtMs ?? input.createdAtMs ?? 1_700_000_000_000,
-    userId: input.userId,
-  };
-}
-
 function centerAgentDesignationRow(input: {
   agentProfileId: string;
   createdAtMs?: number;
@@ -11572,8 +11782,6 @@ function createOrganizationRpcDb(input: {
     updatedAt?: number;
   }>;
   authorizations?: ReturnType<typeof authorizationRow>[];
-  authorizationWriteFailures?: number;
-  bindingAuthorizationPreferences?: ReturnType<typeof preferenceRow>[];
   centerAgentAuditWriteFailures?: number;
   centerAgentDesignations?: ReturnType<typeof centerAgentDesignationRow>[];
   centerAgentDesignationReadbackOverride?: ReturnType<
@@ -11644,13 +11852,6 @@ function createOrganizationRpcDb(input: {
       authorization
     );
   }
-  const preferenceRows = new Map<string, ReturnType<typeof preferenceRow>>();
-  for (const preference of input.bindingAuthorizationPreferences ?? []) {
-    preferenceRows.set(
-      preferenceKey(preference.organizationId, preference.userId),
-      preference
-    );
-  }
   const centerAgentDesignationRows = new Map<
     string,
     ReturnType<typeof centerAgentDesignationRow>
@@ -11667,8 +11868,6 @@ function createOrganizationRpcDb(input: {
   const centerAgentAuditRows = [...(input.centerAgentAuditJournal ?? [])];
   let remainingCenterAgentAuditWriteFailures =
     input.centerAgentAuditWriteFailures ?? 0;
-  let remainingAuthorizationWriteFailures =
-    input.authorizationWriteFailures ?? 0;
   const centerAgentPublicationRows: CenterAgentPublicationOperationTestRow[] =
     [];
   const centerAgentMemoryPolicyRows = new Map<
@@ -11698,18 +11897,9 @@ function createOrganizationRpcDb(input: {
     protectedInformation: string | null;
     updatedByUserId: string;
   }> = [];
-  const authorizationWrites: Array<{
-    bindingId: string;
-    organizationId: string;
-  }> = [];
-  const authorizationDeletes: Array<{
-    bindingId: string;
-    organizationId: string;
-  }> = [];
   const disallowedWrites: string[] = [];
 
   const db = {
-    authorizationWrites,
     bindingRows,
     centerAgentAuditRows,
     centerAgentMemoryPolicyWrites,
@@ -11764,7 +11954,6 @@ function createOrganizationRpcDb(input: {
               normalizedSql,
               organizations: input.organizations,
               personalOrganizations: input.personalOrganizations,
-              preferenceRows,
               slackWorkspaceBindings: input.slackWorkspaceBindings,
               spaces: spaceRows,
             })
@@ -12029,34 +12218,6 @@ function createOrganizationRpcDb(input: {
             }
             if (
               normalizedSql.includes(
-                "insert into organization_binding_authorizations"
-              )
-            ) {
-              if (remainingAuthorizationWriteFailures > 0) {
-                remainingAuthorizationWriteFailures -= 1;
-                throw new Error("Test Binding authorization write failure.");
-              }
-              const organizationId = String(args[1] ?? "");
-              const bindingId = String(args[2] ?? "");
-              const key = authorizationKey(organizationId, bindingId);
-              if (authorizationRows.has(key)) {
-                return createD1RunResult(0);
-              }
-              authorizationRows.set(
-                key,
-                authorizationRow({
-                  agentProfileId: agentProfileIdFromBindingId(bindingId),
-                  authorizedBy: String(args[3] ?? ""),
-                  bindingId,
-                  createdAtMs: Number(args[4] ?? 0),
-                  organizationId,
-                })
-              );
-              authorizationWrites.push({ organizationId, bindingId });
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
                 "update openmelddaemon_agent_profile_bindings"
               ) &&
               normalizedSql.includes(
@@ -12308,40 +12469,6 @@ function createOrganizationRpcDb(input: {
               return createD1RunResult(deleted ? 1 : 0);
             }
             if (
-              normalizedSql.includes(
-                "insert into organization_binding_authorization_preferences"
-              )
-            ) {
-              const organizationId = String(args[1] ?? "");
-              const userId = String(args[2] ?? "");
-              preferenceRows.set(
-                preferenceKey(organizationId, userId),
-                preferenceRow({
-                  autoAuthorizeAgentProfileBindings: args[3] === 1,
-                  createdAtMs: Number(args[4] ?? 0),
-                  organizationId,
-                  updatedAtMs: Number(args[5] ?? 0),
-                  userId,
-                })
-              );
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "delete from organization_binding_authorizations"
-              )
-            ) {
-              const organizationId = String(args[0] ?? "");
-              const bindingId = String(args[1] ?? "");
-              const deleted = authorizationRows.delete(
-                authorizationKey(organizationId, bindingId)
-              );
-              if (deleted) {
-                authorizationDeletes.push({ organizationId, bindingId });
-              }
-              return createD1RunResult(deleted ? 1 : 0);
-            }
-            if (
               normalizedSql.includes("insert into organization_member_activity")
             ) {
               const memberActivities = input.memberActivities;
@@ -12384,7 +12511,6 @@ function createOrganizationRpcDb(input: {
   return {
     ...db,
     agentProfiles: input.agentProfiles,
-    authorizationDeletes,
     authorizationRows,
     bindingWriteEvents,
     members: input.members,
@@ -12472,7 +12598,6 @@ function resolveFirstRow(input: {
     typeof createOrganizationRpcDb
   >[0]["organizations"];
   personalOrganizations?: Array<{ organizationId: string; userId: string }>;
-  preferenceRows: Map<string, ReturnType<typeof preferenceRow>>;
   slackWorkspaceBindings?: Array<{
     createdAtMs: number;
     organizationId: string;
@@ -12665,29 +12790,6 @@ function resolveFirstRow(input: {
       name: organization?.name ?? "Test Organization",
       slug: organization?.slug ?? organizationId,
     };
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from organization_binding_authorization_preferences"
-    )
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const userId = String(input.args[1] ?? "");
-    const preference = input.preferenceRows.get(
-      preferenceKey(organizationId, userId)
-    );
-    return preference
-      ? {
-          auto_authorize_agent_profile_bindings:
-            preference.autoAuthorizeAgentProfileBindings ? 1 : 0,
-          created_at: preference.createdAtMs,
-          id: preference.id,
-          organization_id: preference.organizationId,
-          updated_at: preference.updatedAtMs,
-          user_id: preference.userId,
-        }
-      : null;
   }
 
   if (input.normalizedSql.includes("from center_agent_memory_policies")) {
@@ -13790,16 +13892,6 @@ function mapAgentProfileBindingTestRow(row: AgentProfileBindingTestRow) {
   };
 }
 
-function preferenceKey(organizationId: string, userId: string): string {
-  return `${organizationId}:${userId}`;
-}
-
-function agentProfileIdFromBindingId(bindingId: string): string {
-  return bindingId.startsWith("binding-")
-    ? bindingId.slice("binding-".length)
-    : bindingId;
-}
-
 function buildTestSpaceBootstrap(input: {
   space: ReturnType<typeof spaceRow> | null;
   spaceId: string;
@@ -14148,6 +14240,24 @@ function createSpaceStub(
         ...(space.spacePurpose ? { purpose: space.spacePurpose } : {}),
         spaceId: space.spaceId,
         visibility: space.visibility,
+      });
+    }),
+    rpcGetIdentityDirectory: vi.fn((request: { spaceId: string }) => {
+      const profileIds = [
+        ...(memberProfileIdsBySpace.get(request.spaceId) ?? []),
+      ];
+      return Promise.resolve({
+        entries: profileIds.map((profileId) => ({
+          agentControllerRef: null,
+          mentionAlias: null,
+          ownerName: null,
+          ownerUserId: null,
+          profileId,
+          profileKind: profileId.startsWith("agt_") ? "agent" : "human",
+          profileName: profileId,
+        })),
+        generatedAt: new Date(TEST_NOW_MS).toISOString(),
+        spaceId: request.spaceId,
       });
     }),
     rpcInitializeDirectMessageMeta: initializeDirectMessageMeta,

@@ -587,17 +587,49 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
   async (input: {
     db: D1Database;
     limit?: number;
+    sourceDispatchIds?: readonly string[];
+    sourceProfileId?: string;
     spaceId: string;
     targetProfileId?: string;
   }): Promise<RuntimeCoordinatorExecutionWakeProgressSelector[]> => {
     const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 25)));
     const targetProfileId = input.targetProfileId?.trim() || null;
+    const sourceDispatchIds = input.sourceDispatchIds?.filter(
+      (dispatchId) => dispatchId.trim().length > 0
+    );
+    const sourceProfileId = input.sourceProfileId?.trim() || null;
+    if (
+      !sourceProfileId &&
+      sourceDispatchIds &&
+      sourceDispatchIds.length === 0
+    ) {
+      return [];
+    }
     const statusPlaceholders = ACTIVE_WAKE_PROGRESS_STATUSES.map(
       () => "?"
     ).join(", ");
     const whereTargetSql = targetProfileId
       ? "AND executions.target_profile_id = ?"
       : "";
+    let whereSourceSql = "";
+    let sourceBindings: string[] = [];
+    if (sourceProfileId) {
+      whereSourceSql = `AND (
+          ledger.source_profile_id = ?
+          OR (
+            ledger.source_profile_id IS NULL
+            AND executions.dispatch_id IN (SELECT value FROM json_each(?))
+          )
+        )`;
+      sourceBindings = [
+        sourceProfileId,
+        JSON.stringify(sourceDispatchIds ?? []),
+      ];
+    } else if (sourceDispatchIds) {
+      whereSourceSql =
+        "AND executions.dispatch_id IN (SELECT value FROM json_each(?))";
+      sourceBindings = [JSON.stringify(sourceDispatchIds)];
+    }
     const statement = input.db.prepare(
       `
         SELECT
@@ -638,19 +670,19 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
         WHERE executions.space_id = ?
           AND executions.status IN (${statusPlaceholders})
           ${whereTargetSql}
+          ${whereSourceSql}
         ORDER BY executions.updated_at_ms DESC,
           executions.runtime_coordinator_execution_id DESC
         LIMIT ?
       `
     );
-    const bindings = targetProfileId
-      ? [
-          input.spaceId,
-          ...ACTIVE_WAKE_PROGRESS_STATUSES,
-          targetProfileId,
-          limit,
-        ]
-      : [input.spaceId, ...ACTIVE_WAKE_PROGRESS_STATUSES, limit];
+    const bindings = [
+      input.spaceId,
+      ...ACTIVE_WAKE_PROGRESS_STATUSES,
+      ...(targetProfileId ? [targetProfileId] : []),
+      ...sourceBindings,
+      limit,
+    ];
     const rows = await statement
       .bind(...bindings)
       .all<RuntimeCoordinatorExecutionWakeProgressSelectorRow>();

@@ -43,11 +43,6 @@ import {
 	UnsavedChangesDialog,
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
-import {
-	PromptInput,
-	PromptInputActions,
-	PromptInputTextarea,
-} from "#/components/ibelick/prompt-input";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
 import {
 	buildCenterAgentHeaderMenuItems,
@@ -122,6 +117,7 @@ import type { SpaceAgentProfileEditHandler } from "./space-agent-interaction-car
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
+import { SpaceComposer } from "./space-composer";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { SpaceFilesPanel } from "./space-files-panel";
@@ -146,7 +142,10 @@ import {
 	SpaceConversationRecoveryBanner,
 	type SpaceSetupVisibility,
 } from "./space-onboarding-banner";
-import { resolveSpacePendingAgentActionSurfacePlacement } from "./space-pending-agent-action-model";
+import {
+	partitionSpacePendingAgentActions,
+	resolveSpacePendingAgentActionIdentity,
+} from "./space-pending-agent-action-model";
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
@@ -389,6 +388,7 @@ type SpaceLandingInput = {
 	initialSpaceView?: SpaceView;
 	isPersonalContext?: boolean;
 	isCenterAgentDirectMessage?: boolean;
+	isDirectMessageConversation?: boolean;
 	loadingFallback?: ReactNode;
 	onInitialPendingMessageConsumed?: () => void;
 	onSpaceViewCommitted?: (view: SpaceView) => void;
@@ -397,6 +397,19 @@ type SpaceLandingInput = {
 	spaceId: string;
 	profileId: string;
 };
+
+function resolveSpaceInboxUnreadDestination(input: {
+	isCenterAgentDirectMessage: boolean;
+	isDirectMessageConversation: boolean;
+}): "center-agent" | "direct-message" | "ordinary-space" {
+	if (input.isCenterAgentDirectMessage) {
+		return "center-agent";
+	}
+	if (input.isDirectMessageConversation) {
+		return "direct-message";
+	}
+	return "ordinary-space";
+}
 
 function useSpaceLandingState(input: SpaceLandingInput) {
 	const queryClient = useQueryClient();
@@ -418,10 +431,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	);
 	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
 	const organizationId = resolveOptionalAppOrganizationId(organizationContext);
-	const spaceInboxReadPosition = useSpaceInboxReadPosition({
-		organizationId,
-		spaceId: input.spaceId,
-	});
 	const centerAgentState = useSpaceCenterAgentState({
 		knownCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
 		organizationId,
@@ -429,6 +438,14 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	});
 	const currentSpaceIsCenterAgentDirectMessage =
 		centerAgentState.isCenterAgentDirectMessage;
+	const spaceInboxReadPosition = useSpaceInboxReadPosition({
+		destination: resolveSpaceInboxUnreadDestination({
+			isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+			isDirectMessageConversation: input.isDirectMessageConversation === true,
+		}),
+		organizationId,
+		spaceId: input.spaceId,
+	});
 	const recovery = useLocalAgentRecoveryController({
 		currentLocalRuntimeReplyReadinessRefetchIntervalMs: false,
 		loadAgentExecutionReadiness: false,
@@ -1398,57 +1415,56 @@ function SpaceColdLoadingComposer(input: {
 }) {
 	const controller = input.controller;
 	return (
-		<PromptInput
-			className="w-full"
-			maxHeight={240}
-			onSubmit={() => undefined}
-			value={controller.composerText}
-		>
-			<PromptInputTextarea
-				aria-label="Message this space"
-				autoComplete="off"
-				className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
-				name="space-message"
-				onBlur={controller.onComposerBlur}
-				onChange={(event) => {
-					controller.onComposerChange(event.target.value, {
-						end: event.target.selectionEnd,
-						start: event.target.selectionStart,
-					});
-				}}
-				onFocus={controller.onComposerFocus}
-				onKeyDown={(event) => {
-					controller.onComposerKeyDown(event).catch((error) => {
-						console.error(
-							"Failed to handle Space composer input while opening the Space.",
-							error
-						);
-					});
-				}}
-				onSelect={(event) => {
-					controller.onComposerSelectionChange({
-						end: event.currentTarget.selectionEnd,
-						start: event.currentTarget.selectionStart,
-					});
-				}}
-				placeholder="Write a message while OpenMeld opens this space…"
-				ref={(element) => {
-					controller.textareaRef.current = element;
-				}}
-			/>
-			<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
-				<p
-					aria-live="polite"
-					className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5"
-				>
-					You can keep writing. Sending will be available after this Space
-					opens.
-				</p>
-				<Button aria-label="Send message" disabled size="icon-sm" type="button">
-					<ArrowUpIcon aria-hidden="true" weight="bold" />
-				</Button>
-			</PromptInputActions>
-		</PromptInput>
+		<SpaceComposer
+			actions={{
+				onBlur: controller.onComposerBlur,
+				onEditorChange: controller.onComposerEditorChange,
+				onFocus: controller.onComposerFocus,
+				onSubmit: () => undefined,
+			}}
+			availability={{
+				canSendMessage: false,
+				fileLimitReached: false,
+				isSendingMessage: false,
+				sendBlocked: true,
+			}}
+			capabilities={{ attachments: false, mentions: false }}
+			centerAgentProfileId={null}
+			composerRef={controller.textareaRef}
+			content={{
+				addressingTargets: controller.composerAddressingTargets,
+				authoredMentions: controller.composerAuthoredMentions,
+				files: [],
+				mentionPickerItems: controller.composerMentionPickerItems,
+				text: controller.composerText,
+			}}
+			context={{
+				conversationKind: "space",
+				placement: "conversation",
+				readOnlyPlaceholder: "Write a message while OpenMeld opens this space…",
+			}}
+			slots={{
+				primaryAction: (
+					<Button
+						aria-label="Send message"
+						disabled
+						size="icon-sm"
+						type="button"
+					>
+						<ArrowUpIcon aria-hidden="true" weight="bold" />
+					</Button>
+				),
+				status: (
+					<p
+						aria-live="polite"
+						className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5"
+					>
+						You can keep writing. Sending will be available after this Space
+						opens.
+					</p>
+				),
+			}}
+		/>
 	);
 }
 
@@ -1499,9 +1515,12 @@ function SpaceLandingReady({
 			currentSpaceIsCenterAgentDirectMessage={
 				currentSpaceIsCenterAgentDirectMessage
 			}
-			isCurrentAccessConfirmed={controller.isCurrentAccessConfirmed}
 			isDesktopMembersPanel={isDesktopMembersPanel}
-			memberCount={controller.status.members.totalCount}
+			memberCount={
+				controller.isCurrentAccessConfirmed
+					? controller.status.members.totalCount
+					: null
+			}
 			onOpenChange={handleMembersOpenChange}
 			open={membersOpen}
 		/>
@@ -1565,23 +1584,50 @@ function SpaceLandingReady({
 		spaceId: controller.spaceId,
 	});
 	const isCompactPresentation = input.presentation === "compact";
-	const {
-		agentProfileEditContext,
-		pendingActionSurfacePlacement,
-		pendingAgentActions,
-	} = useSpaceLandingPendingAgentActions({
-		controller,
-		isCompactPresentation,
-		state,
-	});
+	const { agentProfileEditContext, pendingAgentActions } =
+		useSpaceLandingPendingAgentActions({
+			controller,
+			state,
+		});
+	const [requestedInteraction, setRequestedInteraction] = useState<
+		string | undefined
+	>();
+	const activeActionThreadId =
+		!isCompactPresentation && controller.isCurrentAccessConfirmed
+			? (controller.activeThread?.threadId ?? null)
+			: null;
+	const pendingActionsByPanel = partitionSpacePendingAgentActions(
+		pendingAgentActions.surfaceProps.items,
+		activeActionThreadId
+	);
 	const pendingActionSurface = (
 		<SpacePendingAgentActions
 			{...pendingAgentActions.surfaceProps}
-			returnFocusRef={
-				pendingActionSurfacePlacement === "thread"
-					? controller.threadTextareaRef
-					: controller.textareaRef
+			items={pendingActionsByPanel.conversation}
+			onOpenRequestThread={
+				isCompactPresentation
+					? undefined
+					: (item) => {
+							const threadId = item.sourceContext?.threadId;
+							if (!threadId) {
+								return;
+							}
+							setRequestedInteraction(
+								resolveSpacePendingAgentActionIdentity(item)
+							);
+							controller.onOpenThread(threadId);
+						}
 			}
+			returnFocusRef={controller.textareaRef}
+		/>
+	);
+	const threadPendingActionSurface = (
+		<SpacePendingAgentActions
+			{...pendingAgentActions.surfaceProps}
+			initialInteractionIdentity={requestedInteraction}
+			items={pendingActionsByPanel.thread}
+			key={`${activeActionThreadId}:${requestedInteraction ?? ""}`}
+			returnFocusRef={controller.threadTextareaRef}
 		/>
 	);
 
@@ -1694,11 +1740,7 @@ function SpaceLandingReady({
 						historyErrorMessage={historyErrorMessage}
 						input={input}
 						onEditAgentProfile={pendingAgentActions.onEditAgentProfile}
-						pendingActionSurface={
-							pendingActionSurfacePlacement === "conversation"
-								? pendingActionSurface
-								: undefined
-						}
+						pendingActionSurface={pendingActionSurface}
 						prepareSetupHref={prepareSetupHref}
 						state={state}
 					/>
@@ -1718,11 +1760,7 @@ function SpaceLandingReady({
 							}
 							input={input}
 							onEditAgentProfile={pendingAgentActions.onEditAgentProfile}
-							pendingActionSurface={
-								pendingActionSurfacePlacement === "thread"
-									? pendingActionSurface
-									: undefined
-							}
+							pendingActionSurface={threadPendingActionSurface}
 							prepareSetupHref={prepareSetupHref}
 							state={state}
 						/>
@@ -1781,11 +1819,9 @@ function useSpaceLandingViewerState({
 
 function useSpaceLandingPendingAgentActions({
 	controller,
-	isCompactPresentation,
 	state,
 }: {
 	controller: ReadySpaceLandingController;
-	isCompactPresentation: boolean;
 	state: SpaceLandingState;
 }) {
 	const agentProfileEditContext = resolveAgentProfileEditDialogContext({
@@ -1813,13 +1849,6 @@ function useSpaceLandingPendingAgentActions({
 	});
 	return {
 		agentProfileEditContext,
-		pendingActionSurfacePlacement:
-			resolveSpacePendingAgentActionSurfacePlacement({
-				hasActiveThread:
-					!isCompactPresentation &&
-					controller.isCurrentAccessConfirmed &&
-					controller.activeThread !== null,
-			}),
 		pendingAgentActions,
 	};
 }
@@ -1838,16 +1867,12 @@ function resolveSpaceHistoryErrorMessage(
 
 function SpaceLandingMembersControl(input: {
 	currentSpaceIsCenterAgentDirectMessage: boolean;
-	isCurrentAccessConfirmed: boolean;
 	isDesktopMembersPanel: boolean;
-	memberCount: number;
+	memberCount: number | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
-	if (
-		input.currentSpaceIsCenterAgentDirectMessage ||
-		!input.isCurrentAccessConfirmed
-	) {
+	if (input.currentSpaceIsCenterAgentDirectMessage) {
 		return null;
 	}
 	return (
@@ -1971,7 +1996,7 @@ function SpaceLandingConversation({
 	if (agentOwnerDirectMessageObserver) {
 		readOnlyComposerPlaceholder = `You can view this Direct Message because you own ${agentOwnerDirectMessageObserver.agentProfileName}. Join to participate.`;
 	} else if (controller.isCurrentAccessConfirmed) {
-		readOnlyComposerPlaceholder = `Join as ${currentProfileName ?? "your Human Profile"} to participate in this Space.`;
+		readOnlyComposerPlaceholder = `Join as ${currentProfileName ?? "your profile"} to participate in this Space.`;
 	}
 	return (
 		<SpaceConversationPanel
@@ -2038,7 +2063,6 @@ function SpaceLandingConversation({
 			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
 			onReportMessage={controller.onReportMessage}
-			onRetryWakeTarget={controller.onRetryWakeTarget}
 			onSend={controller.onSend}
 			onSendStarterPrompt={controller.onSendText}
 			onSpaceViewChange={spaceFileNavigation.changeSpaceView}
@@ -2176,7 +2200,7 @@ function SpaceHumanJoinAction(input: {
 }) {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isPending, setIsPending] = useState(false);
-	const profileName = input.profileName.trim() || "your Human Profile";
+	const profileName = input.profileName.trim() || "your profile";
 
 	return (
 		<div className="flex min-w-0 flex-col items-end gap-1">
@@ -2481,7 +2505,8 @@ function SpaceLandingSecondaryPanels({
 		currentProfileId: controller.profileId,
 		displayWakeOverrideByProfileId: wakeDisplayOverrideByProfileId,
 		isAgentRecoveryPending: controller.isAgentRecoveryPending,
-		isLoading: controller.isMembersLoading,
+		isLoading:
+			controller.isMembersLoading || !controller.isCurrentAccessConfirmed,
 		membersError: resolveSpaceMembersLoadErrorMessage(controller.membersError),
 		modelCatalog,
 		onAddOrganizationDirectoryProfiles:
@@ -2496,7 +2521,9 @@ function SpaceLandingSecondaryPanels({
 		openAddMembersNonce: addMembersFlashNonce,
 		orgSlug: input.orgSlug,
 		prepareSetupHref,
-		snapshot: controller.membersSnapshot,
+		snapshot: controller.isCurrentAccessConfirmed
+			? controller.membersSnapshot
+			: null,
 		spaceId: controller.spaceId,
 		spaceName: controller.status.name,
 	};
@@ -2537,6 +2564,7 @@ function SpaceLandingSecondaryPanels({
 				isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
 				isDiagnosticReportPending={controller.isDiagnosticReportPending}
 				isDiagnosticReportSent={controller.isDiagnosticReportSent}
+				isDirectMessage={state.isDirectMessage}
 				isPersonalContext={input.isPersonalContext === true}
 				isSendingMessage={controller.isSendingThreadMessage}
 				membersSnapshot={controller.presentationMembersSnapshot}
@@ -2555,7 +2583,6 @@ function SpaceLandingSecondaryPanels({
 				onRecoverExecution={controller.onRecoverExecution}
 				onRemoveComposerFile={controller.onRemoveThreadComposerFile}
 				onReportMessage={controller.onReportMessage}
-				onRetryWakeTarget={controller.onRetryWakeTarget}
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
 				onViewedThroughTs={async (throughOccurredAtMs) => {
@@ -3186,9 +3213,7 @@ function useSpaceRemoveMemberHandler(input: {
 				(profile) => profile.openMeldProfileId === controller.profileId
 			);
 			if (actingProfile?.profileKind !== "human") {
-				throw new Error(
-					"OpenMeld could not confirm the current human profile."
-				);
+				throw new Error("OpenMeld could not confirm your current profile.");
 			}
 
 			const membersQueryKey = spaceQueryKeys.members(

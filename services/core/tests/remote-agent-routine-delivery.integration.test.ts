@@ -4229,11 +4229,6 @@ async function seedRoutineDeliveryFixture() {
       "INSERT INTO routine_runs (id, routine_id, organization_id, scheduled_for, status, routine_name_snapshot, target_space_id_snapshot, started_at_ms) VALUES (?, ?, ?, ?, 'claimed', 'Daily feedback review', ?, ?)"
     ).bind(runId, routineId, organizationId, nowMs, spaceId, nowMs),
   ]);
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organization_binding_authorizations (id, organization_id, binding_id, authorized_by, created_at) VALUES (?, ?, ?, ?, ?)"
-  )
-    .bind(`authorization_${suffix}`, organizationId, bindingId, userId, nowMs)
-    .run();
   const routine = {
     authorizedActions: [],
     createdAtMs: nowMs - 1000,

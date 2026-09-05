@@ -40,7 +40,6 @@ import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
-  respondAgentProfileOrganizationOwnershipRequired,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { readJsonRequestBody } from "./rpc-http.parsers";
@@ -68,12 +67,6 @@ const CURRENT_ORGANIZATION_INFORMATION_PROTECTION_ROUTE =
   "/v1/organizations/current/information-protection";
 const CURRENT_ORGANIZATION_FEEDBACK_REPORTING_POLICY_ROUTE =
   "/v1/organizations/current/feedback-reporting-policy";
-const ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE =
-  "/v1/organizations/:organizationId/binding-authorizations/bulk";
-const ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE =
-  "/v1/organizations/:organizationId/binding-authorizations/profiles";
-const ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE =
-  "/v1/organizations/:organizationId/binding-authorization-preference";
 const AGENT_PROFILE_CREATION_DEFAULTS_ROUTE =
   "/v1/organizations/:organizationId/agent-profile-creation-defaults/:agentControllerRef";
 const AGENT_PROFILE_CREATION_REQUESTS_ROUTE =
@@ -86,8 +79,6 @@ const AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE =
   "/v1/organizations/:organizationId/agent-profile-creation-requests/:requestId/retry";
 const AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE =
   "/v1/organizations/:organizationId/agent-profile-creation-approval-preference";
-const ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE =
-  "/v1/organizations/:organizationId/wake-access-choice";
 
 export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
   app.post(AGENT_PROFILE_CREATION_REQUESTS_ROUTE, async (c) => {
@@ -415,6 +406,20 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
     })
   );
 
+  app.post("/v1/spaces/:spaceId/member-activity/web", (c) =>
+    executeRpcRoute({
+      c,
+      route: "/v1/spaces/:spaceId/member-activity/web",
+      method: "POST",
+      responseSchema: organizationMemberWebActivityResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.recordCurrentOrganizationWebActivity({
+          context: buildCoreRpcContext(c),
+          spaceId: c.req.param("spaceId"),
+        }),
+    })
+  );
+
   app.get(CURRENT_ORGANIZATION_COMPUTERS_ROUTE, (c) =>
     executeRpcRoute({
       c,
@@ -643,30 +648,6 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
-  app.post(ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE,
-      method: "POST",
-    })
-  );
-
-  app.get(ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE,
-      method: "GET",
-    })
-  );
-
-  app.get(ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
-      method: "GET",
-    })
-  );
-
   app.get(AGENT_PROFILE_CREATION_DEFAULTS_ROUTE, (c) => {
     const organizationId = c.req.param("organizationId")?.trim();
     const agentControllerRef = c.req.param("agentControllerRef")?.trim();
@@ -743,22 +724,6 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       route: AGENT_PROFILE_CREATION_DEFAULTS_ROUTE,
     });
   });
-
-  app.put(ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
-      method: "PUT",
-    })
-  );
-
-  app.put(ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE,
-      method: "PUT",
-    })
-  );
 }
 
 function readCreationRequestIdentifiers(c: {

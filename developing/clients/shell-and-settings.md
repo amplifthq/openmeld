@@ -89,7 +89,7 @@ following canonical terms and hard constraints:
 | An account-level agent identity (name/model/reasoning)                                           | **Agent**                                                           | `Agent Profile`                                                             |
 | "Which machine runs which agent"                                                                 | "**Agent X runs on Computer Y**" / "Use this agent on this machine" | `Binding` (`Agent Profile → openMeldServiceRuntimeId + agentControllerRef`) |
 | Service liveness                                                                                 | **Connected** / **OpenMeld Service is running**                     | heartbeat-fresh `ServiceRuntime`                                            |
-| Agent reachability                                                                               | **Available for Wake / Checking / Offline / Unavailable**           | projection states (registered/pending/skipped/rejected/expired/unavailable) |
+| Agent Wakeability                                                                                | **Available / Checking / Offline / Unavailable**                    | compatibility readiness and availability projection states                  |
 
 We keep **local agent** (not "agent runtime"): "agent runtime" appears zero times
 in the owner docs, and `Connect local agent` is a **shipped, owner-doc-protected
@@ -108,19 +108,19 @@ sanctioned (agent-transport-contract.md:408/414).
    `AgentExecutionReadiness`, expected-routes). It never pings the local daemon to
    infer liveness or availability.
 3. **Three orthogonal signals, never substituted:** (a) Computer online =
-   heartbeat fresh; (b) Agent Available for Wake = Core readiness projection; (c)
+   heartbeat fresh; (b) Agent Wakeability `Available` = Core projection; (c)
    Agent bound to this Computer = a Binding exists. Service health is NOT product
    readiness — never derive a green "agent can reply" from service status alone.
-4. **Availability states are Core-owned** — render `Available for Wake / Checking
-/ Offline / Unavailable`, sourced from the projection; never synthesized from
+4. **Wakeability verdicts are Core-owned** — render `Available / Checking /
+   Offline / Unavailable`, sourced from the projection; never synthesized from
    service health or binding presence.
 5. **Diagnostic data must not pollute availability.** EvidenceSyncHealth, stale
    controller reports, aged/progress evidence, evidence freshness are
    diagnostic-only — never availability/readiness blockers, never in public badges.
 6. **Status surfaces are read-only.** Status displays never silently
    start/stop/repair/reinstall/toggle. Explicit user-visible actions only.
-7. **Setup action labels come from the Local Components Manifest** (`Connect OpenMeld
-Service`, `Reconnect OpenMeld Service`, `Update OpenMeld Service`, `Connect local agent`,
+7. **Setup action labels come from the Local Components Manifest** (`Connect
+Computer`, `Reconnect Computer`, `Update OpenMeld on Computer`, `Connect local agent`,
    `Update OpenMeld skills`, `Everything is up to date`) — never invented copy like
    "Service not running". Status (Running/Stopped/Not installed) is a SEPARATE
    concern from the manifest action label — show both; never infer the action from
@@ -166,7 +166,7 @@ mental verbs:
    entry, while **Agents** owns ordinary Agent Profile identity (name / model /
    reasoning). `Directory` remains an internal data-domain term, not a
    user-facing navigation container. The Agent readiness badge
-   (`Available for Wake / …`) lives on the Agent — not on a Computer card.
+   (`Available / …`) lives on the Agent — not on a Computer card.
 4. **Service preferences** — local app behavior (service autostart,
    open-at-login, update channel). This is host-specific and capability-gated,
    not a Web top-level Settings sidebar item.
@@ -229,8 +229,9 @@ The Web shell is a stable two-layer composition built from the shared
 - **Outer app rail** — always reachable on Home, Spaces, Direct
   Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
-  is the first destination; the remaining visible destinations are grouped
-  under **Work** and **Team**. Projects, Documents, and Agent Activity routes
+  starts with a flat **New Agent** action followed by **Home**, **Spaces**, and
+  **Direct Messages**; **People** and **Agents** remain grouped under **Team**.
+  Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
   future placement remains unsettled. Settings remains a bottom
   utility that opens Account settings. The workspace switcher offers a second
@@ -238,8 +239,10 @@ The Web shell is a stable two-layer composition built from the shared
   Organization actions; it does not create a second Settings surface. Send
   feedback lives in the Personal Settings group rather than as a second
   outer-rail utility. The rail has no
-  separate OpenMeld brand row or account entry, and it continues to support
-  resize + collapse.
+  separate OpenMeld brand row or outer-rail account entry. A nested account row
+  in the workspace switcher owns browser-saved account switching, adding, and
+  sign-out without becoming another navigation destination. The rail continues
+  to support resize + collapse.
   Collapsed state preserves recognizable icons for every fixed destination;
   expanded state shows the workspace identity, group labels, and destination
   labels.

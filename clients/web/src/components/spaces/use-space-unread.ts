@@ -29,7 +29,12 @@ export function useSpaceUnread(input: {
 	targets: readonly SpaceInboxUnreadTarget[];
 }): SpaceUnreadState {
 	const [visible, setVisible] = useState(isDocumentVisible);
-	const [retryAttempt, setRetryAttempt] = useState(0);
+	const [retryState, setRetryState] = useState(() => ({
+		attempt: 0,
+		spaceId: input.spaceId,
+	}));
+	const retryAttempt =
+		retryState.spaceId === input.spaceId ? retryState.attempt : 0;
 	const latestVisibleTs = useMemo(
 		() => resolveLatestVisibleTs(input.envelopes),
 		[input.envelopes]
@@ -114,6 +119,11 @@ export function useSpaceUnread(input: {
 							persistedThroughTsRef.current,
 							throughTs
 						);
+						setRetryState((current) =>
+							current.spaceId === identity && current.attempt > 0
+								? { attempt: 0, spaceId: identity }
+								: current
+						);
 					}
 				})
 				.catch((error: unknown) => {
@@ -126,7 +136,10 @@ export function useSpaceUnread(input: {
 						identityRef.current === identity &&
 						isViewingNowRef.current
 					) {
-						setRetryAttempt((current) => current + 1);
+						setRetryState((current) => ({
+							attempt: current.spaceId === identity ? current.attempt + 1 : 1,
+							spaceId: identity,
+						}));
 					}
 				});
 		}, debounceMs);

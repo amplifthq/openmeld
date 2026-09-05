@@ -80,6 +80,13 @@ export function registerProfileSpaceHistoryRoutes(
     const url = new URL(c.req.url);
     const parsedQuery = accountSpaceIndexQuerySchema.safeParse({
       gatewayHost: url.searchParams.get("gatewayHost"),
+      ...(url.searchParams.has("includeDirectMessageProfileIds")
+        ? {
+            includeDirectMessageProfileIds: url.searchParams.get(
+              "includeDirectMessageProfileIds"
+            ),
+          }
+        : {}),
       ...(url.searchParams.has("includeRecentlyDeletedItems")
         ? {
             includeRecentlyDeletedItems: url.searchParams.get(
@@ -135,6 +142,9 @@ export function registerProfileSpaceHistoryRoutes(
             : { limit: parsedQuery.data.limit }),
           ...(parsedQuery.data.includeRecentlyDeletedItems === true
             ? { includeRecentlyDeletedItems: true }
+            : {}),
+          ...(parsedQuery.data.includeDirectMessageProfileIds === true
+            ? { includeDirectMessageProfileIds: true }
             : {}),
           ...(parsedQuery.data.includePurposes === true
             ? { includePurposes: true }

@@ -466,7 +466,7 @@ describe("local service participation gate", () => {
     expect(runDaemonBackgroundStartForDecisionMock).not.toHaveBeenCalled();
   });
 
-  it("lets Web setup finish after scheduling a healthy running Service update", async () => {
+  it("keeps Web setup incomplete after scheduling a healthy running Service update", async () => {
     inspectDaemonServiceInventoryMock.mockResolvedValue(
       createInventory({
         anomalyCodes: ["version_outdated", "bundle_version_drift"],
@@ -494,7 +494,11 @@ describe("local service participation gate", () => {
       view: "human",
     });
 
-    expect(result).toEqual({ status: "aligned" });
+    expect(result).toEqual({
+      errorMessage:
+        "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes.",
+      status: "needs_attention",
+    });
     expect(runDaemonReinstallMock).toHaveBeenCalledWith(
       expect.objectContaining({
         displayAction: "update",

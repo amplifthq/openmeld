@@ -50,12 +50,6 @@ describe("Agent Profile Binding repo write-side", () => {
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
     try {
       harness.run({
-        sql: `
-          CREATE UNIQUE INDEX IF NOT EXISTS organization_binding_authorizations_org_binding_uq_idx
-          ON organization_binding_authorizations (organization_id, binding_id)
-        `,
-      });
-      harness.run({
         sql: "DROP TRIGGER openMeldDaemon_agent_profile_bindings_canonical_enabled_insert_check",
       });
       harness.run({
@@ -149,11 +143,6 @@ describe("Agent Profile Binding repo write-side", () => {
           binding_state: "disabled_historical",
         },
       ]);
-      expect(
-        harness.queryAll({
-          sql: "SELECT * FROM organization_binding_authorizations",
-        })
-      ).toEqual([]);
     } finally {
       harness.close();
     }
@@ -163,12 +152,6 @@ describe("Agent Profile Binding repo write-side", () => {
     const harness = createSqliteD1Harness();
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
     try {
-      harness.run({
-        sql: `
-          CREATE UNIQUE INDEX IF NOT EXISTS organization_binding_authorizations_org_binding_uq_idx
-          ON organization_binding_authorizations (organization_id, binding_id)
-        `,
-      });
       harness.run({
         sql: "DROP TRIGGER openMeldDaemon_agent_profile_bindings_canonical_enabled_insert_check",
       });
@@ -260,12 +243,6 @@ describe("Agent Profile Binding repo write-side", () => {
     const harness = createSqliteD1Harness();
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
     try {
-      harness.run({
-        sql: `
-          CREATE UNIQUE INDEX IF NOT EXISTS organization_binding_authorizations_org_binding_uq_idx
-          ON organization_binding_authorizations (organization_id, binding_id)
-        `,
-      });
       harness.run({
         sql: "DROP TRIGGER openMeldDaemon_agent_profile_bindings_canonical_enabled_insert_check",
       });

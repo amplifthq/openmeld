@@ -53,7 +53,7 @@ export function ConnectChannelAccountDialog(input: {
 					<DialogDescription>
 						{isProviderProof
 							? `Open ${providerLabel}, send the Center Agent the message below, then use the private connection button it sends you. You will review both accounts before anything changes.`
-							: "Choose the Channel account to connect to this Human Profile."}
+							: "Choose the Channel account to connect to this person."}
 					</DialogDescription>
 				</DialogHeader>
 				{isProviderProof ? (

@@ -285,17 +285,24 @@ function resolvePublicWakeAvailability(
     return null;
   }
 
+  const refreshingAvailable =
+    agentWakeAvailability.status === "available_for_wake" &&
+    agentWakeAvailability.isRefreshing;
   return {
     status:
-      agentWakeAvailability.status === "available_for_wake"
+      agentWakeAvailability.status === "available_for_wake" &&
+      !refreshingAvailable
         ? "ready"
         : "blocked",
-    reasonCodes: agentWakeAvailability.reasonCode
-      ? [agentWakeAvailability.reasonCode]
-      : [],
+    reasonCodes:
+      !refreshingAvailable && agentWakeAvailability.reasonCode
+        ? [agentWakeAvailability.reasonCode]
+        : [],
     // Summary is the canonical explanatory sentence; tooltip is the shorter
     // hover label and would discard recovery context in mention clients.
-    reasonText: agentWakeAvailability.summary,
+    reasonText: refreshingAvailable
+      ? "Checking whether this agent can reply."
+      : agentWakeAvailability.summary,
   };
 }
 

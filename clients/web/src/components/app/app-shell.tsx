@@ -11,6 +11,10 @@ import { AppOrganizationProvider } from "#/lib/organizations/organization-contex
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import {
+	resetAccountScopedQueriesAfterAuthChange,
+	subscribeToAccountAuthChanges,
+} from "#/query/auth-boundary";
+import {
 	type AppShellAccount,
 	AppShellAccountContext,
 } from "./app-shell-account";
@@ -31,13 +35,23 @@ export function AppShell(input: {
 	const currentSection = useMatches({
 		select: resolveAppShellSectionFromMatches,
 	});
+	const activeSpaceId = useMatches({
+		select: (matches) => {
+			const params = matches.findLast(
+				(match) => "spaceId" in match.params
+			)?.params;
+			return params && "spaceId" in params ? params.spaceId : undefined;
+		},
+	});
 
 	return (
 		<AppShellAccountContext.Provider value={input.account}>
+			<AccountAuthChangeListener />
 			<AppOrganizationProvider scope={input.organizationScope}>
 				<WebMemberActivityReporter
 					currentUserId={input.organizationScope.currentUserId}
 					organizationId={input.organizationScope.currentOrganization.id}
+					spaceId={activeSpaceId}
 				/>
 				<StartFlowStateProvider storageScope={input.storageScope}>
 					<InboxVisibleConversationProvider>
@@ -55,6 +69,7 @@ export function AppShell(input: {
 						<OnboardingEntryGate
 							currentOrganization={input.organizationScope.currentOrganization}
 							currentSection={currentSection}
+							hasExplicitSpaceDestination={Boolean(activeSpaceId)}
 							organizations={input.organizationScope.organizations}
 							storageScope={input.storageScope}
 						>
@@ -68,6 +83,25 @@ export function AppShell(input: {
 			</AppOrganizationProvider>
 		</AppShellAccountContext.Provider>
 	);
+}
+
+function AccountAuthChangeListener() {
+	const queryClient = useQueryClient();
+	const reloadingRef = useRef(false);
+
+	useEffect(() => {
+		return subscribeToAccountAuthChanges(() => {
+			if (reloadingRef.current) {
+				return;
+			}
+			reloadingRef.current = true;
+			resetAccountScopedQueriesAfterAuthChange(queryClient).finally(() => {
+				window.location.assign("/");
+			});
+		});
+	}, [queryClient]);
+
+	return null;
 }
 
 function AppReadinessInvalidationListener(input: {

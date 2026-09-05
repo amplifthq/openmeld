@@ -33,17 +33,20 @@ describe("local component update projection", () => {
     });
   });
 
-  it("preserves the Service-owned update operation without deriving another state", () => {
+  it("preserves the Service-owned update operation while the required floor blocks new Wakes", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         includeUpdateOperation: true,
+        updateTargetVersion: "0.3.153",
+        updateUrgency: "required",
       }),
       releaseManifest: createReleaseManifest({
-        serviceUpdatePolicy: "available",
+        serviceBundleVersion: "0.3.153",
+        serviceUpdatePolicy: "required",
       }),
       serviceConnected: true,
-      serviceVersion: "0.7.27",
+      serviceVersion: "0.3.152",
     });
 
     expect(projection.updateOperation).toEqual({
@@ -51,9 +54,19 @@ describe("local component update projection", () => {
       phase: "waiting_for_work",
       requestSource: "automatic",
       requestedAt: "2026-06-04T00:00:00.000Z",
-      targetVersion: "0.7.28",
+      targetVersion: "0.3.153",
       updatedAt: "2026-06-04T00:01:00.000Z",
-      urgency: "available",
+      urgency: "required",
+    });
+    expect(projection).toMatchObject({
+      setupAction: "update_service",
+      service: {
+        installedVersion: "0.3.152",
+        requiredVersion: "0.3.153",
+        status: "update_required",
+        updatePolicy: "required",
+        wakeBlocked: true,
+      },
     });
   });
 
@@ -94,31 +107,31 @@ describe("local component update projection", () => {
     });
   });
 
-  it("requires Service 0.3.138 before admitting new Wake work", () => {
+  it("requires Service 0.3.153 before admitting new Wake work", () => {
     const releaseManifest = createReleaseManifest({
-      serviceBundleVersion: "0.3.138",
+      serviceBundleVersion: "0.3.153",
       serviceUpdatePolicy: "available",
     });
     const unsupported = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest,
       serviceConnected: true,
-      serviceVersion: "0.3.137",
+      serviceVersion: "0.3.152",
     });
     const supported = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest,
       serviceConnected: true,
-      serviceVersion: "0.3.138",
+      serviceVersion: "0.3.153",
     });
 
     expect(unsupported).toMatchObject({
       setupAction: "update_service",
       service: {
-        installedVersion: "0.3.137",
-        latestVersion: "0.3.138",
+        installedVersion: "0.3.152",
+        latestVersion: "0.3.153",
         reasonCodes: ["service.version_outdated"],
-        requiredVersion: "0.3.138",
+        requiredVersion: "0.3.153",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
@@ -127,8 +140,8 @@ describe("local component update projection", () => {
     expect(supported).toMatchObject({
       setupAction: "none",
       service: {
-        installedVersion: "0.3.138",
-        latestVersion: "0.3.138",
+        installedVersion: "0.3.153",
+        latestVersion: "0.3.153",
         reasonCodes: ["service.bundle_hash_not_reported"],
         requiredVersion: null,
         status: "current",
@@ -205,24 +218,49 @@ describe("local component update projection", () => {
     });
   });
 
-  it("enforces the Core floor when an advisory manifest version is older", () => {
+  it("does not activate the Core floor before its matching Service release is installable", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
-        serviceBundleVersion: "0.3.125",
+        serviceBundleVersion: "0.3.152",
         serviceUpdatePolicy: "available",
       }),
       serviceConnected: true,
-      serviceVersion: "0.3.125",
+      serviceVersion: "0.3.152",
+    });
+
+    expect(projection).toMatchObject({
+      setupAction: "none",
+      service: {
+        installedVersion: "0.3.152",
+        latestVersion: "0.3.152",
+        reasonCodes: ["service.bundle_hash_not_reported"],
+        requiredVersion: null,
+        status: "current",
+        updatePolicy: "available",
+        wakeBlocked: false,
+      },
+    });
+  });
+
+  it("activates the Core floor when the matching Service release is installable", () => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-06-04T00:00:00.000Z",
+      releaseManifest: createReleaseManifest({
+        serviceBundleVersion: "0.3.153",
+        serviceUpdatePolicy: "available",
+      }),
+      serviceConnected: true,
+      serviceVersion: "0.3.152",
     });
 
     expect(projection).toMatchObject({
       setupAction: "update_service",
       service: {
-        installedVersion: "0.3.125",
-        latestVersion: "0.3.125",
+        installedVersion: "0.3.152",
+        latestVersion: "0.3.153",
         reasonCodes: ["service.version_outdated"],
-        requiredVersion: "0.3.138",
+        requiredVersion: "0.3.153",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
@@ -541,6 +579,8 @@ function createLocalComponentsStatus(input: {
   includeUpdateOperation?: boolean;
   serviceBundleHash?: string | null;
   skillsBundleHash?: string | null;
+  updateTargetVersion?: string;
+  updateUrgency?: "available" | "required";
 }): LocalComponentsStatus {
   return {
     schemaVersion: 1,
@@ -568,9 +608,9 @@ function createLocalComponentsStatus(input: {
             phase: "waiting_for_work" as const,
             requestSource: "automatic" as const,
             requestedAt: "2026-06-04T00:00:00.000Z",
-            targetVersion: "0.7.28",
+            targetVersion: input.updateTargetVersion ?? "0.7.28",
             updatedAt: "2026-06-04T00:01:00.000Z",
-            urgency: "available" as const,
+            urgency: input.updateUrgency ?? ("available" as const),
           },
         }
       : {}),

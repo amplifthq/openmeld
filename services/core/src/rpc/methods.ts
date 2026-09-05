@@ -30,15 +30,12 @@ import {
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
-  authorizeAgentProfileBindingForOrganizationResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAgentTaskKey,
   buildSpaceComposerPublishedFileId,
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
-  bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
-  bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_DEFAULT_LIMIT,
   CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
@@ -183,13 +180,14 @@ import {
   getCenterAgentDirectMessageSpaceProjectionResponseSchema,
   getCenterAgentOperatingStateResponseSchema,
   getLocalRuntimeExpectedRoutesQuerySchema,
-  getOrganizationBindingAuthorizationPreferenceResponseSchema,
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
   getSpaceBoardInputSchema,
   getSpaceConversationStateInputSchema,
   getSpaceDispatchLookupInputSchema,
   getSpaceDispatchResultInputSchema,
+  getSpaceEntryResolutionInputSchema,
+  getSpaceEntryResolutionResponseSchema,
   getSpaceMessageDetailsInputSchema,
   getSpaceStatusInputSchema,
   getSpaceUpdatesInputSchema,
@@ -207,9 +205,6 @@ import {
   larkPlatformRegistrationAttemptIdSchema,
   listCenterAgentAuditJournalQuerySchema,
   listCenterAgentAuditJournalResponseSchema,
-  listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema,
-  listOrganizationBindingAuthorizationProfilesResponseSchema,
-  listOrganizationBindingAuthorizationsResponseSchema,
   listSpaceThreadSignalsQuerySchema,
   localRuntimeEnrollmentBodySchema,
   localRuntimeEnrollmentResponseSchema,
@@ -256,13 +251,10 @@ import {
   resolveSpaceAttachmentForDownloadPayloadSchema,
   resolveSpaceComposerUploadScopeResponseSchema,
   respondToSpaceAgentInteractionInputSchema,
-  revokeAgentProfileBindingForOrganizationResponseSchema,
   runtimeReportingRouteParamsSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
   SPACE_FILE_MAX_SIZE_BYTES,
-  saveOrganizationWakeAccessChoiceBodySchema,
-  saveOrganizationWakeAccessChoiceResponseSchema,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
@@ -276,8 +268,6 @@ import {
   setCurrentOpenMeldToolsMaintenanceBodySchema,
   setCurrentOpenMeldToolsMaintenanceResponseSchema,
   setLocalRuntimeDisplayNameBodySchema,
-  setOrganizationBindingAuthorizationPreferenceBodySchema,
-  setOrganizationBindingAuthorizationPreferenceResponseSchema,
   slackChannelHistoryResponseSchema,
   slackChannelListResponseSchema,
   slackChannelMembersResponseSchema,
@@ -339,9 +329,6 @@ import type {
   AgentStreamToolPart,
   AgentTaskCompletionCondition,
   ArchiveProjectRpcInput,
-  AuthorizeAgentProfileBindingForOrganizationResponse,
-  BulkAuthorizeAgentProfileBindingsForOrganizationBody,
-  BulkAuthorizeAgentProfileBindingsForOrganizationResponse,
   CenterAgentAction,
   CenterAgentAddAgentProfilesToSpaceBody,
   CenterAgentAddAgentProfilesToSpaceResponse,
@@ -512,12 +499,13 @@ import type {
   GetCenterAgentDirectMessageSpaceProjectionResponse,
   GetCenterAgentOperatingStateResponse,
   GetLocalRuntimeExpectedRoutesResponse,
-  GetOrganizationBindingAuthorizationPreferenceResponse,
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
   GetSpaceDispatchResultResponse,
+  GetSpaceEntryResolutionInput,
+  GetSpaceEntryResolutionResponse,
   GetSpaceMessageDetailsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
@@ -535,9 +523,6 @@ import type {
   ListAgentProfileCreationDefaultsResponse,
   ListCenterAgentAuditJournalQuery,
   ListCenterAgentAuditJournalResponse,
-  ListCurrentUserAgentProfileOrganizationWakeAccessResponse,
-  ListOrganizationBindingAuthorizationProfilesResponse,
-  ListOrganizationBindingAuthorizationsResponse,
   ListProjectsRpcInput,
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesQuery,
@@ -608,9 +593,6 @@ import type {
   RestoreSpaceFileEntryBody,
   RestoreSpaceFileEntryResponse,
   RestoreSpaceFileRevisionBody,
-  RevokeAgentProfileBindingForOrganizationResponse,
-  SaveOrganizationWakeAccessChoiceBody,
-  SaveOrganizationWakeAccessChoiceResponse,
   SelectCurrentLocalAgentInstallationBody,
   SelectCurrentLocalAgentInstallationResponse,
   SetAgentProfileCreationDefaultsBody,
@@ -622,8 +604,6 @@ import type {
   SetCurrentOpenMeldToolsMaintenanceBody,
   SetCurrentOpenMeldToolsMaintenanceResponse,
   SetLocalRuntimeDisplayNameBody,
-  SetOrganizationBindingAuthorizationPreferenceBody,
-  SetOrganizationBindingAuthorizationPreferenceResponse,
   SlackIdentityLinkConsumeBody,
   SlackIdentityLinkConsumeResponse,
   SlackIdentityLinkPreviewBody,
@@ -709,6 +689,7 @@ import {
 } from "../agent-activity/activity-session-inventory-rpc";
 import { rpcReadAgentActivitySnapshot as readAgentActivitySnapshot } from "../agent-activity/activity-snapshot-rpc";
 import { rpcReadAgentActivityStats as readAgentActivityStats } from "../agent-activity/activity-stats-rpc";
+import { createAgentExecutionReadinessReads } from "../agent-execution/application/agent-execution-readiness-reads";
 import {
   type AgentExecutionTargetRuntimeContext,
   type CoreAgentExecutionReadiness,
@@ -747,7 +728,6 @@ import {
   createD1AgentProfileBindingCommandStore,
   createD1AgentProfileBindingLookupStore,
   disablePrimaryAgentProfileBindingRecord,
-  listEnabledPrimaryAgentProfileBindingRecords,
   listEnabledPrimaryAgentProfileBindingRecordsForProfile,
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
   listPrimaryAgentProfileBindingRecords,
@@ -760,19 +740,6 @@ import {
   listAgentProfileCreationDefaultsRecords,
   readAgentProfileCreationDefaultsRecord,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-creation-defaults-repo";
-import {
-  deleteOrganizationBindingAuthorizationRecord,
-  ensureOrganizationBindingAuthorizationRecord,
-  listOrganizationBindingAuthorizationCandidates,
-  listOrganizationBindingAuthorizationProfiles,
-  listOrganizationBindingAuthorizationRecords,
-  listOrganizationBindingAuthorizationRecordsForBinding,
-  type OrganizationBindingAuthorizationCandidate,
-  readOrganizationBindingAuthorizationPreferenceRecord,
-  readPersonalOrganizationIdForUser,
-  saveOrganizationWakeAccessChoiceRecord,
-  upsertOrganizationBindingAuthorizationPreferenceRecord,
-} from "../agent-profile-binding/infrastructure/d1/organization-binding-authorization-repo";
 import { rpcSubmitAgentControllerTaskLifecycleEvents as submitAgentControllerTaskLifecycleEvents } from "../agent-task-coordination/application/agent-controller-task-lifecycle-rpc";
 import {
   listRegisteredAgentControllerTasks,
@@ -891,7 +858,10 @@ import { rpcCenterAgentReadChangelog as centerAgentReadChangelog } from "../chan
 import { rpcReadChangelog as readChangelog } from "../changelog/changelog-read-rpc";
 import { createComputerFileAccessRpc } from "../computers/computer-file-access-rpc";
 import { createLocalFolderPickerRpc } from "../computers/local-folder-picker-rpc";
-import { readModelCatalog } from "../config/model-catalog";
+import {
+  readAuthoredModelCatalog,
+  readModelCatalog,
+} from "../config/model-catalog";
 import {
   listConnectorAppRequestsForRequester,
   upsertConnectorAppRequest,
@@ -943,10 +913,6 @@ import {
   resolveRuntimeTransportExecutionRecoveryShard,
   resolveRuntimeTransportOwnerShard,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
-import {
-  buildExecutionRecoveryFreshClientMessageId,
-  buildExecutionRecoveryOperationKeys,
-} from "../execution-recovery/application/execution-recovery-operation-identity";
 import {
   rpcReadFeedbackReportingPolicy,
   rpcSetFeedbackReportingPolicy,
@@ -1168,6 +1134,11 @@ import {
   SpaceComposerUploadStorageError,
   stageSpaceComposerUpload,
 } from "../space/application/space-composer-upload-storage";
+import {
+  buildSpaceEntryResolution,
+  buildUnavailableSpaceEntryResolution,
+  type SpaceEntryAccessResult,
+} from "../space/application/space-entry-resolution-service";
 import { buildSpaceFileAuditEvent } from "../space/application/space-file-audit";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
@@ -1361,10 +1332,11 @@ const computerFileAccessRpc = createComputerFileAccessRpc({
   readPolicy: readRuntimeTransportComputerFileAccessPolicy,
   requireOwnerUserId: requireAuthenticatedOwnerUserId,
   resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, ownerService } =
+    const { bindingTarget, localRuntimes, ownerService } =
       await resolveCurrentLocalServiceContext({ env, userId });
     return requireCurrentLocalRuntimeServiceTarget({
       bindingTarget,
+      inventory: localRuntimes,
       ownerService,
       offlineError: {
         code: "computer.file_access.service_offline",
@@ -1379,10 +1351,11 @@ const computerFileAccessRpc = createComputerFileAccessRpc({
 const localFolderPickerRpc = createLocalFolderPickerRpc({
   requireOwnerUserId: requireAuthenticatedOwnerUserId,
   resolveCurrentTarget: async ({ env, userId }) => {
-    const { bindingTarget, ownerService } =
+    const { bindingTarget, localRuntimes, ownerService } =
       await resolveCurrentLocalServiceContext({ env, userId });
     return requireCurrentLocalRuntimeServiceTarget({
       bindingTarget,
+      inventory: localRuntimes,
       ownerService,
       offlineError: {
         code: "local.folder_picker.service_offline",
@@ -1700,6 +1673,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcExecuteExecutionRecovery(
     input: ExecuteExecutionRecoveryInput
   ): Promise<ExecuteExecutionRecoveryResponse>;
+  rpcStartUsageExhaustedContinuation(
+    input: StartUsageExhaustedContinuationInput
+  ): Promise<StartUsageExhaustedContinuationResponse>;
   rpcPostTransientSignal(input: PostTransientSignalInput): Promise<void>;
   rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta>;
   rpcGetBoard(input: GetSpaceBoardInput): Promise<SpaceBoardRoomProjection>;
@@ -1844,6 +1820,16 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     spaceId: string;
   }): Promise<{
     agentProfileIds: string[];
+    broadcast: boolean;
+    ok: true;
+    spaceId: string;
+  }>;
+  rpcBroadcastWakeProgressChanged(input: {
+    agentProfileIds: readonly string[];
+    clientMessageIds: readonly string[];
+    reason: string;
+    spaceId: string;
+  }): Promise<{
     broadcast: boolean;
     ok: true;
     spaceId: string;
@@ -2120,6 +2106,24 @@ export type ExecuteExecutionRecoveryInput = {
   spaceAccess?: SpaceAccessContext;
 };
 
+export type StartUsageExhaustedContinuationInput = {
+  continuationClientMessageId: string;
+  interruptedClientMessageId: string;
+  interruptedDispatchId: string;
+  interruptedSourceSignalId: string;
+  operationId: string;
+  spaceAccess: SpaceAccessContext;
+  spaceId: string;
+  targetProfileId: string;
+  context?: CoreRpcContextInput;
+};
+
+export type StartUsageExhaustedContinuationResponse = {
+  continuationClientMessageId: string;
+  operationId: string;
+  status: "started";
+};
+
 export type GetSpaceMetaInput = {
   spaceId: string;
   password?: string;
@@ -2154,6 +2158,10 @@ export type GetSpaceStatusInput = {
   spaceId: string;
   password?: string;
   context?: CoreRpcContextInput;
+  spaceAccess?: SpaceAccessContext;
+};
+
+export type GetSpaceEntryResolutionRpcInput = GetSpaceEntryResolutionInput & {
   spaceAccess?: SpaceAccessContext;
 };
 
@@ -2258,6 +2266,7 @@ export type ListAccountSpacesInput = {
   scope: AccountSpaceIndexQuery["scope"];
   selectedProfileId: string;
   limit?: number;
+  includeDirectMessageProfileIds?: boolean;
   includeRecentlyDeletedItems?: boolean;
   includePurposes?: boolean;
 };
@@ -2357,7 +2366,9 @@ export type GetSpaceDispatchLookupInput = {
 export type GetSpaceWakeProgressInput = {
   spaceId: string;
   clientMessageId: string;
+  includePreviewText?: boolean;
   includeTiming?: boolean;
+  includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
   targetProfileId?: string;
@@ -2368,9 +2379,13 @@ export type GetSpaceWakeProgressInput = {
 
 export type GetActiveSpaceWakeProgressInput = {
   spaceId: string;
+  includePageInfo?: boolean;
+  includePreviewText?: boolean;
   includeTiming?: boolean;
+  includeSourceContext?: boolean;
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
+  sourceProfileId?: string;
   targetProfileId?: string;
   password?: string;
   context?: CoreRpcContextInput;
@@ -2523,7 +2538,7 @@ export type GetPrepareReadinessInput = GetPrepareReadinessQuery & {
 };
 
 export type GetLocalRuntimeExpectedRoutesInput = {
-  contractVersion?: "v2" | "v3";
+  contractVersion?: import("@openmeld/schemas/types").GetLocalRuntimeExpectedRoutesQuery["contractVersion"];
   deviceId: string;
   lane: string;
   context?: CoreRpcContextInput;
@@ -2578,40 +2593,6 @@ export type DisableAgentProfilePrimaryBindingInput = {
   context?: CoreRpcContextInput;
 };
 
-export type AuthorizeAgentProfileBindingForOrganizationInput = {
-  agentProfileId: string;
-  context?: CoreRpcContextInput;
-};
-
-export type BulkAuthorizeAgentProfileBindingsForOrganizationInput =
-  BulkAuthorizeAgentProfileBindingsForOrganizationBody & {
-    context?: CoreRpcContextInput;
-    organizationId: string;
-  };
-
-export type ListOrganizationBindingAuthorizationsInput = {
-  context?: CoreRpcContextInput;
-};
-
-export type ListOrganizationBindingAuthorizationProfilesInput = {
-  context?: CoreRpcContextInput;
-  organizationId: string;
-};
-
-export type ListCurrentUserAgentProfileOrganizationWakeAccessInput = {
-  context?: CoreRpcContextInput;
-};
-
-export type RevokeAgentProfileBindingForOrganizationInput = {
-  agentProfileId: string;
-  context?: CoreRpcContextInput;
-};
-
-export type GetOrganizationBindingAuthorizationPreferenceInput = {
-  context?: CoreRpcContextInput;
-  organizationId: string;
-};
-
 export type GetAgentProfileCreationDefaultsInput = {
   agentControllerRef: string;
   context?: CoreRpcContextInput;
@@ -2626,18 +2607,6 @@ export type CenterAgentListAgentProfileCreationDefaultsInput =
 export type SetAgentProfileCreationDefaultsInput =
   SetAgentProfileCreationDefaultsBody & {
     agentControllerRef: string;
-    context?: CoreRpcContextInput;
-    organizationId: string;
-  };
-
-export type SetOrganizationBindingAuthorizationPreferenceInput =
-  SetOrganizationBindingAuthorizationPreferenceBody & {
-    context?: CoreRpcContextInput;
-    organizationId: string;
-  };
-
-export type SaveOrganizationWakeAccessChoiceInput =
-  SaveOrganizationWakeAccessChoiceBody & {
     context?: CoreRpcContextInput;
     organizationId: string;
   };
@@ -2660,6 +2629,7 @@ export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
 
 export type RecordCurrentOrganizationWebActivityInput = {
   context?: CoreRpcContextInput;
+  spaceId?: string;
 };
 
 export type GetCurrentOrganizationComputersInput = {
@@ -3136,6 +3106,16 @@ export type CenterAgentReadOrganizationSpaceDirectoryInput = {
   speakerMember?: CenterAgentToolSpeaker;
 };
 
+export type CenterAgentListActiveSpaceWakesInput =
+  CenterAgentReadOrganizationSpaceDirectoryInput;
+
+export type CenterAgentReadSpaceWakeProgressInput =
+  CenterAgentReadOrganizationSpaceDirectoryInput & {
+    sourceProfileId?: string;
+    spaceId: string;
+    targetProfileId?: string;
+  };
+
 export type OpenCenterAgentDirectMessageSpaceInput = {
   context?: CoreRpcContextInput;
   suppressWelcome?: boolean;
@@ -3413,6 +3393,7 @@ async function readOwnerCurrentComputerFileAccessSummary(input: {
         deviceId: input.localRuntimes.currentDeviceId,
         runtimeLane: input.localRuntimes.currentRuntimeLane,
       },
+      inventory: input.localRuntimes,
       offlineError: {
         code: "computer.file_access.service_offline",
         reason: "This computer isn't reachable for OpenMeld right now.",
@@ -3560,17 +3541,19 @@ async function resolveCurrentOpenMeldToolsControlTarget(input: {
   capability: "requestUpdate" | "setAutomaticUpdates";
   env: CoreBindings;
   userId: string;
-}): Promise<CurrentLocalControlTarget> {
-  const { currentTarget, ownerService } =
-    await resolveCurrentLocalControlTarget({
-      env: input.env,
-      offlineError: {
-        code: "service_offline",
-        reason: "OpenMeld Service is offline.",
-        status: 503,
-      },
-      userId: input.userId,
-    });
+}): Promise<{ deviceId: string; runtimeLane: DaemonServiceLane }> {
+  const { bindingTarget, localRuntimes, ownerService } =
+    await resolveCurrentLocalServiceContext(input);
+  const currentTarget = requireCurrentLocalRuntimeServiceTarget({
+    bindingTarget,
+    inventory: localRuntimes,
+    offlineError: {
+      code: "service_offline",
+      reason: "OpenMeld Service is offline.",
+      status: 503,
+    },
+    ownerService,
+  });
   const supportsControl =
     ownerService.online &&
     ownerService.sessions.some(
@@ -3583,7 +3566,7 @@ async function resolveCurrentOpenMeldToolsControlTarget(input: {
   if (!supportsControl) {
     throw createCoreRpcHttpError({
       code: "service_update_required",
-      reason: "Reconnect OpenMeld Service to use this action.",
+      reason: "Reconnect Computer to use this action.",
       status: 409,
     });
   }
@@ -5070,6 +5053,7 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
 function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
   const definitiveCodes = new Set([
     "agent_profile_work_recovery.continuation_conflict",
+    "agent_profile_work_recovery.continuation_source_mismatch",
     "agent_profile_work_recovery.continuation_unavailable",
   ]);
   const visited = new Set<unknown>();
@@ -5081,6 +5065,12 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
     visited.add(current);
     const record = current as Record<string, unknown>;
     if (typeof record.code === "string" && definitiveCodes.has(record.code)) {
+      return true;
+    }
+    if (
+      typeof record.message === "string" &&
+      definitiveCodes.has(record.message)
+    ) {
       return true;
     }
     current = record.cause ?? null;
@@ -5107,6 +5097,15 @@ async function executeAgentProfileWorkContinuation(input: {
   ) {
     return "deferred";
   }
+  const deterministicIdentity = await buildAgentProfileWorkContinuationIdentity(
+    {
+      interruptedClientMessageId: input.recovery.interruptedClientMessageId,
+      targetProfileId: input.targetProfileId,
+    }
+  );
+  const continuationClientMessageId =
+    input.recovery.authorizedContinuationClientMessageId ??
+    deterministicIdentity.continuationClientMessageId;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
     input.env,
     input.recovery.spaceId
@@ -5118,52 +5117,9 @@ async function executeAgentProfileWorkContinuation(input: {
     spaceId,
     targetProfileId: input.targetProfileId,
   });
-  const inspected = await stub.rpcInspectExecutionRecovery({
-    context: input.context,
-    dispatchId: input.recovery.interruptedDispatchId,
-    spaceAccess,
-    spaceId,
-  });
-  const projection = inspected.recovery;
-  if (
-    projection.identity.dispatchId !== input.recovery.interruptedDispatchId ||
-    projection.identity.targetProfileId !== input.targetProfileId ||
-    projection.identity.spaceId !== spaceId ||
-    !projection.actions.retryAsNewExecution.enabled
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_unavailable",
-      reason:
-        "OpenMeld could not verify the interrupted task for a safe continuation.",
-      status: 409,
-    });
-  }
-  const command: ExecuteExecutionRecoveryBody = {
-    action: "retry_as_new_execution",
-    destination: projection.destination,
-    expectedIdentity: projection.identity,
-    operationId: await buildAgentProfileWorkRecoveryOperationId({
-      interruptedClientMessageId: input.recovery.interruptedClientMessageId,
-      targetProfileId: input.targetProfileId,
-    }),
-  };
-  const operationKeys = await buildExecutionRecoveryOperationKeys(command);
-  const continuationClientMessageId =
-    buildExecutionRecoveryFreshClientMessageId(operationKeys.claimStorageKey);
-  if (
-    input.recovery.authorizedContinuationClientMessageId !== null &&
-    input.recovery.authorizedContinuationClientMessageId !==
-      continuationClientMessageId
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_conflict",
-      reason: "This interrupted task already has a different continuation.",
-      status: 409,
-    });
-  }
   if (input.recovery.authorizedContinuationClientMessageId === null) {
-    const currentBinding =
-      await requireCurrentAgentProfileWorkContinuationBinding({
+    const currentTarget =
+      await requireCurrentAgentProfileWorkContinuationTarget({
         env: input.env,
         ownerUserId: input.ownerUserId,
         targetProfileId: input.targetProfileId,
@@ -5171,9 +5127,10 @@ async function executeAgentProfileWorkContinuation(input: {
     const authorized =
       await input.ownerShard.rpcAuthorizeAgentProfileWorkContinuation({
         continuationClientMessageId,
-        currentAgentControllerRef: currentBinding.agentControllerRef,
-        currentBindingId: currentBinding.bindingId,
-        currentConfigurationRevision: currentBinding.configurationRevision,
+        currentAgentControllerRef: currentTarget.agentControllerRef,
+        currentBindingId: currentTarget.bindingId,
+        currentConfigurationRevision: currentTarget.configurationRevision,
+        currentDefaultProjectId: currentTarget.defaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           input.recovery.interruptedTargetWakeLifecycleId,
         ownerUserId: input.ownerUserId,
@@ -5184,23 +5141,17 @@ async function executeAgentProfileWorkContinuation(input: {
       throwAgentProfileWorkContinuationAuthorizationError(authorized.status);
     }
   }
-  const executed = await stub.rpcExecuteExecutionRecovery({
-    body: command,
+  await stub.rpcStartUsageExhaustedContinuation({
+    continuationClientMessageId,
     context: input.context,
+    interruptedClientMessageId: input.recovery.interruptedClientMessageId,
+    interruptedDispatchId: input.recovery.interruptedDispatchId,
+    interruptedSourceSignalId: input.recovery.interruptedSourceSignalId,
+    operationId: deterministicIdentity.operationId,
     spaceAccess,
     spaceId,
+    targetProfileId: input.targetProfileId,
   });
-  if (
-    executed.status !== "new_execution_requested" &&
-    executed.status !== "already_completed"
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_profile_work_recovery.continuation_outcome_unknown",
-      reason:
-        "OpenMeld could not confirm that the continuation started. Check this Agent’s Activity before trying again.",
-      status: 503,
-    });
-  }
   return "started";
 }
 
@@ -5229,7 +5180,7 @@ function throwAgentProfileWorkContinuationAuthorizationError(
   });
 }
 
-async function requireCurrentAgentProfileWorkContinuationBinding(input: {
+async function requireCurrentAgentProfileWorkContinuationTarget(input: {
   env: CoreBindings;
   ownerUserId: string;
   targetProfileId: string;
@@ -5237,6 +5188,7 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
   agentControllerRef: string;
   bindingId: string;
   configurationRevision: number;
+  defaultProjectId: string | null;
 }> {
   const bindingDb = localStateDb(input.env);
   if (!bindingDb) {
@@ -5246,18 +5198,27 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
       status: 503,
     });
   }
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.targetProfileId,
-    db: bindingDb,
-    owner: { id: input.ownerUserId, kind: "owner_account" },
-  });
+  const [binding, authScope] = await Promise.all([
+    readPrimaryAgentProfileBindingRecord({
+      agentProfileId: input.targetProfileId,
+      db: bindingDb,
+      owner: { id: input.ownerUserId, kind: "owner_account" },
+    }),
+    resolveAgentProfileWorkRecoveryAuthScope({
+      agentProfileId: input.targetProfileId,
+      authWorker: input.env.OPENMELD_AUTH_WORKER,
+    }),
+  ]);
   const agentControllerRef = binding
     ? parseAgentControllerRef(binding.agentControllerRef)
     : null;
   if (
     binding?.bindingState !== "enabled_primary" ||
     binding.runtimeKind !== "openmeld_service" ||
-    !agentControllerRef
+    !agentControllerRef ||
+    authScope.status === "invalid" ||
+    (authScope.status === "valid" &&
+      authScope.scope.ownerUserId !== input.ownerUserId)
   ) {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.continuation_unavailable",
@@ -5266,22 +5227,33 @@ async function requireCurrentAgentProfileWorkContinuationBinding(input: {
       status: 409,
     });
   }
+  if (authScope.status !== "valid") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld could not verify this Agent’s current setup yet.",
+      status: 503,
+    });
+  }
   return {
     agentControllerRef: agentControllerRef.ref,
     bindingId: binding.bindingId,
     configurationRevision: binding.configurationRevision,
+    defaultProjectId: authScope.scope.defaultProjectId,
   };
 }
 
-async function buildAgentProfileWorkRecoveryOperationId(input: {
+async function buildAgentProfileWorkContinuationIdentity(input: {
   interruptedClientMessageId: string;
   targetProfileId: string;
-}): Promise<string> {
+}): Promise<{
+  continuationClientMessageId: string;
+  operationId: string;
+}> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(
       JSON.stringify([
-        "agent_profile_work_recovery_v1",
+        "agent_profile_work_usage_continuation_v1",
         input.targetProfileId,
         input.interruptedClientMessageId,
       ])
@@ -5290,7 +5262,10 @@ async function buildAgentProfileWorkRecoveryOperationId(input: {
   const hex = Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("");
-  return `agent-profile-work-recovery:${hex}`;
+  return {
+    continuationClientMessageId: `agent-profile-work-continuation-${hex}`,
+    operationId: `agent-profile-work-continuation:${hex}`,
+  };
 }
 
 export async function rpcGetAgentProfileControllerChangeEligibility(
@@ -5449,614 +5424,6 @@ export async function rpcDisableAgentProfilePrimaryBinding(
   }
 }
 
-function rejectRemovedOrganizationWakeAccessApi(): void {
-  throw createCoreRpcHttpError({
-    code: "agent_profile.organization_ownership_required",
-    reason:
-      "Agent Profiles can only be used in the workspace where they were created.",
-    status: 410,
-  });
-}
-
-export async function rpcAuthorizeAgentProfileBindingForOrganization(
-  env: CoreBindings,
-  input: AuthorizeAgentProfileBindingForOrganizationInput
-): Promise<AuthorizeAgentProfileBindingForOrganizationResponse> {
-  rejectRemovedOrganizationWakeAccessApi();
-  const request = requireAgentProfileBindingRequest(input);
-  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
-    context: request.context,
-    env,
-  });
-  const db = requireAgentProfileBindingDb(env);
-  await requireAuthorizableAgentProfileOrganization({
-    activeOrganizationId: activeOrganization.organizationId,
-    agentProfileId: request.agentProfileId,
-    db,
-    operation: "authorize",
-    userId: activeOrganization.userId,
-  });
-
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: request.agentProfileId,
-    db,
-    owner: request.owner,
-  });
-  if (binding?.bindingState !== "enabled_primary") {
-    throw createCoreRpcHttpError({
-      status: 409,
-      reason:
-        "Create an enabled primary Binding before authorizing it for an Organization.",
-      code: "organization_binding_authorization.binding_required",
-    });
-  }
-
-  const authorization = await ensureOrganizationBindingAuthorizationRecord({
-    authorizedBy: activeOrganization.userId,
-    bindingId: binding.bindingId,
-    db,
-    nowMs: Date.now(),
-    organizationId: activeOrganization.organizationId,
-  });
-
-  return buildAuthorizeAgentProfileBindingForOrganizationResponse({
-    agentProfileId: request.agentProfileId,
-    authorization,
-  });
-}
-
-async function requireAuthorizableAgentProfileOrganization(input: {
-  activeOrganizationId: string;
-  agentProfileId: string;
-  db: D1Database;
-  operation: "authorize" | "revoke";
-  userId: string;
-}) {
-  const profileOrganization = await readAgentProfileOrganizationContext({
-    db: input.db,
-    agentProfileId: input.agentProfileId,
-  });
-  if (!profileOrganization) {
-    throw createCoreRpcHttpError({
-      status: 404,
-      reason: "Agent Profile was not found.",
-      code: "agent_profile.not_found",
-    });
-  }
-  if (profileOrganization.profileKind !== "agent") {
-    throw createCoreRpcHttpError({
-      status: 400,
-      reason:
-        input.operation === "authorize"
-          ? "Only Agent Profiles can authorize a Binding for an Organization."
-          : "Only Agent Profiles can revoke a Binding authorization for an Organization.",
-      code: "agent_profile.invalid_input",
-    });
-  }
-  if (
-    input.operation === "authorize" &&
-    !isAgentProfileEligibleForOrganization({
-      managedRole: profileOrganization.managedRole,
-      profileOrganizationId: profileOrganization.organizationId,
-      targetOrganizationId: input.activeOrganizationId,
-    })
-  ) {
-    throw createCoreRpcHttpError({
-      status: 403,
-      reason:
-        "A Center Agent Binding can be authorized only for its own Organization.",
-      code: "organization_binding_authorization.managed_profile_org_mismatch",
-    });
-  }
-
-  const personalOrganizationId = await readPersonalOrganizationIdForUser({
-    db: input.db,
-    userId: input.userId,
-  });
-  if (
-    profileOrganization.organizationId === input.activeOrganizationId ||
-    (personalOrganizationId &&
-      profileOrganization.organizationId === personalOrganizationId)
-  ) {
-    return;
-  }
-
-  throw createCoreRpcHttpError({
-    status: 403,
-    reason:
-      "Agent Profile must belong to the active Organization or your personal Organization.",
-    code: "organization_binding_authorization.profile_org_mismatch",
-  });
-}
-
-export async function rpcBulkAuthorizeAgentProfileBindingsForOrganization(
-  env: CoreBindings,
-  input: BulkAuthorizeAgentProfileBindingsForOrganizationInput
-): Promise<BulkAuthorizeAgentProfileBindingsForOrganizationResponse> {
-  rejectRemovedOrganizationWakeAccessApi();
-  const context = requireRpcContext(input.context);
-  const organizationId = requireOrganizationId(input.organizationId);
-  const body =
-    bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema.safeParse({
-      agentProfileIds: input.agentProfileIds,
-    });
-  if (!body.success) {
-    throw createCoreRpcHttpError({
-      status: 400,
-      reason:
-        body.error.issues[0]?.message ??
-        "invalid Organization Binding authorization payload",
-      code: "invalid_payload",
-    });
-  }
-
-  const membership = await requireOrganizationMembershipOrThrow({
-    context,
-    env,
-    organizationId,
-  });
-  const db = requireAgentProfileBindingDb(env);
-  const requestedAgentProfileIds = body.data.agentProfileIds
-    ? [...new Set(body.data.agentProfileIds)]
-    : undefined;
-  const candidates = await listBulkOrganizationBindingAuthorizationCandidates({
-    agentProfileIds: requestedAgentProfileIds,
-    db,
-    organizationId,
-    userId: membership.userId,
-  });
-  if (requestedAgentProfileIds) {
-    const candidateProfileIds = new Set(
-      candidates.map((candidate) => candidate.agentProfileId)
-    );
-    const missingAgentProfileIds = requestedAgentProfileIds.filter(
-      (agentProfileId) => !candidateProfileIds.has(agentProfileId)
-    );
-    if (missingAgentProfileIds.length > 0) {
-      throw createCoreRpcHttpError({
-        status: 403,
-        reason:
-          "Every requested Agent Profile must belong to the Organization or your personal Organization, be owned by the caller, and have an enabled primary Binding.",
-        code: "organization_binding_authorization.profile_owner_mismatch",
-      });
-    }
-  }
-
-  const nowMs = Date.now();
-  const authorizations = await Promise.all(
-    candidates.map(async (candidate) => {
-      const authorization = await ensureOrganizationBindingAuthorizationRecord({
-        authorizedBy: membership.userId,
-        bindingId: candidate.bindingId,
-        db,
-        nowMs,
-        organizationId,
-      });
-      return {
-        agentProfileId: candidate.agentProfileId,
-        authorizedBy: authorization.record.authorizedBy,
-        bindingId: authorization.record.bindingId,
-        createdAt: toIsoDateTime(authorization.record.createdAtMs),
-        organizationId,
-        status: authorization.status,
-      };
-    })
-  );
-
-  return buildBulkAuthorizeAgentProfileBindingsForOrganizationResponse({
-    authorizations,
-    organizationId,
-  });
-}
-
-export async function rpcSaveOrganizationWakeAccessChoice(
-  env: CoreBindings,
-  input: SaveOrganizationWakeAccessChoiceInput
-): Promise<SaveOrganizationWakeAccessChoiceResponse> {
-  rejectRemovedOrganizationWakeAccessApi();
-  const context = requireRpcContext(input.context);
-  const organizationId = requireOrganizationId(input.organizationId);
-  const body = saveOrganizationWakeAccessChoiceBodySchema.safeParse({
-    enableWakeAccess: input.enableWakeAccess,
-  });
-  if (!body.success) {
-    throw createCoreRpcHttpError({
-      status: 400,
-      reason:
-        body.error.issues[0]?.message ??
-        "invalid Organization Wake access choice payload",
-      code: "invalid_payload",
-    });
-  }
-
-  const membership = await requireOrganizationMembershipOrThrow({
-    context,
-    env,
-    organizationId,
-  });
-  const db = requireAgentProfileBindingDb(env);
-  const candidates = body.data.enableWakeAccess
-    ? await listBulkOrganizationBindingAuthorizationCandidates({
-        db,
-        organizationId,
-        userId: membership.userId,
-      })
-    : [];
-  const result = await saveOrganizationWakeAccessChoiceRecord({
-    authorizeExistingBindings: candidates,
-    autoAuthorizeAgentProfileBindings: body.data.enableWakeAccess,
-    db,
-    nowMs: Date.now(),
-    organizationId,
-    userId: membership.userId,
-  });
-
-  const response = {
-    alreadyAuthorizedCount: result.alreadyAuthorizedCount,
-    authorizedCount: result.authorizedCount,
-    organizationId,
-    preference: buildOrganizationBindingAuthorizationPreferenceResponse({
-      autoAuthorizeAgentProfileBindings:
-        result.preference.autoAuthorizeAgentProfileBindings,
-      organizationId,
-      updatedAtMs: result.preference.updatedAtMs,
-      userId: membership.userId,
-    }),
-  };
-  const validated =
-    saveOrganizationWakeAccessChoiceResponseSchema.safeParse(response);
-  if (!validated.success) {
-    throw new Error(
-      `failed to build Organization Wake access choice response: ${validated.error.message}`
-    );
-  }
-  return validated.data;
-}
-
-async function listBulkOrganizationBindingAuthorizationCandidates(input: {
-  agentProfileIds?: readonly string[];
-  db: D1Database;
-  organizationId: string;
-  userId: string;
-}): Promise<OrganizationBindingAuthorizationCandidate[]> {
-  const targetOrganizationCandidates =
-    await listOrganizationBindingAuthorizationCandidates({
-      agentProfileIds: input.agentProfileIds,
-      db: input.db,
-      organizationId: input.organizationId,
-      userId: input.userId,
-    });
-  const personalOrganizationId = await readPersonalOrganizationIdForUser({
-    db: input.db,
-    userId: input.userId,
-  });
-  if (
-    !personalOrganizationId ||
-    personalOrganizationId === input.organizationId
-  ) {
-    return targetOrganizationCandidates;
-  }
-
-  const personalOrganizationCandidates =
-    await listOrganizationBindingAuthorizationCandidates({
-      agentProfileIds: input.agentProfileIds,
-      db: input.db,
-      organizationId: personalOrganizationId,
-      userId: input.userId,
-    });
-
-  return dedupeBindingAuthorizationCandidates([
-    ...targetOrganizationCandidates,
-    ...personalOrganizationCandidates,
-  ]).filter((candidate) =>
-    isAgentProfileEligibleForOrganization({
-      managedRole: candidate.managedRole,
-      profileOrganizationId: candidate.organizationId,
-      targetOrganizationId: input.organizationId,
-    })
-  );
-}
-
-function dedupeBindingAuthorizationCandidates(
-  candidates: readonly OrganizationBindingAuthorizationCandidate[]
-): OrganizationBindingAuthorizationCandidate[] {
-  const seenBindingIds = new Set<string>();
-  const dedupedCandidates: OrganizationBindingAuthorizationCandidate[] = [];
-  for (const candidate of candidates) {
-    if (seenBindingIds.has(candidate.bindingId)) {
-      continue;
-    }
-    seenBindingIds.add(candidate.bindingId);
-    dedupedCandidates.push(candidate);
-  }
-  return dedupedCandidates;
-}
-
-export async function rpcListOrganizationBindingAuthorizations(
-  env: CoreBindings,
-  input: ListOrganizationBindingAuthorizationsInput
-): Promise<ListOrganizationBindingAuthorizationsResponse> {
-  rejectRemovedOrganizationWakeAccessApi();
-  const context = requireRpcContext(input.context);
-  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
-    context,
-    env,
-  });
-  const db = requireAgentProfileBindingDb(env);
-  const authorizations = await listOrganizationBindingAuthorizationRecords({
-    db,
-    organizationId: activeOrganization.organizationId,
-  });
-
-  const response = {
-    organizationId: activeOrganization.organizationId,
-    authorizations: authorizations.map((authorization) => ({
-      agentProfileId: authorization.agentProfileId,
-      authorizedBy: authorization.authorizedBy,
-      bindingId: authorization.bindingId,
-      createdAt: toIsoDateTime(authorization.createdAtMs),
-    })),
-  };
-  const validated =
-    listOrganizationBindingAuthorizationsResponseSchema.safeParse(response);
-  if (!validated.success) {
-    throw new Error(
-      `failed to build Organization Binding authorization list response: ${validated.error.message}`
-    );
-  }
-  return validated.data;
-}
-
-export async function rpcListOrganizationBindingAuthorizationProfiles(
-  env: CoreBindings,
-  input: ListOrganizationBindingAuthorizationProfilesInput
-): Promise<ListOrganizationBindingAuthorizationProfilesResponse> {
-  rejectRemovedOrganizationWakeAccessApi();
-  const context = requireRpcContext(input.context);
-  const organizationId = requireOrganizationId(input.organizationId);
-  const membership = await requireOrganizationMembershipOrThrow({
-    context,
-    env,
-    organizationId,
-  });
-  const db = requireAgentProfileBindingDb(env);
-  const personalOrganizationId = await readPersonalOrganizationIdForUser({
-    db,
-    userId: membership.userId,
-  });
-  const profileOrganizationIds = [
-    organizationId,
-    ...(personalOrganizationId && personalOrganizationId !== organizationId
-      ? [personalOrganizationId]
-      : []),
-  ];
-  const profiles = await listOrganizationBindingAuthorizationProfiles({
-    authorizationOrganizationId: organizationId,
-    db,
-    preferredProfileOrganizationId: organizationId,
-    profileOrganizationIds,
-    userId: membership.userId,
-  });
-
-  const response = {
-    organizationId,
-    profiles: profiles.map((profile) => {
-      const authorized =
-        profile.bindingId !== null &&
-        profile.authorizedBy !== null &&
-        profile.authorizedAtMs !== null;
-      let status: "authorized" | "not_authorized" | "binding_required";
-      if (authorized) {
-        status = "authorized";
-      } else if (profile.bindingId) {
-        status = "not_authorized";
-      } else {
-        status = "binding_required";
-      }
-      return {
-        agentProfileId: profile.agentProfileId,
-        profileName: profile.profileName,
-        profileHandle: profile.profileHandle,
-        profileOrganizationId: profile.profileOrganizationId,
-        ownerUserId: profile.ownerUserId,
-        bindingId: profile.bindingId,
-        authorized,
-        authorizedBy: authorized ? profile.authorizedBy : null,
-        authorizedAt: authorized ? toIsoDateTime(profile.authorizedAtMs) : null,
-        status,
-      };
-    }),
-  };
-  const validated =
-    listOrganizationBindingAuthorizationProfilesResponseSchema.safeParse(
-      response
-    );
-  if (!validated.success) {
-    throw new Error(
-      `failed to build Organization Binding authorization profile list response: ${validated.error.message}`
-    );
-  }
-  return validated.data;
-}
-
-export async function rpcListCurrentUserAgentProfileOrganizationWakeAccess(
-  env: CoreBindings,
-  input: ListCurrentUserAgentProfileOrganizationWakeAccessInput
-): Promise<ListCurrentUserAgentProfileOrganizationWakeAccessResponse> {
-  rejectRemovedOrganizationWakeAccessApi();
-  const ownerUserId = requireAuthenticatedOwnerUserId(input.context);
-  const db = requireAgentProfileBindingDb(env);
-
-  const bindings = await listEnabledPrimaryAgentProfileBindingRecords({
-    db,
-    owner: { id: ownerUserId, kind: "owner_account" },
-  });
-  if (bindings.length === 0) {
-    return { profiles: [] };
-  }
-
-  const personalOrganizationId = await readPersonalOrganizationIdForUser({
-    db,
-    userId: ownerUserId,
-  });
-
-  const bindingAuthorizations = await Promise.all(
-    bindings.map(async (binding) => ({
-      agentProfileId: binding.agentProfileId,
-      authorizations:
-        await listOrganizationBindingAuthorizationRecordsForBinding({
-          bindingId: binding.bindingId,
-          db,
-        }),
-    }))
-  );
-
-  const organizationIdsByAgentProfileId = new Map<string, string[]>();
-  const allOrganizationIds = new Set<string>();
-  for (const { agentProfileId, authorizations } of bindingAuthorizations) {
-    const organizationIds = authorizations
-      .map((authorization) => authorization.organizationId)
-      .filter((organizationId) => organizationId !== personalOrganizationId);
-    if (organizationIds.length === 0) {
-      continue;
-    }
-    organizationIdsByAgentProfileId.set(agentProfileId, organizationIds);
-    for (const organizationId of organizationIds) {
-      allOrganizationIds.add(organizationId);
-    }
-  }
-  if (organizationIdsByAgentProfileId.size === 0) {
-    return { profiles: [] };
-  }
-
-  const organizationSummaryById = await readOrganizationSummariesByIds({
-    db,
-    organizationIds: [...allOrganizationIds],
-  });
-
-  const response: ListCurrentUserAgentProfileOrganizationWakeAccessResponse = {
-    profiles: [...organizationIdsByAgentProfileId.entries()].map(
-      ([agentProfileId, organizationIds]) => ({
-        agentProfileId,
-        organizations: organizationIds.flatMap((organizationId) => {
-          const summary = organizationSummaryById.get(organizationId);
-          return summary
-            ? [
-                {
-                  organizationId,
-                  organizationName: summary.name,
-                  organizationSlug: summary.slug,
-                },
-              ]
-            : [];
-        }),
-      })
-    ),
-  };
-  const validated =
-    listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema.safeParse(
-      response
-    );
-  if (!validated.success) {
-    throw new Error(
-      `failed to build current-user Agent Profile organization Wake access response: ${validated.error.message}`
-    );
-  }
-  return validated.data;
-}
-
-async function readOrganizationSummariesByIds(input: {
-  db: D1Database;
-  organizationIds: readonly string[];
-}): Promise<Map<string, { name: string; slug: string }>> {
-  if (input.organizationIds.length === 0) {
-    return new Map();
-  }
-  const placeholders = input.organizationIds.map(() => "?").join(", ");
-  const result = await input.db
-    .prepare(
-      `SELECT id, name, slug FROM organizations WHERE id IN (${placeholders})`
-    )
-    .bind(...input.organizationIds)
-    .all<{ id: string; name: string; slug: string }>();
-  return new Map(
-    (result.results ?? []).map((row) => [
-      row.id,
-      { name: row.name, slug: row.slug },
-    ])
-  );
-}
-
-export async function rpcRevokeAgentProfileBindingForOrganization(
-  env: CoreBindings,
-  input: RevokeAgentProfileBindingForOrganizationInput
-): Promise<RevokeAgentProfileBindingForOrganizationResponse> {
-  rejectRemovedOrganizationWakeAccessApi();
-  const request = requireAgentProfileBindingRequest(input);
-  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
-    context: request.context,
-    env,
-  });
-  const db = requireAgentProfileBindingDb(env);
-  await requireAuthorizableAgentProfileOrganization({
-    activeOrganizationId: activeOrganization.organizationId,
-    agentProfileId: request.agentProfileId,
-    db,
-    operation: "revoke",
-    userId: activeOrganization.userId,
-  });
-
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: request.agentProfileId,
-    db,
-    owner: request.owner,
-  });
-  const revoked = binding
-    ? await deleteOrganizationBindingAuthorizationRecord({
-        bindingId: binding.bindingId,
-        db,
-        organizationId: activeOrganization.organizationId,
-      })
-    : false;
-
-  return buildRevokeAgentProfileBindingForOrganizationResponse({
-    agentProfileId: request.agentProfileId,
-    bindingId: binding?.bindingId ?? null,
-    organizationId: activeOrganization.organizationId,
-    revoked,
-  });
-}
-
-export async function rpcGetOrganizationBindingAuthorizationPreference(
-  env: CoreBindings,
-  input: GetOrganizationBindingAuthorizationPreferenceInput
-): Promise<GetOrganizationBindingAuthorizationPreferenceResponse> {
-  rejectRemovedOrganizationWakeAccessApi();
-  const context = requireRpcContext(input.context);
-  const organizationId = requireOrganizationId(input.organizationId);
-  const membership = await requireOrganizationMembershipOrThrow({
-    context,
-    env,
-    organizationId,
-  });
-  const db = requireAgentProfileBindingDb(env);
-  const preference = await readOrganizationBindingAuthorizationPreferenceRecord(
-    {
-      db,
-      organizationId,
-      userId: membership.userId,
-    }
-  );
-
-  return buildOrganizationBindingAuthorizationPreferenceResponse({
-    autoAuthorizeAgentProfileBindings:
-      preference?.autoAuthorizeAgentProfileBindings ?? false,
-    organizationId,
-    updatedAtMs: preference?.updatedAtMs ?? null,
-    userId: membership.userId,
-  });
-}
-
 export async function rpcGetAgentProfileCreationDefaults(
   env: CoreBindings,
   input: GetAgentProfileCreationDefaultsInput
@@ -6081,7 +5448,7 @@ export async function rpcGetAgentProfileCreationDefaults(
     ? null
     : resolveFirstUseAgentProfileCreationDefaults({
         agentControllerRef,
-        modelCatalog: readModelCatalog(),
+        modelCatalog: readAuthoredModelCatalog(),
       });
 
   return buildAgentProfileCreationDefaultsResponse({
@@ -6202,53 +5569,6 @@ export async function rpcCenterAgentListAgentProfileCreationDefaults(
     defaults,
     organizationId,
     userId,
-  });
-}
-
-export async function rpcSetOrganizationBindingAuthorizationPreference(
-  env: CoreBindings,
-  input: SetOrganizationBindingAuthorizationPreferenceInput
-): Promise<SetOrganizationBindingAuthorizationPreferenceResponse> {
-  rejectRemovedOrganizationWakeAccessApi();
-  const context = requireRpcContext(input.context);
-  const organizationId = requireOrganizationId(input.organizationId);
-  const body =
-    setOrganizationBindingAuthorizationPreferenceBodySchema.safeParse({
-      autoAuthorizeAgentProfileBindings:
-        input.autoAuthorizeAgentProfileBindings,
-    });
-  if (!body.success) {
-    throw createCoreRpcHttpError({
-      status: 400,
-      reason:
-        body.error.issues[0]?.message ??
-        "invalid Organization Binding authorization preference payload",
-      code: "invalid_payload",
-    });
-  }
-
-  const membership = await requireOrganizationMembershipOrThrow({
-    context,
-    env,
-    organizationId,
-  });
-  const db = requireAgentProfileBindingDb(env);
-  const preference =
-    await upsertOrganizationBindingAuthorizationPreferenceRecord({
-      autoAuthorizeAgentProfileBindings:
-        body.data.autoAuthorizeAgentProfileBindings,
-      db,
-      nowMs: Date.now(),
-      organizationId,
-      userId: membership.userId,
-    });
-
-  return buildOrganizationBindingAuthorizationPreferenceResponse({
-    autoAuthorizeAgentProfileBindings:
-      preference.autoAuthorizeAgentProfileBindings,
-    organizationId,
-    updatedAtMs: preference.updatedAtMs,
-    userId: membership.userId,
   });
 }
 
@@ -6394,6 +5714,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
   env: CoreBindings,
   input: GetCurrentOrganizationAgentRuntimeOverviewInput
 ): Promise<OrganizationAgentRuntimeOverviewResponse> {
+  const startedAtMs = Date.now();
   const context = requireRpcContext(input.context);
   const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
     context,
@@ -6415,6 +5736,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     viewerUserId: activeOrganization.userId,
   });
   console.info("[core.organization_agent_runtime_overview.read]", {
+    durationMs: Math.max(0, Date.now() - startedAtMs),
     actorProfileKind: context.actorContext.profileKind,
     agentProfileCount: response.agentProfiles.length,
     event: "organization_agent_runtime_overview.read",
@@ -6560,6 +5882,15 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
         eligibleAgentProfiles: input.eligibleAgentProfiles,
         env: input.env,
         viewerUserId: input.viewerUserId,
+      }).catch((error) => {
+        console.warn(
+          "[core.organization_agent_runtime_overview.activity_unavailable]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            organizationId: input.organizationId,
+          }
+        );
+        return new Map<string, DirectoryOperationalContextRead>();
       }),
     ]);
   const ownerWorkSpaceIds = [
@@ -6581,11 +5912,22 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
       ),
     ];
   });
-  const spaceNamesById = await readSpaceIndexNamesByIds({
-    db: requireSpaceIndexDb(input.env),
-    organizationId: input.organizationId,
-    spaceIds: ownerWorkSpaceIds,
-  });
+  let spaceNamesById = new Map<string, string>();
+  try {
+    spaceNamesById = await readSpaceIndexNamesByIds({
+      db: requireSpaceIndexDb(input.env),
+      organizationId: input.organizationId,
+      spaceIds: ownerWorkSpaceIds,
+    });
+  } catch (error) {
+    console.warn(
+      "[core.organization_agent_runtime_overview.space_names_unavailable]",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        organizationId: input.organizationId,
+      }
+    );
+  }
   const response = {
     agentProfiles: input.eligibleAgentProfiles.map((agent) => {
       const readiness = readinessByProfileId.get(agent.profileId);
@@ -6639,6 +5981,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
   >
 > {
   const profilesByOwner = new Map<string, EligibleOrganizationAgentProfile[]>();
+  const reads = createAgentExecutionReadinessReads();
   for (const profile of input.eligibleAgentProfiles) {
     const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
     profiles.push(profile);
@@ -6675,6 +6018,33 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             targets: onlineTargets,
           })
         : null;
+      const workingFolderExpectedRoutesByTarget = new Map<
+        string,
+        Awaited<ReturnType<typeof readLocalRuntimeExpectedRoutes>> | null
+      >();
+      const stateDb = localStateDb(input.env);
+      if (preloadedRoutes && stateDb) {
+        const uniqueOnlineTargets = new Map(
+          onlineTargets.map((target) => [
+            `${target.deviceId}\u0000${target.runtimeLane}`,
+            target,
+          ])
+        );
+        await Promise.all(
+          [...uniqueOnlineTargets].map(async ([key, target]) => {
+            const result = await readLocalRuntimeExpectedRoutes({
+              authWorker: input.env.OPENMELD_AUTH_WORKER,
+              contractVersion: "v4",
+              db: stateDb,
+              deviceId: target.deviceId,
+              generatedAt: input.generatedAt,
+              lane: target.runtimeLane,
+              ownerUserId,
+            }).catch(() => null);
+            workingFolderExpectedRoutesByTarget.set(key, result);
+          })
+        );
+      }
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
@@ -6683,6 +6053,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             ? (preloadedRoutes.routes[agent.profileId] ?? null)
             : undefined;
           const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+            reads,
             activeOrganizationId: input.organizationId,
             env: input.env,
             generatedAt: input.generatedAt,
@@ -6692,6 +6063,10 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             ...(preloadedOwnerService === null
               ? {}
               : { preloadedOwnerService }),
+            ...buildPreloadedWorkingFolderExpectedRoutesInput({
+              preloadedRoute,
+              workingFolderExpectedRoutesByTarget,
+            }),
             preloadedProfileIdentity: {
               ownerUserId: agent.ownerUserId,
               profileKind: "agent",
@@ -6724,6 +6099,31 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     }
   );
   return new Map(ownerResults.flat());
+}
+
+function buildPreloadedWorkingFolderExpectedRoutesInput(input: {
+  preloadedRoute:
+    | import("@openmeld/schemas/types").RuntimeTransportLookupRouteResponse
+    | null
+    | undefined;
+  workingFolderExpectedRoutesByTarget: ReadonlyMap<
+    string,
+    Awaited<ReturnType<typeof readLocalRuntimeExpectedRoutes>> | null
+  >;
+}): {
+  preloadedWorkingFolderExpectedRoutes?: Awaited<
+    ReturnType<typeof readLocalRuntimeExpectedRoutes>
+  > | null;
+} {
+  if (!input.preloadedRoute?.online) {
+    return {};
+  }
+  return {
+    preloadedWorkingFolderExpectedRoutes:
+      input.workingFolderExpectedRoutesByTarget.get(
+        `${input.preloadedRoute.deviceId}\u0000${input.preloadedRoute.lane}`
+      ) ?? null,
+  };
 }
 
 async function mapWithConcurrency<Input, Output>(
@@ -6862,6 +6262,13 @@ export async function rpcRecordCurrentOrganizationWebActivity(
     organizationId: activeOrganization.organizationId,
     userId: activeOrganization.userId,
   });
+  if (input.spaceId) {
+    const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+    await stub.rpcRecordMemberWebActivity({
+      ...response,
+      profileId: humanProfileId,
+    });
+  }
   console.info("[core.organization_member_activity.recorded]", {
     event: "organization_member_activity.recorded",
     lastActiveAt: response.lastActiveAt,
@@ -11666,12 +11073,6 @@ function buildCenterAgentProductOperationDeps(
         spaceId,
       });
     },
-    authorizeAgentProfileForOrganization: async ({ agentProfileId }) => {
-      await rpcAuthorizeAgentProfileBindingForOrganization(env, {
-        agentProfileId,
-        context,
-      });
-    },
     checkAgentProfileReadiness: async ({ agentProfileId }) => {
       const readiness = await rpcGetAgentExecutionReadiness(env, {
         agentProfileId,
@@ -13585,6 +12986,88 @@ export async function rpcCenterAgentGetOrganizationSpaceDirectory(
       type: "organization",
       id: authorization.activeOrganization.organizationId,
     },
+    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+  });
+  return response;
+}
+
+export async function rpcCenterAgentListActiveSpaceWakes(
+  env: CoreBindings,
+  input: CenterAgentListActiveSpaceWakesInput
+): Promise<AccountSpaceActiveWakeSummaryResponse> {
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  const { authorization } = prepared;
+  const directory = await rpcGetCurrentOrganizationSpaceDirectory(env, {
+    context: authorization.context,
+  });
+  const response = await buildActiveWakeSummaryForSpaceIds({
+    env,
+    ownerUserId: authorization.actorProfile.ownerUserId,
+    spaceIds: directory.spaces.map((space) => space.spaceId),
+  });
+  await writeCenterAgentAuditEntry({
+    action: "read_org_space_directory",
+    authorization,
+    onBehalfOfProfileId: null,
+    resource: {
+      type: "organization",
+      id: authorization.activeOrganization.organizationId,
+    },
+    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+  });
+  return response;
+}
+
+export async function rpcCenterAgentReadSpaceWakeProgress(
+  env: CoreBindings,
+  input: CenterAgentReadSpaceWakeProgressInput
+): Promise<GetActiveSpaceWakeProgressResponse> {
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  const { authorization } = prepared;
+  const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
+    includeSourceContext: true,
+    includeTiming: true,
+    includeWaitReason: true,
+    spaceId: input.spaceId,
+    ...(input.sourceProfileId
+      ? { sourceProfileId: input.sourceProfileId }
+      : {}),
+    ...(input.targetProfileId
+      ? { targetProfileId: input.targetProfileId }
+      : {}),
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "Center Agent Space Wake progress input is invalid.",
+      status: 400,
+    });
+  }
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization,
+    env,
+    spaceId: parsed.data.spaceId,
+  });
+  const response = await rpcGetActiveSpaceWakeProgress(env, {
+    context: authorization.context,
+    includeSourceContext: true,
+    includeTiming: true,
+    includeWaitReason: true,
+    spaceId: parsed.data.spaceId,
+    ...(parsed.data.sourceProfileId
+      ? { sourceProfileId: parsed.data.sourceProfileId }
+      : {}),
+    ...(parsed.data.targetProfileId
+      ? { targetProfileId: parsed.data.targetProfileId }
+      : {}),
+  });
+  await writeCenterAgentAuditEntry({
+    action: "read_space_context",
+    authorization,
+    onBehalfOfProfileId: null,
+    resource: { type: "space", id: parsed.data.spaceId },
     sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
   });
   return response;
@@ -16546,17 +16029,54 @@ export async function rpcConvertDirectMessageToSpace(
     })
   );
   const { stub } = resolveRpcSpaceStubOrThrow(env, spaceId);
+  const currentMembers = await stub.rpcGetIdentityDirectory({
+    context,
+    spaceId,
+  });
+  const currentMemberProfileIds = new Set(
+    currentMembers.entries.map((member) => member.profileId)
+  );
+  if (
+    !members.some((member) => !currentMemberProfileIds.has(member.profileId))
+  ) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Choose at least one new member.",
+      status: 400,
+    });
+  }
+  const currentAgentMembers = await Promise.all(
+    currentMembers.entries
+      .filter((member) => member.profileKind === "agent")
+      .map(async (member) => {
+        const resolved = await readResolvedOrganizationSpaceMember({
+          db,
+          organizationId: activeOrganization.organizationId,
+          profileId: member.profileId,
+        });
+        if (!resolved) {
+          throw createCoreRpcHttpError({
+            code: "agent_profile.not_found",
+            reason: "Agent Profile was not found.",
+            status: 404,
+          });
+        }
+        return resolved;
+      })
+  );
   const membersWithAgentOwners = await resolveSpaceMembersWithAgentOwners({
     context,
     env,
     expandAgentOwnersInDirectMessageConversion: true,
-    members,
+    members: [...members, ...currentAgentMembers],
     spaceId,
     stub,
   });
   const response = await stub.rpcConvertDirectMessageToSpace({
     context,
-    members: membersWithAgentOwners,
+    members: membersWithAgentOwners.filter(
+      (member) => !currentMemberProfileIds.has(member.profileId)
+    ),
     name: parsed.data.name,
     spaceId,
   });
@@ -17975,6 +17495,167 @@ export async function rpcGetSpaceStatus(
   );
 }
 
+export async function rpcGetSpaceEntryResolution(
+  env: CoreBindings,
+  input: GetSpaceEntryResolutionRpcInput
+): Promise<GetSpaceEntryResolutionResponse> {
+  const parsed = getSpaceEntryResolutionInputSchema.safeParse({
+    spaceId: input.spaceId,
+    signalId: input.signalId,
+    threadRootSignalId: input.threadRootSignalId,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "Space entry resolution input is invalid",
+    });
+  }
+
+  const target = parsed.data;
+  const indexed = await readSpaceIndexOrganizationJoinTarget({
+    db: requireSpaceIndexDb(env),
+    spaceId: target.spaceId,
+  });
+  if (!indexed) {
+    return buildUnavailableSpaceEntryResolution(target);
+  }
+
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const context = getSpaceAccessRequestContext(spaceAccess) ?? undefined;
+  const { organizationMember, organizationSlug } =
+    await resolveSpaceEntryOrganizationAudience({
+      context,
+      env,
+      organizationId: indexed.organizationId,
+    });
+  const access = await resolveSpaceEntryAccess({
+    context,
+    env,
+    spaceAccess,
+    spaceId: target.spaceId,
+  });
+
+  if (
+    access.kind === "allowed" &&
+    access.status.accessMode === "members_only" &&
+    !organizationMember
+  ) {
+    throw createCoreRpcHttpError({
+      code: "organization.context_unavailable",
+      reason:
+        "Space membership could not be reconciled with Organization membership.",
+      status: 503,
+    });
+  }
+
+  const response = buildSpaceEntryResolution({
+    access,
+    authenticated: Boolean(context),
+    indexed: {
+      organizationId: indexed.organizationId,
+      ...(organizationSlug ? { organizationSlug } : {}),
+      ...(indexed.creatorProfileId
+        ? {
+            owner: {
+              profileId: indexed.creatorProfileId,
+              ...(indexed.creatorProfileName
+                ? { displayName: indexed.creatorProfileName }
+                : {}),
+            },
+          }
+        : {}),
+      ...(indexed.spaceName ? { spaceName: indexed.spaceName } : {}),
+      visibility: indexed.visibility,
+    },
+    organizationMember,
+    target,
+  });
+  return getSpaceEntryResolutionResponseSchema.parse(response);
+}
+
+async function resolveSpaceEntryOrganizationAudience(input: {
+  context?: CoreRpcContextInput;
+  env: CoreBindings;
+  organizationId: string;
+}): Promise<{
+  organizationMember: boolean;
+  organizationSlug: string | null;
+}> {
+  const callerPrincipalId = normalizeOptionalText(
+    input.context?.actorContext.callerPrincipalId
+  );
+  if (!callerPrincipalId) {
+    return { organizationMember: false, organizationSlug: null };
+  }
+  const membership = await resolveOrganizationMembershipById({
+    env: input.env,
+    organizationId: input.organizationId,
+    requestId: input.context?.actorContext.requestId,
+    userId: callerPrincipalId,
+  });
+  if (!membership.ok) {
+    if (membership.code === "organization.context_unavailable") {
+      throw createCoreRpcHttpError({
+        code: membership.code,
+        reason: membership.message,
+        status: membership.status,
+      });
+    }
+    return { organizationMember: false, organizationSlug: null };
+  }
+  const organizationSlug = await readOrganizationRouteSlug({
+    env: input.env,
+    organizationId: input.organizationId,
+    requestId: input.context?.actorContext.requestId,
+  });
+  if (!organizationSlug) {
+    throw createCoreRpcHttpError({
+      code: "organization.context_unavailable",
+      reason: "The Space Organization route could not be resolved.",
+      status: 503,
+    });
+  }
+  return { organizationMember: true, organizationSlug };
+}
+
+async function resolveSpaceEntryAccess(input: {
+  context?: CoreRpcContextInput;
+  env: CoreBindings;
+  spaceAccess: SpaceAccessContext;
+  spaceId: string;
+}): Promise<SpaceEntryAccessResult> {
+  let status: GetSpaceStatusResponse;
+  try {
+    status = await rpcGetSpaceStatus(input.env, {
+      spaceId: input.spaceId,
+      spaceAccess: input.spaceAccess,
+    });
+  } catch (error) {
+    const code = readCoreRpcErrorCode(error);
+    if (
+      code === "space.membership_required" ||
+      code === "space.password_invalid" ||
+      code === "space.password_required"
+    ) {
+      return { code, kind: "denied" };
+    }
+    throw error;
+  }
+  const activeMember = input.context
+    ? (
+        await rpcGetSpaceViewerMembership(input.env, {
+          context: input.context,
+          spaceId: input.spaceId,
+          spaceAccess: input.spaceAccess,
+        })
+      ).activeMemberProfiles.length > 0
+    : false;
+  return { activeMember, kind: "allowed", status };
+}
+
 export async function rpcGetSpaceConversationState(
   env: CoreBindings,
   input: GetSpaceConversationStateRpcInput
@@ -18217,6 +17898,8 @@ export async function rpcListAccountSpaces(
     scope,
     selectedProfileId,
     limit,
+    includeDirectMessageProfileIds:
+      input.includeDirectMessageProfileIds === true,
     includeRecentlyDeletedItems: input.includeRecentlyDeletedItems === true,
     includePurposes: input.includePurposes === true,
   });
@@ -18255,7 +17938,26 @@ export async function rpcListAccountSpaceActiveWakeSummary(
     return { generatedAtMs, items: [] };
   }
 
-  const wakeDb = wakeEvidenceDb(env);
+  return await buildActiveWakeSummaryForSpaceIds({
+    env,
+    generatedAtMs,
+    ownerUserId: parsedInput.data.ownerUserId,
+    spaceIds,
+  });
+}
+
+async function buildActiveWakeSummaryForSpaceIds(input: {
+  env: CoreBindings;
+  generatedAtMs?: number;
+  ownerUserId: string;
+  spaceIds: readonly string[];
+}): Promise<AccountSpaceActiveWakeSummaryResponse> {
+  const generatedAtMs = input.generatedAtMs ?? Date.now();
+  if (input.spaceIds.length === 0) {
+    return { generatedAtMs, items: [] };
+  }
+
+  const wakeDb = wakeEvidenceDb(input.env);
   if (!wakeDb) {
     throw createCoreRpcHttpError({
       status: 503,
@@ -18269,12 +17971,12 @@ export async function rpcListAccountSpaceActiveWakeSummary(
     listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds({
       db: wakeDb,
       freshAfterMs,
-      spaceIds,
+      spaceIds: input.spaceIds,
     }),
     listActiveRemoteAgentNativeDeliveryTargetsBySpaceIds({
       db: wakeDb,
       freshAfterMs,
-      spaceIds,
+      spaceIds: input.spaceIds,
     }),
   ]);
 
@@ -18290,11 +17992,11 @@ export async function rpcListAccountSpaceActiveWakeSummary(
   }
   const targetProfileNamesBySpaceAndId =
     await readActiveWakeTargetProfileNameSnapshots({
-      db: projectionsDb(env),
+      db: projectionsDb(input.env),
       targets: [...targetCountsBySpaceId].flatMap(([spaceId, targetCounts]) =>
         [...targetCounts.keys()].map((profileId) => ({ profileId, spaceId }))
       ),
-      viewerOwnerUserId: parsedInput.data.ownerUserId,
+      viewerOwnerUserId: input.ownerUserId,
     });
 
   return {
@@ -19603,6 +19305,12 @@ export async function rpcGetSpaceWakeProgress(
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: input.includePreviewText }),
+    ...(input.includeSourceContext === undefined
+      ? {}
+      : { includeSourceContext: input.includeSourceContext }),
     ...(input.includeWaitReason === undefined
       ? {}
       : { includeWaitReason: input.includeWaitReason }),
@@ -19634,6 +19342,12 @@ export async function rpcGetSpaceWakeProgress(
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: parsed.data.includePreviewText }),
+    ...(parsed.data.includeSourceContext === undefined
+      ? {}
+      : { includeSourceContext: parsed.data.includeSourceContext }),
     ...(parsed.data.includeWaitReason === undefined
       ? {}
       : { includeWaitReason: parsed.data.includeWaitReason }),
@@ -19653,15 +19367,27 @@ export async function rpcGetActiveSpaceWakeProgress(
 ): Promise<GetActiveSpaceWakeProgressResponse> {
   const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
     spaceId: input.spaceId,
+    ...(input.includePageInfo === undefined
+      ? {}
+      : { includePageInfo: input.includePageInfo }),
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
+    ...(input.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: input.includePreviewText }),
+    ...(input.includeSourceContext === undefined
+      ? {}
+      : { includeSourceContext: input.includeSourceContext }),
     ...(input.includeWaitReason === undefined
       ? {}
       : { includeWaitReason: input.includeWaitReason }),
     ...(input.includeWakeStopEligibility === undefined
       ? {}
       : { includeWakeStopEligibility: input.includeWakeStopEligibility }),
+    ...(input.sourceProfileId === undefined
+      ? {}
+      : { sourceProfileId: input.sourceProfileId }),
     ...(input.targetProfileId === undefined
       ? {}
       : { targetProfileId: input.targetProfileId }),
@@ -19683,15 +19409,27 @@ export async function rpcGetActiveSpaceWakeProgress(
   );
   return await stub.rpcGetActiveWakeProgress({
     spaceId,
+    ...(parsed.data.includePageInfo === undefined
+      ? {}
+      : { includePageInfo: parsed.data.includePageInfo }),
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
+    ...(parsed.data.includePreviewText === undefined
+      ? {}
+      : { includePreviewText: parsed.data.includePreviewText }),
+    ...(parsed.data.includeSourceContext === undefined
+      ? {}
+      : { includeSourceContext: parsed.data.includeSourceContext }),
     ...(parsed.data.includeWaitReason === undefined
       ? {}
       : { includeWaitReason: parsed.data.includeWaitReason }),
     ...(parsed.data.includeWakeStopEligibility === undefined
       ? {}
       : { includeWakeStopEligibility: parsed.data.includeWakeStopEligibility }),
+    ...(parsed.data.sourceProfileId
+      ? { sourceProfileId: parsed.data.sourceProfileId }
+      : {}),
     ...(parsed.data.targetProfileId
       ? { targetProfileId: parsed.data.targetProfileId }
       : {}),
@@ -21064,7 +20802,7 @@ async function requireAgentProfileWorkspaceScope(
     });
   }
 
-  if (!profileOrganization || profileOrganization.profileKind !== "agent") {
+  if (profileOrganization?.profileKind !== "agent") {
     throw createCoreRpcHttpError({
       code: "agent_profile.not_found",
       reason: "Agent Profile was not found.",
@@ -23264,116 +23002,6 @@ function buildDisableAgentProfilePrimaryBindingResponse(input: {
   return validated.data;
 }
 
-function buildAuthorizeAgentProfileBindingForOrganizationResponse(input: {
-  agentProfileId: string;
-  authorization: Awaited<
-    ReturnType<typeof ensureOrganizationBindingAuthorizationRecord>
-  >;
-}): AuthorizeAgentProfileBindingForOrganizationResponse {
-  const response = {
-    agentProfileId: input.agentProfileId,
-    authorizedBy: input.authorization.record.authorizedBy,
-    bindingId: input.authorization.record.bindingId,
-    createdAt: toIsoDateTime(input.authorization.record.createdAtMs),
-    organizationId: input.authorization.record.organizationId,
-    status: input.authorization.status,
-  };
-  const validated =
-    authorizeAgentProfileBindingForOrganizationResponseSchema.safeParse(
-      response
-    );
-  if (!validated.success) {
-    throw new Error(
-      `failed to build Organization Binding authorization response: ${validated.error.message}`
-    );
-  }
-  return validated.data;
-}
-
-function buildBulkAuthorizeAgentProfileBindingsForOrganizationResponse(input: {
-  authorizations: BulkAuthorizeAgentProfileBindingsForOrganizationResponse["authorizations"];
-  organizationId: string;
-}): BulkAuthorizeAgentProfileBindingsForOrganizationResponse {
-  const response = {
-    alreadyAuthorizedCount: input.authorizations.filter(
-      (authorization) => authorization.status === "already_authorized"
-    ).length,
-    authorizedCount: input.authorizations.filter(
-      (authorization) => authorization.status === "authorized"
-    ).length,
-    authorizations: input.authorizations,
-    organizationId: input.organizationId,
-  };
-  const validated =
-    bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema.safeParse(
-      response
-    );
-  if (!validated.success) {
-    throw new Error(
-      `failed to build bulk Organization Binding authorization response: ${validated.error.message}`
-    );
-  }
-  return validated.data;
-}
-
-function buildRevokeAgentProfileBindingForOrganizationResponse(input: {
-  agentProfileId: string;
-  bindingId: string | null;
-  organizationId: string;
-  revoked: boolean;
-}): RevokeAgentProfileBindingForOrganizationResponse {
-  const response = {
-    agentProfileId: input.agentProfileId,
-    bindingId: input.bindingId,
-    organizationId: input.organizationId,
-    revoked: input.revoked,
-    status: input.revoked ? "revoked" : "missing",
-  };
-  const validated =
-    revokeAgentProfileBindingForOrganizationResponseSchema.safeParse(response);
-  if (!validated.success) {
-    throw new Error(
-      `failed to build Organization Binding authorization revoke response: ${validated.error.message}`
-    );
-  }
-  return validated.data;
-}
-
-function buildOrganizationBindingAuthorizationPreferenceResponse(input: {
-  autoAuthorizeAgentProfileBindings: boolean;
-  organizationId: string;
-  updatedAtMs: number | null;
-  userId: string;
-}): GetOrganizationBindingAuthorizationPreferenceResponse {
-  const response = {
-    autoAuthorizeAgentProfileBindings: input.autoAuthorizeAgentProfileBindings,
-    organizationId: input.organizationId,
-    updatedAt:
-      input.updatedAtMs === null ? null : toIsoDateTime(input.updatedAtMs),
-    userId: input.userId,
-  };
-  const validated =
-    getOrganizationBindingAuthorizationPreferenceResponseSchema.safeParse(
-      response
-    );
-  if (!validated.success) {
-    throw new Error(
-      `failed to build Organization Binding authorization preference response: ${validated.error.message}`
-    );
-  }
-
-  const setValidated =
-    setOrganizationBindingAuthorizationPreferenceResponseSchema.safeParse(
-      validated.data
-    );
-  if (!setValidated.success) {
-    throw new Error(
-      `failed to build Organization Binding authorization preference set response: ${setValidated.error.message}`
-    );
-  }
-  return validated.data;
-}
-
 function requireCanonicalAgentControllerRef(value: string): string {
   const canonical = canonicalizeAgentControllerRef(value);
   if (!canonical) {
@@ -23464,6 +23092,15 @@ function buildGetAgentExecutionReadinessResponse(input: {
       input.readiness
     ),
     profileName: input.readiness.profileName,
+    publicProfileConfiguration: {
+      agentControllerCollaborationMode:
+        input.readiness.primaryBinding?.agentControllerCollaborationMode ??
+        null,
+      agentControllerPermissionMode:
+        input.readiness.agentControllerPermissionMode ?? null,
+      agentControllerRef: input.readiness.agentControllerRef,
+      modelSelection: input.readiness.modelSelection ?? null,
+    },
     routeDeviceId: input.readiness.routeDeviceId,
     routeLane: input.readiness.routeLane,
     runtimeDeviceDisplayName: input.readiness.runtimeDeviceDisplayName,
@@ -23604,6 +23241,7 @@ export function projectTeamSafeOrganizationDirectoryReadiness(
       target: null,
     },
     profileName: null,
+    publicProfileConfiguration: ownerResponse.publicProfileConfiguration,
     routeDeviceId: null,
     routeLane: null,
     runtimeDeviceDisplayName: null,

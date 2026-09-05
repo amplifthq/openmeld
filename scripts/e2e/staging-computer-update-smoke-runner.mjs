@@ -24,6 +24,7 @@ import {
   runFocusedUpdateContracts,
   runStagingApiHelper,
   runStagingSetup,
+  waitForCoreServiceConnected,
   waitForCoreToReportCurrentVersion,
   waitForNewStagingManifest,
   waitForServiceRunning,
@@ -109,6 +110,9 @@ async function executeStagingComputerUpdateSmoke(input) {
   });
   await waitForServiceRunning({
     expectedVersion: baselineManifest.version,
+    sensitiveValues: input.sensitiveValues,
+  });
+  await waitForCoreServiceConnected({
     sensitiveValues: input.sensitiveValues,
   });
   input.lifecycle.stagingComputerConnected = true;

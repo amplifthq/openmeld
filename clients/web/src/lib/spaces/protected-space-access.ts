@@ -5,7 +5,7 @@ import { protectedSpaceAccessInputSchema } from "./protected-space-access.server
 export const rememberProtectedSpaceAccess = createServerFn({
 	method: "POST",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = protectedSpaceAccessInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(

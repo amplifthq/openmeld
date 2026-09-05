@@ -30,6 +30,7 @@ import {
   buildPendingAgentProfileWorkPromotion,
   buildPendingAgentProfileWorkPromotionStorageKey,
   type PendingAgentProfileWorkPromotion,
+  parsePendingAgentProfileWorkPromotion,
 } from "./agent-profile-work-promotion";
 import {
   type AgentProfileWorkRecoveryInboxProjectionIntent,
@@ -41,17 +42,21 @@ import {
   writeAgentProfileWorkRecoveryInboxProjectionIntent,
 } from "./agent-profile-work-recovery-inbox-projection";
 import {
+  buildRuntimeCoordinatorAcceptedDispatchPayloadFingerprintStorageKey,
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
   buildRuntimeCoordinatorRunCommandStateStorageKey,
   buildRuntimeCoordinatorTokenAuthorityStorageKey,
   hasRuntimeCoordinatorDurableLocalProgress,
+  isRuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord,
   isRuntimeCoordinatorHeadLifecycleRecord,
   isRuntimeCoordinatorRunCommandState,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_MODEL_VERSION,
   RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_HEAD_LIFECYCLE_STORAGE_KEY_PREFIX,
   RUNTIME_COORDINATOR_MAX_HEAD_DUPLICATE_OBSERVATIONS,
   RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_RUN_COMMAND_STATE_STORAGE_KEY_PREFIX,
+  type RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord,
   type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorRunCommandState,
 } from "./runtime-coordinator-authority";
@@ -1080,10 +1085,12 @@ type AgentProfileWorkCoordinatorHeadWriteBaseResult =
   | { status: "execution_target_mutation_in_progress" }
   | { status: "continuation_needs_attention" }
   | {
+      compatibilityDiagnosticReasonCode?: "runtime_coordinator.terminal_replay_fingerprint_unavailable";
       effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
       status: "existing";
     }
   | {
+      conflictKind: "accepted_dispatch_payload" | "head_lifecycle_authority";
       effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
       status: "conflict";
     }
@@ -1230,6 +1237,7 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
   currentAgentControllerRef: string;
   currentBindingId: string;
   currentConfigurationRevision: number;
+  currentDefaultProjectId?: string | null;
   expectedInterruptedTargetWakeLifecycleId: string;
   nowMs: number;
   ownerUserId: string;
@@ -1283,6 +1291,7 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
         currentAgentControllerRef: input.currentAgentControllerRef,
         currentBindingId: input.currentBindingId,
         currentConfigurationRevision: input.currentConfigurationRevision,
+        currentDefaultProjectId: input.currentDefaultProjectId,
         ownerUserId: input.ownerUserId,
         storage: transaction,
       });
@@ -1341,6 +1350,7 @@ async function acceptedRecoveryExecutionTargetMatchesCurrent(input: {
   currentAgentControllerRef: string;
   currentBindingId: string;
   currentConfigurationRevision: number;
+  currentDefaultProjectId?: string | null;
   ownerUserId: string;
   storage: Pick<DurableObjectStorage, "get">;
 }): Promise<boolean> {
@@ -1384,6 +1394,8 @@ async function acceptedRecoveryExecutionTargetMatchesCurrent(input: {
   const acceptedExecutionIdentity = payload.executionIdentity.core;
   const acceptedControllerSnapshot = payload.controllerSnapshot;
   return (
+    input.currentDefaultProjectId !== undefined &&
+    (payload.defaultProjectId ?? null) === input.currentDefaultProjectId &&
     acceptedExecutionIdentity.bindingId === input.currentBindingId &&
     acceptedExecutionIdentity.agentControllerRef ===
       input.currentAgentControllerRef &&
@@ -1778,6 +1790,47 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
     : result;
 }
 
+const parseOptionalAcceptedDispatchPayloadFingerprintRecord = (
+  value: unknown
+): RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord | null => {
+  if (value === undefined) {
+    return null;
+  }
+  if (!isRuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord(value)) {
+    throw new Error(
+      "runtime_coordinator.accepted_dispatch_payload_fingerprint_invalid"
+    );
+  }
+  return value;
+};
+
+const acceptedDispatchPayloadFingerprintMatchesHead = (input: {
+  executionId: string;
+  head: RuntimeCoordinatorHeadLifecycleRecord;
+  record: RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord | null;
+}): boolean =>
+  input.record === null ||
+  (input.record.runtimeCoordinatorExecutionId === input.executionId &&
+    input.head.acceptedDispatchSnapshot !== undefined &&
+    input.record.acceptedDispatchPayloadFingerprint ===
+      input.head.acceptedDispatchSnapshot.payloadFingerprint);
+
+const writeAcceptedDispatchPayloadFingerprintInTransaction = (input: {
+  executionId: string;
+  head: RuntimeCoordinatorHeadLifecycleRecord;
+  storageKey: string;
+  transaction: Pick<DurableObjectTransaction, "put">;
+}): Promise<unknown> =>
+  input.head.acceptedDispatchSnapshot
+    ? input.transaction.put(input.storageKey, {
+        acceptedDispatchPayloadFingerprint:
+          input.head.acceptedDispatchSnapshot.payloadFingerprint,
+        modelVersion:
+          RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_MODEL_VERSION,
+        runtimeCoordinatorExecutionId: input.executionId,
+      } satisfies RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord)
+    : Promise.resolve();
+
 export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(input: {
   alarmAtMs: number;
   authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
@@ -1807,12 +1860,21 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
       buildRuntimeCoordinatorRunCommandStateStorageKey(executionId);
     const tokenAuthorityStorageKey =
       buildRuntimeCoordinatorTokenAuthorityStorageKey(executionId);
-    const [rawHead, rawExistingCommandState, rawExistingAuthority] =
-      await Promise.all([
-        transaction.get<unknown>(headLifecycleStorageKey),
-        transaction.get<unknown>(runCommandStateStorageKey),
-        transaction.get<unknown>(tokenAuthorityStorageKey),
-      ]);
+    const acceptedPayloadFingerprintStorageKey =
+      buildRuntimeCoordinatorAcceptedDispatchPayloadFingerprintStorageKey(
+        executionId
+      );
+    const [
+      rawHead,
+      rawExistingCommandState,
+      rawExistingAuthority,
+      rawAcceptedPayloadFingerprint,
+    ] = await Promise.all([
+      transaction.get<unknown>(headLifecycleStorageKey),
+      transaction.get<unknown>(runCommandStateStorageKey),
+      transaction.get<unknown>(tokenAuthorityStorageKey),
+      transaction.get<unknown>(acceptedPayloadFingerprintStorageKey),
+    ]);
     if (rawHead === undefined) {
       return {
         ok: false,
@@ -1822,6 +1884,10 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
     if (!isRuntimeCoordinatorHeadLifecycleRecord(rawHead)) {
       throw new Error("runtime_coordinator.head_lifecycle_record_invalid");
     }
+    const existingAcceptedPayloadFingerprint =
+      parseOptionalAcceptedDispatchPayloadFingerprintRecord(
+        rawAcceptedPayloadFingerprint
+      );
 
     const targetProfileId = input.authority.executionScope.targetProfileId;
     const deliveryRequest = input.commandState.sanitizedDeliveryRequest;
@@ -1869,7 +1935,12 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
       input.commandState.lastDeliveryProvenance.connectionGeneration !==
         deliveryRequest.connectionGeneration ||
       input.commandState.lastDeliveryProvenance.leaseEpoch !==
-        deliveryRequest.leaseEpoch
+        deliveryRequest.leaseEpoch ||
+      !acceptedDispatchPayloadFingerprintMatchesHead({
+        executionId,
+        head: rawHead,
+        record: existingAcceptedPayloadFingerprint,
+      })
     ) {
       return {
         ok: false,
@@ -1924,7 +1995,7 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
     const nextRunCommandStateIds = [
       ...new Set([...runCommandStateIds, executionId]),
     ].sort();
-    await Promise.all([
+    const writes: Promise<unknown>[] = [
       transaction.put(tokenAuthorityStorageKey, input.authority),
       transaction.put(runCommandStateStorageKey, input.commandState),
       transaction.put(
@@ -1932,7 +2003,14 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
         nextRunCommandStateIds
       ),
       transaction.setAlarm(input.alarmAtMs),
-    ]);
+      writeAcceptedDispatchPayloadFingerprintInTransaction({
+        executionId,
+        head: rawHead,
+        storageKey: acceptedPayloadFingerprintStorageKey,
+        transaction,
+      }),
+    ];
+    await Promise.all(writes);
     return { ok: true };
   });
 }
@@ -2233,7 +2311,7 @@ async function resolveExistingHeadLifecycleWrite(input: {
   headLifecycleStorageKey: string;
   nowMs: number;
   proposedRecord: RuntimeCoordinatorHeadLifecycleRecord;
-  transaction: Pick<DurableObjectTransaction, "get" | "put">;
+  transaction: Pick<DurableObjectTransaction, "delete" | "get" | "put">;
 }): Promise<AgentProfileWorkCoordinatorHeadWriteResult | null> {
   const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
     dispatchId: input.proposedRecord.primaryDispatchId,
@@ -2245,15 +2323,31 @@ async function resolveExistingHeadLifecycleWrite(input: {
     buildRuntimeCoordinatorTokenAuthorityStorageKey(
       runtimeCoordinatorExecutionId
     );
+  const acceptedPayloadFingerprintStorageKey =
+    buildRuntimeCoordinatorAcceptedDispatchPayloadFingerprintStorageKey(
+      runtimeCoordinatorExecutionId
+    );
+  const pendingPromotionStorageKey =
+    buildPendingAgentProfileWorkPromotionStorageKey(
+      input.proposedRecord.targetWakeLifecycleIdentity.targetProfileId
+    );
   const storedCurrentState = await input.transaction.get<unknown>([
     input.headLifecycleStorageKey,
     tokenAuthorityStorageKey,
+    acceptedPayloadFingerprintStorageKey,
+    pendingPromotionStorageKey,
   ]);
   const rawExistingHead = storedCurrentState.get(input.headLifecycleStorageKey);
   const rawTokenAuthority = storedCurrentState.get(tokenAuthorityStorageKey);
+  const pendingPromotion = parsePendingAgentProfileWorkPromotion(
+    storedCurrentState.get(pendingPromotionStorageKey)
+  );
   if (rawExistingHead === undefined) {
     return resolveTerminalExecutionHeadReplay({
       proposedRecord: input.proposedRecord,
+      rawAcceptedPayloadFingerprint: storedCurrentState.get(
+        acceptedPayloadFingerprintStorageKey
+      ),
       rawAuthority: rawTokenAuthority,
       runtimeCoordinatorExecutionId,
     });
@@ -2270,7 +2364,11 @@ async function resolveExistingHeadLifecycleWrite(input: {
       input.proposedRecord
     )
   ) {
-    return { effectiveRecord: rawExistingHead, status: "conflict" };
+    return {
+      conflictKind: "head_lifecycle_authority",
+      effectiveRecord: rawExistingHead,
+      status: "conflict",
+    };
   }
   let effectiveExistingHead = rawExistingHead;
   if (
@@ -2287,14 +2385,13 @@ async function resolveExistingHeadLifecycleWrite(input: {
     !rawExistingHead.acceptedDispatchSnapshot &&
     input.proposedRecord.acceptedDispatchSnapshot
   ) {
-    const canAtomicallyUpgradeQueuedLegacyHead =
-      rawExistingHead.primaryDispatchId ===
-        input.proposedRecord.primaryDispatchId &&
-      rawExistingHead.status === "queued" &&
-      rawExistingHead.executionLinkedAtMs === null &&
-      rawExistingHead.runtimeCoordinatorExecutionId === null &&
-      rawTokenAuthority === undefined;
-    if (!canAtomicallyUpgradeQueuedLegacyHead) {
+    const upgradeKind = resolveLegacyHeadSnapshotUpgradeKind({
+      existingHead: rawExistingHead,
+      pendingPromotion,
+      proposedRecord: input.proposedRecord,
+      rawTokenAuthority,
+    });
+    if (!upgradeKind) {
       return {
         effectiveRecord: rawExistingHead,
         reasonCode: "runtime_coordinator.legacy_head_snapshot_upgrade_unsafe",
@@ -2310,6 +2407,9 @@ async function resolveExistingHeadLifecycleWrite(input: {
       input.headLifecycleStorageKey,
       effectiveExistingHead
     );
+    if (upgradeKind === "promoted") {
+      await input.transaction.delete(pendingPromotionStorageKey);
+    }
   }
   if (
     !sameRuntimeCoordinatorHeadAuthority(
@@ -2317,7 +2417,11 @@ async function resolveExistingHeadLifecycleWrite(input: {
       input.proposedRecord
     )
   ) {
-    return { effectiveRecord: effectiveExistingHead, status: "conflict" };
+    return {
+      conflictKind: "accepted_dispatch_payload",
+      effectiveRecord: effectiveExistingHead,
+      status: "conflict",
+    };
   }
   if (
     effectiveExistingHead.primaryDispatchId !==
@@ -2351,8 +2455,39 @@ async function resolveExistingHeadLifecycleWrite(input: {
   };
 }
 
+function resolveLegacyHeadSnapshotUpgradeKind(input: {
+  existingHead: RuntimeCoordinatorHeadLifecycleRecord;
+  pendingPromotion: PendingAgentProfileWorkPromotion | null;
+  proposedRecord: RuntimeCoordinatorHeadLifecycleRecord;
+  rawTokenAuthority: unknown;
+}): "promoted" | "queued" | null {
+  const hasNoExecutionAuthority =
+    input.existingHead.primaryDispatchId ===
+      input.proposedRecord.primaryDispatchId &&
+    input.existingHead.executionLinkedAtMs === null &&
+    input.existingHead.runtimeCoordinatorExecutionId === null &&
+    input.rawTokenAuthority === undefined;
+  if (!hasNoExecutionAuthority) {
+    return null;
+  }
+  if (input.existingHead.status === "queued") {
+    return "queued";
+  }
+  const hasExactPendingPromotion =
+    input.pendingPromotion?.dispatchId ===
+      input.existingHead.primaryDispatchId &&
+    input.pendingPromotion.targetProfileId ===
+      input.existingHead.targetWakeLifecycleIdentity.targetProfileId &&
+    input.pendingPromotion.targetWakeLifecycleId ===
+      input.existingHead.targetWakeLifecycleId;
+  return input.existingHead.status === "accepted" && hasExactPendingPromotion
+    ? "promoted"
+    : null;
+}
+
 function resolveTerminalExecutionHeadReplay(input: {
   proposedRecord: RuntimeCoordinatorHeadLifecycleRecord;
+  rawAcceptedPayloadFingerprint: unknown;
   rawAuthority: unknown;
   runtimeCoordinatorExecutionId: string;
 }): AgentProfileWorkCoordinatorHeadWriteResult | null {
@@ -2390,14 +2525,50 @@ function resolveTerminalExecutionHeadReplay(input: {
     status: "execution_linked",
     updatedAtMs: authority.terminalOutcome.finalizedAtMs,
   } satisfies RuntimeCoordinatorHeadLifecycleRecord;
-  return {
-    effectiveRecord,
-    status:
-      authority.executionScope.sourceClientMessageId ===
-      identity.clientMessageId
-        ? "existing"
-        : "conflict",
-  };
+  if (
+    authority.executionScope.sourceClientMessageId !== identity.clientMessageId
+  ) {
+    return {
+      conflictKind: "head_lifecycle_authority",
+      effectiveRecord,
+      status: "conflict",
+    };
+  }
+  const acceptedPayloadFingerprintRecord =
+    isRuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord(
+      input.rawAcceptedPayloadFingerprint
+    ) &&
+    input.rawAcceptedPayloadFingerprint.runtimeCoordinatorExecutionId ===
+      input.runtimeCoordinatorExecutionId
+      ? input.rawAcceptedPayloadFingerprint
+      : null;
+  const acceptedPayloadFingerprint =
+    acceptedPayloadFingerprintRecord?.acceptedDispatchPayloadFingerprint;
+  const proposedPayloadFingerprint =
+    input.proposedRecord.acceptedDispatchSnapshot?.payloadFingerprint;
+  if (
+    acceptedPayloadFingerprint !== undefined &&
+    proposedPayloadFingerprint !== undefined &&
+    acceptedPayloadFingerprint !== proposedPayloadFingerprint
+  ) {
+    return {
+      conflictKind: "accepted_dispatch_payload",
+      effectiveRecord,
+      status: "conflict",
+    };
+  }
+  if (
+    acceptedPayloadFingerprint === undefined ||
+    proposedPayloadFingerprint === undefined
+  ) {
+    return {
+      compatibilityDiagnosticReasonCode:
+        "runtime_coordinator.terminal_replay_fingerprint_unavailable",
+      effectiveRecord,
+      status: "existing",
+    };
+  }
+  return { effectiveRecord, status: "existing" };
 }
 
 function appendHeadLifecycleDuplicate(input: {

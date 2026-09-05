@@ -223,6 +223,8 @@ export type RuntimeCoordinatorWakeStoppedNoticePublicationRecord = {
 };
 export const RUNTIME_COORDINATOR_TOKEN_AUTHORITY_STORAGE_KEY_PREFIX =
   "runtime-coordinator:execution-token-authority:";
+export const RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_STORAGE_KEY_PREFIX =
+  "runtime-coordinator:accepted-dispatch-payload-fingerprint:v1:";
 export const RUNTIME_COORDINATOR_FINALIZATION_COMMAND_STORAGE_KEY_PREFIX =
   "runtime-coordinator:finalization-command:";
 export const RUNTIME_COORDINATOR_FINALIZATION_OUTCOME_STORAGE_KEY_PREFIX =
@@ -270,6 +272,8 @@ export const RUNTIME_COORDINATOR_RUN_COMMAND_STATE_MODEL_VERSION =
   "openmeld.runtime_coordinator.run_command_state.v1";
 export const RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION =
   "openmeld.runtime_coordinator.head_lifecycle.v1";
+export const RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_MODEL_VERSION =
+  "openmeld.runtime_coordinator.accepted_dispatch_payload_fingerprint.v1";
 const ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/;
 export const RUNTIME_COORDINATOR_PRE_EXECUTION_HANDOFF_MODEL_VERSION =
   "openmeld.runtime_coordinator.pre_execution_handoff.v1";
@@ -599,6 +603,12 @@ export type RuntimeCoordinatorHeadLifecycleRecord = {
   waitingBoundary?: RuntimeCoordinatorHeadWaitingBoundary;
 };
 
+export type RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord = {
+  acceptedDispatchPayloadFingerprint: string;
+  modelVersion: typeof RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_MODEL_VERSION;
+  runtimeCoordinatorExecutionId: string;
+};
+
 const resolveRuntimeCoordinatorHeadAcceptedAtMs = (
   record: RuntimeCoordinatorHeadLifecycleRecord
 ): number =>
@@ -682,6 +692,10 @@ export const buildRuntimeCoordinatorTokenAuthorityStorageKey = (
 ): string => {
   return `${RUNTIME_COORDINATOR_TOKEN_AUTHORITY_STORAGE_KEY_PREFIX}${runtimeCoordinatorExecutionId}`;
 };
+
+export const buildRuntimeCoordinatorAcceptedDispatchPayloadFingerprintStorageKey =
+  (runtimeCoordinatorExecutionId: string): string =>
+    `${RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_STORAGE_KEY_PREFIX}${runtimeCoordinatorExecutionId}`;
 
 export const buildRuntimeCoordinatorDecisionLogStorageKey = (
   runtimeCoordinatorExecutionId: string
@@ -2382,6 +2396,26 @@ export const isRuntimeCoordinatorHeadLifecycleRecord = (
       isAcceptedDispatchSnapshot(record.acceptedDispatchSnapshot)) &&
     isOptionalNullableString(record.stopReason) &&
     targetWakeLifecycleIdentityMatchesRecord(record.targetWakeLifecycleIdentity)
+  );
+};
+
+export const isRuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord = (
+  value: unknown
+): value is RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record =
+    value as RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord;
+  return (
+    record.modelVersion ===
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_MODEL_VERSION &&
+    typeof record.runtimeCoordinatorExecutionId === "string" &&
+    record.runtimeCoordinatorExecutionId.length > 0 &&
+    typeof record.acceptedDispatchPayloadFingerprint === "string" &&
+    ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_PATTERN.test(
+      record.acceptedDispatchPayloadFingerprint
+    )
   );
 };
 

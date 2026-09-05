@@ -27,7 +27,7 @@ function loadServerSessionHelper() {
 }
 
 export const getSession = createServerFn({ method: "GET" })
-	.inputValidator((data: unknown): GetSessionInput => {
+	.validator((data: unknown): GetSessionInput => {
 		const parsed = getSessionInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(

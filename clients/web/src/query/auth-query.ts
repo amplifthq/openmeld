@@ -21,6 +21,7 @@ import { openMeldAuthClient } from "#/lib/auth-client";
 import type {
 	AuthAccount,
 	AuthClientError,
+	AuthDeviceSession,
 	AuthPasskey,
 	AuthSession,
 	AuthSessionRecord,
@@ -207,6 +208,43 @@ export async function listSessions(): Promise<AuthSessionRecord[]> {
 	}
 
 	return Array.isArray(fallbackResponse.data) ? fallbackResponse.data : [];
+}
+
+export async function listDeviceSessions(): Promise<AuthDeviceSession[]> {
+	const response = await resolveClientResult<AuthDeviceSession[] | null>(
+		() => openMeldAuthClient.multiSession.listDeviceSessions(),
+		"Unable to load accounts."
+	);
+
+	if (response.error) {
+		throwAuthError(response.error, "Unable to load accounts.");
+	}
+
+	return Array.isArray(response.data) ? response.data : [];
+}
+
+export async function setActiveDeviceSession(
+	sessionToken: string
+): Promise<void> {
+	const response = await resolveClientResult(
+		() => openMeldAuthClient.multiSession.setActive({ sessionToken }),
+		"Unable to switch accounts."
+	);
+
+	if (response.error) {
+		throwAuthError(response.error, "Unable to switch accounts.");
+	}
+}
+
+export async function revokeDeviceSession(sessionToken: string): Promise<void> {
+	const response = await resolveClientResult(
+		() => openMeldAuthClient.multiSession.revoke({ sessionToken }),
+		"Unable to log out of this account."
+	);
+
+	if (response.error) {
+		throwAuthError(response.error, "Unable to log out of this account.");
+	}
 }
 
 export async function updateUserName(

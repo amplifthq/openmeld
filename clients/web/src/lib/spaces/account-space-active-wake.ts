@@ -24,7 +24,7 @@ async function getAccountSpaceActiveWakeSummaryServer(input: {
 export const getAccountSpaceActiveWakeSummary = createServerFn({
 	method: "GET",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = getAccountSpaceActiveWakeSummaryInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(

@@ -45,8 +45,11 @@ describe("organization profile projections", () => {
 			"org-acme",
 			"agent-runtime-overview",
 		]);
-		expect(profileDirectory.refetchOnWindowFocus).toBe(false);
+		expect(profileDirectory.refetchOnWindowFocus).toBe(true);
+		expect(profileDirectory.refetchInterval).toBe(5 * 60_000);
+		expect(profileDirectory.refetchIntervalInBackground).toBe(false);
 		expect(runtimeOverview.refetchOnWindowFocus).toBe(true);
+		expect(runtimeOverview.staleTime).toBe(10_000);
 	});
 });
 

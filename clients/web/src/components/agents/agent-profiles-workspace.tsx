@@ -8,6 +8,7 @@ import {
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
+	ModelCatalog,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
@@ -26,10 +27,9 @@ import {
 	ClipboardTextIcon,
 	PlusIcon,
 } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import { memo, type ReactNode, useState } from "react";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { AgentProfileOperationalStatusIndicator } from "#/components/agents/agent-profile-operational-status";
-import { resolveAgentProfileOperationalStatus } from "#/components/agents/agent-profile-operational-status-presentation";
 import {
 	type AgentProfileSidebarGroup,
 	resolveAgentProfileSidebarGroups,
@@ -41,8 +41,8 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
-import { TextShimmer } from "#/components/motion-primitives/text-shimmer";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
+import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 
 const AGENT_REQUESTS_DESCRIPTION =
@@ -53,8 +53,8 @@ const EMPTY_AGENT_PROFILE_OPERATIONAL_CONTEXT_BY_PROFILE_ID: ReadonlyMap<
 > = new Map();
 
 export type AgentProfilesWorkspaceProps = {
-	activeView: "agents" | "create" | "requests";
-	createPanel?: ReactNode;
+	activeView: "agents" | "requests";
+	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
 	currentUserId: string;
 	filterControl?: ReactNode;
 	hasAnyProfiles?: boolean;
@@ -62,11 +62,12 @@ export type AgentProfilesWorkspaceProps = {
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onCreateAgent: () => void;
 	onSelectProfile: (profileId: string) => void;
-	onViewChange: (view: "agents" | "create" | "requests") => void;
+	onViewChange: (view: "agents" | "requests") => void;
 	pendingRequestCount: number;
 	profiles: readonly AuthProfileView[];
 	profilesErrorMessage?: string;
 	profilesStatus?: "error" | "loading" | "ready";
+	modelCatalog?: ModelCatalog | null;
 	operationalContextByProfileId?: ReadonlyMap<
 		string,
 		AgentProfileOperationalContextInput
@@ -85,6 +86,7 @@ export type AgentProfilesWorkspaceProps = {
 export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 	const groups = resolveAgentProfileSidebarGroups({
 		currentUserId: input.currentUserId,
+		operationalContextByProfileId: input.operationalContextByProfileId,
 		profiles: input.profiles,
 	});
 	if (input.profilesStatus === "ready") {
@@ -188,7 +190,11 @@ function AgentProfilesWorkspaceSidebar(input: {
 				content: (
 					<AgentProfileSidebarList
 						activeProfileId={input.activeProfileId}
+						agentControllerRefByProfileId={
+							input.input.agentControllerRefByProfileId ?? new Map()
+						}
 						currentUserId={input.input.currentUserId}
+						modelCatalog={input.input.modelCatalog ?? null}
 						onSelectProfile={input.input.onSelectProfile}
 						operationalContextByProfileId={
 							input.input.operationalContextByProfileId ??
@@ -210,10 +216,7 @@ function AgentProfilesWorkspaceSidebar(input: {
 			leadingContent={
 				<div className="space-y-1">
 					<Button
-						className={cn(
-							"w-full min-w-0 justify-start overflow-hidden",
-							input.input.activeView === "create" && "bg-sidebar-accent"
-						)}
+						className="w-full min-w-0 justify-start overflow-hidden"
 						onClick={input.input.onCreateAgent}
 						size="sm"
 						type="button"
@@ -271,9 +274,6 @@ function AgentProfilesWorkspaceContent(input: {
 	selectionMissing: boolean;
 	selectedProfile: AuthProfileView | null;
 }) {
-	if (input.input.activeView === "create") {
-		return input.input.createPanel ?? null;
-	}
 	if (input.input.activeView === "requests") {
 		return <AgentRequestsWorkspace input={input.input} />;
 	}
@@ -398,7 +398,9 @@ function AgentProfilesWorkspaceEmptyState(input: {
 
 function AgentProfileSidebarList(input: {
 	activeProfileId: string | null;
+	agentControllerRefByProfileId: ReadonlyMap<string, string | null>;
 	currentUserId: string;
+	modelCatalog: ModelCatalog | null;
 	onSelectProfile: (profileId: string) => void;
 	operationalContextByProfileId: ReadonlyMap<
 		string,
@@ -419,10 +421,16 @@ function AgentProfileSidebarList(input: {
 		>
 			{input.profiles.map((profile, index) => (
 				<AgentProfileSidebarItem
+					agentControllerRef={
+						input.agentControllerRefByProfileId.get(
+							profile.openMeldProfileId
+						) ?? null
+					}
 					currentUserId={input.currentUserId}
 					index={index}
 					isActive={profile.openMeldProfileId === input.activeProfileId}
 					key={profile.openMeldProfileId}
+					modelCatalog={input.modelCatalog}
 					onSelectProfile={input.onSelectProfile}
 					operationalContext={
 						input.operationalContextByProfileId.get(
@@ -446,10 +454,14 @@ function AgentProfileSidebarList(input: {
 	);
 }
 
-function AgentProfileSidebarItem(input: {
+const AgentProfileSidebarItem = memo(AgentProfileSidebarItemComponent);
+
+function AgentProfileSidebarItemComponent(input: {
+	agentControllerRef: string | null;
 	currentUserId: string;
 	index: number;
 	isActive: boolean;
+	modelCatalog: ModelCatalog | null;
 	onSelectProfile: (profileId: string) => void;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	profile: AuthProfileView;
@@ -458,16 +470,18 @@ function AgentProfileSidebarItem(input: {
 	readinessIsPending: boolean;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
-	const agentControllerRef = resolveAgentProfileControllerRef(input.readiness);
+	const agentControllerRef = resolveAgentProfileControllerRef(
+		input.readiness,
+		input.agentControllerRef
+	);
 	const presentation = resolveAgentProfileSidebarPresentation({
+		agentControllerRef,
 		errorMessage: input.readinessErrorMessage,
 		isPending: input.readinessIsPending,
+		modelCatalog: input.modelCatalog,
 		readiness: input.readiness,
 	});
 	const isOwner = input.profile.ownerUserId === input.currentUserId;
-	const operationalStatus = resolveAgentProfileOperationalStatus(
-		input.operationalContext
-	).status;
 	const hasReducedProminence =
 		presentation.availabilityCategory === "offline" ||
 		presentation.availabilityCategory === "unavailable";
@@ -475,9 +489,8 @@ function AgentProfileSidebarItem(input: {
 		"min-w-0 truncate font-medium text-sm",
 		hasReducedProminence ? "text-muted-foreground" : null
 	);
-	const showAvailability =
-		presentation.availabilityCategory !== "available" &&
-		presentation.availabilityLabel.length > 0;
+	const showAvailability = presentation.availabilityLabel.length > 0;
+	const availabilityDescriptionId = `agent-profile-availability-${input.profile.openMeldProfileId}`;
 	return (
 		<FluidNavMenuItem
 			index={input.index}
@@ -485,6 +498,7 @@ function AgentProfileSidebarItem(input: {
 		>
 			<button
 				aria-current={input.isActive ? "page" : undefined}
+				aria-describedby={availabilityDescriptionId}
 				aria-label={`Open ${input.profile.profileName}`}
 				className={cn(
 					"flex w-full min-w-0 items-start gap-2 px-2 py-2 text-left outline-none",
@@ -510,19 +524,9 @@ function AgentProfileSidebarItem(input: {
 				/>
 				<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
 					<span className="flex min-w-0 items-center justify-between gap-2">
-						{operationalStatus === "checking" ? (
-							<TextShimmer
-								as="span"
-								className={profileNameClassName}
-								duration={1.8}
-							>
-								{input.profile.profileName}
-							</TextShimmer>
-						) : (
-							<span className={profileNameClassName}>
-								{input.profile.profileName}
-							</span>
-						)}
+						<span className={profileNameClassName}>
+							{input.profile.profileName}
+						</span>
 						<AgentProfileOperationalStatusIndicator
 							className="shrink-0"
 							operationalContext={input.operationalContext}
@@ -542,6 +546,7 @@ function AgentProfileSidebarItem(input: {
 											"min-w-0 truncate font-medium text-xs",
 											presentation.availabilityClassName
 										)}
+										id={availabilityDescriptionId}
 										title={presentation.availabilityTooltip}
 									/>
 								}
@@ -552,7 +557,11 @@ function AgentProfileSidebarItem(input: {
 								{presentation.availabilityTooltip}
 							</TooltipContent>
 						</Tooltip>
-					) : null}
+					) : (
+						<span className="sr-only" id={availabilityDescriptionId}>
+							{presentation.availabilityAccessibilityLabel}
+						</span>
+					)}
 				</span>
 			</button>
 		</FluidNavMenuItem>
@@ -560,10 +569,13 @@ function AgentProfileSidebarItem(input: {
 }
 
 function resolveAgentProfileSidebarPresentation(input: {
+	agentControllerRef: string | null;
 	errorMessage: string | null;
 	isPending: boolean;
+	modelCatalog: ModelCatalog | null;
 	readiness: GetAgentExecutionReadinessResponse | null;
 }): {
+	availabilityAccessibilityLabel: string;
 	availabilityCategory: ReturnType<
 		typeof resolveAgentWakeAvailabilityDisplayCategory
 	> | null;
@@ -572,46 +584,71 @@ function resolveAgentProfileSidebarPresentation(input: {
 	availabilityTooltip: string;
 	controllerModelSummary: string;
 } {
-	const agentControllerRef = resolveAgentProfileControllerRef(input.readiness);
-	const parsedControllerRef = parseAgentControllerRef(agentControllerRef);
+	const parsedControllerRef = parseAgentControllerRef(input.agentControllerRef);
 	const controllerName = parsedControllerRef
 		? formatLocalAgentDisplayName(parsedControllerRef.id)
 		: "No Controller connected";
-	const modelId =
-		input.readiness?.primaryBinding?.modelSelection?.modelId?.trim();
+	const controllerModelSummary =
+		resolveAgentProfileControllerModelDetail({
+			agentControllerRef: input.agentControllerRef,
+			controllerDisplayName: controllerName,
+			modelCatalog: input.modelCatalog,
+			modelSelection:
+				input.readiness?.primaryBinding?.modelSelection ??
+				input.readiness?.publicProfileConfiguration?.modelSelection ??
+				null,
+		}) ?? controllerName;
 	const wakeAvailability = input.readiness?.agentWakeAvailability ?? null;
-	if (input.errorMessage || !wakeAvailability) {
+	if (!wakeAvailability) {
 		const availability = resolveMissingSidebarAvailability(input);
 		return {
+			availabilityAccessibilityLabel: availability.label,
 			availabilityCategory: availability.category,
 			availabilityClassName: availability.className,
 			availabilityLabel: availability.label,
 			availabilityTooltip: availability.tooltip,
-			controllerModelSummary: modelId
-				? `${controllerName} · ${modelId}`
-				: controllerName,
+			controllerModelSummary,
 		};
 	}
 	const category =
 		resolveAgentWakeAvailabilityDisplayCategory(wakeAvailability);
 	return {
+		availabilityAccessibilityLabel: input.errorMessage
+			? `${wakeAvailability.badgeLabel}. Latest availability refresh was delayed.`
+			: wakeAvailability.badgeLabel,
 		availabilityCategory: category,
 		availabilityClassName: resolveAvailabilityClassName(category),
-		availabilityLabel: wakeAvailability.badgeLabel,
+		availabilityLabel: resolveSidebarAvailabilityLabel(wakeAvailability),
 		availabilityTooltip: wakeAvailability.tooltip,
-		controllerModelSummary: modelId
-			? `${controllerName} · ${modelId}`
-			: controllerName,
+		controllerModelSummary,
 	};
 }
 
+function resolveSidebarAvailabilityLabel(
+	wakeAvailability: NonNullable<
+		GetAgentExecutionReadinessResponse["agentWakeAvailability"]
+	>
+): string {
+	const category =
+		resolveAgentWakeAvailabilityDisplayCategory(wakeAvailability);
+	if (category === "available") {
+		return "Available";
+	}
+	if (wakeAvailability.phase === "connect_local_agent") {
+		return "Connect";
+	}
+	return category === "checking" ? "" : "Unavailable";
+}
+
 function resolveAgentProfileControllerRef(
-	readiness: GetAgentExecutionReadinessResponse | null
+	readiness: GetAgentExecutionReadinessResponse | null,
+	fallbackAgentControllerRef: string | null = null
 ): string | null {
 	return (
 		readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
+		readiness?.publicProfileConfiguration?.agentControllerRef ??
 		readiness?.agentControllerRef ??
-		null
+		fallbackAgentControllerRef
 	);
 }
 
@@ -621,9 +658,9 @@ function resolveMissingSidebarAvailability(input: {
 }) {
 	if (input.errorMessage) {
 		return {
-			category: "unavailable" as const,
+			category: null,
 			className: resolveStatusToneTextClassName("muted"),
-			label: "Unavailable",
+			label: "Couldn’t check availability.",
 			tooltip: input.errorMessage,
 		};
 	}

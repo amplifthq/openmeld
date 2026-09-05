@@ -199,6 +199,44 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(!finalizer.includes("pnpm"));
 });
 
+test("rejects premature release stamps before dependency setup", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const candidateJob = readJob(workflow, "candidate", "publish_final");
+  const preflight = candidateJob.indexOf(
+    "Check release branch policy before dependency setup"
+  );
+  const dependencySetup = candidateJob.indexOf("Setup pnpm");
+
+  assert.ok(preflight >= 0);
+  assert.ok(dependencySetup >= 0);
+  assert.ok(preflight < dependencySetup);
+  assert.ok(
+    candidateJob.includes(
+      "node trusted-control/scripts/ci/final-candidate-release-policy.mjs"
+    )
+  );
+  assert.ok(candidateJob.includes('"$CANDIDATE_TREE_SHA"'));
+  assert.ok(
+    candidateJob.includes(
+      `CANDIDATE_TREE_SHA: ${GITHUB_EXPRESSION_PREFIX} needs.publish_pending.outputs.candidate_tree }}`
+    )
+  );
+  assert.ok(
+    candidateJob.includes(
+      '--evidence "$RUNNER_TEMP/final-candidate-control/final-candidate-evidence.json"'
+    )
+  );
+  assert.ok(
+    candidateJob.indexOf("Preserve exact candidate evidence and command logs") >
+      dependencySetup
+  );
+  assert.ok(
+    candidateJob.includes(
+      `path: ${GITHUB_EXPRESSION_PREFIX} runner.temp }}/final-candidate-control/`
+    )
+  );
+});
+
 test("disables candidate install hooks before selected commands", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
   const candidateJob = readJob(workflow, "candidate", "publish_final");

@@ -8,7 +8,12 @@ import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "../daemon/runtime-trans
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
 import { openMeldDaemonProviderAccessEvidenceProviderSchema } from "../daemon/task-result";
 import { agentProfileIdSchema } from "../protocol/profile";
-import { agentProfileBindingProjectionSchema } from "./agent-profile-binding";
+import {
+  agentProfileBindingAgentControllerCollaborationModeSchema,
+  agentProfileBindingAgentControllerPermissionModeSchema,
+  agentProfileBindingModelSelectionSchema,
+  agentProfileBindingProjectionSchema,
+} from "./agent-profile-binding";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
@@ -300,6 +305,16 @@ export const getAgentExecutionReadinessResponseSchema = z.strictObject({
   primaryBinding: agentProfileBindingProjectionSchema.nullable().optional(),
   primaryActionPlan: agentExecutionReadinessPrimaryActionPlanSchema,
   profileName: nullableTrimmedStringSchema,
+  publicProfileConfiguration: z
+    .strictObject({
+      agentControllerCollaborationMode:
+        agentProfileBindingAgentControllerCollaborationModeSchema.nullable(),
+      agentControllerPermissionMode:
+        agentProfileBindingAgentControllerPermissionModeSchema.nullable(),
+      agentControllerRef: nullableTrimmedStringSchema,
+      modelSelection: agentProfileBindingModelSelectionSchema.nullable(),
+    })
+    .optional(),
   routeDeviceId: nullableTrimmedStringSchema,
   routeLane: z.union([daemonServiceLaneSchema, z.null()]),
   runtimeDeviceDisplayName: nullableTrimmedStringSchema,

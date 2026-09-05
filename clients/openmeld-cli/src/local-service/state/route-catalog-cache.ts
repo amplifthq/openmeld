@@ -188,5 +188,6 @@ function deserializeRouteCatalog(cache: DaemonRouteCatalogCache): RouteCatalog {
     profileIds: [...cache.profileIds],
     routeByProfileId,
     skippedProfiles: [...cache.skippedProfiles],
+    workingFolderObservations: [],
   };
 }

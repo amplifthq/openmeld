@@ -611,6 +611,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "updating Space publication mode",
     serviceAction: null,
   },
+  "space.access": {
+    ...DEFAULT_COPY,
+    signInAction: null,
+    profileAction: null,
+    cliUpdateAction: "checking Space access",
+  },
   "space.status": {
     signInAction: "reading space status",
     profileAction: "reading space status",

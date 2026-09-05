@@ -1,0 +1,87 @@
+import { readCurrentRuntimeAgentControllerReports } from "../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+import {
+  readRuntimeRegistryRecord,
+  readRuntimeRegistryRecordByRuntimeId,
+} from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
+
+// One read set belongs to one readiness request. Profiles sharing a Runtime or
+// Controller share in-flight reads, including failures, but no result survives
+// into another request. The repositories still validate every stored fact.
+export function createAgentExecutionReadinessReads() {
+  const runtimeById = new Map<
+    D1Database,
+    Map<string, ReturnType<typeof readRuntimeRegistryRecordByRuntimeId>>
+  >();
+  const runtimeByLookup = new Map<
+    D1Database,
+    Map<string, ReturnType<typeof readRuntimeRegistryRecord>>
+  >();
+  const controllerReports = new Map<
+    D1Database,
+    Map<string, ReturnType<typeof readCurrentRuntimeAgentControllerReports>>
+  >();
+  return {
+    readRuntimeRegistryRecordByRuntimeId(
+      input: Parameters<typeof readRuntimeRegistryRecordByRuntimeId>[0]
+    ) {
+      return shareRead(
+        runtimeById,
+        input.db,
+        input.openMeldServiceRuntimeId,
+        () => readRuntimeRegistryRecordByRuntimeId(input)
+      );
+    },
+    readRuntimeRegistryRecord(
+      input: Parameters<typeof readRuntimeRegistryRecord>[0]
+    ) {
+      const lookup = input.runtimeLookupInput;
+      return shareRead(
+        runtimeByLookup,
+        input.db,
+        JSON.stringify([
+          lookup.owner.kind,
+          lookup.owner.id,
+          lookup.deviceId,
+          lookup.lane,
+        ]),
+        () => readRuntimeRegistryRecord(input)
+      );
+    },
+    readCurrentRuntimeAgentControllerReports(
+      input: Parameters<typeof readCurrentRuntimeAgentControllerReports>[0]
+    ) {
+      return shareRead(
+        controllerReports,
+        input.db,
+        JSON.stringify([
+          input.openMeldServiceRuntimeId.value,
+          input.agentControllerRefs ?? [],
+        ]),
+        () => readCurrentRuntimeAgentControllerReports(input)
+      );
+    },
+  };
+}
+
+export type AgentExecutionReadinessReads = ReturnType<
+  typeof createAgentExecutionReadinessReads
+>;
+
+function shareRead<T>(
+  reads: Map<D1Database, Map<string, Promise<T>>>,
+  db: D1Database,
+  key: string,
+  read: () => Promise<T>
+): Promise<T> {
+  let databaseReads = reads.get(db);
+  if (!databaseReads) {
+    databaseReads = new Map();
+    reads.set(db, databaseReads);
+  }
+  let result = databaseReads.get(key);
+  if (!result) {
+    result = read();
+    databaseReads.set(key, result);
+  }
+  return result;
+}

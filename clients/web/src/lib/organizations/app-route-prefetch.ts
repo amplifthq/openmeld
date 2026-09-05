@@ -1,13 +1,13 @@
 import type { ConnectorService } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
 import { findActiveProfileById } from "#/lib/profiles/profiles";
+import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
 import {
 	organizationAppConnectionCatalogQueryOptions,
 	organizationAppServiceConnectionsQueryOptions,
 } from "#/query/organizations/app-connections";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
-	organizationAgentRuntimeOverviewQueryOptions,
 	organizationProfileDirectoryQueryOptions,
 	organizationSpacesQueryOptions,
 } from "#/query/organizations/organization-directory";
@@ -18,8 +18,6 @@ import {
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
-import { spaceHistoryQueryOptions } from "#/query/spaces/history";
-import { spaceStatusQueryOptions } from "#/query/spaces/status";
 import type {
 	OrganizationScopeAuthorized,
 	OrganizationScopeResolution,
@@ -65,7 +63,7 @@ export async function prefetchAppDetailRouteData(
 	);
 }
 
-export async function prefetchAgentsRouteData(
+export async function prefetchAgentsRouteIdentityData(
 	input: OrganizationRoutePrefetchInput
 ): Promise<void> {
 	const scope = await resolveAuthorizedPrefetchScope(input);
@@ -85,12 +83,6 @@ export async function prefetchAgentsRouteData(
 		queries.push(
 			input.queryClient.prefetchQuery(
 				organizationProfileDirectoryQueryOptions({
-					enabled: true,
-					organizationId: scope.currentOrganization.id,
-				})
-			),
-			input.queryClient.prefetchQuery(
-				organizationAgentRuntimeOverviewQueryOptions({
 					enabled: true,
 					organizationId: scope.currentOrganization.id,
 				})
@@ -236,40 +228,27 @@ export async function prefetchKnownSpaceConversationData(input: {
 	spaceId: string;
 	openMeldProfileId: string;
 }): Promise<void> {
-	await Promise.all([
-		input.queryPersistence
-			.activateSpaceConversation({
-				organizationId: input.organizationId,
-				organizationSlug: input.organizationSlug,
-				ownerAccountId: input.ownerAccountId,
-				queryClient: input.queryClient,
-				spaceId: input.spaceId,
-				openMeldProfileId: input.openMeldProfileId,
-			})
-			.then(() =>
-				input.queryClient.prefetchQuery(
-					spaceHistoryQueryOptions({
-						enabled: true,
-						spaceId: input.spaceId,
-						openMeldProfileId: input.openMeldProfileId,
-					})
-				)
-			),
-		input.queryClient.prefetchQuery(
-			spaceStatusQueryOptions({
-				enabled: true,
-				spaceId: input.spaceId,
-				openMeldProfileId: input.openMeldProfileId,
-			})
-		),
-		input.queryClient.prefetchQuery(
-			spaceBootstrapQueryOptions({
-				enabled: true,
-				spaceId: input.spaceId,
-				openMeldProfileId: input.openMeldProfileId,
-			})
-		),
-	]);
+	await input.queryPersistence.activateSpaceConversation({
+		organizationId: input.organizationId,
+		organizationSlug: input.organizationSlug,
+		ownerAccountId: input.ownerAccountId,
+		queryClient: input.queryClient,
+		spaceId: input.spaceId,
+		openMeldProfileId: input.openMeldProfileId,
+	});
+	const bootstrap = await input.queryClient.fetchQuery(
+		spaceBootstrapQueryOptions({
+			enabled: true,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.openMeldProfileId,
+		})
+	);
+	applySpaceBootstrapSnapshotToCache({
+		bootstrap,
+		queryClient: input.queryClient,
+		spaceId: input.spaceId,
+		viewerProfileId: input.openMeldProfileId,
+	});
 }
 
 async function resolveAuthorizedPrefetchScope(

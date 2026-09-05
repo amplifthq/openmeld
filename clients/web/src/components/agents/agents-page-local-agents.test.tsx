@@ -897,11 +897,11 @@ describe("LocalAgentsCard", () => {
 		});
 
 		const note = screen.getByText(
-			"Local agents will refresh after OpenMeld Service is reconnected."
+			"Local agents will refresh after this computer reconnects."
 		);
 		expect(note.className).toContain("text-foreground");
 		expect(
-			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
+			screen.queryByRole("link", { name: "Reconnect Computer" })
 		).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: "Local agents options" })
@@ -1218,6 +1218,8 @@ describe("LocalAgentsCard", () => {
 	});
 
 	it("shows a failed controller check without claiming setup needs repair", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime("2026-06-28T12:00:00.000Z");
 		renderLocalAgentsCard({
 			agentControllerAuth: { status: "unknown" },
 			agentControllerCheck: {
@@ -1230,18 +1232,26 @@ describe("LocalAgentsCard", () => {
 		});
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
-		const checkLabel = within(row).getByText("Couldn't check");
+		const checkLabel = within(row).getByText("Check delayed");
 		expect(checkLabel.className).toContain("text-amber");
+		expect(within(row).getByText("Checked 5 minutes ago")).toBeTruthy();
+		expect(
+			within(row).getByTestId("settings-local-agent-footer").className
+		).toContain("justify-between");
 		expect(within(row).queryByText("Error")).toBeNull();
 		expect(within(row).queryByText("Needs setup")).toBeNull();
 		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
 		const agentDialog = screen.getByRole("dialog");
 		expect(
-			within(agentDialog).getByText(
-				"OpenMeld couldn't finish checking Codex. It will try again automatically."
-			)
+			within(agentDialog).getAllByText(
+				"Codex check is delayed. OpenMeld will retry automatically."
+			).length
+		).toBeGreaterThan(0);
+		expect(within(agentDialog).getByText("Checked 5 minutes ago")).toBeTruthy();
+		expect(within(agentDialog).queryByText("Last successful check")).toBeNull();
+		expect(
+			within(agentDialog).getByRole("button", { name: "Check again" })
 		).toBeTruthy();
-		expect(within(agentDialog).getByText("Last successful check")).toBeTruthy();
 	});
 
 	it("shows a teammate failed controller check as amber even if the raw snapshot says error", () => {
@@ -1287,7 +1297,7 @@ describe("LocalAgentsCard", () => {
 		);
 
 		const row = screen.getByTestId("settings-local-agent-row-openclaw");
-		const checkLabel = within(row).getByText("Couldn't check");
+		const checkLabel = within(row).getByText("Check delayed");
 		expect(checkLabel.className).toContain("text-amber");
 		expect(within(row).queryByText("Error")).toBeNull();
 	});
@@ -1533,7 +1543,7 @@ describe("LocalAgentsCard", () => {
 		fireEvent.click(within(row).getByRole("button", { name: "Codex details" }));
 		expect(
 			within(screen.getByRole("dialog")).getByText(
-				"Last check found this local agent. Connect OpenMeld Service to refresh its status."
+				"Last check found this local agent. Connect this computer to refresh its status."
 			)
 		).toBeTruthy();
 	});

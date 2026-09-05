@@ -21,6 +21,7 @@ export function buildAccountSpaceActiveWakeSummaryPath(input: {
 
 export function buildAccountSpaceIndexPath(input: {
   gatewayHost: string;
+  includeDirectMessageProfileIds?: boolean;
   includePurposes?: boolean;
   limit?: number;
   scope: "account" | "profile";
@@ -39,6 +40,9 @@ export function buildAccountSpaceIndexPath(input: {
   // callers keep receiving the legacy response shape.
   if (input.includeRecentlyDeletedItems === true) {
     url.searchParams.set("includeRecentlyDeletedItems", "true");
+  }
+  if (input.includeDirectMessageProfileIds === true) {
+    url.searchParams.set("includeDirectMessageProfileIds", "true");
   }
   if (input.includePurposes === true) {
     url.searchParams.set("includePurposes", "true");

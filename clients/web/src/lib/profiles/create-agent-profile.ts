@@ -13,7 +13,7 @@ const createStartAgentProfileInputSchema = createAgentProfileBodySchema.extend({
 export const createStartAgentProfile = createServerFn({
 	method: "POST",
 })
-	.inputValidator((data: unknown) => {
+	.validator((data: unknown) => {
 		const parsed = createStartAgentProfileInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(
