@@ -1349,8 +1349,25 @@ describe("SpaceMembersSidePanel", () => {
 		expect(screen.queryByText("Available to add")).toBeNull();
 		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
 		expect(screen.getByText("Joins with selected Agent")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Mira" })
+				.getAttribute("aria-checked")
+		).toBe("true");
 		expect(screen.getByRole("button", { name: "Add 2 members" })).toBeTruthy();
 		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Mira" })
+				.getAttribute("aria-checked")
+		).toBe("false");
+		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
+		fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Research Agent" })
+				.getAttribute("aria-checked")
+		).toBe("false");
 
 		fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
 		fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));

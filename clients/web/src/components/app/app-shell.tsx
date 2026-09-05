@@ -35,6 +35,9 @@ export function AppShell(input: {
 	const currentSection = useMatches({
 		select: resolveAppShellSectionFromMatches,
 	});
+	const hasExplicitSpaceDestination = useMatches({
+		select: (matches) => matches.some((match) => "spaceId" in match.params),
+	});
 
 	return (
 		<AppShellAccountContext.Provider value={input.account}>
@@ -60,6 +63,7 @@ export function AppShell(input: {
 						<OnboardingEntryGate
 							currentOrganization={input.organizationScope.currentOrganization}
 							currentSection={currentSection}
+							hasExplicitSpaceDestination={hasExplicitSpaceDestination}
 							organizations={input.organizationScope.organizations}
 							storageScope={input.storageScope}
 						>

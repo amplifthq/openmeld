@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SKILLDotmdRouteImport } from './routes/SKILL[.md]'
 import { Route as AcceptInvitationRouteImport } from './routes/accept-invitation'
+import { Route as AcceptSpaceInvitationRouteImport } from './routes/accept-space-invitation'
 import { Route as AddToSlackRouteImport } from './routes/add-to-slack'
 import { Route as AgentInterfaceRouteImport } from './routes/agent-interface'
 import { Route as CallbackRouteImport } from './routes/callback'
@@ -21,6 +22,7 @@ import { Route as DesktopRouteImport } from './routes/desktop'
 import { Route as DeviceRouteImport } from './routes/device'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as GuideDotmdRouteImport } from './routes/guide[.md]'
+import { Route as InvitationsRouteImport } from './routes/invitations'
 import { Route as JoinOrganizationRouteImport } from './routes/join-organization'
 import { Route as LinkMessageChannelRouteImport } from './routes/link-message-channel'
 import { Route as LinkSlackRouteImport } from './routes/link-slack'
@@ -129,6 +131,11 @@ const AcceptInvitationRoute = AcceptInvitationRouteImport.update({
   path: '/accept-invitation',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AcceptSpaceInvitationRoute = AcceptSpaceInvitationRouteImport.update({
+  id: '/accept-space-invitation',
+  path: '/accept-space-invitation',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AddToSlackRoute = AddToSlackRouteImport.update({
   id: '/add-to-slack',
   path: '/add-to-slack',
@@ -172,6 +179,11 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
 const GuideDotmdRoute = GuideDotmdRouteImport.update({
   id: '/guide.md',
   path: '/guide.md',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InvitationsRoute = InvitationsRouteImport.update({
+  id: '/invitations',
+  path: '/invitations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const JoinOrganizationRoute = JoinOrganizationRouteImport.update({
@@ -672,6 +684,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/SKILL.md': typeof SKILLDotmdRoute
   '/accept-invitation': typeof AcceptInvitationRoute
+  '/accept-space-invitation': typeof AcceptSpaceInvitationRoute
   '/add-to-slack': typeof AddToSlackRoute
   '/agent-interface': typeof AgentInterfaceRouteWithChildren
   '/callback': typeof CallbackRoute
@@ -681,6 +694,7 @@ export interface FileRoutesByFullPath {
   '/device': typeof DeviceRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
+  '/invitations': typeof InvitationsRoute
   '/join-organization': typeof JoinOrganizationRoute
   '/link-message-channel': typeof LinkMessageChannelRoute
   '/link-slack': typeof LinkSlackRoute
@@ -777,6 +791,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/SKILL.md': typeof SKILLDotmdRoute
   '/accept-invitation': typeof AcceptInvitationRoute
+  '/accept-space-invitation': typeof AcceptSpaceInvitationRoute
   '/add-to-slack': typeof AddToSlackRoute
   '/agent-interface': typeof AgentInterfaceRouteWithChildren
   '/callback': typeof CallbackRoute
@@ -786,6 +801,7 @@ export interface FileRoutesByTo {
   '/device': typeof DeviceRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
+  '/invitations': typeof InvitationsRoute
   '/join-organization': typeof JoinOrganizationRoute
   '/link-message-channel': typeof LinkMessageChannelRoute
   '/link-slack': typeof LinkSlackRoute
@@ -873,6 +889,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/SKILL.md': typeof SKILLDotmdRoute
   '/accept-invitation': typeof AcceptInvitationRoute
+  '/accept-space-invitation': typeof AcceptSpaceInvitationRoute
   '/add-to-slack': typeof AddToSlackRoute
   '/agent-interface': typeof AgentInterfaceRouteWithChildren
   '/callback': typeof CallbackRoute
@@ -882,6 +899,7 @@ export interface FileRoutesById {
   '/device': typeof DeviceRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
+  '/invitations': typeof InvitationsRoute
   '/join-organization': typeof JoinOrganizationRoute
   '/link-message-channel': typeof LinkMessageChannelRoute
   '/link-slack': typeof LinkSlackRoute
@@ -981,6 +999,7 @@ export interface FileRouteTypes {
     | '/'
     | '/SKILL.md'
     | '/accept-invitation'
+    | '/accept-space-invitation'
     | '/add-to-slack'
     | '/agent-interface'
     | '/callback'
@@ -990,6 +1009,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/forgot-password'
     | '/guide.md'
+    | '/invitations'
     | '/join-organization'
     | '/link-message-channel'
     | '/link-slack'
@@ -1086,6 +1106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/SKILL.md'
     | '/accept-invitation'
+    | '/accept-space-invitation'
     | '/add-to-slack'
     | '/agent-interface'
     | '/callback'
@@ -1095,6 +1116,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/forgot-password'
     | '/guide.md'
+    | '/invitations'
     | '/join-organization'
     | '/link-message-channel'
     | '/link-slack'
@@ -1181,6 +1203,7 @@ export interface FileRouteTypes {
     | '/'
     | '/SKILL.md'
     | '/accept-invitation'
+    | '/accept-space-invitation'
     | '/add-to-slack'
     | '/agent-interface'
     | '/callback'
@@ -1190,6 +1213,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/forgot-password'
     | '/guide.md'
+    | '/invitations'
     | '/join-organization'
     | '/link-message-channel'
     | '/link-slack'
@@ -1288,6 +1312,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SKILLDotmdRoute: typeof SKILLDotmdRoute
   AcceptInvitationRoute: typeof AcceptInvitationRoute
+  AcceptSpaceInvitationRoute: typeof AcceptSpaceInvitationRoute
   AddToSlackRoute: typeof AddToSlackRoute
   AgentInterfaceRoute: typeof AgentInterfaceRouteWithChildren
   CallbackRoute: typeof CallbackRoute
@@ -1297,6 +1322,7 @@ export interface RootRouteChildren {
   DeviceRoute: typeof DeviceRouteWithChildren
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   GuideDotmdRoute: typeof GuideDotmdRoute
+  InvitationsRoute: typeof InvitationsRoute
   JoinOrganizationRoute: typeof JoinOrganizationRoute
   LinkMessageChannelRoute: typeof LinkMessageChannelRoute
   LinkSlackRoute: typeof LinkSlackRoute
@@ -1348,6 +1374,13 @@ declare module '@tanstack/react-router' {
       path: '/accept-invitation'
       fullPath: '/accept-invitation'
       preLoaderRoute: typeof AcceptInvitationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accept-space-invitation': {
+      id: '/accept-space-invitation'
+      path: '/accept-space-invitation'
+      fullPath: '/accept-space-invitation'
+      preLoaderRoute: typeof AcceptSpaceInvitationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/add-to-slack': {
@@ -1411,6 +1444,13 @@ declare module '@tanstack/react-router' {
       path: '/guide.md'
       fullPath: '/guide.md'
       preLoaderRoute: typeof GuideDotmdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invitations': {
+      id: '/invitations'
+      path: '/invitations'
+      fullPath: '/invitations'
+      preLoaderRoute: typeof InvitationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/join-organization': {
@@ -2390,6 +2430,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SKILLDotmdRoute: SKILLDotmdRoute,
   AcceptInvitationRoute: AcceptInvitationRoute,
+  AcceptSpaceInvitationRoute: AcceptSpaceInvitationRoute,
   AddToSlackRoute: AddToSlackRoute,
   AgentInterfaceRoute: AgentInterfaceRouteWithChildren,
   CallbackRoute: CallbackRoute,
@@ -2399,6 +2440,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeviceRoute: DeviceRouteWithChildren,
   ForgotPasswordRoute: ForgotPasswordRoute,
   GuideDotmdRoute: GuideDotmdRoute,
+  InvitationsRoute: InvitationsRoute,
   JoinOrganizationRoute: JoinOrganizationRoute,
   LinkMessageChannelRoute: LinkMessageChannelRoute,
   LinkSlackRoute: LinkSlackRoute,
