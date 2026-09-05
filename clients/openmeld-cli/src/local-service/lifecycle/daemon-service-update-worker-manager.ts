@@ -1,11 +1,23 @@
 import { spawn } from "node:child_process";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import {
+  daemonServiceUpdateWorkerNpmEntryPath,
+  hasIndependentMaintenanceRegistration,
+  INDEPENDENT_MAINTENANCE_REGISTRATION,
   resolveDaemonServiceUpdateWorkerIdentity,
   resolveDaemonServiceUpdateWorkerLaunchdPlistPath,
   resolveDaemonServiceUpdateWorkerSystemdPathUnitPath,
+  resolveDaemonServiceUpdateWorkerSystemdTimerUnitPath,
   resolveDaemonServiceUpdateWorkerSystemdUnitPath,
   resolveDaemonServiceUpdateWorkerWindowsScriptPath,
 } from "../../config/daemon-service-update-worker-registration";
@@ -22,13 +34,22 @@ import {
   ensureDaemonServiceUpdateWorkerBinaryExecutable,
   readDaemonActiveBundleState,
   resolveDaemonBundleEntryPathFromState,
+  runAuditedServiceManagerCarrierMutation,
+  verifyDaemonActiveBundleIntegrity,
 } from "./daemon-service-bundle";
 import { buildDaemonSystemServiceCommandSpec } from "./daemon-service-command-spec";
 import { resolveDaemonServiceManager } from "./daemon-service-manager";
-import type { DaemonServiceUpdateJob } from "./daemon-service-update-state";
+import {
+  type DaemonServiceUpdateJob,
+  readPendingDaemonServiceUpdate,
+} from "./daemon-service-update-state";
+import {
+  runWindowsUserTask,
+  windowsPowerShellPath,
+  windowsTaskActionArguments,
+} from "./windows-user-task";
 
 const UPDATE_WORKER_RESTART_BACKOFF_SECONDS = 30;
-const WINDOWS_SERVICE_ALREADY_RUNNING_PATTERN = /already running|1056/i;
 const SYSTEMD_QUOTING_PATTERN = /[\s"\\]/u;
 
 export type DaemonServiceUpdateWorkerSpec = {
@@ -45,16 +66,39 @@ type RunCommandResult = {
   stdout: string;
 };
 
+export async function ensureDaemonServiceMaintenanceInstalled(): Promise<void> {
+  // The pending update owns its executor until verification and rollback finish.
+  if (
+    (await readPendingDaemonServiceUpdate()) ||
+    (await hasIndependentMaintenanceRegistration())
+  ) {
+    return;
+  }
+  const preparedBundle = await readDaemonActiveBundleState();
+  if (
+    !(
+      preparedBundle &&
+      (await verifyDaemonActiveBundleIntegrity(preparedBundle))
+    )
+  ) {
+    throw new Error(
+      "OpenMeld cannot install automatic maintenance without a verified Service program."
+    );
+  }
+  await installDaemonServiceUpdateWorker({ preparedBundle });
+}
+
 export async function installDaemonServiceUpdateWorker(
-  job: DaemonServiceUpdateJob,
+  job: Pick<DaemonServiceUpdateJob, "preparedBundle">,
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<void> {
   await prepareDaemonServiceUpdateWorkerCarrier(job, pathInput);
   await registerDaemonServiceUpdateWorker(job, pathInput);
+  await startDaemonServiceUpdateWorker(undefined, pathInput);
 }
 
 export async function registerDaemonServiceUpdateWorker(
-  job: DaemonServiceUpdateJob,
+  job: Pick<DaemonServiceUpdateJob, "preparedBundle">,
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<void> {
   assertSafePublishedProductionServiceRegistrationMutation(
@@ -118,6 +162,11 @@ export async function registerDaemonServiceUpdateWorker(
         }),
         { encoding: "utf8", mode: 0o600 }
       ),
+      writeFile(
+        resolveDaemonServiceUpdateWorkerSystemdTimerUnitPath(pathInput),
+        buildSystemdServiceUpdateWorkerTimerUnit(identity.serviceName),
+        { encoding: "utf8", mode: 0o600 }
+      ),
     ]);
     await requireSuccessfulCommand({
       command: "systemctl",
@@ -125,7 +174,13 @@ export async function registerDaemonServiceUpdateWorker(
     });
     await requireSuccessfulCommand({
       command: "systemctl",
-      args: ["--user", "enable", "--now", `${identity.serviceName}.path`],
+      args: [
+        "--user",
+        "enable",
+        "--now",
+        `${identity.serviceName}.path`,
+        `${identity.serviceName}.timer`,
+      ],
     });
     return;
   }
@@ -133,41 +188,22 @@ export async function registerDaemonServiceUpdateWorker(
   if (process.platform === "win32") {
     const scriptPath =
       resolveDaemonServiceUpdateWorkerWindowsScriptPath(pathInput);
-    await mkdir(dirname(scriptPath), { recursive: true });
-    await writeFile(scriptPath, buildWindowsUpdateWorkerScript(spec), {
-      encoding: "utf8",
-      mode: 0o600,
+    await mkdir(dirname(resolveUpdateWorkerLogPath(pathInput)), {
+      recursive: true,
     });
-    const query = await runCommand({
-      command: "sc",
-      args: ["query", identity.windowsServiceName],
+    await runWindowsUserTask({
+      name: identity.windowsServiceName,
+      legacyScript: scriptPath,
+      operation: "install",
+      executable: windowsPowerShellPath(),
+      arguments: windowsTaskActionArguments({
+        ...spec,
+        logPath: resolveUpdateWorkerLogPath(pathInput),
+      }),
+      workingDirectory: spec.workingDirectory,
+      periodic: true,
     });
-    const operation = query.exitCode === 0 ? "config" : "create";
-    await requireSuccessfulCommand({
-      command: "sc",
-      args: [
-        operation,
-        identity.windowsServiceName,
-        "binPath=",
-        quoteWindowsArg(scriptPath),
-        "start=",
-        "auto",
-        ...(operation === "create"
-          ? ["DisplayName=", quoteWindowsArg(identity.windowsDisplayName)]
-          : []),
-      ],
-    });
-    await requireSuccessfulCommand({
-      command: "sc",
-      args: [
-        "failure",
-        identity.windowsServiceName,
-        "reset=",
-        "86400",
-        "actions=",
-        "restart/30000/restart/30000/restart/30000",
-      ],
-    });
+    await rm(scriptPath, { force: true });
     return;
   }
 
@@ -177,7 +213,7 @@ export async function registerDaemonServiceUpdateWorker(
 }
 
 export async function prepareDaemonServiceUpdateWorkerCarrier(
-  job: DaemonServiceUpdateJob,
+  job: Pick<DaemonServiceUpdateJob, "preparedBundle">,
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<void> {
   if (job.preparedBundle.bundleFormat === "binary_v1") {
@@ -185,7 +221,38 @@ export async function prepareDaemonServiceUpdateWorkerCarrier(
       job.preparedBundle,
       pathInput
     );
+    return;
   }
+  const entry = await resolveDaemonBundleEntryPathFromState(
+    job.preparedBundle,
+    pathInput
+  );
+  if (!entry) {
+    throw new Error(
+      "OpenMeld could not resolve the verified maintenance bundle."
+    );
+  }
+  const target = daemonServiceUpdateWorkerNpmEntryPath(pathInput);
+  await runAuditedServiceManagerCarrierMutation({
+    distribution: "npm",
+    operation: "refresh_update_worker_launcher",
+    pathInput,
+    targetPath: target,
+    run: async () => {
+      await mkdir(dirname(target), { recursive: true });
+      const temporary = `${target}.${process.pid}.tmp`;
+      try {
+        await writeFile(
+          temporary,
+          `process.env.OPENMELD_INTERNAL_NPM_INSTALL_ENTRY = ${JSON.stringify(job.preparedBundle.sourceEntryScriptPath)};\nawait import(${JSON.stringify(pathToFileURL(entry).href)});\n`,
+          { mode: 0o600 }
+        );
+        await rename(temporary, target);
+      } finally {
+        await rm(temporary, { force: true });
+      }
+    },
+  });
 }
 
 export async function pruneDaemonServiceUpdateWorkerManagedVersions(
@@ -203,7 +270,7 @@ export async function pruneDaemonServiceUpdateWorkerManagedVersions(
 }
 
 export async function startDaemonServiceUpdateWorker(
-  _job: DaemonServiceUpdateJob,
+  _job?: DaemonServiceUpdateJob,
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<void> {
   assertSafePublishedProductionServiceRegistrationMutation(
@@ -229,23 +296,30 @@ export async function startDaemonServiceUpdateWorker(
     return;
   }
   if (process.platform === "win32") {
-    const start = await runCommand({
-      command: "sc",
-      args: ["start", identity.windowsServiceName],
+    await runWindowsUserTask({
+      name: identity.windowsServiceName,
+      legacyScript:
+        resolveDaemonServiceUpdateWorkerWindowsScriptPath(pathInput),
+      operation: "start",
     });
-    if (
-      start.exitCode !== 0 &&
-      !WINDOWS_SERVICE_ALREADY_RUNNING_PATTERN.test(
-        `${start.stdout}\n${start.stderr}`
-      )
-    ) {
-      throw commandFailure("sc start", start);
-    }
     return;
   }
   throw new Error(
     `OpenMeld cannot start its background update worker on ${process.platform}.`
   );
+}
+
+async function clearDaemonServiceUpdateWorkerNpmEntry(
+  pathInput: OpenMeldPathResolutionInput
+): Promise<void> {
+  const targetPath = daemonServiceUpdateWorkerNpmEntryPath(pathInput);
+  await runAuditedServiceManagerCarrierMutation({
+    distribution: "npm",
+    operation: "remove_update_worker_launcher",
+    pathInput,
+    targetPath,
+    run: () => rm(targetPath, { force: true }),
+  });
 }
 
 export async function uninstallDaemonServiceUpdateWorker(
@@ -267,12 +341,19 @@ export async function uninstallDaemonServiceUpdateWorker(
       force: true,
     });
     await clearDaemonServiceUpdateWorkerBinaryExecutable(pathInput);
+    await clearDaemonServiceUpdateWorkerNpmEntry(pathInput);
     return;
   }
   if (process.platform === "linux") {
     await runCommand({
       command: "systemctl",
-      args: ["--user", "disable", "--now", `${identity.serviceName}.path`],
+      args: [
+        "--user",
+        "disable",
+        "--now",
+        `${identity.serviceName}.path`,
+        `${identity.serviceName}.timer`,
+      ],
     });
     await runCommand({
       command: "systemctl",
@@ -285,29 +366,38 @@ export async function uninstallDaemonServiceUpdateWorker(
       rm(resolveDaemonServiceUpdateWorkerSystemdPathUnitPath(pathInput), {
         force: true,
       }),
+      rm(resolveDaemonServiceUpdateWorkerSystemdTimerUnitPath(pathInput), {
+        force: true,
+      }),
     ]);
     await runCommand({
       command: "systemctl",
       args: ["--user", "daemon-reload"],
     });
     await clearDaemonServiceUpdateWorkerBinaryExecutable(pathInput);
+    await clearDaemonServiceUpdateWorkerNpmEntry(pathInput);
     return;
   }
   if (process.platform === "win32") {
-    await runCommand({
-      command: "sc",
-      args: ["stop", identity.windowsServiceName],
+    const legacyScript =
+      resolveDaemonServiceUpdateWorkerWindowsScriptPath(pathInput);
+    await runWindowsUserTask({
+      name: identity.windowsServiceName,
+      legacyScript,
+      operation: "stop",
     });
-    await runCommand({
-      command: "sc",
-      args: ["delete", identity.windowsServiceName],
+    await runWindowsUserTask({
+      name: identity.windowsServiceName,
+      legacyScript,
+      operation: "uninstall",
     });
-    await clearDaemonServiceUpdateWorkerBinaryExecutable(pathInput);
+    await rm(legacyScript, { force: true });
+    await clearDaemonServiceUpdateWorkerNpmEntry(pathInput);
   }
 }
 
 export async function buildDaemonServiceUpdateWorkerSpec(
-  job: DaemonServiceUpdateJob,
+  job: Pick<DaemonServiceUpdateJob, "preparedBundle">,
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<DaemonServiceUpdateWorkerSpec> {
   const mainManager = await resolveDaemonServiceManager(undefined, pathInput);
@@ -327,7 +417,7 @@ export async function buildDaemonServiceUpdateWorkerSpec(
   const binaryDistribution = job.preparedBundle.bundleFormat === "binary_v1";
   const targetEntryPath = binaryDistribution
     ? daemonServiceUpdateWorkerBinaryPath(pathInput)
-    : await resolveDaemonBundleEntryPathFromState(job.preparedBundle);
+    : daemonServiceUpdateWorkerNpmEntryPath(pathInput);
   if (!targetEntryPath) {
     throw new Error(
       "OpenMeld could not resolve the prepared Service update executable."
@@ -362,6 +452,7 @@ export function buildLaunchdServiceUpdateWorkerPlist(input: {
     )
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
+<!-- ${INDEPENDENT_MAINTENANCE_REGISTRATION} -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -373,11 +464,17 @@ ${args}
   </array>
   <key>WorkingDirectory</key>
   <string>${escapeXml(input.spec.workingDirectory)}</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>3600</integer>
   <key>KeepAlive</key>
   <dict>
     <key>PathState</key>
     <dict>
       <key>${escapeXml(input.spec.pendingJobPath)}</key>
+      <true/>
+      <key>${escapeXml(join(dirname(input.spec.pendingJobPath), "tools-update.json"))}</key>
       <true/>
     </dict>
   </dict>
@@ -408,7 +505,8 @@ export function buildSystemdServiceUpdateWorkerUnit(input: {
         `Environment=${key}=${quoteSystemdEnvironmentValue(value)}`
     )
     .join("\n");
-  return `[Unit]
+  return `# ${INDEPENDENT_MAINTENANCE_REGISTRATION}
+[Unit]
 Description=OpenMeld Service Update Worker
 After=default.target
 
@@ -434,10 +532,27 @@ Description=Watch for a pending OpenMeld Service update
 
 [Path]
 PathExists=${input.pendingJobPath}
+PathExists=${join(dirname(input.pendingJobPath), "tools-update.json")}
 Unit=${input.serviceName}.service
 
 [Install]
 WantedBy=default.target
+`;
+}
+
+export function buildSystemdServiceUpdateWorkerTimerUnit(
+  serviceName: string
+): string {
+  return `[Unit]
+Description=Check for OpenMeld updates
+
+[Timer]
+OnStartupSec=2min
+OnUnitInactiveSec=1h
+Unit=${serviceName}.service
+
+[Install]
+WantedBy=timers.target
 `;
 }
 
@@ -449,18 +564,6 @@ function resolveUpdateWorkerLogPath(
     "logs",
     "service-update-worker.log"
   );
-}
-
-function buildWindowsUpdateWorkerScript(
-  spec: DaemonServiceUpdateWorkerSpec
-): string {
-  const env = Object.entries(spec.env).map(
-    ([key, value]) => `set "${key}=${value.replaceAll('"', '\\"')}"`
-  );
-  const command = [spec.executable, ...spec.args]
-    .map(quoteWindowsArg)
-    .join(" ");
-  return ["@echo off", "setlocal", ...env, command, ""].join("\r\n");
 }
 
 function escapeXml(value: string): string {
@@ -481,10 +584,6 @@ function quoteSystemdArg(value: string): string {
 
 function quoteSystemdEnvironmentValue(value: string): string {
   return quoteSystemdArg(value);
-}
-
-function quoteWindowsArg(value: string): string {
-  return `"${value.replaceAll('"', '\\"')}"`;
 }
 
 async function requireSuccessfulCommand(input: {

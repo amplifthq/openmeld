@@ -1,11 +1,11 @@
 import { runDaemonBackgroundStartForDecision } from "../commands/service";
 import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
 import { runDaemonStartupPreflight } from "../local-service/lifecycle/daemon-startup-preflight";
-import { createDaemonServiceAlignmentProgressUi } from "../system/local-service-alignment-progress-ui";
 import {
   type DaemonServiceParticipationStatus,
   resolveDaemonServiceParticipationStatus,
-} from "../system/local-service-participation-gate";
+} from "../local-service/status/service-participation-status";
+import { createDaemonServiceAlignmentProgressUi } from "../system/local-service-alignment-progress-ui";
 import { runDaemonStartDecisionPrompt } from "../system/local-service-start-decision";
 import { resolveServiceReadinessFromServiceStatus } from "../system/service-readiness-resolver";
 import { buildAgentCheckResult } from "./build-agent-check-result";

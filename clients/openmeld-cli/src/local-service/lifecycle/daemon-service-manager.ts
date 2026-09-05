@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
+import type { WindowsUserTaskRequest } from "@openmeld/schemas";
 import { sleep } from "@openmeld/utils";
 import type { DaemonServiceController } from "../../config/daemon-state";
 import { daemonRuntimeRootPath } from "../../config/daemon-state";
@@ -17,6 +18,12 @@ import type { OpenMeldEnvironmentTarget } from "../../config/openmeld-environmen
 import type { OpenMeldPathResolutionInput } from "../../config/paths";
 import { assertSafePublishedProductionServiceRegistrationMutation } from "../../config/published-production-safety";
 import { resolveDaemonServiceIdentity } from "./daemon-service-identity";
+import {
+  readWindowsTaskAction,
+  runWindowsUserTask,
+  windowsPowerShellPath,
+  windowsTaskActionArguments,
+} from "./windows-user-task";
 
 export type RunCommandResult = {
   exitCode: number;
@@ -44,6 +51,8 @@ export type DaemonServiceManagerRuntimeStatus = {
   enabled: boolean;
   definitionPath?: string | null;
   commandSummary?: string | null;
+  /** Native launch action when the supervisor does not use a definition file. */
+  commandSpec?: DaemonServiceCommandSpec;
   /**
    * The OpenMeld backend target persisted in the OS service definition.
    * `undefined` is reserved for older/custom manager implementations that do
@@ -119,7 +128,6 @@ const SHELL_QUOTING_PATTERN = /[\s"\\]/g;
 const SHELL_BACKSLASH_PATTERN = /\\/g;
 const SHELL_DOUBLE_QUOTE_PATTERN = /"/g;
 const WINDOWS_QUOTE_PATTERN = /"/g;
-const WINDOWS_NEWLINE_PATTERN = /\r?\n/g;
 const XML_AMPERSAND_PATTERN = /&/g;
 const XML_LESS_THAN_PATTERN = /</g;
 const XML_GREATER_THAN_PATTERN = />/g;
@@ -134,9 +142,6 @@ const LAUNCHD_ENVIRONMENT_BLOCK_PATTERN =
   /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
 const WINDOWS_LINE_SEPARATOR_PATTERN = /\r?\n/;
 const WINDOWS_ENVIRONMENT_ASSIGNMENT_PATTERN = /^set "([^=]+)=(.*)"$/i;
-const WINDOWS_STATE_PATTERN = /STATE\s*:\s*\d+\s+([A-Za-z_]+)/;
-const WINDOWS_AUTO_START_PATTERN = /auto|auto_start/i;
-const WINDOWS_SERVICE_DOES_NOT_EXIST_CODE_PATTERN = /(?:^|\D)1060(?:\D|$)/u;
 const SYSTEMD_ACTIVE_STATES = new Set([
   "active",
   "reloading",
@@ -164,8 +169,6 @@ const SYSTEMD_ENABLED_STATES = new Set([
   "not-found",
 ]);
 const LAUNCHD_ALREADY_PATTERN = /already/i;
-const WINDOWS_BINARY_PATH_PATTERN = /BINARY_PATH_NAME\s*:\s*(.+)/i;
-const WINDOWS_START_TYPE_PATTERN = /START_TYPE\s*:\s*\d+\s+\(([^)]+)\)/i;
 const WINDOWS_SCRIPT_LINE_SPLIT_PATTERN = /\r?\n/u;
 const LAUNCHD_SERVICE_NOT_FOUND_PATTERNS = [
   /could not find service/i,
@@ -372,12 +375,6 @@ function quoteWindowsArg(input: string): string {
   return `"${input.replace(WINDOWS_QUOTE_PATTERN, '\\"')}"`;
 }
 
-function quoteWindowsEnvValue(input: string): string {
-  return input
-    .replace(WINDOWS_QUOTE_PATTERN, '\\"')
-    .replace(WINDOWS_NEWLINE_PATTERN, " ");
-}
-
 function escapeXmlText(input: string): string {
   return input
     .replace(XML_AMPERSAND_PATTERN, AMPERSAND_XML_REPLACEMENT)
@@ -385,13 +382,6 @@ function escapeXmlText(input: string): string {
     .replace(XML_GREATER_THAN_PATTERN, GREATER_XML_REPLACEMENT)
     .replace(XML_DOUBLE_QUOTE_ESCAPE_PATTERN, QUOTED_XML_REPLACEMENT)
     .replace(XML_SINGLE_QUOTE_PATTERN, APOSTROPHE_XML_REPLACEMENT);
-}
-
-function ensureLineSeparator(text: string): string {
-  if (!(text.endsWith("\r\n") || text.endsWith("\n"))) {
-    return `${text}\r\n`;
-  }
-  return text;
 }
 
 export function buildSystemdUnitFile(
@@ -512,19 +502,6 @@ ${envRows}
 `;
 }
 
-function buildWindowsRunnerScript(spec: DaemonServiceCommandSpec): string {
-  const envLines = Object.entries(spec.env).map(
-    ([key, value]) => `set "${key}=${quoteWindowsEnvValue(value)}"`
-  );
-  const commandLine = [
-    quoteWindowsArg(spec.executable),
-    ...spec.args.map(quoteWindowsArg),
-  ].join(" ");
-  return ensureLineSeparator(
-    ["@echo off", "setlocal", ...envLines, commandLine].join("\r\n")
-  );
-}
-
 function resolveSystemdUnitPath(
   pathInput: OpenMeldPathResolutionInput = {}
 ): string {
@@ -623,15 +600,6 @@ export function isDaemonServiceBackgroundExecutionBlocked(
   );
 }
 
-export function buildWindowsServiceFailureActions(): string {
-  const restartDelayMs = DAEMON_SERVICE_RESTART_BACKOFF_SECONDS * 1000;
-  return [
-    `restart/${restartDelayMs}`,
-    `restart/${restartDelayMs}`,
-    `restart/${restartDelayMs}`,
-  ].join("/");
-}
-
 export function readDaemonServiceJobCrashExitCode(
   diagnostics: DaemonServiceJobDiagnostics
 ): number | null {
@@ -687,13 +655,6 @@ function parseLaunchdEnabledFromDisabledServices(
   return null;
 }
 
-function parseWindowsEnabled(startType: string | null): boolean {
-  if (!startType) {
-    return false;
-  }
-  return WINDOWS_AUTO_START_PATTERN.test(startType);
-}
-
 export async function installMissingServiceDefinitionFailAtomically(input: {
   definitionWasPresent: boolean;
   install: () => Promise<void>;
@@ -717,22 +678,6 @@ export async function installMissingServiceDefinitionFailAtomically(input: {
     }
     throw installError;
   }
-}
-
-export function isWindowsServiceDefinitionMissingResult(input: {
-  exitCode: number;
-  stderr: string;
-  stdout: string;
-}): boolean {
-  if (input.exitCode === 0) {
-    return false;
-  }
-  return (
-    input.exitCode === 1060 ||
-    WINDOWS_SERVICE_DOES_NOT_EXIST_CODE_PATTERN.test(
-      `${input.stdout}\n${input.stderr}`
-    )
-  );
 }
 
 export function readSystemdServiceActiveProbe(
@@ -778,17 +723,6 @@ function buildServiceManagerProbeError(
       .filter(Boolean)
       .join(" | ")
   );
-}
-
-export async function rollbackNewWindowsServiceDefinition(input: {
-  definitionCreated: boolean;
-  deleteDefinition: () => Promise<unknown>;
-  removeRunnerScript: () => Promise<unknown>;
-}): Promise<void> {
-  await runServiceDefinitionRollbackSteps([
-    ...(input.definitionCreated ? [input.deleteDefinition] : []),
-    input.removeRunnerScript,
-  ]);
 }
 
 export async function runServiceDefinitionRollbackSteps(
@@ -1281,300 +1215,112 @@ function buildLaunchdManager(
 function buildWindowsManager(
   pathInput: OpenMeldPathResolutionInput = {}
 ): DaemonServiceManager {
-  const serviceIdentity = resolveDaemonServiceIdentity(pathInput);
+  const identity = resolveDaemonServiceIdentity(pathInput);
   const scriptPath = resolveWindowsServiceScriptPath(pathInput);
-
+  const task = (operation: WindowsUserTaskRequest["operation"]) =>
+    runWindowsUserTask({
+      name: identity.windowsServiceName,
+      legacyScript: scriptPath,
+      operation,
+    });
+  const status = async (): Promise<DaemonServiceManagerRuntimeStatus> => {
+    const observed = await task("status");
+    if (observed.actionArguments !== null) {
+      const action = readWindowsTaskAction(observed.actionArguments);
+      return {
+        installed: observed.installed,
+        running: observed.running,
+        enabled: observed.enabled,
+        definitionPath: `Task Scheduler: ${identity.windowsServiceName} (current user)`,
+        commandSummary: [
+          quoteWindowsArg(action.executable),
+          ...action.args.map(quoteWindowsArg),
+        ].join(" "),
+        commandSpec: action,
+        environmentTarget: serviceEnvironmentTarget(action.env),
+      };
+    }
+    return {
+      installed: observed.installed,
+      running: observed.running,
+      enabled: observed.enabled,
+      definitionPath: observed.installed ? scriptPath : null,
+      commandSummary: observed.installed
+        ? await readWindowsRunnerCommandSummary(scriptPath)
+        : null,
+      environmentTarget: observed.installed
+        ? await readDaemonServiceEnvironmentTargetFromDefinition({
+            controller: WINDOWS_CONTROLLER,
+            path: scriptPath,
+          })
+        : null,
+    };
+  };
+  const wait = async (action: "absent" | "stopped" | "running") => {
+    await waitForCondition({
+      until: async () => {
+        const current = await status();
+        if (action === "running") {
+          return current.running;
+        }
+        return action === "stopped" ? !current.running : !current.installed;
+      },
+      onTimeout: async () =>
+        buildSystemServiceWaitTimeoutError({
+          action,
+          controller: WINDOWS_CONTROLLER,
+          details: formatManagerStatusDetails(await status()),
+        }),
+    });
+  };
   return {
     controller: WINDOWS_CONTROLLER,
     install: async (spec) => {
-      const query = await runCommand({
-        command: "sc",
-        args: ["query", serviceIdentity.windowsServiceName],
-        throwOnError: false,
+      await ensureServiceLogDirectory(pathInput);
+      await runWindowsUserTask({
+        name: identity.windowsServiceName,
+        legacyScript: scriptPath,
+        operation: "install",
+        executable: windowsPowerShellPath(),
+        arguments: windowsTaskActionArguments({
+          ...spec,
+          logPath: getDaemonSystemServiceLogPath(pathInput),
+        }),
+        workingDirectory:
+          spec.workingDirectory ?? daemonRuntimeRootPath(pathInput),
       });
-      const definitionWasPresent = query.exitCode === 0;
-      if (
-        !(
-          definitionWasPresent || isWindowsServiceDefinitionMissingResult(query)
-        )
-      ) {
-        throw new Error(
-          [
-            `could not determine whether Windows Service ${serviceIdentity.windowsServiceName} exists`,
-            `exitCode=${query.exitCode}`,
-            query.stdout.trim(),
-            query.stderr.trim(),
-          ]
-            .filter(Boolean)
-            .join(" | ")
-        );
-      }
-      let definitionCreated = false;
-      await installMissingServiceDefinitionFailAtomically({
-        definitionWasPresent,
-        install: async () => {
-          await mkdir(dirname(scriptPath), { recursive: true });
-          await writeFile(scriptPath, buildWindowsRunnerScript(spec), {
-            encoding: "utf8",
-            mode: 0o600,
-          });
-          const quotedScriptPath = quoteWindowsArg(scriptPath);
-          if (definitionWasPresent) {
-            await runCommand({
-              command: "sc",
-              args: [
-                "config",
-                serviceIdentity.windowsServiceName,
-                "binPath=",
-                quotedScriptPath,
-                "start=",
-                "auto",
-              ],
-              throwOnError: true,
-            });
-          } else {
-            await runCommand({
-              command: "sc",
-              args: [
-                "create",
-                serviceIdentity.windowsServiceName,
-                "binPath=",
-                quotedScriptPath,
-                "start=",
-                "auto",
-                "DisplayName=",
-                quoteWindowsArg(serviceIdentity.windowsDisplayName),
-              ],
-              throwOnError: true,
-            });
-            definitionCreated = true;
-          }
-          await runCommand({
-            command: "sc",
-            args: [
-              "failure",
-              serviceIdentity.windowsServiceName,
-              "reset=",
-              "86400",
-              "actions=",
-              buildWindowsServiceFailureActions(),
-            ],
-            throwOnError: false,
-          });
-        },
-        rollbackNewDefinition: async () => {
-          await rollbackNewWindowsServiceDefinition({
-            definitionCreated,
-            deleteDefinition: async () =>
-              await runCommand({
-                command: "sc",
-                args: ["delete", serviceIdentity.windowsServiceName],
-                throwOnError: true,
-              }),
-            removeRunnerScript: async () =>
-              await rm(scriptPath, { force: true }),
-          });
-        },
-        verifyNewDefinition: async () => {
-          const status = await buildWindowsManager(pathInput).status();
-          assertServiceRegistrationInstalledAndEnabled(
-            WINDOWS_CONTROLLER,
-            status
-          );
-        },
-      });
+      assertServiceRegistrationInstalledAndEnabled(
+        WINDOWS_CONTROLLER,
+        await status()
+      );
+      await rm(scriptPath, { force: true });
     },
     uninstall: async () => {
-      await runCommand({
-        command: "sc",
-        args: ["stop", serviceIdentity.windowsServiceName],
-        throwOnError: false,
-      });
-      await runCommand({
-        command: "sc",
-        args: ["delete", serviceIdentity.windowsServiceName],
-        throwOnError: false,
-      });
+      await task("uninstall");
       await rm(scriptPath, { force: true });
     },
     enableAutostart: async () => {
-      const query = await runCommand({
-        command: "sc",
-        args: ["query", serviceIdentity.windowsServiceName],
-        throwOnError: false,
-      });
-      if (query.exitCode !== 0) {
-        throw new Error(
-          "OpenMeld Service is not installed for Windows Service."
-        );
-      }
-      await runCommand({
-        command: "sc",
-        args: ["config", serviceIdentity.windowsServiceName, "start=", "auto"],
-        throwOnError: true,
-      });
+      await task("enable");
     },
     disableAutostart: async () => {
-      const query = await runCommand({
-        command: "sc",
-        args: ["query", serviceIdentity.windowsServiceName],
-        throwOnError: false,
-      });
-      if (query.exitCode !== 0) {
-        throw new Error(
-          "OpenMeld Service is not installed for Windows Service."
-        );
-      }
-      await runCommand({
-        command: "sc",
-        args: [
-          "config",
-          serviceIdentity.windowsServiceName,
-          "start=",
-          "demand",
-        ],
-        throwOnError: true,
-      });
+      await task("disable");
     },
     start: async () => {
-      await runCommand({
-        command: "sc",
-        args: ["config", serviceIdentity.windowsServiceName, "start=", "auto"],
-        throwOnError: true,
-      });
-      const query = await runCommand({
-        command: "sc",
-        args: ["query", serviceIdentity.windowsServiceName],
-        throwOnError: false,
-      });
-      if (query.exitCode !== 0) {
-        throw new Error("windows service is not installed");
-      }
-      await runCommand({
-        command: "sc",
-        args: ["start", serviceIdentity.windowsServiceName],
-        throwOnError: true,
-      });
+      await task("enable");
+      await task("start");
     },
     stop: async () => {
-      await runCommand({
-        command: "sc",
-        args: [
-          "config",
-          serviceIdentity.windowsServiceName,
-          "start=",
-          "demand",
-        ],
-        throwOnError: false,
-      });
-      await runCommand({
-        command: "sc",
-        args: ["stop", serviceIdentity.windowsServiceName],
-        throwOnError: false,
-      });
+      await task("disable");
+      await task("stop");
     },
     deactivate: async () => {
-      await runCommand({
-        command: "sc",
-        args: ["stop", serviceIdentity.windowsServiceName],
-        throwOnError: false,
-      });
+      await task("stop");
     },
-    status: async () => {
-      const query = await runCommand({
-        command: "sc",
-        args: ["query", serviceIdentity.windowsServiceName],
-        throwOnError: false,
-      });
-      if (query.exitCode !== 0) {
-        if (!isWindowsServiceDefinitionMissingResult(query)) {
-          throw buildServiceManagerProbeError("sc query", query);
-        }
-        return {
-          installed: false,
-          running: false,
-          enabled: false,
-          definitionPath: null,
-          commandSummary: null,
-        };
-      }
-
-      const state = parseRegexGroup(query.stdout, WINDOWS_STATE_PATTERN);
-      if (!state) {
-        throw new Error("sc query probe succeeded without a service state");
-      }
-      const qc = await runCommand({
-        command: "sc",
-        args: ["qc", serviceIdentity.windowsServiceName],
-        throwOnError: false,
-      });
-      assertServiceManagerProbeSucceeded("sc qc", qc);
-      const startType = parseRegexGroup(qc.stdout, WINDOWS_START_TYPE_PATTERN);
-      if (!startType) {
-        throw new Error("sc qc probe succeeded without a service start type");
-      }
-      return {
-        installed: true,
-        running: state?.toUpperCase() === "RUNNING",
-        enabled: parseWindowsEnabled(startType),
-        definitionPath: scriptPath,
-        commandSummary:
-          (await readWindowsRunnerCommandSummary(scriptPath)) ??
-          parseRegexGroup(qc.stdout, WINDOWS_BINARY_PATH_PATTERN) ??
-          null,
-        environmentTarget:
-          await readDaemonServiceEnvironmentTargetFromDefinition({
-            controller: WINDOWS_CONTROLLER,
-            path: scriptPath,
-          }),
-      };
-    },
-    // Windows SCM does not expose the launchd-style job spawn evidence yet.
+    status,
     readJobDiagnostics: async () => null,
-    waitUntilAbsent: async () => {
-      await waitForCondition({
-        until: async () => {
-          const status = await buildWindowsManager(pathInput).status();
-          return !(status.installed || status.running || status.enabled);
-        },
-        onTimeout: async () => {
-          const status = await buildWindowsManager(pathInput).status();
-          return buildSystemServiceWaitTimeoutError({
-            action: "absent",
-            controller: WINDOWS_CONTROLLER,
-            details: formatManagerStatusDetails(status),
-          });
-        },
-      });
-    },
-    waitUntilStopped: async () => {
-      await waitForCondition({
-        until: async () =>
-          !(await buildWindowsManager(pathInput).status()).running,
-        onTimeout: async () => {
-          const status = await buildWindowsManager(pathInput).status();
-          return buildSystemServiceWaitTimeoutError({
-            action: "stopped",
-            controller: WINDOWS_CONTROLLER,
-            details: formatManagerStatusDetails(status),
-          });
-        },
-      });
-    },
-    waitUntilRunning: async () => {
-      await waitForCondition({
-        until: async () =>
-          (await buildWindowsManager(pathInput).status()).running,
-        onTimeout: async () => {
-          const status = await buildWindowsManager(pathInput).status();
-          return buildSystemServiceWaitTimeoutError({
-            action: "running",
-            controller: WINDOWS_CONTROLLER,
-            details: formatManagerStatusDetails(status),
-          });
-        },
-      });
-    },
+    waitUntilAbsent: () => wait("absent"),
+    waitUntilStopped: () => wait("stopped"),
+    waitUntilRunning: () => wait("running"),
   };
 }
 
@@ -1653,14 +1399,27 @@ export function parseDaemonServiceEnvironmentTargetFromDefinition(input: {
   controller: DaemonServiceController;
   definition: string;
 }): OpenMeldEnvironmentTarget | null {
-  let environment: Record<string, string>;
+  return serviceEnvironmentTarget(
+    parseDaemonServiceEnvironmentFromDefinition(input)
+  );
+}
+
+export function parseDaemonServiceEnvironmentFromDefinition(input: {
+  controller: DaemonServiceController;
+  definition: string;
+}): Record<string, string> {
   if (input.controller === SYSTEMD_CONTROLLER) {
-    environment = parseSystemdEnvironment(input.definition);
-  } else if (input.controller === LAUNCHD_CONTROLLER) {
-    environment = parseLaunchdEnvironment(input.definition);
-  } else {
-    environment = parseWindowsEnvironment(input.definition);
+    return parseSystemdEnvironment(input.definition);
   }
+  if (input.controller === LAUNCHD_CONTROLLER) {
+    return parseLaunchdEnvironment(input.definition);
+  }
+  return parseWindowsEnvironment(input.definition);
+}
+
+function serviceEnvironmentTarget(
+  environment: Record<string, string>
+): OpenMeldEnvironmentTarget | null {
   const preset = environment[SERVICE_ENVIRONMENT_TARGET_KEYS.preset];
   const gatewayUrl = environment[SERVICE_ENVIRONMENT_TARGET_KEYS.gatewayUrl];
   const authBaseUrl = environment[SERVICE_ENVIRONMENT_TARGET_KEYS.authBaseUrl];
@@ -1777,10 +1536,15 @@ function isLaunchdAvailable(): Promise<boolean> {
   }).then((result) => result.exitCode === 0);
 }
 
-function isScAvailable(): Promise<boolean> {
+function isWindowsTaskSchedulerAvailable(): Promise<boolean> {
   return runCommand({
-    command: "sc",
-    args: ["query", "state="],
+    command: windowsPowerShellPath(),
+    args: [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$ErrorActionPreference='Stop'; $s=New-Object -ComObject Schedule.Service; $s.Connect()",
+    ],
     throwOnError: false,
   }).then((result) => result.exitCode === 0);
 }
@@ -1866,7 +1630,7 @@ async function resolveUnguardedDaemonServiceManager(
     return buildLaunchdManager(pathInput);
   }
   if (controller === WINDOWS_CONTROLLER) {
-    if (!(await isScAvailable())) {
+    if (!(await isWindowsTaskSchedulerAvailable())) {
       return null;
     }
     return buildWindowsManager(pathInput);
@@ -1885,7 +1649,7 @@ async function resolveUnguardedDaemonServiceManager(
     return buildSystemdManager(pathInput);
   }
   if (process.platform === "win32") {
-    if (!(await isScAvailable())) {
+    if (!(await isWindowsTaskSchedulerAvailable())) {
       return null;
     }
     return buildWindowsManager(pathInput);

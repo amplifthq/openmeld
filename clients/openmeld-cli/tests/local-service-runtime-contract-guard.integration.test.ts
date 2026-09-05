@@ -2,7 +2,6 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAEMON_RUNTIME_CONTRACT_EPOCH } from "../src/local-service/core/constants";
-import type { DaemonServiceRunError } from "../src/local-service/core/types";
 import { ensureDaemonRuntimePaths } from "../src/local-service/state/daemon-device-id";
 import {
   ensureDaemonRuntimeContractState,
@@ -135,7 +134,7 @@ describe("local service runtime contract guard", () => {
     });
   });
 
-  it("fails with daemon.runtime_state_repair_failed when auto-repair cannot persist metadata", async () => {
+  it("preserves runtime data when metadata cannot be read", async () => {
     await withTempHome(async () => {
       const runtimePaths = await ensureDaemonRuntimePaths();
       const legacyContextStore = runtimePaths.contextStorePath;
@@ -152,18 +151,20 @@ describe("local service runtime contract guard", () => {
           nowIso: "2026-03-04T00:00:00.000Z",
         })
       ).rejects.toEqual(
-        expect.objectContaining<Partial<DaemonServiceRunError>>({
-          code: "daemon.runtime_state_repair_failed",
+        expect.objectContaining({
+          code: "EISDIR",
         })
       );
 
       const report = await readDaemonRuntimeContractRepairReport();
-      expect(report?.status).toBe("failed");
-      expect(report?.reason).toBe("legacy_state_without_meta");
+      expect(report).toBeNull();
+      expect(await readFile(legacyContextStore, "utf8")).toBe(
+        '{\n  "k": "v"\n}\n'
+      );
     });
   });
 
-  it("renders openmeld-dev repair guidance when the dev shortcut is active", async () => {
+  it("preserves the underlying read error instead of suggesting destructive repair", async () => {
     vi.stubEnv("OPENMELD_USER_FACING_CLI_COMMAND", "openmeld-dev");
 
     await withTempHome(async () => {
@@ -186,9 +187,8 @@ describe("local service runtime contract guard", () => {
 
       expect(thrown).toBeInstanceOf(Error);
       const message = thrown instanceof Error ? thrown.message : "";
-      expect(message).toContain("`openmeld-dev service stop --force`");
-      expect(message).toContain("`openmeld-dev service start`");
-      expect(message).toContain("`openmeld-dev service repair`");
+      expect(message).toContain("EISDIR");
+      expect(message).not.toContain("service repair");
     });
   });
 
@@ -327,7 +327,7 @@ describe("local service runtime contract guard", () => {
     });
   });
 
-  it("allows recovery after partial repair failure", async () => {
+  it("allows legacy migration after the metadata read path is corrected", async () => {
     await withTempHome(async () => {
       const runtimePaths = await ensureDaemonRuntimePaths();
       const legacyContextStore = runtimePaths.contextStorePath;
@@ -346,21 +346,22 @@ describe("local service runtime contract guard", () => {
           nowIso: "2026-03-04T00:00:00.000Z",
         })
       ).rejects.toEqual(
-        expect.objectContaining<Partial<DaemonServiceRunError>>({
-          code: "daemon.runtime_state_repair_failed",
+        expect.objectContaining({
+          code: "EISDIR",
         })
       );
 
       const failedReport = await readDaemonRuntimeContractRepairReport();
-      expect(failedReport?.status).toBe("failed");
-      expect((failedReport?.cleanedPaths.length ?? 0) > 0).toBe(true);
-      expect((failedReport?.backupPaths.length ?? 0) > 0).toBe(true);
+      expect(failedReport).toBeNull();
+      expect(await readFile(legacyLedgerState, "utf8")).toBe(
+        '{\n  "v": 1\n}\n'
+      );
 
       const recovered = await ensureDaemonRuntimeContractState({
         runtimePaths,
         nowIso: "2026-03-04T00:01:00.000Z",
       });
-      expect(recovered.action).toBe("fresh_init");
+      expect(recovered.action).toBe("repair_applied");
     });
   });
 });
