@@ -1,0 +1,1538 @@
+{
+  "schemaVersion": 1,
+  "controller": "cursor",
+  "observedAt": "2026-09-05T07:30:14.149Z",
+  "fingerprint": "d7363ef6e878898cc6e060a9a85a52e9002f1cca230f10696171ec284ce24c6f",
+  "sources": [
+    {
+      "url": "https://cursor.com/docs/cli/reference/parameters.md",
+      "kind": "official-document",
+      "data": "# Parameters\n\n## Global options\n\nGlobal options can be used with any command:\n\n| Option                     | Description                                                                                                          |\n| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |\n| `-v, --version`            | Output the version number                                                                                            |\n| `--api-key <key>`          | API key for authentication (can also use `CURSOR_API_KEY` env var)                                                   |\n| `-H, --header <header>`    | Add custom header to agent requests (format: `Name: Value`, can be used multiple times)                              |\n| `-p, --print`              | Print responses to console (for scripts or non-interactive use). Has access to all tools, including write and shell. |\n| `--output-format <format>` | Output format (only works with `--print`): `text`, `json`, or `stream-json` (default: `text`)                        |\n| `--stream-partial-output`  | Stream partial output as individual text deltas (only works with `--print` and `stream-json` format)                 |\n| `--resume [chatId]`        | Resume a chat session                                                                                                |\n| `--continue`               | Continue the previous session (alias for `--resume=-1`)                                                              |\n| `--model <model>`          | Model to use                                                                                                         |\n| `--mode <mode>`            | Set agent mode: `plan` or `ask` (agent is the default when no mode is specified)                                     |\n| `--plan`                   | Start in plan mode (shorthand for `--mode=plan`)                                                                     |\n| `--list-models`            | List all available models                                                                                            |\n| `-f, --force`              | Force allow commands unless explicitly denied                                                                        |\n| `--yolo`                   | Alias for `--force`                                                                                                  |\n| `--sandbox <mode>`         | Set sandbox mode: `enabled` or `disabled`                                                                            |\n| `--approve-mcps`           | Automatically approve all MCP servers                                                                                |\n| `--trust`                  | Trust the workspace without prompting (headless mode only)                                                           |\n| `--workspace <path>`       | Workspace directory to use                                                                                           |\n| `--plugin-dir <path>`      | Load a local plugin directory (can be specified multiple times)                                                      |\n| `-w, --worktree [name]`    | Run in a new Git worktree under `~/.cursor/worktrees/<reponame>/<name>`. If omitted, a name is generated.            |\n| `--worktree-base <branch>` | Branch or ref to base the new worktree on (default: current HEAD)                                                    |\n| `--skip-worktree-setup`    | Skip running worktree setup scripts from `.cursor/worktrees.json`                                                    |\n| `-h, --help`               | Display help for command                                                                                             |\n\n## Commands\n\n| Command                       | Description                                                       | Usage                               |\n| ----------------------------- | ----------------------------------------------------------------- | ----------------------------------- |\n| `agent [prompt...]`           | Start in agent mode (the default)                                 | `agent agent \"fix the tests\"`       |\n| `login`                       | Authenticate with Cursor                                          | `agent login`                       |\n| `logout`                      | Sign out and clear stored authentication                          | `agent logout`                      |\n| `status` \\| `whoami`          | View authentication status                                        | `agent status`                      |\n| `about`                       | Display version, system, and account info                         | `agent about`                       |\n| `models`                      | List available models for this account                            | `agent models`                      |\n| `mcp`                         | Manage MCP servers                                                | `agent mcp`                         |\n| `sandbox`                     | Configure sandbox mode or run one command in a sandbox (hidden)   | `agent sandbox enable`              |\n| `worker`                      | Start a private cloud worker that runs agents in your environment | `agent worker start`                |\n| `acp`                         | Start ACP server mode (advanced, hidden command)                  | `agent acp`                         |\n| `update`                      | Update Cursor Agent to the latest version                         | `agent update`                      |\n| `ls`                          | Resume a chat session                                             | `agent ls`                          |\n| `resume`                      | Resume the latest chat session                                    | `agent resume`                      |\n| `create-chat`                 | Create a new empty chat and return its ID                         | `agent create-chat`                 |\n| `generate-rule` \\| `rule`     | Generate a new Cursor rule with interactive prompts               | `agent generate-rule`               |\n| `install-shell-integration`   | Install shell integration to `~/.zshrc`                           | `agent install-shell-integration`   |\n| `uninstall-shell-integration` | Remove shell integration from `~/.zshrc`                          | `agent uninstall-shell-integration` |\n| `help [command]`              | Display help for command                                          | `agent help [command]`              |\n\n`agent acp` is intended for custom ACP clients and advanced integrations. It is\nhidden from default command help output.\n\nWhen no command is specified, Cursor Agent starts in interactive agent mode by\ndefault.\n\n## MCP\n\nManage MCP servers configured for Cursor Agent.\n\n| Subcommand                | Description                                                                              | Usage                               |\n| ------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------- |\n| `login <identifier>`      | Authenticate with an MCP server configured in `.cursor/mcp.json` or `~/.cursor/mcp.json` | `agent mcp login <identifier>`      |\n| `list`                    | List configured MCP servers and their status                                             | `agent mcp list`                    |\n| `list-tools <identifier>` | List available tools and their argument names for a specific MCP                         | `agent mcp list-tools <identifier>` |\n| `enable <identifier>`     | Add an MCP server to the local approved list                                             | `agent mcp enable <identifier>`     |\n| `disable <identifier>`    | Disable an MCP server so it won't load or prompt for approval                            | `agent mcp disable <identifier>`    |\n\nAll MCP commands support `-h, --help` for command-specific help.\n\n## Sandbox\n\nConfigure sandbox mode or run one command in a sandbox.\n\n| Subcommand            | Description                                          | Usage                   |\n| --------------------- | ---------------------------------------------------- | ----------------------- |\n| `enable`              | Enable sandbox mode for command execution            | `agent sandbox enable`  |\n| `disable`             | Disable sandbox mode and use allowlist mode          | `agent sandbox disable` |\n| `reset`               | Reset sandbox configuration to defaults              | `agent sandbox reset`   |\n| `run <cmd> [args...]` | Run a command in a sandbox with workspace read/write | `agent sandbox run ls`  |\n| `help [command]`      | Display help for command                             | `agent sandbox help`    |\n\n| Command       | Option                          | Description                                                        |\n| ------------- | ------------------------------- | ------------------------------------------------------------------ |\n| `sandbox run` | `--allow-paths <paths>`         | Comma-separated list of extra read/write paths                     |\n| `sandbox run` | `--readonly-paths <paths>`      | Comma-separated list of extra read-only paths                      |\n| `sandbox run` | `--blocked-patterns <patterns>` | Comma-separated list of gitignore-style patterns to block          |\n| `sandbox run` | `--sandbox`                     | Run with the workspace read/write sandbox policy (default: `true`) |\n| `sandbox run` | `--network`                     | Enable network access in the sandbox (default: `false`)            |\n| `sandbox run` | `--sb-debug`                    | Write sandbox debug logs to a temp folder and print the path       |\n\nAll sandbox commands support `-h, --help` for command-specific help.\n\n## Worker\n\nStart a private cloud worker that connects to Cursor and runs agents in your environment.\n\n| Subcommand       | Description                                                             | Usage                |\n| ---------------- | ----------------------------------------------------------------------- | -------------------- |\n| `start`          | Start the worker and connect to Cursor                                  | `agent worker start` |\n| `debug`          | Run private worker preflight diagnostics for auth, privacy, and routing | `agent worker debug` |\n| `help [command]` | Display help for command                                                | `agent worker help`  |\n\n| Command        | Option                             | Description                                                                                                                                                                                    |\n| -------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| `worker`       | `--auth-token-file <path>`         | Path to a file containing the worker auth token                                                                                                                                                |\n| `worker`       | `--worker-dir <path>`              | Workspace root to expose to agents. Repeatable. The first value is the assignment identity.                                                                                                    |\n| `worker`       | `--management-addr <address>`      | Listen address for `/healthz`, `/readyz`, and `/metrics`                                                                                                                                       |\n| `worker`       | `--label <key=value>`              | Add a worker label. Can be used multiple times. Can't be used with `--labels-file`.                                                                                                            |\n| `worker`       | `--labels-file <path>`             | Path to a JSON or TOML labels file. Can also use `CURSOR_WORKER_LABELS_FILE`.                                                                                                                  |\n| `worker`       | `--idle-release-timeout <seconds>` | Seconds the worker may stay connected after becoming idle. Default `0` disables idle-based release.                                                                                            |\n| `worker`       | `--pool`                           | Register for pool assignment. One cloud agent claims the worker at a time.                                                                                                                     |\n| `worker`       | `--single-use`                     | Legacy alias for `--pool`                                                                                                                                                                      |\n| `worker`       | `--pool-name <name>`               | Pool label for pool workers. Requires `--pool` or `--single-use`. Defaults to `default`.                                                                                                       |\n| `worker`       | `--name <name>`                    | Custom display name. Defaults to the machine hostname.                                                                                                                                         |\n| `worker`       | `--data-dir <path>`                | Base directory for logs, artifacts, and recording data                                                                                                                                         |\n| `worker`       | `--debug`                          | Print worker debug diagnostics before starting bridge mode                                                                                                                                     |\n| `worker`       | `--computer-use`                   | Let agents drive this machine's desktop. On macOS, installs the Cursor Computer Use helper app if needed. See [Computer use](https://cursor.com/docs/cloud-agent/self-hosted/computer-use.md). |\n| `worker`       | `--display <display>`              | Linux only. Existing X11 display to require for `--computer-use`, for example `:0`.                                                                                                            |\n| `worker`       | `--share-desktop [mode]`           | Linux only. Let authorized viewers watch or control the agent desktop: `view` or `view_and_control`. Separate from computer use.                                                               |\n| `worker start` | `--verbose`                        | Enable verbose startup logs                                                                                                                                                                    |\n| `worker debug` | `--json`                           | Output the debug report as JSON                                                                                                                                                                |\n\n## Command-specific options\n\n| Command            | Option              | Description                                       |\n| ------------------ | ------------------- | ------------------------------------------------- |\n| `status`, `whoami` | `--format <format>` | Output format: `text` or `json` (default: `text`) |\n| `about`            | `--format <format>` | Output format: `text` or `json` (default: `text`) |\n\n## Arguments\n\nWhen starting in chat mode (default behavior), you can provide an initial prompt:\n\n**Arguments:**\n\n- `prompt` — Initial prompt for the agent\n\n## Getting help\n\nAll commands support the global `-h, --help` option to display command-specific help.\n\n\n---\n\n## Sitemap\n\n[Overview of all docs pages](/llms.txt)"
+    },
+    {
+      "url": "https://models.dev/api.json",
+      "kind": "discovery-only",
+      "data": {
+        "openai": {
+          "gpt-5-mini": {
+            "id": "gpt-5-mini",
+            "name": "GPT-5 Mini",
+            "description": "Small GPT-5 for responsive agents, coding help, and everyday automation",
+            "family": "gpt-mini",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2024-05-30",
+            "release_date": "2025-08-07",
+            "last_updated": "2025-08-07",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 400000,
+              "input": 272000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 0.25,
+              "output": 2,
+              "cache_read": 0.025
+            }
+          },
+          "gpt-5.1": {
+            "id": "gpt-5.1",
+            "name": "GPT-5.1",
+            "description": "Sharper GPT-5 generation for coding, product work, and tool-assisted tasks",
+            "family": "gpt",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2024-09-30",
+            "release_date": "2025-11-13",
+            "last_updated": "2025-11-13",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 400000,
+              "input": 272000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 1.25,
+              "output": 10,
+              "cache_read": 0.125
+            }
+          },
+          "gpt-5.2": {
+            "id": "gpt-5.2",
+            "name": "GPT-5.2",
+            "description": "Reliable GPT generation for broad coding, writing, and tool-assisted product work",
+            "family": "gpt",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-08-31",
+            "release_date": "2025-12-11",
+            "last_updated": "2025-12-11",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 400000,
+              "input": 272000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 1.75,
+              "output": 14,
+              "cache_read": 0.175
+            }
+          },
+          "gpt-5.3-codex": {
+            "id": "gpt-5.3-codex",
+            "name": "GPT-5.3 Codex",
+            "description": "Coding-optimized GPT model for repository edits, reviews, and agentic software work",
+            "family": "gpt-codex",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-08-31",
+            "release_date": "2026-02-05",
+            "last_updated": "2026-02-05",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 400000,
+              "input": 272000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 1.75,
+              "output": 14,
+              "cache_read": 0.175
+            }
+          },
+          "gpt-5.4": {
+            "id": "gpt-5.4",
+            "name": "GPT-5.4",
+            "description": "Agent-ready GPT for coding and computer-use workflows at a lower cost",
+            "family": "gpt",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-08-31",
+            "release_date": "2026-03-05",
+            "last_updated": "2026-03-05",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 5,
+                    "output": 30,
+                    "cache_read": 0.5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 2.5,
+              "output": 15,
+              "cache_read": 0.25,
+              "tiers": [
+                {
+                  "input": 5,
+                  "output": 22.5,
+                  "cache_read": 0.5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 5,
+                "output": 22.5,
+                "cache_read": 0.5
+              }
+            }
+          },
+          "gpt-5.4-mini": {
+            "id": "gpt-5.4-mini",
+            "name": "GPT-5.4 mini",
+            "description": "Strong small GPT for coding subagents, quick tool use, and high-volume work",
+            "family": "gpt-mini",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-08-31",
+            "release_date": "2026-03-17",
+            "last_updated": "2026-03-17",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 400000,
+              "input": 272000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 1.5,
+                    "output": 9,
+                    "cache_read": 0.15
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 0.75,
+              "output": 4.5,
+              "cache_read": 0.075
+            }
+          },
+          "gpt-5.4-nano": {
+            "id": "gpt-5.4-nano",
+            "name": "GPT-5.4 nano",
+            "description": "Cheapest GPT-5.4 lane for simple routing, extraction, and bulk automation",
+            "family": "gpt-nano",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-08-31",
+            "release_date": "2026-03-17",
+            "last_updated": "2026-03-17",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 400000,
+              "input": 272000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 0.2,
+              "output": 1.25,
+              "cache_read": 0.02
+            }
+          },
+          "gpt-5.5": {
+            "id": "gpt-5.5",
+            "name": "GPT-5.5",
+            "description": "Default frontier GPT for coding, computer use, research, and knowledge work",
+            "family": "gpt",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2025-12-01",
+            "release_date": "2026-04-23",
+            "last_updated": "2026-04-23",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 12.5,
+                    "output": 75,
+                    "cache_read": 1.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 5,
+              "output": 30,
+              "cache_read": 0.5,
+              "tiers": [
+                {
+                  "input": 10,
+                  "output": 45,
+                  "cache_read": 1,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 10,
+                "output": 45,
+                "cache_read": 1
+              }
+            }
+          },
+          "gpt-5.6-luna": {
+            "id": "gpt-5.6-luna",
+            "name": "GPT-5.6 Luna",
+            "description": "Cost-efficient GPT-5.6 model for fast, high-volume workloads",
+            "family": "gpt-luna",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-02-16",
+            "release_date": "2026-07-09",
+            "last_updated": "2026-07-09",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 0.4,
+                    "output": 2.4,
+                    "cache_read": 0.04,
+                    "cache_write": 0.5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 0.2,
+              "output": 1.2,
+              "cache_read": 0.02,
+              "cache_write": 0.25,
+              "tiers": [
+                {
+                  "input": 0.4,
+                  "output": 1.8,
+                  "cache_read": 0.04,
+                  "cache_write": 0.5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 0.4,
+                "output": 1.8,
+                "cache_read": 0.04,
+                "cache_write": 0.5
+              }
+            }
+          },
+          "gpt-5.6-sol": {
+            "id": "gpt-5.6-sol",
+            "name": "GPT-5.6 Sol",
+            "description": "Frontier GPT-5.6 model for complex professional work, coding, and agentic workflows",
+            "family": "gpt-sol",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-02-16",
+            "release_date": "2026-07-09",
+            "last_updated": "2026-07-09",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 8,
+                    "output": 40,
+                    "cache_read": 0.8,
+                    "cache_write": 10
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 4,
+              "output": 20,
+              "cache_read": 0.4,
+              "cache_write": 5,
+              "tiers": [
+                {
+                  "input": 8,
+                  "output": 30,
+                  "cache_read": 0.8,
+                  "cache_write": 10,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 8,
+                "output": 30,
+                "cache_read": 0.8,
+                "cache_write": 10
+              }
+            }
+          },
+          "gpt-5.6-terra": {
+            "id": "gpt-5.6-terra",
+            "name": "GPT-5.6 Terra",
+            "description": "Balanced GPT-5.6 model for capable, cost-efficient everyday work",
+            "family": "gpt-terra",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-02-16",
+            "release_date": "2026-07-09",
+            "last_updated": "2026-07-09",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 4,
+                    "output": 24,
+                    "cache_read": 0.4,
+                    "cache_write": 5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 2,
+              "output": 12,
+              "cache_read": 0.2,
+              "cache_write": 2.5,
+              "tiers": [
+                {
+                  "input": 4,
+                  "output": 18,
+                  "cache_read": 0.4,
+                  "cache_write": 5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 4,
+                "output": 18,
+                "cache_read": 0.4,
+                "cache_write": 5
+              }
+            }
+          },
+          "gpt-6-astra": {
+            "id": "gpt-6-astra",
+            "name": "GPT-6 Astra",
+            "description": "GPT-6 Astra is OpenAI's most capable model for complex reasoning, coding, computer use, research, and document creation.",
+            "family": "gpt-astra",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "release_date": "2026-09-04",
+            "last_updated": "2026-09-04",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 20,
+                    "output": 100,
+                    "cache_read": 2,
+                    "cache_write": 25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 10,
+              "output": 50,
+              "cache_read": 1,
+              "cache_write": 12.5,
+              "tiers": [
+                {
+                  "input": 20,
+                  "output": 75,
+                  "cache_read": 2,
+                  "cache_write": 25,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 20,
+                "output": 75,
+                "cache_read": 2,
+                "cache_write": 25
+              }
+            }
+          }
+        },
+        "anthropic": {
+          "claude-fable-5": {
+            "id": "claude-fable-5",
+            "name": "Claude Fable 5",
+            "description": "Claude model for creative writing, analysis, and controlled agent workflows",
+            "family": "claude-fable",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "release_date": "2026-06-07",
+            "last_updated": "2026-06-09",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 10,
+              "output": 50,
+              "cache_read": 1,
+              "cache_write": 12.5
+            }
+          },
+          "claude-fable-5-1": {
+            "id": "claude-fable-5-1",
+            "name": "Claude Fable 5.1",
+            "description": "Claude model for demanding reasoning and long-horizon agentic work",
+            "family": "claude-fable",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-06",
+            "release_date": "2026-09-01",
+            "last_updated": "2026-09-01",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 10,
+              "output": 50,
+              "cache_read": 0.25,
+              "cache_write": 12.5
+            }
+          },
+          "claude-haiku-4-5": {
+            "id": "claude-haiku-4-5",
+            "name": "Claude Haiku 4.5 (latest)",
+            "description": "Fast Claude lane for lightweight agents, office tasks, and responsive chat",
+            "family": "claude-haiku",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "budget_tokens",
+                "min": 1024
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-02-28",
+            "release_date": "2025-10-15",
+            "last_updated": "2025-10-15",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 200000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 1,
+              "output": 5,
+              "cache_read": 0.1,
+              "cache_write": 1.25
+            }
+          },
+          "claude-opus-4-5": {
+            "id": "claude-opus-4-5",
+            "name": "Claude Opus 4.5 (latest)",
+            "description": "Flagship Claude model for deep reasoning, coding, and long-horizon agents",
+            "family": "claude-opus",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "budget_tokens",
+                "min": 1024
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-05",
+            "release_date": "2025-11-24",
+            "last_updated": "2025-11-24",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 200000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 5,
+              "output": 25,
+              "cache_read": 0.5,
+              "cache_write": 6.25
+            }
+          },
+          "claude-opus-4-6": {
+            "id": "claude-opus-4-6",
+            "name": "Claude Opus 4.6",
+            "description": "High-end Claude for difficult coding, planning, and slower expert reasoning",
+            "family": "claude-opus",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "max"
+                ]
+              },
+              {
+                "type": "budget_tokens",
+                "min": 1024
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-05-31",
+            "release_date": "2026-02-04",
+            "last_updated": "2026-03-13",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 5,
+              "output": 25,
+              "cache_read": 0.5,
+              "cache_write": 6.25
+            }
+          },
+          "claude-opus-4-7": {
+            "id": "claude-opus-4-7",
+            "name": "Claude Opus 4.7",
+            "description": "Stronger Opus tier for advanced software work and high-stakes reasoning",
+            "family": "claude-opus",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-01-31",
+            "release_date": "2026-04-14",
+            "last_updated": "2026-04-16",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 5,
+              "output": 25,
+              "cache_read": 0.5,
+              "cache_write": 6.25
+            }
+          },
+          "claude-opus-4-8": {
+            "id": "claude-opus-4-8",
+            "name": "Claude Opus 4.8",
+            "description": "Top Claude Opus tier for the hardest reasoning, coding, and long-horizon agents",
+            "family": "claude-opus",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-01",
+            "release_date": "2026-05-28",
+            "last_updated": "2026-05-28",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 10,
+                    "output": 50,
+                    "cache_read": 1,
+                    "cache_write": 12.5
+                  },
+                  "provider": {
+                    "body": {
+                      "speed": "fast"
+                    },
+                    "headers": {
+                      "anthropic-beta": "fast-mode-2026-02-01"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 5,
+              "output": 25,
+              "cache_read": 0.5,
+              "cache_write": 6.25
+            }
+          },
+          "claude-sonnet-4-5": {
+            "id": "claude-sonnet-4-5",
+            "name": "Claude Sonnet 4.5 (latest)",
+            "description": "Balanced Claude model for coding, analysis, agent workflows, and cost control",
+            "family": "claude-sonnet",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "budget_tokens",
+                "min": 1024
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-07-31",
+            "release_date": "2025-09-29",
+            "last_updated": "2025-09-29",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 3,
+              "output": 15,
+              "cache_read": 0.3,
+              "cache_write": 3.75
+            }
+          },
+          "claude-sonnet-4-6": {
+            "id": "claude-sonnet-4-6",
+            "name": "Claude Sonnet 4.6",
+            "description": "Claude workhorse for coding agents, careful analysis, and production cost control",
+            "family": "claude-sonnet",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "max"
+                ]
+              },
+              {
+                "type": "budget_tokens",
+                "min": 1024
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-08-31",
+            "release_date": "2026-02-17",
+            "last_updated": "2026-03-13",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 3,
+              "output": 15,
+              "cache_read": 0.3,
+              "cache_write": 3.75
+            }
+          },
+          "claude-sonnet-5": {
+            "id": "claude-sonnet-5",
+            "name": "Claude Sonnet 5",
+            "description": "Everyday Claude agent model for coding, planning, browsing, and general work",
+            "family": "claude-sonnet",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "toggle"
+              },
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-01-31",
+            "release_date": "2026-06-29",
+            "last_updated": "2026-06-30",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 2,
+              "output": 10,
+              "cache_read": 0.2,
+              "cache_write": 2.5
+            }
+          }
+        },
+        "google": {
+          "gemini-2.5-flash": {
+            "id": "gemini-2.5-flash",
+            "name": "Gemini 2.5 Flash",
+            "description": "Fast Gemini workhorse for multimodal apps where latency and price matter",
+            "family": "gemini-flash",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "toggle"
+              },
+              {
+                "type": "budget_tokens",
+                "min": 0,
+                "max": 24576
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-01",
+            "release_date": "2025-06-17",
+            "last_updated": "2025-06-17",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1048576,
+              "output": 65536
+            },
+            "cost": {
+              "input": 0.3,
+              "output": 2.5,
+              "cache_read": 0.03,
+              "input_audio": 1
+            }
+          },
+          "gemini-3.5-flash": {
+            "id": "gemini-3.5-flash",
+            "name": "Gemini 3.5 Flash",
+            "description": "Fast Gemini model balancing multimodal reasoning, tool use, and cost",
+            "family": "gemini-flash",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-01",
+            "release_date": "2026-05-19",
+            "last_updated": "2026-05-19",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "video",
+                "audio",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1048576,
+              "output": 65536
+            },
+            "cost": {
+              "input": 1.5,
+              "output": 9,
+              "cache_read": 0.15,
+              "input_audio": 1.5
+            }
+          },
+          "gemini-3.8-flash": {
+            "id": "gemini-3.8-flash",
+            "name": "Gemini 3.8 Flash",
+            "description": "Google's most intelligent Flash model, engineered for long-horizon software engineering, autonomous agents, and complex enterprise workflows",
+            "family": "gemini-flash",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "release_date": "2026-09-02",
+            "last_updated": "2026-09-02",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "video",
+                "audio",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1048576,
+              "output": 65536
+            },
+            "cost": {
+              "input": 0.75,
+              "output": 3.75,
+              "cache_read": 0.075,
+              "input_audio": 0.75
+            }
+          }
+        },
+        "xai": {
+          "grok-4.5": {
+            "id": "grok-4.5",
+            "name": "Grok 4.5",
+            "description": "xAI's Grok model for chat, coding, agentic tools, and lower hallucination risk",
+            "family": "grok",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "release_date": "2026-07-08",
+            "last_updated": "2026-07-08",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 500000,
+              "output": 500000
+            },
+            "cost": {
+              "input": 2,
+              "output": 6,
+              "cache_read": 0.3,
+              "tiers": [
+                {
+                  "input": 4,
+                  "output": 12,
+                  "cache_read": 0.6,
+                  "tier": {
+                    "type": "context",
+                    "size": 200000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 4,
+                "output": 12,
+                "cache_read": 0.6
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "changes": [],
+  "manual": [
+    "Discovery evidence only: exact authenticated harness IDs and parameter options still require verification; no API-to-harness mapping was guessed."
+  ]
+}
