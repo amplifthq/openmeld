@@ -1067,7 +1067,7 @@ describe("SpaceMembersSidePanel", () => {
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
 		expect(within(organization).getByText("Acme Center Agent")).toBeTruthy();
-		expect(within(people).getByText("12m ago")).toBeTruthy();
+		expect(within(people).getByText("Here 12m ago")).toBeTruthy();
 		expect(within(people).getByText("Mira Research")).toBeTruthy();
 		expect(
 			within(people).getByRole("button", {
