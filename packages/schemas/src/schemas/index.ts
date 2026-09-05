@@ -685,6 +685,12 @@ export {
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
 export {
+  type WindowsUserTaskRequest,
+  windowsUserTaskActionSchema,
+  windowsUserTaskRequestSchema,
+  windowsUserTaskStatusSchema,
+} from "./daemon/windows-user-task";
+export {
   DB_FACT_SCHEMA_VERSION,
   dbCommandFactSummarySchema,
   dbDebtRegistryItemSchema,

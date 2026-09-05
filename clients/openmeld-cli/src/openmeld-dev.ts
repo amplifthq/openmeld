@@ -30,7 +30,7 @@ if (!String(process.env.OPENMELD_DEV_MODE ?? "").trim()) {
   process.env.OPENMELD_DEV_MODE = "1";
 }
 
-import("./openmeld").catch((error: unknown) => {
+import("./openmeld-entry").catch((error: unknown) => {
   const message =
     error instanceof Error ? (error.stack ?? error.message) : String(error);
   process.stderr.write(`${message}\n`);
