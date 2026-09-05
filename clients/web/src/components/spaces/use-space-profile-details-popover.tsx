@@ -11,6 +11,7 @@ import type { ReactElement } from "react";
 import {
 	AgentProfileDetailsPopover,
 	HumanProfileDetailsPopover,
+	ProfileDetailsPopover,
 } from "#/components/profiles/profile-details-dialog";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import {
@@ -105,48 +106,53 @@ export function useSpaceProfileDetailsPopover(input: {
 		);
 	};
 
-	const fallbackEntry = input.fallbackEntry
-		? buildFallbackSpaceMemberDirectoryEntry(input.fallbackEntry)
-		: null;
-	const selectedEntry = input.entry ?? fallbackEntry;
+	const renderFallbackProfilePopover = (
+		entry: ProfileDetailsSpaceMemberInput,
+		trigger: ReactElement
+	) => (
+		<ProfileDetailsPopover
+			details={buildProfileDetailsSnapshotFromSpaceMember({
+				agentControllerPermissionModeDetail: null,
+				entry,
+				modelDetail: null,
+				viewerScope: resolveViewerScope({
+					currentOwnerUserId: input.currentOwnerUserId,
+					ownerUserId: entry.ownerUserId,
+				}),
+			})}
+			trigger={trigger}
+		/>
+	);
+	const currentEntry = input.entry;
+	const fallbackEntry = input.fallbackEntry;
+	const selectedEntry = currentEntry ?? fallbackEntry ?? null;
+	let profileDetailsPopoverTrigger:
+		| ((trigger: ReactElement) => ReactElement)
+		| null = null;
+	if (currentEntry) {
+		profileDetailsPopoverTrigger = (trigger) =>
+			renderProfilePopover(currentEntry, trigger);
+	} else if (fallbackEntry) {
+		profileDetailsPopoverTrigger = (trigger) =>
+			renderFallbackProfilePopover(fallbackEntry, trigger);
+	}
 	return {
 		canOpenProfileDetails: selectedEntry !== null,
-		profileDetailsPopoverTrigger: selectedEntry
-			? (trigger: ReactElement) => renderProfilePopover(selectedEntry, trigger)
-			: null,
+		profileDetailsPopoverTrigger,
 		profileDetailsPopoverTriggerById: (
 			profileId: string,
 			trigger: ReactElement
 		) => {
 			const entry =
 				input.entriesByProfileId?.get(profileId) ??
-				(input.entry?.profileId === profileId ? input.entry : null) ??
-				(fallbackEntry?.profileId === profileId ? fallbackEntry : null);
-			return entry ? renderProfilePopover(entry, trigger) : trigger;
+				(input.entry?.profileId === profileId ? input.entry : null);
+			if (entry) {
+				return renderProfilePopover(entry, trigger);
+			}
+			return fallbackEntry?.profileId === profileId
+				? renderFallbackProfilePopover(fallbackEntry, trigger)
+				: trigger;
 		},
-	};
-}
-
-function buildFallbackSpaceMemberDirectoryEntry(
-	entry: ProfileDetailsSpaceMemberInput
-): SpaceMemberDirectoryEntry {
-	return {
-		...entry,
-		avatarUrl: null,
-		agentControllerPermissionMode: null,
-		availabilityAction: null,
-		availabilityBadgeLabel: null,
-		availabilityCategory: null,
-		availabilityIsRefreshing: false,
-		controllerDisplayName: null,
-		id: entry.profileId,
-		liveNow: false,
-		manualParticipationOnly: false,
-		modelSelection: null,
-		ownerName: entry.ownerDisplay,
-		presenceLabel: null,
-		presenceStatus: null,
-		searchText: `${entry.profileName} ${entry.profileId}`.toLowerCase(),
 	};
 }
 
@@ -155,12 +161,10 @@ function buildSpaceProfileDetails(input: {
 	entry: SpaceMemberDirectoryEntry;
 	modelCatalog: ModelCatalog | null;
 }) {
-	const viewerScope: ProfileDetailsViewerScope = isSameOwnerUserId({
+	const viewerScope = resolveViewerScope({
 		currentOwnerUserId: input.currentOwnerUserId,
 		ownerUserId: input.entry.ownerUserId,
-	})
-		? "owner_self"
-		: "observer";
+	});
 	const modelDetail =
 		input.entry.profileKind === "agent"
 			? resolveAgentProfileControllerModelDetail({
@@ -184,4 +188,11 @@ function buildSpaceProfileDetails(input: {
 		modelDetail,
 		viewerScope,
 	});
+}
+
+function resolveViewerScope(input: {
+	currentOwnerUserId: string | null;
+	ownerUserId: string | null;
+}): ProfileDetailsViewerScope {
+	return isSameOwnerUserId(input) ? "owner_self" : "observer";
 }

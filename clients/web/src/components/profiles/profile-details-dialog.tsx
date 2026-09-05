@@ -388,6 +388,45 @@ export function HumanProfileDetailsPopover(input: {
 	);
 }
 
+export function ProfileDetailsPopover(input: {
+	details: ProfileDetailsSnapshot;
+	trigger: ReactElement;
+}) {
+	return (
+		<Popover.Root modal={false}>
+			<Popover.Trigger render={input.trigger} />
+			<Popover.Portal>
+				<Popover.Positioner
+					align="start"
+					className="z-50"
+					collisionAvoidance={{
+						align: "shift",
+						fallbackAxisSide: "none",
+						side: "flip",
+					}}
+					collisionPadding={PROFILE_DETAILS_POPOVER_COLLISION_PADDING}
+					side="bottom"
+					sideOffset={8}
+				>
+					<Popover.Popup
+						aria-label={`${input.details.profileName} Profile`}
+						className={cn(
+							PROFILE_DETAILS_POPOVER_CLASS_NAME,
+							"max-h-[var(--available-height)] overflow-hidden"
+						)}
+						role="dialog"
+					>
+						<div className="max-h-[min(34rem,calc(var(--available-height)-1.5rem))] overflow-y-auto pr-1">
+							<h2 className="font-semibold text-base">Check this Profile</h2>
+							<ProfileDetailsContent className="mt-3" details={input.details} />
+						</div>
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
+	);
+}
+
 function HumanProfileDetailsPopoverWithCollaboration(input: {
 	activityTime: string | null;
 	currentOwnerUserId: string | null;

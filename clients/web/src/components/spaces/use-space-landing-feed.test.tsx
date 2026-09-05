@@ -642,16 +642,84 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		await flushMicrotasks();
 
-		expect(invalidateQueries).toHaveBeenCalledWith({
-			exact: true,
-			queryKey: spaceQueryKeys.activeWakeProgressSummary(
-				"space-123",
-				"11111111-1111-1111-1111-111111111111"
-			),
-			refetchType: "active",
-		});
+		expect(invalidateQueries).toHaveBeenCalledWith(
+			{
+				exact: true,
+				queryKey: spaceQueryKeys.activeWakeProgressSummary(
+					"space-123",
+					"11111111-1111-1111-1111-111111111111"
+				),
+				refetchType: "active",
+			},
+			{ cancelRefetch: false }
+		);
 		expect(statusRefetch).not.toHaveBeenCalled();
 		expect(membersRefetch).not.toHaveBeenCalled();
+	});
+
+	it("coalesces Wake progress frames behind a slow refresh and keeps one final refresh", async () => {
+		const { queryClient } = renderFeed();
+		let finishFirstRefresh: (() => void) | undefined;
+		const firstRefresh = new Promise<void>((resolve) => {
+			finishFirstRefresh = resolve;
+		});
+		const invalidateQueries = vi
+			.spyOn(queryClient, "invalidateQueries")
+			.mockImplementationOnce(() => firstRefresh)
+			.mockResolvedValue(undefined);
+		await openLatestSocket();
+
+		for (const version of [10, 11, 12]) {
+			await act(async () => {
+				await FakeWebSocket.latest.emitMessage(
+					JSON.stringify({
+						type: "wake.progress.changed",
+						spaceId: "space-123",
+						version,
+						agentProfileIds: ["agt-1"],
+						clientMessageIds: [`client-message-${version}`],
+						reason: "runtime_coordinator.wake_progress_changed",
+					})
+				);
+			});
+		}
+		await flushMicrotasks();
+
+		expect(invalidateQueries).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			finishFirstRefresh?.();
+			await firstRefresh;
+		});
+		await flushMicrotasks();
+
+		expect(invalidateQueries).toHaveBeenCalledTimes(2);
+		expect(invalidateQueries).toHaveBeenLastCalledWith(
+			{
+				exact: true,
+				queryKey: spaceQueryKeys.activeWakeProgressSummary(
+					"space-123",
+					"11111111-1111-1111-1111-111111111111"
+				),
+				refetchType: "active",
+			},
+			{ cancelRefetch: false }
+		);
+
+		await act(async () => {
+			await FakeWebSocket.latest.emitMessage(
+				JSON.stringify({
+					type: "wake.progress.changed",
+					spaceId: "another-space",
+					version: 99,
+					agentProfileIds: ["agt-1"],
+					clientMessageIds: ["client-message-other-space"],
+					reason: "runtime_coordinator.wake_progress_changed",
+				})
+			);
+		});
+		await flushMicrotasks();
+
+		expect(invalidateQueries).toHaveBeenCalledTimes(2);
 	});
 });
 

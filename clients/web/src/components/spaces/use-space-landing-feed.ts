@@ -234,6 +234,9 @@ export function useSpaceLandingFeed(input: {
 		null
 	);
 	const liveInvalidationVersionByTypeRef = useRef(new Map<string, number>());
+	const wakeProgressRefreshScopeRef = useRef<WakeProgressRefreshScope | null>(
+		null
+	);
 	const wakeFinalOutcomeRefreshTimerRef = useRef<ReturnType<
 		typeof setTimeout
 	> | null>(null);
@@ -905,6 +908,7 @@ export function useSpaceLandingFeed(input: {
 					spaceId: input.spaceId,
 					statusRefetch: input.statusRefetch,
 					statusRefetchTimerRef,
+					wakeProgressRefreshScopeRef,
 				})
 			) {
 				return;
@@ -1077,6 +1081,16 @@ function clearReconnectTimer(timerRef: {
 	timerRef.current = null;
 }
 
+type WakeProgressRefreshScope = {
+	inFlight: Promise<void> | null;
+	pending: boolean;
+	scopeKey: string;
+};
+
+type WakeProgressRefreshScopeRef = {
+	current: WakeProgressRefreshScope | null;
+};
+
 type NonTimelineLiveMessageInput = {
 	liveInvalidationVersionByTypeRef: { current: Map<string, number> };
 	membersRefetch: () => Promise<unknown>;
@@ -1096,6 +1110,7 @@ type NonTimelineLiveMessageInput = {
 	spaceId: string;
 	statusRefetch: () => Promise<unknown>;
 	statusRefetchTimerRef: { current: ReturnType<typeof setTimeout> | null };
+	wakeProgressRefreshScopeRef: WakeProgressRefreshScopeRef;
 };
 
 function handleNonTimelineLiveMessage(
@@ -1185,29 +1200,89 @@ function invalidateSpaceFiles(
 function invalidateWakeProgress(
 	input: Pick<
 		NonTimelineLiveMessageInput,
-		"openMeldProfileId" | "queryClient" | "spaceId"
+		| "openMeldProfileId"
+		| "queryClient"
+		| "spaceId"
+		| "wakeProgressRefreshScopeRef"
 	>,
 	reason?: string
 ): void {
-	input.queryClient
-		.invalidateQueries({
-			exact: true,
-			queryKey: spaceQueryKeys.activeWakeProgressSummary(
-				input.spaceId,
-				input.openMeldProfileId
-			),
-			refetchType: "active",
-		})
-		.catch((error) => {
+	const scopeKey = `${input.spaceId}::${input.openMeldProfileId}`;
+	let scope = input.wakeProgressRefreshScopeRef.current;
+	if (!scope || scope.scopeKey !== scopeKey) {
+		scope = { inFlight: null, pending: false, scopeKey };
+		input.wakeProgressRefreshScopeRef.current = scope;
+	}
+	scope.pending = true;
+	if (scope.inFlight) {
+		return;
+	}
+
+	const activeScope = scope;
+	activeScope.inFlight = flushWakeProgressRefreshes({
+		...input,
+		reason,
+		scope: activeScope,
+	}).finally(() => {
+		if (input.wakeProgressRefreshScopeRef.current !== activeScope) {
+			return;
+		}
+		activeScope.inFlight = null;
+		if (activeScope.pending) {
+			invalidateWakeProgress(input, reason);
+		}
+	});
+}
+
+async function flushWakeProgressRefreshes(
+	input: Pick<
+		NonTimelineLiveMessageInput,
+		| "openMeldProfileId"
+		| "queryClient"
+		| "spaceId"
+		| "wakeProgressRefreshScopeRef"
+	> & {
+		reason?: string;
+		scope: WakeProgressRefreshScope;
+	}
+): Promise<void> {
+	const queryKey = spaceQueryKeys.activeWakeProgressSummary(
+		input.spaceId,
+		input.openMeldProfileId
+	);
+	while (
+		input.wakeProgressRefreshScopeRef.current === input.scope &&
+		input.scope.pending
+	) {
+		input.scope.pending = false;
+		const wasAlreadyFetching =
+			input.queryClient.getQueryState(queryKey)?.fetchStatus === "fetching";
+		try {
+			await input.queryClient.invalidateQueries(
+				{
+					exact: true,
+					queryKey,
+					refetchType: "active",
+				},
+				{ cancelRefetch: false }
+			);
+		} catch (error) {
 			console.warn(
 				"[openmeld.web.space.wake_progress_invalidation_refresh_failed]",
 				{
 					error: toStructuredApiClientFailure(error).message,
-					reason,
+					reason: input.reason,
 					spaceId: input.spaceId,
 				}
 			);
-		});
+		}
+		if (
+			wasAlreadyFetching &&
+			input.wakeProgressRefreshScopeRef.current === input.scope
+		) {
+			input.scope.pending = true;
+		}
+	}
 }
 
 function handleAgentReadinessInvalidation(
