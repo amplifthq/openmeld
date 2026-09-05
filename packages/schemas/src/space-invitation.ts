@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { openMeldRequestContextSchema } from "./schemas/daemon/profile-identity";
 import { resolvedSpaceMemberProfileSchema } from "./schemas/http/space-members";
 
