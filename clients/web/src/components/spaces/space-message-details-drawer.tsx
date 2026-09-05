@@ -48,6 +48,12 @@ import {
 	SpaceAgentRecoveryActionControl,
 } from "./space-agent-recovery-action";
 import {
+	resolveAnchoredSpaceExecutionRecoveryState,
+	SpaceExecutionRecoveryButton,
+	type SpaceExecutionRecoveryHandler,
+	type SpaceExecutionRecoveryRequest,
+} from "./space-execution-recovery-actions";
+import {
 	buildSpaceMessageDetailsPresentation,
 	type MessageDetailsActivityItem,
 	type MessageDetailsDiagnosticReportStatus,
@@ -61,16 +67,6 @@ import {
 } from "./space-message-reference";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { SpaceWakeFailureActionControl } from "./space-wake-failure-action";
-import {
-	resolveAnchoredSpaceExecutionRecoveryState,
-	resolveAnchoredSpaceWakeRetryRequest,
-	SpaceExecutionRecoveryButton,
-	type SpaceExecutionRecoveryHandler,
-	type SpaceExecutionRecoveryRequest,
-	SpaceWakeRetryButton,
-	type SpaceWakeRetryHandler,
-	type SpaceWakeRetryRequest,
-} from "./space-wake-retry";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -129,7 +125,6 @@ export function SpaceMessageDetailsDrawer(input: {
 	) => Promise<void>;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	open: boolean;
 	orgSlug?: string;
@@ -278,14 +273,6 @@ export function SpaceMessageDetailsDrawer(input: {
 										: undefined
 								}
 								onReportMessage={input.onReportMessage}
-								onRetryWakeTarget={
-									input.onRetryWakeTarget
-										? async (retryInput) => {
-												await input.onRetryWakeTarget?.(retryInput);
-												input.onOpenChange(false);
-											}
-										: undefined
-								}
 								onWakeStopRequest={input.onWakeStopRequest}
 								orgSlug={input.orgSlug}
 								prepareSetupHref={input.prepareSetupHref}
@@ -329,7 +316,6 @@ function MessageDetailsBody(input: {
 	) => Promise<void>;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
 	prepareSetupHref?: string;
@@ -414,7 +400,6 @@ function MessageDetailsBody(input: {
 				onAgentRecoveryAction={input.onAgentRecoveryAction}
 				onJumpToMessage={input.onJumpToMessage}
 				onRecoverExecution={input.onRecoverExecution}
-				onRetryWakeTarget={input.onRetryWakeTarget}
 				onWakeStopRequest={input.onWakeStopRequest}
 				orgSlug={input.orgSlug}
 				prepareSetupHref={input.prepareSetupHref}
@@ -490,7 +475,6 @@ type ActivitySectionProps = {
 	) => Promise<void>;
 	onJumpToMessage: (signalId: string) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
 	prepareSetupHref?: string;
@@ -550,13 +534,6 @@ function ActivityItemRow(input: {
 					activity.targetProfileDisplayNamesByProfileId,
 				wakeFailureTargetContextsByProfileId:
 					activity.wakeFailureTargetContextsByProfileId,
-			})
-		: null;
-	const retryRequest = outcomeNotice
-		? resolveAnchoredSpaceWakeRetryRequest({
-				notices: activity.actionNotices,
-				outcomeNotice,
-				sourceItem: activity.sourceItem,
 			})
 		: null;
 	const executionRecoveryState = outcomeNotice
@@ -644,11 +621,9 @@ function ActivityItemRow(input: {
 					isAgentRecoveryPending={activity.isAgentRecoveryPending}
 					onAgentRecoveryAction={activity.onAgentRecoveryAction}
 					onRecoverExecution={activity.onRecoverExecution}
-					onRetryWakeTarget={activity.onRetryWakeTarget}
 					orgSlug={activity.orgSlug}
 					prepareSetupHref={activity.prepareSetupHref}
 					recoveryRequest={recoveryRequest}
-					retryRequest={retryRequest}
 					targetProfileId={item.targetProfileId ?? undefined}
 				/>
 				{canStopThisTarget && activity.onWakeStopRequest ? (
@@ -1010,20 +985,12 @@ function WakeFailureActions(input: {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	orgSlug?: string;
 	prepareSetupHref?: string;
 	recoveryRequest: SpaceExecutionRecoveryRequest | null;
-	retryRequest: SpaceWakeRetryRequest | null;
 	targetProfileId?: string;
 }) {
-	if (
-		!(
-			(input.recoveryRequest && input.onRecoverExecution) ||
-			(input.retryRequest && input.onRetryWakeTarget) ||
-			input.action
-		)
-	) {
+	if (!((input.recoveryRequest && input.onRecoverExecution) || input.action)) {
 		return null;
 	}
 
@@ -1037,13 +1004,6 @@ function WakeFailureActions(input: {
 				orgSlug={input.orgSlug}
 				prepareSetupHref={input.prepareSetupHref}
 				targetProfileId={input.targetProfileId}
-			/>
-		);
-	} else if (input.retryRequest && input.onRetryWakeTarget) {
-		confirmedCurrentAction = (
-			<SpaceWakeRetryButton
-				onRetryWakeTarget={input.onRetryWakeTarget}
-				request={input.retryRequest}
 			/>
 		);
 	}

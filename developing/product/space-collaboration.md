@@ -57,7 +57,45 @@ semantics for listing, addressing, Wake, removal, and degraded Direct Message
 behavior. This does not create another Space kind or apply the locked Center
 Agent Direct Message mutation rules to an ordinary Space.
 
+## Email Invitations Into A Space
+
+An Organization owner or admin who is an active member of an ordinary team
+Space can invite a person by email from **Add People or Agents > Invite**.
+Personal Organizations and unconverted Direct Messages do not support this
+action. Existing directory additions remain a separate, immediate operation.
+
+An invitation is bound to one verified account email and one Space. Opening
+the link never accepts it. The recipient reviews the sender, Organization,
+Space, and ordinary Organization-member role, then explicitly accepts. Login
+and verification preserve the destination; successful acceptance uses shared
+Space entry. Wrong-account, expired, revoked, and unavailable invitations fail
+visibly. An invitation is not a guest role or a computer connection request.
+
+Better Auth remains the Organization invitation and membership writer. Core
+owns the Space invitation intent and policy; the Space owns the membership
+grant and an atomic accepted-or-revoked receipt. D1 status projects that receipt.
+Acceptance can retry after Organization joining or an acknowledgement failure;
+it cannot use an old accepted invitation to re-add a removed Space member.
+Acceptance rechecks the sender's current authority. Revoke never removes an
+already accepted membership. It cancels an unused native Organization invite
+only when this workflow created it and no other live Space invite needs it.
+
+Pending invites stay separate from members. Senders can resend or revoke them;
+the initial expiry matches Better Auth's 48-hour invitation lifetime. A recipient
+can find pending invitations at account-level `/invitations`, without already
+belonging to the Organization. This is not Organization Inbox membership.
+Web and CLI use the same authenticated `POST /api/auth/space-invitations`
+contract in `packages/schemas`; clients do not derive authorization from UI.
+
 ## Agent Owner Participation
+
+The Add People or Agents picker shows the effective membership selection:
+selecting an ordinary Agent also checks its owner. The count and checkmarks
+agree before submission. Deselecting the last Agent removes an implicitly
+selected owner; an explicitly selected owner remains selected. Deselecting an
+owner also clears their selected Agents. Search filtering must not erase the
+effective selection. Core still resolves the authoritative owner at mutation
+time; these checkmarks are not permission facts.
 
 An ordinary human-owned Agent Profile participates in an ordinary Space with
 its owner. When a caller adds such an Agent, Core resolves the Agent's current

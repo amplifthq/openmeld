@@ -10,12 +10,6 @@ import {
   upsertAgentProfileCreationDefaultsRecord,
 } from "../infrastructure/d1/agent-profile-creation-defaults-repo";
 
-const FIRST_USE_REASONING_LEVEL_BY_AGENT_CONTROLLER_ID: Readonly<
-  Record<string, string>
-> = {
-  codex: "high",
-};
-
 export function resolveFirstUseAgentProfileCreationDefaults(input: {
   agentControllerRef: string;
   modelCatalog: ModelCatalog;
@@ -29,13 +23,16 @@ export function resolveFirstUseAgentProfileCreationDefaults(input: {
   }
   const controller = input.modelCatalog.agentControllers[parsedRef.id];
   const defaultModel = controller?.models.find(
-    (model) => model.id === controller.defaultModelId && !model.unavailable
+    (model) =>
+      model.id ===
+        (controller.creationDefaults?.modelId ?? controller.defaultModelId) &&
+      !model.unavailable
   );
   if (!defaultModel) {
     return { modelId: null, reasoningLevel: null };
   }
   const preferredReasoningLevel =
-    FIRST_USE_REASONING_LEVEL_BY_AGENT_CONTROLLER_ID[parsedRef.id] ?? null;
+    controller?.creationDefaults?.reasoningLevel ?? null;
   const reasoningLevel =
     preferredReasoningLevel &&
     defaultModel.supportedReasoningLevels.includes(preferredReasoningLevel)

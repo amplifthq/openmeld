@@ -335,6 +335,7 @@ import {
   runSpaceGuideRead,
   runSpaceGuideSet,
 } from "./space/guide-command";
+import { runSpaceInvitations } from "./space/invitations-command";
 import { runSpaceLink } from "./space/link-command";
 import { registerSpaceMemberSelectionOptions } from "./space/member-selection-contract";
 import { runSpaceMembers } from "./space/members-command";
@@ -2680,6 +2681,31 @@ spaceCmd
   });
 
 registerSpaceFilesCommands(spaceCmd);
+
+spaceCmd
+  .command("invitations")
+  .description(
+    "Send and manage email-bound Space invitations, or accept invitations for your account."
+  )
+  .argument(
+    "<action>",
+    "create | list | pending | preview | accept | resend | revoke"
+  )
+  .option("--space <id>", "Target Space ID for create or list")
+  .option("--email <email>", "Recipient email for create")
+  .option(
+    "--invitation <id>",
+    "Invitation ID for preview, accept, resend, or revoke"
+  )
+  .action(async (action, opts) => {
+    await runSpaceInvitations({
+      action,
+      space: opts.space,
+      email: opts.email,
+      invitationId: opts.invitation,
+      view: getGlobalViewOption(),
+    });
+  });
 
 spaceCmd
   .command("link")

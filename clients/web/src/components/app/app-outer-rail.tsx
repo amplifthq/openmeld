@@ -118,7 +118,7 @@ type AppOuterRailAccount = {
 	name?: string | null;
 };
 
-type AppRailDestinationId = AppOuterRailDestination | "newAgent";
+type AppRailDestinationId = AppOuterRailDestination;
 
 type AppRailDestination = {
 	attentionCount?: number;
@@ -1034,9 +1034,19 @@ function AccountsSwitcherView(input: {
 					<span className="font-medium">Add account</span>
 				</FluidActionListItem>
 				<FluidActionListItem
+					className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm"
+					index={1}
+					onClick={() => window.location.assign("/invitations")}
+					role="menuitem"
+					type="button"
+				>
+					<UserPlusIcon aria-hidden="true" className="size-4 shrink-0" />
+					<span className="font-medium">Invitations</span>
+				</FluidActionListItem>
+				<FluidActionListItem
 					className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
 					disabled={input.isPending}
-					index={1}
+					index={2}
 					onClick={input.onLogOutCurrent}
 					role="menuitem"
 					type="button"
@@ -1048,7 +1058,7 @@ function AccountsSwitcherView(input: {
 					<FluidActionListItem
 						className="flex min-h-10 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
 						disabled={input.isPending}
-						index={2}
+						index={3}
 						onClick={input.onLogOutAll}
 						role="menuitem"
 						type="button"

@@ -238,8 +238,12 @@ inside the workspace switcher. Its first four entries are flat, fixed
 primary actions and destinations; the remaining two product destinations stay
 in one user-collapsible group:
 
-- **New Agent** — opens the current Organization's route-backed Agent creation
-  view.
+- **New Agent** — opens `/o/{orgSlug}/agents/new`, a standalone creation page
+  with the primary rail and no Agent-list secondary sidebar. It reuses the
+  existing creation flow without loading the organization-wide Agent status
+  overview. Success opens the new Agent's detail; Cancel returns to Agents.
+  Pending teammate requests open Agent requests. Legacy `agents?view=create`
+  links redirect to this route before loading the Agents directory.
 - **Home** — the current Organization's adaptive overview and product entry.
 - **Spaces** and **Direct Messages** — first-level destinations directly below
   Home.
@@ -1681,6 +1685,12 @@ Auth session refreshes, Computer heartbeats, and Agent Activity are not
 substitutes. Undefined activity is omitted instead of rendering a placeholder,
 and relative last-seen text never claims live online presence.
 
+The same foreground reporter includes the current Space when visiting a Space
+route. Core records both scopes from one server timestamp. Hidden tabs and
+socket reconnects do not count as visits. Directory reads refresh on foreground
+return and every five visible minutes; Space member elapsed-time labels are
+formatted from `lastSeenAt` against the current clock, never a cached label.
+
 The sidebar groups members with one or more registered Computers under
 **Connected** and members without a Computer under **Not Connected**. Hovering
 or focusing those labels explains **Computer connected** and **Computer not
@@ -2309,12 +2319,14 @@ TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
 restoration key is the route pathname rather than the individual
 browser-history entry, and the Space message viewport has a stable id derived
 from the Space id. The conversation also records the first visible message and
-its viewport offset after scrolling settles. That account-and-Space-scoped
-semantic anchor is restored after cached history and layout have settled, so
-virtualized or deferred message layout cannot move a returning reader to a
-different message. Returning to the same Space in a tab therefore restores that
-Space's last reading position; different Spaces remain independent, and a
-message-focus search parameter may still move the viewport after restoration.
+its viewport offset during scrolling and on departure. That account-and-Space-
+scoped semantic anchor is restored after history arrives, loading earlier pages
+if needed. A remembered position disables the MessageScroller's initial
+end jump and automatic following. Resize observation preserves the same message
+as images and deferred layout settle, until deliberate user scrolling takes
+ownership. Reaching the bottom resumes normal following. Different Spaces
+remain independent; explicit message-focus navigation takes priority over the
+remembered position.
 Both layers use session storage. This view-local presentation state does not
 belong in the IndexedDB Query cache and is never message, read-cursor, or access
 authority.
@@ -3530,6 +3542,16 @@ sidebar status uses the same progress projection and a non-Working waiting
 indicator instead of its animated Working orb. Both surfaces return to ordinary
 Wake progress as soon as Core projects the conversation as available.
 
+Web uses the shared Wake presentation resolver for status text and Orb variants.
+Sidebar priority is input needed from the current user, then working/replying,
+then sending/connecting, then queued or waiting. Equal priorities retain Wake
+start order. Other active Spaces in the selected Organization reuse the same
+authenticated active-progress query and cache on the ambient 15-second refresh
+cadence; this does not claim open-Space WebSocket latency. A failed read retains
+only the account summary's generic active indication, not a guessed phase.
+Bounded summaries disclose additional active tasks. Progress is placed before
+message actions; reduced-motion and input-waiting Orbs are paused.
+
 Web derives message-level progress, the details drawer, and Space-level current
 work from the same shared Wake progress item. It must not introduce a second
 resolver that independently combines dispatch, RuntimeCoordinator, native
@@ -3556,11 +3578,13 @@ treats `hasMore=true` as incomplete coverage (for example, `25+` rather than an
 exact count). It must not imply that the bounded first page is the complete set.
 
 When active Wake progress includes a pending Agent Interaction for the current
-Binding owner, Web projects it into one collapsed Pending Action Surface above
-the currently visible main Space Composer or active Thread Composer. Web mounts
-that one surface in exactly one panel; opening a Thread moves the projection
-beside that Thread Composer instead of leaving a second entry behind the side
-panel. The surface reuses the existing Permission, Question, and Plan Review
+Binding owner, Web partitions requests by their authoritative source Thread ID.
+The active Thread Composer shows only that Thread's requests. The main Composer
+keeps main-timeline requests and entry points for requests in other Threads.
+Opening an unrelated Thread never moves those requests into it. A Thread entry
+opens its owning Thread and expands the selected request; the request is then
+removed from the main surface, so its approval controls exist in one place.
+The surface reuses the existing Permission, Question, and Plan Review
 cards, stays closed until the owner opens it, and presents multiple requests one
 at a time. Its selection and component identity use
 `runtimeCoordinatorExecutionId + interactionId`, because separate Wakes may

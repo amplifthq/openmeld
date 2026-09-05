@@ -313,6 +313,15 @@ Studio version is redirected from the app shell to
 when the feature first ships; the migration is the absence of the new
 versioned local record.
 
+An explicit Space destination is the exception: opening a Space or a message
+link, including continuation after accepting a Space invitation, keeps that
+destination. Space access is still authorized normally; the in-Space setup
+guidance remains available. This does not mark Setup Studio complete or change
+membership. A later ordinary entry may still offer the account-level Studio.
+Email verification and magic-link sign-in preserve the invitation route before
+Space entry, so first-time recipients are not sent to workspace selection in
+the middle of accepting an invitation.
+
 Completion is account-scoped, not Organization-scoped. A person should not be
 forced through the entire Studio for every Organization. The selected
 Organization is stored only to preserve navigation intent. Every

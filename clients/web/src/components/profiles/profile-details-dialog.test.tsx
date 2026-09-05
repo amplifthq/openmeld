@@ -293,6 +293,7 @@ function buildHumanEntry(): SpaceMemberDirectoryEntry {
 		avatarUrl: null,
 		controllerDisplayName: null,
 		id: "human-monica",
+		lastSeenAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
 		lastSeenLabel: "Seen 7 hours ago",
 		liveNow: false,
 		manualParticipationOnly: false,

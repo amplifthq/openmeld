@@ -124,4 +124,24 @@ export {
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
 } from "./runtime-coordinator-reason-code";
 export * from "./schemas/index";
+export {
+  ORGANIZATION_INVITATION_LIFETIME_SECONDS,
+  type SpaceInvitation,
+  type SpaceInvitationAccessInput,
+  type SpaceInvitationGrantInput,
+  type SpaceInvitationRequest,
+  type SpaceInvitationResponse,
+  type SpaceInvitationRevokeInput,
+  type SpaceInvitationRpcInput,
+  type SpaceInvitationRpcResult,
+  type SpaceInvitationWorker,
+  spaceInvitationAccessInputSchema,
+  spaceInvitationGrantInputSchema,
+  spaceInvitationRequestSchema,
+  spaceInvitationResponseSchema,
+  spaceInvitationRevokeInputSchema,
+  spaceInvitationRpcInputSchema,
+  spaceInvitationRpcResultSchema,
+  spaceInvitationSchema,
+} from "./space-invitation";
 export type * from "./types/index";

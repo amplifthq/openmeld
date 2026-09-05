@@ -1,0 +1,110 @@
+{
+  "models": [
+    {
+      "slug": "gpt-6-astra",
+      "prefer_websockets": true,
+      "support_verbosity": true,
+      "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform",
+      "web_search_tool_type": "text_and_image",
+      "input_modalities": ["text", "image"],
+      "supports_image_detail_original": true,
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 10000
+      },
+      "supports_parallel_tool_calls": true,
+      "tool_mode": "code_mode_only",
+      "multi_agent_version": "v2",
+      "multi_agent_reasoning_effort": "xhigh",
+      "use_responses_lite": true,
+      "include_skills_usage_instructions": false,
+      "include_apps_usage_instructions": false,
+      "include_plugin_usage_instructions": false,
+      "node_repl_auto_review_required": true,
+      "node_repl_disabled": false,
+      "requires_sandboxed_review": false,
+      "auto_review_model_override": null,
+      "model_specialty": null,
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "auto_compact_token_limit": null,
+      "comp_hash": "3000",
+      "default_reasoning_summary": "none",
+      "display_name": "GPT-6-Astra",
+      "description": "Our most capable model for complex, demanding work.",
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [
+        {
+          "effort": "low",
+          "description": "Fast responses with lighter reasoning"
+        },
+        {
+          "effort": "medium",
+          "description": "Balances speed and reasoning depth for everyday tasks"
+        },
+        {
+          "effort": "high",
+          "description": "Greater reasoning depth for complex problems"
+        },
+        {
+          "effort": "xhigh",
+          "description": "Extra high reasoning depth for complex problems"
+        },
+        {
+          "effort": "max",
+          "description": "Maximum reasoning depth for the hardest problems"
+        },
+        {
+          "effort": "ultra",
+          "description": "Maximum reasoning with automatic task delegation"
+        }
+      ],
+      "shell_type": "unified_exec",
+      "visibility": "list",
+      "minimal_client_version": "0.153.0",
+      "supported_in_api": true,
+      "availability_nux": null,
+      "upgrade": null,
+      "priority": 1,
+      "experimental_supported_tools": ["send_user_message_async", "clock"],
+      "available_in_plans": [
+        "business",
+        "edu",
+        "edu_plus",
+        "edu_pro",
+        "education",
+        "enterprise",
+        "enterprise_cbp_automation",
+        "enterprise_cbp_trial",
+        "enterprise_cbp_usage_based",
+        "finserv",
+        "free",
+        "free_workspace",
+        "go",
+        "hc",
+        "k12",
+        "plus",
+        "pro",
+        "prolite",
+        "quorum",
+        "sci",
+        "self_serve_business_prolite",
+        "self_serve_business_usage_based",
+        "team"
+      ],
+      "supports_search_tool": true,
+      "default_service_tier": null,
+      "service_tiers": [
+        {
+          "id": "priority",
+          "name": "Fast",
+          "description": "2x speed, increased usage"
+        }
+      ],
+      "additional_speed_tiers": ["fast"],
+      "supports_reasoning_summary_parameter": true,
+      "supports_reasoning_summaries": true
+    }
+  ]
+}
