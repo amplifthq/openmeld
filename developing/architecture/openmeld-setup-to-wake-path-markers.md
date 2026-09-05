@@ -76,5 +76,5 @@ Do not use "Ready" as a new product term.
 Use explicit terms such as detected local agents, reported capabilities, added
 to Space, available for Wake, or blocked from Wake at the layer that actually
 owns that fact. Setup owns detected/reported local capability facts, not final
-Wake availability.
+Wakeability.
 ```

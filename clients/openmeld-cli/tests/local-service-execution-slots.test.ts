@@ -40,6 +40,192 @@ function requestTask(
 }
 
 describe("local execution slots", () => {
+  it("runs an agent controller operation only while that adapter is idle", async () => {
+    const queue = createLocalExecutionSlots({
+      limits: {
+        globalConcurrency: 2,
+        queueMax: 10,
+      },
+    });
+    const activeTask = createDeferred();
+    requestTask(queue, {
+      adapterId: "codex",
+      controllerKey: "builtin:codex",
+      dispatchId: "dispatch-active",
+      attemptId: "attempt-active",
+      profileId: "profile-active",
+      spaceId: "space-active",
+      taskId: "task-active",
+      targetLabel: "@codex",
+      transportMode: "local-cli",
+      run: async () => {
+        await activeTask.promise;
+        return undefined;
+      },
+    });
+
+    expect(queue.getAdapterOperationStatus("codex")).toBe("blocked_by_work");
+    expect(
+      await queue.runAdapterOperationIfIdle("codex", async () => "changed")
+    ).toEqual({ accepted: false, status: "blocked_by_work" });
+    expect(
+      await queue.runAdapterOperationIfIdle(
+        "claude-code",
+        async () => "changed"
+      )
+    ).toEqual({ accepted: true, value: "changed" });
+
+    activeTask.resolve();
+    await queue.drain();
+    expect(queue.getAdapterOperationStatus("codex")).toBe("available");
+  });
+
+  it("queues new work behind an in-progress agent controller operation", async () => {
+    const startedTaskIds: string[] = [];
+    const queuedEvents: Array<{ status: string; waitReason: string }> = [];
+    const queue = createLocalExecutionSlots({
+      limits: {
+        globalConcurrency: 2,
+        queueMax: 10,
+      },
+      onTaskStarted: (event) => {
+        startedTaskIds.push(event.taskId);
+      },
+    });
+    const operation = createDeferred();
+    const task = createDeferred();
+    const operationPromise = queue.runAdapterOperationIfIdle(
+      "codex",
+      async () => {
+        await operation.promise;
+        return "changed";
+      }
+    );
+
+    expect(queue.getAdapterOperationStatus("codex")).toBe(
+      "operation_in_progress"
+    );
+    requestTask(queue, {
+      adapterId: "codex",
+      controllerKey: "builtin:codex",
+      dispatchId: "dispatch-queued",
+      attemptId: "attempt-queued",
+      onQueued: (event) => {
+        queuedEvents.push({
+          status: event.localQueue.status,
+          waitReason: event.localQueue.waitReason,
+        });
+        return undefined;
+      },
+      profileId: "profile-queued",
+      spaceId: "space-queued",
+      taskId: "task-queued",
+      targetLabel: "@codex",
+      transportMode: "local-cli",
+      run: async () => {
+        await task.promise;
+        return undefined;
+      },
+    });
+
+    expect(startedTaskIds).toEqual([]);
+    expect(queuedEvents).toEqual([
+      {
+        status: "queued",
+        waitReason: "agent_controller_maintenance",
+      },
+    ]);
+    operation.resolve();
+    expect(await operationPromise).toEqual({
+      accepted: true,
+      value: "changed",
+    });
+    await Promise.resolve();
+    expect(startedTaskIds).toEqual(["task-queued"]);
+
+    task.resolve();
+    await queue.drain();
+  });
+
+  it("waits for an in-progress agent controller operation during drain", async () => {
+    const queue = createLocalExecutionSlots({
+      limits: {
+        globalConcurrency: 1,
+        queueMax: 10,
+      },
+    });
+    const operation = createDeferred();
+    const operationPromise = queue.runAdapterOperationIfIdle(
+      "codex",
+      async () => {
+        await operation.promise;
+        return undefined;
+      }
+    );
+    let drained = false;
+    const drainPromise = queue.drain().then(() => {
+      drained = true;
+    });
+
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    operation.resolve();
+    await operationPromise;
+    await drainPromise;
+    expect(drained).toBe(true);
+  });
+
+  it("blocks an agent controller operation when matching work is queued", async () => {
+    const queue = createLocalExecutionSlots({
+      limits: {
+        globalConcurrency: 1,
+        queueMax: 10,
+      },
+    });
+    const otherTask = createDeferred();
+    const queuedTask = createDeferred();
+    requestTask(queue, {
+      adapterId: "claude-code",
+      controllerKey: "builtin:claude-code",
+      dispatchId: "dispatch-active",
+      attemptId: "attempt-active",
+      profileId: "profile-active",
+      spaceId: "space-active",
+      taskId: "task-active",
+      targetLabel: "@claude",
+      transportMode: "local-cli",
+      run: async () => {
+        await otherTask.promise;
+        return undefined;
+      },
+    });
+    requestTask(queue, {
+      adapterId: "codex",
+      controllerKey: "builtin:codex",
+      dispatchId: "dispatch-queued",
+      attemptId: "attempt-queued",
+      profileId: "profile-queued",
+      spaceId: "space-queued",
+      taskId: "task-queued",
+      targetLabel: "@codex",
+      transportMode: "local-cli",
+      run: async () => {
+        await queuedTask.promise;
+        return undefined;
+      },
+    });
+
+    expect(queue.getAdapterOperationStatus("codex")).toBe("blocked_by_work");
+    expect(
+      await queue.runAdapterOperationIfIdle("codex", async () => "changed")
+    ).toEqual({ accepted: false, status: "blocked_by_work" });
+
+    otherTask.resolve();
+    await Promise.resolve();
+    queuedTask.resolve();
+    await queue.drain();
+  });
+
   it("enforces globalConcurrency", async () => {
     const startedTaskIds: string[] = [];
     const queue = createLocalExecutionSlots({

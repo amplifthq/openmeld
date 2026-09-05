@@ -76,19 +76,43 @@ export async function prepareEnsureInboxItemStatements(input: {
       : null;
   const resolutionStatus =
     candidate.attention === "action_required" ? "open" : "not_applicable";
-  const targetSpaceId =
+  const targetScope =
     candidate.sourceKind === "space_signal" && candidate.attention === "update"
-      ? readMainInboxTargetSpaceId(candidate.sourceTarget)
+      ? readInboxTargetScope(candidate.sourceTarget)
       : null;
-  const spaceReadWatermark = targetSpaceId
-    ? {
-        bindings: [
-          candidate.organizationId,
-          candidate.recipientUserId,
-          targetSpaceId,
-          candidate.occurredAtMs,
-        ],
-        expression: `(
+  let spaceReadWatermark: {
+    bindings: Array<number | string>;
+    expression: string;
+  } = { bindings: [], expression: "NULL" };
+  if (targetScope?.threadRootSignalId) {
+    spaceReadWatermark = {
+      bindings: [
+        candidate.organizationId,
+        candidate.recipientUserId,
+        targetScope.spaceId,
+        targetScope.threadRootSignalId,
+        candidate.occurredAtMs,
+      ],
+      expression: `(
+            SELECT read_at_ms
+            FROM inbox_space_thread_read_watermarks
+            WHERE organization_id = ?
+              AND recipient_user_id = ?
+              AND space_id = ?
+              AND thread_root_signal_id = ?
+              AND through_occurred_at_ms >= ?
+            LIMIT 1
+          )`,
+    };
+  } else if (targetScope) {
+    spaceReadWatermark = {
+      bindings: [
+        candidate.organizationId,
+        candidate.recipientUserId,
+        targetScope.spaceId,
+        candidate.occurredAtMs,
+      ],
+      expression: `(
             SELECT read_at_ms
             FROM inbox_center_agent_read_watermarks
             WHERE organization_id = ?
@@ -97,8 +121,8 @@ export async function prepareEnsureInboxItemStatements(input: {
               AND through_occurred_at_ms >= ?
             LIMIT 1
           )`,
-      }
-    : { bindings: [], expression: "NULL" };
+    };
+  }
   const insertItem = input.db
     .prepare(
       `
@@ -188,14 +212,19 @@ export async function prepareEnsureInboxItemStatements(input: {
   return { deliveryId, itemId, statements };
 }
 
-function readMainInboxTargetSpaceId(
+function readInboxTargetScope(
   target: InboxSourceCandidate["sourceTarget"]
-): string | null {
+): { spaceId: string; threadRootSignalId: string | null } | null {
   switch (target.kind) {
     case "space":
-      return target.threadRootSignalId === undefined ? target.spaceId : null;
+      return {
+        spaceId: target.spaceId,
+        threadRootSignalId: target.threadRootSignalId ?? null,
+      };
     case "center_agent":
-      return target.spaceId ?? null;
+      return target.spaceId
+        ? { spaceId: target.spaceId, threadRootSignalId: null }
+        : null;
     case "agent_interaction":
     case "agent_profile":
     case "agent_profile_creation_request":

@@ -11,7 +11,7 @@ function loadServerReader() {
 }
 
 export const readPublishedChangelog = createServerFn({ method: "GET" })
-	.inputValidator((data: unknown): ChangelogQuery => {
+	.validator((data: unknown): ChangelogQuery => {
 		const parsed = changelogQuerySchema.safeParse(data ?? {});
 		if (!parsed.success) {
 			throw new Error(

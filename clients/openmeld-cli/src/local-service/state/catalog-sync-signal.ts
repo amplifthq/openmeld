@@ -1,17 +1,21 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { daemonRuntimeDataPath } from "../../config/daemon-state";
+import { OPENMELD_HOME_ENV_KEY } from "../../config/paths";
 
 const CATALOG_SYNC_SIGNAL_FILE = "catalog-sync-signal.json";
 const CATALOG_SYNC_SIGNAL_SCHEMA = "openmeld-daemon-catalog-sync-signal-v1";
 
 export type DaemonCatalogSyncSignal = {
+  signalId?: string;
   updatedAt: string;
   updatedAtMs: number;
   reason: string;
 };
 
 type DaemonCatalogSyncSignalFile = {
+  signalId?: string;
   v: 1;
   schema: string;
   updatedAt: string;
@@ -20,11 +24,14 @@ type DaemonCatalogSyncSignalFile = {
 
 export async function touchDaemonCatalogSyncSignal(input: {
   reason: string;
+  rootDir?: string;
 }): Promise<void> {
   const now = new Date().toISOString();
-  const signalPath = daemonCatalogSyncSignalPath();
-  await mkdir(daemonRuntimeDataPath(), { recursive: true });
+  const runtimeDataPath = resolveDaemonRuntimeDataPath(input.rootDir);
+  const signalPath = daemonCatalogSyncSignalPath(runtimeDataPath);
+  await mkdir(runtimeDataPath, { recursive: true });
   const next: DaemonCatalogSyncSignalFile = {
+    signalId: randomUUID(),
     v: 1,
     schema: CATALOG_SYNC_SIGNAL_SCHEMA,
     updatedAt: now,
@@ -44,10 +51,13 @@ export async function touchDaemonCatalogSyncSignal(input: {
   }
 }
 
-export async function readDaemonCatalogSyncSignal(): Promise<DaemonCatalogSyncSignal | null> {
-  const raw = await readFile(daemonCatalogSyncSignalPath(), "utf8").catch(
-    () => null
-  );
+export async function readDaemonCatalogSyncSignal(
+  input: { rootDir?: string } = {}
+): Promise<DaemonCatalogSyncSignal | null> {
+  const raw = await readFile(
+    daemonCatalogSyncSignalPath(resolveDaemonRuntimeDataPath(input.rootDir)),
+    "utf8"
+  ).catch(() => null);
   if (!raw) {
     return null;
   }
@@ -71,6 +81,9 @@ export async function readDaemonCatalogSyncSignal(): Promise<DaemonCatalogSyncSi
       return null;
     }
     return {
+      ...(typeof parsed.signalId === "string" && parsed.signalId.trim()
+        ? { signalId: parsed.signalId.trim() }
+        : {}),
       updatedAt,
       updatedAtMs,
       reason: normalizeReason(parsed.reason),
@@ -80,8 +93,17 @@ export async function readDaemonCatalogSyncSignal(): Promise<DaemonCatalogSyncSi
   }
 }
 
-function daemonCatalogSyncSignalPath(): string {
-  return join(daemonRuntimeDataPath(), CATALOG_SYNC_SIGNAL_FILE);
+function daemonCatalogSyncSignalPath(runtimeDataPath: string): string {
+  return join(runtimeDataPath, CATALOG_SYNC_SIGNAL_FILE);
+}
+
+function resolveDaemonRuntimeDataPath(rootDir: string | undefined): string {
+  if (!rootDir) {
+    return daemonRuntimeDataPath();
+  }
+  return daemonRuntimeDataPath({
+    env: { ...process.env, [OPENMELD_HOME_ENV_KEY]: rootDir },
+  });
 }
 
 function normalizeReason(value: string): string {

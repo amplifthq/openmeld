@@ -82,10 +82,11 @@ describe("SpaceMessageFooter", () => {
 	});
 
 	it("keeps a failed footer compact and moves every secondary action into More", () => {
+		const onOpenDetails = vi.fn();
 		const view = render(
 			<SpaceMessageFooter
 				addressingTargets={[WAKE_TARGET]}
-				details={{ hasProblem: true, onSelect: vi.fn() }}
+				details={{ hasProblem: true, onSelect: onOpenDetails }}
 				failureSummary="Review Codex couldn’t reply"
 				onCopy={vi.fn()}
 				reply={{ label: "Reply", onSelect: vi.fn() }}
@@ -96,7 +97,15 @@ describe("SpaceMessageFooter", () => {
 
 		const footer = view.container.querySelector('[data-slot="message-footer"]');
 		expect(footer?.getAttribute("data-persistent")).toBe("true");
-		expect(screen.getByText("Review Codex couldn’t reply")).toBeTruthy();
+		expect(footer?.className).toContain("before:flex-1");
+		expect(footer?.className).toContain("before:min-w-0");
+		expect(footer?.className).toContain("after:flex-1");
+		expect(footer?.className).toContain("after:min-w-0");
+		const failureAction = screen.getByRole("button", {
+			name: "Open message details: Review Codex couldn’t reply",
+		});
+		expect(failureAction.className).toContain("hover:underline");
+		expect(failureAction.className).toContain("focus-visible:underline");
 		expect(screen.getByTestId("details-warning")).toBeTruthy();
 		const primary = view.container.querySelector(
 			'[data-slot="message-footer-primary-actions"]'
@@ -104,8 +113,12 @@ describe("SpaceMessageFooter", () => {
 		const primaryButtons = within(primary).getAllByRole("button");
 		expect(
 			primaryButtons.map((button) => button.getAttribute("aria-label"))
-		).toEqual(["Message details", "More actions"]);
-		for (const button of primaryButtons) {
+		).toEqual([
+			"Message details",
+			"Open message details: Review Codex couldn’t reply",
+			"More actions",
+		]);
+		for (const button of [primaryButtons[0], primaryButtons[2]]) {
 			expect(button.className).toContain("p-1.5");
 			expect(button.className).toContain("max-lg:min-h-7");
 			expect(button.className).toContain("max-lg:min-w-7");
@@ -115,6 +128,8 @@ describe("SpaceMessageFooter", () => {
 		expect(
 			screen.getByRole("button", { name: "More actions" }).className
 		).not.toContain("@min-[36rem]:hidden");
+		fireEvent.click(failureAction);
+		expect(onOpenDetails).toHaveBeenCalledOnce();
 
 		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
 		expect(screen.getByRole("menuitem", { name: "Copy message" })).toBeTruthy();
@@ -125,6 +140,24 @@ describe("SpaceMessageFooter", () => {
 		expect(
 			screen.getByRole("menuitem", { name: "Message addressing" })
 		).toBeTruthy();
+	});
+
+	it("keeps the failure summary readable when Message details is unavailable", () => {
+		render(
+			<SpaceMessageFooter
+				addressingTargets={[]}
+				failureSummary="Agent couldn’t reply"
+				onCopy={vi.fn()}
+				timestamp="11:45 PM"
+			/>
+		);
+
+		expect(screen.getByText("Agent couldn’t reply").tagName).toBe("SPAN");
+		expect(
+			screen.queryByRole("button", {
+				name: "Open message details: Agent couldn’t reply",
+			})
+		).toBeNull();
 	});
 
 	it("opens structured Wake addressing from the footer", () => {

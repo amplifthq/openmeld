@@ -2,6 +2,127 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "clearer-agent-creation-and-team-details",
+      "title": "Create and understand Agents without misleading gaps",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-03",
+      "release": "v0.3.149",
+      "evidence": [
+        "pr:585",
+        "commit:9cfabe2c",
+        "workflow:33723770346",
+        "workflow:33724852824"
+      ],
+      "body": "New Agents now appear immediately at the top of their owner's list and show an\nhonest checking state while Wake availability loads, without briefly claiming\nthe Agent does not exist or cannot be reached. The local Agent picker also keeps\nthe user's latest choice instead of snapping back to an earlier selection.\nTeammates can see the same safe Agent identity, avatar, public setup, and compact\nactivity summary whether the Agent is available, checking, or offline, while\nprivate computer and local execution details remain owner-only."
+    },
+    {
+      "id": "recover-stuck-openmeld-service-upgrades",
+      "title": "Recover stuck OpenMeld Service upgrades",
+      "kind": "fixed",
+      "areas": [
+        "openmeld-service",
+        "computers",
+        "local-agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-03",
+      "release": "v0.3.150",
+      "evidence": [
+        "pr:590",
+        "commit:3ab67378a11a362bf0af47855bc90849c1ae16a2",
+        "commit:dfdea32b57e045cfe10da6cd178e9ff427ec400e",
+        "workflow:33737438439",
+        "workflow:33738300809",
+        "workflow:33738311319",
+        "smoke:75da469f-7c8b-400f-bf7e-b434d2fc02ec,c16045ec-d8de-4afc-935b-d585be6c4004,513bfcd8-8598-49db-bbd0-28094c998015"
+      ],
+      "body": "OpenMeld setup now recovers when an older Service is stuck closing a stale\nconnection, while preserving active local work and durable results. Computer\ndetails also distinguish a delayed local-agent check from a disconnected\nService, show when the last trusted check completed, and offer a focused retry."
+    },
+    {
+      "id": "fast-agent-space-add-me",
+      "title": "Add the current Agent to a Space without profile scans",
+      "kind": "improved",
+      "areas": [
+        "cli",
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "agents",
+        "members"
+      ],
+      "publishedAt": "2026-09-02",
+      "release": "v0.3.145",
+      "evidence": [
+        "pr:552",
+        "pr:556",
+        "pr:558",
+        "commit:c47ecb9c0ee838cbdbdb8e735fc8c124e06d011f",
+        "workflow:33604684089"
+      ],
+      "body": "`openmeld space add-me` now creates a fresh Agent Profile by default instead of\nscanning every existing profile and Binding. Agents can reuse one remembered\nProfile by passing its exact ID, including continuing that same Profile after a\npartially completed attempt instead of creating a duplicate. New Profile\ncreation now returns a compact recovery receipt before later setup work, profile\ncreation rejects session options it cannot honor, and routine Agent View profile\noutput keeps diagnostics behind `--details` so the requested facts stay easy to\nfind."
+    },
+    {
+      "id": "opencode-provider-usage",
+      "title": "See OpenCode provider capacity before starting work",
+      "kind": "improved",
+      "areas": [
+        "computers",
+        "local-agents",
+        "wake"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-02",
+      "release": "v0.3.146",
+      "evidence": [
+        "pr:561",
+        "pr:564",
+        "commit:25012c9838c9fc0330592b1d6e34f98936bff6b9",
+        "workflow:33619512990",
+        "workflow:33620166576",
+        "workflow:33621045896"
+      ],
+      "body": "OpenCode now shows provider-by-provider capacity on Computers. OpenCode Go\nreports its 5-hour, weekly, and monthly limits, and OpenMeld checks the selected\nprovider's supported limits before starting new work without letting another\nprovider's capacity block the Agent Profile."
+    },
+    {
+      "id": "converge-openmeld-tools-updates",
+      "title": "Keep one OpenMeld Tools update in control",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "computers",
+        "openmeld-service",
+        "setup"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-09-01",
+      "release": "v0.3.142",
+      "evidence": [
+        "pr:532",
+        "pr:539",
+        "pr:541",
+        "pr:543",
+        "commit:d8067f9ffbb3c851ffb98e28f29b18a1a2713e31",
+        "workflow:33551034027",
+        "workflow:33556392417"
+      ],
+      "body": "OpenMeld Tools updates now join an update already in progress instead of\nstarting a competing CLI or Setup path. Manual Setup waits and continues\nautomatically. On the Computer page, the button stays disabled with an active\n`Updating…` cue after a refresh, and the concise status moves through\n`Checking…`, `Finishing…`, `Updating…`, or `Verifying…`.\n\nAutomatic updates can also respond to a newly available release over the\nService's existing connection when that Service explicitly supports the\nrequest. Update actions bypass an older version cached by the running Service,\nwhile simultaneous checks still share one fresh request. Startup, reconnect,\nand hourly checks remain as fallbacks, failed connections can retry promptly,\nand active Agent work still finishes before OpenMeld switches the Service\nversion.\n\nThe CLI update prompt now also restarts a newly installed standalone binary\nwithout treating its internal build path as a command, so the menu continues\ncleanly after the upgrade.\n\nUpdate cleanup is also isolated to the current OpenMeld lane, so a Development\nor Canary Service cannot block or be stopped by a Production update. After a\nrepair reaches the requested version, the Computer page now shows the current\nhealthy result instead of keeping a historical update failure on screen."
+    },
+    {
       "id": "find-people-and-their-computers-together",
       "title": "Find people and their computers together",
       "kind": "improved",

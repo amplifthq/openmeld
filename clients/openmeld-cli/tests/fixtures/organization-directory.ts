@@ -165,7 +165,7 @@ function buildAgentReadiness(agentProfileId: string) {
       phase: "available" as const,
       reasonCode: "agent_execution.ready",
       status: "available_for_wake" as const,
-      summary: "Can reply from this computer in Spaces.",
+      summary: "Available for Wake",
       tooltip: "Available for Wake",
     },
     agentWakeRouteRegistration: {

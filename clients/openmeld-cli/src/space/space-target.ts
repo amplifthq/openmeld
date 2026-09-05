@@ -6,6 +6,9 @@ const INVALID_SPACE_TARGET_MESSAGE =
 
 export type ParsedSpaceTarget = {
   baseUrl?: string;
+  focusInteractionId?: string;
+  focusSignalId?: string;
+  focusThreadRootSignalId?: string;
   profileId?: string;
   spaceId: string;
 };
@@ -50,16 +53,57 @@ function parseSpaceTargetValue(
   const spaceId = spacesIndex >= 0 ? segments[spacesIndex + 1] : undefined;
   if (!(spaceId && SPACE_ID_HEX_REGEX.test(spaceId))) {
     throw new Error(
-      "Space URL must include /o/<org-slug>/spaces/<space-id> with a full 64-character Space ID. Legacy /spaces/<space-id> and /app/spaces/<space-id> inputs are still accepted."
+      "Space URL must include /spaces/<space-id> with a full 64-character Space ID. Organization-scoped /o/<org-slug>/spaces/<space-id> and legacy /app/spaces/<space-id> inputs are also accepted."
     );
   }
   const profileId = normalizeOptionalString(url.searchParams.get("profileId"));
+  const focusInteractionId = normalizeOptionalString(
+    url.searchParams.get("focusInteractionId")
+  );
+  const focusSignalId =
+    normalizeOptionalString(url.searchParams.get("focusSignalId")) ??
+    normalizeOptionalString(url.searchParams.get("signalId"));
+  const focusThreadRootSignalId =
+    normalizeOptionalString(url.searchParams.get("focusThreadRootSignalId")) ??
+    normalizeOptionalString(url.searchParams.get("threadRootSignalId"));
   return {
     spaceId,
     ...(profileId ? { profileId } : {}),
+    ...(focusInteractionId ? { focusInteractionId } : {}),
+    ...(focusSignalId ? { focusSignalId } : {}),
+    ...(focusThreadRootSignalId ? { focusThreadRootSignalId } : {}),
     ...(isPathOnly || !deriveBaseUrl
       ? {}
       : { baseUrl: resolveSpaceWebGatewayOrigin(url) }),
+  };
+}
+
+export function resolveSpaceEntryCommandTarget(input: {
+  baseUrl?: string;
+  profile?: string;
+  space: string;
+}): {
+  baseUrl?: string;
+  focusInteractionId?: string;
+  profile?: string;
+  signalId?: string;
+  space: string;
+  threadRootSignalId?: string;
+} {
+  const target = parseSpaceTarget(input.space, { baseUrl: input.baseUrl });
+  const explicitProfile = normalizeOptionalString(input.profile);
+  const profile = explicitProfile ?? target.profileId;
+  return {
+    space: target.spaceId,
+    ...(target.baseUrl ? { baseUrl: target.baseUrl } : {}),
+    ...(target.focusInteractionId
+      ? { focusInteractionId: target.focusInteractionId }
+      : {}),
+    ...(target.focusSignalId ? { signalId: target.focusSignalId } : {}),
+    ...(target.focusThreadRootSignalId
+      ? { threadRootSignalId: target.focusThreadRootSignalId }
+      : {}),
+    ...(profile ? { profile } : {}),
   };
 }
 

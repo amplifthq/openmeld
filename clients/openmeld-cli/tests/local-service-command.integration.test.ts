@@ -1988,7 +1988,7 @@ describe("openmeld service commands", () => {
         );
       });
 
-      expect(stdout).toContain("OpenMeld Service Update Is Ready");
+      expect(stdout).toContain("OpenMeld Service Update Started");
       expect(stdout).toContain("finish this update in the background");
       expect(stdout).toContain("You can close this window");
       expect(stdout).not.toContain("OpenMeld Service Repaired");

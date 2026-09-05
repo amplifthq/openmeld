@@ -201,7 +201,11 @@ import {
   recordRuntimeCoordinatorFailureTaskOutcome,
   recordRuntimeCoordinatorFinalizationTaskOutcome,
 } from "../../../agent-task-coordination/application/runtime-coordinator-task-outcome";
-import { readCenterAgentDesignationRecord } from "../../../center-agent/center-agent-repository";
+import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
+import {
+  readCenterAgentDesignationRecord,
+  readResolvedOrganizationOwnerHumanSpaceMember,
+} from "../../../center-agent/center-agent-repository";
 import { projectSpaceDiagnosticReportPointers } from "../../../diagnostics/application/space-diagnostic-report-pointer";
 import { writeSpaceDiagnosticReport } from "../../../diagnostics/infrastructure/d1/space-diagnostic-report-repo";
 import {
@@ -257,7 +261,6 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-native-result";
 import {
   buildExecutionRecoveryFreshClientMessageId,
-  buildExecutionRecoveryOperationKeys,
   EXECUTION_RECOVERY_OPERATION_CLAIM_STORAGE_PREFIX,
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
@@ -338,6 +341,8 @@ import type {
   SetSpaceAccessModeInput,
   SpaceAccessModeStateResult,
   SpacePasswordStateResult,
+  StartUsageExhaustedContinuationInput,
+  StartUsageExhaustedContinuationResponse,
   UpdateSpaceCursorInput,
   UpsertSpacePasswordInput,
 } from "../../../rpc/methods";
@@ -355,7 +360,6 @@ import {
 import {
   listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace,
   type RuntimeCoordinatorExecutionWakeProgressSelector,
-  readRuntimeCoordinatorExecutionProjectionByDispatch,
   readRuntimeCoordinatorExecutionProjectionById,
 } from "../../../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import {
@@ -470,8 +474,10 @@ import type {
   SignalPublishContext,
   SourceDispatchChainContext,
 } from "../../application/types";
+import { projectWakeProgressItemsForClient } from "../../application/wake-progress-client-projection";
 import {
   projectWakeTraceWaterfall,
+  resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode,
   type WakeTraceWaterfallSourceSignalFact,
 } from "../../application/wake-trace-waterfall";
 import {
@@ -560,8 +566,11 @@ import {
   TARGET_BYTES,
 } from "../../infrastructure/sql/space-retention-repo";
 import {
+  clearSpaceAgentOwnerMembershipPolicyReconciled,
   ensureSpaceSqlSchema,
+  hasReconciledSpaceAgentOwnerMembershipPolicy,
   isoToTimestampMs,
+  markSpaceAgentOwnerMembershipPolicyReconciled,
 } from "../../infrastructure/sql/space-schema-repo";
 import {
   type AgentReplyObservationTransactionResult,
@@ -800,6 +809,7 @@ const SPACE_INDEX_PROJECTION_OUTBOX_REDRIVE_BATCH_SIZE = 10;
 const SPACE_INBOX_PROJECTION_OUTBOX_REDRIVE_BATCH_SIZE = 20;
 const ACTIVE_REPLYING_SIGNAL_MAX_AGE_MS = 180_000;
 const ACTIVE_WAKE_PROGRESS_READ_CONCURRENCY = 6;
+const ACTIVE_WAKE_PROGRESS_PAGE_LIMIT = 25;
 const DISPATCH_PLANNER_LOG_SAMPLE_LIMIT = 10;
 const OPENMELD_GENERATED_SIGNAL_SOURCE = "openmeld";
 const MENTION_HINT_PROFILE: Profile = {
@@ -820,7 +830,7 @@ function requireRpcAuthorProfile(context?: CoreRpcContextInput): Profile {
   return toProtocolProfile(context);
 }
 
-function buildVerifiedRecoverySourceAuthorContext(input: {
+function buildVerifiedUsageContinuationSourceAuthorContext(input: {
   continuationContext?: CoreRpcContextInput;
   dispatchId: string;
   sourceProfile: Profile;
@@ -840,7 +850,7 @@ function buildVerifiedRecoverySourceAuthorContext(input: {
         }
       : {}),
     actorContext: {
-      requestId: `execution-recovery-replay:${input.dispatchId}`,
+      requestId: `usage-continuation:${input.dispatchId}`,
       openMeldProfileId: sourceProfile.profileId,
       profileKind: sourceProfile.kind,
       ...(sourceProfile.profileHandle
@@ -4528,19 +4538,6 @@ export class Space extends DurableObject<CoreBindings> {
             projection,
             spaceAccess: input.spaceAccess,
           }),
-        retryAsNewExecution: async ({
-          command,
-          markEffectStarted,
-          projection,
-        }) =>
-          await this.retryExecutionAsNewWake({
-            command,
-            context: input.context,
-            markEffectStarted,
-            password: input.password,
-            projection,
-            spaceAccess: input.spaceAccess,
-          }),
       },
       inspectProjection: async () =>
         (
@@ -4559,6 +4556,121 @@ export class Space extends DurableObject<CoreBindings> {
         ),
       storage: this.ctx.storage,
     });
+  }
+
+  async rpcStartUsageExhaustedContinuation(
+    input: StartUsageExhaustedContinuationInput
+  ): Promise<StartUsageExhaustedContinuationResponse> {
+    this.applySpaceRef(input.spaceId);
+    const operationId = normalizeOptionalText(input.operationId);
+    const continuationClientMessageId = parseOptionalClientMessageId(
+      input.continuationClientMessageId
+    );
+    if (!(operationId && continuationClientMessageId)) {
+      throw new Error(
+        "agent_profile_work_recovery.continuation_identity_invalid"
+      );
+    }
+
+    const traceResponse = await this.rpcGetDispatchTrace({
+      context: input.context,
+      dispatchId: input.interruptedDispatchId,
+      spaceAccess: input.spaceAccess,
+      spaceId: input.spaceId,
+    });
+    const trace = traceResponse.trace;
+    const sourceSignal = this.readSourceTextSignalById(
+      input.interruptedSourceSignalId
+    );
+    if (
+      !(trace && sourceSignal) ||
+      trace.dispatch.dispatchId !== input.interruptedDispatchId ||
+      trace.dispatch.sourceEventId !== input.interruptedSourceSignalId ||
+      trace.dispatch.targetProfileId !== input.targetProfileId ||
+      sourceSignal.spaceId !== this.spaceId ||
+      normalizeOptionalText(sourceSignal.data.meta?.clientMessageId) !==
+        input.interruptedClientMessageId ||
+      (sourceSignal.data.attachments?.length ?? 0) > 0 ||
+      !readWakeActivationTargetProfileIds(sourceSignal).includes(
+        input.targetProfileId
+      )
+    ) {
+      throw new Error(
+        "agent_profile_work_recovery.continuation_source_mismatch"
+      );
+    }
+
+    const placement = readSpaceThreadSignalPlacementBySignalId(
+      this.ctx.storage.sql,
+      sourceSignal.id
+    );
+    const thread = placement
+      ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+      : null;
+    const continuationContext =
+      getSpaceAccessRequestContext(input.spaceAccess) ?? input.context;
+    const verifiedReplayAccess = createDispatchContinuationSpaceAccessContext({
+      dispatchId: input.interruptedDispatchId,
+      password: getSpaceAccessPassword(input.spaceAccess),
+      requestContext: buildVerifiedUsageContinuationSourceAuthorContext({
+        continuationContext,
+        dispatchId: input.interruptedDispatchId,
+        sourceProfile: sourceSignal.profile,
+      }),
+      sourceSignalId: sourceSignal.id,
+      spaceId: this.spaceId,
+      targetProfileId: input.targetProfileId,
+    });
+    try {
+      await this.rpcPostSignalOnceByClientMessageId({
+        authoringPolicy: "user_authored",
+        clientMessageId: continuationClientMessageId,
+        context: continuationContext,
+        messageEnvelope: {
+          activationTargets: [input.targetProfileId],
+          referenceTargets:
+            sourceSignal.data.messageEnvelope?.referenceTargets ?? [],
+          ...(sourceSignal.data.messageEnvelope?.mentionTargets
+            ? {
+                mentionTargets:
+                  sourceSignal.data.messageEnvelope.mentionTargets,
+              }
+            : {}),
+          text: sourceSignal.data.text,
+        },
+        meta: { clientMessageId: continuationClientMessageId },
+        password: getSpaceAccessPassword(verifiedReplayAccess),
+        profile: sourceSignal.profile,
+        spaceAccess: verifiedReplayAccess,
+        spaceId: this.spaceId,
+        text: sourceSignal.data.text,
+        ...(sourceSignal.data.files ? { files: sourceSignal.data.files } : {}),
+        ...(thread
+          ? {
+              threadContext: {
+                rootSignalId: thread.rootSignalId,
+                threadId: thread.threadId,
+              },
+            }
+          : {}),
+      });
+    } catch (error) {
+      if (!isUsageContinuationSourceValidationError(error)) {
+        throw error;
+      }
+      const sourceMismatch = new Error(
+        "agent_profile_work_recovery.continuation_source_mismatch",
+        { cause: error }
+      ) as Error & { code: string };
+      sourceMismatch.code =
+        "agent_profile_work_recovery.continuation_source_mismatch";
+      throw sourceMismatch;
+    }
+    return {
+      continuationClientMessageId,
+      operationId,
+      status: "started",
+    };
   }
 
   private async inspectExecutionRecoveryForCommand(input: {
@@ -4821,12 +4933,6 @@ export class Space extends DurableObject<CoreBindings> {
         trace,
       });
     const canonicalIdentity = resolvedResumeCapability.identity ?? identity;
-    const sourceSignal = this.readSignalById(trace.dispatch.sourceEventId);
-    const exactSourceWakeVerified = isExactRecoverySourceWakeVerified({
-      canonicalTargetProfileId: canonicalIdentity.targetProfileId,
-      nativeDelivery,
-      sourceSignal,
-    });
     const recoveredPublicationId = resolveRecoveredPublicationId({
       nativeRecoveredPublicationId,
       nativeRecoveryCompleted,
@@ -4836,9 +4942,6 @@ export class Space extends DurableObject<CoreBindings> {
     return inspectExecutionRecovery({
       destination,
       explicitUserStop: trace.finalVisibleOutcome?.status === "visible_stopped",
-      freshExecutionCapability: {
-        exactSourceWakeVerified,
-      },
       identity: canonicalIdentity,
       outcomeUnknown:
         trace.finalVisibleOutcome?.reasonCode ===
@@ -5326,132 +5429,6 @@ export class Space extends DurableObject<CoreBindings> {
         originPublication.status === "already_published"
           ? "already_completed"
           : "completed",
-    };
-  }
-
-  private async retryExecutionAsNewWake(input: {
-    command: ExecuteExecutionRecoveryInput["body"];
-    context?: CoreRpcContextInput;
-    markEffectStarted: () => Promise<void>;
-    password?: string;
-    projection: ExecutionRecoveryProjection;
-    spaceAccess?: SpaceAccessContext;
-  }): Promise<{
-    newExecutionId: string;
-    status: "new_execution_requested" | "outcome_unknown";
-  }> {
-    if (input.command.destination.surface !== "space") {
-      const db = wakeEvidenceDb(this.bindings);
-      if (!db) {
-        throw new Error("execution_recovery.storage_unavailable");
-      }
-      const delivery = await this.requireExecutionRecoveryNativeDelivery(
-        input.projection
-      );
-      const submission = await submitRemoteAgentExecutionRecoveryTurn({
-        action: "retry_as_new_execution",
-        db,
-        env: this.bindings,
-        nowMs: Date.now(),
-        operationId: input.command.operationId,
-        originalDelivery: delivery,
-        markEffectStarted: input.markEffectStarted,
-      });
-      return {
-        newExecutionId: submission.dispatchId,
-        status: "new_execution_requested",
-      };
-    }
-    const traceResponse = await this.rpcGetDispatchTrace({
-      context: input.context,
-      dispatchId: input.projection.identity.dispatchId,
-      password: input.password,
-      spaceAccess: input.spaceAccess,
-      spaceId: this.spaceId,
-    });
-    const trace = traceResponse.trace;
-    const sourceSignal = trace
-      ? this.readSignalById(trace.dispatch.sourceEventId)
-      : null;
-    const targetProfileId = input.projection.identity.targetProfileId;
-    if (!trace) {
-      throw new Error("execution_recovery.execution_not_found");
-    }
-    if (
-      trace.dispatch.dispatchId !== input.projection.identity.dispatchId ||
-      trace.dispatch.targetProfileId !== targetProfileId
-    ) {
-      throw new Error("execution_recovery.identity_mismatch");
-    }
-    if (
-      sourceSignal?.type !== "signal.text" ||
-      sourceSignal.spaceId !== this.spaceId ||
-      (sourceSignal.data.attachments?.length ?? 0) > 0 ||
-      !readWakeActivationTargetProfileIds(sourceSignal).includes(
-        targetProfileId
-      )
-    ) {
-      throw new Error("execution_recovery.exact_source_wake_unavailable");
-    }
-    const operationKeys = await buildExecutionRecoveryOperationKeys(
-      input.command
-    );
-    const newClientMessageId = buildExecutionRecoveryFreshClientMessageId(
-      operationKeys.claimStorageKey
-    );
-    const placement = readSpaceThreadSignalPlacementBySignalId(
-      this.ctx.storage.sql,
-      sourceSignal.id
-    );
-    const thread = placement
-      ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
-      : null;
-    const continuationContext = input.spaceAccess
-      ? (getSpaceAccessRequestContext(input.spaceAccess) ?? input.context)
-      : input.context;
-    const verifiedReplayAccess = createDispatchContinuationSpaceAccessContext({
-      attemptId: input.projection.identity.attemptId,
-      dispatchId: trace.dispatch.dispatchId,
-      password: input.spaceAccess
-        ? getSpaceAccessPassword(input.spaceAccess)
-        : input.password,
-      requestContext: buildVerifiedRecoverySourceAuthorContext({
-        continuationContext,
-        dispatchId: trace.dispatch.dispatchId,
-        sourceProfile: sourceSignal.profile,
-      }),
-      sourceSignalId: sourceSignal.id,
-      spaceId: this.spaceId,
-      targetProfileId,
-    });
-    await input.markEffectStarted();
-    await this.rpcPostSignalOnceByClientMessageId({
-      authoringPolicy: "user_authored",
-      clientMessageId: newClientMessageId,
-      context: continuationContext,
-      messageEnvelope: {
-        activationTargets: [targetProfileId],
-        referenceTargets: [],
-        text: sourceSignal.data.text,
-      },
-      meta: { clientMessageId: newClientMessageId },
-      password: getSpaceAccessPassword(verifiedReplayAccess),
-      profile: sourceSignal.profile,
-      spaceAccess: verifiedReplayAccess,
-      spaceId: this.spaceId,
-      text: sourceSignal.data.text,
-      ...(thread
-        ? {
-            threadContext: {
-              rootSignalId: thread.rootSignalId,
-              threadId: thread.threadId,
-            },
-          }
-        : {}),
-    });
-    return {
-      newExecutionId: newClientMessageId,
-      status: "new_execution_requested",
     };
   }
 
@@ -6647,6 +6624,15 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
     }
+    if (input.includePreviewText === true) {
+      url.searchParams.set("includePreviewText", "true");
+    }
+    if (input.includeSourceContext === true) {
+      url.searchParams.set("includeSourceContext", "true");
+    }
+    if (input.includeWaitReason === true) {
+      url.searchParams.set("includeWaitReason", "true");
+    }
     if (typeof input.targetProfileId === "string") {
       url.searchParams.set("targetProfileId", input.targetProfileId);
     }
@@ -6674,11 +6660,26 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<GetActiveSpaceWakeProgressResponse> {
     this.applySpaceRef(input.spaceId);
     const url = new URL("https://openmeld.local/active-wake-progress");
+    if (input.includePageInfo === true) {
+      url.searchParams.set("includePageInfo", "true");
+    }
     if (input.includeTiming === true) {
       url.searchParams.set("includeTiming", "true");
     }
+    if (input.includePreviewText === true) {
+      url.searchParams.set("includePreviewText", "true");
+    }
+    if (input.includeSourceContext === true) {
+      url.searchParams.set("includeSourceContext", "true");
+    }
+    if (input.includeWaitReason === true) {
+      url.searchParams.set("includeWaitReason", "true");
+    }
     if (typeof input.targetProfileId === "string") {
       url.searchParams.set("targetProfileId", input.targetProfileId);
+    }
+    if (typeof input.sourceProfileId === "string") {
+      url.searchParams.set("sourceProfileId", input.sourceProfileId);
     }
     if (input.includeWakeStopEligibility === true) {
       url.searchParams.set("includeWakeStopEligibility", "true");
@@ -6880,29 +6881,44 @@ export class Space extends DurableObject<CoreBindings> {
     const actorOwnerUserId = normalizeOptionalText(
       context.actorContext.ownerUserId
     );
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
     const actorMember = readSpaceMemberRecord(
       this.ctx.storage.sql,
       context.actorContext.openMeldProfileId
     );
-    if (
-      !(
-        actorOwnerUserId &&
+    const isActiveHumanMember = Boolean(
+      actorOwnerUserId &&
         actorMember?.status === "active" &&
         actorMember.profileKindSnapshot === "human" &&
         actorMember.ownerUserIdSnapshot === actorOwnerUserId
-      )
-    ) {
+    );
+    const isAgentOwnerJoiningAsSelf = Boolean(
+      actorOwnerUserId &&
+        actorMember?.status !== "active" &&
+        activeMembers.some(
+          (member) =>
+            member.profileKindSnapshot === "agent" &&
+            member.ownerUserIdSnapshot === actorOwnerUserId
+        ) &&
+        input.members.length === 1 &&
+        input.members[0]?.profileId ===
+          context.actorContext.openMeldProfileId &&
+        input.members[0]?.profileKind === "human" &&
+        input.members[0]?.ownerUserId === actorOwnerUserId
+    );
+    if (!(isActiveHumanMember || isAgentOwnerJoiningAsSelf)) {
       throw createCoreRpcHttpError({
         code: "space.membership_required",
-        reason: "You must be a current member of this Direct Message.",
+        reason:
+          "You must be a current member, or join as the Agent owner's Human Profile.",
         status: 403,
       });
     }
 
     const activeMemberIds = new Set(
-      listSpaceMemberRecords(this.ctx.storage.sql, { status: "active" }).map(
-        (member) => member.profileId
-      )
+      activeMembers.map((member) => member.profileId)
     );
     if (
       !input.members.some((member) => !activeMemberIds.has(member.profileId))
@@ -6938,6 +6954,7 @@ export class Space extends DurableObject<CoreBindings> {
         passwordProof: undefined,
         updatedAt: convertedAt,
       });
+      clearSpaceAgentOwnerMembershipPolicyReconciled(this.ctx.storage.sql);
       return addSpaceMembersUseCase({
         actorDisplayName:
           context.actorContext.profileName ?? context.actorContext.ownerName,
@@ -7021,6 +7038,35 @@ export class Space extends DurableObject<CoreBindings> {
       ok: true,
       spaceId: this.spaceId,
     };
+  }
+
+  async rpcBroadcastWakeProgressChanged(input: {
+    agentProfileIds: readonly string[];
+    clientMessageIds: readonly string[];
+    reason: string;
+    spaceId: string;
+  }): Promise<{
+    broadcast: boolean;
+    ok: true;
+    spaceId: string;
+  }> {
+    this.applySpaceRef(input.spaceId);
+    const agentProfileIds = normalizeProfileIds(input.agentProfileIds);
+    const clientMessageIds = normalizeProfileIds(input.clientMessageIds);
+    if (agentProfileIds.length === 0 && clientMessageIds.length === 0) {
+      return { broadcast: false, ok: true, spaceId: this.spaceId };
+    }
+
+    const frame: SpaceLiveInvalidationFrame = {
+      type: "wake.progress.changed",
+      spaceId: this.spaceId,
+      version: await this.nextLiveInvalidationVersion(),
+      ...(agentProfileIds.length > 0 ? { agentProfileIds } : {}),
+      ...(clientMessageIds.length > 0 ? { clientMessageIds } : {}),
+      reason: normalizeOptionalText(input.reason) ?? "wake.progress.changed",
+    };
+    this.broadcast(frame);
+    return { broadcast: true, ok: true, spaceId: this.spaceId };
   }
 
   async rpcReconcileDeletedAgentProfileMember(input: {
@@ -7930,7 +7976,53 @@ export class Space extends DurableObject<CoreBindings> {
       }
       throw error;
     }
-    return await this.authorizeSpaceAccess(spaceAccess);
+    const accessResult = await this.authorizeSpaceAccess(spaceAccess);
+    if (!accessResult.ok) {
+      return accessResult;
+    }
+    const requestContext = getSpaceAccessRequestContext(spaceAccess);
+    const ownerUserId = normalizeOptionalText(
+      requestContext?.actorContext.ownerUserId
+    );
+    const profileId = normalizeOptionalText(
+      requestContext?.actorContext.openMeldProfileId
+    );
+    const meta = this.readSpaceMetaRecord();
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    const isCurrentDirectMessage = Boolean(
+      meta?.purpose === "openmeld_dm_space" &&
+        meta.directMessage &&
+        !meta.directMessage.convertedAt &&
+        activeMembers.length === 2
+    );
+    const isActiveProfile = Boolean(
+      profileId &&
+        activeMembers.some((member) => member.profileId === profileId)
+    );
+    const isAgentOwnerObserver = Boolean(
+      isCurrentDirectMessage &&
+        requestContext?.actorContext.profileKind === "human" &&
+        ownerUserId &&
+        !isActiveProfile &&
+        activeMembers.some(
+          (member) =>
+            member.profileKindSnapshot === "agent" &&
+            member.ownerUserIdSnapshot === ownerUserId
+        )
+    );
+    if (!isAgentOwnerObserver) {
+      return accessResult;
+    }
+    return {
+      ok: false,
+      response: this.forbiddenResponse(
+        requestContext?.actorContext.requestId ?? "space-agent-owner-observer",
+        "space.access.read_only",
+        "Agent owners can view this Direct Message, but must join before participating."
+      ),
+    };
   }
 
   private async dispatchCursorRequest(
@@ -9188,11 +9280,16 @@ export class Space extends DurableObject<CoreBindings> {
         const url = new URL(request.url);
         const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
           spaceId: this.spaceId,
+          includePageInfo: url.searchParams.get("includePageInfo"),
+          includePreviewText: url.searchParams.get("includePreviewText"),
           includeTiming: url.searchParams.get("includeTiming"),
+          includeSourceContext: url.searchParams.get("includeSourceContext"),
+          includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
           ),
           targetProfileId: url.searchParams.get("targetProfileId"),
+          sourceProfileId: url.searchParams.get("sourceProfileId"),
         });
         if (!parsed.success) {
           return new Response(
@@ -9216,11 +9313,18 @@ export class Space extends DurableObject<CoreBindings> {
             await this.readActiveSpaceWakeProgress({
               actorOwnerUserId,
               db,
+              includePageInfo: parsed.data.includePageInfo === true,
               includeTiming: parsed.data.includeTiming === true,
+              includePreviewText: parsed.data.includePreviewText === true,
+              includeSourceContext: parsed.data.includeSourceContext === true,
+              includeWaitReason: parsed.data.includeWaitReason === true,
               includeWakeStopEligibility:
                 parsed.data.includeWakeStopEligibility === true,
               ...(parsed.data.targetProfileId
                 ? { targetProfileId: parsed.data.targetProfileId }
+                : {}),
+              ...(parsed.data.sourceProfileId
+                ? { sourceProfileId: parsed.data.sourceProfileId }
                 : {}),
             })
           );
@@ -9423,34 +9527,9 @@ export class Space extends DurableObject<CoreBindings> {
       return nativeDeliveryStop;
     }
 
-    const db = wakeEvidenceDb(this.bindings);
-    if (!db) {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "space.wake_stop_store_unavailable",
-        runtimeCoordinatorExecutionId: null,
-        status: "retry_later",
-        targetProfileId: lookupMatch.targetProfileId,
-      });
-    }
-    const execution = await readRuntimeCoordinatorExecutionProjectionByDispatch(
-      {
-        db,
-        dispatchId: lookupMatch.dispatchId,
-        spaceId: this.spaceId,
-        targetProfileId: lookupMatch.targetProfileId,
-      }
-    ).catch(() => null);
-    if (!execution) {
-      return await this.requestPreAgentWakeStop({
-        body,
-        db,
-        lookupMatch,
-      });
-    }
-
-    return await this.requestControllerBackedWakeStop({
+    return await this.requestPreAgentWakeStop({
       body,
-      execution,
+      lookupMatch,
     });
   }
 
@@ -9557,7 +9636,6 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async requestPreAgentWakeStop(input: {
     body: PostSpaceWakeStopBody;
-    db: D1Database;
     lookupMatch: SpaceDispatchLookupMatch;
   }): Promise<PostSpaceWakeStopResponse> {
     const ownerResolution = await this.resolveOutboxActiveAttemptOwnerUserId(
@@ -9627,22 +9705,14 @@ export class Space extends DurableObject<CoreBindings> {
       stopResponse.status === "execution_linked" &&
       stopResponse.runtimeCoordinatorExecutionId
     ) {
-      const execution = await readRuntimeCoordinatorExecutionProjectionById({
-        db: input.db,
+      return await this.requestExecutionLinkedWakeStop({
+        body: input.body,
+        dispatchId: input.lookupMatch.dispatchId,
+        ownerUserId: ownerResolution.ownerUserId,
         runtimeCoordinatorExecutionId:
           stopResponse.runtimeCoordinatorExecutionId,
-      }).catch(() => null);
-      if (execution) {
-        return await this.requestControllerBackedWakeStop({
-          body: input.body,
-          execution,
-        });
-      }
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.execution_projection_pending",
-        runtimeCoordinatorExecutionId:
-          stopResponse.runtimeCoordinatorExecutionId,
-        status: "retry_later",
+        sourceClientMessageId: targetWakeLifecycleIdentity.clientMessageId,
+        spaceId: targetWakeLifecycleIdentity.spaceId,
         targetProfileId: input.lookupMatch.targetProfileId,
       });
     }
@@ -9657,61 +9727,26 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private async requestControllerBackedWakeStop(input: {
+  private async requestExecutionLinkedWakeStop(input: {
     body: PostSpaceWakeStopBody;
-    execution: RuntimeCoordinatorExecutionRecord;
+    dispatchId: string;
+    ownerUserId: string;
+    runtimeCoordinatorExecutionId: string;
+    sourceClientMessageId: string | null;
+    spaceId: string;
+    targetProfileId: string;
   }): Promise<PostSpaceWakeStopResponse> {
-    const execution = input.execution;
-    if (execution.status === "cancelled") {
-      return buildSpaceWakeStopAlreadyCancelledResponse(execution);
-    }
-
-    if (
-      execution.status === "reply_published" ||
-      execution.status === "failed_terminal" ||
-      execution.terminalOutcome !== null
-    ) {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.wake_stop_execution_terminal",
-        runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-        status: "not_stoppable",
-        targetProfileId: execution.targetProfileId,
-      });
-    }
-
-    const localDb = localStateDb(this.bindings);
-    if (!localDb) {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.runtime_owner_store_unavailable",
-        runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-        status: "retry_later",
-        targetProfileId: execution.targetProfileId,
-      });
-    }
-    const runtimeOwner = await readRuntimeRegistryRecordByRuntimeId({
-      db: localDb,
-      openMeldServiceRuntimeId: execution.openMeldServiceRuntimeId.value,
-    });
-    if (runtimeOwner.status !== "found") {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.runtime_owner_unavailable",
-        runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-        status: "retry_later",
-        targetProfileId: execution.targetProfileId,
-      });
-    }
-    const ownerUserId = runtimeOwner.record.runtimeLookupInput.owner.id;
     const response = await requestRuntimeTransportRuntimeCoordinatorWakeStop({
       env: this.bindings,
-      ownerUserId,
+      ownerUserId: input.ownerUserId,
       wakeStop: {
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
-        ownerUserId,
-        runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-        dispatchId: execution.dispatchId,
-        spaceId: execution.spaceId,
-        sourceClientMessageId: execution.sourceClientMessageId,
-        targetProfileId: execution.targetProfileId,
+        ownerUserId: input.ownerUserId,
+        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+        dispatchId: input.dispatchId,
+        spaceId: input.spaceId,
+        sourceClientMessageId: input.sourceClientMessageId,
+        targetProfileId: input.targetProfileId,
         ...(input.body.reason ? { reason: input.body.reason } : {}),
       },
     });
@@ -9720,10 +9755,9 @@ export class Space extends DurableObject<CoreBindings> {
       ? parsed.data
       : buildSpaceWakeStopFailureResponse({
           reasonCode: "space.wake_stop_response_invalid",
-          runtimeCoordinatorExecutionId:
-            execution.runtimeCoordinatorExecutionId,
+          runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
           status: "retry_later",
-          targetProfileId: execution.targetProfileId,
+          targetProfileId: input.targetProfileId,
         });
   }
 
@@ -9858,6 +9892,9 @@ export class Space extends DurableObject<CoreBindings> {
           spaceId: this.spaceId,
           clientMessageId: url.searchParams.get("clientMessageId"),
           includeTiming: url.searchParams.get("includeTiming"),
+          includePreviewText: url.searchParams.get("includePreviewText"),
+          includeSourceContext: url.searchParams.get("includeSourceContext"),
+          includeWaitReason: url.searchParams.get("includeWaitReason"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
           ),
@@ -9878,6 +9915,9 @@ export class Space extends DurableObject<CoreBindings> {
             ),
             clientMessageId: parsed.data.clientMessageId,
             includeTiming: parsed.data.includeTiming === true,
+            includePreviewText: parsed.data.includePreviewText === true,
+            includeSourceContext: parsed.data.includeSourceContext === true,
+            includeWaitReason: parsed.data.includeWaitReason === true,
             includeWakeStopEligibility:
               parsed.data.includeWakeStopEligibility === true,
             ...(parsed.data.targetProfileId
@@ -11255,6 +11295,8 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
 
+    await this.ensureAgentOwnerMembershipPolicy(metaRecord);
+
     const parsed = getSpaceStatusInputSchema.safeParse({
       spaceId: this.spaceId,
     });
@@ -11429,6 +11471,8 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
 
+    await this.ensureAgentOwnerMembershipPolicy(metaRecord);
+
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: this.ctx.storage.sql,
       env: this.bindings,
@@ -11441,6 +11485,139 @@ export class Space extends DurableObject<CoreBindings> {
       ...(lineageLoader ? { lineageLoader } : {}),
     });
     return Response.json(snapshot);
+  }
+
+  private async ensureAgentOwnerMembershipPolicy(
+    metaRecord: SpaceMetaRecord
+  ): Promise<void> {
+    const sql = this.ctx.storage.sql;
+    if (hasReconciledSpaceAgentOwnerMembershipPolicy(sql)) {
+      return;
+    }
+    if (metaRecord.directMessage && !metaRecord.directMessage.convertedAt) {
+      return;
+    }
+
+    const activeMembers = listSpaceMemberRecords(sql, { status: "active" });
+    const representedOwnerUserIds = new Set(
+      activeMembers
+        .filter((member) => member.profileKindSnapshot === "human")
+        .map((member) => normalizeOptionalText(member.ownerUserIdSnapshot))
+        .filter((ownerUserId): ownerUserId is string => Boolean(ownerUserId))
+    );
+    const agentCandidates = activeMembers.filter(
+      (member) =>
+        member.profileKindSnapshot === "agent" &&
+        Boolean(
+          member.ownerUserIdSnapshot &&
+            !representedOwnerUserIds.has(member.ownerUserIdSnapshot)
+        )
+    );
+    if (agentCandidates.length === 0) {
+      markSpaceAgentOwnerMembershipPolicyReconciled(sql);
+      return;
+    }
+
+    const db = identityDb(this.bindings);
+    if (!db) {
+      console.error("[core.space.agent_owner_reconciliation_unavailable]", {
+        reason: "identity_db_unavailable",
+        spaceId: this.spaceId,
+      });
+      return;
+    }
+
+    const resolvedOwners: Array<{
+      agent: SpaceMemberRecord;
+      owner: NonNullable<
+        Awaited<
+          ReturnType<typeof readResolvedOrganizationOwnerHumanSpaceMember>
+        >
+      >;
+    }> = [];
+    let designatedCenterAgentProfileId: string | null;
+    try {
+      designatedCenterAgentProfileId =
+        (
+          await readCenterAgentDesignationRecord({
+            db,
+            organizationId: metaRecord.organizationId,
+          })
+        )?.agentProfileId ?? null;
+    } catch (error) {
+      console.error("[core.space.agent_owner_reconciliation_failed]", {
+        error: formatUnknownErrorMessage(error),
+        reason: "center_agent_designation_unavailable",
+        spaceId: this.spaceId,
+      });
+      return;
+    }
+    for (const agent of agentCandidates) {
+      try {
+        const profileContext = await readAgentProfileOrganizationContext({
+          agentProfileId: agent.profileId,
+          db,
+        });
+        if (
+          !profileContext ||
+          profileContext.profileKind !== "agent" ||
+          profileContext.managedRole !== null ||
+          agent.profileId === designatedCenterAgentProfileId ||
+          profileContext.organizationId !== metaRecord.organizationId
+        ) {
+          continue;
+        }
+        const owner = await readResolvedOrganizationOwnerHumanSpaceMember({
+          db,
+          organizationId: metaRecord.organizationId,
+          ownerUserId: profileContext.ownerUserId,
+        });
+        if (!owner) {
+          console.error("[core.space.agent_owner_reconciliation_unavailable]", {
+            agentProfileId: agent.profileId,
+            ownerUserId: profileContext.ownerUserId,
+            reason: "owner_human_unavailable",
+            spaceId: this.spaceId,
+          });
+          return;
+        }
+        resolvedOwners.push({ agent, owner });
+      } catch (error) {
+        console.error("[core.space.agent_owner_reconciliation_failed]", {
+          agentProfileId: agent.profileId,
+          error: formatUnknownErrorMessage(error),
+          spaceId: this.spaceId,
+        });
+        return;
+      }
+    }
+
+    const addedMemberIds = this.ctx.storage.transactionSync(() => {
+      const added: string[] = [];
+      for (const { agent, owner } of resolvedOwners) {
+        const response = addSpaceMembersUseCase({
+          actorDisplayName: agent.profileNameSnapshot,
+          actorOwnerUserId: agent.ownerUserIdSnapshot ?? undefined,
+          actorProfileId: agent.profileId,
+          env: this.bindings,
+          liveSessions: this.sessions.values(),
+          members: [owner],
+          spaceId: this.spaceId,
+          sql,
+        });
+        added.push(...response.addedMemberIds);
+      }
+      markSpaceAgentOwnerMembershipPolicyReconciled(sql);
+      return added;
+    });
+    if (addedMemberIds.length === 0) {
+      return;
+    }
+    await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+    await this.broadcastSpaceMembersChanged({
+      profileIds: addedMemberIds,
+      reason: "space.agent_owners.reconciled",
+    });
   }
 
   private async handleGetIdentityDirectory(): Promise<Response> {
@@ -11816,6 +11993,14 @@ export class Space extends DurableObject<CoreBindings> {
       return centerAgentDirectMessageBlock;
     }
 
+    const ownerRemovalBlock = await this.rejectOrdinaryAgentOwnerRemoval({
+      context,
+      memberProfileIds: parsed.data.memberProfileIds,
+    });
+    if (ownerRemovalBlock) {
+      return ownerRemovalBlock;
+    }
+
     try {
       const response = removeSpaceMembersUseCase({
         sql: this.ctx.storage.sql,
@@ -11867,6 +12052,14 @@ export class Space extends DurableObject<CoreBindings> {
       return centerAgentDirectMessageBlock;
     }
 
+    const ownerRemovalBlock = await this.rejectOrdinaryAgentOwnerRemoval({
+      context,
+      memberProfileIds: [context.actorContext.openMeldProfileId],
+    });
+    if (ownerRemovalBlock) {
+      return ownerRemovalBlock;
+    }
+
     try {
       const response = leaveSpaceUseCase({
         sql: this.ctx.storage.sql,
@@ -11895,6 +12088,105 @@ export class Space extends DurableObject<CoreBindings> {
       }
       throw error;
     }
+  }
+
+  private async rejectOrdinaryAgentOwnerRemoval(input: {
+    context: CoreRpcContextInput;
+    memberProfileIds: readonly string[];
+  }): Promise<Response | null> {
+    const removedProfileIds = new Set(input.memberProfileIds);
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    const removedOwnerUserIds = new Set(
+      activeMembers
+        .filter(
+          (member) =>
+            member.profileKindSnapshot === "human" &&
+            removedProfileIds.has(member.profileId) &&
+            Boolean(member.ownerUserIdSnapshot)
+        )
+        .map((member) => member.ownerUserIdSnapshot as string)
+    );
+    if (removedOwnerUserIds.size === 0) {
+      return null;
+    }
+
+    const ownedAgentsLeftBehind = activeMembers.filter(
+      (member) =>
+        member.profileKindSnapshot === "agent" &&
+        !removedProfileIds.has(member.profileId) &&
+        Boolean(
+          member.ownerUserIdSnapshot &&
+            removedOwnerUserIds.has(member.ownerUserIdSnapshot)
+        )
+    );
+    if (ownedAgentsLeftBehind.length === 0) {
+      return null;
+    }
+
+    const db = identityDb(this.bindings);
+    if (!db) {
+      return this.agentOwnerRemovalIdentityUnavailableResponse(
+        input.context.actorContext.requestId
+      );
+    }
+    for (const agent of ownedAgentsLeftBehind) {
+      let profileContext: Awaited<
+        ReturnType<typeof readAgentProfileOrganizationContext>
+      >;
+      try {
+        profileContext = await readAgentProfileOrganizationContext({
+          agentProfileId: agent.profileId,
+          db,
+        });
+      } catch (error) {
+        console.error("[core.space.agent_owner_removal_identity_failed]", {
+          error: formatUnknownErrorMessage(error),
+          profileId: agent.profileId,
+          spaceId: this.spaceId,
+        });
+        return this.agentOwnerRemovalIdentityUnavailableResponse(
+          input.context.actorContext.requestId
+        );
+      }
+      if (!profileContext) {
+        return this.agentOwnerRemovalIdentityUnavailableResponse(
+          input.context.actorContext.requestId
+        );
+      }
+      if (
+        profileContext.profileKind === "agent" &&
+        profileContext.managedRole === null
+      ) {
+        return Response.json(
+          {
+            ok: false,
+            code: "space.agent_owner_membership_required",
+            message:
+              "Remove the owner's Agent from this Space before removing the owner.",
+            requestId: input.context.actorContext.requestId,
+          },
+          { status: 409 }
+        );
+      }
+    }
+    return null;
+  }
+
+  private agentOwnerRemovalIdentityUnavailableResponse(
+    requestId: string
+  ): Response {
+    return Response.json(
+      {
+        ok: false,
+        code: "space.agent_owner_identity_unavailable",
+        message:
+          "OpenMeld could not verify whether this Agent owner can leave. Try again.",
+        requestId,
+      },
+      { status: 503 }
+    );
   }
 
   private async handlePatchMeta(
@@ -12821,7 +13113,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private forbiddenResponse(
     requestId: string,
-    code: "space.forbidden",
+    code: "space.access.read_only" | "space.forbidden",
     message: string
   ): Response {
     return Response.json(
@@ -14565,7 +14857,7 @@ export class Space extends DurableObject<CoreBindings> {
     const {
       outboxStatus: _outboxStatus,
       createdAtMs: _createdAtMs,
-      handedOffAtMs: _handedOffAtMs,
+      handedOffAtMs,
       ...dispatchMessage
     } = candidate;
     const sourceSignalSnapshot =
@@ -14586,19 +14878,15 @@ export class Space extends DurableObject<CoreBindings> {
     const currentTargetProfileNameSnapshot = normalizeOptionalText(
       dispatchMessage.targetProfileNameSnapshot
     );
-    const enqueuedAtMs =
-      typeof candidate.handedOffAtMs === "number" && candidate.handedOffAtMs > 0
-        ? candidate.handedOffAtMs
-        : dispatchMessage.enqueuedAtMs;
     return {
       ...dispatchMessage,
+      enqueuedAtMs: handedOffAtMs ?? dispatchMessage.enqueuedAtMs,
       ...(deliveryRecoveryReason &&
       dispatchMessage.deliveryRecoveryReason !== deliveryRecoveryReason
         ? { deliveryRecoveryReason }
         : {}),
       ...(sourceSignalSnapshot ? { sourceSignalSnapshot } : {}),
       ...(replyToSnapshot ? { replyToSnapshot } : {}),
-      enqueuedAtMs,
       ...(spaceNameSnapshot && !currentSpaceNameSnapshot
         ? { spaceNameSnapshot }
         : {}),
@@ -15208,6 +15496,9 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     clientMessageId?: string | null;
     includeTiming?: boolean;
+    includePreviewText?: boolean;
+    includeSourceContext?: boolean;
+    includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     sourceSignalId?: string | null;
     targetProfileId?: string;
@@ -15300,6 +15591,7 @@ export class Space extends DurableObject<CoreBindings> {
             actorOwnerUserId: input.actorOwnerUserId,
             clientMessageId,
             includeTiming: input.includeTiming === true,
+            includeWaitReason: input.includeWaitReason === true,
             includeWakeStopEligibility:
               input.includeWakeStopEligibility === true,
             lookupMatch,
@@ -15348,13 +15640,65 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
 
+    const contextualItems =
+      input.includeSourceContext === true
+        ? this.attachWakeProgressSourceContexts(items)
+        : items;
+    const responseItems = projectWakeProgressItemsForClient({
+      includePreviewText: input.includePreviewText === true,
+      items: contextualItems,
+    });
     return {
       query: {
         spaceId: this.spaceId,
         clientMessageId,
         targetProfileId,
       },
-      items,
+      items: responseItems,
+    };
+  }
+
+  private attachWakeProgressSourceContexts(
+    items: readonly WakeProgressItem[]
+  ): WakeProgressItem[] {
+    const logContext = createSpaceDispatchLogNameContext(
+      this.ctx.storage.sql,
+      this.spaceId
+    );
+    return items.map((item) =>
+      this.attachWakeProgressSourceContext(item, logContext)
+    );
+  }
+
+  private attachWakeProgressSourceContext(
+    item: WakeProgressItem,
+    logContext: SpaceDispatchLogNameContext
+  ): WakeProgressItem {
+    const sourceSignal = item.sourceSignalId
+      ? this.readSignalById(item.sourceSignalId)
+      : null;
+    if (!sourceSignal || sourceSignal.type !== "signal.text") {
+      return { ...item, sourceContext: null };
+    }
+    const placement = readSpaceThreadSignalPlacementBySignalId(
+      this.ctx.storage.sql,
+      sourceSignal.id
+    );
+    return {
+      ...item,
+      sourceContext: {
+        messagePreview:
+          sanitizeSignalTextPreview(sourceSignal.data.text) ?? null,
+        profileId: sourceSignal.profile.profileId,
+        profileKind: sourceSignal.profile.kind,
+        profileName: resolveSpaceDispatchProfileName({
+          explicitProfileName: sourceSignal.profile.profileName,
+          logContext,
+          profileId: sourceSignal.profile.profileId,
+          profileKind: sourceSignal.profile.kind,
+        }),
+        threadId: placement?.threadId ?? null,
+      },
     };
   }
 
@@ -15377,37 +15721,76 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
+  private async readActiveWakeProgressOwnerEvidence(input: {
+    db: D1Database;
+    includePageInfo: boolean;
+    sourceProfileId: string | null;
+    targetProfileId: string | null;
+  }) {
+    const ownerReadLimit =
+      ACTIVE_WAKE_PROGRESS_PAGE_LIMIT + Number(input.includePageInfo);
+    const outboxRecords = listActiveDispatchOutboxRecordsBySpace(
+      this.ctx.storage.sql,
+      {
+        limit: ownerReadLimit,
+        ...(input.sourceProfileId
+          ? { sourceProfileId: input.sourceProfileId }
+          : {}),
+        spaceId: this.spaceId,
+        ...(input.targetProfileId
+          ? { targetProfileId: input.targetProfileId }
+          : {}),
+      }
+    );
+    const sourceDispatchIds = outboxRecords.map((record) => record.dispatchId);
+    const sourceFilter = input.sourceProfileId
+      ? { sourceDispatchIds, sourceProfileId: input.sourceProfileId }
+      : {};
+    const [executions, activeNativeDeliveries] = await Promise.all([
+      listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+        db: input.db,
+        limit: ownerReadLimit,
+        ...sourceFilter,
+        spaceId: this.spaceId,
+        ...(input.targetProfileId
+          ? { targetProfileId: input.targetProfileId }
+          : {}),
+      }),
+      listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+        db: input.db,
+        limit: ownerReadLimit,
+        ...sourceFilter,
+        spaceId: this.spaceId,
+        ...(input.targetProfileId
+          ? { targetProfileId: input.targetProfileId }
+          : {}),
+      }),
+    ]);
+    return { activeNativeDeliveries, executions, outboxRecords };
+  }
+
   private async readActiveSpaceWakeProgress(input: {
     actorOwnerUserId?: string | null;
     db: D1Database;
     includeTiming?: boolean;
+    includePreviewText?: boolean;
+    includePageInfo?: boolean;
+    includeSourceContext?: boolean;
+    includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
+    sourceProfileId?: string;
     targetProfileId?: string;
   }): Promise<GetActiveSpaceWakeProgressResponse> {
     const targetProfileId = normalizeOptionalText(input.targetProfileId);
+    const sourceProfileId = normalizeOptionalText(input.sourceProfileId);
     const useFastSummary = input.includeWakeStopEligibility !== true;
-    const [executions, activeNativeDeliveries] = await Promise.all([
-      listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+    const { activeNativeDeliveries, executions, outboxRecords } =
+      await this.readActiveWakeProgressOwnerEvidence({
         db: input.db,
-        limit: 25,
-        spaceId: this.spaceId,
-        ...(targetProfileId ? { targetProfileId } : {}),
-      }),
-      listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
-        db: input.db,
-        limit: 25,
-        spaceId: this.spaceId,
-        ...(targetProfileId ? { targetProfileId } : {}),
-      }),
-    ]);
-    const outboxRecords = listActiveDispatchOutboxRecordsBySpace(
-      this.ctx.storage.sql,
-      {
-        limit: 25,
-        spaceId: this.spaceId,
-        ...(targetProfileId ? { targetProfileId } : {}),
-      }
-    );
+        includePageInfo: input.includePageInfo === true,
+        sourceProfileId,
+        targetProfileId,
+      });
     const activeNativeDeliveryByTarget = new Map(
       activeNativeDeliveries.map(
         (delivery) => [buildDispatchTargetKey(delivery), delivery] as const
@@ -15469,6 +15852,9 @@ export class Space extends DurableObject<CoreBindings> {
               targetProfileId: execution.targetProfileId,
               terminal: false,
               updatedAtMs: execution.updatedAtMs,
+              ...(input.includeWaitReason === true
+                ? { waitReasonCode: execution.waitReasonCode }
+                : {}),
             }),
           ];
         })
@@ -15551,17 +15937,29 @@ export class Space extends DurableObject<CoreBindings> {
         }),
       ];
     });
-    const fastSummaryItems = clearWakeProgressItemsClosedByRecentSignals({
+    const activeSummaryItems = clearWakeProgressItemsClosedByRecentSignals({
       items: [...executionItems, ...outboxItems, ...nativeDeliveryItems],
       sql: this.ctx.storage.sql,
+    });
+    const page = paginateActiveWakeProgressItems({
+      includePageInfo: input.includePageInfo === true,
+      items: activeSummaryItems,
     });
     if (useFastSummary) {
       return {
         query: {
           spaceId: this.spaceId,
+          ...(sourceProfileId ? { sourceProfileId } : {}),
           targetProfileId,
         },
-        items: fastSummaryItems,
+        ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
+        items: projectWakeProgressItemsForClient({
+          includePreviewText: input.includePreviewText === true,
+          items:
+            input.includeSourceContext === true
+              ? this.attachWakeProgressSourceContexts(page.items)
+              : page.items,
+        }),
       };
     }
 
@@ -15572,7 +15970,7 @@ export class Space extends DurableObject<CoreBindings> {
       targetProfileId: string;
     }> = [];
 
-    for (const item of fastSummaryItems) {
+    for (const item of page.items) {
       const clientMessageId = normalizeOptionalText(item.clientMessageId);
       const sourceSignalId = normalizeOptionalText(item.sourceSignalId);
       if (!(clientMessageId || sourceSignalId)) {
@@ -15609,6 +16007,9 @@ export class Space extends DurableObject<CoreBindings> {
           ...selector,
           actorOwnerUserId: input.actorOwnerUserId,
           includeTiming: input.includeTiming === true,
+          includePreviewText: input.includePreviewText === true,
+          includeSourceContext: false,
+          includeWaitReason: input.includeWaitReason === true,
           includeWakeStopEligibility: input.includeWakeStopEligibility === true,
         });
       }
@@ -15623,15 +16024,24 @@ export class Space extends DurableObject<CoreBindings> {
     const items = responses.flatMap((response) =>
       response.items.filter((item) => isActiveWakeProgressProjectionItem(item))
     );
+    const activeItems = clearWakeProgressItemsClosedByRecentSignals({
+      items,
+      sql: this.ctx.storage.sql,
+    });
 
     return {
       query: {
         spaceId: this.spaceId,
+        ...(sourceProfileId ? { sourceProfileId } : {}),
         targetProfileId,
       },
-      items: clearWakeProgressItemsClosedByRecentSignals({
-        items,
-        sql: this.ctx.storage.sql,
+      ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
+      items: projectWakeProgressItemsForClient({
+        includePreviewText: input.includePreviewText === true,
+        items:
+          input.includeSourceContext === true
+            ? this.attachWakeProgressSourceContexts(activeItems)
+            : activeItems,
       }),
     };
   }
@@ -15640,6 +16050,7 @@ export class Space extends DurableObject<CoreBindings> {
     actorOwnerUserId?: string | null;
     clientMessageId: string | null;
     includeTiming?: boolean;
+    includeWaitReason?: boolean;
     includeWakeStopEligibility?: boolean;
     lookupMatch: SpaceDispatchLookupMatch;
     nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
@@ -15672,14 +16083,13 @@ export class Space extends DurableObject<CoreBindings> {
       | WakeProgressItem["wakeStopEligibility"]
       | undefined;
     if (input.includeWakeStopEligibility === true) {
-      wakeStopEligibility = trace?.runtimeCoordinatorExecution
-        ? await this.readWakeProgressWakeStopEligibility(trace)
-        : await this.readWakeProgressPreAgentWakeStopEligibility({
-            clientMessageId: input.clientMessageId,
-            lookupMatch: input.lookupMatch,
-            outboxRecord: input.outboxRecord,
-            trace,
-          });
+      wakeStopEligibility =
+        await this.readWakeProgressPreAgentWakeStopEligibility({
+          clientMessageId: input.clientMessageId,
+          lookupMatch: input.lookupMatch,
+          outboxRecord: input.outboxRecord,
+          trace,
+        });
     }
     const runtimeCoordinatorExecution =
       trace?.runtimeCoordinatorExecution ?? null;
@@ -15692,6 +16102,7 @@ export class Space extends DurableObject<CoreBindings> {
     return buildWakeProgressItemFromDispatchEvidence({
       clientMessageId: input.clientMessageId,
       includeTiming: input.includeTiming === true,
+      includeWaitReason: input.includeWaitReason === true,
       lookupMatch: input.lookupMatch,
       nativeDeliveryEvidence: input.nativeDeliveryEvidence,
       outboxRecord: input.outboxRecord,
@@ -15748,9 +16159,6 @@ export class Space extends DurableObject<CoreBindings> {
     outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
     trace: SpaceDispatchTraceSnapshot | null;
   }): Promise<WakeProgressItem["wakeStopEligibility"]> {
-    if (input.trace?.runtimeCoordinatorExecution) {
-      return null;
-    }
     if (input.outboxRecord?.outboxStatus === "cancelled") {
       return null;
     }
@@ -15826,23 +16234,51 @@ export class Space extends DurableObject<CoreBindings> {
       return preAgentWakeStopNotEligible();
     }
     if (headLifecycleTrace.readStatus === "missing") {
-      return preAgentWakeStopEligible();
+      return input.trace?.runtimeCoordinatorExecution
+        ? preAgentWakeStopNotEligible()
+        : preAgentWakeStopEligible();
     }
     if (headLifecycleTrace.readStatus !== "found") {
       return preAgentWakeStopNotEligible();
     }
 
-    const lifecycle = headLifecycleTrace.lifecycle;
+    return await this.resolveWakeProgressStopEligibilityFromHeadLifecycle({
+      lifecycle: headLifecycleTrace.lifecycle,
+      trace: input.trace,
+    });
+  }
+
+  private async resolveWakeProgressStopEligibilityFromHeadLifecycle(input: {
+    lifecycle: {
+      executionLinkedAtMs: number | null;
+      noExecutionDecision: unknown | null;
+      publicationIntent: unknown | null;
+      runtimeCoordinatorExecutionId: string | null;
+      status: string;
+    };
+    trace: SpaceDispatchTraceSnapshot | null;
+  }): Promise<WakeProgressItem["wakeStopEligibility"]> {
+    const { lifecycle } = input;
     if (
-      lifecycle.runtimeCoordinatorExecutionId ||
-      lifecycle.executionLinkedAtMs !== null ||
-      lifecycle.status === "execution_linked" ||
       lifecycle.status === "publication_intent_ready" ||
       lifecycle.status === "stopped_before_execution" ||
       lifecycle.noExecutionDecision !== null ||
       lifecycle.publicationIntent !== null
     ) {
       return null;
+    }
+
+    if (
+      lifecycle.runtimeCoordinatorExecutionId ||
+      lifecycle.executionLinkedAtMs !== null ||
+      lifecycle.status === "execution_linked"
+    ) {
+      return lifecycle.runtimeCoordinatorExecutionId &&
+        input.trace?.runtimeCoordinatorExecution
+          ?.runtimeCoordinatorExecutionId ===
+          lifecycle.runtimeCoordinatorExecutionId
+        ? await this.readWakeProgressWakeStopEligibility(input.trace)
+        : preAgentWakeStopNotEligible();
     }
 
     return preAgentWakeStopEligible();
@@ -16748,7 +17184,8 @@ function isSpaceLiveInvalidationFrame(
     (message.type === "space.members.changed" ||
       message.type === "space.meta.changed" ||
       message.type === "space.files.changed" ||
-      message.type === "agent.readiness.invalidated")
+      message.type === "agent.readiness.invalidated" ||
+      message.type === "wake.progress.changed")
   );
 }
 
@@ -16783,6 +17220,32 @@ function resolveSpaceFileAuditErrorCode(error: unknown): string {
     return error.code.trim().slice(0, 128);
   }
   return "space_file.internal_error";
+}
+
+const USAGE_CONTINUATION_SOURCE_VALIDATION_ERROR_CODES = new Set<string>([
+  SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+  SPACE_WAKE_TARGET_INVALID_ERROR_CODE,
+  "space_file.not_found",
+]);
+
+function isUsageContinuationSourceValidationError(error: unknown): boolean {
+  const visited = new Set<unknown>();
+  let current = error;
+  for (let depth = 0; depth < 4 && current !== null; depth += 1) {
+    if (visited.has(current) || typeof current !== "object") {
+      return false;
+    }
+    visited.add(current);
+    const record = current as Record<string, unknown>;
+    if (
+      typeof record.code === "string" &&
+      USAGE_CONTINUATION_SOURCE_VALIDATION_ERROR_CODES.has(record.code)
+    ) {
+      return true;
+    }
+    current = record.cause ?? null;
+  }
+  return false;
 }
 
 function isSpaceAgentStreamFrame(
@@ -16962,22 +17425,6 @@ function normalizeOptionalText(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function buildSpaceWakeStopAlreadyCancelledResponse(
-  execution: RuntimeCoordinatorExecutionRecord
-): PostSpaceWakeStopResponse {
-  return parseSpaceWakeStopResponse({
-    ok: true,
-    runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
-    status: "already_cancelled",
-    targetProfileId: execution.targetProfileId,
-    cancellationState: {
-      observedAtMs: Date.now(),
-      reasonCode: execution.terminalOutcome?.reasonCode ?? null,
-      status: "cancelled",
-    },
-  });
-}
-
 function buildSpaceWakeStopPreAgentCancelledResponse(input: {
   reasonCode: string;
   targetProfileId: string;
@@ -17126,6 +17573,42 @@ function clearWakeProgressItemsClosedByRecentSignals(input: {
 
 function isActiveWakeProgressProjectionItem(item: WakeProgressItem): boolean {
   return !item.terminal && item.phase !== "replied";
+}
+
+function paginateActiveWakeProgressItems(input: {
+  includePageInfo: boolean;
+  items: readonly WakeProgressItem[];
+}): {
+  items: WakeProgressItem[];
+  pageInfo?: { hasMore: boolean; limit: number };
+} {
+  if (!input.includePageInfo) {
+    return { items: [...input.items] };
+  }
+  const items = [...input.items].sort(
+    (left, right) =>
+      right.updatedAtMs - left.updatedAtMs ||
+      buildActiveWakeProgressSelectorKey({
+        clientMessageId: normalizeOptionalText(left.clientMessageId),
+        dispatchId: normalizeOptionalText(left.dispatchId),
+        sourceSignalId: normalizeOptionalText(left.sourceSignalId),
+        targetProfileId: left.targetProfileId,
+      }).localeCompare(
+        buildActiveWakeProgressSelectorKey({
+          clientMessageId: normalizeOptionalText(right.clientMessageId),
+          dispatchId: normalizeOptionalText(right.dispatchId),
+          sourceSignalId: normalizeOptionalText(right.sourceSignalId),
+          targetProfileId: right.targetProfileId,
+        })
+      )
+  );
+  return {
+    items: items.slice(0, ACTIVE_WAKE_PROGRESS_PAGE_LIMIT),
+    pageInfo: {
+      hasMore: items.length > ACTIVE_WAKE_PROGRESS_PAGE_LIMIT,
+      limit: ACTIVE_WAKE_PROGRESS_PAGE_LIMIT,
+    },
+  };
 }
 
 function buildActiveWakeProgressSelectorKey(input: {
@@ -17283,6 +17766,7 @@ function buildWakeProgressItemFromTerminalFailureNotice(input: {
 function buildWakeProgressItemFromDispatchEvidence(input: {
   clientMessageId: string | null;
   includeTiming: boolean;
+  includeWaitReason: boolean;
   lookupMatch: SpaceDispatchLookupMatch;
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
   outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
@@ -17354,6 +17838,14 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
         trace: input.trace,
       })
     ),
+    ...(input.includeWaitReason
+      ? {
+          waitReasonCode:
+            resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(
+              input.trace
+            ),
+        }
+      : {}),
     message:
       authorityProgress?.message ??
       buildWakeProgressMessage({
@@ -19945,27 +20437,6 @@ function resolveNativeRecoveredPublicationId(
     return delivery.publishedSignalId;
   }
   return null;
-}
-
-function isExactRecoverySourceWakeVerified(input: {
-  canonicalTargetProfileId: string;
-  nativeDelivery: ExecutionRecoveryNativeDelivery;
-  sourceSignal: SignalEnvelope | null;
-}): boolean {
-  if (input.nativeDelivery?.conversationKind !== "space") {
-    return Boolean(
-      input.nativeDelivery?.executionRecoverySubmitRequest?.messages.every(
-        (message) => (message.attachments?.length ?? 0) === 0
-      )
-    );
-  }
-  return (
-    input.sourceSignal?.type === "signal.text" &&
-    (input.sourceSignal.data.attachments?.length ?? 0) === 0 &&
-    readWakeActivationTargetProfileIds(input.sourceSignal).includes(
-      input.canonicalTargetProfileId
-    )
-  );
 }
 
 function resolveRecoveredPublicationId(input: {

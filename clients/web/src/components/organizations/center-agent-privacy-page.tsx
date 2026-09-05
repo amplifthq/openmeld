@@ -240,7 +240,7 @@ function resolveComputerFileAccessAction(input: {
 		return "Manage file access";
 	}
 	if (input.isCurrentComputer) {
-		return "Connect or update OpenMeld Service";
+		return "Connect or update your computer";
 	}
 	return "Open OpenMeld on this computer to manage";
 }

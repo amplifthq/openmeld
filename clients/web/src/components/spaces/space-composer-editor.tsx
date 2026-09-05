@@ -2,9 +2,9 @@
 
 import type { MessageMentionType } from "@openmeld/schemas/types";
 import { listSpaceMentionRelationChoices } from "@openmeld/space";
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
-import type { TElement } from "platejs";
+import { PathApi, type TElement, TextApi } from "platejs";
 import {
 	createPlatePlugin,
 	ParagraphPlugin,
@@ -19,6 +19,7 @@ import {
 	type ClipboardEvent,
 	createContext,
 	type DragEvent,
+	type FocusEventHandler,
 	type KeyboardEvent,
 	type MutableRefObject,
 	type ReactNode,
@@ -72,9 +73,8 @@ export type SpaceComposerEditorHandle = {
 	selectTextRange: (selection: SpaceComposerSelection) => void;
 };
 
-export type SpaceComposerInputRef = MutableRefObject<
-	HTMLTextAreaElement | SpaceComposerEditorHandle | null
->;
+export type SpaceComposerInputRef =
+	MutableRefObject<SpaceComposerEditorHandle | null>;
 
 export type SpaceComposerEditorChange = {
 	authoredMentions: ComposerDraftAuthoredMention[];
@@ -86,6 +86,7 @@ type SpaceComposerEditorProps = {
 	addressingTargets: readonly SpaceComposerAddressingTarget[];
 	ariaLabel: string;
 	authoredMentions: readonly ComposerDraftAuthoredMention[];
+	centerAgentProfileId?: string | null;
 	composerRef?: SpaceComposerInputRef;
 	disabled?: boolean;
 	maxHeight?: number;
@@ -95,6 +96,8 @@ type SpaceComposerEditorProps = {
 	onDragLeave?: (event: DragEvent<HTMLDivElement>) => void;
 	onDragOver?: (event: DragEvent<HTMLDivElement>) => void;
 	onDrop?: (event: DragEvent<HTMLDivElement>) => void;
+	onBlur?: FocusEventHandler<HTMLDivElement>;
+	onFocus?: FocusEventHandler<HTMLDivElement>;
 	onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
 	onSend: () => void;
 	placeholder: string;
@@ -103,7 +106,7 @@ type SpaceComposerEditorProps = {
 
 type SpaceComposerEditorContextValue = Pick<
 	SpaceComposerEditorProps,
-	"addressingTargets" | "mentionPickerItems"
+	"addressingTargets" | "centerAgentProfileId" | "mentionPickerItems"
 >;
 
 const SpaceComposerEditorContext =
@@ -156,9 +159,14 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 	const contextValue = useMemo(
 		() => ({
 			addressingTargets: input.addressingTargets,
+			centerAgentProfileId: input.centerAgentProfileId,
 			mentionPickerItems: input.mentionPickerItems,
 		}),
-		[input.addressingTargets, input.mentionPickerItems]
+		[
+			input.addressingTargets,
+			input.centerAgentProfileId,
+			input.mentionPickerItems,
+		]
 	);
 
 	useLayoutEffect(() => {
@@ -260,7 +268,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			}
 		};
 
-		input.composerRef.current = {
+		const composerHandle: SpaceComposerEditorHandle = {
 			focus: () => {
 				focusEditorAtSelection(editor, focusWhenReady);
 			},
@@ -277,9 +285,10 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				focusWhenReady();
 			},
 		};
+		input.composerRef.current = composerHandle;
 
 		return () => {
-			if (input.composerRef?.current) {
+			if (input.composerRef?.current === composerHandle) {
 				input.composerRef.current = null;
 			}
 		};
@@ -325,6 +334,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 						aria-placeholder={input.placeholder}
 						className="min-h-11 px-1 py-2 text-sm leading-6"
 						disabled={input.disabled}
+						onBlurCapture={input.onBlur}
 						onCopyCapture={(event) => handleCopy(event, editor)}
 						onDragEnterCapture={(event) =>
 							handleDragCapture(event, input.onDragEnter)
@@ -336,6 +346,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 							handleDragCapture(event, input.onDragOver)
 						}
 						onDropCapture={(event) => handleDragCapture(event, input.onDrop)}
+						onFocusCapture={input.onFocus}
 						onKeyDownCapture={(event) =>
 							handleKeyDown(event, editor, input.onSend)
 						}
@@ -414,12 +425,23 @@ function SpaceComposerProfileToken(
 		profileKind === "agent" && isRepeatedProfileElement(editor, element);
 	let relationControl: ReactNode = null;
 	if (profileKind === "agent" && choices.length > 0 && !isRepeatedAgent) {
+		const selectedRelationLabel =
+			choices.find((choice) => choice.relation === element.relation)?.label ??
+			(element.relation === "wake" ? "Wake" : "Reference");
 		relationControl = (
-			<label className="relative inline-flex h-6 items-center border-border border-l pl-1 text-muted-foreground">
+			<label className="relative inline-flex h-6 shrink-0 items-center gap-0.5 border-border border-l pr-1 pl-2 text-muted-foreground">
 				<span className="sr-only">Relation</span>
+				<span
+					aria-hidden="true"
+					className="whitespace-pre font-medium text-xs"
+					data-testid="space-composer-profile-token-relation-width"
+				>
+					{selectedRelationLabel}
+				</span>
+				<CaretDownIcon aria-hidden="true" className="size-3" />
 				<select
 					aria-label={`Change relation for ${profileName}`}
-					className="h-6 cursor-pointer appearance-none bg-transparent pr-4 pl-1 font-medium text-xs outline-none"
+					className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 outline-none"
 					onChange={(event) => {
 						const path = editor.api.findPath(element);
 						if (!path) {
@@ -437,15 +459,17 @@ function SpaceComposerProfileToken(
 					value={element.relation}
 				>
 					{choices.map((choice) => (
-						<option key={choice.relation} value={choice.relation}>
-							{choice.label}
+						<option
+							disabled={choice.disabled}
+							key={choice.relation}
+							value={choice.relation}
+						>
+							{choice.disabled && choice.disabledReason
+								? `${choice.label} — ${choice.disabledReason}`
+								: choice.label}
 						</option>
 					))}
 				</select>
-				<CaretDownIcon
-					aria-hidden="true"
-					className="pointer-events-none absolute right-0 size-3"
-				/>
 			</label>
 		);
 	} else if (isRepeatedAgent) {
@@ -459,26 +483,80 @@ function SpaceComposerProfileToken(
 	return (
 		<PlateElement {...props} as="span">
 			<span
-				className="mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
+				className="group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 align-middle text-foreground ring-1 ring-border/70 focus-within:ring-2 focus-within:ring-ring"
 				contentEditable={false}
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"
 			>
-				<SpaceProfileIcon
-					agentControllerRef={
-						pickerItem?.memberEntry.agentControllerRef ?? null
-					}
-					avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
-					className="size-4"
-					profileId={element.profileId}
-					profileKind={profileKind}
-					profileName={profileName}
-				/>
-				<span aria-hidden="true" className="font-semibold">
+				<span
+					aria-hidden="true"
+					className="shrink-0 font-semibold"
+					data-slot="space-composer-profile-token-at"
+				>
 					@
 				</span>
-				<span className="max-w-40 truncate font-medium">{profileName}</span>
+				<span
+					className="inline-flex shrink-0"
+					data-slot="space-composer-profile-token-icon"
+				>
+					<SpaceProfileIcon
+						agentControllerRef={
+							pickerItem?.memberEntry.agentControllerRef ?? null
+						}
+						avatarImageUrl={pickerItem?.memberEntry.avatarUrl}
+						className="size-4"
+						isCenterAgent={element.profileId === context.centerAgentProfileId}
+						profileId={element.profileId}
+						profileKind={profileKind}
+						profileName={profileName}
+					/>
+				</span>
+				<span
+					className="min-w-0 truncate font-medium"
+					data-slot="space-composer-profile-token-name"
+				>
+					{profileName}
+				</span>
 				{relationControl}
+				<button
+					aria-label={`Remove ${profileName} from message`}
+					className="pointer-events-none absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-100 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/profile-token:pointer-events-auto group-focus-within/profile-token:opacity-100 group-hover/profile-token:pointer-events-auto group-hover/profile-token:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+					onClick={(event) => {
+						event.stopPropagation();
+						const path = editor.api.findPath(element);
+						if (!path) {
+							return;
+						}
+						const nextPath = PathApi.next(path);
+						const nextNode = (editor.children as SpaceComposerEditorValue)[
+							nextPath[0]
+						]?.children[nextPath[1] ?? 0];
+
+						editor.tf.withoutNormalizing(() => {
+							if (
+								nextNode &&
+								TextApi.isText(nextNode) &&
+								nextNode.text.startsWith(" ")
+							) {
+								editor.tf.delete({
+									at: {
+										anchor: { offset: 0, path: nextPath },
+										focus: { offset: 1, path: nextPath },
+									},
+								});
+							}
+							editor.tf.removeNodes({ at: path });
+						});
+						editor.tf.focus();
+					}}
+					onMouseDown={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+					}}
+					type="button"
+				>
+					<XIcon aria-hidden="true" className="size-3" />
+				</button>
 			</span>
 			{props.children}
 		</PlateElement>
@@ -507,7 +585,7 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 				>
 					<InlineComboboxEmpty>No matching members</InlineComboboxEmpty>
 					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
-					<SpaceComposerMentionGroup items={humanItems} title="Humans" />
+					<SpaceComposerMentionGroup items={humanItems} title="People" />
 				</InlineComboboxContent>
 			</InlineCombobox>
 			{props.children}
@@ -519,6 +597,7 @@ function SpaceComposerMentionGroup(input: {
 	items: readonly SpaceMentionPickerItem[];
 	title: string;
 }) {
+	const context = useSpaceComposerEditorContext();
 	const editor = useEditorRef();
 	if (input.items.length === 0) {
 		return null;
@@ -539,6 +618,9 @@ function SpaceComposerMentionGroup(input: {
 						agentControllerRef={item.memberEntry.agentControllerRef}
 						avatarImageUrl={item.memberEntry.avatarUrl}
 						className="mr-2 size-5"
+						isCenterAgent={
+							item.suggestion.profileId === context.centerAgentProfileId
+						}
 						profileId={item.suggestion.profileId}
 						profileKind={item.suggestion.profileKind}
 						profileName={item.suggestion.profileName}
@@ -547,12 +629,22 @@ function SpaceComposerMentionGroup(input: {
 						{item.suggestion.profileName}
 					</span>
 					<span className="ml-2 text-muted-foreground text-xs">
-						{item.suggestion.profileKind === "human" ? "Mention" : "Wake"}
+						{resolveMentionPickerRelationLabel(item.suggestion)}
 					</span>
 				</InlineComboboxItem>
 			))}
 		</InlineComboboxGroup>
 	);
+}
+
+function resolveMentionPickerRelationLabel(
+	suggestion: SpaceMentionPickerItem["suggestion"]
+): "Mention" | "Reference" | "Wake" {
+	const relation = resolveDefaultSpaceComposerMentionRelation(suggestion);
+	if (relation === "reference") {
+		return "Reference";
+	}
+	return suggestion.profileKind === "human" ? "Mention" : "Wake";
 }
 
 function insertProfile(

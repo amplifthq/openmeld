@@ -27,7 +27,7 @@ const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
 // These readiness fixtures represent a supported Service. Keep the version
 // explicit so a release manifest that still describes the previous public
 // version cannot silently turn unrelated readiness tests into update tests.
-const CURRENT_SERVICE_VERSION = "0.3.138";
+const CURRENT_SERVICE_VERSION = "0.3.153";
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -118,7 +118,7 @@ describe("agent execution readiness service D1 read model", () => {
             online: true,
           },
           runtime: {
-            ready: true,
+            ready: false,
           },
         },
       });
@@ -191,6 +191,7 @@ describe("agent execution readiness service D1 read model", () => {
           db: harness.db,
           routeDeviceId: "device-current",
           routeLane: "dev-local",
+          workingFolderBindingId: "bind_22222222-2222-4222-8222-222222222222",
         }),
         generatedAt: GENERATED_AT,
         profileId: AGENT_PROFILE_ID,
@@ -280,6 +281,7 @@ describe("agent execution readiness service D1 read model", () => {
           db: harness.db,
           routeDeviceId: "device-current",
           routeLane: "dev-local",
+          workingFolderBindingId: "bind_77777777-7777-4777-8777-777777777777",
         }),
         generatedAt: GENERATED_AT,
         profileId: AGENT_PROFILE_ID,
@@ -397,6 +399,7 @@ describe("agent execution readiness service D1 read model", () => {
           db: harness.db,
           routeDeviceId: "device-current",
           routeLane: "dev-local",
+          workingFolderBindingId: bindingId,
         }),
         generatedAt: GENERATED_AT,
         profileId: AGENT_PROFILE_ID,
@@ -421,7 +424,7 @@ describe("agent execution readiness service D1 read model", () => {
     }
   });
 
-  it("blocks an otherwise-ready profile when fresh readiness impact evidence exists in D1", async () => {
+  it("keeps readiness impact as history without overriding current facts", async () => {
     const harness = createSqliteD1Harness();
     applyReadinessMigrations(harness);
     try {
@@ -495,13 +498,14 @@ describe("agent execution readiness service D1 read model", () => {
           db: harness.db,
           routeDeviceId: "device-current",
           routeLane: "dev-local",
+          workingFolderBindingId: bindingId,
         }),
         generatedAt: GENERATED_AT,
         profileId: AGENT_PROFILE_ID,
       });
 
       expect(readiness.agentExecutionReadiness).toMatchObject({
-        displayState: "blocked",
+        displayState: "ready",
         facts: {
           binding: {
             routable: true,
@@ -524,9 +528,9 @@ describe("agent execution readiness service D1 read model", () => {
             ready: true,
           },
         },
-        primaryAction: "run_prepare",
+        primaryAction: "none",
       });
-      expect(readiness.agentExecutionReadiness.reasonCodes).toContain(
+      expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
         "controller.client.upgrade_required"
       );
       expect(
@@ -944,6 +948,7 @@ function createReadinessEnv(input: {
   ownerServiceSessions?: readonly { deviceId: string; lane: string }[];
   routeDeviceId: string | null;
   routeLane: string | null;
+  workingFolderBindingId?: string;
 }): CoreBindings {
   return {
     OPENMELD_AUTH_WORKER: {
@@ -964,6 +969,7 @@ function createReadinessEnv(input: {
       ownerServiceSessions: input.ownerServiceSessions ?? null,
       routeDeviceId: input.routeDeviceId,
       routeLane: input.routeLane,
+      workingFolderBindingId: input.workingFolderBindingId,
     }),
     OPENMELD_DB: input.db,
   } as unknown as CoreBindings;
@@ -974,6 +980,7 @@ function createRuntimeTransportNamespace(input: {
   ownerServiceSessions: readonly { deviceId: string; lane: string }[] | null;
   routeDeviceId: string | null;
   routeLane: string | null;
+  workingFolderBindingId?: string;
 }): DurableObjectNamespace {
   return {
     get: () =>
@@ -1031,6 +1038,32 @@ function createRuntimeTransportNamespace(input: {
               lane: input.routeLane ?? "dev-local",
               lastHeartbeatMs: GENERATED_AT_MS,
               leaseEpoch: 1,
+              ...(input.workingFolderBindingId
+                ? {
+                    localWakeRouteReport: {
+                      daemonSessionId: "session-1",
+                      deviceId: input.routeDeviceId,
+                      expectedRoutesContractVersion: "v4",
+                      includedProfileIds: [AGENT_PROFILE_ID],
+                      lane: input.routeLane ?? "dev-local",
+                      reportedAtMs: GENERATED_AT_MS,
+                      skippedProfiles: [],
+                      workingFolderObservations: [
+                        {
+                          bindingId: input.workingFolderBindingId,
+                          configurationRevision: 1,
+                          defaultProjectId: null,
+                          localProjectBindingGeneration: null,
+                          observedAtMs: GENERATED_AT_MS,
+                          profileId: AGENT_PROFILE_ID,
+                          reasonCode: null,
+                          source: "profile_workspace",
+                          status: "ready",
+                        },
+                      ],
+                    },
+                  }
+                : {}),
               online: true,
               serviceVersion: CURRENT_SERVICE_VERSION,
             })

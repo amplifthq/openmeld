@@ -12,8 +12,6 @@ import type {
   AgentProfileCreationRequestMutationResponse,
   ApproveOrganizationDocumentDraftResponse,
   ApproveOrganizationDocumentDraftRpcInput,
-  AuthorizeAgentProfileBindingForOrganizationResponse,
-  BulkAuthorizeAgentProfileBindingsForOrganizationResponse,
   CenterAgentAddAgentProfilesToSpaceResponse,
   CenterAgentAddMembersToSpaceResponse,
   CenterAgentAttribution,
@@ -141,6 +139,7 @@ import type {
   CreateOrganizationSkillRpcInput,
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderResponse,
+  CurrentAgentProfileSessionLookupResponse,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
   CurrentLocalRuntimeReplyReadinessResponse,
@@ -188,7 +187,6 @@ import type {
   GetInboxSummaryRpcInput,
   GetLocalRuntimeExpectedRoutesResponse,
   GetModelCatalogResponse,
-  GetOrganizationBindingAuthorizationPreferenceResponse,
   GetOrganizationDocumentResponse,
   GetOrganizationDocumentRpcInput,
   GetOrganizationSkillResponse,
@@ -196,7 +194,9 @@ import type {
   GetPrepareReadinessResponse,
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
+  GetSpaceEntryResolutionResponse,
   GetSpaceInboxSummaryRpcInput,
+  GetSpaceInboxUnreadTargetsRpcInput,
   GetSpaceMessageDetailsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
@@ -221,13 +221,10 @@ import type {
   ListCenterAgentTasksResponse,
   ListCenterAgentTasksRpcInput,
   ListCenterAgentTasksRpcResponse,
-  ListCurrentUserAgentProfileOrganizationWakeAccessResponse,
   ListFeedbackIssuesForOrganizationRequest,
   ListFeedbackIssuesForOrganizationResponse,
   ListInboxItemsResponse,
   ListInboxItemsRpcInput,
-  ListOrganizationBindingAuthorizationProfilesResponse,
-  ListOrganizationBindingAuthorizationsResponse,
   ListOrganizationDocumentsResponse,
   ListOrganizationDocumentsRpcInput,
   ListOrganizationSkillsResponse,
@@ -254,6 +251,7 @@ import type {
   NotifyAgentProfileRouteCatalogChangedResponse,
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
+  OrganizationAgentRuntimeOverviewResponse,
   OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   OrganizationDocumentPromptContextResponse,
@@ -261,6 +259,7 @@ import type {
   OrganizationInformationProtectionPolicyResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
   OrganizationMemberWebActivityResponse,
+  OrganizationProfileDirectoryResponse,
   OrganizationSkillRuntimeSnapshotResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
@@ -295,15 +294,12 @@ import type {
   RestoreSpaceFileEntryResponse,
   ResumeCenterAgentRoutineResponse,
   RetryCenterAgentTaskRpcInput,
-  RevokeAgentProfileBindingForOrganizationResponse,
-  SaveOrganizationWakeAccessChoiceResponse,
   SelectCurrentLocalAgentInstallationResponse,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsResponse,
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentLocalAgentEnabledResponse,
   SetCurrentOpenMeldToolsMaintenanceResponse,
-  SetOrganizationBindingAuthorizationPreferenceResponse,
   SetOrganizationSkillEnabledResponse,
   SetOrganizationSkillEnabledRpcInput,
   SetOrganizationSkillMaintainersResponse,
@@ -324,6 +320,7 @@ import type {
   SpaceFileDescriptor,
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
+  SpaceInboxUnreadTargetsResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceViewerMembershipResponse,
@@ -418,6 +415,7 @@ import {
   rpcGetInboxNotificationPreferences,
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
+  rpcGetSpaceInboxUnreadTargets,
   rpcListInboxItems,
   rpcMarkAllInboxItemsRead,
   rpcMarkCenterAgentInboxReadThrough,
@@ -523,14 +521,12 @@ import {
   type AddSpaceMembersInput,
   type ArchiveProjectInput,
   type AssertCurrentDesignatedCenterAgentInput,
-  type AuthorizeAgentProfileBindingForOrganizationInput,
   type AuthorizeConnectorDisconnectInput,
   type BeginCurrentMemberConnectorAuthorizationInput,
   type BeginCurrentOrganizationGitHubAppInstallationInput,
   type BeginCurrentOrganizationSharedConnectorAuthorizationInput,
   type BeginGitHubAppInstallationVerificationInput,
   type BeginLarkPlatformRegistrationInput,
-  type BulkAuthorizeAgentProfileBindingsForOrganizationInput,
   type CenterAgentAddAgentProfilesToSpaceInput,
   type CenterAgentAddMembersToSpaceInput,
   type CenterAgentCheckAgentProfileReadinessInput,
@@ -539,6 +535,7 @@ import {
   type CenterAgentCreateConfiguredAgentProfileInput,
   type CenterAgentCreateSpaceInput,
   type CenterAgentEnableAgentProfileInput,
+  type CenterAgentListActiveSpaceWakesInput,
   type CenterAgentListAgentActivitySessionsInput,
   type CenterAgentListAgentProfileCreationDefaultsInput,
   type CenterAgentListAgentTasksInput,
@@ -565,6 +562,7 @@ import {
   type CenterAgentReadSlackWorkspaceDirectoryInput,
   type CenterAgentReadSpaceAuthoringContractInput,
   type CenterAgentReadSpaceContextInput,
+  type CenterAgentReadSpaceWakeProgressInput,
   type CenterAgentReadTurnDiagnosticsInput,
   type CenterAgentRecommendOpportunityInput,
   type CenterAgentRecordConnectorActionAuditInput,
@@ -627,16 +625,18 @@ import {
   type GetCenterAgentDirectMessageSpaceProjectionInput,
   type GetCenterAgentModelInput,
   type GetCenterAgentOperatingStateInput,
+  type GetCurrentAgentProfileSessionInput,
   type GetCurrentDeviceTargetInput,
   type GetCurrentLocalAgentInstallationsInput,
   type GetCurrentLocalRuntimeReplyReadinessInput,
+  type GetCurrentOrganizationAgentRuntimeOverviewInput,
   type GetCurrentOrganizationComputersInput,
   type GetCurrentOrganizationDirectoryInput,
   type GetCurrentOrganizationMemberOpenMeldServiceStatusesInput,
+  type GetCurrentOrganizationProfileDirectoryInput,
   type GetCurrentOrganizationSpaceDirectoryInput,
   type GetLocalRuntimeExpectedRoutesInput,
   type GetLocalRuntimesInput,
-  type GetOrganizationBindingAuthorizationPreferenceInput,
   type GetPrepareReadinessInput,
   type GetSpaceBoardInput,
   type GetSpaceBootstrapInput,
@@ -646,6 +646,7 @@ import {
   type GetSpaceDispatchLookupInput,
   type GetSpaceDispatchResultInput,
   type GetSpaceDispatchTraceInput,
+  type GetSpaceEntryResolutionRpcInput,
   type GetSpaceFileInput,
   type GetSpaceMembersInput,
   type GetSpaceMessageDetailsInput,
@@ -667,10 +668,7 @@ import {
   type ListCenterAgentAuditJournalInput,
   type ListCurrentOrganizationConnectorAppRequestsInput,
   type ListCurrentOrganizationConnectorConnectionsInput,
-  type ListCurrentUserAgentProfileOrganizationWakeAccessInput,
   type ListMessageChannelConnectionsInput,
-  type ListOrganizationBindingAuthorizationProfilesInput,
-  type ListOrganizationBindingAuthorizationsInput,
   type ListProjectsInput,
   type ListRoutineRunsInput,
   type ListRoutinesInput,
@@ -723,21 +721,18 @@ import {
   type RestoreSpaceFileEntryInput,
   type RestoreSpaceFileRevisionInput,
   type ResumeRoutineInput,
-  type RevokeAgentProfileBindingForOrganizationInput,
   resolveCenterAgentSpaceAddressingVersion,
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAddSpaceMembers,
   rpcArchiveProject,
   rpcAssertCurrentDesignatedCenterAgent,
-  rpcAuthorizeAgentProfileBindingForOrganization,
   rpcAuthorizeConnectorDisconnect,
   rpcBeginCurrentMemberConnectorAuthorization,
   rpcBeginCurrentOrganizationGitHubAppInstallation,
   rpcBeginCurrentOrganizationSharedConnectorAuthorization,
   rpcBeginGitHubAppInstallationVerification,
   rpcBeginLarkPlatformRegistration,
-  rpcBulkAuthorizeAgentProfileBindingsForOrganization,
   rpcCenterAgentAddAgentProfilesToSpace,
   rpcCenterAgentAddMembersToSpace,
   rpcCenterAgentCheckAgentProfileReadiness,
@@ -747,6 +742,7 @@ import {
   rpcCenterAgentEnableAgentProfile,
   rpcCenterAgentGetOrganizationDirectory,
   rpcCenterAgentGetOrganizationSpaceDirectory,
+  rpcCenterAgentListActiveSpaceWakes,
   rpcCenterAgentListAgentActivitySessions,
   rpcCenterAgentListAgentProfileCreationDefaults,
   rpcCenterAgentListAgentTasks,
@@ -775,6 +771,7 @@ import {
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
   rpcCenterAgentReadSpaceFile,
+  rpcCenterAgentReadSpaceWakeProgress,
   rpcCenterAgentReadTurnDiagnostics,
   rpcCenterAgentRecommendOpportunity,
   rpcCenterAgentRecordConnectorActionAudit,
@@ -839,16 +836,18 @@ import {
   rpcGetCenterAgentDirectMessageSpaceProjection,
   rpcGetCenterAgentModel,
   rpcGetCenterAgentOperatingState,
+  rpcGetCurrentAgentProfileSession,
   rpcGetCurrentDeviceTarget,
   rpcGetCurrentLocalAgentInstallations,
   rpcGetCurrentLocalRuntimeReplyReadiness,
+  rpcGetCurrentOrganizationAgentRuntimeOverview,
   rpcGetCurrentOrganizationComputers,
   rpcGetCurrentOrganizationDirectory,
   rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses,
+  rpcGetCurrentOrganizationProfileDirectory,
   rpcGetCurrentOrganizationSpaceDirectory,
   rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts,
   rpcGetLocalRuntimeExpectedRoutes,
-  rpcGetOrganizationBindingAuthorizationPreference,
   rpcGetPrepareReadiness,
   rpcGetSpaceBoard,
   rpcGetSpaceBootstrap,
@@ -859,6 +858,7 @@ import {
   rpcGetSpaceDispatchLookup,
   rpcGetSpaceDispatchResult,
   rpcGetSpaceDispatchTrace,
+  rpcGetSpaceEntryResolution,
   rpcGetSpaceFile,
   rpcGetSpaceIdentityDirectory,
   rpcGetSpaceMemberDirectory,
@@ -882,11 +882,8 @@ import {
   rpcListCenterAgentAuditJournal,
   rpcListCurrentOrganizationConnectorAppRequests,
   rpcListCurrentOrganizationConnectorConnections,
-  rpcListCurrentUserAgentProfileOrganizationWakeAccess,
   rpcListLocalRuntimes,
   rpcListMessageChannelConnections,
-  rpcListOrganizationBindingAuthorizationProfiles,
-  rpcListOrganizationBindingAuthorizations,
   rpcListProjects,
   rpcListRoutineRuns,
   rpcListRoutines,
@@ -939,8 +936,6 @@ import {
   rpcRestoreSpaceFileEntry,
   rpcRestoreSpaceFileRevision,
   rpcResumeRoutine,
-  rpcRevokeAgentProfileBindingForOrganization,
-  rpcSaveOrganizationWakeAccessChoice,
   rpcSelectCurrentLocalAgentInstallation,
   rpcSelectLocalFolders,
   rpcSetAgentProfileCreationDefaults,
@@ -951,7 +946,6 @@ import {
   rpcSetCurrentOrganizationFeedbackReportingPolicy,
   rpcSetDefaultConnection,
   rpcSetLocalRuntimeDisplayName,
-  rpcSetOrganizationBindingAuthorizationPreference,
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetSpaceAccessMode,
   rpcStageSpaceComposerUpload,
@@ -981,7 +975,6 @@ import {
   rpcWriteCurrentDeviceObservedMetadata,
   rpcWriteSpaceFileContent,
   runSlackInstallationWelcomePreparationTick,
-  type SaveOrganizationWakeAccessChoiceInput,
   type SelectCurrentLocalAgentInstallationInput,
   type SelectLocalFoldersInput,
   type SetAgentProfileCreationDefaultsInput,
@@ -992,7 +985,6 @@ import {
   type SetCurrentOrganizationFeedbackReportingPolicyInput,
   type SetDefaultConnectionInput,
   type SetLocalRuntimeDisplayNameInput,
-  type SetOrganizationBindingAuthorizationPreferenceInput,
   type SetOrganizationInformationProtectionPolicyInput,
   type SetSpaceAccessModeInput,
   type SpaceAccessModeStateResult,
@@ -1407,6 +1399,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetSpaceInboxSummaryRpcInput
   ): Promise<SpaceInboxSummaryResponse> {
     return rpcGetSpaceInboxSummary(this.env, input);
+  }
+
+  getSpaceInboxUnreadTargets(
+    input: GetSpaceInboxUnreadTargetsRpcInput
+  ): Promise<SpaceInboxUnreadTargetsResponse> {
+    return rpcGetSpaceInboxUnreadTargets(this.env, input);
   }
 
   markCenterAgentInboxReadThrough(
@@ -2022,6 +2020,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcGetSpaceStatus(this.env, input);
   }
 
+  getSpaceEntryResolution(
+    input: GetSpaceEntryResolutionRpcInput
+  ): Promise<GetSpaceEntryResolutionResponse> {
+    return rpcGetSpaceEntryResolution(this.env, input);
+  }
+
   getSpaceConversationState(
     input: GetSpaceConversationStateRpcInput
   ): Promise<GetSpaceConversationStateResponse> {
@@ -2185,6 +2189,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcGetAgentProfilePrimaryBinding(this.env, input);
   }
 
+  getCurrentAgentProfileSession(
+    input: GetCurrentAgentProfileSessionInput
+  ): Promise<CurrentAgentProfileSessionLookupResponse> {
+    return rpcGetCurrentAgentProfileSession(this.env, input);
+  }
+
   executeAgentProfileWorkRecovery(
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
@@ -2260,57 +2270,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcDisableAgentProfilePrimaryBinding(this.env, input);
   }
 
-  authorizeAgentProfileBindingForOrganization(
-    input: AuthorizeAgentProfileBindingForOrganizationInput
-  ): Promise<AuthorizeAgentProfileBindingForOrganizationResponse> {
-    return rpcAuthorizeAgentProfileBindingForOrganization(this.env, input);
-  }
-
-  bulkAuthorizeAgentProfileBindingsForOrganization(
-    input: BulkAuthorizeAgentProfileBindingsForOrganizationInput
-  ): Promise<BulkAuthorizeAgentProfileBindingsForOrganizationResponse> {
-    return rpcBulkAuthorizeAgentProfileBindingsForOrganization(this.env, input);
-  }
-
-  saveOrganizationWakeAccessChoice(
-    input: SaveOrganizationWakeAccessChoiceInput
-  ): Promise<SaveOrganizationWakeAccessChoiceResponse> {
-    return rpcSaveOrganizationWakeAccessChoice(this.env, input);
-  }
-
-  listOrganizationBindingAuthorizations(
-    input: ListOrganizationBindingAuthorizationsInput
-  ): Promise<ListOrganizationBindingAuthorizationsResponse> {
-    return rpcListOrganizationBindingAuthorizations(this.env, input);
-  }
-
-  listOrganizationBindingAuthorizationProfiles(
-    input: ListOrganizationBindingAuthorizationProfilesInput
-  ): Promise<ListOrganizationBindingAuthorizationProfilesResponse> {
-    return rpcListOrganizationBindingAuthorizationProfiles(this.env, input);
-  }
-
-  listCurrentUserAgentProfileOrganizationWakeAccess(
-    input: ListCurrentUserAgentProfileOrganizationWakeAccessInput
-  ): Promise<ListCurrentUserAgentProfileOrganizationWakeAccessResponse> {
-    return rpcListCurrentUserAgentProfileOrganizationWakeAccess(
-      this.env,
-      input
-    );
-  }
-
-  revokeAgentProfileBindingForOrganization(
-    input: RevokeAgentProfileBindingForOrganizationInput
-  ): Promise<RevokeAgentProfileBindingForOrganizationResponse> {
-    return rpcRevokeAgentProfileBindingForOrganization(this.env, input);
-  }
-
-  getOrganizationBindingAuthorizationPreference(
-    input: GetOrganizationBindingAuthorizationPreferenceInput
-  ): Promise<GetOrganizationBindingAuthorizationPreferenceResponse> {
-    return rpcGetOrganizationBindingAuthorizationPreference(this.env, input);
-  }
-
   getAgentProfileCreationDefaults(
     input: GetAgentProfileCreationDefaultsInput
   ): Promise<GetAgentProfileCreationDefaultsResponse> {
@@ -2321,12 +2280,6 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SetAgentProfileCreationDefaultsInput
   ): Promise<SetAgentProfileCreationDefaultsResponse> {
     return rpcSetAgentProfileCreationDefaults(this.env, input);
-  }
-
-  setOrganizationBindingAuthorizationPreference(
-    input: SetOrganizationBindingAuthorizationPreferenceInput
-  ): Promise<SetOrganizationBindingAuthorizationPreferenceResponse> {
-    return rpcSetOrganizationBindingAuthorizationPreference(this.env, input);
   }
 
   createAgentProfileCreationRequest(
@@ -2411,6 +2364,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return rpcGetCurrentOrganizationDirectory(this.env, input);
+  }
+
+  getCurrentOrganizationProfileDirectory(
+    input: GetCurrentOrganizationProfileDirectoryInput
+  ): Promise<OrganizationProfileDirectoryResponse> {
+    return rpcGetCurrentOrganizationProfileDirectory(this.env, input);
+  }
+
+  getCurrentOrganizationAgentRuntimeOverview(
+    input: GetCurrentOrganizationAgentRuntimeOverviewInput
+  ): Promise<OrganizationAgentRuntimeOverviewResponse> {
+    return rpcGetCurrentOrganizationAgentRuntimeOverview(this.env, input);
   }
 
   recordCurrentOrganizationWebActivity(
@@ -3034,6 +2999,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentGetOrganizationSpaceDirectory(this.env, input);
   }
 
+  centerAgentListActiveSpaceWakes(
+    input: CenterAgentListActiveSpaceWakesInput
+  ): Promise<AccountSpaceActiveWakeSummaryResponse> {
+    return rpcCenterAgentListActiveSpaceWakes(this.env, input);
+  }
+
+  centerAgentReadSpaceWakeProgress(
+    input: CenterAgentReadSpaceWakeProgressInput
+  ): Promise<GetActiveSpaceWakeProgressResponse> {
+    return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
+  }
+
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
@@ -3506,6 +3483,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getSpaceInboxSummary(input);
   }
 
+  getSpaceInboxUnreadTargets(
+    input: GetSpaceInboxUnreadTargetsRpcInput
+  ): Promise<SpaceInboxUnreadTargetsResponse> {
+    return super.getSpaceInboxUnreadTargets(input);
+  }
+
   markCenterAgentInboxReadThrough(
     input: MarkCenterAgentInboxReadThroughRpcInput
   ): Promise<MarkCenterAgentInboxReadThroughResponse> {
@@ -3938,6 +3921,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getSpaceStatus(input);
   }
 
+  getSpaceEntryResolution(
+    input: GetSpaceEntryResolutionRpcInput
+  ): Promise<GetSpaceEntryResolutionResponse> {
+    return super.getSpaceEntryResolution(input);
+  }
+
   getSpaceConversationState(
     input: GetSpaceConversationStateRpcInput
   ): Promise<GetSpaceConversationStateResponse> {
@@ -4147,6 +4136,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getAgentProfilePrimaryBinding(input);
   }
 
+  getCurrentAgentProfileSession(
+    input: GetCurrentAgentProfileSessionInput
+  ): Promise<CurrentAgentProfileSessionLookupResponse> {
+    return super.getCurrentAgentProfileSession(input);
+  }
+
   executeAgentProfileWorkRecovery(
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
@@ -4217,54 +4212,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.disableAgentProfilePrimaryBinding(input);
   }
 
-  authorizeAgentProfileBindingForOrganization(
-    input: AuthorizeAgentProfileBindingForOrganizationInput
-  ): Promise<AuthorizeAgentProfileBindingForOrganizationResponse> {
-    return super.authorizeAgentProfileBindingForOrganization(input);
-  }
-
-  bulkAuthorizeAgentProfileBindingsForOrganization(
-    input: BulkAuthorizeAgentProfileBindingsForOrganizationInput
-  ): Promise<BulkAuthorizeAgentProfileBindingsForOrganizationResponse> {
-    return super.bulkAuthorizeAgentProfileBindingsForOrganization(input);
-  }
-
-  saveOrganizationWakeAccessChoice(
-    input: SaveOrganizationWakeAccessChoiceInput
-  ): Promise<SaveOrganizationWakeAccessChoiceResponse> {
-    return super.saveOrganizationWakeAccessChoice(input);
-  }
-
-  listOrganizationBindingAuthorizations(
-    input: ListOrganizationBindingAuthorizationsInput
-  ): Promise<ListOrganizationBindingAuthorizationsResponse> {
-    return super.listOrganizationBindingAuthorizations(input);
-  }
-
-  listOrganizationBindingAuthorizationProfiles(
-    input: ListOrganizationBindingAuthorizationProfilesInput
-  ): Promise<ListOrganizationBindingAuthorizationProfilesResponse> {
-    return super.listOrganizationBindingAuthorizationProfiles(input);
-  }
-
-  listCurrentUserAgentProfileOrganizationWakeAccess(
-    input: ListCurrentUserAgentProfileOrganizationWakeAccessInput
-  ): Promise<ListCurrentUserAgentProfileOrganizationWakeAccessResponse> {
-    return super.listCurrentUserAgentProfileOrganizationWakeAccess(input);
-  }
-
-  revokeAgentProfileBindingForOrganization(
-    input: RevokeAgentProfileBindingForOrganizationInput
-  ): Promise<RevokeAgentProfileBindingForOrganizationResponse> {
-    return super.revokeAgentProfileBindingForOrganization(input);
-  }
-
-  getOrganizationBindingAuthorizationPreference(
-    input: GetOrganizationBindingAuthorizationPreferenceInput
-  ): Promise<GetOrganizationBindingAuthorizationPreferenceResponse> {
-    return super.getOrganizationBindingAuthorizationPreference(input);
-  }
-
   getAgentProfileCreationDefaults(
     input: GetAgentProfileCreationDefaultsInput
   ): Promise<GetAgentProfileCreationDefaultsResponse> {
@@ -4275,12 +4222,6 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SetAgentProfileCreationDefaultsInput
   ): Promise<SetAgentProfileCreationDefaultsResponse> {
     return super.setAgentProfileCreationDefaults(input);
-  }
-
-  setOrganizationBindingAuthorizationPreference(
-    input: SetOrganizationBindingAuthorizationPreferenceInput
-  ): Promise<SetOrganizationBindingAuthorizationPreferenceResponse> {
-    return super.setOrganizationBindingAuthorizationPreference(input);
   }
 
   createAgentProfileCreationRequest(
@@ -4329,6 +4270,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return super.getCurrentOrganizationDirectory(input);
+  }
+
+  getCurrentOrganizationProfileDirectory(
+    input: GetCurrentOrganizationProfileDirectoryInput
+  ): Promise<OrganizationProfileDirectoryResponse> {
+    return super.getCurrentOrganizationProfileDirectory(input);
+  }
+
+  getCurrentOrganizationAgentRuntimeOverview(
+    input: GetCurrentOrganizationAgentRuntimeOverviewInput
+  ): Promise<OrganizationAgentRuntimeOverviewResponse> {
+    return super.getCurrentOrganizationAgentRuntimeOverview(input);
   }
 
   recordCurrentOrganizationWebActivity(
@@ -5047,6 +5000,18 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentListAgentActivitySessionsInput
   ) {
     return rpcCenterAgentListAgentActivitySessions(this.env, input);
+  }
+
+  centerAgentListActiveSpaceWakes(
+    input: CenterAgentListActiveSpaceWakesInput
+  ): Promise<AccountSpaceActiveWakeSummaryResponse> {
+    return rpcCenterAgentListActiveSpaceWakes(this.env, input);
+  }
+
+  centerAgentReadSpaceWakeProgress(
+    input: CenterAgentReadSpaceWakeProgressInput
+  ): Promise<GetActiveSpaceWakeProgressResponse> {
+    return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
   }
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {

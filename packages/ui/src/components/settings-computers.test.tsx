@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { TooltipProvider } from "#components/tooltip";
 import {
@@ -15,6 +21,7 @@ const LOW_WEEKLY_USAGE_GAUGE_NAME =
   /Codex Weekly usage, 12% left, Low, Resets in 7 days, Updated 10 minutes ago/u;
 const STALE_USAGE_GAUGE_NAME = /Codex Last-known usage, 35% left, Stale/u;
 const USAGE_UNSUPPORTED_COPY = /Usage unsupported/u;
+const OPENCODE_GO_SUMMARY_NAME = /OpenCode Go usage, 12% left, Low/u;
 
 afterEach(cleanup);
 
@@ -124,6 +131,89 @@ describe("Settings Local Agent usage limits", () => {
     expect(screen.queryByTestId("local-agent-usage-summary")).toBeNull();
   });
 
+  it("shows one collapsed summary per provider and groups detail windows", () => {
+    const limits = [
+      {
+        key: "opencode-go:rolling",
+        label: "5-hour usage",
+        observedAt: "2026-08-20T07:57:00.000Z",
+        provider: { displayName: "OpenCode Go", id: "opencode-go" },
+        resetsAt: "2026-08-20T10:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 42,
+      },
+      {
+        key: "opencode-go:weekly",
+        label: "Weekly usage",
+        observedAt: "2026-08-20T07:50:00.000Z",
+        provider: { displayName: "OpenCode Go", id: "opencode-go" },
+        resetsAt: "2026-08-27T08:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 88,
+      },
+      {
+        key: "company-proxy:daily",
+        label: "Daily usage",
+        observedAt: "2026-08-20T07:50:00.000Z",
+        provider: { displayName: "Company Proxy", id: "company-proxy" },
+        resetsAt: "2026-08-21T08:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 25,
+      },
+      {
+        key: "openai:provider",
+        label: "Usage limits",
+        observedAt: "2026-08-20T07:50:00.000Z",
+        provider: { displayName: "OpenAI", id: "openai" },
+        resetsAt: null,
+        status: "unsupported" as const,
+        usedPercent: null,
+      },
+    ];
+    const { rerender } = render(
+      <TooltipProvider>
+        <SettingsLocalAgentUsageSummary
+          agentName="OpenCode"
+          limits={limits}
+          nowMs={NOW_MS}
+        />
+      </TooltipProvider>
+    );
+
+    const summary = screen.getByTestId("local-agent-usage-summary");
+    expect(summary.textContent).toBe("OpenCode Go12%Company Proxy75%");
+    expect(within(summary).getAllByRole("progressbar")).toHaveLength(2);
+    expect(
+      within(summary).getByRole("progressbar", {
+        name: OPENCODE_GO_SUMMARY_NAME,
+      })
+    ).toBeTruthy();
+    expect(summary.textContent).not.toContain("OpenAI");
+
+    rerender(
+      <SettingsLocalAgentUsageLimits
+        agentName="OpenCode"
+        limits={limits}
+        nowMs={NOW_MS}
+      />
+    );
+    const providerGrid = screen.getByTestId("local-agent-usage-provider-grid");
+    const openCodeGoGroup = within(providerGrid).getByRole("region", {
+      name: "OpenCode Go usage limits",
+    });
+    expect(openCodeGoGroup.className).not.toContain("border");
+    expect(
+      within(providerGrid).queryByRole("region", {
+        name: "OpenAI usage limits",
+      })
+    ).toBeNull();
+    expect(
+      within(providerGrid).getByTestId("local-agent-usage-unreported")
+        .textContent
+    ).toBe("Usage not supportedOpenAI");
+    expect(within(providerGrid).getAllByRole("progressbar")).toHaveLength(3);
+  });
+
   it("renders multiple accessible gauges and every public capacity status", () => {
     render(
       <SettingsLocalAgentUsageLimits
@@ -186,8 +276,8 @@ describe("Settings Local Agent usage limits", () => {
     expect(screen.getByText("Low")).toBeTruthy();
     expect(screen.getByText("Exhausted")).toBeTruthy();
     expect(screen.getByText("Stale")).toBeTruthy();
-    expect(screen.getByText("Unavailable")).toBeTruthy();
-    expect(screen.getByText("Unsupported")).toBeTruthy();
+    expect(screen.getByText("Usage temporarily unavailable")).toBeTruthy();
+    expect(screen.getByText("Usage not supported")).toBeTruthy();
     expect(screen.getAllByRole("progressbar")).toHaveLength(4);
     const availableGauge = screen.getByRole("progressbar", {
       name: AVAILABLE_FIVE_HOUR_USAGE_GAUGE_NAME,
@@ -217,8 +307,8 @@ describe("Settings Local Agent usage limits", () => {
     ).toBe("12 100");
     expect(screen.getByText("Reset time passed")).toBeTruthy();
     expect(screen.getByText("Last updated 1 day ago")).toBeTruthy();
-    expect(screen.getByText("Temporarily unavailable.")).toBeTruthy();
-    expect(screen.getByText("Not reported by provider.")).toBeTruthy();
+    expect(screen.getByText("Provider usage")).toBeTruthy();
+    expect(screen.getByText("Other provider usage")).toBeTruthy();
   });
 
   it("puts Codex's overall weekly limit first and uses the lighter detail gauge", () => {

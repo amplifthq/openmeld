@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T12:08:46.285Z",
+  "updatedAt": "2026-09-05T03:27:01.529Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.138",
+      "packageVersion": "0.3.157",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible through optional inputs and negotiated legacy trace projections; older CLIs can safely continue current setup, Wake, Space, and diagnostic work."
+      "reason": "The new space link command is additive, and existing commands remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "c8737285e4509692e38ebb68e3e4f4919a7683ebe78266e83d277393a3030f65",
-      "bundleVersion": "0.3.138",
+      "bundleHash": "2b12ace38d81f19d310192b97df4364688e3df3d45bb6044b832535483edfff8",
+      "bundleVersion": "0.3.157",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
-      "updatePolicy": "required",
-      "reason": "Older Services can override an existing Codex thread's controller-owned model when the Binding has no explicit selection; require 0.3.138 before admitting new Wake work so resumed threads preserve their chosen model and reasoning behavior."
+      "updatePolicy": "available",
+      "reason": "Only additive optional shared schema fields changed the packaged bundle; existing Services keep current Wake, setup, trace, and recovery behavior."
     },
     "skills": {
-      "bundleHash": "73e31d09533eac76338fb95bcfab855aeeca940ca587925095ab0c63371abf7d",
+      "bundleHash": "95260cd703b998dcca9b9baba9e170ef8a2dc340cb116cacda27875fe03b2475",
       "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The Skill update documents optional model selection and the safe no-selection behavior without changing action or command contracts; older bundles remain usable."
+      "reason": "The managed Skill adds optional space link guidance, while existing installed commands and workflows remain valid."
     }
   }
 }

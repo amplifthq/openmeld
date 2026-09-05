@@ -105,6 +105,27 @@ describe("local runtime expected-routes route", () => {
     );
   });
 
+  it("forwards explicit v4 negotiation to Core", async () => {
+    const { coreRpc, env } = makeEnv();
+
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/local-runtime/expected-routes?contractVersion=v4&deviceId=device-1&lane=prod"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    expect(coreRpc.getLocalRuntimeExpectedRoutes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contractVersion: "v4",
+        deviceId: "device-1",
+        lane: "prod",
+      })
+    );
+  });
+
   it("keeps the legacy query shape and rejects unknown versions", async () => {
     const { coreRpc, env } = makeEnv();
     const legacyResponse = await app.fetch(
@@ -122,7 +143,7 @@ describe("local runtime expected-routes route", () => {
 
     const invalidResponse = await app.fetch(
       new Request(
-        "http://local/v1/local-runtime/expected-routes?contractVersion=v4&deviceId=device-1&lane=prod"
+        "http://local/v1/local-runtime/expected-routes?contractVersion=v5&deviceId=device-1&lane=prod"
       ),
       env,
       TEST_EXECUTION_CONTEXT

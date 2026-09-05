@@ -797,7 +797,11 @@ function resolveScheduledServiceRefreshResult(
   outcome: Awaited<ReturnType<typeof runDaemonReinstall>>
 ): DaemonServiceParticipationGateResult | null {
   return outcome.ok && outcome.result === "scheduled"
-    ? { status: "aligned" }
+    ? {
+        errorMessage:
+          "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes.",
+        status: "needs_attention",
+      }
     : null;
 }
 

@@ -29,9 +29,13 @@ vi.mock("#/components/app/public-page-header", () => ({
 }));
 
 vi.mock("#/components/ai/message-response", () => ({
-	MessageResponse: ({ children }: { children: string }) => (
-		<div>{children}</div>
-	),
+	MessageResponse: ({
+		children,
+		variant,
+	}: {
+		children: string;
+		variant: string;
+	}) => <div data-typeset-variant={variant}>{children}</div>,
 }));
 
 const SOURCE = {
@@ -76,6 +80,11 @@ describe("ChangelogPage", () => {
 		expect(screen.getByText("Release v0.3.61")).toBeTruthy();
 		expect(screen.getByText("Understand recent OpenMeld changes")).toBeTruthy();
 		expect(screen.getByText("Ask the Center Agent what changed.")).toBeTruthy();
+		expect(
+			screen
+				.getByText("Ask the Center Agent what changed.")
+				.getAttribute("data-typeset-variant")
+		).toBe("changelog");
 		expect(screen.getByText("Center agent")).toBeTruthy();
 		expect(screen.getByText("Channels")).toBeTruthy();
 	});

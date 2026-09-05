@@ -36,7 +36,7 @@ export function createAccountAvatarService(input: {
         ok: false,
         response: mutationFailure(
           "account.avatar.profile_not_found",
-          "Your default Human Profile is unavailable."
+          "Your default profile is unavailable."
         ),
       };
     }

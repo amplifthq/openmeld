@@ -23,7 +23,7 @@ export function createTestAgentAgentWakeAvailability(
         phase: "available",
         reasonCode: "agent_execution.ready",
         status,
-        summary: "Can reply from this computer in Spaces.",
+        summary: "Available for Wake",
         tooltip: "Available for Wake",
       };
     case "unavailable_for_wake":
@@ -49,7 +49,7 @@ export function createTestAgentAgentWakeAvailability(
         phase: "checking_status",
         reasonCode: "agent_execution.check_status",
         status,
-        summary: "Checking this agent's Wake availability.",
+        summary: "Checking whether this agent can reply.",
         tooltip: "Checking Wake availability",
       };
     case "offline_for_wake":
@@ -62,9 +62,8 @@ export function createTestAgentAgentWakeAvailability(
         phase: "service_not_connected",
         reasonCode: "service.not_running",
         status,
-        summary:
-          "Connect OpenMeld Service on this computer before this agent can reply.",
-        tooltip: "OpenMeld Service is not connected on this computer.",
+        summary: "Connect your computer before this Agent can reply.",
+        tooltip: "Computer not connected",
       };
     default:
       throw new Error(`Unhandled agent wake availability status: ${status}`);

@@ -379,13 +379,13 @@ export function formatComputerReplyReadinessDescription(
 		return "Update OpenMeld Service before this computer receives local Wake work.";
 	}
 	if (replyReadiness.reasonCode === "background_helper.not_running") {
-		return "Reconnect OpenMeld Service so this computer can receive local Wake work.";
+		return "Reconnect this computer so it can receive local Wake work.";
 	}
 	if (replyReadiness.status === "checking") {
 		return "OpenMeld is checking this computer's local service link.";
 	}
 	if (replyReadiness.status === "needs_setup") {
-		return "Connect OpenMeld Service so this computer can report local agents.";
+		return "Connect this computer so it can report local agents.";
 	}
 	return "OpenMeld could not confirm this computer's local service link yet.";
 }

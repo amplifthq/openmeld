@@ -11,6 +11,7 @@ import type {
 import {
   writeRuntimeCoordinatorHeadLifecycleWithAdmission,
   writeRuntimeCoordinatorTokenAuthorityWithAdmission,
+  writeRuntimeCoordinatorTokenAuthorityWithAdmissionInTransaction,
 } from "./agent-profile-execution-admission";
 import type { PendingAgentProfileWorkPromotion } from "./agent-profile-work-promotion";
 import {
@@ -120,7 +121,7 @@ export const readRuntimeCoordinatorFinalizationRetriesFromStorage = async (
 };
 
 export const readRuntimeCoordinatorTokenAuthorityFromStorage = async (
-  storage: RuntimeCoordinatorStorage,
+  storage: Pick<DurableObjectStorage, "get">,
   runtimeCoordinatorExecutionId: string
 ): Promise<RuntimeCoordinatorExecutionTokenAuthorityRecord | null> => {
   const raw = await storage.get<unknown>(
@@ -150,8 +151,19 @@ export const writeRuntimeCoordinatorTokenAuthorityToStorage = async (
   });
 };
 
+export const writeRuntimeCoordinatorTokenAuthorityInTransaction = async (
+  transaction: DurableObjectTransaction,
+  authority: RuntimeCoordinatorExecutionTokenAuthorityRecord,
+  nowMs: number
+): Promise<PendingAgentProfileWorkPromotion | null> =>
+  await writeRuntimeCoordinatorTokenAuthorityWithAdmissionInTransaction({
+    authority,
+    nowMs,
+    transaction,
+  });
+
 export const readRuntimeCoordinatorRunCommandStateFromStorage = async (
-  storage: RuntimeCoordinatorStorage,
+  storage: Pick<DurableObjectStorage, "get">,
   runtimeCoordinatorExecutionId: string
 ): Promise<RuntimeCoordinatorRunCommandState | null> => {
   const raw = await storage.get<unknown>(

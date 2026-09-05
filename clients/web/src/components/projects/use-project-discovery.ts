@@ -168,7 +168,7 @@ function resolveProjectDiscoveryErrorMessage(input: {
 		return null;
 	}
 	if (input.serviceState === "update_required") {
-		return "Update OpenMeld Service on this computer before connecting Project folders from the Web.";
+		return "Update OpenMeld on this computer before connecting Project folders from the Web.";
 	}
 	if (input.serviceState === "service_unavailable") {
 		return LOCAL_PROJECT_CONTROL_UNREACHABLE_MESSAGE;
@@ -271,7 +271,7 @@ function resolveProjectDiscoveryFailure(error: unknown): {
 	if (code === "service_update_required" || code === "unsupported") {
 		return {
 			errorMessage:
-				"Update OpenMeld Service on this computer before connecting Project folders from the Web.",
+				"Update OpenMeld on this computer before connecting Project folders from the Web.",
 			status: "update_required",
 		};
 	}

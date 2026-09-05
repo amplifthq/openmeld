@@ -96,6 +96,65 @@ describe("Agent Profile work Usage recovery", () => {
     expect(resumeInterruptedWork).not.toHaveBeenCalled();
   });
 
+  it("recovers only Profiles using the OpenCode provider whose usage is available", async () => {
+    const report = createReport("available");
+    const agentControllerInterface = report.agentControllerInterface;
+    if (!agentControllerInterface) {
+      throw new Error("expected Agent Controller Interface fixture");
+    }
+    report.agentControllerRef = "builtin:opencode";
+    report.agentControllerInterface = {
+      ...agentControllerInterface,
+      agentControllerRef: "builtin:opencode",
+      controllerId: "opencode",
+      displayName: "OpenCode",
+      usageLimits: [
+        {
+          key: "opencode-go:rolling",
+          label: "5-hour usage",
+          observedAt: "2026-08-30T00:09:00.000Z",
+          provider: { displayName: "OpenCode Go", id: "opencode-go" },
+          resetsAt: "2026-08-30T01:00:00.000Z",
+          status: "available",
+          usedPercent: 42,
+        },
+        {
+          key: "openai:provider",
+          label: "Usage limits",
+          observedAt: "2026-08-30T00:09:00.000Z",
+          provider: { displayName: "OpenAI", id: "openai" },
+          resetsAt: null,
+          status: "unsupported",
+          usedPercent: null,
+        },
+      ],
+    };
+    const notifyUsageAvailable = vi.fn().mockResolvedValue({
+      changedProfileIds: [PROFILE_1],
+      continuationProfileIds: [PROFILE_1],
+      status: "updated",
+    });
+
+    await notifyAgentProfileWorkUsageRecoveryAvailable({
+      bindingStore: {
+        listBindings: vi.fn().mockResolvedValue([
+          { agentProfileId: PROFILE_1, modelId: "opencode-go/qwen3-coder" },
+          { agentProfileId: PROFILE_2, modelId: "openai/gpt-5.4" },
+        ]),
+      },
+      currentReport: report,
+      notifyUsageAvailable,
+      nowMs: NOW_MS,
+      ownerUserId: "owner-1",
+      resumeInterruptedWork: vi.fn(),
+    });
+
+    expect(notifyUsageAvailable).toHaveBeenCalledWith({
+      ownerUserId: "owner-1",
+      targetProfileIds: [PROFILE_1],
+    });
+  });
+
   it("accepts an old owner shard response without continuation Profile ids", async () => {
     const resumeInterruptedWork = vi.fn();
 

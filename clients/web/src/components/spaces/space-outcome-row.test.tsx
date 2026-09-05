@@ -211,6 +211,24 @@ describe("SpaceOutcomeRow", () => {
 		expect(marker?.className).not.toContain("border-destructive");
 	});
 
+	it("uses the shared system divider without giving its lines layout priority", () => {
+		render(
+			<SpaceOutcomeRow
+				onOpenDetails={null}
+				text="This agent could not reply."
+				tone="destructive"
+			/>
+		);
+
+		const divider = screen
+			.getByText("This agent could not reply.")
+			.closest("[data-slot='space-system-divider']");
+		expect(divider?.className).toContain("before:flex-1");
+		expect(divider?.className).toContain("before:min-w-0");
+		expect(divider?.className).toContain("after:flex-1");
+		expect(divider?.className).toContain("after:min-w-0");
+	});
+
 	it("colors the warning tone amber for a publication-stage failure", () => {
 		render(
 			<SpaceOutcomeRow

@@ -217,10 +217,10 @@ function isSignalInCurrentWakeScope(
   currentWakeTargetProfileIds: ReadonlySet<string>,
   wakeSourceSignalId: string
 ): boolean {
-  if (
-    currentWakeTargetProfileIds.size === 0 ||
-    signal.profile.kind === "human"
-  ) {
+  if (signal.profile.kind === "human") {
+    return !isNewHumanWake(signal);
+  }
+  if (currentWakeTargetProfileIds.size === 0) {
     return true;
   }
   const publication = buildSpaceRoundSignalPublication(signal);
@@ -228,6 +228,13 @@ function isSignalInCurrentWakeScope(
     publication?.actorProfileId &&
       currentWakeTargetProfileIds.has(publication.actorProfileId) &&
       publication.replyToSignalId === wakeSourceSignalId
+  );
+}
+
+function isNewHumanWake(signal: SignalEnvelope): boolean {
+  return Boolean(
+    signal.type === "signal.text" &&
+      signal.data.messageEnvelope?.activationTargets.length
   );
 }
 

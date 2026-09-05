@@ -143,6 +143,27 @@ describe("assessCliUpdate", () => {
     });
   });
 
+  it("keeps the production npm check on the canonical global command", () => {
+    expect(
+      isCliUpdateCheckApplicable(PROD_TARGET, { distribution: "npm" })
+    ).toBe(true);
+    expect(
+      isCliUpdateCheckApplicable(
+        { ...PROD_TARGET, userFacingCommand: "npx -y openmeld@latest" },
+        { distribution: "npm" }
+      )
+    ).toBe(false);
+    expect(
+      isCliUpdateCheckApplicable(
+        {
+          ...PROD_TARGET,
+          userFacingCommand: "/Users/dev/.openmeld/bin/openmeld",
+        },
+        { distribution: "npm" }
+      )
+    ).toBe(false);
+  });
+
   it("checks an isolated binary canary only when it has an explicit manifest", () => {
     expect(
       isCliUpdateCheckApplicable(CANARY_TARGET, {
@@ -292,6 +313,73 @@ describe("assessCliUpdate", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(assessment).toMatchObject({
         checked: true,
+        latestVersion: "9.9.9",
+        updateAvailable: true,
+      });
+    });
+  });
+
+  it("refreshes the process cache when an update action needs the current release", async () => {
+    await withTempHome(async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          npmLatestResponse({ version: packageJson.version })
+        )
+        .mockResolvedValueOnce(npmLatestResponse({ version: "9.9.9" }));
+      vi.stubGlobal("fetch", fetchMock);
+      resetVersionCheckCacheForTests();
+
+      const startupAssessment = await assessCliUpdate({
+        environmentTarget: PROD_TARGET,
+      });
+      const requestedAssessment = await assessCliUpdate({
+        environmentTarget: PROD_TARGET,
+        forceRefresh: true,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(startupAssessment).toMatchObject({
+        latestVersion: packageJson.version,
+        updateAvailable: false,
+      });
+      expect(requestedAssessment).toMatchObject({
+        latestVersion: "9.9.9",
+        updateAvailable: true,
+      });
+    });
+  });
+
+  it("does not join a regular in-flight check when an update action forces a refresh", async () => {
+    await withTempHome(async () => {
+      const regularRequest = Promise.withResolvers<Response>();
+      const fetchMock = vi
+        .fn()
+        .mockReturnValueOnce(regularRequest.promise)
+        .mockResolvedValueOnce(npmLatestResponse({ version: "9.9.9" }));
+      vi.stubGlobal("fetch", fetchMock);
+      resetVersionCheckCacheForTests();
+
+      const startupAssessment = assessCliUpdate({
+        environmentTarget: PROD_TARGET,
+      });
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+      const requestedAssessment = assessCliUpdate({
+        environmentTarget: PROD_TARGET,
+        forceRefresh: true,
+      });
+      regularRequest.resolve(
+        npmLatestResponse({ version: packageJson.version })
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await expect(startupAssessment).resolves.toMatchObject({
+        latestVersion: packageJson.version,
+        updateAvailable: false,
+      });
+      await expect(requestedAssessment).resolves.toMatchObject({
         latestVersion: "9.9.9",
         updateAvailable: true,
       });

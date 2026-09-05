@@ -80,10 +80,11 @@ function buildHints(
   const contractEntryName = resolveCommandEntryNameFromTokens(
     parseLeadingCommandTokensFromArgv(argv, 3)
   );
+  const commandEntryName = resolveCommandEntryNameFromTokens(
+    parseLeadingCommandTokensFromArgv(argv, 2)
+  );
   const invalidSpaceReadTargetHints = resolveInvalidSpaceReadTargetHints({
-    entryName: resolveCommandEntryNameFromTokens(
-      parseLeadingCommandTokensFromArgv(argv, 2)
-    ),
+    entryName: commandEntryName,
     message,
   });
   if (invalidSpaceReadTargetHints) {
@@ -116,6 +117,11 @@ function buildHints(
     return profileHints;
   }
 
+  const spaceReadHints = resolveSpaceReadFailureHints(commandEntryName);
+  if (spaceReadHints) {
+    return spaceReadHints;
+  }
+
   const token = parseFirstCommandTokenFromArgv(argv);
   if (isSpaceCommandToken(token)) {
     return [
@@ -138,6 +144,25 @@ function buildHints(
   }
 
   return [];
+}
+
+function resolveSpaceReadFailureHints(
+  entryName: ReturnType<typeof resolveCommandEntryNameFromTokens>
+): string[] | null {
+  switch (resolveSpaceReadCommandName(entryName)) {
+    case "board":
+      return ["openmeld space board <space-id-or-url>"];
+    case "history":
+      return [
+        "openmeld space history <space-id-or-url> --kind text --brief --limit 20",
+      ];
+    case "members":
+      return ["openmeld space members <space-id-or-url>"];
+    case "status":
+      return ["openmeld space status <space-id-or-url>"];
+    default:
+      return null;
+  }
 }
 
 function resolveInvalidSpaceReadTargetHints(input: {

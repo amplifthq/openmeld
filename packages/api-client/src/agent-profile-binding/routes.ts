@@ -4,6 +4,17 @@ export function buildAgentProfilePrimaryBindingRoute(
   return `/v1/agent-profiles/${encodeURIComponent(agentProfileId)}/primary-binding`;
 }
 
+export function buildCurrentAgentProfileSessionRoute(input: {
+  agentControllerConversationId: string;
+  agentControllerRef: string;
+}): string {
+  const query = new URLSearchParams({
+    agentControllerConversationId: input.agentControllerConversationId,
+    agentControllerRef: input.agentControllerRef,
+  });
+  return `/v1/agent-profiles/current-session?${query.toString()}`;
+}
+
 export function buildAgentProfileControllerChangeEligibilityRoute(
   agentProfileId: string
 ): string {
@@ -32,20 +43,6 @@ export function buildAgentProfilePrimaryBindingOpenCodePermissionRoute(
   agentProfileId: string
 ): string {
   return `${buildAgentProfilePrimaryBindingRoute(agentProfileId)}/opencode-permission`;
-}
-
-export function buildAgentProfilePrimaryBindingOrganizationAuthorizationRoute(
-  agentProfileId: string
-): string {
-  return `${buildAgentProfilePrimaryBindingRoute(agentProfileId)}/organization-authorization`;
-}
-
-export function buildAgentProfileBindingOrganizationAuthorizationsRoute(): string {
-  return "/v1/agent-profiles/primary-bindings/organization-authorizations";
-}
-
-export function buildCurrentUserAgentProfileOrganizationWakeAccessRoute(): string {
-  return "/v1/agent-profiles/primary-bindings/organization-wake-access";
 }
 
 export function buildAgentProfileRouteCatalogSyncRoute(

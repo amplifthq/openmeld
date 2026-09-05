@@ -101,6 +101,10 @@ export function buildOrganizationAgentsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/agents`;
 }
 
+export function buildOrganizationAgentCreationPath(orgSlug: string): string {
+	return `${buildOrganizationAgentsPath(orgSlug)}?view=create`;
+}
+
 export function buildOrganizationAgentCreationRequestsPath(input: {
 	orgSlug: string;
 	requestId?: string | null;

@@ -1,4 +1,7 @@
-import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
+import type {
+  LocalRuntimesResponse,
+  OpenMeldRequestContext,
+} from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { createComputerFileAccessRpc } from "../src/computers/computer-file-access-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -14,6 +17,30 @@ const CONTEXT: OpenMeldRequestContext = {
     openMeldProfileId: "11111111-1111-4111-8111-111111111111",
   },
 };
+
+const LOCAL_RUNTIME_INVENTORY = {
+  currentConnectedComputerId: "computer-current",
+  currentDeviceId: "device-current",
+  currentRuntimeLane: "dev-local",
+  legacyDeviceEvidence: [],
+  localRuntimes: [
+    {
+      connectedComputerId: "computer-current",
+      connectionStatus: "connected",
+      deviceDisplayName: "Felix's MacBook Pro",
+      deviceDisplayNameSource: "observed",
+      deviceId: "device-current",
+      deviceType: "laptop",
+      executionTargets: [],
+      firstSeenAtMs: 0,
+      isCurrent: true,
+      lastObservedAtMs: 100,
+      legacyDeviceIds: ["device-current"],
+      osVersion: "26.0",
+      platformFamily: "macOS",
+    },
+  ],
+} satisfies LocalRuntimesResponse;
 
 function createHarness() {
   const readPolicy = vi.fn().mockResolvedValue({
@@ -157,6 +184,7 @@ describe("Computer file access RPC", () => {
               deviceId: "device-current",
               runtimeLane: "dev-local",
             },
+            inventory: LOCAL_RUNTIME_INVENTORY,
             offlineError: {
               code: "computer.file_access.service_offline",
               reason: "This computer isn't reachable for OpenMeld right now.",

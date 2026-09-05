@@ -73,6 +73,15 @@ describe("agent execution readiness http schemas", () => {
         target: null,
       },
       profileName: "Codex",
+      publicProfileConfiguration: {
+        agentControllerCollaborationMode: "codex:default",
+        agentControllerPermissionMode: "codex:askForApproval",
+        agentControllerRef: "builtin:codex",
+        modelSelection: {
+          modelId: "gpt-5.5",
+          reasoningLevel: "high",
+        },
+      },
       agentWakeAvailability: buildAgentWakeAvailability("available_for_wake"),
       agentWakeRouteRegistration: buildAgentWakeRouteRegistration(),
       routeDeviceId: "device-1",
@@ -84,6 +93,9 @@ describe("agent execution readiness http schemas", () => {
     expect(parsed.agentExecutionReadiness.reasonCodes).toEqual([
       "agent_execution.ready",
     ]);
+    expect(parsed.publicProfileConfiguration?.agentControllerRef).toBe(
+      "builtin:codex"
+    );
   });
 
   it("accepts a response without the compatibility-added primary binding field", () => {
@@ -526,7 +538,7 @@ function buildAgentWakeAvailability(
       phase: "available",
       reasonCode: "agent_execution.ready",
       status,
-      summary: "Can reply from this computer in Spaces.",
+      summary: "Available for Wake",
       tooltip: "Available for Wake",
     },
     checking_connection: {
@@ -550,8 +562,7 @@ function buildAgentWakeAvailability(
       phase: "service_not_connected",
       reasonCode: "service.not_running",
       status,
-      summary:
-        "Connect OpenMeld Service on this computer before this agent can reply.",
+      summary: "Connect your computer before this Agent can reply.",
       tooltip: "OpenMeld Service is not connected on this computer.",
     },
     unavailable_for_wake: {

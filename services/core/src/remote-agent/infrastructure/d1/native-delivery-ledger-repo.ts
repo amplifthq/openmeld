@@ -413,15 +413,43 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
 export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace(input: {
   db: D1Database;
   limit?: number;
+  sourceDispatchIds?: readonly string[];
+  sourceProfileId?: string;
   spaceId: string;
   targetProfileId?: string;
 }): Promise<ActiveRemoteAgentNativeDeliveryWakeProgressEvidence[]> {
   const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 25)));
   const targetProfileId = input.targetProfileId?.trim() || null;
+  const sourceDispatchIds = input.sourceDispatchIds?.filter(
+    (dispatchId) => dispatchId.trim().length > 0
+  );
+  const sourceProfileId = input.sourceProfileId?.trim() || null;
+  if (!sourceProfileId && sourceDispatchIds && sourceDispatchIds.length === 0) {
+    return [];
+  }
   const whereTargetSql = targetProfileId ? "AND deliveries.profile_id = ?" : "";
-  const bindings = targetProfileId
-    ? [input.spaceId, targetProfileId, limit]
-    : [input.spaceId, limit];
+  let whereSourceSql = "";
+  let sourceBindings: string[] = [];
+  if (sourceProfileId) {
+    whereSourceSql = `AND (
+        deliveries.on_behalf_of_profile_id = ?
+        OR (
+          deliveries.on_behalf_of_profile_id IS NULL
+          AND deliveries.dispatch_id IN (SELECT value FROM json_each(?))
+        )
+      )`;
+    sourceBindings = [sourceProfileId, JSON.stringify(sourceDispatchIds ?? [])];
+  } else if (sourceDispatchIds) {
+    whereSourceSql =
+      "AND deliveries.dispatch_id IN (SELECT value FROM json_each(?))";
+    sourceBindings = [JSON.stringify(sourceDispatchIds)];
+  }
+  const bindings = [
+    input.spaceId,
+    ...(targetProfileId ? [targetProfileId] : []),
+    ...sourceBindings,
+    limit,
+  ];
   const rows = await input.db
     .prepare(
       `
@@ -455,6 +483,7 @@ export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceByS
           AND deliveries.routine_run_id IS NULL
           AND deliveries.status IN ('accepted', 'retry_observed')
           ${whereTargetSql}
+          ${whereSourceSql}
         ORDER BY deliveries.updated_at_ms DESC, deliveries.delivery_id DESC
         LIMIT ?
       `

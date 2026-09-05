@@ -14,13 +14,20 @@ const authFormApiMocks = vi.hoisted(() => ({
 	verifyEmailToken: vi.fn(),
 	verifyMagicLinkToken: vi.fn(),
 }));
+const authQueryMocks = vi.hoisted(() => ({
+	getSession: vi.fn(),
+	listDeviceSessions: vi.fn(),
+	revokeDeviceSession: vi.fn(),
+}));
 
 vi.mock("#/lib/auth-form-api", () => authFormApiMocks);
+vi.mock("#/query/auth-query", () => authQueryMocks);
 
 import {
 	useEmailSignIn,
 	useEmailSignUp,
 	useLogoutAction,
+	useLogoutAllAccountsAction,
 	useResendVerificationEmail,
 } from "./auth-form.hooks";
 
@@ -51,6 +58,20 @@ describe("auth-form hooks", () => {
 		for (const mock of Object.values(authFormApiMocks)) {
 			mock.mockReset();
 		}
+		for (const mock of Object.values(authQueryMocks)) {
+			mock.mockReset();
+		}
+		authQueryMocks.getSession.mockResolvedValue({
+			session: { token: "session-a", userId: "user-a" },
+			user: { email: "a@example.com", id: "user-a", name: "Account A" },
+		});
+		authQueryMocks.listDeviceSessions.mockResolvedValue([
+			{
+				session: { token: "session-a", userId: "user-a" },
+				user: { email: "a@example.com", id: "user-a", name: "Account A" },
+			},
+		]);
+		authQueryMocks.revokeDeviceSession.mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
@@ -81,14 +102,10 @@ describe("auth-form hooks", () => {
 		expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
 	});
 
-	it("clears old account queries after logout succeeds", async () => {
+	it("revokes only the current account and clears its cached data", async () => {
 		const queryClient = createQueryClient();
 		queryClient.setQueryData(["spaces", "list", "signed-in-user"], {
 			spaces: [],
-		});
-		authFormApiMocks.signOutSession.mockResolvedValue({
-			data: {},
-			error: null,
 		});
 
 		const { result } = renderHook(() => useLogoutAction(), {
@@ -100,6 +117,47 @@ describe("auth-form hooks", () => {
 		});
 
 		expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+		expect(authQueryMocks.revokeDeviceSession).toHaveBeenCalledWith(
+			"session-a"
+		);
+		expect(authFormApiMocks.signOutSession).not.toHaveBeenCalled();
+	});
+
+	it("preserves logout for a session created before multi-session was enabled", async () => {
+		authQueryMocks.listDeviceSessions.mockResolvedValue([]);
+		authFormApiMocks.signOutSession.mockResolvedValue({
+			data: {},
+			error: null,
+		});
+		const queryClient = createQueryClient();
+		const { result } = renderHook(() => useLogoutAction(), {
+			wrapper: createWrapper(queryClient),
+		});
+
+		await act(async () => {
+			await result.current.mutateAsync();
+		});
+
+		expect(authFormApiMocks.signOutSession).toHaveBeenCalledTimes(1);
+		expect(authQueryMocks.revokeDeviceSession).not.toHaveBeenCalled();
+	});
+
+	it("logs out of every stored account only through the explicit action", async () => {
+		authFormApiMocks.signOutSession.mockResolvedValue({
+			data: {},
+			error: null,
+		});
+		const queryClient = createQueryClient();
+		const { result } = renderHook(() => useLogoutAllAccountsAction(), {
+			wrapper: createWrapper(queryClient),
+		});
+
+		await act(async () => {
+			await result.current.mutateAsync();
+		});
+
+		expect(authFormApiMocks.signOutSession).toHaveBeenCalledTimes(1);
+		expect(authQueryMocks.listDeviceSessions).not.toHaveBeenCalled();
 	});
 
 	it("keeps the invitation accept redirect in sign-up verification emails", async () => {

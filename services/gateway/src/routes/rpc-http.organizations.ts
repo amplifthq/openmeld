@@ -14,11 +14,13 @@ import {
   getAgentProfileCreationApprovalPreferenceResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
+  organizationAgentRuntimeOverviewResponseSchema,
   organizationComputersResponseSchema,
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
   organizationMemberWebActivityResponseSchema,
+  organizationProfileDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
@@ -29,19 +31,25 @@ import {
   updateFeedbackReportingPolicyBodySchema,
   updateOrganizationInformationProtectionPolicyBodySchema,
 } from "@openmeld/schemas";
-import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
+import type {
+  OrganizationDirectoryResponse,
+  OrganizationProfileDirectoryResponse,
+} from "@openmeld/schemas/types";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
-  respondAgentProfileOrganizationOwnershipRequired,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { readJsonRequestBody } from "./rpc-http.parsers";
 
 const CURRENT_ORGANIZATION_DIRECTORY_ROUTE =
   "/v1/organizations/current/directory";
+const CURRENT_ORGANIZATION_PROFILE_DIRECTORY_ROUTE =
+  "/v1/organizations/current/profile-directory";
+const CURRENT_ORGANIZATION_AGENT_RUNTIME_OVERVIEW_ROUTE =
+  "/v1/organizations/current/agent-runtime-overview";
 const CURRENT_ORGANIZATION_COMPUTERS_ROUTE =
   "/v1/organizations/current/computers";
 const CURRENT_ORGANIZATION_MEMBER_OPENMELD_SERVICE_STATUSES_ROUTE =
@@ -59,12 +67,6 @@ const CURRENT_ORGANIZATION_INFORMATION_PROTECTION_ROUTE =
   "/v1/organizations/current/information-protection";
 const CURRENT_ORGANIZATION_FEEDBACK_REPORTING_POLICY_ROUTE =
   "/v1/organizations/current/feedback-reporting-policy";
-const ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE =
-  "/v1/organizations/:organizationId/binding-authorizations/bulk";
-const ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE =
-  "/v1/organizations/:organizationId/binding-authorizations/profiles";
-const ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE =
-  "/v1/organizations/:organizationId/binding-authorization-preference";
 const AGENT_PROFILE_CREATION_DEFAULTS_ROUTE =
   "/v1/organizations/:organizationId/agent-profile-creation-defaults/:agentControllerRef";
 const AGENT_PROFILE_CREATION_REQUESTS_ROUTE =
@@ -77,8 +79,6 @@ const AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE =
   "/v1/organizations/:organizationId/agent-profile-creation-requests/:requestId/retry";
 const AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE =
   "/v1/organizations/:organizationId/agent-profile-creation-approval-preference";
-const ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE =
-  "/v1/organizations/:organizationId/wake-access-choice";
 
 export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
   app.post(AGENT_PROFILE_CREATION_REQUESTS_ROUTE, async (c) => {
@@ -340,6 +340,59 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
+  app.get(CURRENT_ORGANIZATION_PROFILE_DIRECTORY_ROUTE, (c) => {
+    const includeHumanProfileLastUsedAt =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER
+      ) === "true";
+    const includeMemberLastActiveAt =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER
+      ) === "true";
+
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getCurrentOrganizationProfileDirectory({
+          context: buildCoreRpcContext(c),
+          ...(includeMemberLastActiveAt
+            ? { includeMemberLastActiveAt: true }
+            : {}),
+        }),
+      method: "GET",
+      resolveSuccessPayload: (result) =>
+        projectOrganizationProfileDirectoryResponse({
+          includeHumanProfileLastUsedAt,
+          includeMemberLastActiveAt,
+          result,
+        }),
+      responseSchema: organizationProfileDirectoryResponseSchema,
+      route: CURRENT_ORGANIZATION_PROFILE_DIRECTORY_ROUTE,
+    });
+  });
+
+  app.get(CURRENT_ORGANIZATION_AGENT_RUNTIME_OVERVIEW_ROUTE, (c) => {
+    const agentProfileWorkRecoveryVersion =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER
+      ) === "2"
+        ? 2
+        : undefined;
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getCurrentOrganizationAgentRuntimeOverview({
+          ...(agentProfileWorkRecoveryVersion
+            ? { agentProfileWorkRecoveryVersion }
+            : {}),
+          context: buildCoreRpcContext(c),
+        }),
+      method: "GET",
+      responseSchema: organizationAgentRuntimeOverviewResponseSchema,
+      route: CURRENT_ORGANIZATION_AGENT_RUNTIME_OVERVIEW_ROUTE,
+    });
+  });
+
   app.post(CURRENT_ORGANIZATION_MEMBER_WEB_ACTIVITY_ROUTE, (c) =>
     executeRpcRoute({
       c,
@@ -581,30 +634,6 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
-  app.post(ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_BINDING_AUTHORIZATIONS_BULK_ROUTE,
-      method: "POST",
-    })
-  );
-
-  app.get(ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE,
-      method: "GET",
-    })
-  );
-
-  app.get(ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
-      method: "GET",
-    })
-  );
-
   app.get(AGENT_PROFILE_CREATION_DEFAULTS_ROUTE, (c) => {
     const organizationId = c.req.param("organizationId")?.trim();
     const agentControllerRef = c.req.param("agentControllerRef")?.trim();
@@ -681,22 +710,6 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       route: AGENT_PROFILE_CREATION_DEFAULTS_ROUTE,
     });
   });
-
-  app.put(ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE,
-      method: "PUT",
-    })
-  );
-
-  app.put(ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE, (c) =>
-    respondAgentProfileOrganizationOwnershipRequired({
-      c,
-      route: ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE,
-      method: "PUT",
-    })
-  );
 }
 
 function readCreationRequestIdentifiers(c: {
@@ -746,30 +759,57 @@ function projectOrganizationDirectoryResponse(input: {
 
   return {
     ...parsed.data,
-    members: parsed.data.members.map((member) => {
-      const humanProfile = member.humanProfile;
-      return {
-        ...(input.includeMemberLastActiveAt && member.lastActiveAt
-          ? { lastActiveAt: member.lastActiveAt }
-          : {}),
-        memberId: member.memberId,
-        organizationId: member.organizationId,
-        userId: member.userId,
-        role: member.role,
-        joinedAt: member.joinedAt,
-        user: member.user,
-        humanProfile: humanProfile
-          ? {
-              ...(input.includeHumanProfileLastUsedAt && humanProfile.lastUsedAt
-                ? { lastUsedAt: humanProfile.lastUsedAt }
-                : {}),
-              profileId: humanProfile.profileId,
-              profileName: humanProfile.profileName,
-              profileHandle: humanProfile.profileHandle,
-              status: humanProfile.status,
-            }
-          : null,
-      };
-    }),
+    members: parsed.data.members.map((member) =>
+      projectOrganizationDirectoryMember({ ...input, member })
+    ),
   } satisfies OrganizationDirectoryResponse;
+}
+
+function projectOrganizationProfileDirectoryResponse(input: {
+  includeHumanProfileLastUsedAt: boolean;
+  includeMemberLastActiveAt: boolean;
+  result: unknown;
+}): unknown {
+  const parsed = organizationProfileDirectoryResponseSchema.safeParse(
+    input.result
+  );
+  if (!parsed.success) {
+    return input.result;
+  }
+  return {
+    ...parsed.data,
+    members: parsed.data.members.map((member) =>
+      projectOrganizationDirectoryMember({ ...input, member })
+    ),
+  } satisfies OrganizationProfileDirectoryResponse;
+}
+
+function projectOrganizationDirectoryMember(input: {
+  includeHumanProfileLastUsedAt: boolean;
+  includeMemberLastActiveAt: boolean;
+  member: OrganizationDirectoryResponse["members"][number];
+}): OrganizationDirectoryResponse["members"][number] {
+  const humanProfile = input.member.humanProfile;
+  return {
+    ...(input.includeMemberLastActiveAt && input.member.lastActiveAt
+      ? { lastActiveAt: input.member.lastActiveAt }
+      : {}),
+    memberId: input.member.memberId,
+    organizationId: input.member.organizationId,
+    userId: input.member.userId,
+    role: input.member.role,
+    joinedAt: input.member.joinedAt,
+    user: input.member.user,
+    humanProfile: humanProfile
+      ? {
+          ...(input.includeHumanProfileLastUsedAt && humanProfile.lastUsedAt
+            ? { lastUsedAt: humanProfile.lastUsedAt }
+            : {}),
+          profileId: humanProfile.profileId,
+          profileName: humanProfile.profileName,
+          profileHandle: humanProfile.profileHandle,
+          status: humanProfile.status,
+        }
+      : null,
+  };
 }

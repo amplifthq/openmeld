@@ -22,6 +22,7 @@ const {
   inspectDaemonServiceInventoryMock,
   isCancelMock,
   resolveDaemonServiceAlignmentDecisionMock,
+  resolveExternalOpenMeldToolsUpdateMock,
   runDaemonServiceFullAlignmentMock,
   scheduleDaemonServiceUpdateMock,
 } = vi.hoisted(() => ({
@@ -30,6 +31,7 @@ const {
   inspectDaemonServiceInventoryMock: vi.fn(),
   isCancelMock: vi.fn((value: unknown) => value === "__cancel__"),
   resolveDaemonServiceAlignmentDecisionMock: vi.fn(),
+  resolveExternalOpenMeldToolsUpdateMock: vi.fn(),
   runDaemonServiceFullAlignmentMock: vi.fn(),
   scheduleDaemonServiceUpdateMock: vi.fn(),
 }));
@@ -81,6 +83,11 @@ vi.mock(
   }
 );
 
+vi.mock("../src/local-service/maintenance/openmeld-tools-update-join", () => ({
+  resolveExternalOpenMeldToolsUpdate: (...args: unknown[]) =>
+    resolveExternalOpenMeldToolsUpdateMock(...args),
+}));
+
 vi.mock(
   "../src/local-service/lifecycle/daemon-service-alignment-executor",
   async () => {
@@ -117,6 +124,7 @@ describe("openmeld upgrade", () => {
       status: "already_aligned",
       reasonCodes: [],
     });
+    resolveExternalOpenMeldToolsUpdateMock.mockReset().mockResolvedValue(null);
     runDaemonServiceFullAlignmentMock.mockReset().mockResolvedValue({
       status: "aligned",
       targetVersion: "9.9.9",
@@ -161,6 +169,26 @@ describe("openmeld upgrade", () => {
       expect(stdout).toContain('"code":"upgrade.metadata.missing"');
       expect(stdout).toContain(MANUAL_OPENMELD_UPGRADE_COMMAND);
     });
+  });
+
+  it("joins an existing durable update without checking or downloading again", async () => {
+    resolveExternalOpenMeldToolsUpdateMock.mockResolvedValueOnce({
+      operationId: "update-operation-1",
+      phase: "updating",
+      requestSource: "automatic",
+      requestedAt: "2026-09-01T12:27:00.000Z",
+      targetVersion: "0.3.139",
+      updatedAt: "2026-09-01T12:27:01.000Z",
+      urgency: "required",
+    });
+
+    const { stdout } = await withCapturedStdio(async () => {
+      await runUpgrade({ view: "human", yes: true });
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(stdout).toContain("An OpenMeld update is already in progress.");
+    expect(stdout).toContain("You can close this Terminal.");
   });
 
   it("emits structured check result in agent view", async () => {

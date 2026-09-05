@@ -23,7 +23,6 @@ const organizationStatements = {
   feedback: ["manage"],
   organizationDocuments: ["saveApprovedKnowledge"],
   project: ["create", "manage", "archive"],
-  wakeAccess: ["manage"],
   workingLanguage: ["manage"],
 } as const;
 
@@ -49,7 +48,6 @@ export const owner = organizationAccessControl.newRole({
   feedback: ["manage"],
   organizationDocuments: ["saveApprovedKnowledge"],
   project: ["create", "manage", "archive"],
-  wakeAccess: ["manage"],
   workingLanguage: ["manage"],
 });
 
@@ -66,7 +64,6 @@ export const admin = organizationAccessControl.newRole({
   feedback: ["manage"],
   organizationDocuments: ["saveApprovedKnowledge"],
   project: ["create"],
-  wakeAccess: ["manage"],
   workingLanguage: ["manage"],
 });
 

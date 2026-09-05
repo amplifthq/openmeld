@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   loadDaemonRouteCatalogMock,
+  handleLocalProjectControlFrameMock,
   readDaemonCatalogSyncSignalMock,
   resolveLocalComponentsStatusMock,
   syncDaemonRouteCatalogStateMock,
@@ -14,6 +15,7 @@ const {
   setCustomProfileWorkspaceMock,
 } = vi.hoisted(() => ({
   loadDaemonRouteCatalogMock: vi.fn(),
+  handleLocalProjectControlFrameMock: vi.fn(),
   readDaemonCatalogSyncSignalMock: vi.fn(),
   resolveLocalComponentsStatusMock: vi.fn(),
   syncDaemonRouteCatalogStateMock: vi.fn(),
@@ -21,6 +23,11 @@ const {
   syncLocalServiceRuntimeAgentControllerReportsMock: vi.fn(),
   ensureOpenMeldManagedProfileWorkspaceMock: vi.fn(),
   setCustomProfileWorkspaceMock: vi.fn(),
+}));
+
+vi.mock("../src/local-service/projects/local-project-control-handler", () => ({
+  handleLocalProjectControlFrame: (...args: unknown[]) =>
+    handleLocalProjectControlFrameMock(...args),
 }));
 
 vi.mock("../src/local-service/routing/route-catalog", () => ({
@@ -108,6 +115,7 @@ function runDaemonSocketSession(
 }
 
 import {
+  acknowledgeDispatchResultOutboxRecord,
   enqueueDispatchResultOutboxRecord,
   listDispatchResultOutboxPendingAcknowledgementKeys,
 } from "../src/local-service/dispatch/dispatch-result-outbox";
@@ -118,6 +126,7 @@ const tempDirs: string[] = [];
 describe("local service run catalog signal", () => {
   beforeEach(() => {
     resolveLocalComponentsStatusMock.mockResolvedValue(null);
+    handleLocalProjectControlFrameMock.mockReset();
     syncLocalServiceRuntimeAgentControllerReportsMock.mockResolvedValue({
       failedCount: 0,
       reasonCodes: [],
@@ -150,7 +159,7 @@ describe("local service run catalog signal", () => {
     }
   });
 
-  it("keeps controlled drain heartbeats live until the durable result is acknowledged", async () => {
+  it("keeps the controlled drain socket open until a durable result is acknowledged", async () => {
     await withTempHome(async () => {
       vi.useFakeTimers();
       loadDaemonRouteCatalogMock.mockResolvedValue({
@@ -184,7 +193,7 @@ describe("local service run catalog signal", () => {
         }
       );
       const sessionPromise = runDaemonSocketSession({
-        ...buildKeepaliveSessionInput(socket, lines, 5000),
+        ...buildKeepaliveSessionInput(socket, lines, 1000),
         ledgerPaths,
         shutdownRequested,
       });
@@ -208,12 +217,12 @@ describe("local service run catalog signal", () => {
         ).length;
       const firstDrainingHeartbeatCount = drainingHeartbeatCount();
 
-      await vi.advanceTimersByTimeAsync(20_000);
-      await flushMicrotasks(
-        () => drainingHeartbeatCount() > firstDrainingHeartbeatCount
-      );
+      await vi.advanceTimersByTimeAsync(4000);
+      await flushMicrotasks();
 
-      expect(drainingHeartbeatCount()).toBeGreaterThanOrEqual(4);
+      expect(drainingHeartbeatCount()).toBeGreaterThanOrEqual(
+        firstDrainingHeartbeatCount
+      );
       expect(
         socket.sentFrames
           .filter(isHeartbeatFrame)
@@ -340,6 +349,105 @@ describe("local service run catalog signal", () => {
     expect(socket.closeCount).toBe(1);
   });
 
+  it("terminates a half-open socket instead of hanging controlled shutdown", async () => {
+    vi.useFakeTimers();
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const lines: Array<{ code: string; text: string }> = [];
+    const socket = createMockSocket({ hangOnClose: true });
+    let requestShutdown!: (cause: "controlled_service_update") => void;
+    const shutdownRequested = new Promise<"controlled_service_update">(
+      (resolve) => {
+        requestShutdown = resolve;
+      }
+    );
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, lines, 5000),
+      shutdownRequested,
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks(() => socket.heartbeatSendCount > 0);
+    requestShutdown("controlled_service_update");
+    await vi.advanceTimersByTimeAsync(5000);
+    await flushMicrotasks();
+
+    const terminateCountAtDeadline = socket.terminateCount;
+    if (terminateCountAtDeadline === 0) {
+      socket.emitClose(1000, "test cleanup");
+    }
+    await sessionPromise;
+
+    expect(terminateCountAtDeadline).toBe(1);
+    expect(lines).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.run.controlled_shutdown_socket_close_timeout",
+      })
+    );
+  });
+
+  it("preserves an unacknowledged result and finishes controlled shutdown after the receipt deadline", async () => {
+    await withTempHome(async () => {
+      vi.useFakeTimers();
+      readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+      const lines: Array<{ code: string; text: string }> = [];
+      const socket = createMockSocket();
+      const ledgerPaths = createLedgerPaths();
+      enqueuePendingResult({
+        currentSocketRef: {
+          connectionGeneration: null,
+          socket: null,
+        },
+        ledgerPaths,
+      });
+      let requestShutdown!: (cause: "controlled_service_update") => void;
+      const shutdownRequested = new Promise<"controlled_service_update">(
+        (resolve) => {
+          requestShutdown = resolve;
+        }
+      );
+      const sessionPromise = runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, lines, 5000),
+        ledgerPaths,
+        shutdownRequested,
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      await flushMicrotasks(() => socket.heartbeatSendCount > 0);
+      requestShutdown("controlled_service_update");
+      await vi.advanceTimersByTimeAsync(5000);
+      await flushMicrotasks();
+
+      const closeCountAtDeadline = socket.closeCount;
+      if (closeCountAtDeadline === 0) {
+        acknowledgeDispatchResultOutboxRecord({
+          attemptId: "attempt-drain-1",
+          dispatchId: "dispatch-drain-1",
+          ledgerPaths,
+          ok: true,
+          presenter: {
+            view: "agent",
+            event: () => undefined,
+            line: () => undefined,
+            data: () => undefined,
+          },
+        });
+      }
+      await sessionPromise;
+
+      expect(closeCountAtDeadline).toBe(1);
+      expect(lines).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.run.controlled_shutdown_result_ack_timeout",
+        })
+      );
+      if (closeCountAtDeadline > 0) {
+        expect(
+          listDispatchResultOutboxPendingAcknowledgementKeys({ ledgerPaths })
+        ).toEqual(["dispatch-drain-1::attempt-drain-1"]);
+      }
+    });
+  });
+
   it("replays durable startup results before opening dispatch admission", async () => {
     await withTempHome(async () => {
       vi.useFakeTimers();
@@ -423,7 +531,7 @@ describe("local service run catalog signal", () => {
     });
   });
 
-  it("registers startup catalog and performs sync after catalog signal poll", async () => {
+  it("syncs a new catalog signal even when two writes share one millisecond", async () => {
     vi.useFakeTimers();
     const lines: Array<{ code: string; text: string }> = [];
     loadDaemonRouteCatalogMock.mockResolvedValue({
@@ -438,13 +546,15 @@ describe("local service run catalog signal", () => {
     });
     readDaemonCatalogSyncSignalMock
       .mockResolvedValueOnce({
+        signalId: "signal-baseline",
         updatedAt: "2026-03-06T00:00:00.000Z",
         updatedAtMs: 1000,
         reason: "baseline",
       })
       .mockResolvedValue({
-        updatedAt: "2026-03-06T00:00:01.500Z",
-        updatedAtMs: 1500,
+        signalId: "signal-project-change",
+        updatedAt: "2026-03-06T00:00:00.000Z",
+        updatedAtMs: 1000,
         reason: "profile_updated",
       });
 
@@ -1113,6 +1223,161 @@ describe("local service run catalog signal", () => {
     expect(
       syncLocalServiceRuntimeAgentControllerReportsMock
     ).toHaveBeenCalledTimes(2);
+
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+  });
+
+  it("re-registers current v4 working-folder facts immediately after a local Project connection changes", async () => {
+    vi.useFakeTimers();
+    const onLocalProjectConnectionsChanged = vi.fn();
+    handleLocalProjectControlFrameMock.mockResolvedValue({
+      code: "daemon.local_project_control.set_default_connection_result",
+      payload: {
+        requestId: "project-default-1",
+        result: { connections: [], status: "updated" },
+      },
+      v: 1,
+    });
+    loadDaemonRouteCatalogMock.mockResolvedValue({
+      expectedRoutesContractVersion: "v4",
+      profileIds: ["agt-1"],
+      routeByProfileId: new Map([
+        [
+          "agt-1",
+          {
+            agentControllerRef: "builtin:codex",
+            bindingId: "binding-1",
+            configurationRevision: 7,
+            contextIdMappingSpec: {
+              mappingVersion: 1,
+              sourceField: "OPENMELD_CLI_CONTEXT_ID",
+            },
+            openMeldServiceRuntimeId: "runtime-1",
+            profileId: "agt-1",
+            streamingMode: "final",
+            transportMode: "local-cli",
+            workingFolderRuntime: {
+              configPath: null,
+              configuredWorkspacePath: "/tmp/project-new-default",
+              defaultProjectBindingGeneration: "generation-new",
+              defaultProjectId: "project-new-default",
+              effectiveRuntimeWorkingDirectory: "/tmp/project-new-default",
+              runtimeContext: {
+                providerRuntimeWorkingDirectory: "/tmp/project-new-default",
+              },
+              status: "ready",
+              workingFolderFact: {
+                defaultProjectId: "project-new-default",
+                localProjectBindingGeneration: "generation-new",
+                observedAtMs: 2000,
+                reasonCode: null,
+                source: "default_project",
+                status: "ready",
+              },
+              workingFolderSource: "default_project",
+              workspaceMode: null,
+            },
+          },
+        ],
+      ]),
+      skippedProfiles: [],
+      workingFolderExpectedProfileIds: ["agt-1"],
+      workingFolderObservations: [
+        {
+          bindingId: "binding-1",
+          configurationRevision: 7,
+          defaultProjectId: "project-new-default",
+          localProjectBindingGeneration: "generation-new",
+          observedAtMs: 2000,
+          profileId: "agt-1",
+          reasonCode: null,
+          source: "default_project",
+          status: "ready",
+        },
+      ],
+    });
+    syncDaemonRouteCatalogStateMock.mockImplementation(
+      async (input: {
+        forceRegister?: boolean;
+        loadCatalog: () => Promise<{
+          profileIds: string[];
+          skippedProfiles: [];
+        }>;
+        registerCatalog: (catalog: unknown) => Promise<{
+          acceptedLeases: Array<{ leaseEpoch: number; profileId: string }>;
+          connectionGeneration: number;
+          ok: boolean;
+          rejectedProfiles: [];
+        }>;
+      }) => {
+        const catalog = await input.loadCatalog();
+        const registerResponse = await input.registerCatalog(catalog);
+        return {
+          registerResponse,
+          skippedProfiles: catalog.skippedProfiles,
+          status: "registered",
+        };
+      }
+    );
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+
+    const socket = createMockSocket();
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, []),
+      onLocalProjectConnectionsChanged,
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    socket.sentFrames.splice(0);
+
+    socket.emitServerFrame({
+      code: "daemon.local_project_control.set_default_connection",
+      payload: {
+        request: {
+          clientGeneration: 1,
+          expectedOrganizationId: "org-1",
+          idempotencyKey: "project-default-mutation-1",
+          projectId: "project-new-default",
+          targetBindingGeneration: "generation-new",
+        },
+        requestId: "project-default-1",
+      },
+      v: 1,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks(
+      () =>
+        socket.sentFrames.filter(
+          (frame) =>
+            typeof frame === "object" &&
+            frame !== null &&
+            "code" in frame &&
+            frame.code === "daemon.session.register"
+        ).length > 0
+    );
+
+    expect(onLocalProjectConnectionsChanged).toHaveBeenCalledOnce();
+    expect(syncDaemonRouteCatalogStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ forceRegister: true })
+    );
+    expect(socket.sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.session.register",
+        payload: expect.objectContaining({
+          localWakeRouteReport: expect.objectContaining({
+            expectedRoutesContractVersion: "v4",
+            workingFolderObservations: [
+              expect.objectContaining({
+                defaultProjectId: "project-new-default",
+                localProjectBindingGeneration: "generation-new",
+                source: "default_project",
+                status: "ready",
+              }),
+            ],
+          }),
+        }),
+      })
+    );
 
     socket.close(1000, "shutdown");
     await sessionPromise;

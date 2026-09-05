@@ -67,6 +67,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						kind: "status",
 						step: {
 							description: "OpenMeld accepted the Stop request.",
+							kind: "sent",
 							label: "Stop requested",
 							status: "complete",
 						},
@@ -118,6 +119,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						phase: "publishing",
 						step: {
 							description: "OpenMeld is finalizing the reply.",
+							kind: "posting",
 							label: "Finalizing reply",
 							status: "active",
 						},
@@ -141,6 +143,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						phase: "sending",
 						step: {
 							description: "OpenMeld is sending the Wake request.",
+							kind: "starting",
 							label: "Sending to agent",
 							status: "active",
 						},
@@ -160,7 +163,12 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		render(
 			<SpaceMessageWakeThinkingIndicator
-				entries={[createThinkingEntry({ elapsedStartedAtMs: STARTED_AT_MS })]}
+				entries={[
+					createThinkingEntry({
+						elapsedStartedAtMs: STARTED_AT_MS,
+						lastEvidenceAtMs: STARTED_AT_MS,
+					}),
+				]}
 			/>
 		);
 
@@ -179,7 +187,8 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 			<SpaceMessageWakeThinkingIndicator
 				entries={[
 					createThinkingEntry({
-						elapsedStartedAtMs: STARTED_AT_MS + 20_000,
+						elapsedStartedAtMs: STARTED_AT_MS,
+						lastEvidenceAtMs: STARTED_AT_MS + 20_000,
 					}),
 				]}
 			/>
@@ -187,7 +196,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe("Agent is working · 30s");
+		).toBe("Agent is working · 50s");
 	});
 
 	it("right-aligns self message progress without an extra leading offset", () => {
@@ -199,6 +208,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						elapsedStartedAtMs: null,
 						step: {
 							description: "This agent was included in the Wake.",
+							kind: "sent",
 							label: "Wake started",
 							status: "complete",
 						},
@@ -230,11 +240,13 @@ function createThinkingEntry(
 	const targetProfileId = input.targetProfileId ?? "agt_runner";
 	return {
 		elapsedStartedAtMs: input.elapsedStartedAtMs,
+		lastEvidenceAtMs: input.lastEvidenceAtMs ?? input.elapsedStartedAtMs,
 		key: input.key ?? `dispatch:${targetProfileId}`,
 		kind: input.kind ?? "progress",
 		phase: input.phase ?? (input.kind === "preview" ? "writing" : "running"),
 		step: input.step ?? {
 			description: "OpenMeld is running the agent.",
+			kind: "working",
 			label: "Agent is working",
 			status: "active",
 		},

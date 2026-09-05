@@ -95,7 +95,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 		render(<CurrentComputerToolbarLauncher />);
 
 		const launcher = screen.getByRole("link", {
-			name: "Open Felix's MacBook Pro details, Status unavailable",
+			name: "Open Felix's MacBook Pro details, Connection status delayed",
 		});
 		expect(launcher.getAttribute("href")).toBe(
 			"/o/acme/computers/device-current"
@@ -168,7 +168,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 		render(<CurrentComputerToolbarLauncher />);
 
 		expect(screen.getByTestId("current-computer-toolbar-status")).toBeTruthy();
-		expect(screen.getByLabelText("Computer, Couldn't check")).toBeTruthy();
+		expect(screen.getByLabelText("Computer, Check delayed")).toBeTruthy();
 	});
 
 	it("opens Computers when Computer inventory cannot be loaded", () => {
@@ -226,7 +226,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 		render(<CurrentComputerToolbarLauncher />);
 
 		const launcher = screen.getByRole("link", {
-			name: "Open Current MacBook Pro details, Status unavailable",
+			name: "Open Current MacBook Pro details, Connection status delayed",
 		});
 		expect(launcher.getAttribute("href")).toBe(
 			"/o/acme/computers/device-current"
@@ -296,7 +296,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 
 	it("keeps warning attention visible while status refreshes in the background", () => {
 		statusMock.mockReturnValue({
-			label: "Couldn't check",
+			label: "Check delayed",
 			reason: "agent_check_failed",
 			showLabel: true,
 			tone: "warning",
@@ -315,7 +315,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(screen.getByTestId("current-computer-toolbar-status")).toBeTruthy();
 		expect(
 			screen.getByRole("link", {
-				name: "Open Felix's MacBook Pro details, Couldn't check",
+				name: "Open Felix's MacBook Pro details, Check delayed",
 			})
 		).toBeTruthy();
 		expect(statusMock).toHaveBeenCalledWith({
@@ -354,7 +354,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(screen.getByTestId("current-computer-toolbar-status")).toBeTruthy();
 		expect(
 			screen.getByRole("link", {
-				name: "Open Felix's MacBook Pro details, Couldn't check",
+				name: "Open Felix's MacBook Pro details, Check delayed",
 			})
 		).toBeTruthy();
 	});
@@ -385,14 +385,14 @@ describe("CurrentComputerToolbarLauncher", () => {
 		expect(screen.queryByTestId("current-computer-toolbar-status")).toBeNull();
 		expect(
 			screen.getByRole("link", {
-				name: "Open Current MacBook Pro details, Status unavailable",
+				name: "Open Current MacBook Pro details, Connection status delayed",
 			})
 		).toBeTruthy();
 	});
 
 	it("stores only the coarse attention snapshot after live readiness resolves", async () => {
 		statusMock.mockReturnValue({
-			label: "Couldn't check",
+			label: "Check delayed",
 			reason: "agent_check_failed",
 			showLabel: true,
 			tone: "warning",

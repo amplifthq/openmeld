@@ -20,14 +20,14 @@ import { Route as SettingsGeneralRoute } from "./settings/general";
 
 const ORGANIZATION_HEADING_NAME = /organization/i;
 const getAppSidebarStatesForRouteMock = vi.hoisted(() => vi.fn());
-const prefetchAgentsRouteDataMock = vi.hoisted(() => vi.fn());
+const prefetchAgentsRouteIdentityDataMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/lib/sidebar-width-cookie", () => ({
 	getAppSidebarStatesForRoute: getAppSidebarStatesForRouteMock,
 }));
 
 vi.mock("#/lib/organizations/app-route-prefetch", () => ({
-	prefetchAgentsRouteData: prefetchAgentsRouteDataMock,
+	prefetchAgentsRouteIdentityData: prefetchAgentsRouteIdentityDataMock,
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -147,7 +147,7 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 
 beforeEach(() => {
 	getAppSidebarStatesForRouteMock.mockReset().mockResolvedValue(undefined);
-	prefetchAgentsRouteDataMock.mockReset().mockResolvedValue(undefined);
+	prefetchAgentsRouteIdentityDataMock.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(cleanup);
@@ -166,6 +166,12 @@ describe("primary organization routes", () => {
 		} as never);
 
 		expect(getAppSidebarStatesForRouteMock).toHaveBeenCalledWith("agents");
+		expect(prefetchAgentsRouteIdentityDataMock).toHaveBeenCalledWith({
+			organizationSlug: "acme",
+			queryClient: {},
+			queryPersistence: {},
+			routeFamily: "/o/acme/agents",
+		});
 	});
 
 	it("renders Project child routes through the Projects layout", () => {

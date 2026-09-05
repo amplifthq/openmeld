@@ -44,6 +44,7 @@ export type SpaceConversationBubbleRun = {
 	speaker: {
 		controllerDisplay: string | null;
 		agentControllerRef: string | null;
+		agentControllerPending?: boolean;
 		avatarImageUrl: string | null;
 		displayName: string;
 		ownerDisplay: string | null;
@@ -137,6 +138,7 @@ export function buildSpaceConversationEntries(input: {
 				speaker: {
 					controllerDisplay: item.actorControllerDisplay,
 					agentControllerRef: item.actorAgentControllerRef,
+					agentControllerPending: item.actorAgentControllerPending,
 					avatarImageUrl: item.actorAvatarImageUrl,
 					displayName: item.actorName,
 					ownerDisplay: item.actorOwnerDisplay,
@@ -387,7 +389,7 @@ function resolveSpaceMemberStatusBadgeTooltip(
 
 	switch (entry.presenceStatus) {
 		case "live":
-			return entry.profileKind === "agent" ? "Live agent" : "Live human";
+			return entry.profileKind === "agent" ? "Live agent" : "Live person";
 		case "wakeable":
 			return "Available for Wake";
 		case "checking_connection":
@@ -469,7 +471,7 @@ function resolveLiveSummaryText(snapshot: SpaceMembersSnapshot): string {
 	}
 	if (liveHumanCount > 0) {
 		parts.push(
-			`${String(liveHumanCount)} live human${liveHumanCount === 1 ? "" : "s"}`
+			`${String(liveHumanCount)} ${liveHumanCount === 1 ? "person" : "people"} live`
 		);
 	}
 

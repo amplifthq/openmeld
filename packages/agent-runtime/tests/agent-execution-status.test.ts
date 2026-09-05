@@ -91,7 +91,7 @@ describe("agent execution status projection", () => {
     ["codex", "builtin:codex"],
     ["opencode", "builtin:opencode"],
     ["openclaw", "builtin:openclaw"],
-  ] as const)("blocks an otherwise ready %s agent when fresh provider account evidence is negative", (provider, agentControllerRef) => {
+  ] as const)("keeps an earlier %s provider failure diagnostic when current facts are ready", (provider, agentControllerRef) => {
     const projection = resolveAgentExecutionStatus({
       agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
       binding: createAgentProfileBindingDisplayProjection({
@@ -120,8 +120,8 @@ describe("agent execution status projection", () => {
     });
 
     expect(projection).toMatchObject({
-      displayState: "blocked",
-      primaryAction: "fix_provider_account",
+      displayState: "ready",
+      primaryAction: "none",
       facts: {
         providerAccount: {
           blocked: true,
@@ -131,12 +131,12 @@ describe("agent execution status projection", () => {
         },
       },
     });
-    expect(projection.reasonCodes).toContain(
+    expect(projection.reasonCodes).not.toContain(
       "provider_account.subscription_access_unavailable"
     );
   });
 
-  it("projects a fresh hard quota failure as provider unavailable", () => {
+  it("does not turn an earlier hard quota failure into current provider availability", () => {
     const projection = resolveAgentExecutionStatus({
       agentProfileId: "agt_11111111-1111-4111-8111-111111111111",
       binding: createAgentProfileBindingDisplayProjection({
@@ -165,10 +165,10 @@ describe("agent execution status projection", () => {
     });
 
     expect(projection).toMatchObject({
-      displayState: "blocked",
-      primaryAction: "fix_provider_account",
+      displayState: "ready",
+      primaryAction: "none",
     });
-    expect(projection.reasonCodes).toContain(
+    expect(projection.reasonCodes).not.toContain(
       "provider_account.capacity_exhausted"
     );
   });
@@ -223,12 +223,12 @@ describe("agent execution status projection", () => {
         },
       },
     });
-    expect(projection.reasonCodes).toContain(
+    expect(projection.reasonCodes).not.toContain(
       "provider_conversation.proof_failed"
     );
   });
 
-  it("blocks an otherwise ready agent when a fresh execution readiness impact exists", () => {
+  it("keeps historical Wake failure impact diagnostic without deciding current Wakeability", () => {
     for (const reasonCode of [
       "controller.launch.choice_required",
       "controller.launch.needs_repair",
@@ -266,8 +266,8 @@ describe("agent execution status projection", () => {
       });
 
       expect(projection).toMatchObject({
-        displayState: "blocked",
-        primaryAction: "run_prepare",
+        displayState: "ready",
+        primaryAction: "none",
         facts: {
           readinessImpact: {
             blocked: true,
@@ -277,7 +277,7 @@ describe("agent execution status projection", () => {
           },
         },
       });
-      expect(projection.reasonCodes).toContain(reasonCode);
+      expect(projection.reasonCodes).not.toContain(reasonCode);
     }
   });
 

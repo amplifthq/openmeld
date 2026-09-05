@@ -499,6 +499,9 @@ function planAgentRecoveryFromExecutionPrimaryAction(input: {
     case "reconnect_binding":
       return planBindingRecoveryFromPrimaryAction(input);
     case "run_prepare":
+      if (input.reasonCode === null) {
+        return null;
+      }
       if (isServiceOrConnectionReasonCode(input.reasonCode)) {
         return planReviewComputerRecovery({
           member: input.member,
@@ -509,7 +512,7 @@ function planAgentRecoveryFromExecutionPrimaryAction(input: {
       return planAgentProfilePreparationRecovery({
         member: input.member,
         profileName: input.profileName,
-        reasonCode: input.reasonCode ?? "runtime.projection_missing",
+        reasonCode: input.reasonCode,
       });
     case "update_service":
       return planReviewComputerRecovery({
@@ -518,6 +521,9 @@ function planAgentRecoveryFromExecutionPrimaryAction(input: {
         reasonCode: "service.update_required",
       });
     case "fix_provider_account":
+      if (input.reasonCode === null) {
+        return null;
+      }
       return planProviderAccountRecovery({
         member: input.member,
         profileName: input.profileName,
@@ -675,8 +681,6 @@ function getAgentExecutionReadinessReasonCodes(
     ...readiness.facts.profile.reasonCodes,
     ...readiness.facts.binding.reasonCodes,
     ...readiness.facts.claim.reasonCodes,
-    ...readiness.facts.providerAccount.reasonCodes,
-    ...readiness.facts.readinessImpact.reasonCodes,
     ...readiness.facts.localService.reasonCodes,
     ...readiness.facts.service.reasonCodes,
     ...readiness.facts.route.reasonCodes,
@@ -894,25 +898,24 @@ function planPreparedAgentRouteReconnectRecovery(input: {
 function planProviderAccountRecovery(input: {
   member: SpaceMemberAgentSnapshot;
   profileName: string;
-  reasonCode: AgentProfileReplyRecoveryReasonCode | null;
+  reasonCode: AgentProfileReplyRecoveryReasonCode;
 }): AgentProfileReplyRecoveryPlan {
-  const reasonCode =
-    resolveMemberLocalRecoveryReadiness(input.member)?.facts.providerAccount
-      .reasonCodes[0] ??
-    input.reasonCode ??
-    "provider_account.access_required";
   const copy = resolveSharedRecoveryCopy({
     profileName: input.profileName,
-    reasonCode,
+    reasonCode: input.reasonCode,
   });
 
   return {
     body: copy.body,
     kind: "review_provider_account",
-    ...createPrimaryAction("review_agent_settings"),
+    ...createPrimaryAction(
+      input.reasonCode === "cursor.plan_upgrade_required"
+        ? "manage_cursor_plan"
+        : "review_agent_settings"
+    ),
     profileId: input.member.profileId,
     profileName: input.profileName,
-    recoveryReasonCode: reasonCode,
+    recoveryReasonCode: input.reasonCode,
     secondaryLabel: copy.secondaryLabel,
     title: copy.title,
   };
@@ -1008,9 +1011,7 @@ function hasReadyAgentExecutionEvidenceExceptRoute(
   return Boolean(
     readiness?.facts.binding.routable &&
       readiness.facts.runtime.ready &&
-      !readiness.facts.claim.executionBlocked &&
-      !readiness.facts.providerAccount.blocked &&
-      !readiness.facts.readinessImpact.blocked
+      !readiness.facts.claim.executionBlocked
   );
 }
 
@@ -1027,8 +1028,6 @@ function resolveMemberReadinessReasonCodes(
     ...readiness.facts.profile.reasonCodes,
     ...readiness.facts.binding.reasonCodes,
     ...readiness.facts.claim.reasonCodes,
-    ...readiness.facts.providerAccount.reasonCodes,
-    ...readiness.facts.readinessImpact.reasonCodes,
     ...readiness.facts.localService.reasonCodes,
     ...readiness.facts.service.reasonCodes,
     ...readiness.facts.route.reasonCodes,

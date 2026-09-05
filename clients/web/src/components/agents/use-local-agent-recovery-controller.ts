@@ -1195,7 +1195,7 @@ function buildSetupStateRefreshQueries(input: {
 	return queries;
 }
 
-function resolveAgentExecutionReadinessState(input: {
+export function resolveAgentExecutionReadinessState(input: {
 	agentProfiles: readonly { openMeldProfileId: string }[];
 	queryBatches: readonly {
 		profileIds: readonly string[];
@@ -1236,7 +1236,11 @@ function resolveAgentExecutionReadinessState(input: {
 					query.error?.message ?? "OpenMeld could not load agent readiness."
 				);
 			}
-			if (query?.fetchStatus === "fetching" && input.agentProfiles.length > 0) {
+			if (
+				query?.fetchStatus === "fetching" &&
+				!readiness &&
+				input.agentProfiles.length > 0
+			) {
 				pendingProfileIds.add(profileId);
 			}
 		}

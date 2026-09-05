@@ -15,6 +15,36 @@ export const agentProfileBindingRouteParamsSchema = z.strictObject({
   agentProfileId: boundedIdentifierSchema,
 });
 
+export const currentAgentProfileSessionLookupQuerySchema = z.strictObject({
+  agentControllerConversationId: agentActivityNativeSessionIdSchema,
+  agentControllerRef: boundedIdentifierSchema,
+});
+
+const currentAgentProfileSessionLookupIdentitySchema = z.strictObject({
+  profileId: boundedIdentifierSchema,
+  profileName: boundedIdentifierSchema,
+  profileOrganizationId: boundedIdentifierSchema,
+});
+
+export const currentAgentProfileSessionLookupResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      currentOrganizationId: boundedIdentifierSchema,
+      status: z.literal("not_found"),
+    }),
+    z.strictObject({
+      currentOrganizationId: boundedIdentifierSchema,
+      profile: currentAgentProfileSessionLookupIdentitySchema,
+      sameOrganization: z.boolean(),
+      status: z.literal("found"),
+    }),
+    z.strictObject({
+      currentOrganizationId: boundedIdentifierSchema,
+      reasonCode: reasonCodeSchema,
+      status: z.literal("unavailable"),
+    }),
+  ]);
+
 export const getAgentProfileControllerChangeEligibilityResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
@@ -141,64 +171,6 @@ export const updateAgentProfilePrimaryBindingOpenCodePermissionBodySchema =
     openCodePermission: agentProfileBindingOpenCodePermissionSchema.nullable(),
   });
 
-export const authorizeAgentProfileBindingForOrganizationResponseSchema =
-  z.strictObject({
-    agentProfileId: boundedIdentifierSchema,
-    authorizedBy: boundedIdentifierSchema,
-    bindingId: boundedIdentifierSchema,
-    createdAt: z.iso.datetime({ offset: true }),
-    organizationId: boundedIdentifierSchema,
-    status: z.enum(["authorized", "already_authorized"]),
-  });
-
-export const organizationBindingAuthorizationSchema = z.strictObject({
-  agentProfileId: boundedIdentifierSchema,
-  authorizedBy: boundedIdentifierSchema,
-  bindingId: boundedIdentifierSchema,
-  createdAt: z.iso.datetime({ offset: true }),
-});
-
-export const bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema =
-  z.strictObject({
-    agentProfileIds: z
-      .array(boundedIdentifierSchema)
-      .min(1)
-      .max(100)
-      .optional(),
-  });
-
-export const bulkOrganizationBindingAuthorizationSchema =
-  organizationBindingAuthorizationSchema.extend({
-    organizationId: boundedIdentifierSchema,
-    status: z.enum(["authorized", "already_authorized"]),
-  });
-
-export const bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema =
-  z.strictObject({
-    alreadyAuthorizedCount: z.number().int().nonnegative(),
-    authorizedCount: z.number().int().nonnegative(),
-    authorizations: z.array(bulkOrganizationBindingAuthorizationSchema),
-    organizationId: boundedIdentifierSchema,
-  });
-
-export const organizationBindingAuthorizationPreferenceSchema = z.strictObject({
-  autoAuthorizeAgentProfileBindings: z.boolean(),
-  organizationId: boundedIdentifierSchema,
-  updatedAt: z.iso.datetime({ offset: true }).nullable(),
-  userId: boundedIdentifierSchema,
-});
-
-export const setOrganizationBindingAuthorizationPreferenceBodySchema =
-  z.strictObject({
-    autoAuthorizeAgentProfileBindings: z.boolean(),
-  });
-
-export const getOrganizationBindingAuthorizationPreferenceResponseSchema =
-  organizationBindingAuthorizationPreferenceSchema;
-
-export const setOrganizationBindingAuthorizationPreferenceResponseSchema =
-  organizationBindingAuthorizationPreferenceSchema;
-
 const agentProfileCreationDefaultsFields = {
   agentControllerCollaborationMode:
     agentControllerCollaborationModeSchema.nullable(),
@@ -256,73 +228,6 @@ export const listAgentProfileCreationDefaultsResponseSchema = z.strictObject({
   organizationId: boundedIdentifierSchema,
   userId: boundedIdentifierSchema,
 });
-
-export const saveOrganizationWakeAccessChoiceBodySchema = z.strictObject({
-  enableWakeAccess: z.boolean(),
-});
-
-export const saveOrganizationWakeAccessChoiceResponseSchema = z.strictObject({
-  alreadyAuthorizedCount: z.number().int().nonnegative(),
-  authorizedCount: z.number().int().nonnegative(),
-  organizationId: boundedIdentifierSchema,
-  preference: organizationBindingAuthorizationPreferenceSchema,
-});
-
-export const listOrganizationBindingAuthorizationsResponseSchema =
-  z.strictObject({
-    organizationId: boundedIdentifierSchema,
-    authorizations: z.array(organizationBindingAuthorizationSchema),
-  });
-
-export const organizationBindingAuthorizationProfileStatusSchema = z.enum([
-  "authorized",
-  "not_authorized",
-  "binding_required",
-]);
-
-export const organizationBindingAuthorizationProfileSchema = z.strictObject({
-  agentProfileId: boundedIdentifierSchema,
-  profileName: z.string().trim().min(1).max(256),
-  profileHandle: z.string().trim().min(1).max(256),
-  profileOrganizationId: boundedIdentifierSchema,
-  ownerUserId: boundedIdentifierSchema,
-  bindingId: boundedIdentifierSchema.nullable(),
-  authorized: z.boolean(),
-  authorizedBy: boundedIdentifierSchema.nullable(),
-  authorizedAt: z.iso.datetime({ offset: true }).nullable(),
-  status: organizationBindingAuthorizationProfileStatusSchema,
-});
-
-export const listOrganizationBindingAuthorizationProfilesResponseSchema =
-  z.strictObject({
-    organizationId: boundedIdentifierSchema,
-    profiles: z.array(organizationBindingAuthorizationProfileSchema),
-  });
-
-export const agentProfileOrganizationWakeAccessEntrySchema = z.strictObject({
-  agentProfileId: boundedIdentifierSchema,
-  organizations: z.array(
-    z.strictObject({
-      organizationId: boundedIdentifierSchema,
-      organizationName: z.string().trim().min(1).max(256),
-      organizationSlug: z.string().trim().min(1).max(256),
-    })
-  ),
-});
-
-export const listCurrentUserAgentProfileOrganizationWakeAccessResponseSchema =
-  z.strictObject({
-    profiles: z.array(agentProfileOrganizationWakeAccessEntrySchema),
-  });
-
-export const revokeAgentProfileBindingForOrganizationResponseSchema =
-  z.strictObject({
-    agentProfileId: boundedIdentifierSchema,
-    bindingId: boundedIdentifierSchema.nullable(),
-    organizationId: boundedIdentifierSchema,
-    revoked: z.boolean(),
-    status: z.enum(["revoked", "missing"]),
-  });
 
 export const disableAgentProfilePrimaryBindingResponseSchema = z.strictObject({
   agentProfileId: boundedIdentifierSchema,

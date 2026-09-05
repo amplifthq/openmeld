@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseSpaceTarget,
+  resolveSpaceEntryCommandTarget,
   resolveSpaceReadCommandTarget,
 } from "../src/space/space-target";
 
@@ -74,6 +75,36 @@ describe("Space target parsing", () => {
     ).toEqual({
       baseUrl: "http://localhost:8080",
       space: SPACE_ID,
+    });
+  });
+
+  it("preserves message and thread focus from a copied Space URL", () => {
+    expect(
+      resolveSpaceEntryCommandTarget({
+        space: `https://openmeld.ai/o/example/spaces/${SPACE_ID}?focusInteractionId=interaction-123&focusSignalId=signal-123&focusThreadRootSignalId=thread-123&profileId=hum_url`,
+      })
+    ).toEqual({
+      baseUrl: "https://gateway.openmeld.ai",
+      focusInteractionId: "interaction-123",
+      profile: "hum_url",
+      signalId: "signal-123",
+      space: SPACE_ID,
+      threadRootSignalId: "thread-123",
+    });
+  });
+
+  it("accepts public-link target aliases and keeps explicit profile precedence", () => {
+    expect(
+      resolveSpaceEntryCommandTarget({
+        profile: "hum_explicit",
+        space: `https://openmeld.ai/o/example/spaces/${SPACE_ID}?signalId=signal-public&threadRootSignalId=thread-public&profileId=hum_url`,
+      })
+    ).toEqual({
+      baseUrl: "https://gateway.openmeld.ai",
+      profile: "hum_explicit",
+      signalId: "signal-public",
+      space: SPACE_ID,
+      threadRootSignalId: "thread-public",
     });
   });
 });

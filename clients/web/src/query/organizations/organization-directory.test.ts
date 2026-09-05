@@ -1,17 +1,54 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { readCurrentOrganizationDirectory } from "#/lib/organizations/organization-directory";
 import {
+	readCurrentOrganizationAgentRuntimeOverview,
+	readCurrentOrganizationDirectory,
+	readCurrentOrganizationProfileDirectory,
+} from "#/lib/organizations/organization-directory";
+import {
+	organizationAgentRuntimeOverviewQueryOptions,
 	organizationMemberOpenMeldServiceStatusesQueryOptions,
 	organizationMemberRoleQueryOptions,
+	organizationProfileDirectoryQueryOptions,
 } from "./organization-directory";
 
 vi.mock("#/lib/organizations/organization-directory", () => ({
+	readCurrentOrganizationAgentRuntimeOverview: vi.fn(),
 	readCurrentOrganizationDirectory: vi.fn(),
+	readCurrentOrganizationProfileDirectory: vi.fn(),
 }));
 
 beforeEach(() => {
+	vi.mocked(readCurrentOrganizationAgentRuntimeOverview).mockReset();
 	vi.mocked(readCurrentOrganizationDirectory).mockReset();
+	vi.mocked(readCurrentOrganizationProfileDirectory).mockReset();
+});
+
+describe("organization profile projections", () => {
+	it("keeps stable identity and changing runtime state in separate caches", () => {
+		const profileDirectory = organizationProfileDirectoryQueryOptions({
+			enabled: true,
+			organizationId: "org-acme",
+		});
+		const runtimeOverview = organizationAgentRuntimeOverviewQueryOptions({
+			enabled: true,
+			organizationId: "org-acme",
+		});
+
+		expect(profileDirectory.queryKey).toEqual([
+			"organizations",
+			"org-acme",
+			"profile-directory",
+		]);
+		expect(runtimeOverview.queryKey).toEqual([
+			"organizations",
+			"org-acme",
+			"agent-runtime-overview",
+		]);
+		expect(profileDirectory.refetchOnWindowFocus).toBe(false);
+		expect(runtimeOverview.refetchOnWindowFocus).toBe(true);
+		expect(runtimeOverview.staleTime).toBe(10_000);
+	});
 });
 
 describe("organizationMemberOpenMeldServiceStatusesQueryOptions", () => {

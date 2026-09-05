@@ -259,8 +259,8 @@ export async function runCliDriver(
       }
     });
 
-    child.on("close", (exitCode, signal) => {
-      runtimeProcess.terminateRemainingDescendants();
+    child.on("close", async (exitCode, signal) => {
+      await runtimeProcess.terminateRemainingDescendants();
       clearTimers();
       const exitObservedAtMs = Date.now();
       lifecycle.exitCode = exitCode;

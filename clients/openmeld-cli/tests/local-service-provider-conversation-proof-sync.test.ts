@@ -100,6 +100,27 @@ describe("local service provider conversation proof sync", () => {
                 },
                 profileId: "agt_codex",
                 transportMode: "codex-app-server",
+                workingFolderRuntime: {
+                  configPath: null,
+                  configuredWorkspacePath: "/tmp/default-project",
+                  defaultProjectBindingGeneration: "project-generation-1",
+                  defaultProjectId: "project-1",
+                  effectiveRuntimeWorkingDirectory: "/tmp/default-project",
+                  runtimeContext: {
+                    providerRuntimeWorkingDirectory: "/tmp/default-project",
+                  },
+                  status: "ready",
+                  workingFolderFact: {
+                    defaultProjectId: "project-1",
+                    localProjectBindingGeneration: "project-generation-1",
+                    observedAtMs: 1,
+                    reasonCode: null,
+                    source: "default_project",
+                    status: "ready",
+                  },
+                  workingFolderSource: "default_project",
+                  workspaceMode: null,
+                },
               },
             ],
           ]),
@@ -117,10 +138,11 @@ describe("local service provider conversation proof sync", () => {
         agentControllerConversationId: "thread_1",
         boundAgentControllerRef: "builtin:codex",
         profileAgentControllerRef: "builtin:codex",
-        runtimeWorkingDirectory: "/tmp/openmeld-agent",
+        runtimeWorkingDirectory: "/tmp/default-project",
         transportMode: "codex-app-server",
       })
     );
+    expect(resolveProfileWorkspaceRuntimeMock).not.toHaveBeenCalled();
     expect(submitRuntimeProviderConversationProofsMock).toHaveBeenCalledWith({
       proofs: [
         {
@@ -138,6 +160,43 @@ describe("local service provider conversation proof sync", () => {
         },
       ],
     });
+  });
+
+  it("does not invent a workspace proof when the route lacks a current working-folder fact", async () => {
+    const { syncLocalServiceProviderConversationProofs } = await import(
+      "../src/local-service/reporting/provider-conversation-proof-sync"
+    );
+
+    await expect(
+      syncLocalServiceProviderConversationProofs({
+        routeCatalog: {
+          routeByProfileId: new Map([
+            [
+              "agt_codex",
+              {
+                agentControllerConversationId: "thread_1",
+                agentControllerRef: "builtin:codex",
+                bindingId: "binding_1",
+                launchContract: {
+                  commandPath: "/tmp/codex",
+                  kind: "executable",
+                },
+                profileId: "agt_codex",
+                transportMode: "codex-app-server",
+              },
+            ],
+          ]),
+        } as never,
+      })
+    ).resolves.toEqual({
+      failedCount: 0,
+      proofCount: 0,
+      reasonCodes: ["provider_conversation.proof.no_applicable_routes"],
+      status: "skipped",
+      submittedCount: 0,
+    });
+    expect(resolveProfileWorkspaceRuntimeMock).not.toHaveBeenCalled();
+    expect(resolveLocalProviderConversationProofMock).not.toHaveBeenCalled();
   });
 
   it("skips sync when no Codex App Server route has a provider conversation", async () => {
@@ -188,7 +247,7 @@ describe("local service provider conversation proof sync", () => {
   });
 
   it("reports proof collection failures to the health observer before rethrowing", async () => {
-    resolveProfileWorkspaceRuntimeMock.mockRejectedValue(
+    resolveLocalProviderConversationProofMock.mockRejectedValue(
       new Error("workspace lookup exposed private details")
     );
     const onAttempt = vi.fn(async () => undefined);
@@ -213,6 +272,25 @@ describe("local service provider conversation proof sync", () => {
                 },
                 profileId: "agt_codex",
                 transportMode: "codex-app-server",
+                workingFolderRuntime: {
+                  configPath: "/tmp/profile-workspace.json",
+                  configuredWorkspacePath: "/tmp/openmeld-agent",
+                  effectiveRuntimeWorkingDirectory: "/tmp/openmeld-agent",
+                  runtimeContext: {
+                    providerRuntimeWorkingDirectory: "/tmp/openmeld-agent",
+                  },
+                  status: "ready",
+                  workingFolderFact: {
+                    defaultProjectId: null,
+                    localProjectBindingGeneration: null,
+                    observedAtMs: 1,
+                    reasonCode: null,
+                    source: "profile_workspace",
+                    status: "ready",
+                  },
+                  workingFolderSource: "profile_workspace",
+                  workspaceMode: "openmeld_managed",
+                },
               },
             ],
           ]),

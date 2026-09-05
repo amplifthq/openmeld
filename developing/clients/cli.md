@@ -4,7 +4,7 @@
 
 - Purpose: Define the OpenMeld CLI client's responsibility boundary as the local
   terminal client for setup, service surfaces, local capability presentation,
-  Center Agent Routines, Wake availability presentation, trace,
+  Center Agent Routines, Wakeability presentation, trace,
   repair/reset/login entry points, and lane-aware user operations.
 - Read this when: You are changing `openmeld`, `openmeld-dev`, `openmeld-canary`, CLI command
   boundaries, terminal copy, Human View, Agent View, setup handoff, Wake
@@ -48,7 +48,7 @@ The CLI must not become the source of truth for:
 - OpenMeld Service execution authority itself
 
 When the CLI needs these facts, it reads owner services and shared contracts. It
-must not reconstruct final Wake availability or execution outcome from terminal
+must not reconstruct final Wakeability or execution outcome from terminal
 state, process health, route state, setup completion, or local inventory.
 
 ## Client Responsibilities
@@ -57,7 +57,7 @@ The CLI owns terminal-facing surfaces for:
 
 - service status, lifecycle guidance, and service diagnostics
 - local Prepare and setup handoff entry
-- Agent Profile Wake availability and reply-recovery presentation
+- Agent Profile Wakeability and reply-recovery presentation
 - user-operable Wake trace and diagnostics
 - repair, reset, login, and lane-aware local state entry points
 - Human View copy and Agent View structured output
@@ -96,7 +96,12 @@ downloader or installer. The automatic request records durable local progress,
 uses the CLI installation that created the active Service bundle, and hands the
 same operation to the background Service switch. An explicit update and an
 automatic update therefore have the same installation, verification, rollback,
-and status behavior.
+and status behavior. A compatible connected Service can receive one
+release-triggered automatic recheck over its existing Runtime Transport
+connection only after it explicitly advertises automatic-request support.
+Startup, reconnect, and hourly channel checks remain the fallback; the release
+signal does not create a new polling loop. A disconnected request fails
+immediately so a replacement Service can retry.
 
 `openmeld skills` is the canonical Organization Skills command group. Phase 1
 provides `list`, `show`, and `load` with Human View, Agent View, and strict JSON
@@ -494,10 +499,10 @@ Agent View and `--json` expose that local evidence under
 local-controller facts.
 
 ACI evidence is local controller evidence only. The CLI must not treat a healthy
-ACI snapshot as final Agent Profile readiness, and it must not hide unknown
-controller facts behind success copy. `Available for Wake` remains Core-owned
-readiness across Binding, runtime, account, route, service compatibility, claim
-eligibility, and RuntimeCoordinator evidence.
+ACI snapshot as final Agent Profile Wakeability, and it must not hide unknown
+controller facts behind success copy. `Available` remains the Core-owned
+Wakeability verdict across Binding, runtime, account, route, service
+compatibility, claim eligibility, and RuntimeCoordinator evidence.
 
 `openmeld setup` also aligns OpenMeld-managed skills for the setup path. Skills are part
 of local component alignment because they are the instructions agents use after
@@ -535,17 +540,18 @@ the login auto-start explanation, the exact lane-aware autostart disable
 command, the exact lane-aware stop command, and the user-visible consequence
 that local agents cannot be activated until OpenMeld Service starts again. GUI
 surfaces should consume this field instead of copying CLI Human View cards.
-CLI Human View may summarize that same truth in a compact completion card:
-service is running and starts at login, the stop command, the autostart-disable
-command, and the short consequence that stopped service means local agents are
-off. Detailed component and service facts stay in Agent View. Long-running setup
-work should show short progress lines when stdout is not a TTY, because Web
-setup pipes the CLI output through the bootstrap script and hidden spinners make
-the flow look stuck. Every completed setup/Prepare step that takes at least
-100 ms shows its elapsed time in Human View and includes exact `durationMs` in
-Agent View. Fast steps stay quiet, while a slow Service, local-agent, skill, or
-verification phase leaves one stable timing record instead of disappearing
-with the spinner.
+CLI Human View leaves Service versions, running state, autostart controls, and
+stop commands to `openmeld service status`; detailed component and Service facts
+stay in Agent View. Setup work should show short progress lines when stdout is
+not a TTY, because Web setup pipes the CLI output through the bootstrap script
+and hidden spinners make the flow look stuck. Every important completed
+setup/Prepare step leaves one stable Human View record in the form
+`[HH:mm:ss] ✓ Result · elapsed`, using the local time zone of the computer
+running the CLI and a zero-padded 24-hour clock. Active spinner and internal
+detail lines remain untimestamped. Agent View keeps its existing structured
+progress and includes exact `durationMs` for steps that take at least 100 ms.
+These presentation timestamps neither control execution nor change waiting,
+Service lifecycle, or readiness decisions.
 
 Direct `openmeld service start` reports the total time from command entry until
 the local service is ready. `openmeld upgrade` reports separate timings for the
@@ -595,6 +601,13 @@ directly. Nested command help should make the global `--view <mode>` option
 discoverable so the documented Agent View commands do not look like hidden or
 invalid flags.
 
+CLI metadata reads such as `openmeld --version`, `openmeld --help`, nested
+`--help`, and `openmeld help ...` must remain side-effect free. They must not
+initialize or recover `OPENMELD_HOME`, authenticate, or contact OpenMeld
+services merely to describe the installed command surface. Explicit
+`--view agent` selects Agent-oriented help without consulting a saved Profile
+preference; metadata reads otherwise use ordinary Human help.
+
 Entry-point boundary: `openmeld start` is account/identity first-run (sign-in and
 first profiles); `openmeld setup` is this computer's execution capability (service,
 local agents, readiness) and receives the Web handoff via `--start-session`.
@@ -610,10 +623,12 @@ current Service remains available. A preparation failure must leave the current
 Service running. The CLI drains and stops the current Service only after that
 preflight succeeds, then activates the prepared replacement and verifies its
 health before reporting success.
-For an update, the public command reports success after the prepared replacement
-and durable job have been handed to the operating system's background update
-worker; it does not hold the Terminal open for the later drain and switch. The
-user may close the Terminal or Web Setup immediately. The worker waits for all
+For an update, a handoff response says only that the update started in the
+background after the prepared replacement and durable job reached the operating
+system's update worker. It must not say updated, complete, or aligned. A terminal
+that remains attached may use those completion words only after the operation is
+`updated` and the exact target CLI and Service are observed. The user may close
+the Terminal or Web Setup immediately after handoff. The worker waits for all
 accepted Wake work and durable result receipts, resumes after interruption or
 computer restart, verifies the replacement, and restores the previous verified
 Service if replacement startup fails. Setup uses this background path only when
@@ -693,9 +708,41 @@ directory before validation, but the final stored profile workspace value must
 be absolute and must use the profile workspace config as the single source of
 state.
 
-`add-me` may create or reuse an Agent Profile Binding and then add that profile
-to a Space. That proves only that the normal membership path completed. Space
-membership and Agent Profile Binding still do not prove Wake readiness; CLI
+When a supported local Agent is detected, `add-me` creates a new Agent Profile
+by default and must not enumerate account profiles or read unrelated Bindings
+to guess a reusable identity. Reuse is an
+explicit exact-ID path through `--agent-profile <id>` for a caller that already
+remembers the Profile created for this controller session. That path reads only
+the named Profile and its primary Binding; it must never search for a
+substitute. An authorization or Organization-boundary failure on the named
+Profile fails closed. If Core confirms that the exact active Profile has no
+primary Binding, `add-me` treats it as an incomplete earlier attempt and resumes
+its Project-folder, runtime-reporting, Binding, and membership steps. A Profile
+bound to another controller Session is left unchanged and the ordinary
+new-Profile path is used. An unavailable or ambiguous Binding read never counts
+as an unbound Profile.
+
+`profiles current-session` is the explicit recovery lookup for a caller that
+remembers creating an identity for the exact current Codex thread or Claude
+Code session but no longer has its Profile ID. It performs one owner-scoped
+Binding reverse lookup and reports whether the result belongs to the active
+Organization. The default `add-me` path must not call it. A not-found,
+unavailable, or different-Organization result never authorizes a broad Profile
+scan or implicit reuse.
+
+Profile creation is an observable commit point inside `add-me`, not proof that
+the remaining setup completed. Immediately after a new Profile is committed,
+CLI emits one compact recovery receipt with the exact Profile ID, the facts that
+setup and Space membership are still unconfirmed, and a retry command containing
+that ID. The retry command preserves non-secret identity, Project-folder,
+permission, and model selections. It never prints the Space password; when the
+original attempt supplied one, the receipt says that the caller may need to add
+`--password` again. A later Binding or membership failure preserves its original
+error and must not emit the final `space.add_me` success result.
+
+`add-me` then adds the resolved profile to a Space. That proves only that the
+normal membership path completed. Space membership and Agent Profile Binding
+still do not prove Wake readiness; CLI
 must keep Wake readiness under the existing readiness/reporting and diagnostic
 surfaces.
 
@@ -705,13 +752,14 @@ diagnostic evidence, full trace payloads, candidate scans, and projection
 internals belong behind explicit detail surfaces such as `--details`, `--json`,
 or a focused trace command.
 
-`add-me` agent preparation may need to read existing Agent Profile Bindings
-before any Space membership write. Slow preparation should emit sparse progress
-only after a short delay in Agent View or detail mode; fast paths should stay
-silent. If Binding reads time out before the membership write, the error must
-say that no Space membership was written before that step completed and include
-the next recovery commands: check `openmeld service status`, then retry the same
-`openmeld space add-me <space-url-or-id> --project-folder <path>` command.
+The explicit `add-me --agent-profile <id>` reuse path may need to read that
+Agent Profile Binding before any Space membership write. Slow preparation
+should emit sparse progress only after a short delay in Agent View or detail
+mode; fast paths should stay silent. If Binding reads time out before the
+membership write, the error must say that no Space membership was written
+before that step completed and include the next recovery commands: check
+`openmeld service status`, then retry the same `openmeld space add-me
+<space-url-or-id> --project-folder <path> --agent-profile <id>` command.
 
 Protected Space password handling is Core-owned. CLI commands may accept
 `--password` so a user or agent can join a protected Space once, but CLI must
@@ -1044,6 +1092,12 @@ explicit selections; it must not run a second forced Service refresh for the
 same handoff. Selecting no Agent Controllers still requires the recorded Service
 step before Prepare can complete.
 
+A scheduled Service update is a durable background handoff, not aligned Service
+evidence. Setup and Prepare complete only when that operation is `updated` and
+the exact target CLI and Service versions are present. `restored` and
+`needs_help` fail with one next action, even if stale version fields happen to
+match the target.
+
 That result is valid only for the Terminal connection epoch that wrote it. A
 replacement or reconnected Terminal repeats Service alignment and the remaining
 Terminal-owned work instead of inheriting device or lane evidence from the
@@ -1171,7 +1225,7 @@ as failed.
 
 The local setup portion must not create or join a Space, create Binding truth as
 a side effect, choose Space members, send a Wake, decide execution ownership,
-decide final Wake outcome, or decide final user-facing Wake availability.
+decide final Wake outcome, or decide final user-facing Wakeability.
 
 After setup succeeds, the CLI records a structured setup bootstrap result for
 cross-client compatibility, but current runs do not create a managed welcoming
@@ -1198,10 +1252,24 @@ connected for the intended account/device/lane. Agent Controller discovery,
 Skills, diagnostics, and Project discovery may still be converging in the
 background and are not implied by that result.
 
+Successful Human View completion uses the mode-independent title `OpenMeld is
+ready` and prints only the connected-computer outcome, the truthful local-agent
+state, and one OpenMeld Web return link. It says the computer is connected, not
+that the whole computer is ready. Each sentence occupies one line and sentences
+are separated by blank lines. The CLI does not infer Setup versus Update from an
+existing Computer id because reconnect can carry the same fact. An
+ordinary Web handoff with an empty Agent Controller selection means background
+catalog synchronization, not `None connected`; only standalone discovery that
+found no supported controller may show the installation guide. CLI and Service
+versions, running state, autostart controls, and stop commands remain available
+through `openmeld service status`. Agent View retains the complete structured
+`setup.complete` payload, and partial completion retains its reason and recovery
+command.
+
 A CLI repair flow must not claim success merely because a command ran, a
 process started, a controller was detected, a service snapshot streamed, or
 capability inventory exists. Repair success should be scoped to the component it
-repairs and should not be projected as final Wake availability.
+repairs and should not be projected as final Wakeability.
 
 ## Human View And Agent View
 
@@ -1225,13 +1293,20 @@ targets, service contract evidence, compatibility evidence, counts, and raw
 diagnostic messages.
 
 `computer list --view agent` is the authenticated user's complete Computer and
-Local Runtime inventory. `computer current --view agent` composes that same
-inventory with the existing current-computer reply diagnostics, OpenMeld Tools
+Local Runtime inventory. `computer current --brief --view agent` is the compact
+Agent preflight. It returns current-computer identity, current reply blocker and
+next action, the unified CLI/Service/Skill update state, and each local Agent's
+reported capability status and usage-limit evidence. It does not fetch File
+Access diagnostics or unrelated Computer detail. Missing usage-limit evidence
+means unavailable evidence, not zero capacity.
+
+`computer current --view agent` composes the complete current inventory with
+the existing current-computer reply diagnostics, OpenMeld Tools
 versions and update state, and a File Access summary. The summary reports mode,
 revision, updated time, and selected-folder count, never local folder paths.
 These commands are read-only owner tools for Local Agents; they do not make CLI
 inventory or current-computer diagnostics authoritative for Agent Profile
-readiness, Wake availability, or execution outcome.
+readiness, Wakeability, or execution outcome.
 
 The CLI may expose the authenticated user's local owner inventory because it is
 the user's direct local Agent View. The Center Agent RPC is a separate
@@ -1267,7 +1342,8 @@ history is readable, members are wake-ready, or a Wake produced a visible reply.
 `space list` must read Account Space Index, the Core projection from Space
 truth, instead of rebuilding known Spaces from local profile history, cache
 maintenance, or deletion tombstones.
-`space board`, `space members`, `space history`, and `space status` accept a
+`space access`, `space board`, `space members`, `space history`, and
+`space status` accept a
 canonical Space ID or a copied Space Web URL. A copied URL may select a Gateway
 only through the shared trusted production, staging, fixture, or standard
 loopback Web-to-Gateway mapping. Custom local Web URLs require an explicit
@@ -1275,8 +1351,35 @@ loopback Web-to-Gateway mapping. Custom local Web URLs require an explicit
 from an arbitrary host. An explicit `--profile` and `--gateway-url` take
 precedence over values derived from the copied URL without changing persistent
 Profile selection.
+
+`space access` is the read-only, public-capable entry preflight shared with Web.
+It sends the target plus any copied message/thread focus to the Core-owned entry
+resolver and must not recreate visibility or membership policy in the CLI. It
+may run without authentication so Core can return a safe `sign_in_required`,
+public-read, membership-blocked, password-blocked, or unavailable outcome.
+Blocked outcomes are successful resolution results rather than process errors.
+Agent View returns the canonical resolution plus one structured `viewAction`;
+Human View states one cause and one practical next action. The command never
+joins a Space, changes selected Profile state, prompts for a password, or
+invents a join-request capability.
+
+`space link <space-id>` is the passive, local link builder for the same public
+Space-entry target. Optional `--signal` and `--thread-root-signal` selectors
+produce a message or Thread-message destination without contacting Core,
+requiring authentication, starting OpenMeld Service, or changing local Profile
+state. Human View prints the link and states that access is still checked.
+Agent View returns the canonical target, URL, `grantsAccess: false`, and an exact
+`space access` continuation command. It must use the shared target schema and
+link builder rather than manually concatenating a Web route.
+
 `space history --kind text --brief` is the narrow check for readable recent
-conversation history without presence-event noise. `space status` is the current
+conversation history without presence-event noise. Brief mode caps every
+message body at 1,200 Unicode code points, reports the original character count
+and truncation fact, and gives an exact anchored non-brief command when the
+caller genuinely needs one complete message. An anchored read always includes
+the anchor itself; `--before 0 --after 0` therefore means exactly that one
+message rather than an invalid empty window. Raw JSON and ordinary non-brief
+history remain complete. `space status` is the current
 Space/member status check. Its Human View labels the independent access facts
 as `Organization visibility` and `Link access`; Agent View and explicit JSON
 return `organizationVisibility` and `accessMode`. During mixed-version rollout,
@@ -1299,6 +1402,14 @@ canonical forms are `@Name(wake)` and `@Name(reference)`; a person's form is
 not membership, readiness, presence, or execution authority. Agent View emits
 the full validated directory through the presenter protocol; explicit `--json`
 emits the strict versioned `space.members` envelope.
+
+`space members <space-id> --target <profile-id-or-mention> --brief` resolves
+exactly one current member using the directory's canonical lookup tokens and
+returns only identity, addressing relations, and the matching Core-owned Agent
+Wake Availability projection. Ambiguous targets fail closed and require an
+exact Profile ID. The convenience `canWakeNow` field means only that the
+preserved readiness status is currently `available_for_wake`; it is not a
+second readiness authority and does not predict completion.
 
 `space send` and Terminal interactive input treat `@target(wake)`,
 `@target(reference)`, and `@target(mention)` as CLI authoring controls. The
@@ -1328,13 +1439,22 @@ the same output path to a Local Agent handling a Wake.
 `space wake-progress <space-id>` is the live, polling-oriented Wake read. With
 no selector it returns the active Wake summary for the Space. With
 `--client-message <id>` it returns the progress associated with that authored
-message, optionally narrowed by `--target-profile <id>`. Agent View emits the
-stable `mode`, `pollState`, active and terminal counts, validated query, and
-validated progress items. While a deleted Agent's accepted Wake is still
+message, optionally narrowed by `--target-profile <id>`. The active summary can
+also use `--source-profile <id>` to show only work requested by one Human or
+Agent Profile. The CLI fails closed if a mixed-version server does not echo the
+requested source filter, rather than presenting unfiltered work as filtered.
+Agent View emits the stable `mode`, `pollState`, active and
+terminal counts, validated query, and validated progress items. Each current
+CLI read opts into Space-owned public source context: requester Profile ID,
+kind, display name, sanitized source-message preview, and nullable thread ID.
+While a deleted Agent's accepted Wake is still
 stopping, its progress item uses the Space's frozen membership name instead of
 degrading to the removed Profile id. A valid read exits zero even when `pollState` is
 `idle` or `not_observed`; transport, permission, and projection failures exit
-one with a structured error. This command does not replace `space result`,
+one with a structured error. The current CLI requests the optional occupancy
+wait reason with `includeWaitReason=true`; older CLI versions omit that query
+and must continue receiving the previous strict response shape. This command
+does not replace `space result`,
 which reads archived results, or `service trace`, which diagnoses the execution
 chain.
 
@@ -1435,11 +1555,11 @@ switch that renders human names as plain text while agent coloring stays on.
 
 ## Local Capability And Execution Boundary
 
-The CLI may display Agent Profile Wake availability, but it does not own the
+The CLI may display Agent Profile Wakeability, but it does not own the
 execution truth.
 
-Final user-facing Wake availability comes from Core-owned Agent execution
-status. CLI must not recompute it from:
+Final user-facing Wakeability comes from the Core-owned Wakeability projection.
+CLI must not recompute it from:
 
 - Space membership
 - Binding existence
@@ -1455,12 +1575,12 @@ computer. It does not prove that a specific Agent Profile can reply in a
 specific Space.
 
 Service status and setup diagnostics may include `localServiceDiagnostics`. This
-is local OpenMeld Service evidence only. It must not be labeled as final Wake
-availability, final Wake truth, or final Space delivery truth.
+is local OpenMeld Service evidence only. It must not be labeled as final
+Wakeability, final Wake truth, or final Space delivery truth.
 
 Reply-recovery copy may use shared Agent Profile recovery semantics. The CLI
 adapts terminal-local and current-local-runtime evidence into one clear next
-action. The copy explains known evidence; it does not decide readiness truth.
+action. The copy explains known evidence; it does not decide Wakeability truth.
 
 ## Trace And Diagnostics Boundary
 

@@ -7,6 +7,7 @@ import type {
 import {
   type CurrentLocalRuntimeTarget,
   resolveCurrentLocalRuntimeExecutionTarget,
+  resolveCurrentLocalRuntimeTarget,
 } from "../start/application/current-local-runtime-target";
 import { createCoreRpcHttpError } from "./errors";
 
@@ -37,6 +38,7 @@ export function requireCurrentLocalRuntimeExecutionTarget(input: {
 
 export function requireCurrentLocalRuntimeServiceTarget(input: {
   bindingTarget: CurrentLocalRuntimeTarget;
+  inventory: LocalRuntimesResponse;
   offlineError: {
     code: string;
     reason: string;
@@ -44,13 +46,10 @@ export function requireCurrentLocalRuntimeServiceTarget(input: {
   };
   ownerService: RuntimeTransportLookupOwnerServiceResponse;
 }): { deviceId: string; runtimeLane: DaemonServiceLane } {
-  if (input.bindingTarget.availability !== "resolved") {
+  const target = resolveCurrentLocalRuntimeTarget(input);
+  if (target.availability !== "resolved") {
     throw createCoreRpcHttpError(input.offlineError);
   }
-  const target = {
-    deviceId: input.bindingTarget.deviceId,
-    runtimeLane: input.bindingTarget.runtimeLane,
-  };
   const hasMatchingLiveSession =
     input.ownerService.online === true &&
     input.ownerService.sessions.some(
@@ -61,5 +60,5 @@ export function requireCurrentLocalRuntimeServiceTarget(input: {
   if (!hasMatchingLiveSession) {
     throw createCoreRpcHttpError(input.offlineError);
   }
-  return target;
+  return { deviceId: target.deviceId, runtimeLane: target.runtimeLane };
 }

@@ -63,6 +63,12 @@ the correct owner document. Do not migrate raw logs or long historical notes.
 - Each agent development lane uses its own Git worktree. When lanes need live
   localhost stacks concurrently, use the isolated commands in
   [Parallel Worktree Dev Lanes](#parallel-worktree-dev-lanes).
+- A CodeGraph index is generated state tied to one checkout. Use it when the
+  current worktree already has a usable index. When it does not, use `rg` and
+  targeted source reads for bounded work; run `codegraph init` only when deeper
+  structural or call-path analysis makes the per-worktree indexing cost useful.
+  Never symlink or reuse another worktree's index because its paths and source
+  state may differ.
 - Production migrations, publication, and deployment run only from a dedicated
   clean release worktree at the exact approved `main` commit.
 
@@ -167,6 +173,10 @@ environment callback, or no coordination best fits the actual work.
   the latest-main combination when available; strict up-to-date protection owns
   it otherwise. Agents should inspect those facts and choose their next action
   without CI/CD making a business or review decision for them.
+- For a coordinated delivery train, integrate compatible ready leaf branches
+  into one batch PR, sync `main` once, and run one Final Candidate on that
+  combined tree. Leaf work keeps focused evidence; it does not need a separate
+  paid candidate that will be invalidated by the same train.
 
 ## Standard Lanes
 
@@ -545,29 +555,30 @@ environment contracts, Changelog and documentation contracts, formatting
 support contracts, and retired identifiers. It does not replace workspace type
 checks, unit tests, integration tests, or release-ready verification.
 
-`verify:pr` runs changed-workspace checks and unit tests. The Final Candidate
-policy keeps this lane for executable changes because unit tests have
-independent defect-finding value. It does not run for a documentation-only or
-delivery-infrastructure-only candidate when the scoped contract suite proves
-that diff directly. Checks and unit tests run as two explicit phases: packages
+`verify:pr` runs changed-workspace checks and unit tests. Agents use this lane
+when changed-workspace validation has practical defect-finding value during
+development or review; standard Final Candidate does not repeat it. Checks and
+unit tests run as two explicit phases: packages
 may still run in parallel within one phase, but a memory-heavy package never
 runs its type-check and unit-test processes at the same time on one runner. The
 isolated Final Candidate wrapper also gives Node processes one explicit 6 GiB
 heap ceiling so Core type-checking is not constrained by Node's smaller default
 heap on a hosted runner.
 
-`test:integration:affected` is selected when a shared package, service,
-runtime, or persistence boundary changes. `db:check` is added for database
-owner paths. Local-component paths select strict release-ready verification on
-an exact versioned release branch and deferred base-aware verification on an
-ordinary feature branch. These selections are implemented and behavior-tested
-in `scripts/ci/final-candidate-policy.mjs`; do not copy the path policy into
+`test:integration:affected` is an agent-chosen development or review lane when
+a shared package, service, runtime, or persistence interaction cannot be proved
+more cheaply. Standard Final Candidate does not repeat it. `db:check` remains a
+standard candidate check for database owner paths. Local-component paths select
+strict release-ready verification on an exact versioned release branch and
+deferred base-aware verification on an ordinary feature branch. These
+selections are implemented and behavior-tested in
+`scripts/ci/final-candidate-policy.mjs`; do not copy the path policy into
 another workflow or document.
 
-`verify:pr:full` is explicit stronger local confidence. Manually dispatched
-Deep Confidence remains the exhaustive diagnostic lane for risk that warrants
-broad Worker, CLI, or runtime integration coverage. Neither is a default paid
-gate.
+`verify:pr:full` is the explicit stronger Final Candidate confidence lane.
+Manually dispatched Deep Confidence remains the exhaustive diagnostic lane for
+risk that warrants broad Worker, CLI, or runtime integration coverage. Neither
+is a default paid gate.
 
 Inspect the exact plan with:
 
@@ -861,6 +872,35 @@ transport; it adds no cloud-to-Service frame or shared schema field.
 - Rollback removes the local live-update capability and returns to the previous
   future-work-only behavior. It must not rewrite Binding state, active Wake
   state, or pending Agent Interactions.
+
+### Safe Local Agent Installation Selection Contract Impact Audit
+
+Safe installation selection changes Web behavior, Local Runtimes HTTP/RPC,
+Runtime Transport capabilities and result frames, the OpenMeld Service carrier,
+and the process-internal local execution-slot contract. It does not change
+Prepare Session, Wake dispatch frames, Space Actions, controller adapter
+contracts, diagnostics, D1, or the local registry schema.
+
+- Deploy the additive schema consumers in Core, Gateway, and Web before
+  publishing the new local component. The daemon capability and result field
+  remain optional on the mixed-version wire, so old Services keep setup, Wake,
+  status, Space Actions, and diagnostics working.
+- New cloud requires both `manageInstallations` and
+  `manageInstallationsSafely` before listing or selecting installations. An old
+  Service therefore loses only the unsafe installation selector until it
+  updates; existing and new Wake work remains available.
+- New local components advertise the safe capability, report selection status,
+  reject changes while matching work is queued or active, and queue work that
+  arrives during an admitted registry write. This producer must not be
+  published before cloud consumers accept the additive fields.
+- No Runtime Transport epoch, OpenMeld Service contract, or CLI command
+  contract bump is needed because established Wake/setup frames remain
+  compatible and the new capability fails closed independently. Stamp the
+  Service artifact as advisory `available`; existing installations need not be
+  forced to update for Wake safety.
+- Rollback hides cloud selection first, then retires the local producer. Do not
+  roll strict cloud schema consumers back while a Service that emits the
+  additive capability and selection status remains connected.
 
 ### Local Agent Interaction Contract Impact Audit
 

@@ -19,7 +19,8 @@ Wake ends the wait immediately, even when Codex's local writer signal is
 temporarily unavailable. OpenMeld also rechecks the Agent's exact controller
 and settings when an approved interrupted task is about to start, so a settings
 change sends that task to Needs attention instead of running it with a different
-setup. Work details also stay reliable in large Agent
-directories, recovery prompts retry safely after temporary storage failures,
-and finished work no longer leaves stale coordinator state
-accumulating behind the scenes.
+setup. When one Wake finishes, the next queued Wake gets a fresh handoff window
+and stays stoppable if delivery to the local Agent must retry. Work details also
+stay reliable in large Agent directories, recovery prompts retry safely after
+temporary storage failures, and finished work no longer leaves stale
+coordinator state accumulating behind the scenes.

@@ -1,11 +1,9 @@
-import {
-	resolvePublicAgentFailureRecovery,
-	shouldPreferMappedPublicAgentFailureReason,
-} from "@openmeld/schemas";
+import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import type {
 	GetSpaceMessageDetailsResponse,
 	SpaceMessageDetailsStringFact,
 } from "@openmeld/schemas/types";
+import { buildPublicSpaceEntryUrl } from "@openmeld/space";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -35,7 +33,7 @@ import {
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import {
-	resolveWakeFailureDisplay,
+	resolveHistoricalWakeFailureBody,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
 import type {
@@ -64,7 +62,7 @@ import {
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { SpaceWakeFailureActionControl } from "./space-wake-failure-action";
 import {
-	resolveAnchoredSpaceExecutionRecoveryRequest,
+	resolveAnchoredSpaceExecutionRecoveryState,
 	resolveAnchoredSpaceWakeRetryRequest,
 	SpaceExecutionRecoveryButton,
 	type SpaceExecutionRecoveryHandler,
@@ -101,7 +99,6 @@ type TechnicalDetailField = {
 type NoticeRecoveryPresentation = {
 	action: SpaceMessageWakeIssueEntry["action"];
 	body: string | null;
-	showDiagnostics: boolean;
 };
 
 type MessageDetailsQueryState =
@@ -113,6 +110,10 @@ type MessageDetailsQueryState =
 	  };
 
 export function SpaceMessageDetailsDrawer(input: {
+	agentRecoveryPlansByProfileId?: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
 	openMeldProfileId?: string;
 	canJumpToMessage: (signalId: string) => boolean;
 	diagnosticReportStatus: MessageDetailsDiagnosticReportStatus;
@@ -141,6 +142,7 @@ export function SpaceMessageDetailsDrawer(input: {
 	spaceId: string;
 	spacePassword?: string;
 	spaceReferencesById?: SpaceMessageReferencesById;
+	threadRootSignalId?: string;
 	targetProfileDisplayNamesByProfileId?: ReadonlyMap<string, string>;
 	wakeFailureTargetContextsByProfileId?: ReadonlyMap<
 		string,
@@ -150,6 +152,19 @@ export function SpaceMessageDetailsDrawer(input: {
 	wakeProgressEntries?: readonly SpaceMessageWakeThinkingEntry[];
 	wakeStopTarget?: SpaceWakeStopTargetResolution | null;
 }) {
+	const [origin] = useState<string | null>(() =>
+		typeof window === "undefined" ? null : window.location.origin
+	);
+	const messageLink = buildPublicSpaceEntryUrl({
+		origin,
+		target: {
+			signalId: input.item.id,
+			spaceId: input.spaceId,
+			...(input.threadRootSignalId
+				? { threadRootSignalId: input.threadRootSignalId }
+				: {}),
+		},
+	});
 	const query = useQuery(
 		spaceMessageDetailsQueryOptions({
 			openMeldProfileId: input.openMeldProfileId,
@@ -234,6 +249,9 @@ export function SpaceMessageDetailsDrawer(input: {
 							data-vaul-no-drag
 						>
 							<MessageDetailsBody
+								agentRecoveryPlansByProfileId={
+									input.agentRecoveryPlansByProfileId
+								}
 								canJumpToMessage={input.canJumpToMessage}
 								detailsState={detailsState}
 								diagnosticReportStatus={input.diagnosticReportStatus}
@@ -241,6 +259,7 @@ export function SpaceMessageDetailsDrawer(input: {
 								isAgentRecoveryPending={input.isAgentRecoveryPending}
 								isPersonalContext={input.isPersonalContext}
 								item={input.item}
+								messageLink={messageLink}
 								onAgentRecoveryAction={input.onAgentRecoveryAction}
 								onJumpToMessage={(signalId) => {
 									input.onOpenChange(false);
@@ -292,12 +311,17 @@ export function SpaceMessageDetailsDrawer(input: {
 }
 
 function MessageDetailsBody(input: {
+	agentRecoveryPlansByProfileId?: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
 	canJumpToMessage: (signalId: string) => boolean;
 	detailsState: MessageDetailsQueryState;
 	diagnosticReportStatus: MessageDetailsDiagnosticReportStatus;
 	errorLogMessage: string;
 	isPersonalContext?: boolean;
 	item: SpaceTimelineItem;
+	messageLink: string;
 	isAgentRecoveryPending?: (profileId: string) => boolean;
 	onJumpToMessage: (signalId: string) => void;
 	onAgentRecoveryAction?: (
@@ -329,6 +353,7 @@ function MessageDetailsBody(input: {
 	if (input.detailsState.status === "loading") {
 		return (
 			<div className="flex flex-col gap-5">
+				<MessageLinkSection messageLink={input.messageLink} />
 				<p className="text-muted-foreground text-sm">
 					Loading message details...
 				</p>
@@ -339,8 +364,9 @@ function MessageDetailsBody(input: {
 	if (input.detailsState.status === "error") {
 		return (
 			<div className="flex flex-col gap-5">
+				<MessageLinkSection messageLink={input.messageLink} />
 				<p className="text-destructive text-sm">
-					Couldn't load message details.
+					Couldn't load the rest of the message details.
 				</p>
 			</div>
 		);
@@ -374,19 +400,11 @@ function MessageDetailsBody(input: {
 		data,
 		item: primaryOutcomeNotice ?? input.item,
 	});
-	const openDiagnostics = () => {
-		const details = document.getElementById(technicalDetailsId);
-		if (!(details instanceof HTMLDetailsElement)) {
-			return;
-		}
-		details.open = true;
-		details.querySelector("summary")?.focus();
-	};
-
 	return (
 		<div className="flex flex-col gap-5">
 			<ActivitySection
 				actionNotices={actionNotices}
+				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 				canJumpToMessage={input.canJumpToMessage}
 				entries={input.wakeIssueEntries}
 				isAgentRecoveryPending={input.isAgentRecoveryPending}
@@ -395,9 +413,6 @@ function MessageDetailsBody(input: {
 				notices={presentation.wakeFailureNoticeItems}
 				onAgentRecoveryAction={input.onAgentRecoveryAction}
 				onJumpToMessage={input.onJumpToMessage}
-				onOpenDiagnostics={
-					technicalDetailFields.length > 0 ? openDiagnostics : undefined
-				}
 				onRecoverExecution={input.onRecoverExecution}
 				onRetryWakeTarget={input.onRetryWakeTarget}
 				onWakeStopRequest={input.onWakeStopRequest}
@@ -414,6 +429,7 @@ function MessageDetailsBody(input: {
 				}
 				wakeStopTarget={input.wakeStopTarget}
 			/>
+			<MessageLinkSection messageLink={input.messageLink} />
 			<SourceNotLoadedSection
 				canJumpToMessage={input.canJumpToMessage}
 				item={input.item}
@@ -433,8 +449,36 @@ function MessageDetailsBody(input: {
 	);
 }
 
+function MessageLinkSection(input: { messageLink: string }) {
+	return (
+		<DetailsSection title="Message link">
+			<p className="text-muted-foreground text-sm leading-6">
+				Anyone with access to this Space can open this message.
+			</p>
+			<div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 bg-muted/45 p-3">
+				<span className="min-w-0 select-text break-all font-mono text-xs leading-5 [overflow-wrap:anywhere]">
+					{input.messageLink}
+				</span>
+				<Button
+					onClick={() => copyDetailText(input.messageLink, "Link copied.")}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					<CopyIcon aria-hidden="true" />
+					Copy link
+				</Button>
+			</div>
+		</DetailsSection>
+	);
+}
+
 type ActivitySectionProps = {
 	actionNotices: readonly SpaceTimelineItem[];
+	agentRecoveryPlansByProfileId?: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
 	canJumpToMessage: (signalId: string) => boolean;
 	entries: readonly SpaceMessageWakeIssueEntry[];
 	isAgentRecoveryPending?: (profileId: string) => boolean;
@@ -445,7 +489,6 @@ type ActivitySectionProps = {
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
 	onJumpToMessage: (signalId: string) => void;
-	onOpenDiagnostics?: () => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
@@ -499,8 +542,10 @@ function ActivityItemRow(input: {
 	});
 	const noticeRecovery = outcomeNotice
 		? resolveNoticeRecoveryPresentation({
+				agentRecoveryPlansByProfileId: activity.agentRecoveryPlansByProfileId,
 				isPersonalContext: activity.isPersonalContext,
 				notice: outcomeNotice,
+				targetLabel: item.kind === "target" ? item.title : undefined,
 				targetProfileDisplayNamesByProfileId:
 					activity.targetProfileDisplayNamesByProfileId,
 				wakeFailureTargetContextsByProfileId:
@@ -514,12 +559,22 @@ function ActivityItemRow(input: {
 				sourceItem: activity.sourceItem,
 			})
 		: null;
-	const recoveryRequest = outcomeNotice
-		? resolveAnchoredSpaceExecutionRecoveryRequest({
+	const executionRecoveryState = outcomeNotice
+		? resolveAnchoredSpaceExecutionRecoveryState({
 				notices: activity.actionNotices,
 				outcomeNotice,
 			})
 		: null;
+	const recoveryRequest =
+		executionRecoveryState?.status === "inspect"
+			? executionRecoveryState.request
+			: null;
+	const wakeFailureAction = resolveActivityWakeFailureAction({
+		executionRecoveryState,
+		issueEntry,
+		noticeRecovery,
+		outcomeNotice,
+	});
 	const canJump =
 		item.jumpSignalId !== null && activity.canJumpToMessage(item.jumpSignalId);
 	const canStopThisTarget =
@@ -570,6 +625,7 @@ function ActivityItemRow(input: {
 				{(noticeRecovery?.body ?? item.description) ? (
 					<ExpandableActivityDescription
 						description={noticeRecovery?.body ?? item.description ?? ""}
+						isFailure={item.status === "failed"}
 						item={item}
 						preserveFullDescription={noticeRecovery !== null}
 						referencesById={activity.spaceReferencesById}
@@ -584,17 +640,15 @@ function ActivityItemRow(input: {
 					/>
 				) : null}
 				<WakeFailureActions
-					action={noticeRecovery?.action ?? issueEntry?.action ?? null}
+					action={wakeFailureAction}
 					isAgentRecoveryPending={activity.isAgentRecoveryPending}
 					onAgentRecoveryAction={activity.onAgentRecoveryAction}
-					onOpenDiagnostics={activity.onOpenDiagnostics}
 					onRecoverExecution={activity.onRecoverExecution}
 					onRetryWakeTarget={activity.onRetryWakeTarget}
 					orgSlug={activity.orgSlug}
 					prepareSetupHref={activity.prepareSetupHref}
 					recoveryRequest={recoveryRequest}
 					retryRequest={retryRequest}
-					showDiagnostics={noticeRecovery?.showDiagnostics}
 					targetProfileId={item.targetProfileId ?? undefined}
 				/>
 				{canStopThisTarget && activity.onWakeStopRequest ? (
@@ -611,8 +665,29 @@ function ActivityItemRow(input: {
 	);
 }
 
+function resolveActivityWakeFailureAction(input: {
+	executionRecoveryState: ReturnType<
+		typeof resolveAnchoredSpaceExecutionRecoveryState
+	> | null;
+	issueEntry: SpaceMessageWakeIssueEntry | undefined;
+	noticeRecovery: NoticeRecoveryPresentation | null;
+	outcomeNotice: SpaceTimelineItem | null;
+}): SpaceMessageWakeIssueEntry["action"] {
+	if (!input.outcomeNotice) {
+		return input.issueEntry?.action ?? null;
+	}
+	if (
+		input.executionRecoveryState?.status === "closed" ||
+		input.executionRecoveryState?.status === "invalid"
+	) {
+		return null;
+	}
+	return input.noticeRecovery?.action ?? null;
+}
+
 function ExpandableActivityDescription(input: {
 	description: string;
+	isFailure: boolean;
 	item: MessageDetailsActivityItem;
 	preserveFullDescription: boolean;
 	referencesById: SpaceMessageReferencesById;
@@ -625,7 +700,8 @@ function ExpandableActivityDescription(input: {
 		<div className="mt-1.5">
 			<p
 				className={cn(
-					"whitespace-pre-wrap break-words text-foreground/85 text-sm leading-6",
+					"whitespace-pre-wrap break-words text-sm leading-6",
+					input.isFailure ? "text-destructive" : "text-foreground/85",
 					isCollapsed ? preview.className : null
 				)}
 			>
@@ -892,76 +968,39 @@ function resolveWakeStatusPresentation(
 }
 
 function resolveNoticeRecoveryPresentation(input: {
+	agentRecoveryPlansByProfileId?: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
 	isPersonalContext?: boolean;
 	notice: SpaceTimelineItem;
+	targetLabel?: string;
 	targetProfileDisplayNamesByProfileId?: ReadonlyMap<string, string>;
 	wakeFailureTargetContextsByProfileId?: ReadonlyMap<
 		string,
 		WakeFailureTargetContext
 	>;
 }): NoticeRecoveryPresentation | null {
-	const reasonCode = input.notice.systemNoticeReasonCode?.trim();
-	if (!reasonCode) {
-		return null;
-	}
-
 	const targetProfileId = input.notice.systemNoticeTargetProfileId;
+	const currentPlan =
+		input.notice.systemNoticeType === "terminal_failure" && targetProfileId
+			? (input.agentRecoveryPlansByProfileId?.get(targetProfileId) ?? null)
+			: null;
+	const currentAction =
+		currentPlan && currentPlan.kind !== "none"
+			? ({ kind: "agent_recovery", plan: currentPlan } as const)
+			: null;
+	const reasonCode = input.notice.systemNoticeReasonCode?.trim();
 	const targetLabel = targetProfileId
 		? (input.targetProfileDisplayNamesByProfileId?.get(targetProfileId) ??
+			input.targetLabel ??
 			"This agent")
-		: "This agent";
-	const recovery = resolvePublicAgentFailureRecovery({
-		errorCode: reasonCode,
-		includeUnknown: false,
-		targetLabel,
-	});
-	if (!recovery) {
-		return null;
-	}
-	const body = shouldPreferMappedPublicAgentFailureReason(
-		reasonCode,
-		input.notice.systemNoticeReason?.trim() || input.notice.text
-	)
-		? recovery.body
-		: null;
-	if (recovery.kind === "system_retry") {
-		return { action: null, body, showDiagnostics: true };
-	}
-	if (recovery.kind !== "local_service" && recovery.recoveryTarget !== null) {
-		return {
-			action: {
-				display: {
-					actionTarget: recovery.recoveryTarget,
-					body: recovery.body,
-					primaryActionId: recovery.primaryActionId,
-					primaryActionLabel: recovery.primaryActionLabel,
-				},
-				kind: "wake_failure",
-			},
-			body,
-			showDiagnostics: true,
-		};
-	}
-
-	// Local-service actions need current-owner context.
-	const display = resolveWakeFailureDisplay({
+		: (input.targetLabel ?? "This agent");
+	const body = resolveHistoricalWakeFailureBody({
 		failureReasonCode: reasonCode,
-		isPersonalContext: input.isPersonalContext,
-		targetContext: targetProfileId
-			? (input.wakeFailureTargetContextsByProfileId?.get(targetProfileId) ??
-				null)
-			: null,
 		targetLabel,
 	});
-	if (!display || display.actionTarget === null) {
-		return { action: null, body, showDiagnostics: true };
-	}
-
-	return {
-		action: { display, kind: "wake_failure" },
-		body,
-		showDiagnostics: true,
-	};
+	return { action: currentAction, body };
 }
 
 function WakeFailureActions(input: {
@@ -970,37 +1009,27 @@ function WakeFailureActions(input: {
 	onAgentRecoveryAction?: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
-	onOpenDiagnostics?: () => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onRetryWakeTarget?: SpaceWakeRetryHandler;
 	orgSlug?: string;
 	prepareSetupHref?: string;
 	recoveryRequest: SpaceExecutionRecoveryRequest | null;
 	retryRequest: SpaceWakeRetryRequest | null;
-	showDiagnostics?: boolean;
 	targetProfileId?: string;
 }) {
 	if (
 		!(
 			(input.recoveryRequest && input.onRecoverExecution) ||
 			(input.retryRequest && input.onRetryWakeTarget) ||
-			input.action ||
-			(input.showDiagnostics && input.onOpenDiagnostics)
+			input.action
 		)
 	) {
 		return null;
 	}
 
-	let primaryAction: ReactNode = null;
-	if (input.recoveryRequest?.resultRef && input.onRecoverExecution) {
-		primaryAction = (
-			<SpaceExecutionRecoveryButton
-				onRecoverExecution={input.onRecoverExecution}
-				request={input.recoveryRequest}
-			/>
-		);
-	} else if (input.action) {
-		primaryAction = (
+	let confirmedCurrentAction: ReactNode = null;
+	if (input.action) {
+		confirmedCurrentAction = (
 			<WakeIssueAction
 				action={input.action}
 				isAgentRecoveryPending={input.isAgentRecoveryPending}
@@ -1010,15 +1039,8 @@ function WakeFailureActions(input: {
 				targetProfileId={input.targetProfileId}
 			/>
 		);
-	} else if (input.recoveryRequest && input.onRecoverExecution) {
-		primaryAction = (
-			<SpaceExecutionRecoveryButton
-				onRecoverExecution={input.onRecoverExecution}
-				request={input.recoveryRequest}
-			/>
-		);
 	} else if (input.retryRequest && input.onRetryWakeTarget) {
-		primaryAction = (
+		confirmedCurrentAction = (
 			<SpaceWakeRetryButton
 				onRetryWakeTarget={input.onRetryWakeTarget}
 				request={input.retryRequest}
@@ -1026,20 +1048,25 @@ function WakeFailureActions(input: {
 		);
 	}
 
+	let primaryAction = confirmedCurrentAction;
+	if (input.recoveryRequest) {
+		if (!input.onRecoverExecution) {
+			return null;
+		}
+		primaryAction = (
+			<SpaceExecutionRecoveryButton
+				onRecoverExecution={input.onRecoverExecution}
+				request={input.recoveryRequest}
+				unavailableFallback={confirmedCurrentAction}
+			/>
+		);
+	}
+	if (primaryAction === null) {
+		return null;
+	}
+
 	return (
-		<div className="flex flex-wrap items-center gap-2">
-			{primaryAction}
-			{input.showDiagnostics && input.onOpenDiagnostics ? (
-				<Button
-					onClick={input.onOpenDiagnostics}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					Open diagnostics
-				</Button>
-			) : null}
-		</div>
+		<div className="flex flex-wrap items-center gap-2">{primaryAction}</div>
 	);
 }
 
@@ -1072,12 +1099,9 @@ function WakeIssueAction(input: {
 		);
 	}
 
-	if (!input.onAgentRecoveryAction) {
-		return null;
-	}
-
 	return (
 		<SpaceAgentRecoveryActionControl
+			allowComputerAction
 			isPending={
 				input.isAgentRecoveryPending?.(input.action.plan.profileId) ?? false
 			}
@@ -1337,7 +1361,7 @@ function TechnicalDetailsSection(input: {
 				<div className="mt-2 flex justify-end">
 					<Button
 						onClick={() =>
-							copyTechnicalDetailText(allDetails, "Technical details copied.")
+							copyDetailText(allDetails, "Technical details copied.")
 						}
 						size="sm"
 						type="button"
@@ -1424,7 +1448,7 @@ function DetailLine(input: {
 								aria-label={`Copy ${input.label}`}
 								className="size-6 shrink-0"
 								onClick={() =>
-									copyTechnicalDetailText(input.value, `${input.label} copied.`)
+									copyDetailText(input.value, `${input.label} copied.`)
 								}
 								size="icon-sm"
 								type="button"
@@ -1449,7 +1473,7 @@ function DetailLine(input: {
 	);
 }
 
-async function copyTechnicalDetailText(
+async function copyDetailText(
 	value: string,
 	successMessage: string
 ): Promise<void> {

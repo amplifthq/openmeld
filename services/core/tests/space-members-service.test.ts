@@ -2483,7 +2483,7 @@ describe("space-members-service", () => {
     );
   });
 
-  it("keeps online daemon route truth authoritative while controller report evidence stays diagnostic", async () => {
+  it("keeps Wake checking until an online route also has current controller facts", async () => {
     const sql = new MutableSqlStorage();
     const runtimeTransportClient = await import(
       "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
@@ -2586,10 +2586,10 @@ describe("space-members-service", () => {
       profileId: "agt_route_online",
       runtimeDeviceDisplayName: "Felix's composer",
       agentWakeAvailability: {
-        status: "available_for_wake",
+        status: "checking_connection",
       },
       ownerWakeDiagnostics: {
-        state: "none",
+        state: "checking_wake_status",
         wakeRouteEvidence: {
           reasonCode: "online",
           status: "online",
@@ -2612,7 +2612,7 @@ describe("space-members-service", () => {
     expect(outsiderSnapshot.agents[0]).toMatchObject({
       profileId: "agt_route_online",
       agentWakeAvailability: {
-        status: "available_for_wake",
+        status: "checking_connection",
       },
       ownerWakeDiagnostics: null,
     });
@@ -2888,7 +2888,7 @@ describe("space-members-service", () => {
       snapshot.agents.find((agent) => agent.profileId === "agt_batch_available")
     ).toMatchObject({
       agentWakeAvailability: {
-        status: "available_for_wake",
+        status: "checking_connection",
       },
     });
     expect(
@@ -3318,7 +3318,7 @@ describe("space-members-service", () => {
     expect(snapshot.agents[0]).toMatchObject({
       profileId: "agt_route_offline",
       agentWakeAvailability: {
-        label: "Reconnecting OpenMeld Service",
+        label: "Reconnecting Computer",
         reasonCode: "local_service.reconnecting",
         status: "checking_connection",
       },
@@ -3432,7 +3432,7 @@ describe("space-members-service", () => {
     expect(snapshot.agents[0]).toMatchObject({
       profileId: "agt_route_report_covered",
       agentWakeAvailability: {
-        label: "Reconnecting OpenMeld Service",
+        label: "Reconnecting Computer",
         reasonCode: "local_service.reconnecting",
         status: "checking_connection",
       },

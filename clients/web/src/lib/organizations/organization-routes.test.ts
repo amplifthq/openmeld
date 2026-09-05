@@ -3,6 +3,7 @@ import {
 	buildOrganizationAgentActivityChangesPath,
 	buildOrganizationAgentActivityPath,
 	buildOrganizationAgentActivitySessionsPath,
+	buildOrganizationAgentCreationPath,
 	buildOrganizationAgentsPath,
 	buildOrganizationAppearanceSettingsPath,
 	buildOrganizationAppPath,
@@ -106,6 +107,9 @@ describe("primary organization routes", () => {
 	it("keeps People, Agents, and legacy Directory routes explicit", () => {
 		expect(buildOrganizationPeoplePath("acme")).toBe("/o/acme/people");
 		expect(buildOrganizationAgentsPath("acme")).toBe("/o/acme/agents");
+		expect(buildOrganizationAgentCreationPath("acme")).toBe(
+			"/o/acme/agents?view=create"
+		);
 		expect(buildOrganizationComputersPath("acme")).toBe("/o/acme/computers");
 		expect(
 			buildOrganizationComputerPath({

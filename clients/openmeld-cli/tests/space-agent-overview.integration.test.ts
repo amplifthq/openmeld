@@ -5,6 +5,7 @@ import { withCapturedStdio } from "./helpers/fs";
 
 describe("space agent overview", () => {
   const commands = [
+    ["menu", "space.menu.agent_overview", "choose_subcommand"],
     ["create", "space.create.agent_overview", "service_check"],
     ["join", "space.join.agent_overview", "service_check"],
     ["watch", "space.watch.agent_overview", "resolve_target"],
@@ -64,6 +65,19 @@ describe("space agent overview", () => {
       expect(typeof payload?.humanActionRequired?.possible).toBe("boolean");
     });
   }
+
+  it("advertises passive link generation in the Agent View Space menu", async () => {
+    const { stdout } = await withCapturedStdio(async () => {
+      emitSpaceCliAgentOverview("menu");
+      await Promise.resolve();
+    });
+    const envelope = parseAgentOverviewEnvelope(stdout);
+    const payload = envelope.payload as { commands?: string[] };
+
+    expect(payload.commands).toContain(
+      "openmeld space [--gateway-url <url>] link <space-id> [--signal <signal-id>] [--thread-root-signal <signal-id>] --view agent"
+    );
+  });
 
   it("formats space overview summaries and commands with the resolved CLI entry", async () => {
     const previousCliEntry = process.env.OPENMELD_USER_FACING_CLI_COMMAND;

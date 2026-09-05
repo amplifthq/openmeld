@@ -468,53 +468,41 @@ export function resolveDisplayedAgentWakeAvailability(input: {
 }
 
 export function resolveAgentProfileRowWakeAvailability(input: {
-	autoRefreshExhausted: boolean;
-	currentLocalRuntimeCanReply: boolean | null;
-	localAgentDisplayName?: string | null;
 	readiness: GetAgentExecutionReadinessResponse;
 }): AgentWakeAvailability {
-	const availability = resolveDisplayedAgentWakeAvailability({
+	return resolveDisplayedAgentWakeAvailability({
 		readiness: input.readiness,
 	});
+}
 
-	if (
-		input.readiness.agentExecutionReadiness.facts.binding.source === "missing"
-	) {
-		return {
-			...availability,
-			action: "reconnect_binding",
-			badgeLabel: "Unavailable",
-			category: "unavailable",
-			isRefreshing: false,
-			label: "Not connected to a computer",
-			phase: "connect_local_agent",
-			status: "unavailable_for_wake",
-			summary: "Not connected to a computer.",
-			tooltip: "Not connected to a computer",
-		};
+export function formatAgentWakeAvailabilityCheckedAt(
+	generatedAt: string | null,
+	nowMs = Date.now()
+): string | null {
+	if (!generatedAt) {
+		return null;
 	}
-
-	if (input.readiness.primaryActionPlan.action === "run_prepare") {
-		const localAgentDisplayName = resolveLocalAgentDisplayName(
-			input.localAgentDisplayName
-		);
-		const runtimeDeviceDisplayName =
-			input.readiness.runtimeDeviceDisplayName ?? "this computer";
-		return {
-			...availability,
-			action: "run_prepare",
-			badgeLabel: "Unavailable",
-			category: "unavailable",
-			isRefreshing: false,
-			label: `${localAgentDisplayName} needs setup`,
-			phase: "unavailable",
-			status: "unavailable_for_wake",
-			summary: `${localAgentDisplayName} needs setup on ${runtimeDeviceDisplayName}.`,
-			tooltip: `Review ${localAgentDisplayName} setup`,
-		};
+	const generatedAtMs = Date.parse(generatedAt);
+	if (!Number.isFinite(generatedAtMs)) {
+		return null;
 	}
-
-	return availability;
+	const elapsedSeconds = Math.max(
+		0,
+		Math.floor((nowMs - generatedAtMs) / 1000)
+	);
+	if (elapsedSeconds < 60) {
+		return "checked just now";
+	}
+	const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+	if (elapsedMinutes < 60) {
+		return `checked ${elapsedMinutes} ${elapsedMinutes === 1 ? "minute" : "minutes"} ago`;
+	}
+	const elapsedHours = Math.floor(elapsedMinutes / 60);
+	if (elapsedHours < 24) {
+		return `checked ${elapsedHours} ${elapsedHours === 1 ? "hour" : "hours"} ago`;
+	}
+	const elapsedDays = Math.floor(elapsedHours / 24);
+	return `checked ${elapsedDays} ${elapsedDays === 1 ? "day" : "days"} ago`;
 }
 
 export function canManuallyRefreshAgentProfileConnection(input: {
@@ -539,12 +527,6 @@ function hasLocalAgentReadinessRefreshReason(
 			reasonCode === "runtime.projection_missing" ||
 			isAgentProfileLocalReadinessRefreshReasonCode(reasonCode)
 	);
-}
-
-function resolveLocalAgentDisplayName(
-	localAgentDisplayName: string | null | undefined
-): string {
-	return normalizeOptionalText(localAgentDisplayName) ?? "Local agent";
 }
 
 export function isAgentExecutionRefreshableExpiredWakeRoute(
@@ -736,9 +718,7 @@ export function resolveAgentProfileRepairActions(input: {
 		return [];
 	}
 	if (input.readiness === null) {
-		return createAgentProfileConnectActionsFromLocalAgents(
-			input.localAgentCatalogEntries
-		);
+		return [];
 	}
 
 	const readiness = input.readiness.agentExecutionReadiness;
@@ -853,19 +833,23 @@ export function resolveAgentProfileSetupAction(input: {
 	if (primaryAction === "update_service") {
 		return {
 			href: input.serviceUpdatePath,
-			label: formatLocalSetupActionLabel("update_service"),
+			label: "Update",
 		};
 	}
 	if (primaryAction === "connect_service") {
 		return {
 			href: input.setupPath,
-			label: resolveAgentExecutionServiceActionLabel(readiness),
+			label:
+				resolveAgentExecutionServiceActionLabel(readiness) ===
+				formatLocalSetupActionLabel("connect_service")
+					? "Connect computer"
+					: "Reconnect computer",
 		};
 	}
 	if (primaryAction === "run_prepare") {
 		return {
 			href: input.setupPath,
-			label: `Review ${resolveLocalAgentDisplayName(input.localAgentDisplayName)} setup`,
+			label: "Connect local agent",
 		};
 	}
 	if (input.readiness?.agentWakeAvailability.phase === "checking_route") {

@@ -35,7 +35,7 @@ export function AgentActivityAddToSpaceDialog(input: {
 			const agentProfileId = input.session.boundAgentProfileId;
 			if (!(agentProfileId && selectedHumanProfile)) {
 				throw new Error(
-					"A connected Agent Profile and an active human profile are required."
+					"A connected Agent and an active profile are required."
 				);
 			}
 			await joinProfileToSpace({

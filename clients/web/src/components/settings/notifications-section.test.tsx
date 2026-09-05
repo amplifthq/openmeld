@@ -105,6 +105,25 @@ describe("NotificationsSection", () => {
 			});
 		});
 	});
+
+	it("lets the user turn OpenMeld notification sounds off on this device", async () => {
+		renderNotificationsSection();
+		const soundSwitch = screen.getByRole("switch", {
+			name: "Play OpenMeld sounds",
+		});
+		expect(soundSwitch.getAttribute("aria-checked")).toBe("true");
+
+		fireEvent.click(soundSwitch);
+
+		await waitFor(() => {
+			expect(soundSwitch.getAttribute("aria-checked")).toBe("false");
+		});
+		expect(
+			window.localStorage.getItem(
+				"openmeld.inbox.browser-notification-sounds.enabled:user-123"
+			)
+		).toBe("disabled");
+	});
 });
 
 function renderNotificationsSection() {

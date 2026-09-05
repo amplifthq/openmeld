@@ -9,9 +9,6 @@ import type {
 type InspectExecutionRecoveryInput = {
   destination: ExecutionRecoveryDestination;
   explicitUserStop: boolean;
-  freshExecutionCapability: {
-    exactSourceWakeVerified: boolean;
-  };
   identity: ExecutionRecoveryIdentity;
   outcomeUnknown: boolean;
   retainedResult: {
@@ -47,14 +44,6 @@ type RecoveryExecutionDependencies = {
       | "new_execution_requested"
       | "outcome_unknown";
   }>;
-  retryAsNewExecution: (input: {
-    command: ExecuteExecutionRecoveryBody;
-    markEffectStarted: () => Promise<void>;
-    projection: ExecutionRecoveryProjection;
-  }) => Promise<{
-    newExecutionId: string;
-    status: "new_execution_requested" | "outcome_unknown";
-  }>;
 };
 
 const disabledCapability = (
@@ -73,8 +62,6 @@ const disabledCapability = (
 export function inspectExecutionRecovery(
   input: InspectExecutionRecoveryInput
 ): ExecutionRecoveryProjection {
-  const retryWarning =
-    "This creates a new execution and may run the task again, including external side effects.";
   const actions = {
     recoverResult: disabledCapability(
       "recover_result",
@@ -88,14 +75,10 @@ export function inspectExecutionRecovery(
     ),
     retryAsNewExecution: disabledCapability(
       "retry_as_new_execution",
-      "Retry as new execution",
-      "execution_recovery.higher_priority_action_available",
-      retryWarning
+      "Start a new Wake",
+      "execution_recovery.new_wake_required"
     ),
   };
-  const shouldRetryUsageWakeAsNewExecution =
-    input.terminalFailureCode === "usage_exhausted" &&
-    input.freshExecutionCapability.exactSourceWakeVerified;
 
   if (input.explicitUserStop) {
     return {
@@ -180,7 +163,7 @@ export function inspectExecutionRecovery(
     input.identity.agentControllerConversationId &&
     input.resumeCapability.exactAssociationVerified &&
     input.resumeCapability.serviceSupportsResume &&
-    !shouldRetryUsageWakeAsNewExecution
+    !input.terminalFailureCode
   ) {
     return {
       actions: {
@@ -204,42 +187,14 @@ export function inspectExecutionRecovery(
     };
   }
 
-  if (!input.freshExecutionCapability.exactSourceWakeVerified) {
-    return {
-      actions: {
-        ...actions,
-        retryAsNewExecution: {
-          ...actions.retryAsNewExecution,
-          reasonCode: "execution_recovery.exact_source_wake_unavailable",
-        },
-      },
-      destination: input.destination,
-      identity: input.identity,
-      recommendedAction: null,
-      recoveredPublicationId: null,
-      status: "unavailable",
-      tier: "none",
-      updatedAtMs: input.updatedAtMs,
-    };
-  }
-
   return {
-    actions: {
-      ...actions,
-      retryAsNewExecution: {
-        action: "retry_as_new_execution",
-        enabled: true,
-        label: "Retry as new execution",
-        reasonCode: "execution_recovery.fresh_execution_only",
-        warning: retryWarning,
-      },
-    },
+    actions,
     destination: input.destination,
     identity: input.identity,
-    recommendedAction: "retry_as_new_execution",
+    recommendedAction: null,
     recoveredPublicationId: null,
-    status: "available",
-    tier: "fresh_execution",
+    status: "unavailable",
+    tier: "none",
     updatedAtMs: input.updatedAtMs,
   };
 }
@@ -290,18 +245,9 @@ export async function executeExecutionRecovery(input: {
       status: result.status,
     };
   }
-  const result = await input.dependencies.retryAsNewExecution({
-    command: input.command,
-    markEffectStarted: input.markEffectStarted,
-    projection: input.projection,
-  });
-  return {
-    action: input.command.action,
-    newExecutionId: result.newExecutionId,
-    operationId: input.command.operationId,
-    publicationId: null,
-    status: result.status,
-  };
+  throw new Error(
+    "execution_recovery.action_unavailable:execution_recovery.new_wake_required"
+  );
 }
 
 export function assertExecutionRecoveryCommandCanRun(input: {
@@ -309,10 +255,15 @@ export function assertExecutionRecoveryCommandCanRun(input: {
   projection: ExecutionRecoveryProjection;
 }): void {
   assertExecutionRecoveryCommandMatchesProjection(input);
-  const capability = resolveRequestedCapability(
-    input.command.action,
-    input.projection
-  );
+  if (input.command.action === "retry_as_new_execution") {
+    throw new Error(
+      "execution_recovery.action_unavailable:execution_recovery.new_wake_required"
+    );
+  }
+  const capability =
+    input.command.action === "recover_result"
+      ? input.projection.actions.recoverResult
+      : input.projection.actions.resumeControllerConversation;
   if (!capability.enabled) {
     throw new Error(
       `execution_recovery.action_unavailable:${capability.reasonCode}`
@@ -325,19 +276,6 @@ export function assertExecutionRecoveryCommandMatchesProjection(input: {
   projection: ExecutionRecoveryProjection;
 }): void {
   assertExactRecoveryCommand(input.command, input.projection);
-}
-
-function resolveRequestedCapability(
-  action: ExecuteExecutionRecoveryBody["action"],
-  projection: ExecutionRecoveryProjection
-): ExecutionRecoveryActionCapability {
-  if (action === "recover_result") {
-    return projection.actions.recoverResult;
-  }
-  if (action === "resume_controller_conversation") {
-    return projection.actions.resumeControllerConversation;
-  }
-  return projection.actions.retryAsNewExecution;
 }
 
 function assertExactRecoveryCommand(

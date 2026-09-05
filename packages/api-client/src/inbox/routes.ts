@@ -33,6 +33,10 @@ export function buildSpaceInboxSummaryPath(): string {
   return `${INBOX_PATH}/spaces/summary`;
 }
 
+export function buildSpaceInboxUnreadTargetsPath(spaceId: string): string {
+  return `${INBOX_PATH}/spaces/${encodeURIComponent(spaceId)}/unread-targets`;
+}
+
 export function buildSpaceInboxReadThroughPath(): string {
   return `${INBOX_PATH}/spaces/read-through`;
 }

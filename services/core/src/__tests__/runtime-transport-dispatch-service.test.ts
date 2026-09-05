@@ -986,6 +986,95 @@ describe("runtime transport dispatch service", () => {
     );
   });
 
+  it("rejects a prepared delivery when the Profile lease transfers before send", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+    let releasePreparation: () => void = () => undefined;
+    let signalPreparationStarted: () => void = () => undefined;
+    const preparationStarted = new Promise<void>((resolve) => {
+      signalPreparationStarted = resolve;
+    });
+    const preparationRelease = new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    });
+    const prepareAcceptedDelivery = vi.fn(async (request) => {
+      signalPreparationStarted();
+      await preparationRelease;
+      return { ok: true as const, request };
+    });
+
+    const delivery = deliverDispatch(state, createDispatchRequest(), {
+      cleanupCompletedResults: () => undefined,
+      prepareAcceptedDelivery,
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame,
+    });
+    await preparationStarted;
+    const lease = state.profileLeasesByProfileId.get("agt-1");
+    if (!lease) {
+      throw new Error("Expected fixture lease for agt-1.");
+    }
+    state.profileLeasesByProfileId.set("agt-1", {
+      ...lease,
+      daemonSessionId: "session-3",
+      leaseEpoch: 3,
+    });
+    releasePreparation();
+
+    await expect(delivery).resolves.toEqual({
+      accepted: false,
+      reasonCode: "daemon.session.stale_lease",
+      status: "rejected",
+    });
+    expect(sendFrame).not.toHaveBeenCalled();
+    expect(state.pendingDispatches.size).toBe(0);
+  });
+
+  it("rejects a prepared delivery when the selected session stops accepting before send", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+    let releasePreparation: () => void = () => undefined;
+    let signalPreparationStarted: () => void = () => undefined;
+    const preparationStarted = new Promise<void>((resolve) => {
+      signalPreparationStarted = resolve;
+    });
+    const preparationRelease = new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    });
+    const prepareAcceptedDelivery = vi.fn(async (request) => {
+      signalPreparationStarted();
+      await preparationRelease;
+      return { ok: true as const, request };
+    });
+
+    const delivery = deliverDispatch(state, createDispatchRequest(), {
+      cleanupCompletedResults: () => undefined,
+      prepareAcceptedDelivery,
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame,
+    });
+    await preparationStarted;
+    const session = state.sessionsById.get("session-2");
+    if (!session) {
+      throw new Error("Expected fixture session session-2.");
+    }
+    state.sessionsById.set("session-2", {
+      ...session,
+      acceptingDispatches: false,
+    });
+    releasePreparation();
+
+    await expect(delivery).resolves.toEqual({
+      accepted: false,
+      reasonCode: "daemon.profile.offline",
+      status: "rejected",
+    });
+    expect(sendFrame).not.toHaveBeenCalled();
+    expect(state.pendingDispatches.size).toBe(0);
+  });
+
   it("rejects delivery before token preparation when the lease is execution-incompatible", async () => {
     const { state } = createState();
     const lease = state.profileLeasesByProfileId.get("agt-1");

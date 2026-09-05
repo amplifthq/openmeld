@@ -16,7 +16,7 @@ const reasonCodeSchema = z.string().trim().min(1).max(256);
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 
 export const getLocalRuntimeExpectedRoutesQuerySchema = z.strictObject({
-  contractVersion: z.enum(["v2", "v3"]).optional(),
+  contractVersion: z.enum(["v2", "v3", "v4"]).optional(),
   deviceId: boundedIdentifierSchema,
   lane: boundedIdentifierSchema,
 });
@@ -26,6 +26,9 @@ export const localRuntimeExpectedRouteSchema = z.strictObject({
   bindingId: boundedIdentifierSchema,
   bindingState: z.literal("enabled_primary"),
   configurationRevision: z.number().int().positive().optional(),
+  // v4 only. The cloud Project identity is safe to synchronize; the local
+  // folder path remains private to the current computer.
+  defaultProjectId: boundedIdentifierSchema.nullable().optional(),
   executionTarget: z.strictObject({
     agentControllerConversationId: z.string().trim().min(1).max(512).nullable(),
     agentControllerRef: boundedIdentifierSchema,

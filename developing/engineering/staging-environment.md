@@ -121,7 +121,12 @@ executes the copied line as arbitrary shell, never prints its one-time tokens,
 and rejects Production, lookalike hosts, npm distribution, extra flags, and
 shell suffixes. It temporarily preserves an existing `~/.openmeld-canary` only
 when both Canary launchd labels are free, then restores that exact directory
-after the run.
+after the run. The temporary smoke home uses private file token storage so the
+packaged CLI and the source API helper share one disposable Staging credential;
+the runner deletes that home before restoring the previous Canary state.
+After the local process starts, the runner waits for Core's current-device
+projection to observe the Service connection before it sends maintenance or
+update commands.
 
 One run verifies the focused update safety contracts, connects a temporary
 Canary Computer, publishes a newer prerelease only to the Staging CLI channel,

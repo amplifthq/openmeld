@@ -2750,23 +2750,31 @@ describe("connect experience enhancements", () => {
     try {
       const selfProfileId = "11111111-0000-0000-0000-0000000000bb";
       const outboundText = "@dev-repro-codex what is current conversation id";
-      const connectPromise = withCapturedStdio(async () => {
-        await withTempHome(async () => {
-          await runConnect({
-            profile: "codex--wrapped-prompt-ghost",
-            openMeldProfile: createOpenMeldProfileInput({
-              openMeldProfileId: selfProfileId,
-              profileName: "OpenMeld Dev Local Test",
-              profileKind: "human",
-            }),
-            baseUrl: "https://example.com",
-            space: "ops-room",
-            stdio: true,
-            output: "text",
-            view: "human",
+      let observedStdout = "";
+      const connectPromise = withCapturedStdio(
+        async () => {
+          await withTempHome(async () => {
+            await runConnect({
+              profile: "codex--wrapped-prompt-ghost",
+              openMeldProfile: createOpenMeldProfileInput({
+                openMeldProfileId: selfProfileId,
+                profileName: "OpenMeld Dev Local Test",
+                profileKind: "human",
+              }),
+              baseUrl: "https://example.com",
+              space: "ops-room",
+              stdio: true,
+              output: "text",
+              view: "human",
+            });
           });
-        });
-      });
+        },
+        {
+          onStdout: (text) => {
+            observedStdout += text;
+          },
+        }
+      );
 
       await harness.waitUntilReady();
       harness.emit(
@@ -2785,7 +2793,11 @@ describe("connect experience enhancements", () => {
           },
         })
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.waitFor(() => {
+        expect(stripAnsi(observedStdout)).toContain(
+          "* 📣 system · 🤖 @dev-repro-claude is replying..."
+        );
+      });
       process.stdin.emit("data", Buffer.from(`${outboundText}\n`));
       await vi.waitFor(() => {
         expect(harness.send).toHaveBeenCalledTimes(2);
@@ -4064,28 +4076,39 @@ describe("connect experience enhancements", () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess();
 
-    const connectPromise = withCapturedStdio(async () => {
-      await withTempHome(async () => {
-        await runConnect({
-          profile: "codex--connect-experience",
-          openMeldProfile: createOpenMeldProfileInput({
-            openMeldProfileId: "22222222-0000-0000-0000-000000000002",
-            profileName: "Codex",
-            profileKind: "agent",
-          }),
-          baseUrl: "https://example.com",
-          space: "ops-room",
-          connectionMode: "join",
-          sendCommand:
-            "openmeld space send --profile 22222222-0000-0000-0000-000000000002 ops-room <text...>",
-          stdio: false,
-          output: "ndjson",
-          view: "agent",
+    let observedStdout = "";
+    const connectPromise = withCapturedStdio(
+      async () => {
+        await withTempHome(async () => {
+          await runConnect({
+            profile: "codex--connect-experience",
+            openMeldProfile: createOpenMeldProfileInput({
+              openMeldProfileId: "22222222-0000-0000-0000-000000000002",
+              profileName: "Codex",
+              profileKind: "agent",
+            }),
+            baseUrl: "https://example.com",
+            space: "ops-room",
+            connectionMode: "join",
+            sendCommand:
+              "openmeld space send --profile 22222222-0000-0000-0000-000000000002 ops-room <text...>",
+            stdio: false,
+            output: "ndjson",
+            view: "agent",
+          });
         });
-      });
-    });
+      },
+      {
+        onStdout: (text) => {
+          observedStdout += text;
+        },
+      }
+    );
 
     await harness.waitUntilReady();
+    await vi.waitFor(() => {
+      expect(observedStdout).toContain('"code":"connect.connected_no_stdio"');
+    });
     harness.close(1000, "client_closed");
 
     const { stdout } = await connectPromise;

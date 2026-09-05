@@ -2,10 +2,14 @@ import {
 	DEFAULT_AUTHENTICATED_ENTRY_PATH,
 	sanitizeAuthenticatedEntryTarget,
 } from "./auth-entry-policy";
+import {
+	ADD_ACCOUNT_AUTH_INTENT,
+	hasAddAccountAuthIntent,
+} from "./auth-intent";
 
 const DEFAULT_CALLBACK_PATH = "/callback";
 type RedirectSearchInput =
-	| Record<string, string | string[] | null | undefined>
+	| Record<string, unknown>
 	| URLSearchParams
 	| string
 	| null
@@ -47,10 +51,10 @@ function readRedirectParamFromSearch(
 
 	const value = search.redirect;
 	if (Array.isArray(value)) {
-		return value[0] ?? null;
+		return typeof value[0] === "string" ? value[0] : null;
 	}
 
-	return value ?? null;
+	return typeof value === "string" ? value : null;
 }
 
 function normalizeOptionalSearchValue(
@@ -152,5 +156,11 @@ export function getFrontendCallbackURLWithRedirect(
 		"redirect",
 		sanitizeRedirectTarget(redirectTarget, redirectTarget)
 	);
+	if (
+		typeof window !== "undefined" &&
+		hasAddAccountAuthIntent(window.location.href)
+	) {
+		callbackURL.searchParams.set("intent", ADD_ACCOUNT_AUTH_INTENT);
+	}
 	return callbackURL.toString();
 }

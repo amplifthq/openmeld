@@ -83,6 +83,11 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
           },
         };
       },
+      getAdapterOperationStatus: () => "available" as const,
+      runAdapterOperationIfIdle: async <T>(
+        _adapterId: string,
+        operation: () => Promise<T>
+      ) => ({ accepted: true as const, value: await operation() }),
       beginDrain: () => ({ ownedAttemptKeys: [] }),
       drain: async () => undefined,
       dropPendingTasks: () => ({
@@ -221,6 +226,11 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
       request: () => {
         throw new Error("invalid payload must not enter the dispatch queue");
       },
+      getAdapterOperationStatus: () => "available" as const,
+      runAdapterOperationIfIdle: async <T>(
+        _adapterId: string,
+        operation: () => Promise<T>
+      ) => ({ accepted: true as const, value: await operation() }),
       beginDrain: () => ({ ownedAttemptKeys: [] }),
       drain: async () => undefined,
       dropPendingTasks: () => ({
@@ -362,6 +372,11 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
           queueDepth: 0,
         },
       }),
+      getAdapterOperationStatus: () => "available" as const,
+      runAdapterOperationIfIdle: async <T>(
+        _adapterId: string,
+        operation: () => Promise<T>
+      ) => ({ accepted: true as const, value: await operation() }),
       beginDrain: () => ({ ownedAttemptKeys: [] }),
       drain: async () => undefined,
       dropPendingTasks: () => ({

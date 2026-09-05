@@ -102,9 +102,9 @@ describe("agent wake availability local copy fallbacks", () => {
       })
     ).toMatchObject({
       badgeLabel: "Reconnecting",
-      label: "Reconnecting OpenMeld Service",
-      summary: "OpenMeld Service is reconnecting on this computer.",
-      tooltip: "Reconnecting OpenMeld Service",
+      label: "Reconnecting Computer",
+      summary: "Computer is reconnecting.",
+      tooltip: "Reconnecting Computer",
     });
   });
 });

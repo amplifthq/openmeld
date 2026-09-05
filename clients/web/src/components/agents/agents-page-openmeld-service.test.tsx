@@ -222,6 +222,34 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.queryByText("Required: v0.3.126.")).toBeNull();
 	});
 
+	it("does not offer an update when Core has no actionable release", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.3.152",
+						latestVersion: null,
+						reasonCodes: ["local_components.release_manifest_invalid"],
+						requiredVersion: null,
+						status: "unknown",
+						updatePolicy: "required",
+						wakeBlocked: true,
+					},
+				}
+			),
+			replyReadiness: SERVICE_UPDATE_REQUIRED_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
+		expect(screen.queryByRole("link", { name: "Update manually" })).toBeNull();
+		expect(screen.queryByText("Required:", { exact: false })).toBeNull();
+	});
+
 	it("uses one OpenMeld Tools action for an available service update", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
@@ -310,12 +338,13 @@ describe("OpenMeldServiceCard", () => {
 			"search",
 			"?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
 		);
-		expect(
-			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
-				.disabled
-		).toBe(true);
-		expect(screen.getByText("Checking for updates")).toBeTruthy();
-		expect(screen.getAllByText("Updating")).toHaveLength(1);
+		const updatingButton = screen.getByRole("button", { name: "Updating…" });
+		expect((updatingButton as HTMLButtonElement).disabled).toBe(true);
+		expect(updatingButton.querySelector(".shimmer-text")?.textContent).toBe(
+			"Updating…"
+		);
+		const checkingStatus = screen.getByText("Checking…");
+		expect(checkingStatus.getAttribute("aria-live")).toBe("polite");
 
 		finishRequest(result);
 
@@ -323,7 +352,7 @@ describe("OpenMeldServiceCard", () => {
 			expect(setQueryDataMock).toHaveBeenCalledTimes(1);
 		});
 		expect(
-			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+			(screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement)
 				.disabled
 		).toBe(true);
 		expect(toastSuccessMock).not.toHaveBeenCalled();
@@ -361,9 +390,41 @@ describe("OpenMeldServiceCard", () => {
 			expect(refreshSharedCachesMock).toHaveBeenCalled();
 		});
 		expect(toastSuccessMock).not.toHaveBeenCalled();
-		expect(screen.getByText("Verifying update")).toBeTruthy();
+		expect(screen.getByText("Verifying…")).toBeTruthy();
 		expect(
-			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+			(screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+	});
+
+	it("keeps an in-progress update visible after a fresh mount", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updating" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(
+			screen.getByText("Updating…", { selector: "[aria-live]" })
+		).toBeTruthy();
+		expect(
+			(screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement)
 				.disabled
 		).toBe(true);
 	});
@@ -402,7 +463,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("Verifying update")).toBeTruthy();
+		expect(screen.getByText("Verifying…")).toBeTruthy();
 		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
@@ -441,8 +502,90 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		expect(screen.getByText("Up to date")).toBeTruthy();
-		expect(screen.queryByText("Verifying update")).toBeNull();
+		expect(screen.queryByText("Verifying…")).toBeNull();
 		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+	});
+
+	it.each([
+		"restored",
+		"needs_help",
+	] as const)("keeps the authoritative %s failure visible after both installed versions converge", (phase) => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					cli: {
+						commandContractVersion:
+							"openmeld-cli-command-contract-2026-05-local-components-v1",
+						installedPackageVersion: "0.8.0",
+						latestPackageVersion: "0.8.0",
+						reasonCodes: [],
+						requiredCommandContractVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.8.0",
+						latestVersion: "0.8.0",
+						reasonCodes: [],
+						requiredVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("Update failed. Try again.")).toBeTruthy();
+		expect(screen.queryByText("Up to date")).toBeNull();
+		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+	});
+
+	it("keeps updating while the owner is still updating even when the target versions are visible", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					cli: {
+						commandContractVersion:
+							"openmeld-cli-command-contract-2026-05-local-components-v1",
+						installedPackageVersion: "0.8.0",
+						latestPackageVersion: "0.8.0",
+						reasonCodes: [],
+						requiredCommandContractVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.8.0",
+						latestVersion: "0.8.0",
+						reasonCodes: [],
+						requiredVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase: "updating" }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(
+			screen.getByText("Updating…", { selector: "[aria-live]" })
+		).toBeTruthy();
+		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
 	it("settles an exact update target when a newer release is already available", () => {
@@ -481,7 +624,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
-		expect(screen.queryByText("Verifying update")).toBeNull();
+		expect(screen.queryByText("Verifying…")).toBeNull();
 		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
@@ -513,7 +656,7 @@ describe("OpenMeldServiceCard", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Update" }));
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Updating" })).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Updating…" })).toBeTruthy();
 		});
 
 		view.rerender(
@@ -557,8 +700,8 @@ describe("OpenMeldServiceCard", () => {
 			).toBe(false);
 		});
 		expect(screen.getByText("OpenMeld Tools update available")).toBeTruthy();
-		expect(screen.queryByText("Updating")).toBeNull();
-		expect(screen.queryByText("Verifying update")).toBeNull();
+		expect(screen.queryByText("Updating…")).toBeNull();
+		expect(screen.queryByText("Verifying…")).toBeNull();
 		expect(screen.queryByText("Up to date")).toBeNull();
 	});
 
@@ -598,7 +741,7 @@ describe("OpenMeldServiceCard", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Update" }));
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Updating" })).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Updating…" })).toBeTruthy();
 		});
 
 		view.rerender(
@@ -632,8 +775,10 @@ describe("OpenMeldServiceCard", () => {
 			})
 		);
 
-		expect(screen.queryByText("Finishing current work")).toBeNull();
-		expect(screen.getAllByText("Updating")).toHaveLength(2);
+		expect(screen.queryByText("Finishing…")).toBeNull();
+		expect(
+			screen.getByText("Updating…", { selector: "[aria-live]" })
+		).toBeTruthy();
 	});
 
 	it("keeps polling after installation ends until both installed versions catch up", async () => {
@@ -672,7 +817,7 @@ describe("OpenMeldServiceCard", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Update" }));
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Updating" })).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Updating…" })).toBeTruthy();
 		});
 		view.rerender(
 			buildOpenMeldServiceCard({
@@ -717,9 +862,9 @@ describe("OpenMeldServiceCard", () => {
 		);
 
 		expect(screen.queryByText("Up to date")).toBeNull();
-		expect(screen.getByText("Verifying update")).toBeTruthy();
+		expect(screen.getByText("Verifying…")).toBeTruthy();
 		expect(
-			(screen.getByRole("button", { name: "Updating" }) as HTMLButtonElement)
+			(screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement)
 				.disabled
 		).toBe(true);
 		await waitFor(
@@ -1060,7 +1205,7 @@ describe("OpenMeldServiceCard", () => {
 			name: "Keep OpenMeld Tools up to date",
 		});
 		expect(toggle.getAttribute("aria-checked")).toBe("true");
-		expect(screen.getByText("Finishing current work")).toBeTruthy();
+		expect(screen.getByText("Finishing…")).toBeTruthy();
 		fireEvent.click(toggle);
 
 		await waitFor(() => {
@@ -1411,13 +1556,13 @@ describe("OpenMeldServiceCard", () => {
 			screen.getByText("OpenMeld Service is not connected").className
 		).toContain("text-destructive");
 		expect(
-			screen.getByRole("link", { name: "Reconnect manually" }).className
+			screen.getByRole("link", { name: "Reconnect Computer" }).className
 		).toContain("text-destructive");
 		fireEvent.click(
 			screen.getByRole("button", { name: "OpenMeld tools options" })
 		);
 		expect(
-			screen.getAllByRole("link", { name: "Reconnect manually" })
+			screen.getAllByRole("link", { name: "Reconnect Computer" })
 		).toHaveLength(2);
 		expect(
 			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
@@ -1425,6 +1570,22 @@ describe("OpenMeldServiceCard", () => {
 		expect(
 			screen.queryByLabelText("OpenMeld Service connection: Not connected")
 		).toBeNull();
+	});
+
+	it("describes an inconclusive Service observation as delayed instead of unavailable", () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: null,
+			replyReadiness: {
+				detailReasonCode: null,
+				executionTargetStatus: "unknown",
+				reasonCode: "background_helper.unknown",
+				service: null,
+				status: "unknown",
+			},
+		});
+
+		expect(screen.getByText("Connection status delayed")).toBeTruthy();
+		expect(screen.queryByText("Status unavailable")).toBeNull();
 	});
 
 	it("uses the current Service observation when an older computer projection still says ready", () => {
@@ -1446,7 +1607,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getByText("OpenMeld Service is not connected")).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Reconnect manually" })
+			screen.getByRole("link", { name: "Reconnect Computer" })
 		).toBeTruthy();
 		expect(screen.queryByText("OpenMeld Service is connected")).toBeNull();
 	});

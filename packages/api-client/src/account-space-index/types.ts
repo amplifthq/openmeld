@@ -8,6 +8,7 @@ import type { OpenMeldApiClientFoundation } from "../client";
 export type ListAccountSpaceIndexInput = {
   requestContext?: OpenMeldRequestContext;
   gatewayHost: string;
+  includeDirectMessageProfileIds?: boolean;
   includePurposes?: boolean;
   includeRecentlyDeletedItems?: boolean;
   limit?: number;

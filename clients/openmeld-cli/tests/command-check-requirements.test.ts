@@ -114,6 +114,14 @@ describe("command check requirements", () => {
   });
 
   it("keeps status-only flows free of local auto-fix while space local-state readers stay covered", () => {
+    expect(getCommandCheckRequirements("space.access")).toMatchObject({
+      disclaimer: { mode: "skip", stage: "before-entry" },
+      cliUpdate: { mode: "optional", stage: "before-entry" },
+      localRuntimeState: { mode: "skip", stage: "before-entry" },
+      signIn: { mode: "skip", stage: "before-entry" },
+      selectedProfile: { mode: "skip", stage: "after-sign-in" },
+      service: { mode: "skip", stage: "after-sign-in" },
+    });
     for (const entryName of [
       "space.add-me",
       "space.add-agents",

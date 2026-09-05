@@ -9,6 +9,7 @@ import {
   listActiveRuntimeCoordinatorExecutionProjectionsBySpace,
   listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace,
   readRuntimeCoordinatorExecutionProjectionById,
+  writeRuntimeCoordinatorExecutionEventFromParts,
   writeRuntimeCoordinatorExecutionProjection,
 } from "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import {
@@ -109,6 +110,7 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
               dispatch_id,
               idempotency_key,
               status,
+              on_behalf_of_profile_id,
               routine_run_id,
               accepted_at_ms,
               callback_received_at_ms,
@@ -116,7 +118,7 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
               created_at_ms,
               updated_at_ms
             )
-            VALUES (?, 'org-1', 'space', ?, 'agt_target_native', 'binding-1', 'signal-1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, 'org-1', 'space', ?, 'agt_target_native', 'binding-1', 'signal-1', ?, ?, ?, ?, 'human-source-1', ?, ?, ?, ?, ?, ?)
           `,
         });
       }
@@ -124,6 +126,14 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
       await expect(
         listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
           db: harness.db,
+          sourceProfileId: "human-source-other",
+          spaceId: "space-1",
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace({
+          db: harness.db,
+          sourceProfileId: "human-source-1",
           spaceId: "space-1",
           targetProfileId: "agt_target_native",
         })
@@ -173,6 +183,10 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
     );
     applyDrizzleMigrationForTable(harness, "openMeldDaemon_dispatch_ledger");
     applyDrizzleMigrationForTable(harness, "openMeldDaemon_dispatch_attempts");
+    applyDrizzleMigrationForTable(
+      harness,
+      "openMeldDaemon_runtime_coordinator_execution_events"
+    );
     try {
       await writeExecution(harness.db, {
         dispatchId: "dispatch-native-delivery",
@@ -238,10 +252,35 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
 					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 				`,
       });
+      await writeRuntimeCoordinatorExecutionEventFromParts({
+        db: harness.db,
+        eventType: "lifecycle_accepted_local",
+        idempotencyKey: "occupancy:occupied",
+        observedAtMs: 120,
+        payload: {
+          agentControllerConversationOccupancy: {
+            agentControllerConversationId: "conversation-private",
+            contractVersion: 1,
+            state: "occupied",
+          },
+        },
+        runtimeCoordinatorExecutionId: "rce-native-delivery",
+        statusAfter: "accepted_local",
+      });
 
       await expect(
         listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
           db: harness.db,
+          sourceDispatchIds: [],
+          sourceProfileId: "human-source-other",
+          spaceId: "space-1",
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+          db: harness.db,
+          sourceDispatchIds: ["dispatch-native-delivery"],
+          sourceProfileId: "human-source-1",
           spaceId: "space-1",
         })
       ).resolves.toEqual([
@@ -250,6 +289,52 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
           latestDispatchAttemptStatus: "waiting_result",
           sourceEventId: "signal-native-delivery",
           status: "created",
+          waitReasonCode: "runtime.agent_controller_conversation.occupied",
+        }),
+      ]);
+
+      harness.run({
+        params: ["human-source-1", "dispatch-native-delivery"],
+        sql: `
+          UPDATE openMeldDaemon_dispatch_ledger
+          SET source_profile_id = ?
+          WHERE dispatch_id = ?
+        `,
+      });
+      await expect(
+        listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+          db: harness.db,
+          sourceProfileId: "human-source-1",
+          spaceId: "space-1",
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({ dispatchId: "dispatch-native-delivery" }),
+      ]);
+
+      await writeRuntimeCoordinatorExecutionEventFromParts({
+        db: harness.db,
+        eventType: "lifecycle_running",
+        idempotencyKey: "occupancy:available",
+        observedAtMs: 130,
+        payload: {
+          agentControllerConversationOccupancy: {
+            agentControllerConversationId: "conversation-private",
+            contractVersion: 1,
+            state: "available",
+          },
+        },
+        runtimeCoordinatorExecutionId: "rce-native-delivery",
+        statusAfter: "running",
+      });
+
+      await expect(
+        listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
+          db: harness.db,
+          spaceId: "space-1",
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({
+          waitReasonCode: null,
         }),
       ]);
     } finally {

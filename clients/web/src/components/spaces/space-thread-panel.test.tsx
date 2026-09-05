@@ -10,6 +10,7 @@ import type {
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -141,6 +142,62 @@ describe("SpaceThreadPanel", () => {
 		expect(pendingActions.compareDocumentPosition(composer)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
+	});
+
+	it("marks only the open thread read after its latest message stays visible", async () => {
+		vi.useFakeTimers();
+		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
+		const latestTs = Date.UTC(2026, 4, 27, 10, 0, 9);
+		renderThreadPanel({
+			onViewedThroughTs,
+			signals: [createTextSignal({ ts: latestTs })],
+		});
+
+		await act(async () => {
+			vi.advanceTimersByTime(800);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenCalledWith(latestTs);
+	});
+
+	it("returns thread reads to the normal debounce after a retry succeeds", async () => {
+		vi.useFakeTimers();
+		const warning = vi
+			.spyOn(console, "warn")
+			.mockImplementation(() => undefined);
+		const onViewedThroughTs = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValue(undefined);
+		const firstTs = Date.UTC(2026, 4, 27, 10, 0, 9);
+		const secondTs = firstTs + 1000;
+		const view = renderThreadPanel({
+			onViewedThroughTs,
+			signals: [createTextSignal({ ts: firstTs })],
+		});
+
+		await act(async () => {
+			vi.advanceTimersByTime(800);
+			await Promise.resolve();
+		});
+		await act(async () => {
+			vi.advanceTimersByTime(1000);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
+
+		view.rerenderThreadPanel({
+			onViewedThroughTs,
+			signals: [createTextSignal({ ts: secondTs })],
+		});
+		await act(async () => vi.advanceTimersByTime(799));
+		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
+		await act(async () => {
+			vi.advanceTimersByTime(1);
+			await Promise.resolve();
+		});
+		expect(onViewedThroughTs).toHaveBeenLastCalledWith(secondTs);
+		warning.mockRestore();
 	});
 
 	it("keeps the Thread composer actions flush and aligned while sending", () => {
@@ -657,7 +714,7 @@ describe("SpaceThreadPanel", () => {
 		).toBeTruthy();
 	});
 
-	it("offers thread recovery only inside Message details", async () => {
+	it("does not execute a fresh thread Wake through Message details recovery", async () => {
 		const onRecoverExecution = createFreshExecutionRecoveryHandler();
 		renderThreadPanel({
 			onRecoverExecution,
@@ -680,19 +737,11 @@ describe("SpaceThreadPanel", () => {
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
-		const retry = await screen.findByRole("button", {
-			name: "Retry as new execution",
-		});
-		fireEvent.click(retry);
-		await waitFor(() => {
-			expect(onRecoverExecution).toHaveBeenCalledWith({
-				action: "retry_as_new_execution",
-				dispatchId: "dispatch-1",
-				operationId: expect.any(String),
-				resultRef: null,
-				targetProfileId: TARGET_PROFILE_ID,
-			});
-		});
+		await screen.findByRole("dialog", { name: "Message details" });
+		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
+		expect(
+			screen.queryByRole("button", { name: "Retry as new execution" })
+		).toBeNull();
 	});
 
 	it("keeps thread footer recovery fenced to one operation", async () => {
@@ -1166,6 +1215,28 @@ describe("SpaceThreadPanel", () => {
 
 		expect(onEditAgentProfile).toHaveBeenCalledWith(TARGET_PROFILE_ID);
 	});
+
+	it("opens the exact structured Wake target from an inline Agent mention", () => {
+		renderThreadPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
+			signals: [
+				createWakeTextSignal({
+					text: "@Codex 5.6 Sol please review this.",
+				}),
+			],
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Open Codex 5.6 Sol profile (Wake)",
+			})
+		);
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.queryByText("How this Agent works")).toBeNull();
+		expect(dialog.getAllByText("Codex 5.6 Sol").length).toBeGreaterThan(0);
+		expect(dialog.getByText("Available for Wake")).toBeTruthy();
+	});
 });
 
 const TARGET_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
@@ -1203,12 +1274,14 @@ function renderThreadPanel(
 		composerText: "",
 		composerFiles: [],
 		composerFileLimitReached: false,
+		currentOwnerUserId: null,
 		ephemeralActivityItems: [],
 		isAgentRecoveryPending: () => false,
 		isDiagnosticReportPending: () => false,
 		isDiagnosticReportSent: () => false,
 		isSendingMessage: false,
 		membersSnapshot: null,
+		modelCatalog: null,
 		onAgentRecoveryAction: async () => undefined,
 		onClose: () => undefined,
 		onComposerEditorChange: () => undefined,

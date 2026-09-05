@@ -4,6 +4,7 @@ import {
   isAgentExecutionReadinessImpactReasonCode,
   isProjectLocalConnectionFailureReasonCode,
   projectLocalConnectionFailureReasonCodeSchema,
+  RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   resolveCenterAgentCallbackFailureMessage,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,
@@ -670,10 +671,10 @@ describe("public agent failure reason mapping", () => {
         targetLabel: "Runner",
       })
     ).toEqual({
-      body: "This Wake expired before it reached Runner. Start or reconnect OpenMeld Service, then wake the agent again.",
+      body: "This Wake expired before it reached Runner. Reconnect the computer, then wake the Agent again.",
       kind: "local_service",
       primaryActionId: "reconnect_openmeld_service",
-      primaryActionLabel: "Reconnect OpenMeld Service",
+      primaryActionLabel: "Reconnect Computer",
       recoveryTarget: "prepare_setup",
     });
     expect(
@@ -681,7 +682,26 @@ describe("public agent failure reason mapping", () => {
         "runtime_coordinator.delivery_expired"
       )
     ).toBe(
-      "This Wake expired before it reached this agent. Start or reconnect OpenMeld Service, then wake the agent again."
+      "This Wake expired before it reached this agent. Reconnect the computer, then wake the Agent again."
+    );
+  });
+
+  it("keeps an accepted Wake payload conflict separate from computer connectivity", () => {
+    const reasonCode =
+      RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE;
+
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: reasonCode,
+        targetLabel: "Runner",
+      })
+    ).toEqual({
+      body: "OpenMeld stopped this Wake for Runner because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics.",
+      kind: "system_retry",
+      recoveryTarget: null,
+    });
+    expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
+      "OpenMeld stopped this Wake for this agent because the Wake details changed after it was accepted. Send the request again. If this keeps happening, open Diagnostics."
     );
   });
 
@@ -692,7 +712,7 @@ describe("public agent failure reason mapping", () => {
         targetLabel: "Runner",
       })
     ).toEqual({
-      body: "OpenMeld Service is connected, but Runner did not become ready in time for this Wake. Try waking the agent again in a moment.",
+      body: "The computer is connected, but Runner did not become ready in time for this Wake. Try waking the Agent again in a moment.",
       kind: "system_retry",
       recoveryTarget: null,
     });
@@ -701,40 +721,40 @@ describe("public agent failure reason mapping", () => {
         "daemon.profile.pending_first_report"
       )
     ).toBe(
-      "OpenMeld Service is connected, but this agent did not become ready in time for this Wake. Try waking the agent again in a moment."
+      "The computer is connected, but this agent did not become ready in time for this Wake. Try waking the Agent again in a moment."
     );
   });
 
   it.each([
     [
       "daemon.delivery.start_timeout",
-      "OpenMeld could not start Runner in time. Start or reconnect OpenMeld Service, then wake the agent again.",
-      "OpenMeld could not start this agent in time. Start or reconnect OpenMeld Service, then wake the agent again.",
+      "OpenMeld could not start Runner in time. Reconnect the computer, then wake the Agent again.",
+      "OpenMeld could not start this agent in time. Reconnect the computer, then wake the Agent again.",
     ],
     [
       "daemon.delivery.timeout",
-      "Runner took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
-      "This agent took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
+      "Runner took too long to finish this Wake. Reconnect the computer before trying again.",
+      "This agent took too long to finish this Wake. Reconnect the computer before trying again.",
     ],
     [
       "timed_out_no_output",
-      "Runner took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
-      "This agent took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
+      "Runner took too long to finish this Wake. Reconnect the computer before trying again.",
+      "This agent took too long to finish this Wake. Reconnect the computer before trying again.",
     ],
     [
       "timed_out_after_output",
-      "Runner took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
-      "This agent took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
+      "Runner took too long to finish this Wake. Reconnect the computer before trying again.",
+      "This agent took too long to finish this Wake. Reconnect the computer before trying again.",
     ],
     [
       "timeout",
-      "Runner took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
-      "This agent took too long to finish this Wake. Reconnect OpenMeld Service before trying again.",
+      "Runner took too long to finish this Wake. Reconnect the computer before trying again.",
+      "This agent took too long to finish this Wake. Reconnect the computer before trying again.",
     ],
     [
       "daemon.delivery.execution_stalled",
-      "Runner stopped making progress on this Wake. Reconnect OpenMeld Service before trying again.",
-      "This agent stopped making progress on this Wake. Reconnect OpenMeld Service before trying again.",
+      "Runner stopped making progress on this Wake. Reconnect the computer before trying again.",
+      "This agent stopped making progress on this Wake. Reconnect the computer before trying again.",
     ],
     [
       "daemon.delivery.finalization_timeout",
@@ -751,7 +771,7 @@ describe("public agent failure reason mapping", () => {
       body,
       kind: "local_service",
       primaryActionId: "reconnect_openmeld_service",
-      primaryActionLabel: "Reconnect OpenMeld Service",
+      primaryActionLabel: "Reconnect Computer",
       recoveryTarget: "prepare_setup",
     });
     expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
@@ -770,7 +790,7 @@ describe("public agent failure reason mapping", () => {
         targetLabel: "Runner",
       })?.body
     ).not.toBe(
-      "Runner took too long to finish this Wake. Reconnect OpenMeld Service before trying again."
+      "Runner took too long to finish this Wake. Reconnect the computer before trying again."
     );
   });
 
@@ -913,27 +933,27 @@ describe("public agent failure reason mapping", () => {
   it.each([
     [
       "service.not_running",
-      "Runner is connected, but OpenMeld Service is not running on this computer. Start OpenMeld Service so this computer can receive local Wake work.",
+      "Runner's computer is disconnected from OpenMeld. Reconnect the computer so it can receive local Wake work.",
     ],
     [
       "service.not_installed",
-      "Runner is connected, but OpenMeld Service is not installed on this computer. Install OpenMeld Service so this computer can receive local Wake work.",
+      "OpenMeld is not set up on Runner's computer. Connect the computer so it can receive local Wake work.",
     ],
     [
       "service.drifted",
-      "Runner is connected, but OpenMeld Service on this computer needs repair before it can receive local Wake work.",
+      "OpenMeld on Runner's computer needs an update before it can receive local Wake work.",
     ],
     [
       "local_service.not_connected_for_account",
-      "Runner is connected, but OpenMeld Service is not connected for this OpenMeld account on this computer. Reconnect OpenMeld Service for this account.",
+      "Runner's computer is not connected to the current OpenMeld account. Reconnect the computer.",
     ],
     [
       "local_service.identity_mismatch",
-      "Runner is connected, but OpenMeld Service is using a different local runtime than this agent expects. Reconnect OpenMeld Service on this computer.",
+      "Runner's computer connection does not match this Agent. Reconnect the computer.",
     ],
     [
       "local_service.unavailable",
-      "Runner is connected, but OpenMeld could not check OpenMeld Service for this account. Reconnect OpenMeld Service and try again.",
+      "OpenMeld could not check Runner's computer connection. Reconnect the computer and try again.",
     ],
     [
       "agent_execution.route_missing",
@@ -1085,7 +1105,7 @@ describe("public agent failure reason mapping", () => {
       "Center Agent is resting until the next budget window.",
     ],
     ["remote_agent.unavailable", "Center Agent cannot answer right now."],
-    ["agent_execution.ready", "Can reply from this computer in Spaces."],
+    ["agent_execution.ready", "Available for Wake"],
     [
       "agent_execution.check_status",
       "Checking this agent's Wake availability.",

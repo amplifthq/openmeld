@@ -356,6 +356,7 @@ export function handleDaemonSocketFrame(input: {
   parsedFrame: ParsedDaemonFrame;
   profileOwnerName: string | null;
   profileOwnerUserId: string;
+  requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
   socket: WsClient;
@@ -407,6 +408,8 @@ export function handleDaemonSocketFrame(input: {
         payload: input.parsedFrame.payload,
         profileOwnerName: input.profileOwnerName,
         profileOwnerUserId: input.profileOwnerUserId,
+        requestCurrentWorkingFolderFactRefresh:
+          input.requestCurrentWorkingFolderFactRefresh,
         presenter: input.presenter,
         routeByProfileId: input.routeByProfileId,
         socket: input.socket,

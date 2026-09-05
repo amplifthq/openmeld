@@ -20,6 +20,7 @@ import { createCliApiClientFoundation } from "../space/api-client-foundation";
 // operation-scoped by construction - never persist or reuse it.
 export type ExpectedRoutesReadResult =
   | {
+      contractVersion: "legacy" | "v2" | "v3" | "v4";
       response: GetLocalRuntimeExpectedRoutesResponse;
       status: "resolved";
     }
@@ -59,13 +60,13 @@ async function readExpectedRoutesOnce(
     createCliApiClientFoundation(baseUrl ?? (await resolveBaseUrl()))
   );
   try {
-    const response = await readNewestSupportedExpectedRoutes({
+    const negotiated = await readNewestSupportedExpectedRoutes({
       api,
       deviceId,
       lane,
     });
     return {
-      response,
+      ...negotiated,
       status: "resolved",
     };
   } catch (error) {
@@ -82,14 +83,24 @@ async function readNewestSupportedExpectedRoutes(input: {
   api: ReturnType<typeof createLocalRuntimeExpectedRoutesApi>;
   deviceId: string;
   lane: string;
-}): Promise<GetLocalRuntimeExpectedRoutesResponse> {
-  for (const contractVersion of ["v3", "v2", undefined] as const) {
+}): Promise<{
+  contractVersion: "legacy" | "v2" | "v3" | "v4";
+  response: GetLocalRuntimeExpectedRoutesResponse;
+}> {
+  for (const contractVersion of ["v4", "v3", "v2", undefined] as const) {
     try {
-      return await input.api.getExpectedRoutes({
+      const response = await input.api.getExpectedRoutes({
         ...(contractVersion ? { contractVersion } : {}),
         deviceId: input.deviceId,
         lane: input.lane,
       });
+      if (contractVersion === "v4") {
+        assertCompleteV4ExpectedRoutes(response);
+      }
+      return {
+        contractVersion: contractVersion ?? "legacy",
+        response,
+      };
     } catch (error) {
       if (
         contractVersion === undefined ||
@@ -100,6 +111,21 @@ async function readNewestSupportedExpectedRoutes(input: {
     }
   }
   throw new Error("expected-routes contract negotiation exhausted");
+}
+
+function assertCompleteV4ExpectedRoutes(
+  response: GetLocalRuntimeExpectedRoutesResponse
+): void {
+  for (const route of response.expectedRoutes) {
+    if (
+      route.configurationRevision === undefined ||
+      !Object.hasOwn(route, "defaultProjectId")
+    ) {
+      throw new Error(
+        `expected-routes v4 response omitted current working-folder identity for ${route.agentProfileId}`
+      );
+    }
+  }
 }
 
 function isUnsupportedExpectedRoutesContract(error: unknown): boolean {

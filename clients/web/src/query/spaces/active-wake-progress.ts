@@ -28,8 +28,10 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 				return await createUnscopedWebSpaceApi({
 					openMeldProfileId: input.openMeldProfileId,
 				}).getActiveWakeProgress({
+					includePreviewText: true,
 					includeTiming: true,
-					includeWakeStopEligibility: false,
+					includeWaitReason: true,
+					includeWakeStopEligibility: true,
 					spaceId: input.spaceId,
 					timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
 				});
@@ -42,7 +44,8 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 		retry: false,
 		staleTime: 0,
 		refetchOnMount: "always",
-		refetchOnWindowFocus: false,
+		refetchOnReconnect: "always",
+		refetchOnWindowFocus: "always",
 	});
 }
 
