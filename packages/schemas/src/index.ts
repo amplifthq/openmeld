@@ -83,6 +83,17 @@ export {
   openMeldWebUrlSchema,
 } from "./navigation-action";
 export {
+  OFFICIAL_CLI_SKILL_CONTRACT,
+  OFFICIAL_CLI_SKILL_MAX_BYTES,
+  OFFICIAL_CLI_SKILL_PUBLIC_KEY,
+  OFFICIAL_CLI_SKILL_URL,
+  type OfficialCliSkillPayload,
+  type OfficialCliSkillRelease,
+  officialCliSkillChannelSchema,
+  officialCliSkillPayloadSchema,
+  officialCliSkillReleaseSchema,
+} from "./official-cli-skill";
+export {
   type OrganizationJoinRequest,
   type OrganizationJoinRequestInput,
   type OrganizationJoinRequestResponse,

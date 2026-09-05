@@ -525,6 +525,12 @@ of local component alignment because they are the instructions agents use after
 setup. In the current hard-cut phase, stale OpenMeld-managed skills are treated as a
 required update, not an advisory update.
 
+The offline baseline and independently maintained official guide have separate
+release lifecycles. Installation, prompt reads, and local readiness use the
+same compatible content selection. See
+[Official CLI Skill delivery](../engineering/official-cli-skill.md) for
+publication, automatic maintenance, discovery, and bridge rollout ordering.
+
 During the one-window compatibility period, the deprecated
 `openmeld skills ensure --all --view agent` alias remains a diagnostic and
 manual operation for explicitly selected local-helper targets. It reuses the

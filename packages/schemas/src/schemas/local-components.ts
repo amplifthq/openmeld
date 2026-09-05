@@ -210,6 +210,12 @@ export const localServiceComponentProjectionSchema =
 
 export const localSkillsComponentProjectionSchema =
   localComponentProjectionSchema.extend({
+    contentRelease: z
+      .strictObject({
+        revision: z.number().int().positive(),
+        minimumCliVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
+      })
+      .optional(),
     expectedBundleHash: nullableNonEmptyStringSchema,
     installedBundleHash: nullableNonEmptyStringSchema,
     skillContractVersion: nonEmptyStringSchema,

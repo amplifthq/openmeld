@@ -406,12 +406,17 @@ actions. It includes only a bounded excerpt of the preceding output. This
 repair turn does not publish by itself, create a second dispatch, or change the
 Binding's controller-native permission intent.
 
-Immediately before that one repair turn, the Service may restore the bundled
-`openmeld-cli` Skill for only the active controller when its managed copy is
+Before a dispatch and immediately before that one repair turn, the Service may
+restore the locally selected `openmeld-cli` Skill for only the active controller when its managed copy is
 missing or outdated. The Service must use the active lane, hold the normal
 skills lock, and leave any user-owned conflicting file untouched. Skill repair
 is guidance recovery, not execution authority; a failure remains diagnostic
 and must not bypass the dispatch-scoped action checks.
+
+The same local content selection is maintained independently by the existing
+maintenance worker; see [Official CLI Skill delivery](../engineering/official-cli-skill.md).
+Dispatch startup performs no remote download and supplies the installed entry
+path plus the public Markdown fallback. Skill content does not restart Service.
 
 Codex resume may use the smaller per-turn input only when the `thread/resume`
 response proves that `thread.threadSource` matches the exact current
@@ -947,6 +952,15 @@ that decision.
   onboarding planner (`developing/product/onboarding.md`), which treats
   "connect this computer" as one atomic decision and never models setup
   internals.
+
+Setup connects its existing Terminal transport before exchanging computer
+authorization and asking for account-switch consent. Canceling the switch or
+failing authorization reports a blocked `connect_terminal` outcome through that
+same connection and waits for the Core snapshot before closing. It does not
+start a local account transition. Normal setup reuses the connection; connection
+epochs still reject an outcome from a replaced Terminal. Web removes an unusable
+command and offers an explicit fresh attempt. Device authorization stays
+single-use, and an unused candidate session is still revoked on cancellation.
 
 Web may offer an enable/disable control for an already reported local Agent
 Controller only as a current-service command. That command must target the

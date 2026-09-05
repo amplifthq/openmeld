@@ -24,8 +24,10 @@ import {
 } from "./computer-auth-session";
 import { exchangeOneTimeTokenAuthSession } from "./one-time-token-auth-session";
 import {
+  connectPrepareSessionStream,
   type PrepareSessionExecutorResult,
   type PrepareSessionLocalAgentSelection,
+  reportPrepareHandoffStopped,
   resolvePrepareSessionForHandoff,
   runPrepareSessionExecutor,
 } from "./prepare-session-executor";
@@ -87,79 +89,114 @@ async function runPreparedComputerAuthHandoff(
     gatewayUrl,
     opaqueToken: input.startSession,
   });
-  const candidate = await input.exchangeCandidate();
-  await assertPrepareSessionOwner({
-    candidate,
-    ownerUserId: initialSnapshot.ownerUserId,
-  });
-  const currentSession = await resolveCurrentComputerSession(candidate);
-  const confirmed = await confirmComputerAccountSwitch({
-    candidate,
-    currentSession,
-    interactive: input.interactive,
-    presenter: input.presenter,
-    resolvedView: input.runtime.resolvedView,
-  });
-  if (!confirmed) {
-    const revoked = await revokePreparedAuthSession(candidate);
-    if (!revoked.ok) {
-      emitUnusedSetupSessionCleanupWarning(input.presenter, revoked.error);
-    }
-    return {
-      reason: "user_cancelled",
-      status: "not_completed",
-    };
-  }
-
-  const transition = await beginComputerSessionTransition({
-    candidate,
-    expectedPreviousSession: currentSession,
+  // Connect the existing Setup transport before asking for account consent so
+  // Web observes the outcome even when no local account transition starts.
+  const stream = await connectPrepareSessionStream({
     gatewayUrl,
+    opaqueToken: input.startSession,
+    prepareSessionId: initialSnapshot.prepareSessionId,
   });
-
   try {
-    const sessionResult = await runPrepareSessionExecutor({
-      gatewayUrl,
-      initialSnapshot,
-      startSession: input.startSession,
-      runtime: input.runtime,
-      presenter: input.presenter,
-      interactive: input.interactive,
-      localAgentSelection: input.localAgentSelection,
-      view: input.view,
-    });
-    if (sessionResult.status !== "completed") {
-      await restorePreviousComputerAfterFailedHandoff({
-        candidate,
-        gatewayUrl,
-        presenter: input.presenter,
-        runtime: input.runtime,
-        transition,
-        view: input.view,
-      });
-      return sessionResult;
-    }
-    await transition.commit();
-    return sessionResult;
-  } catch (error) {
+    const notifyStopped = async (reasonCode: string, message: string) => {
+      try {
+        await reportPrepareHandoffStopped({ stream, reasonCode, message });
+      } catch {
+        input.presenter.line({
+          code: "setup.handoff.notification_failed",
+          text: "OpenMeld Web could not be updated. Return to Web and get a new setup command to try again.",
+        });
+      }
+    };
+    let candidate: PreparedAuthSession;
     try {
-      await restorePreviousComputerAfterFailedHandoff({
-        candidate,
+      candidate = await input.exchangeCandidate();
+    } catch (error) {
+      await notifyStopped(
+        "prepare.authorization_failed",
+        "Computer authorization could not finish. Get a new setup command to try again."
+      );
+      throw error;
+    }
+    await assertPrepareSessionOwner({
+      candidate,
+      ownerUserId: initialSnapshot.ownerUserId,
+    });
+    const currentSession = await resolveCurrentComputerSession(candidate);
+    const confirmed = await confirmComputerAccountSwitch({
+      candidate,
+      currentSession,
+      interactive: input.interactive,
+      presenter: input.presenter,
+      resolvedView: input.runtime.resolvedView,
+    });
+    if (!confirmed) {
+      const revoked = await revokePreparedAuthSession(candidate);
+      if (!revoked.ok) {
+        emitUnusedSetupSessionCleanupWarning(input.presenter, revoked.error);
+      }
+      await notifyStopped(
+        "prepare.account_switch_cancelled",
+        "Account switch canceled. The current computer connection was not changed."
+      );
+      return {
+        reason: "user_cancelled",
+        status: "not_completed",
+      };
+    }
+
+    const transition = await beginComputerSessionTransition({
+      candidate,
+      expectedPreviousSession: currentSession,
+      gatewayUrl,
+    });
+
+    try {
+      const sessionResult = await runPrepareSessionExecutor({
         gatewayUrl,
-        presenter: input.presenter,
+        connectedStream: stream,
+        initialSnapshot,
+        startSession: input.startSession,
         runtime: input.runtime,
-        transition,
+        presenter: input.presenter,
+        interactive: input.interactive,
+        localAgentSelection: input.localAgentSelection,
         view: input.view,
       });
-    } catch (recoveryError) {
-      throw new Error(
-        `Computer setup failed, and OpenMeld could not restore the previous local account: ${toErrorMessage(
-          recoveryError
-        )}`,
-        { cause: error }
-      );
+      if (sessionResult.status !== "completed") {
+        await restorePreviousComputerAfterFailedHandoff({
+          candidate,
+          gatewayUrl,
+          presenter: input.presenter,
+          runtime: input.runtime,
+          transition,
+          view: input.view,
+        });
+        return sessionResult;
+      }
+      await transition.commit();
+      return sessionResult;
+    } catch (error) {
+      try {
+        await restorePreviousComputerAfterFailedHandoff({
+          candidate,
+          gatewayUrl,
+          presenter: input.presenter,
+          runtime: input.runtime,
+          transition,
+          view: input.view,
+        });
+      } catch (recoveryError) {
+        throw new Error(
+          `Computer setup failed, and OpenMeld could not restore the previous local account: ${toErrorMessage(
+            recoveryError
+          )}`,
+          { cause: error }
+        );
+      }
+      throw error;
     }
-    throw error;
+  } finally {
+    stream.close();
   }
 }
 
@@ -318,7 +355,7 @@ async function confirmComputerAccountSwitch(input: {
   if (decision !== "confirmed") {
     input.presenter.line({
       code: "setup.account_switch.cancelled",
-      text: "Account switch canceled. The current Computer connection was not changed.",
+      text: "Account switch canceled. The current Computer connection was not changed. To try again, return to OpenMeld Web and get a new setup command.",
     });
     return false;
   }

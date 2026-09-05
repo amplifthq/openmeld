@@ -1,5 +1,13 @@
 # Shared Contracts
 
+Official CLI Skill content uses the signed Markdown channel contract in
+`packages/schemas/src/official-cli-skill.ts`, separately from Organization
+Skills. The optional local component `skills.contentRelease` reports the
+selected independent revision and minimum CLI version. Core retains required
+Skill contract checks and local installation errors while accepting aligned
+independent hashes. Deploy strict report receivers before bridge producers;
+see [Official CLI Skill delivery](../engineering/official-cli-skill.md).
+
 ## Agent Context
 
 - Purpose: Define cross-client and cross-service shared contract ownership for

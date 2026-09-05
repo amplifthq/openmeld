@@ -6,8 +6,8 @@ import {
   buildPromptGuideJson,
   renderPromptGuideText,
 } from "../prompt/guide-output";
-import { readBundledOpenMeldCliSkillDocumentByPath } from "../skills/bundled-assets";
 import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory";
+import { readSelectedSkillDocument } from "../skills/official-release";
 import { outJsonLine } from "../ui/io";
 
 export async function runPrompt(input?: {
@@ -30,9 +30,7 @@ export async function runPrompt(input?: {
   });
 
   if (input?.raw) {
-    process.stdout.write(
-      await readBundledOpenMeldCliSkillDocumentByPath(entry.sourcePath)
-    );
+    process.stdout.write(await readSelectedSkillDocument(entry.sourcePath));
     return;
   }
 
