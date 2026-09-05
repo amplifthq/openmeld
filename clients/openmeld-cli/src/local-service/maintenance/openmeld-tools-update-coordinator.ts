@@ -11,8 +11,10 @@ import {
   type CliUpdateAssessment,
 } from "../../command-entry-checks/cli-update-assessment";
 import { resolveServiceUpdateUrgency } from "../../command-entry-checks/service-update-urgency";
+import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
 import { resolveOpenMeldEnvironmentTarget } from "../../config/openmeld-environment-target";
 import { readPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-state";
+import { startDaemonServiceUpdateWorker } from "../lifecycle/daemon-service-update-worker-manager";
 import {
   type OpenMeldToolsMaintenancePolicy,
   readOpenMeldToolsMaintenancePolicy,
@@ -30,6 +32,8 @@ import {
 } from "./openmeld-tools-upgrade-process";
 
 type OpenMeldToolsUpdateCoordinatorDependencies = {
+  withCoordinationLock: <T>(run: () => Promise<T>) => Promise<T>;
+  wakeWorker: () => Promise<void>;
   assessUpdate: (input: {
     forceRefresh: boolean;
   }) => Promise<CliUpdateAssessment>;
@@ -66,7 +70,8 @@ export type OpenMeldToolsUpdateCoordinator = {
 };
 
 export function createOpenMeldToolsUpdateCoordinator(
-  overrides: Partial<OpenMeldToolsUpdateCoordinatorDependencies> = {}
+  overrides: Partial<OpenMeldToolsUpdateCoordinatorDependencies> = {},
+  options: { executeUpdates?: boolean } = {}
 ): OpenMeldToolsUpdateCoordinator {
   const deps = resolveDependencies(overrides);
   let inFlight: Promise<void> | null = null;
@@ -82,6 +87,10 @@ export function createOpenMeldToolsUpdateCoordinator(
   };
 
   const startAttempt = (attempt: OpenMeldToolsUpdateAttempt): void => {
+    if (options.executeUpdates === false) {
+      deps.wakeWorker().catch(deps.reportBackgroundError);
+      return;
+    }
     if (inFlight) {
       return;
     }
@@ -174,8 +183,11 @@ export function createOpenMeldToolsUpdateCoordinator(
 
   return {
     requestUpdate: async (input) =>
-      await runSerialized(async () => await requestUpdate(input)),
-    resumePendingUpdate: async () => await runSerialized(resumePendingUpdate),
+      await runSerialized(
+        async () => await deps.withCoordinationLock(() => requestUpdate(input))
+      ),
+    resumePendingUpdate: async () =>
+      await runSerialized(() => deps.withCoordinationLock(resumePendingUpdate)),
     waitForIdle: async () => {
       await coordination;
       while (inFlight) {
@@ -242,6 +254,10 @@ function resolveDependencies(
   overrides: Partial<OpenMeldToolsUpdateCoordinatorDependencies>
 ): OpenMeldToolsUpdateCoordinatorDependencies {
   return {
+    withCoordinationLock:
+      overrides.withCoordinationLock ?? withDaemonServiceReconcileLock,
+    wakeWorker:
+      overrides.wakeWorker ?? (() => startDaemonServiceUpdateWorker()),
     assessUpdate:
       overrides.assessUpdate ??
       (async () =>

@@ -8,6 +8,7 @@ import {
 import {
   daemonServiceBinaryExecutablePath,
   daemonServiceExecutableWrapperPath,
+  daemonServiceLauncherPath,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import {
   matchesExpectedDaemonServiceManagerCommand,
@@ -44,6 +45,57 @@ async function writeLaunchdDefinition(commandPath: string): Promise<string> {
 }
 
 describe("local service manager command matching", () => {
+  it("recognizes a native Windows action without a batch file and rejects another installation", async () => {
+    await withTempHome(async () => {
+      const pathInput = testPathInput();
+      const commandSpec = {
+        executable: "C:\\Program Files\\nodejs\\node.exe",
+        args: [
+          daemonServiceLauncherPath(pathInput),
+          "service",
+          "run",
+          "--mode",
+          "foreground",
+        ],
+        env: { OPENMELD_HOME: process.env.OPENMELD_HOME ?? "" },
+      };
+      const input = {
+        controller: "windows-service" as const,
+        definitionPath: "Task Scheduler: OpenMeld (current user)",
+        commandSpec,
+        pathInput,
+      };
+      await expect(
+        matchesExpectedDaemonServiceManagerDefinition(input)
+      ).resolves.toBe(true);
+      expect(
+        matchesExpectedDaemonServiceManagerCommand({
+          ...input,
+          commandSummary: "native task action",
+        })
+      ).toBe(true);
+      await expect(
+        matchesExpectedDaemonServiceManagerDefinition({
+          ...input,
+          commandSpec: {
+            ...commandSpec,
+            env: {
+              OPENMELD_HOME: join(process.env.OPENMELD_HOME ?? "", "other"),
+            },
+          },
+        })
+      ).resolves.toBe(false);
+      await expect(
+        matchesExpectedDaemonServiceManagerDefinition({
+          ...input,
+          commandSpec: {
+            ...commandSpec,
+            args: ["C:\\another-install\\daemon.mjs", "service", "run"],
+          },
+        })
+      ).resolves.toBe(false);
+    });
+  });
   it("matches binary launchd definitions that point at the stable Service executable", async () => {
     await withTempHome(async () => {
       const pathInput = testPathInput();

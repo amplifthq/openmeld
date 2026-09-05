@@ -54,6 +54,14 @@ from browser state.
 
 ### Client version recovery
 
+The client reports application errors through the Web-owned diagnostic intake
+before attempting Vite version recovery. It preserves the original import
+rejection while a reload is pending. Router and React error boundaries, global
+errors, unhandled rejections, and resource failures share the same bounded
+reporter. Reporting does not decide recovery, mutate application state, or
+retry a failed diagnostic request. See `docs/web-application-errors.md` for
+the privacy, coverage, and operator query contract.
+
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
 
@@ -3453,12 +3461,16 @@ returns to the primary action group at wider breakpoints.
 
 Selecting a Human or Agent identity in a Space opens one compact profile
 popover rather than a table-style details dialog. A Human popover shows the
-short Space-specific activity time from the Space member projection; it does
+short Space-specific activity time, such as **Here 2d ago**, from the Space
+member projection in both the member row and popover; it does
 not substitute Organization-wide last activity or generic presence copy. An
 ordinary Agent popover may link its owner to the canonical Agent editor. The
 Center Agent is not an ordinary editable Agent Profile: its Space popover has
 no edit action, and its Chat action opens canonical Home instead of creating or
-opening a Direct Message.
+opening a Direct Message. When only historical message identity is available,
+the compact popover shows that identity without the old details table, raw IDs,
+or inferred current activity, Computer state, or ordinary edit/chat actions.
+A recognized Center Agent may still open its canonical Home conversation.
 
 The Space header, main conversation rail, contextual setup overlay, and primary
 composer share one responsive inline frame. Its leading inset is the leading

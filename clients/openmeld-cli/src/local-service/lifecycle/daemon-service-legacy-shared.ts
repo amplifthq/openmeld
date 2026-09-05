@@ -124,6 +124,7 @@ function hasLegacySharedServiceManagerResidual(input: {
   return !matchesExpectedDaemonServiceManagerCommand({
     controller: input.serviceManager?.controller ?? null,
     commandSummary: input.serviceManagerStatus.commandSummary,
+    commandSpec: input.serviceManagerStatus.commandSpec,
     definitionPath: input.serviceManagerStatus.definitionPath ?? null,
     includeLegacyExecutableWrappers: true,
     pathInput: input.pathInput,

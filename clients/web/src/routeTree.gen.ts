@@ -69,6 +69,7 @@ import { Route as SlackOauthResultRouteImport } from './routes/slack/oauth/resul
 import { Route as SlackOauthStartRouteImport } from './routes/slack/oauth/start'
 import { Route as V1AccountDisplayNameRouteImport } from './routes/v1/account/display-name'
 import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/v1/account/last-selected-organization'
+import { Route as V1ObservabilityApplicationErrorsRouteImport } from './routes/v1/observability/application-errors'
 import { Route as V1ProfilesProfileIdRouteImport } from './routes/v1/profiles/$profileId'
 import { Route as OOrgSlugCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/index'
 import { Route as OOrgSlugCenterAgentCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent'
@@ -420,6 +421,12 @@ const V1AccountLastSelectedOrganizationRoute =
     path: '/v1/account/last-selected-organization',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1ObservabilityApplicationErrorsRoute =
+  V1ObservabilityApplicationErrorsRouteImport.update({
+    id: '/v1/observability/application-errors',
+    path: '/v1/observability/application-errors',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1ProfilesProfileIdRoute = V1ProfilesProfileIdRouteImport.update({
   id: '/v1/profiles/$profileId',
   path: '/v1/profiles/$profileId',
@@ -752,6 +759,7 @@ export interface FileRoutesByFullPath {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -855,6 +863,7 @@ export interface FileRoutesByTo {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -962,6 +971,7 @@ export interface FileRoutesById {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -1073,6 +1083,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/observability/application-errors'
     | '/v1/profiles/$profileId'
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
@@ -1176,6 +1187,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/observability/application-errors'
     | '/v1/profiles/$profileId'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1282,6 +1294,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/observability/application-errors'
     | '/v1/profiles/$profileId'
     | '/o/$orgSlug/_center-agent/center-agent'
     | '/o/$orgSlug/agent-activity/changes'
@@ -1373,6 +1386,7 @@ export interface RootRouteChildren {
   SlackOauthStartRoute: typeof SlackOauthStartRoute
   V1AccountDisplayNameRoute: typeof V1AccountDisplayNameRoute
   V1AccountLastSelectedOrganizationRoute: typeof V1AccountLastSelectedOrganizationRoute
+  V1ObservabilityApplicationErrorsRoute: typeof V1ObservabilityApplicationErrorsRoute
   V1ProfilesProfileIdRoute: typeof V1ProfilesProfileIdRoute
   V1SpacesSpaceIdStreamRoute: typeof V1SpacesSpaceIdStreamRoute
   V1PrepareSessionsPrepareSessionIdStreamRoute: typeof V1PrepareSessionsPrepareSessionIdStreamRoute
@@ -1798,6 +1812,13 @@ declare module '@tanstack/react-router' {
       path: '/v1/account/last-selected-organization'
       fullPath: '/v1/account/last-selected-organization'
       preLoaderRoute: typeof V1AccountLastSelectedOrganizationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/observability/application-errors': {
+      id: '/v1/observability/application-errors'
+      path: '/v1/observability/application-errors'
+      fullPath: '/v1/observability/application-errors'
+      preLoaderRoute: typeof V1ObservabilityApplicationErrorsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/profiles/$profileId': {
@@ -2509,6 +2530,7 @@ const rootRouteChildren: RootRouteChildren = {
   V1AccountDisplayNameRoute: V1AccountDisplayNameRoute,
   V1AccountLastSelectedOrganizationRoute:
     V1AccountLastSelectedOrganizationRoute,
+  V1ObservabilityApplicationErrorsRoute: V1ObservabilityApplicationErrorsRoute,
   V1ProfilesProfileIdRoute: V1ProfilesProfileIdRoute,
   V1SpacesSpaceIdStreamRoute: V1SpacesSpaceIdStreamRoute,
   V1PrepareSessionsPrepareSessionIdStreamRoute:
@@ -2519,10 +2541,11 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }
