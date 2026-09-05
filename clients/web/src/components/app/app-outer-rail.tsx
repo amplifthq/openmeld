@@ -2,6 +2,11 @@
 
 import { Popover } from "@base-ui/react/popover";
 import {
+	Avatar,
+	AvatarFallback,
+	AvatarImage,
+} from "@openmeld/ui/components/avatar";
+import {
 	SidebarContent,
 	SidebarFooter,
 	SidebarGroup,
@@ -118,9 +123,12 @@ type AppOuterRailAccount = {
 	name?: string | null;
 };
 
+import { useInvitationReviewCount } from "#/query/organizations/invitation-requests";
+
 type AppRailDestinationId = AppOuterRailDestination;
 
 type AppRailDestination = {
+	needsInvitationReview?: boolean;
 	attentionCount?: number;
 	compactLabel?: string;
 	icon: ReactNode;
@@ -236,6 +244,7 @@ function buildSettingsRailItem(input: { orgSlug: string }): AppRailDestination {
 }
 
 export function AppOuterRail({ account, initialState }: AppOuterRailProps) {
+	const invitationReviewCount = useInvitationReviewCount().data ?? 0;
 	const { presentation } = useAppNavigationPresentation();
 	const drawerPresentation = presentation === "drawer";
 	const [state, setState] = useState<SidebarPersistedState>(() =>
@@ -408,9 +417,12 @@ export function AppOuterRail({ account, initialState }: AppOuterRailProps) {
 					>
 						<AppRailLink
 							active={activeDestination === "settings"}
-							destination={buildSettingsRailItem({
-								orgSlug,
-							})}
+							destination={{
+								...buildSettingsRailItem({
+									orgSlug,
+								}),
+								needsInvitationReview: invitationReviewCount > 0,
+							}}
 							index={0}
 							tier={displayState.tier}
 						/>
@@ -827,6 +839,7 @@ function OrganizationSwitcherPopover(input: {
 						<AccountsSwitcherView
 							account={input.account}
 							errorMessage={input.errorMessage}
+							humanProfileAvatar={input.humanProfileAvatar}
 							isError={input.isAccountsError}
 							isLoading={input.isAccountsLoading}
 							isPending={input.isAccountActionPending}
@@ -914,6 +927,7 @@ function OrganizationSwitcherPopover(input: {
 							<OrganizationSwitcherGlobalActions
 								account={input.account}
 								disabled={input.isSwitching}
+								humanProfileAvatar={input.humanProfileAvatar}
 								onOpenAccounts={input.onOpenAccounts}
 								onOpenSettings={input.onOpenSettings}
 							/>
@@ -929,6 +943,7 @@ const MAX_DEVICE_SESSIONS = 5;
 
 function AccountsSwitcherView(input: {
 	account: AppOuterRailAccount;
+	humanProfileAvatar: HumanProfileAvatarIdentity | null;
 	errorMessage: string | null;
 	isError: boolean;
 	isLoading: boolean;
@@ -1001,8 +1016,9 @@ function AccountsSwitcherView(input: {
 					hoverIndicatorClassName="bg-muted"
 				>
 					<AccountSwitcherRow
-						account={currentSession?.user ?? input.account}
+						account={input.account}
 						disabled={input.isPending}
+						humanProfileAvatar={input.humanProfileAvatar}
 						index={0}
 						selected
 					/>
@@ -1079,6 +1095,7 @@ function AccountsSwitcherView(input: {
 
 function AccountSwitcherRow(input: {
 	account: AppOuterRailAccount;
+	humanProfileAvatar?: HumanProfileAvatarIdentity | null;
 	disabled: boolean;
 	index: number;
 	onSelect?: () => void;
@@ -1098,7 +1115,11 @@ function AccountSwitcherRow(input: {
 			role="menuitemradio"
 			type="button"
 		>
-			<AccountFallbackAvatar account={input.account} />
+			<AccountAvatar
+				account={input.account}
+				humanProfileAvatar={input.humanProfileAvatar}
+				image={input.selected ? null : input.account.image}
+			/>
 			<span className="grid min-w-0 flex-1 gap-0.5 leading-tight">
 				<span className="truncate font-medium text-foreground">
 					{input.account.name?.trim() || input.account.email || "Account"}
@@ -1114,16 +1135,36 @@ function AccountSwitcherRow(input: {
 	);
 }
 
-function AccountFallbackAvatar(input: { account: AppOuterRailAccount }) {
+function AccountAvatar(input: {
+	account: AppOuterRailAccount;
+	humanProfileAvatar?: HumanProfileAvatarIdentity | null;
+	image?: string | null;
+}) {
 	const displayName =
 		input.account.name?.trim() || input.account.email?.trim() || "Account";
+	if (input.humanProfileAvatar) {
+		return (
+			<DitherProfileAvatar
+				avatarImageUrl={input.humanProfileAvatar.avatarImageUrl}
+				className="size-7 shrink-0"
+				profileId={input.humanProfileAvatar.profileId}
+				profileKind="human"
+				profileName={input.humanProfileAvatar.profileName}
+				size={28}
+			/>
+		);
+	}
+	// Only saved accounts use the device-session image. The active account
+	// always uses the same canonical Human Profile identity as Settings.
 	return (
-		<span
-			aria-hidden="true"
-			className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted font-medium text-foreground text-xs"
-		>
-			{resolveIdentityFallback(displayName)}
-		</span>
+		<Avatar aria-hidden="true" className="size-7 shrink-0">
+			{input.image ? (
+				<AvatarImage alt="" referrerPolicy="no-referrer" src={input.image} />
+			) : null}
+			<AvatarFallback className="bg-muted font-medium text-foreground text-xs">
+				{resolveIdentityFallback(displayName)}
+			</AvatarFallback>
+		</Avatar>
 	);
 }
 
@@ -1184,6 +1225,7 @@ function OrganizationSwitcherActions(input: {
 
 function OrganizationSwitcherGlobalActions(input: {
 	account: AppOuterRailAccount;
+	humanProfileAvatar: HumanProfileAvatarIdentity | null;
 	disabled: boolean;
 	onOpenAccounts: () => void;
 	onOpenSettings: () => void;
@@ -1202,7 +1244,10 @@ function OrganizationSwitcherGlobalActions(input: {
 				role="menuitem"
 				type="button"
 			>
-				<AccountFallbackAvatar account={input.account} />
+				<AccountAvatar
+					account={input.account}
+					humanProfileAvatar={input.humanProfileAvatar}
+				/>
 				<span className="grid min-w-0 flex-1 gap-0.5 leading-tight">
 					<span className="truncate font-medium text-foreground">
 						{input.account.name?.trim() || input.account.email || "Account"}
@@ -1342,6 +1387,9 @@ function AppRailLink(input: {
 	const attentionCount = Math.max(0, input.destination.attentionCount ?? 0);
 	const unreadCount = Math.max(0, input.destination.unreadCount ?? 0);
 	let statusIndicator: AppRailStatusIndicator | null = null;
+	if (input.destination.needsInvitationReview) {
+		statusIndicator = { kind: "invitation-review", tone: "warning" };
+	}
 	const unreadIndicatorKind = resolveAppRailUnreadIndicatorKind(
 		input.destination.id
 	);
@@ -1354,7 +1402,9 @@ function AppRailLink(input: {
 	const accessibleLabel = buildAppRailAccessibleLabel({
 		attentionCount,
 		destinationId: input.destination.id,
-		label: input.destination.label,
+		label: input.destination.needsInvitationReview
+			? "Settings, invitation requests need attention"
+			: input.destination.label,
 		unreadCount,
 	});
 	const children = (
@@ -1514,7 +1564,10 @@ function AppRailAttentionBadge(input: {
 	);
 }
 
-type AppRailStatusIndicatorKind = "center-agent-unread" | "spaces-unread";
+type AppRailStatusIndicatorKind =
+	| "center-agent-unread"
+	| "spaces-unread"
+	| "invitation-review";
 
 type AppRailStatusIndicator = {
 	kind: AppRailStatusIndicatorKind;

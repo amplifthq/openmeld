@@ -4,6 +4,9 @@ title: Invite someone directly into a Space
 kind: new
 areas: ["spaces", "organizations", "cli"]
 audiences: ["users", "admins", "agents"]
+publishedAt: 2026-09-05
+release: v0.3.158
+evidence: ["pr:655", "pr:658", "commit:8b98ac0d0882e70a00f5f3eb6b7f818073a27254"]
 ---
 
 Organization owners and admins can invite someone by email from a Space.

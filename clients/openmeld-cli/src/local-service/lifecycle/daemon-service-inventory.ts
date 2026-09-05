@@ -211,6 +211,7 @@ export async function inspectDaemonServiceInventory(input: {
         ? await matchesExpectedDaemonServiceManagerDefinition({
             controller: observedServiceManager.controller,
             definitionPath: observedServiceManagerStatus.definitionPath,
+            commandSpec: observedServiceManagerStatus.commandSpec,
           }).catch(() => false)
         : null,
   });

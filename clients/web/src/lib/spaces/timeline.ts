@@ -71,8 +71,8 @@ export type SpaceTimelineItem = {
 	isAgentFinalReply?: boolean;
 	newMessagesDuringComposition: number | null;
 	navigationAction?: NavigationAction | null;
-	optimisticAgentReplySourceItemId?: string;
-	optimisticAgentReplyProgress?: WakeProgressItem;
+	activeWakeSourceItemId?: string;
+	activeWakeProgress?: WakeProgressItem;
 	replyPreviewText: string | null;
 	replyToProfileName: string | null;
 	replyToSignalId: string | null;
@@ -121,7 +121,7 @@ export function resolveRecordedSpaceMessageDetailsItem(input: {
 }): SpaceTimelineItem | null {
 	const recordedItemId = input.item.agentStreamState
 		? input.item.replyToSignalId
-		: (input.item.optimisticAgentReplySourceItemId ?? input.item.id);
+		: (input.item.activeWakeSourceItemId ?? input.item.id);
 	if (!recordedItemId) {
 		return null;
 	}
@@ -134,7 +134,7 @@ export function resolveRecordedSpaceMessageDetailsItem(input: {
 	if (
 		recordedItem?.deliveryState !== "sent" ||
 		recordedItem.agentStreamState !== undefined ||
-		recordedItem.optimisticAgentReplyProgress !== undefined
+		recordedItem.activeWakeProgress !== undefined
 	) {
 		return null;
 	}

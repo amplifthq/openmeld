@@ -5,7 +5,6 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowLeftIcon,
 	CaretDownIcon,
@@ -27,10 +26,6 @@ import {
 	resolveAgentProfileTemplateModelName,
 } from "#/lib/profiles/agent-profile-template-name";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
-import {
-	AgentConfigurationCard,
-	AgentConfigurationGrid,
-} from "./agent-configuration-card";
 import {
 	AgentProfileConfigurationCards,
 	CreateProfileErrorNotice,
@@ -84,8 +79,7 @@ export function AgentProfileGenerator(input: AgentProfileGeneratorProps) {
 
 function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const reduceMotion = useReducedMotion() === true;
-	const [allowWithoutLocalAgent, setAllowWithoutLocalAgent] = useState(false);
-	const [configurationExpanded, setConfigurationExpanded] = useState(false);
+	const [configurationExpanded, setConfigurationExpanded] = useState(true);
 	const [step, setStep] = useState<GeneratorStep>("configure");
 	const [stepDirection, setStepDirection] = useState<GeneratorStepDirection>(1);
 	const submitBlockReasonId = useId();
@@ -95,10 +89,6 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	const selectedBinding = bindingChoices.find(
 		(choice) => choice.value === selectedBindingValue
 	);
-	const canContinue =
-		Boolean(form.boundAgentId) ||
-		allowWithoutLocalAgent ||
-		form.lockLocalAgentSelection === true;
 	const stepMotionContext: GeneratorStepMotionContext = {
 		direction: stepDirection,
 		reduceMotion,
@@ -117,10 +107,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 	return (
 		<LazyMotion features={domAnimation}>
 			<form
-				className={cn(
-					"flex min-h-0 w-full min-w-0 flex-1 flex-col",
-					input.surface === "page" && "mx-auto max-w-3xl"
-				)}
+				className="-mx-3 flex min-h-0 min-w-0 flex-1 flex-col"
 				data-testid="create-profile-panel"
 				onSubmit={form.onSubmit}
 			>
@@ -144,13 +131,11 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 							}
 							variants={GENERATOR_STEP_VARIANTS}
 						>
-							<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pr-1">
+							<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3">
 								<GeneratorStepContent
-									allowWithoutLocalAgent={allowWithoutLocalAgent}
 									bindingChoices={bindingChoices}
 									configurationExpanded={configurationExpanded}
 									form={form}
-									onAllowWithoutLocalAgentChange={setAllowWithoutLocalAgent}
 									onConfigurationExpandedChange={setConfigurationExpanded}
 									selectedBinding={selectedBinding ?? null}
 									selectedBindingValue={selectedBindingValue}
@@ -159,7 +144,6 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 								/>
 							</div>
 							<GeneratorActions
-								canContinue={canContinue}
 								form={form}
 								onCancel={input.onCancel}
 								onStepChange={handleStepChange}
@@ -175,11 +159,9 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 }
 
 function GeneratorStepContent(input: {
-	allowWithoutLocalAgent: boolean;
 	bindingChoices: readonly AgentProfileBindingChoice[];
 	configurationExpanded: boolean;
 	form: CreateProfileFormProps;
-	onAllowWithoutLocalAgentChange: (allowed: boolean) => void;
 	onConfigurationExpandedChange: (expanded: boolean) => void;
 	selectedBinding: AgentProfileBindingChoice | null;
 	selectedBindingValue: string;
@@ -195,7 +177,6 @@ function GeneratorStepContent(input: {
 				isResolving={input.form.isResolvingLocalAgents}
 				locked={input.form.lockLocalAgentSelection}
 				onChange={(value) => {
-					input.onAllowWithoutLocalAgentChange(false);
 					(
 						input.form.onChangeAgentBindingValue ??
 						input.form.onChangeBoundAgentId
@@ -205,10 +186,8 @@ function GeneratorStepContent(input: {
 				value={input.selectedBindingValue}
 			/>
 			<AdvancedSetup
-				allowWithoutLocalAgent={input.allowWithoutLocalAgent}
 				expanded={input.configurationExpanded}
 				form={input.form}
-				onAllowWithoutLocalAgentChange={input.onAllowWithoutLocalAgentChange}
 				onExpandedChange={input.onConfigurationExpandedChange}
 			/>
 		</div>
@@ -227,7 +206,6 @@ function GeneratorStepContent(input: {
 }
 
 function GeneratorActions(input: {
-	canContinue: boolean;
 	form: CreateProfileFormProps;
 	onCancel?: () => void;
 	onStepChange: (step: GeneratorStep) => void;
@@ -236,7 +214,7 @@ function GeneratorActions(input: {
 }) {
 	return (
 		<div
-			className="shrink-0 border-border border-t bg-background pt-4"
+			className="mx-3 shrink-0 border-border border-t bg-background pt-4"
 			data-testid="create-profile-actions"
 		>
 			{input.step === "configure" ? (
@@ -249,7 +227,6 @@ function GeneratorActions(input: {
 }
 
 function GeneratorConfigureActions(input: {
-	canContinue: boolean;
 	form: CreateProfileFormProps;
 	onCancel?: () => void;
 	onStepChange: (step: GeneratorStep) => void;
@@ -265,17 +242,16 @@ function GeneratorConfigureActions(input: {
 			)}
 			<div className="grid justify-items-stretch gap-1.5 sm:justify-items-end">
 				<Button
-					disabled={!input.canContinue || input.form.isResolvingLocalAgents}
+					disabled={
+						input.form.isSubmitting || input.form.isResolvingLocalAgents
+					}
 					onClick={() => input.onStepChange("review")}
 					type="button"
 				>
-					Continue
+					{input.form.boundAgentId || input.form.lockLocalAgentSelection
+						? "Continue"
+						: "Connect later"}
 				</Button>
-				{input.canContinue || input.form.isResolvingLocalAgents ? null : (
-					<p className="text-muted-foreground text-xs">
-						Choose a local agent to continue.
-					</p>
-				)}
 			</div>
 		</div>
 	);
@@ -325,51 +301,12 @@ function GeneratorReviewActions(input: {
 }
 
 function AdvancedSetup(input: {
-	allowWithoutLocalAgent: boolean;
 	expanded: boolean;
 	form: CreateProfileFormProps;
-	onAllowWithoutLocalAgentChange: (allowed: boolean) => void;
 	onExpandedChange: (expanded: boolean) => void;
 }) {
 	if (!input.form.boundAgentId) {
-		return (
-			<section className="grid min-w-0 gap-3 pt-1">
-				<AgentConfigurationGrid className="sm:grid-cols-1">
-					<AgentConfigurationCard
-						description="Connect a controller later from this Agent's details."
-						icon={<DesktopTowerIcon aria-hidden="true" />}
-						itemId="runs-on"
-						label="Runs on"
-						summary={
-							input.allowWithoutLocalAgent
-								? "Connect later"
-								: "Choose a local agent first"
-						}
-					>
-						<div className="grid gap-3">
-							<p className="text-muted-foreground text-xs leading-5">
-								Create this Agent now and connect a local agent when you are
-								ready.
-							</p>
-							<Button
-								className="justify-self-start"
-								onClick={() =>
-									input.onAllowWithoutLocalAgentChange(
-										!input.allowWithoutLocalAgent
-									)
-								}
-								type="button"
-								variant={input.allowWithoutLocalAgent ? "secondary" : "outline"}
-							>
-								{input.allowWithoutLocalAgent
-									? "Connect later selected"
-									: "Create and connect later"}
-							</Button>
-						</div>
-					</AgentConfigurationCard>
-				</AgentConfigurationGrid>
-			</section>
-		);
+		return null;
 	}
 
 	const summaries = resolveAgentProfileConfigurationSummaries(input.form);
@@ -386,7 +323,7 @@ function AdvancedSetup(input: {
 			onOpenChange={(expanded) => input.onExpandedChange(expanded)}
 			open={input.expanded}
 		>
-			<Collapsible.Trigger className="group/agent-configuration-trigger flex min-h-14 w-full min-w-0 items-center gap-3 rounded-2xl border border-border/65 bg-card/35 px-4 py-3 text-left shadow-[0_1px_0_rgb(255_255_255/0.025)_inset] outline-none transition-[background-color,border-color] duration-150 hover:border-border hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+			<Collapsible.Trigger className="group/agent-configuration-trigger flex min-h-9 w-full min-w-0 items-center gap-3 border-border border-b pb-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/70">
 				<SlidersHorizontalIcon
 					aria-hidden="true"
 					className="size-4 shrink-0 text-muted-foreground"

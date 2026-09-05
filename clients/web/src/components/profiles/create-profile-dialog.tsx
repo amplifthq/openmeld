@@ -26,6 +26,7 @@ import type {
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Bars } from "@openmeld/ui/components/bars";
+import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -166,7 +167,7 @@ type CreateProfileDialogFormState = {
 	profileName: string;
 	profileNameEdited: boolean;
 	projectFolderPath: string;
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
 	sessionMode: AgentProfileSessionMode;
@@ -411,6 +412,43 @@ export function LegacyCreateProfileDialog(input: CreateProfileDialogProps) {
 	);
 }
 
+// Content for an existing picker Dialog. Omit spaceContext so creation never
+// grants Space membership before the picker's final Add selected action.
+export function CreateProfileDialogStep(
+	input: Omit<CreateProfileDialogProps, "spaceContext"> & {
+		onBusyChange: (busy: boolean) => void;
+	}
+) {
+	const view = useCreateProfileDialogController(input, {
+		agentOnly: true,
+		templateNaming: true,
+	});
+	useEffect(() => {
+		input.onBusyChange(view.formProps.isSubmitting);
+		return () => input.onBusyChange(false);
+	}, [input.onBusyChange, view.formProps.isSubmitting]);
+	return (
+		<>
+			<Button
+				className="self-start"
+				disabled={view.formProps.isSubmitting}
+				onClick={() => view.onOpenChange(false)}
+				size="sm"
+				variant="ghost"
+			>
+				Back to people and agents
+			</Button>
+			<DialogHeader>
+				<DialogTitle>{view.title}</DialogTitle>
+				<DialogDescription>
+					Create an Agent, then return to select who to add to this Space.
+				</DialogDescription>
+			</DialogHeader>
+			<AgentProfileGenerator form={view.formProps} surface="dialog" />
+		</>
+	);
+}
+
 export function CreateAgentProfilePage(
 	input: Omit<CreateProfileDialogProps, "onOpenChange" | "open"> & {
 		onCancel: () => void;
@@ -425,9 +463,9 @@ export function CreateAgentProfilePage(
 		{ agentOnly: true, templateNaming: true }
 	);
 	return (
-		<div className="flex min-h-full min-w-0 flex-1 flex-col overflow-y-auto px-5 py-8 sm:px-8 lg:px-12">
-			<div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6">
-				<header className="grid gap-1.5">
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col px-5 py-8 sm:px-8 lg:px-12">
+			<div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-6">
+				<header className="grid shrink-0 gap-1.5">
 					<h1 className="font-medium text-2xl tracking-tight">{view.title}</h1>
 					<p className="max-w-2xl text-pretty text-muted-foreground text-sm leading-6">
 						{view.description}
@@ -1230,6 +1268,10 @@ function useCreateProfileDialogController(
 			});
 		},
 		onSubmit: (event: FormEvent<HTMLFormElement>) => {
+			event.preventDefault();
+			if (event.target !== event.currentTarget || projectSelectionBlockReason) {
+				return;
+			}
 			handleCreateProfileSubmit({
 				creationIntentRef,
 				event,
@@ -1368,7 +1410,7 @@ function resolveAgentSessionSummary(input: {
 function resolveProjectSelectionSummary(input: {
 	projectFolderPath: string;
 	projects: ListProjectsResponse["projects"];
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectId: string;
 }): string {
 	const selectedProject = input.projects.find(
@@ -1377,7 +1419,13 @@ function resolveProjectSelectionSummary(input: {
 	if (selectedProject) {
 		return selectedProject.name;
 	}
+	if (input.projectWorkspaceFallback === "project") {
+		return "Choose a project";
+	}
 	if (input.projectWorkspaceFallback === "advanced") {
+		if (!input.projectFolderPath.trim()) {
+			return "Choose a folder";
+		}
 		const normalizedPath = input.projectFolderPath
 			.trim()
 			.replace(PROJECT_PATH_TRAILING_SEPARATOR_PATTERN, "");
@@ -1657,7 +1705,9 @@ function handleAgentProfileSessionModeChange(input: {
 		value: AgentProfileBindingOpenCodePermission | null
 	) => void;
 	setBoundReasoningLevel: (value: string) => void;
-	setProjectWorkspaceFallback: (value: "advanced" | "managed" | null) => void;
+	setProjectWorkspaceFallback: (
+		value: "advanced" | "managed" | "project" | null
+	) => void;
 	setSelectedProjectBindingGeneration: (value: string | null) => void;
 	setSelectedProjectId: (value: string) => void;
 	setSessionMode: (mode: AgentProfileSessionMode) => void;
@@ -1714,7 +1764,9 @@ function applyAgentProfileSessionSelection(input: {
 	setBoundReasoningLevel: (value: string) => void;
 	setProfileName: (value: string) => void;
 	setProjectFolderPath: (value: string) => void;
-	setProjectWorkspaceFallback: (value: "advanced" | "managed" | null) => void;
+	setProjectWorkspaceFallback: (
+		value: "advanced" | "managed" | "project" | null
+	) => void;
 	setSelectedProjectBindingGeneration: (value: string | null) => void;
 	setSelectedProjectId: (value: string) => void;
 	setSessionMode: (mode: AgentProfileSessionMode) => void;
@@ -2211,11 +2263,13 @@ function renderProjectSelectionSlot(input: {
 	projects: ListProjectsResponse | undefined;
 	projectsError: boolean;
 	projectsPending: boolean;
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
 	setProjectFolderPath: (value: string) => void;
-	setProjectWorkspaceFallback: (value: "advanced" | "managed" | null) => void;
+	setProjectWorkspaceFallback: (
+		value: "advanced" | "managed" | "project" | null
+	) => void;
 	setSelectedProjectBindingGeneration: (value: string | null) => void;
 	setSelectedProjectId: (value: string) => void;
 }): ReactNode {
@@ -2257,6 +2311,10 @@ function renderProjectSelectionSlot(input: {
 			disabled={input.disabled}
 			manualPath={input.projectFolderPath}
 			onConnectionReady={(connection) => {
+				if (!connection) {
+					input.setSelectedProjectBindingGeneration(null);
+					return;
+				}
 				input.creationDefaultsEditedRef.current = true;
 				input.setSelectedProjectBindingGeneration(connection.bindingGeneration);
 				input.setProjectFolderPath(connection.path);
@@ -2290,6 +2348,7 @@ function renderProjectSelectionSlot(input: {
 				input.setProjectWorkspaceFallback("managed");
 				input.onErrorClear();
 			}}
+			onUseProjectWorkspace={() => input.setProjectWorkspaceFallback("project")}
 			organizationId={input.organizationId}
 			projectId={input.selectedProjectId}
 			projects={input.projects?.projects ?? []}
@@ -2534,7 +2593,7 @@ function resolveOwnerProjectSelectionBlockReason(input: {
 	ownerMode: AgentProfileOwnerMode;
 	projectFolderPath: string;
 	projectsPending: boolean;
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
 }): string | null {
@@ -2965,7 +3024,7 @@ function showCreatedAgentRequestToast(input: {
 		case "completed":
 			toast.success(
 				input.request.requesterUserId === input.request.targetOwnerUserId
-					? "Agent created. Checking its connection now."
+					? "Agent created."
 					: "Agent created for your teammate."
 			);
 			return;
@@ -2989,11 +3048,26 @@ function showCreatedAgentRequestToast(input: {
 function resolveProjectSelectionBlockReason(input: {
 	boundAgentId: string;
 	projectFolderPath: string;
-	projectWorkspaceFallback: "advanced" | "managed" | null;
+	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectBindingGeneration: string | null;
 	selectedProjectId: string;
 }): string | null {
-	if (!(input.boundAgentId && input.selectedProjectId)) {
+	if (!input.boundAgentId) {
+		return null;
+	}
+	if (
+		input.projectWorkspaceFallback === "project" &&
+		!input.selectedProjectId
+	) {
+		return "Choose a project to continue.";
+	}
+	if (
+		input.projectWorkspaceFallback === "advanced" &&
+		!input.projectFolderPath.trim()
+	) {
+		return "Choose a folder to continue.";
+	}
+	if (!input.selectedProjectId) {
 		return null;
 	}
 	if (input.selectedProjectBindingGeneration) {

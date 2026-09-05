@@ -92,7 +92,7 @@ vi.mock("../src/ui/info-card", () => ({
   renderInfoCard: vi.fn(),
 }));
 
-vi.mock("../src/commands/skills", () => ({
+vi.mock("../src/skills/installation-inventory", () => ({
   collectSkillsReadinessSnapshot: vi.fn(),
 }));
 

@@ -52,6 +52,7 @@ export const spaceInvitationRpcInputSchema = z.strictObject({
   emailVerified: z.boolean(),
   request: z.union([
     spaceInvitationRequestSchema,
+    z.strictObject({ action: z.literal("create_approved"), requestId: id }),
     z.strictObject({
       action: z.literal("bind"),
       invitationId: id,
@@ -85,6 +86,11 @@ export type SpaceInvitationRpcResult = z.infer<
 >;
 
 export type SpaceInvitationWorker = {
+  organizationJoinRequest(
+    input: import("./organization-join-request").OrganizationJoinRequestRpcInput
+  ): Promise<
+    import("./organization-join-request").OrganizationJoinRequestResponse
+  >;
   spaceInvitation(
     input: SpaceInvitationRpcInput
   ): Promise<SpaceInvitationRpcResult>;

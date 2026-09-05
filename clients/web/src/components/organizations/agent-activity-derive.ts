@@ -170,8 +170,8 @@ type DeriveActivityViewInput = {
 const PROVIDER_FACETS = [
 	{ id: "codex", label: "Codex" },
 	{ id: "claude-code", label: "Claude Code" },
-	{ id: "cursor", label: "Cursor" },
 	{ id: "opencode", label: "OpenCode" },
+	{ id: "cursor", label: "Cursor" },
 ] as const;
 
 const STATUS_FACETS = [

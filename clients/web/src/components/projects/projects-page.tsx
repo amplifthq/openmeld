@@ -70,6 +70,9 @@ export function ProjectsPage() {
 			return await createCurrentProject({
 				expectedOrganizationId: currentOrganization.id,
 				name: submission.name,
+				...(submission.repositoryUrl
+					? { repositoryUrl: submission.repositoryUrl }
+					: {}),
 				...(submission.repositoryFingerprint
 					? { repositoryFingerprint: submission.repositoryFingerprint }
 					: {}),

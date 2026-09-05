@@ -62,7 +62,7 @@ test("sets a clear expectation for the first Web page compilation", () => {
       webPort: 28_320,
     }),
     [
-      "[dev:web:worktree] Starting Web for worktree lane wt-example: http://localhost:28320",
+      "[dev:web:worktree] Starting Web for worktree lane wt-example: http://wt-example.localhost:28320",
       "[dev:web:worktree] The first page load can take about one minute while Web and Cloudflare compile. Keep the page open; later loads should be fast.",
     ]
   );

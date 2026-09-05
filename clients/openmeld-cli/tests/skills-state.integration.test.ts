@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -6,7 +7,9 @@ import type { LocalSkill } from "../src/skills/store";
 import { withTempHome } from "./helpers/fs";
 
 const SKILL_ID = "openmeld-cli";
-const CONTENT_HASH = "a".repeat(64);
+const CONTENT_HASH = createHash("sha256")
+  .update("file:SKILL.md\n# OpenMeld CLI skill\n\n")
+  .digest("hex");
 const VERSION = "0.3.25";
 
 async function writeSkillStore(input: {

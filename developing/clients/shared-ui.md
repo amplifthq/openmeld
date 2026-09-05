@@ -62,6 +62,9 @@ identifiable without requiring the magnification effect.
 may pair its text with an existing shared primitive such as `Badge`. The Select
 continues to own listbox behavior, focus, keyboard navigation, and layout; the
 client owns the choice metadata and copy.
+Embedded editors may use `onCloseAutoFocus` to cancel trigger focus restoration
+and return focus to their editing selection. Ordinary Selects continue to return
+focus to the trigger. Disabled options expose their state to assistive technology.
 
 ## Change Rule
 

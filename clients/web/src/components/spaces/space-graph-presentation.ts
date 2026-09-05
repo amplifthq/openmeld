@@ -249,7 +249,7 @@ function isRecordedGraphMessage(item: SpaceTimelineItem): boolean {
 	return (
 		item.deliveryState === "sent" &&
 		item.agentStreamState === undefined &&
-		item.optimisticAgentReplyProgress === undefined &&
+		item.activeWakeProgress === undefined &&
 		item.transientActivityPurpose === null
 	);
 }

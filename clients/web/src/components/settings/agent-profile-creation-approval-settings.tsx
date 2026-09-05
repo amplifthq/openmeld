@@ -17,9 +17,9 @@ import {
 } from "#/query/profiles/agent-profile-creation-requests";
 
 const POLICY_OPTIONS = [
-	{ label: "Ask every time", value: "ask_every_time" },
-	{ label: "Automatically allow", value: "automatically_allow" },
-	{ label: "Never allow", value: "never_allow" },
+	{ label: "Ask me each time", value: "ask_every_time" },
+	{ label: "Allow without asking", value: "automatically_allow" },
+	{ label: "Don’t allow", value: "never_allow" },
 ] as const satisfies readonly {
 	label: string;
 	value: AgentProfileCreationApprovalPolicy;
@@ -27,6 +27,7 @@ const POLICY_OPTIONS = [
 
 export function AgentProfileCreationApprovalSettings(input: {
 	organizationId: string;
+	organizationName?: string;
 }) {
 	const queryClient = useQueryClient();
 	const preferenceQuery = useQuery(
@@ -50,7 +51,7 @@ export function AgentProfileCreationApprovalSettings(input: {
 				agentProfileCreationRequestQueryKeys.preference(input.organizationId),
 				preference
 			);
-			toast.success("Agent creation approval settings saved.");
+			toast.success("Agent creation permissions saved.");
 		},
 	});
 
@@ -60,15 +61,15 @@ export function AgentProfileCreationApprovalSettings(input: {
 
 	return (
 		<SettingsSection
-			description="Control whether teammates and their agents can create Agents that you own in this workspace."
+			description={`Choose whether teammates and their agents can create Agents for you in ${input.organizationName ?? "this organization"}. These settings apply only to you in this organization.`}
 			id="agent-profile-creation-approvals"
-			title="Agent creation approvals"
+			title="Agent creation permissions"
 		>
 			<div className="divide-y divide-border overflow-hidden rounded-md border border-border/70">
 				<ApprovalPolicyRow
-					description="Starting a separate session is the safer option."
+					description="Create an Agent with a new conversation, without inheriting an existing conversation’s history."
 					disabled={isDisabled}
-					label="New sessions"
+					label="Start new conversations"
 					onChange={(newSessionPolicy) => {
 						if (preference) {
 							mutation.mutate({
@@ -80,9 +81,9 @@ export function AgentProfileCreationApprovalSettings(input: {
 					value={preference?.newSessionPolicy ?? "ask_every_time"}
 				/>
 				<ApprovalPolicyRow
-					description="Resume and fork can reuse context from work already on your computer."
+					description="Create an Agent that continues an existing conversation or uses a copy of its history."
 					disabled={isDisabled}
-					label="Existing sessions"
+					label="Continue or copy existing conversations"
 					onChange={(existingSessionPolicy) => {
 						if (preference) {
 							mutation.mutate({
@@ -94,6 +95,11 @@ export function AgentProfileCreationApprovalSettings(input: {
 					value={preference?.existingSessionPolicy ?? "ask_every_time"}
 				/>
 			</div>
+			<p className="text-muted-foreground text-xs">
+				These permissions don’t approve every action an Agent takes or share all
+				conversations on your computer. They don’t change Agents already
+				created.
+			</p>
 			{preferenceQuery.isPending ? (
 				<p className="text-muted-foreground text-xs">Loading settings…</p>
 			) : null}
@@ -134,7 +140,7 @@ function ApprovalPolicyRow(input: {
 				<SelectTrigger
 					aria-label={`${input.label} approval policy`}
 					className="w-full sm:w-48"
-					displayValue={selected?.label ?? "Ask every time"}
+					displayValue={selected?.label ?? "Ask me each time"}
 				/>
 				<SelectContent>
 					{POLICY_OPTIONS.map((option, index) => (

@@ -2,8 +2,15 @@
 
 import type { MessageMentionType } from "@openmeld/schemas/types";
 import { listSpaceMentionRelationChoices } from "@openmeld/space";
-import { CaretDownIcon, XIcon } from "@phosphor-icons/react";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
+import { XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
+import { MotionConfig } from "framer-motion";
 import { PathApi, type TElement, TextApi } from "platejs";
 import {
 	createPlatePlugin,
@@ -40,6 +47,7 @@ import {
 	InlineComboboxItem,
 } from "#/components/editor/ui/inline-combobox";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { resolveSpaceMemberStatusBadgeDisplay } from "#/lib/spaces/presentation";
 import {
 	createSpaceComposerEditorValue,
 	createSpaceComposerPastedValue,
@@ -55,6 +63,8 @@ import {
 	getEditorFocusReadiness,
 	SPACE_COMPOSER_FOCUS_RETRY_FRAMES,
 } from "./space-composer-focus";
+import { SpaceAgentAvailabilityIndicator } from "./space-member-inline-status-text";
+import { resolveSpaceMemberStatusTone } from "./space-member-status-tone";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import type {
 	SpaceComposerAddressingTarget,
@@ -403,6 +413,8 @@ function SpaceComposerProfileToken(
 	props: PlateElementProps<SpaceComposerProfileElement>
 ) {
 	const { editor, element } = props;
+	// Moving focus into the portaled menu must not move the draft's caret.
+	const relationSelection = useRef(editor.selection);
 	const context = useSpaceComposerEditorContext();
 	const target = context.addressingTargets.find(
 		(candidate) => candidate.profileId === element.profileId
@@ -429,48 +441,76 @@ function SpaceComposerProfileToken(
 			choices.find((choice) => choice.relation === element.relation)?.label ??
 			(element.relation === "wake" ? "Wake" : "Reference");
 		relationControl = (
-			<label className="relative inline-flex h-6 shrink-0 items-center gap-0.5 border-border border-l pr-1 pl-2 text-muted-foreground">
-				<span className="sr-only">Relation</span>
-				<span
-					aria-hidden="true"
-					className="whitespace-pre font-medium text-xs"
-					data-testid="space-composer-profile-token-relation-width"
-				>
-					{selectedRelationLabel}
-				</span>
-				<CaretDownIcon aria-hidden="true" className="size-3" />
-				<select
-					aria-label={`Change relation for ${profileName}`}
-					className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 outline-none"
-					onChange={(event) => {
+			<MotionConfig reducedMotion="user">
+				<Select
+					onCloseAutoFocus={(event) => {
+						event.preventDefault();
+						// Preserve any typing that occurred before the close animation frame.
+						const selection =
+							editor.selection ??
+							relationSelection.current ??
+							editor.api.end([]);
+						editor.tf.focus();
+						if (selection) {
+							editor.tf.select(selection);
+						}
+					}}
+					onValueChange={(value) => {
+						if (
+							!choices.some(
+								(choice) => choice.relation === value && !choice.disabled
+							)
+						) {
+							return;
+						}
 						const path = editor.api.findPath(element);
 						if (!path) {
 							return;
 						}
 						editor.tf.setNodes(
 							{
-								relation: event.target.value as MessageMentionType,
+								relation: value as MessageMentionType,
 							},
 							{ at: path }
 						);
+						const selection = relationSelection.current ?? editor.api.end([]);
+						if (selection) {
+							editor.tf.select(selection);
+						}
 					}}
-					onClick={(event) => event.stopPropagation()}
-					onMouseDown={(event) => event.stopPropagation()}
 					value={element.relation}
 				>
-					{choices.map((choice) => (
-						<option
-							disabled={choice.disabled}
-							key={choice.relation}
-							value={choice.relation}
-						>
-							{choice.disabled && choice.disabledReason
-								? `${choice.label} — ${choice.disabledReason}`
-								: choice.label}
-						</option>
-					))}
-				</select>
-			</label>
+					<SelectTrigger
+						aria-label={`Change relation for ${profileName}`}
+						className="h-6 min-w-0 gap-1 rounded-none border-0 border-border border-l px-1.5 py-0 font-medium text-muted-foreground text-xs max-lg:h-6 max-lg:min-w-0 [&>svg]:size-3"
+						displayValue={selectedRelationLabel}
+						onClickCapture={() => {
+							relationSelection.current = editor.selection;
+						}}
+						onKeyDownCapture={() => {
+							relationSelection.current = editor.selection;
+						}}
+						onMouseDown={(event) => {
+							event.preventDefault();
+						}}
+						variant="borderless"
+					/>
+					<SelectContent align="end" className="min-w-40" side="top">
+						{choices.map((choice, index) => (
+							<SelectItem
+								disabled={choice.disabled}
+								index={index}
+								key={choice.relation}
+								value={choice.relation}
+							>
+								{choice.disabled
+									? `${choice.label} — ${resolveComposerUnavailableLabel(pickerItem)}`
+									: choice.label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			</MotionConfig>
 		);
 	} else if (isRepeatedAgent) {
 		relationControl = (
@@ -625,8 +665,11 @@ function SpaceComposerMentionGroup(input: {
 						profileKind={item.suggestion.profileKind}
 						profileName={item.suggestion.profileName}
 					/>
-					<span className="min-w-0 flex-1 truncate font-medium">
-						{item.suggestion.profileName}
+					<span className="flex min-w-0 flex-1 items-center gap-2 font-medium">
+						<span className="truncate">{item.suggestion.profileName}</span>
+						{item.suggestion.profileKind === "agent" ? (
+							<ComposerAgentAvailability item={item} />
+						) : null}
 					</span>
 					<span className="ml-2 text-muted-foreground text-xs">
 						{resolveMentionPickerRelationLabel(item.suggestion)}
@@ -634,6 +677,41 @@ function SpaceComposerMentionGroup(input: {
 				</InlineComboboxItem>
 			))}
 		</InlineComboboxGroup>
+	);
+}
+
+function resolveComposerUnavailableLabel(
+	item: SpaceMentionPickerItem | undefined
+): string {
+	const display = item
+		? resolveSpaceMemberStatusBadgeDisplay(item.memberEntry)
+		: null;
+	if (display?.isRefreshing) {
+		return "Checking";
+	}
+	const label = display?.label;
+	return label && !["Available", "Connect"].includes(label)
+		? label
+		: "Unavailable";
+}
+
+function ComposerAgentAvailability({ item }: { item: SpaceMentionPickerItem }) {
+	const entry = item.memberEntry;
+	const display = resolveSpaceMemberStatusBadgeDisplay(entry);
+	const label =
+		display?.label === "Connect"
+			? "Unavailable"
+			: (display?.label ?? "Unavailable");
+	return (
+		<SpaceAgentAvailabilityIndicator
+			category={entry.availabilityCategory}
+			isRefreshing={display?.isRefreshing}
+			label={label}
+			phase={entry.availabilityPhase}
+			reasonCode={entry.availabilityReasonCode}
+			tone={resolveSpaceMemberStatusTone(entry)}
+			tooltip={label}
+		/>
 	);
 }
 
@@ -684,6 +762,12 @@ function handleKeyDown(
 	editor: PlateEditor,
 	onSend: () => void
 ): void {
+	if (
+		event.target instanceof Element &&
+		event.target.closest('button, select, [role="listbox"]')
+	) {
+		return;
+	}
 	if (event.nativeEvent.isComposing || event.key !== "Enter") {
 		return;
 	}

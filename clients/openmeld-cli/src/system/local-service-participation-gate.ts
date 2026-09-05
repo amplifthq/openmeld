@@ -11,18 +11,9 @@ import {
 } from "../commands/service-start-failure";
 import { normalizeGatewayBaseUrlOrNull } from "../config/base-url";
 import { readDaemonServiceContract } from "../config/daemon-service-contract";
-import type { DaemonServiceRuntimeStatus } from "../config/daemon-state";
 import { toErrorMessage } from "../local-service/core/logger";
-import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
-import {
-  classifyDaemonServiceRunStartability,
-  classifyDaemonServiceWakeability,
-  DAEMON_SERVICE_WAKEABILITY_ADVISORY_ANOMALIES,
-} from "../local-service/lifecycle/daemon-service-anomaly-groups";
-import {
-  type DaemonServiceAnomalyCode,
-  inspectDaemonServiceInventory,
-} from "../local-service/lifecycle/daemon-service-inventory";
+import { DAEMON_SERVICE_WAKEABILITY_ADVISORY_ANOMALIES } from "../local-service/lifecycle/daemon-service-anomaly-groups";
+import type { DaemonServiceAnomalyCode } from "../local-service/lifecycle/daemon-service-inventory";
 import type { LocalServiceDemand } from "../local-service/lifecycle/local-service-demand";
 import type { Presenter } from "../runtime/presenter/types";
 import {
@@ -42,37 +33,10 @@ export type DaemonServiceParticipationIntent =
   | "space_create_join"
   | "space_add_members";
 
-export type DaemonServiceParticipationStatus =
-  | {
-      kind: "ready";
-      expectedVersion: string;
-      installedVersion: string | null;
-      runtimeStatus: DaemonServiceRuntimeStatus["status"];
-      advisoryAnomalyCodes?: DaemonServiceAnomalyCode[];
-    }
-  | {
-      kind: "missing";
-      expectedVersion: string;
-    }
-  | {
-      kind: "outdated";
-      expectedVersion: string;
-      installedVersion: string;
-    }
-  | {
-      kind: "not_running";
-      expectedVersion: string;
-      installedVersion: string | null;
-      runtimeStatus: DaemonServiceRuntimeStatus["status"] | null;
-    }
-  | {
-      kind: "needs_repair";
-      expectedVersion: string;
-      installedVersion: string | null;
-      runtimeStatus: DaemonServiceRuntimeStatus["status"] | null;
-      detail: string;
-      anomalyCodes: string[];
-    };
+import {
+  type DaemonServiceParticipationStatus,
+  resolveDaemonServiceParticipationStatus,
+} from "../local-service/status/service-participation-status";
 
 export type DaemonServiceParticipationGateResult = {
   errorMessage?: string;
@@ -89,66 +53,6 @@ export function shouldRequireDaemonServiceParticipation(
   localDemand?: LocalServiceDemand | null
 ): boolean {
   return localDemand?.decision === "keep_running";
-}
-
-export async function resolveDaemonServiceParticipationStatus(input?: {
-  expectedVersion?: string;
-}): Promise<DaemonServiceParticipationStatus> {
-  const expectedVersion =
-    input?.expectedVersion ?? resolveCurrentDaemonExpectedVersion();
-  const inventory = await inspectDaemonServiceInventory({
-    expectedVersion,
-  });
-
-  if (!(inventory.installStatus.installed && inventory.installStatus.state)) {
-    return {
-      kind: "missing",
-      expectedVersion,
-    };
-  }
-
-  const installedVersion = inventory.installStatus.state.daemonVersion;
-  const wakeability = classifyDaemonServiceWakeability({
-    inventory,
-  });
-  const blockingServiceDriftCodes = wakeability.blockingCodes;
-  const runBlockingServiceDriftCodes = classifyDaemonServiceRunStartability({
-    inventory,
-  }).blockingCodes;
-  const repairAnomalies = inventory.anomalies.filter((anomaly) =>
-    [...blockingServiceDriftCodes, ...runBlockingServiceDriftCodes].includes(
-      anomaly.code
-    )
-  );
-  if (repairAnomalies.length > 0) {
-    return {
-      kind: "needs_repair",
-      expectedVersion,
-      installedVersion,
-      runtimeStatus: inventory.runtimeStatus.status,
-      detail:
-        repairAnomalies[0]?.message ??
-        "OpenMeld found conflicting local service state on this device.",
-      anomalyCodes: inventory.anomalies.map((anomaly) => anomaly.code),
-    };
-  }
-
-  if (inventory.runtimeStatus.status !== "running") {
-    return {
-      kind: "not_running",
-      expectedVersion,
-      installedVersion,
-      runtimeStatus: inventory.runtimeStatus.status,
-    };
-  }
-
-  return {
-    kind: "ready",
-    expectedVersion,
-    installedVersion,
-    runtimeStatus: inventory.runtimeStatus.status,
-    advisoryAnomalyCodes: wakeability.advisoryCodes,
-  };
 }
 
 export async function runDaemonServiceParticipationGate(input: {

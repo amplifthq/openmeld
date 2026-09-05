@@ -45,6 +45,7 @@ import {
 	ProjectCheckAgainButton,
 	ProjectRefreshStatus,
 } from "./project-check-again-button";
+import { ProjectDefaultFolderDialog } from "./project-default-folder-dialog";
 import { useProjectDiscovery } from "./use-project-discovery";
 
 type RemovalRequest = {
@@ -101,6 +102,8 @@ export function ProjectComputerSection(input: {
 	);
 	const [pendingFolderMove, setPendingFolderMove] =
 		useState<PendingFolderMove | null>(null);
+	const [pendingDefault, setPendingDefault] =
+		useState<LocalProjectControlConnection | null>(null);
 	const [removeMissingOpen, setRemoveMissingOpen] = useState(false);
 	const candidates = view.discovery?.candidates ?? [];
 	const selectedCandidates = candidates.filter((candidate) =>
@@ -254,7 +257,7 @@ export function ProjectComputerSection(input: {
 				input.project.id,
 				response.connections
 			);
-			controller.refresh();
+			setPendingDefault(null);
 		} catch (error) {
 			setOperationError(resolveLocalProjectControlErrorMessage(error));
 		}
@@ -406,7 +409,7 @@ export function ProjectComputerSection(input: {
 						setConnectDialogOpen(true);
 					}}
 					onMakeDefault={(connection) => {
-						setDefault(connection).catch(() => undefined);
+						setPendingDefault(connection);
 					}}
 					onRemove={(connection) =>
 						setRemovalRequest({
@@ -473,6 +476,17 @@ export function ProjectComputerSection(input: {
 				pickerDeviceId={pickerDeviceId}
 			/>
 
+			<ProjectDefaultFolderDialog
+				connection={pendingDefault}
+				errorMessage={operationError}
+				onCancel={() => {
+					setPendingDefault(null);
+					setOperationError(null);
+				}}
+				onConfirm={setDefault}
+				pending={operation !== null}
+				projectName={input.project.name}
+			/>
 			<FolderMoveConfirmationDialog
 				conflict={pendingFolderMove?.conflict ?? null}
 				errorMessage={operationError}
@@ -996,6 +1010,7 @@ function resolveComputerStateSummary(input: {
 		| "connected_folder_missing"
 		| "found"
 		| "not_found"
+		| "not_connected"
 		| "verification_unavailable"
 		| null;
 	serviceState: string;
@@ -1087,6 +1102,7 @@ function resolveServiceStateSummary(input: {
 		| "connected_folder_missing"
 		| "found"
 		| "not_found"
+		| "not_connected"
 		| "verification_unavailable"
 		| null;
 	serviceState: string;

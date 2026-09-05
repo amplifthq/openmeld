@@ -3555,7 +3555,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("returns invalid_response instead of a timeout for a malformed Project result", async () => {
+  it.each([
+    true,
+    false,
+  ])("negotiates Project fast reads with Service support %s and rejects malformed results", async (readConnections) => {
     const { hub, sentFrames, socket, state } = createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
@@ -3565,6 +3568,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     session.capabilities = {
       ...session.capabilities,
       localProjectControl: {
+        ...(readConnections ? { readConnections: true as const } : {}),
         connectCandidate: true,
         connectDeclaredPath: true,
         discoverProjects: true,
@@ -3590,6 +3594,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         requestId: "project-discovery-invalid-result",
         request: {
           clientGeneration: 1,
+          includeCandidates: false,
           expectedOrganizationId: "org-1",
           projects: [],
         },
@@ -3606,6 +3611,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).toBe(true);
     });
+    const frame = sentFrames.find(
+      (item) =>
+        (item as { payload?: { requestId?: string } }).payload?.requestId ===
+        "project-discovery-invalid-result"
+    ) as { payload: { request: { includeCandidates?: boolean } } };
+    expect(frame.payload.request.includeCandidates).toBe(
+      readConnections ? false : undefined
+    );
     RuntimeTransportHub.prototype.webSocketMessage.call(
       hub,
       socket,

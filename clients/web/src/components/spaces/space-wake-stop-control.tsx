@@ -1,5 +1,8 @@
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
-import type { PostSpaceWakeStopResponse } from "@openmeld/schemas/types";
+import type {
+	PostSpaceWakeStopResponse,
+	WakeProgressItem,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -13,12 +16,49 @@ import {
 import { cn } from "@openmeld/ui/lib/utils";
 import { StopIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { useState } from "react";
-import type { SpaceWakeStopTargetResolution } from "#/lib/spaces/wake-stop-target";
+import { createContext, useContext, useState } from "react";
+import {
+	resolveWakeStopTargetForProgressItem,
+	type SpaceWakeStopRequestStatus,
+	type SpaceWakeStopTargetResolution,
+} from "#/lib/spaces/wake-stop-target";
 
 export type SpaceWakeStopRequestHandler = (
 	target: SpaceWakeStopTargetResolution
 ) => Promise<PostSpaceWakeStopResponse>;
+
+type StopSelection = {
+	targets: readonly SpaceWakeStopTargetResolution[];
+	onStopWake: SpaceWakeStopRequestHandler;
+};
+const StopDialogContext = createContext<
+	((selection: StopSelection) => void) | null
+>(null);
+
+/** The confirmation belongs to the conversation, not to a row that can move. */
+export function SpaceWakeStopScope(input: {
+	children: ReactNode;
+	progressItems?: readonly WakeProgressItem[];
+	stopRequestStatusBySelectorKey?: ReadonlyMap<
+		string,
+		SpaceWakeStopRequestStatus
+	>;
+}) {
+	const [selection, setSelection] = useState<StopSelection | null>(null);
+	return (
+		<StopDialogContext.Provider value={setSelection}>
+			{input.children}
+			{selection ? (
+				<SpaceWakeStopDialog
+					onClose={() => setSelection(null)}
+					progressItems={input.progressItems ?? []}
+					selection={selection}
+					stopRequestStatusBySelectorKey={input.stopRequestStatusBySelectorKey}
+				/>
+			) : null}
+		</StopDialogContext.Provider>
+	);
+}
 
 export function SpaceWakeStopControl(input: {
 	className?: string;
@@ -27,15 +67,15 @@ export function SpaceWakeStopControl(input: {
 	targets?: readonly SpaceWakeStopTargetResolution[];
 	variant?: "timeline" | "details";
 }) {
+	const openDialog = useContext(StopDialogContext);
+	if (!openDialog) {
+		return (
+			<SpaceWakeStopScope>
+				<SpaceWakeStopControl {...input} />
+			</SpaceWakeStopScope>
+		);
+	}
 	const variant = input.variant ?? "timeline";
-	const [open, setOpen] = useState(false);
-	const [pendingSelectorKeys, setPendingSelectorKeys] = useState<
-		ReadonlySet<string>
-	>(() => new Set());
-	const [statusMessage, setStatusMessage] = useState<string | null>(null);
-	const [dialogTargetSnapshots, setDialogTargetSnapshots] = useState<
-		readonly SpaceWakeStopTargetResolution[] | null
-	>(null);
 	const targets = normalizeWakeStopTargets(input.targets ?? input.target);
 	const renderableTargets = targets.filter((target) =>
 		shouldRenderSpaceWakeStopTarget(target, variant)
@@ -56,33 +96,22 @@ export function SpaceWakeStopControl(input: {
 		return singleTargetState;
 	}
 
-	const hasPendingRequest = pendingSelectorKeys.size > 0;
 	const targetLabel = resolveWakeStopTargetLabel(primaryTarget, {
 		fallback: "this agent",
 	});
 	const controlLabel = resolveWakeStopControlLabel({
-		isPending: hasPendingRequest,
+		isPending: false,
 		targetCount: renderableTargets.length,
 		targets: renderableTargets,
 		status: primaryTarget.status,
 		targetLabel,
 	});
-	const disabled =
-		hasPendingRequest ||
-		!renderableTargets.some((target) => target.canStop === true);
-	const statusCopy =
-		statusMessage ?? resolveWakeStopStatusCopy(primaryTarget.status);
+	const disabled = !renderableTargets.some((target) => target.canStop === true);
+	const statusCopy = resolveWakeStopStatusCopy(primaryTarget.status);
 	const buttonText = resolveWakeStopButtonText({
-		isPending: hasPendingRequest,
+		isPending: false,
 		targets: renderableTargets,
 	});
-	const dialogTargets = resolveWakeStopDialogTargets({
-		dialogTargetSnapshots,
-		renderableTargets,
-		targets,
-	});
-	const dialogPrimaryTarget = dialogTargets[0] ?? primaryTarget;
-	const hasMultipleDialogTargets = dialogTargets.length > 1;
 
 	return (
 		<div
@@ -101,9 +130,10 @@ export function SpaceWakeStopControl(input: {
 				)}
 				disabled={disabled}
 				onClick={() => {
-					setStatusMessage(null);
-					setDialogTargetSnapshots(renderableTargets);
-					setOpen(true);
+					openDialog({
+						targets: renderableTargets,
+						onStopWake: input.onStopWake,
+					});
 				}}
 				size={variant === "details" ? "sm" : "xs"}
 				type="button"
@@ -115,42 +145,92 @@ export function SpaceWakeStopControl(input: {
 			{variant === "details" && statusCopy ? (
 				<p className="text-muted-foreground text-xs leading-5">{statusCopy}</p>
 			) : null}
-			<Dialog
-				onOpenChange={(nextOpen) => {
-					setOpen(nextOpen);
-					if (!nextOpen) {
-						setDialogTargetSnapshots(null);
-						setStatusMessage(null);
-					}
-				}}
-				open={open}
-			>
-				<DialogContent>
-					{hasMultipleDialogTargets ? (
-						<MultiTargetWakeStopDialog
-							onStopWake={input.onStopWake}
-							pendingSelectorKeys={pendingSelectorKeys}
-							setPendingSelectorKeys={setPendingSelectorKeys}
-							setStatusMessage={setStatusMessage}
-							setStoppedTargetSnapshot={setDialogTargetSnapshots}
-							statusMessage={statusMessage}
-							targets={dialogTargets}
-						/>
-					) : (
-						<SingleTargetWakeStopDialog
-							onStopWake={input.onStopWake}
-							pendingSelectorKeys={pendingSelectorKeys}
-							setOpen={setOpen}
-							setPendingSelectorKeys={setPendingSelectorKeys}
-							setStatusMessage={setStatusMessage}
-							setStoppedTargetSnapshot={setDialogTargetSnapshots}
-							statusMessage={statusMessage}
-							target={dialogPrimaryTarget}
-						/>
-					)}
-				</DialogContent>
-			</Dialog>
 		</div>
+	);
+}
+
+function SpaceWakeStopDialog(input: {
+	selection: StopSelection;
+	progressItems: readonly WakeProgressItem[];
+	stopRequestStatusBySelectorKey?: ReadonlyMap<
+		string,
+		SpaceWakeStopRequestStatus
+	>;
+	onClose: () => void;
+}) {
+	const [pendingSelectorKeys, setPendingSelectorKeys] = useState<
+		ReadonlySet<string>
+	>(() => new Set());
+	const [statusMessage, setStatusMessage] = useState<string | null>(null);
+	const [dialogTargetSnapshots, setDialogTargetSnapshots] = useState<
+		readonly SpaceWakeStopTargetResolution[] | null
+	>(input.selection.targets);
+	const targets = input.progressItems.map((item) =>
+		resolveWakeStopTargetForProgressItem({
+			item,
+			stopRequestStatusBySelectorKey: input.stopRequestStatusBySelectorKey,
+		})
+	);
+	const dialogTargets = resolveWakeStopDialogTargets({
+		dialogTargetSnapshots,
+		renderableTargets: input.selection.targets,
+		targets,
+	});
+	const dialogPrimaryTarget = dialogTargets[0];
+	const setOpen = (open: boolean) => {
+		if (!open) {
+			input.onClose();
+		}
+	};
+	return (
+		<Dialog
+			onOpenChange={(open) => {
+				if (pendingSelectorKeys.size === 0) {
+					setOpen(open);
+				}
+			}}
+			open={true}
+		>
+			<DialogContent>
+				{dialogTargets.length > 1 ? (
+					<MultiTargetWakeStopDialog
+						onStopWake={input.selection.onStopWake}
+						pendingSelectorKeys={pendingSelectorKeys}
+						setPendingSelectorKeys={setPendingSelectorKeys}
+						setStatusMessage={setStatusMessage}
+						setStoppedTargetSnapshot={setDialogTargetSnapshots}
+						statusMessage={statusMessage}
+						targets={dialogTargets}
+					/>
+				) : null}
+				{dialogTargets.length === 1 && dialogPrimaryTarget ? (
+					<SingleTargetWakeStopDialog
+						onStopWake={input.selection.onStopWake}
+						pendingSelectorKeys={pendingSelectorKeys}
+						setOpen={setOpen}
+						setPendingSelectorKeys={setPendingSelectorKeys}
+						setStatusMessage={setStatusMessage}
+						setStoppedTargetSnapshot={setDialogTargetSnapshots}
+						statusMessage={statusMessage}
+						target={dialogPrimaryTarget}
+					/>
+				) : null}
+				{dialogTargets.length === 0 ? (
+					<>
+						<DialogHeader>
+							<DialogTitle>This Wake is no longer stoppable</DialogTitle>
+							<DialogDescription>
+								Its status has changed. Close this dialog to see the latest
+								update.
+							</DialogDescription>
+						</DialogHeader>
+						<DialogClose render={<Button variant="outline" />}>
+							Close
+						</DialogClose>
+					</>
+				) : null}
+			</DialogContent>
+		</Dialog>
 	);
 }
 

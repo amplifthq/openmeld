@@ -90,7 +90,29 @@ test("starts Auth and Core on the isolated lane with shared persistence", () => 
     "BETTER_AUTH_URL:http://localhost:31002",
     "--var",
     "WEB_APP_URL:http://localhost:31000",
+    "--var",
+    "PASSKEY_RP_ID:localhost",
   ]);
+});
+
+test("scopes isolated passkeys to the Web hostname instead of shared localhost", () => {
+  const plan = resolveIsolatedWorkerDevPlan({
+    coreConfigPath: "/repo/services/core/.wrangler-isolated.json",
+    env: {
+      ...ISOLATED_ENV,
+      BETTER_AUTH_URL: "http://wt-example.localhost:31002",
+      WEB_APP_URL: "http://wt-example.localhost:31000",
+      PASSKEY_RP_ID: "localhost",
+    },
+    service: "auth",
+  });
+  assert.ok(plan.args.includes("PASSKEY_RP_ID:wt-example.localhost"));
+  assert.ok(
+    plan.args.includes("BETTER_AUTH_URL:http://wt-example.localhost:31002")
+  );
+  assert.ok(
+    plan.args.includes("WEB_APP_URL:http://wt-example.localhost:31000")
+  );
 });
 
 test("starts Gateway and Remote Agent on their isolated public and inspector ports", () => {

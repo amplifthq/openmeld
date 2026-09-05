@@ -748,8 +748,8 @@ describe("SpaceMemberRow", () => {
 		});
 
 		expect(organizationActivity).toBe("40 minutes ago");
-		expect(screen.getByText("8h ago")).toBeTruthy();
-		const spaceActivity = screen.getByLabelText("8h ago");
+		expect(screen.getByText("Here 8h ago")).toBeTruthy();
+		const spaceActivity = screen.getByLabelText("Here 8h ago");
 		expect(spaceActivity.getAttribute("title")).toBe(
 			"Last activity in this Space"
 		);
@@ -771,7 +771,7 @@ describe("SpaceMemberRow", () => {
 			screen.getByRole("button", { name: "Check Felix Profile" })
 		);
 		const dialog = within(screen.getByRole("dialog"));
-		expect(dialog.getByText("7h ago")).toBeTruthy();
+		expect(dialog.getByText("Here 7h ago")).toBeTruthy();
 		expect(dialog.getByText("You")).toBeTruthy();
 		expect(dialog.queryByText("Active in this Space")).toBeNull();
 		expect(

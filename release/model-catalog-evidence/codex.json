@@ -1,0 +1,1724 @@
+{
+  "schemaVersion": 1,
+  "controller": "codex",
+  "observedAt": "2026-09-05T07:30:14.654Z",
+  "fingerprint": "9e17ce5c8320b4b168e82ca6d80e5a64740aaf28341dde9e55ae55991381e0e0",
+  "sources": [
+    {
+      "url": "https://github.com/openai/codex/releases/tag/rust-v0.153.4",
+      "kind": "official-release",
+      "data": {
+        "tag": "rust-v0.153.4",
+        "publishedAt": "2026-09-04T23:25:48Z",
+        "notes": "## Bug Fixes\n\n- Fixed Astra’s visibility in the bundled model picker and made it the bundled default when no model is explicitly configured. (#42874)\n- Updated Astra’s guidance to use asynchronous questions only when the tool is available in the session. (#42878)\n\n## Changelog\n\nFull Changelog: https://github.com/openai/codex/compare/rust-v0.153.3...rust-v0.153.4\n\n- #42874 [0.153 hotfix] Show Astra in bundled model picker @rhan-oai\n- #42878 [0.153 hotfix] Qualify Astra async-question guidance by tool availability @rhan-oai\n\n\n"
+      }
+    },
+    {
+      "url": "https://raw.githubusercontent.com/openai/codex/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/models-manager/models.json",
+      "kind": "official-harness-catalog",
+      "data": {
+        "commit": "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a",
+        "models": [
+          {
+            "slug": "gpt-6-astra",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v2",
+            "multi_agent_reasoning_effort": "xhigh",
+            "use_responses_lite": true,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": false,
+            "include_plugin_usage_instructions": false,
+            "node_repl_auto_review_required": true,
+            "node_repl_disabled": false,
+            "requires_sandboxed_review": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 872000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-6-Astra",
+            "description": "Our most capable model for complex, demanding work.",
+            "default_reasoning_level": "low",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              },
+              {
+                "effort": "ultra",
+                "description": "Maximum reasoning with automatic task delegation"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "minimal_client_version": "0.153.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 1,
+            "experimental_supported_tools": [
+              "send_user_message_async",
+              "clock"
+            ],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_trial",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "2x speed, increased usage"
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-5.6-sol",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v2",
+            "use_responses_lite": true,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": true,
+            "include_plugin_usage_instructions": true,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 872000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-5.6-Sol",
+            "description": "Latest frontier agentic coding model.",
+            "default_reasoning_level": "low",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              },
+              {
+                "effort": "ultra",
+                "description": "Maximum reasoning with automatic task delegation"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "minimal_client_version": "0.144.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 6,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "1.5x speed, increased usage"
+              },
+              {
+                "id": "ultrafast",
+                "name": "Ultrafast",
+                "description": "The fastest available responses for latency-sensitive work."
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-5.6-terra",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v2",
+            "use_responses_lite": true,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": true,
+            "include_plugin_usage_instructions": true,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 872000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-5.6-Terra",
+            "description": "Balanced agentic coding model for everyday work.",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              },
+              {
+                "effort": "ultra",
+                "description": "Maximum reasoning with automatic task delegation"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "minimal_client_version": "0.144.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 7,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "1.5x speed, increased usage"
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-5.6-luna",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v1",
+            "use_responses_lite": true,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": true,
+            "include_plugin_usage_instructions": true,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 872000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-5.6-Luna",
+            "description": "Fast and affordable agentic coding model.",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "minimal_client_version": "0.144.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 8,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "1.5x speed, increased usage"
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-daybreak-blue-latest",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v2",
+            "use_responses_lite": true,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": true,
+            "include_plugin_usage_instructions": true,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": "cyber",
+            "context_window": 272000,
+            "max_context_window": 872000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "Daybreak Blue",
+            "description": "Latest frontier agentic coding model for broad defensive cybersecurity work.",
+            "default_reasoning_level": "low",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              },
+              {
+                "effort": "ultra",
+                "description": "Maximum reasoning with automatic task delegation"
+              }
+            ],
+            "shell_type": "shell_command",
+            "visibility": "hide",
+            "minimal_client_version": "0.142.2",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 10,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [],
+            "additional_speed_tiers": [],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-daybreak-red-latest",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "high",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v2",
+            "use_responses_lite": true,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": false,
+            "include_plugin_usage_instructions": false,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": "cyber",
+            "context_window": 372000,
+            "max_context_window": 372000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "Daybreak Red",
+            "description": "Cyber-permissive variant of our latest frontier agentic coding model for advanced, authorized cybersecurity research.",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              },
+              {
+                "effort": "ultra",
+                "description": "Maximum reasoning with automatic task delegation"
+              }
+            ],
+            "shell_type": "shell_command",
+            "visibility": "hide",
+            "minimal_client_version": "0.142.2",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 11,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [],
+            "additional_speed_tiers": [],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-5.5",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": null,
+            "multi_agent_version": null,
+            "use_responses_lite": false,
+            "include_skills_usage_instructions": true,
+            "include_apps_usage_instructions": true,
+            "include_plugin_usage_instructions": true,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 272000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "2911",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-5.5",
+            "description": "Frontier model for complex coding, research, and real-world work.",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "minimal_client_version": "0.124.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 12,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "1.5x speed, increased usage"
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-5.4",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": null,
+            "multi_agent_version": null,
+            "use_responses_lite": false,
+            "include_skills_usage_instructions": true,
+            "include_apps_usage_instructions": true,
+            "include_plugin_usage_instructions": true,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 1000000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "2911",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-5.4",
+            "description": "Strong model for everyday coding.",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "minimal_client_version": "0.98.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": {
+              "model": "gpt-5.6-terra",
+              "migration_markdown": "GPT-5.4 is no longer available\n\nCodex now uses GPT-5.6 Terra in place of GPT-5.4. Switch to GPT-5.6 Terra to continue.\n",
+              "retirement_at": "2026-08-31T19:00:00Z"
+            },
+            "priority": 16,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "go",
+              "hc",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "1.5x speed, increased usage"
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-5.4-mini",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "medium",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": null,
+            "multi_agent_version": null,
+            "use_responses_lite": false,
+            "include_skills_usage_instructions": true,
+            "include_apps_usage_instructions": true,
+            "include_plugin_usage_instructions": true,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 272000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "2911",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-5.4-Mini",
+            "description": "Small, fast, and cost-efficient model for simpler coding tasks.",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "minimal_client_version": "0.98.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": {
+              "model": "gpt-5.6-luna",
+              "migration_markdown": "GPT-5.4 Mini is no longer available\n\nCodex now uses GPT-5.6 Luna in place of GPT-5.4 Mini. Switch to GPT-5.6 Luna to continue.\n",
+              "retirement_at": "2026-08-31T19:00:00Z"
+            },
+            "priority": 23,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [],
+            "additional_speed_tiers": [],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-5.2",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": false,
+            "truncation_policy": {
+              "mode": "bytes",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": null,
+            "multi_agent_version": null,
+            "use_responses_lite": false,
+            "include_skills_usage_instructions": true,
+            "include_apps_usage_instructions": true,
+            "include_plugin_usage_instructions": true,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 272000,
+            "auto_compact_token_limit": null,
+            "comp_hash": null,
+            "default_reasoning_summary": "auto",
+            "display_name": "GPT-5.2",
+            "description": "Optimized for professional work and long-running agents.",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Balances speed with some reasoning; useful for straightforward queries and short explanations"
+              },
+              {
+                "effort": "medium",
+                "description": "Provides a solid balance of reasoning depth and latency for general-purpose tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Maximizes reasoning depth for complex or ambiguous problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning for complex problems"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "minimal_client_version": "0.0.1",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 29,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [],
+            "additional_speed_tiers": [],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "codex-auto-review",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v1",
+            "use_responses_lite": true,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": false,
+            "include_plugin_usage_instructions": false,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 872000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "Codex Auto Review",
+            "description": "Automatic approval review model for Codex.",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "minimal_client_version": "0.98.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 43,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "go",
+              "hc",
+              "plus",
+              "pro",
+              "prolite",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "1.5x speed, increased usage"
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          }
+        ]
+      }
+    },
+    {
+      "url": "https://learn.chatgpt.com/docs/models.md",
+      "kind": "official-document",
+      "data": "# Models\n\n> For the complete documentation index, see [llms.txt](https://learn.chatgpt.com/llms.txt). Markdown versions of documentation pages are available by appending `.md` to the page URL.\n\n<ContentModeSwitch group=\"codex-surface\" id=\"app\">\n\n\n\n  \n\n\n## Choose a model\n\nIn the ChatGPT desktop app, use the model and reasoning control beneath the\ncomposer to choose an available model and adjust its reasoning effort.\n\nHigher reasoning effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexModelSwitcher client:visible className=\"lg:mt-7\" />\n\n\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" id=\"web\">\n\n\n\n  \n\n\n## Choose a model\n\nThese recommendations apply to **ChatGPT Work** on the web. Use the\nmodel and reasoning control beneath the composer to choose an available model\nand adjust its reasoning effort.\n\nHigher reasoning effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexModelSwitcher client:visible className=\"lg:mt-7\" />\n\n\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" id=\"cli\">\n\n\n\n  \n\n\n## Choose a model\n\nIn an interactive CLI session, use `/model` to switch models or adjust\nreasoning effort. You can also choose a model when you launch Codex with\n`--model` or its `-m` alias:\n\n```bash\ncodex --model gpt-5.6\n```\n\n\nThe same option works with non-interactive runs. For example:\n\n```bash\ncodex exec -m gpt-5.6 \"Review the current changes\"\n```\n\n\nHigher reasoning effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexReasoningLevelTerminal\n    client:load\n    className=\"lg:mt-7 lg:justify-self-end\"\n  />\n\n\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" id=\"ide\">\n\n\n\n  \n\n\n## Choose a model\n\nUse the model switcher below the composer to choose an available model and\nreasoning effort.\n\nHigher reasoning effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexModelSwitcher client:visible forceDark className=\"lg:mt-7\" />\n\n\n\n</ContentModeSwitch>\n\n<a id=\"recommended-models\"></a>\n<a id=\"other-models\"></a>\n<a id=\"deprecated-codex-models\"></a>\n<a id=\"configure-your-default-local-model\"></a>\n<a id=\"choose-a-model-for-cloud-tasks\"></a>\n<a id=\"gpt-6-astra\"></a>\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,web,cli,ide\">\n\n## Recommended models\n\n<a id=\"app-compare-models\"></a>\n\n\n\n  <ModelDetails\n    client:load\n    name=\"gpt-6-astra\"\n    slug=\"gpt-6-astra\"\n    imageLabel=\"Astra\"\n    wallpaperUrl=\"/images/api/models/gpt-6-astra-texture.webp\"\n    description=\"Our most capable model for complex work across code, apps, and research, combining advanced reasoning, computer use, and stronger judgment.\"\n    data={{\n      features: [\n        {\n          title: \"Capability\",\n          value: \"\",\n          icons: [\n            \"openai.SparklesFilled\",\n            \"openai.SparklesFilled\",\n            \"openai.SparklesFilled\",\n            \"openai.SparklesFilled\",\n            \"openai.SparklesFilled\",\n          ],\n        },\n        {\n          title: \"Speed\",\n          value: \"\",\n          icons: [\"openai.Flash\", \"openai.Flash\"],\n        },\n        { title: \"ChatGPT desktop app\", value: true },\n        { title: \"ChatGPT web\", value: true },\n        { title: \"Codex CLI\", value: true },\n        { title: \"Codex IDE extension\", value: true },\n        { title: \"Codex cloud\", value: false },\n        { title: \"ChatGPT Credits\", value: true },\n        { title: \"API Access\", value: true },\n      ],\n    }}\n  />\n\n<ModelDetails\n  client:load\n  name=\"gpt-5.6-sol\"\n  slug=\"gpt-5.6-sol\"\n  imageLabel=\"5.6 Sol\"\n  wallpaperUrl=\"/images/api/models/gpt-5.6-sol.webp\"\n  description=\"The most capable GPT-5.6 model for complex coding, computer use, research, and cybersecurity.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"ChatGPT desktop app\", value: true },\n      { title: \"ChatGPT web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"Codex IDE extension\", value: true },\n      { title: \"Codex cloud\", value: true },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n<ModelDetails\n  client:load\n  name=\"gpt-5.6-terra\"\n  slug=\"gpt-5.6-terra\"\n  imageLabel=\"5.6 Terra\"\n  wallpaperUrl=\"/images/api/models/gpt-5.6-terra.webp\"\n  description=\"Balanced GPT-5.6 model for everyday work, with performance competitive with GPT-5.5 at a lower cost.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"ChatGPT desktop app\", value: true },\n      { title: \"ChatGPT web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"Codex IDE extension\", value: true },\n      { title: \"Codex cloud\", value: false },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n<ModelDetails\n  client:load\n  name=\"gpt-5.6-luna\"\n  slug=\"gpt-5.6-luna\"\n  imageLabel=\"5.6 Luna\"\n  wallpaperUrl=\"/images/api/models/gpt-5.6-luna.webp\"\n  description=\"Fast and affordable GPT-5.6 model that delivers strong capability at the lowest cost in the family.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"ChatGPT desktop app\", value: true },\n      { title: \"ChatGPT web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"Codex IDE extension\", value: true },\n      { title: \"Codex cloud\", value: false },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,cli,ide\">\n  <ModelDetails\n    client:load\n    name=\"gpt-5.3-codex-spark\"\n    slug=\"gpt-5.3-codex-spark\"\n    imageLabel=\"5.3 Codex Spark\"\n    wallpaperUrl=\"/images/codex/codex-wallpaper-2.webp\"\n    description=\"Text-only research preview model optimized for near-instant, real-time coding iteration. Available to ChatGPT Pro users.\"\n    data={{\n      features: [\n        {\n          title: \"Capability\",\n          value: \"\",\n          icons: [\"openai.SparklesFilled\", \"openai.SparklesFilled\"],\n        },\n        {\n          title: \"Speed\",\n          value: \"\",\n          icons: [\n            \"openai.Flash\",\n            \"openai.Flash\",\n            \"openai.Flash\",\n            \"openai.Flash\",\n            \"openai.Flash\",\n          ],\n        },\n        { title: \"ChatGPT desktop app\", value: true },\n        { title: \"ChatGPT web\", value: false },\n        { title: \"Codex CLI\", value: true },\n        { title: \"Codex IDE extension\", value: true },\n        { title: \"Codex cloud\", value: false },\n        { title: \"ChatGPT Credits\", value: false },\n        { title: \"API Access\", value: false },\n      ],\n    }}\n  />\n</ContentModeSwitch>\n\n\n\n\nAvailability depends on the rollout, your sign-in method, and your client.\nSee [pricing](https://learn.chatgpt.com/docs/pricing) for plan access and usage, and\n[workspace model availability](https://learn.chatgpt.com/docs/enterprise/workspace-model-availability#gpt-6-astra-in-enterprise)\nfor Enterprise access.\n\nStart with the default Power setting available to your account. Move toward\n  **Smarter** for deeper reasoning or **Faster** for faster, lower-cost work.\n  Open **Advanced** when you want `gpt-5.6-luna` or a specific model, reasoning\n  effort, or speed.\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,web\">\n\nThe picker illustrations show GPT-5.6 controls. For eligible Pro, Business\n($100), and Enterprise accounts, the Astra rollout updates the Power options\nto Terra Light, Sol Light, Sol Medium, Astra Light, Astra Medium, and Astra\nExtra High. Options can differ by plan and rollout stage.\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,cli,ide\">\n\n### Experimental context management\n\nOn supported Codex clients, users signed in with ChatGPT Plus or Pro can opt\nin to experimental context management. Astra keeps notes across context\nwindows and can search earlier messages and tool results from the same task.\nThis experiment is off by default and isn't available with Business, Enterprise, or\nAPI-key sign-in at launch.\n\nTo opt in, set `features.context_management.experimental_mode = true` in your\n`config.toml`, then start a new task. See the [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)\nfor the setting and [configuration basics](https://learn.chatgpt.com/docs/config-file/config-basic)\nfor the file location. Workspace requirements still apply.\n\n</ContentModeSwitch>\n\n<a id=\"choosing-sol-terra-and-luna\"></a>\n\n## Choosing Astra, Sol, Terra, and Luna\n\nChoose **Astra** when a task needs the strongest capability across multiple\nsteps and tools. **Sol** offers depth and polish, **Terra** suits everyday work,\nand **Luna** suits clear, repeatable tasks.\n\n### Where each model shines\n\n- **Astra, for the hardest end-to-end work.** Choose Astra for complete workflows\n  across code, apps, and research that need sustained reasoning and judgment.\n  Give it the sources, templates, constraints, and checks that define a useful\n  result. Astra is better at asking focused questions and incorporating your\n  guidance while keeping the original goal and constraints in view.\n- **Sol, for complex, open-ended work.** Choose Sol for ambiguous, difficult, or\n  high-value tasks that need extra analysis, judgment, or polish, such as\n  complex code changes, deep research, or polished documents. For narrower\n  tasks, define what done looks like to keep the work focused.\n- **Terra, the pragmatic all-rounder.** Choose Terra for everyday work that\n  needs strong reasoning and tool use when you do not need Sol's full depth. It\n  is a natural starting point for work you previously gave GPT-5.5.\n- **Luna, for clear, repeatable tasks.** Choose Luna for specific, high-volume\n  tasks when you know what a good result looks like, such as extraction,\n  classification, transformation, and structured summaries.\n\n### Pick a reasoning effort\n\nUse the lowest reasoning effort that produces the result you need. Increase it\nfor tasks that need more planning, analysis, or checking.\n\n- **Light** in the ChatGPT desktop app, ChatGPT Work on the web, and IDE extension, or **Low** in the\n  CLI, suits quick, well-scoped tasks.\n- **Medium** balances speed and depth for tasks that need more planning.\n- **High** and **Extra High** suit difficult work with multiple steps, sources,\n  or tradeoffs.\n\nThere is no exact mapping from GPT-5.5 reasoning efforts to GPT-5.6. Try a\nfamiliar task at a lower setting and adjust based on the result.\n\n### Know when to use Max or Ultra\n\n**Max** gives the selected model more time to reason about a single task. Use it\nfor the hardest problems, when depth matters more than speed or usage. If you\ndon't see Max in your options, you'll have to enable it in your app settings.\n\n**Ultra** uses [subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to handle\nseparate parts of a complex task in parallel. Choose it when you can divide the\nwork into meaningful parts. Most tasks do not need Max or Ultra.\n\nIf Ultra doesn't appear in the desktop app's model slider, go to\n**Settings** > **Configuration**, then turn on **Ultra in model picker slider**.\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,cli,ide\">\n\n## Other models\n\nWhen you sign in with ChatGPT, Codex works best with the recommended models listed above.\n\n**\n    GPT-5.4 and GPT-5.4 mini retire from Codex on August 31, 2026.\n  ** \n  If you sign in with ChatGPT, replace `gpt-5.4` with `gpt-5.6-terra` and\n  `gpt-5.4-mini` with `gpt-5.6-luna` in saved configurations, custom agents, and\n  scheduled tasks. The OpenAI API and Codex authenticated with your own API key\n  aren't affected.\n\n<ToggleSection title=\"View other models\">\n  \n\n    <ModelDetails\n      client:load\n      name=\"gpt-5.5\"\n      slug=\"gpt-5.5\"\n      imageLabel=\"5.5\"\n      wallpaperUrl=\"/images/api/models/gpt-5.5.jpg\"\n      description=\"Previous-generation flagship model for complex coding, computer use, knowledge work, and research workflows.\"\n      data={{\n        features: [\n          {\n            title: \"Capability\",\n            value: \"\",\n            icons: [\n              \"openai.SparklesFilled\",\n              \"openai.SparklesFilled\",\n              \"openai.SparklesFilled\",\n              \"openai.SparklesFilled\",\n            ],\n          },\n          {\n            title: \"Speed\",\n            value: \"\",\n            icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n          },\n          { title: \"ChatGPT desktop app\", value: true },\n          { title: \"ChatGPT web\", value: true },\n          { title: \"Codex CLI\", value: true },\n          { title: \"Codex IDE extension\", value: true },\n          { title: \"Codex cloud\", value: false },\n          { title: \"ChatGPT Credits\", value: true },\n          { title: \"API Access\", value: true },\n        ],\n      }}\n    />\n\n    <ModelDetails\n      client:load\n      name=\"gpt-5.4\"\n      slug=\"gpt-5.4\"\n      imageLabel=\"5.4\"\n      wallpaperUrl=\"/images/api/models/gpt-5.4.jpg\"\n      description=\"Flagship model for professional work with strong coding, reasoning, tool use, and agentic workflow capabilities.\"\n      data={{\n        features: [\n          {\n            title: \"Capability\",\n            value: \"\",\n            icons: [\n              \"openai.SparklesFilled\",\n              \"openai.SparklesFilled\",\n              \"openai.SparklesFilled\",\n            ],\n          },\n          {\n            title: \"Speed\",\n            value: \"\",\n            icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n          },\n          { title: \"ChatGPT desktop app\", value: true },\n          { title: \"ChatGPT web\", value: true },\n          { title: \"Codex CLI\", value: true },\n          { title: \"Codex IDE extension\", value: true },\n          { title: \"Codex cloud\", value: false },\n          { title: \"ChatGPT Credits\", value: true },\n          { title: \"API Access\", value: true },\n        ],\n      }}\n    />\n\n    <ModelDetails\n      client:load\n      name=\"gpt-5.4-mini\"\n      slug=\"gpt-5.4-mini\"\n      imageLabel=\"5.4 Mini\"\n      wallpaperUrl=\"/images/api/models/gpt-5-mini.jpg\"\n      description=\"Fast, efficient mini model for responsive coding tasks and subagents.\"\n      data={{\n        features: [\n          {\n            title: \"Capability\",\n            value: \"\",\n            icons: [\"openai.SparklesFilled\", \"openai.SparklesFilled\"],\n          },\n          {\n            title: \"Speed\",\n            value: \"\",\n            icons: [\n              \"openai.Flash\",\n              \"openai.Flash\",\n              \"openai.Flash\",\n              \"openai.Flash\",\n            ],\n          },\n          { title: \"ChatGPT desktop app\", value: true },\n          { title: \"ChatGPT web\", value: true },\n          { title: \"Codex CLI\", value: true },\n          { title: \"Codex IDE extension\", value: true },\n          { title: \"Codex cloud\", value: false },\n          { title: \"ChatGPT Credits\", value: true },\n          { title: \"API Access\", value: true },\n        ],\n      }}\n    />\n\n  \n\n</ToggleSection>\n\nYou can also point Codex at any model and provider that supports either the [Chat Completions](https://platform.openai.com/docs/api-reference/chat) or [Responses APIs](https://platform.openai.com/docs/api-reference/responses) to fit your specific use case.\n\nSupport for the Chat Completions API is deprecated and will be removed in\n  future releases of Codex.\n\n## Deprecated Codex models\n\nThe `gpt-5.4` and `gpt-5.4-mini` models retire from Codex with ChatGPT sign-in\non August 31, 2026. Replace `gpt-5.4` with `gpt-5.6-terra` and\n`gpt-5.4-mini` with `gpt-5.6-luna` in workspace defaults, saved model\nsettings, managed configurations, custom agents, and scheduled tasks.\n\nThe `gpt-5.2` and `gpt-5.3-codex` models are already deprecated in Codex when\nyou sign in with ChatGPT. Update scripts, configuration files, and\n`codex exec --model` commands that still reference those models.\n\nThe OpenAI API and Codex authenticated with your own API key aren't affected\nby the GPT-5.4 retirement. For current API model availability, see the\n[API models page](https://developers.openai.com/api/docs/models).\n\n## Configure your default local model\n\nThe ChatGPT desktop app, Codex CLI, and IDE extension use the same `config.toml`\n[configuration file](https://learn.chatgpt.com/docs/config-file/config-basic). To specify a model, add a\n`model` entry to your configuration file. If you don't specify a model, the\nChatGPT desktop app, Codex CLI, or IDE extension uses a recommended model.\n\n```toml\nmodel = \"gpt-5.6\"\n```\n\n\n## Choose a model for cloud chats\n\nCurrently, you can't change the default model for Codex cloud chats.\n\n</ContentModeSwitch>"
+    },
+    {
+      "url": "https://models.dev/api.json",
+      "kind": "discovery-only",
+      "data": {
+        "openai": {
+          "gpt-5.2": {
+            "id": "gpt-5.2",
+            "name": "GPT-5.2",
+            "description": "Reliable GPT generation for broad coding, writing, and tool-assisted product work",
+            "family": "gpt",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-08-31",
+            "release_date": "2025-12-11",
+            "last_updated": "2025-12-11",
+            "modalities": {
+              "input": ["text", "image"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 400000,
+              "input": 272000,
+              "output": 128000
+            },
+            "cost": {
+              "input": 1.75,
+              "output": 14,
+              "cache_read": 0.175
+            }
+          },
+          "gpt-5.3-codex-spark": {
+            "id": "gpt-5.3-codex-spark",
+            "name": "GPT-5.3 Codex Spark",
+            "description": "Coding-optimized GPT model for repository edits, reviews, and agentic software work",
+            "family": "gpt-codex-spark",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2025-08-31",
+            "release_date": "2026-02-05",
+            "last_updated": "2026-02-05",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 128000,
+              "input": 100000,
+              "output": 32000
+            },
+            "cost": {
+              "input": 1.75,
+              "output": 14,
+              "cache_read": 0.175
+            }
+          },
+          "gpt-5.4": {
+            "id": "gpt-5.4",
+            "name": "GPT-5.4",
+            "description": "Agent-ready GPT for coding and computer-use workflows at a lower cost",
+            "family": "gpt",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-08-31",
+            "release_date": "2026-03-05",
+            "last_updated": "2026-03-05",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 5,
+                    "output": 30,
+                    "cache_read": 0.5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 2.5,
+              "output": 15,
+              "cache_read": 0.25,
+              "tiers": [
+                {
+                  "input": 5,
+                  "output": 22.5,
+                  "cache_read": 0.5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 5,
+                "output": 22.5,
+                "cache_read": 0.5
+              }
+            }
+          },
+          "gpt-5.4-mini": {
+            "id": "gpt-5.4-mini",
+            "name": "GPT-5.4 mini",
+            "description": "Strong small GPT for coding subagents, quick tool use, and high-volume work",
+            "family": "gpt-mini",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-08-31",
+            "release_date": "2026-03-17",
+            "last_updated": "2026-03-17",
+            "modalities": {
+              "input": ["text", "image"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 400000,
+              "input": 272000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 1.5,
+                    "output": 9,
+                    "cache_read": 0.15
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 0.75,
+              "output": 4.5,
+              "cache_read": 0.075
+            }
+          },
+          "gpt-5.5": {
+            "id": "gpt-5.5",
+            "name": "GPT-5.5",
+            "description": "Default frontier GPT for coding, computer use, research, and knowledge work",
+            "family": "gpt",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2025-12-01",
+            "release_date": "2026-04-23",
+            "last_updated": "2026-04-23",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 12.5,
+                    "output": 75,
+                    "cache_read": 1.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 5,
+              "output": 30,
+              "cache_read": 0.5,
+              "tiers": [
+                {
+                  "input": 10,
+                  "output": 45,
+                  "cache_read": 1,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 10,
+                "output": 45,
+                "cache_read": 1
+              }
+            }
+          },
+          "gpt-5.6-luna": {
+            "id": "gpt-5.6-luna",
+            "name": "GPT-5.6 Luna",
+            "description": "Cost-efficient GPT-5.6 model for fast, high-volume workloads",
+            "family": "gpt-luna",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-02-16",
+            "release_date": "2026-07-09",
+            "last_updated": "2026-07-09",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 0.4,
+                    "output": 2.4,
+                    "cache_read": 0.04,
+                    "cache_write": 0.5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 0.2,
+              "output": 1.2,
+              "cache_read": 0.02,
+              "cache_write": 0.25,
+              "tiers": [
+                {
+                  "input": 0.4,
+                  "output": 1.8,
+                  "cache_read": 0.04,
+                  "cache_write": 0.5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 0.4,
+                "output": 1.8,
+                "cache_read": 0.04,
+                "cache_write": 0.5
+              }
+            }
+          },
+          "gpt-5.6-sol": {
+            "id": "gpt-5.6-sol",
+            "name": "GPT-5.6 Sol",
+            "description": "Frontier GPT-5.6 model for complex professional work, coding, and agentic workflows",
+            "family": "gpt-sol",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-02-16",
+            "release_date": "2026-07-09",
+            "last_updated": "2026-07-09",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 8,
+                    "output": 40,
+                    "cache_read": 0.8,
+                    "cache_write": 10
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 4,
+              "output": 20,
+              "cache_read": 0.4,
+              "cache_write": 5,
+              "tiers": [
+                {
+                  "input": 8,
+                  "output": 30,
+                  "cache_read": 0.8,
+                  "cache_write": 10,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 8,
+                "output": 30,
+                "cache_read": 0.8,
+                "cache_write": 10
+              }
+            }
+          },
+          "gpt-5.6-terra": {
+            "id": "gpt-5.6-terra",
+            "name": "GPT-5.6 Terra",
+            "description": "Balanced GPT-5.6 model for capable, cost-efficient everyday work",
+            "family": "gpt-terra",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-02-16",
+            "release_date": "2026-07-09",
+            "last_updated": "2026-07-09",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 4,
+                    "output": 24,
+                    "cache_read": 0.4,
+                    "cache_write": 5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 2,
+              "output": 12,
+              "cache_read": 0.2,
+              "cache_write": 2.5,
+              "tiers": [
+                {
+                  "input": 4,
+                  "output": 18,
+                  "cache_read": 0.4,
+                  "cache_write": 5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 4,
+                "output": 18,
+                "cache_read": 0.4,
+                "cache_write": 5
+              }
+            }
+          },
+          "gpt-6-astra": {
+            "id": "gpt-6-astra",
+            "name": "GPT-6 Astra",
+            "description": "GPT-6 Astra is OpenAI's most capable model for complex reasoning, coding, computer use, research, and document creation.",
+            "family": "gpt-astra",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "release_date": "2026-09-04",
+            "last_updated": "2026-09-04",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 20,
+                    "output": 100,
+                    "cache_read": 2,
+                    "cache_write": 25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 10,
+              "output": 50,
+              "cache_read": 1,
+              "cache_write": 12.5,
+              "tiers": [
+                {
+                  "input": 20,
+                  "output": 75,
+                  "cache_read": 2,
+                  "cache_write": 25,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 20,
+                "output": 75,
+                "cache_read": 2,
+                "cache_write": 25
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "changes": [
+    {
+      "modelId": "gpt-6-astra",
+      "before": null,
+      "after": {
+        "id": "gpt-6-astra",
+        "displayName": "GPT-6-Astra",
+        "unavailable": false,
+        "supportedReasoningLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "minCliVersion": "0.153.0"
+      }
+    }
+  ],
+  "manual": [
+    "gpt-5.6-sol: minimum version unknown → 0.144.0. Review before changing existing selections or compatibility policy.",
+    "gpt-5.6-terra: minimum version unknown → 0.144.0. Review before changing existing selections or compatibility policy.",
+    "gpt-5.6-luna: minimum version unknown → 0.144.0. Review before changing existing selections or compatibility policy.",
+    "gpt-5.5: minimum version unknown → 0.124.0. Review before changing existing selections or compatibility policy.",
+    "gpt-5.4: upstream visibility is hide; no retirement or availability change was applied.",
+    "gpt-5.4-mini: upstream visibility is hide; no retirement or availability change was applied.",
+    "gpt-5.2: discovery source dates this model to 2025-12-11, before monitoring began (2026-09-01); historical backfill was not applied automatically."
+  ]
+}

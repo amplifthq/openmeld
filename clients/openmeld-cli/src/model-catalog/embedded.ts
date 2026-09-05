@@ -1,6 +1,6 @@
 import { modelCatalogSchema } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
-import embeddedModelCatalog from "../../../../release/vendor-models.json";
+import embeddedModelCatalog from "./offline-catalog.json";
 
 let cachedModelCatalog: ModelCatalog | null = null;
 

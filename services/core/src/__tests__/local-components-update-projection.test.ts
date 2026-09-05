@@ -6,6 +6,59 @@ import { describe, expect, it } from "vitest";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 
 describe("local component update projection", () => {
+  it("accepts compatible independently maintained Skill content without asking for another CLI upgrade", () => {
+    const status = createLocalComponentsStatus({
+      skillsBundleHash: "c".repeat(64),
+    });
+    status.skills.expectedBundleHash = "c".repeat(64);
+    status.skills.contentRelease = {
+      revision: 1,
+      minimumCliVersion: "0.3.159",
+    };
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-05T00:00:00.000Z",
+      localComponentsStatus: status,
+      releaseManifest: createReleaseManifest({
+        skillsUpdatePolicy: "required",
+      }),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+    expect(projection.skills).toMatchObject({
+      status: "current",
+      expectedBundleHash: "c".repeat(64),
+      reasonCodes: [],
+    });
+  });
+
+  it("still rejects missing files, incompatible CLI commands, and mismatched Skill contracts", () => {
+    for (const fault of ["missing", "cli", "contract"] as const) {
+      const status = createLocalComponentsStatus({
+        skillsBundleHash: "c".repeat(64),
+      });
+      status.skills.expectedBundleHash = "c".repeat(64);
+      status.skills.contentRelease = {
+        revision: 1,
+        minimumCliVersion: fault === "cli" ? "99.0.0" : "0.3.159",
+      };
+      if (fault === "missing") {
+        status.skills.status = "update_required";
+      }
+      if (fault === "contract") {
+        status.skills.skillContractVersion = "unsupported";
+      }
+      const projection = resolveLocalComponentUpdateProjection({
+        generatedAt: "2026-09-05T00:00:00.000Z",
+        localComponentsStatus: status,
+        releaseManifest: createReleaseManifest({
+          skillsUpdatePolicy: "required",
+        }),
+        serviceConnected: true,
+        serviceVersion: "0.7.28",
+      });
+      expect(projection.skills.status).toBe("update_required");
+    }
+  });
   it("keeps advisory Service updates from blocking Wake work", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",

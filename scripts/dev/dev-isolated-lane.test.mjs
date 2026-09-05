@@ -59,6 +59,10 @@ test("gives concurrent worktrees separate complete port blocks", async () => {
     });
 
     assert.notEqual(first.laneId, second.laneId);
+    assert.notEqual(
+      new URL(buildIsolatedDevEnvironment(first).WEB_APP_URL).hostname,
+      new URL(buildIsolatedDevEnvironment(second).WEB_APP_URL).hostname
+    );
     assert.equal(portValues(first).length, 9);
     assert.equal(new Set(portValues(first)).size, 9);
     assert.equal(
@@ -95,6 +99,10 @@ test("reclaims a dead stack owner and keeps the worktree on its stable lane", as
     });
 
     assert.equal(restarted.laneId, first.laneId);
+    assert.equal(
+      buildIsolatedDevEnvironment(restarted).WEB_APP_URL,
+      buildIsolatedDevEnvironment(first).WEB_APP_URL
+    );
     assert.deepEqual(restarted.ports, first.ports);
     assert.equal(restarted.stackPid, 20_002);
   } finally {
@@ -378,13 +386,18 @@ test("builds one explicit environment for workers, Web, Wrangler, and OPENMELD_H
     assert.equal(env.OPENMELD_DEV_LANE_ID, lane.laneId);
     assert.equal(
       env.OPENMELD_GATEWAY_URL,
-      `http://localhost:${String(lane.ports.gateway)}`
+      `http://${lane.laneId}.localhost:${String(lane.ports.gateway)}`
     );
     assert.equal(
       env.BETTER_AUTH_URL,
-      `http://localhost:${String(lane.ports.auth)}`
+      `http://${lane.laneId}.localhost:${String(lane.ports.auth)}`
     );
-    assert.equal(env.WEB_APP_URL, `http://localhost:${String(lane.ports.web)}`);
+    assert.equal(
+      env.WEB_APP_URL,
+      `http://${lane.laneId}.localhost:${String(lane.ports.web)}`
+    );
+    assert.equal(env.VITE_BETTER_AUTH_URL, env.BETTER_AUTH_URL);
+    assert.equal(env.OPENMELD_AUTH_URL, env.BETTER_AUTH_URL);
     assert.equal(env.OPENMELD_HOME, lane.openMeldHome);
     assert.equal(env.WRANGLER_REGISTRY_PATH, lane.wranglerRegistryPath);
     assert.equal(

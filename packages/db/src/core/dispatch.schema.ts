@@ -101,6 +101,7 @@ import { organizationDocuments } from "./organization-document.schema.ts";
 import { organizationDocumentFolders } from "./organization-document-folder.schema.ts";
 import { centerAgentOrganizationDocumentOperations } from "./organization-document-operation.schema.ts";
 import { organizationInformationProtectionPolicies } from "./organization-information-protection.schema.ts";
+import { organizationJoinRequests } from "./organization-join-request.schema.ts";
 import { organizationMemberActivity } from "./organization-member-activity.schema.ts";
 import {
   centerAgentOrganizationSkillOperations,
@@ -1636,6 +1637,7 @@ export const agentActivityExecutionLinks = sqliteTable(
 
 export const coreSchema = {
   spaceInvitations,
+  organizationJoinRequests,
   inboxCenterAgentReadWatermarks,
   inboxEmailDeliveries,
   inboxItems,

@@ -1,14 +1,8 @@
-import ClaudeCodeColor from "@lobehub/icons/es/ClaudeCode/components/Color.js";
-import CodexColor from "@lobehub/icons/es/Codex/components/Color.js";
 import { resolveBuiltinAgentControllerBrand } from "@openmeld/schemas";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { resolveStatusToneStrongTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import type { CSSProperties } from "react";
-
-const DEMO_AGENT_ICON_COMPONENTS = {
-	"your-claude-code": ClaudeCodeColor,
-	"your-codex": CodexColor,
-} as const;
 
 const DEMO_AGENT_CONTROLLER_REFS = {
 	"your-claude-code": "builtin:claude-code",
@@ -20,11 +14,11 @@ const ICON_SIZE_CLASS_NAMES = {
 	sm: "h-3.5 w-3.5",
 } as const;
 
-export type DemoAgentName = keyof typeof DEMO_AGENT_ICON_COMPONENTS;
+export type DemoAgentName = keyof typeof DEMO_AGENT_CONTROLLER_REFS;
 export type DemoAgentLabel = DemoAgentName | "You";
 
 export function isDemoAgentName(value: string): value is DemoAgentName {
-	return value in DEMO_AGENT_ICON_COMPONENTS;
+	return value in DEMO_AGENT_CONTROLLER_REFS;
 }
 
 export function getDemoAgentAccentClassName(name: string): string {
@@ -98,18 +92,15 @@ export function DemoAgentIcon({
 	name,
 	size = "sm",
 }: DemoAgentIconProps) {
-	const Icon = DEMO_AGENT_ICON_COMPONENTS[name];
-
 	return (
-		<span
-			aria-hidden="true"
+		<LocalAgentLogo
+			agentId={DEMO_AGENT_CONTROLLER_REFS[name]}
 			className={cn(
 				"inline-flex shrink-0 items-center justify-center",
 				ICON_SIZE_CLASS_NAMES[size],
 				className
 			)}
-		>
-			<Icon aria-hidden className="h-full w-full" />
-		</span>
+			variant="plain"
+		/>
 	);
 }
